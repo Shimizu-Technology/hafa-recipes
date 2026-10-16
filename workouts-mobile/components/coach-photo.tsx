@@ -23,7 +23,7 @@ function usePhotoActivation(scope: object) {
   return { token, current: () => !!token && token.scope === scope && live.current === token && AppState.currentState === "active" };
 }
 
-export function useCoachPhoto(focus: string, epoch: string, disabled: boolean) {
+export function useCoachPhoto(focus: string, epoch: string, disabled: boolean, beforeCapture?: () => Promise<void>) {
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const store = useMemo(() => createCoachPhotoStore(storage, owner || "signed-out", generation, focus, api,
@@ -72,6 +72,7 @@ export function useCoachPhoto(focus: string, epoch: string, disabled: boolean) {
   }
   const choose = () => run(async () => {
     scope.cancelled = false; picking(); if (photo) return;
+    await beforeCapture?.(); picking();
     const files = await pickImages(false, picking, owner, 1);
     if (!files.length) return;
     const value = { upload_id: Crypto.randomUUID(), file: files[0] };

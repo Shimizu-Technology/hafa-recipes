@@ -2793,8 +2793,8 @@ import { CoachPhotoControl, CoachMessagePhoto, useCoachPhoto } from "../componen
 const photoUploadUuid = "00000000-0000-4000-8000-000000000001", photoAttachmentUuid = "00000000-0000-4000-8000-000000000002";
 const coachPhotoFile = { uri: "file:///cache/hafa-workouts-capture/photo.jpg", mime_type: "image/jpeg", name: "Coach photo", owned: true };
 let livePhotoState: ReturnType<typeof useCoachPhoto>;
-function PhotoFixture({ allowed = true }: { allowed?: boolean }) {
-  const state = useCoachPhoto("general", "initial", !allowed); livePhotoState = state;
+function PhotoFixture({ allowed = true, beforeCapture }: { allowed?: boolean; beforeCapture?(): Promise<void> }) {
+  const state = useCoachPhoto("general", "initial", !allowed, beforeCapture); livePhotoState = state;
   return createElement(CoachPhotoControl, { state, allowed, disabled: false });
 }
 async function mountPhoto(component: ComponentType = PhotoFixture) { fixture.photoFocus = true; await mount(component); }
@@ -2974,4 +2974,30 @@ it("a corrupted photo journal recovers after confirmed server Clear using the ex
   await act(async () => livePhotoState.clearAfterConfirmedServerClear()); await settle(); release();
   expect(fixture.map.has(key)).toBe(false); expect(fixture.recoverCleanup).toHaveBeenCalledWith(fixture.owner);
   expect(button("Attach a photo").props.disabled).toBe(false);
+});
+
+it("photo selection awaits confirmed quiet before entering the permission and picker path", async () => {
+  const quiet = deferred<void>(), beforeCapture = vi.fn(() => quiet.promise);
+  fixture.pickImages.mockResolvedValue([]);
+  await mountPhoto(() => createElement(PhotoFixture, { beforeCapture }));
+  await act(async () => { void button("Attach a photo").props.onPress(); }); await settle();
+  expect(beforeCapture).toHaveBeenCalledOnce(); expect(fixture.pickImages).not.toHaveBeenCalled();
+  await act(async () => quiet.resolve()); await settle(); expect(fixture.pickImages).toHaveBeenCalledOnce();
+});
+it.each(["owner", "blur", "background"] as const)("a held quiet confirmation cannot open the picker after %s retirement", async kind => {
+  const quiet = deferred<void>();
+  await mountPhoto(() => createElement(PhotoFixture, { beforeCapture: () => quiet.promise }));
+  await act(async () => { void button("Attach a photo").props.onPress(); }); await settle();
+  if (kind === "owner") { fixture.current = false; } else await photoVisibility(kind);
+  await act(async () => quiet.resolve()); await settle();
+  expect(fixture.pickImages).not.toHaveBeenCalled(); expect(fixture.uploadCoachImage).not.toHaveBeenCalled();
+});
+it("failed quiet confirmation keeps photo selection retryable without requesting picker permission", async () => {
+  const beforeCapture = vi.fn().mockRejectedValueOnce(Error("Could not confirm speech stopped")).mockResolvedValue(undefined);
+  fixture.pickImages.mockResolvedValue([]);
+  await mountPhoto(() => createElement(PhotoFixture, { beforeCapture }));
+  await act(async () => button("Attach a photo").props.onPress()); await settle();
+  expect(fixture.pickImages).not.toHaveBeenCalled(); expect(button("Attach a photo").props.disabled).toBe(false);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("Could not confirm speech stopped"))).toBe(true);
+  await act(async () => button("Attach a photo").props.onPress()); await settle(); expect(fixture.pickImages).toHaveBeenCalledOnce();
 });

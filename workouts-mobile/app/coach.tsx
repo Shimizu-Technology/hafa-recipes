@@ -1,8 +1,11 @@
+import { CoachVoiceControls } from "@/components/coach-voice-controls";
+import { useCoachVoice } from "@/lib/use-coach-voice";
+import { stopCoachReadAloud, useCoachReadAloud } from "@/lib/use-coach-read-aloud";
 import { CoachMessagePhoto, CoachPhotoControl, useCoachPhoto } from "@/components/coach-photo";
 import { CoachReply } from "@/components/coach-reply";
 import { createCoachDraftStore } from "@/lib/coach-drafts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AppState, View, type ScrollView } from "react-native";
+import { AppState, Platform, ScrollView, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
@@ -140,6 +143,16 @@ export default function Coach() {
     queryFn: api.aiConsent,
     enabled: !!enrollment?.enrolled,
   });
+  const readAloud = useCoachReadAloud({ owner, generation, storage, focus: focusToken, epoch,
+    enabled: !!enrollment?.enrolled && focused && foreground && !!consent.data?.accepted,
+    isCurrentAccount: () => isCurrentAccount() && !voiceActive && !photos.busy && !photos.removing });
+  const voiceIdentity = useMemo(() => ({}), [scope, epoch, consent.data?.accepted, capabilities.data?.coach]);
+  const voice = useCoachVoice({ scope: JSON.stringify([owner, generation, focusToken, epoch]), identity: voiceIdentity,
+    enabled: loaded && !busy && !pending && !stopping && !!enrollment?.enrolled && !!profile.data &&
+      !!capabilities.data?.coach && !!consent.data?.accepted,
+    message, current: () => currentConversation() && !photos.busy && !photos.removing,
+    write: setMessage, beforeCapture: stopCoachReadAloud });
+  const voiceActive = voice.preparing || voice.phase !== "idle" || voice.unavailable;
   const q = useInfiniteQuery({
     queryKey: [owner, "coach-history", generation, epoch],
     initialPageParam: 0,
@@ -148,7 +161,27 @@ export default function Coach() {
     enabled: !!enrollment?.enrolled,
     refetchInterval: query => focused && foreground && (pending || query.state.data?.pages.some(page => page.messages.some(item => item.state === "pending"))) ? 3000 : false,
   });
-  const photos = useCoachPhoto(focusToken, epoch, busy || !!pending || !loaded || !capabilities.data?.coach_images || !consent.data?.accepted);
+  const prerequisiteErrors = [...new Set([profile.error, consent.error, capabilities.error].flatMap(error => error ? [error.message] : []))];
+  const [retryingCoach, setRetryingCoach] = useState(false);
+  const retryAttempt = useRef<object | null>(null);
+  const retryActivation = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    retryActivation.current = replyScope; retryAttempt.current = null; setRetryingCoach(false);
+    return () => { if (retryActivation.current === replyScope) retryActivation.current = null; };
+  }, [replyScope]);
+  async function retryCoach() {
+    if (!currentConversation() || retryActivation.current !== replyScope || !routeActive.current ||
+      AppState.currentState !== "active" || retryAttempt.current) return;
+    const attempt = {}; retryAttempt.current = attempt; setRetryingCoach(true);
+    try {
+      await Promise.allSettled([profile.refetch(), consent.refetch(), capabilities.refetch(), ...(q.error ? [q.refetch()] : [])]);
+    } finally {
+      if (currentConversation() && retryActivation.current === replyScope && retryAttempt.current === attempt) {
+        retryAttempt.current = null; setRetryingCoach(false);
+      }
+    }
+  }
+  const photos = useCoachPhoto(focusToken, epoch, busy || !!pending || !loaded || voiceActive || !capabilities.data?.coach_images || !consent.data?.accepted, stopCoachReadAloud);
   const delivery = useRef(false);
   const deliveryScope = useMemo(() => ({}), [replyScope, consent.data?.accepted, capabilities.data?.coach, photos.busy, photos.removing]);
   const liveDelivery = useRef<object | null>(null);
@@ -377,6 +410,8 @@ export default function Coach() {
   async function send() {
     if (guard.current || stoppingRef.current || !currentDelivery() || !loaded) return;
     if (pendingRef.current?.stop_requested) return; // A lost Stop acknowledgement must never resend.
+    if (voice.preparing) return;
+    voice.cancel();
     if (!pending && (!photos.loaded || photos.busy || photos.removing || photos.photo?.discard ||
         photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now()))) {
       setError("Finish uploading or removing the photo before sending."); return;
@@ -449,6 +484,9 @@ export default function Coach() {
     setBusy(true);
     setError("");
     try {
+      voice.cancel();
+      if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
+      try { await readAloud.stop(); } catch { return; }
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
       await api.clearCoach(generation);
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
@@ -481,13 +519,21 @@ export default function Coach() {
   }
   function useMessage(text: string) {
     if (!currentConversation() || !loaded || busy || pending) return;
+    voice.cancel();
     setMessage(text);
     setError("");
     setDraftNotice("Your message is ready to edit before sending; it uses this conversation’s current focus.");
     setReuse(null);
   }
+  const speechFeedback = <>
+    {!!readAloud.error && <Notice error>{readAloud.error}</Notice>}
+    {readAloud.stopFailed && <Button title="Retry stopping speech" variant="ghost" size="sm" inline onPress={() => { void readAloud.retryStop().catch(() => undefined); }} />}
+    {!!readAloud.messageId && Platform.OS === "ios" && <Copy kind="small" tone="muted">If you can’t hear speech, turn off silent mode.</Copy>}
+  </>;
   const composer = (
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: 8, flexShrink: 1, minHeight: 0 }}>
+        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
+        {speechFeedback}
         {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" variant="ghost" size="sm" onPress={latest} />}
         {!!draftNotice && <Notice>{draftNotice}</Notice>}
         {!!error && <Notice error>{error}</Notice>}
@@ -496,18 +542,21 @@ export default function Coach() {
           <Copy kind="small" numberOfLines={2} accessibilityLabel={`Your message: ${pending.message}`}>
             Your message: {pending.message}
           </Copy>
-        ) : <Field
+        ) : <>
+        <Field
           label="Message to your coach"
           multiline
           compact
           disabled={!loaded || busy || !!pending}
           value={message}
           onChange={(value) => {
-            if (currentConversation() && loaded && !busy && !pending) { setMessage(value); setDraftNotice(""); setReuse(null); }
+            if (currentConversation() && loaded && !busy && !pending) { voice.cancel(); setMessage(value); setDraftNotice(""); setReuse(null); }
           }}
           placeholder="Help me fit strength and running around basketball this week."
-        />}
-        {!pending && <CoachPhotoControl state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded} />}
+        />
+        <CoachVoiceControls voice={voice} disabled={!loaded || busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted} />
+        </>}
+        {!pending && <CoachPhotoControl state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />}
         {pending && (
           <Copy kind="small" tone="muted">
             {pending.stop_requested ? "Stop was requested. Until the service confirms the outcome, this message will not be resent. You can leave and return to retry stopping it."
@@ -516,12 +565,14 @@ export default function Coach() {
               : "Delivery unconfirmed. Retry uses this saved message."}
           </Copy>
         )}
+        </ScrollView>
+        <View style={{ gap: 8 }}>
         {(!pending || !busy) && !pending?.stop_requested && <Button
           title={pending ? history.some(item => item.request_id === pending.request_id) ? "Check for reply" : "Retry saved message" : "Send message"}
           icon="send"
           busy={busy}
           size="sm"
-          disabled={!loaded || !pending && (!photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard || !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now())) || !!stopping || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
+          disabled={!loaded || voice.preparing || !pending && (!photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard || !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now())) || !!stopping || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
           onPress={() => {
             void send();
           }}
@@ -530,10 +581,12 @@ export default function Coach() {
           title={pending.stop_requested ? "Retry stopping reply" : "Stop reply"}
           secondary busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
           onPress={() => { void stopReply(pending.request_id); }} />}
+        </View>
       </View>
   );
-  if (enrollment?.enrolled && profile.isPending) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy></Screen>;
+  if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
   if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Your coach starts with you." subtitle="Set up your training preferences when you’re ready.">
+    {speechFeedback}
     <Copy>Choose a goal, your equipment and a realistic schedule so the coach can use your saved workouts. Personal measurements are optional.</Copy>
     <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
   </Screen>;
@@ -546,6 +599,7 @@ export default function Coach() {
       footer={composer}
       scrollRef={scroll}
       disableBrowserScrollAnchoring
+      constrainFooter
       onScroll={({ nativeEvent }) => {
         if (!currentConversation() || (!history.length && !provisional)) return;
         const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
@@ -582,9 +636,11 @@ export default function Coach() {
           usable.
         </Notice>
       )}
-      {profile.error && <Notice error>{profile.error.message}</Notice>}
-      {consent.error && <Notice error>{consent.error.message}</Notice>}
-      {q.error && (
+      {(prerequisiteErrors.length > 0 || retryingCoach) && <>
+        {prerequisiteErrors.length > 0 && <Notice error>{[...new Set([...prerequisiteErrors, ...(q.error ? [q.error.message] : [])])].join(" ")}</Notice>}
+        <Button title="Retry loading coach" secondary busy={retryingCoach} onPress={() => { void retryCoach(); }} />
+      </>}
+      {q.error && !prerequisiteErrors.length && !retryingCoach && (
         <>
           <Notice error>{q.error.message}</Notice>
           <Button
@@ -713,6 +769,11 @@ export default function Coach() {
             <Bubble from="coach">
               <CoachReply text={item.assistant_message} scopeToken={replyScope} isCurrent={() => current() && routeActive.current && AppState.currentState === "active"} />
               <Button title={copied === item.id ? "Reply copied" : "Copy reply"} icon={copied === item.id ? "checkmark" : "copy-outline"} variant="ghost" size="sm" inline onPress={() => { void copyReply(item.assistant_message!, item.id); }} />
+              {item.state === "completed" && item.generation === generation && <Button
+                title={readAloud.messageId === item.id ? "Stop reading" : "Read aloud"}
+                icon={readAloud.messageId === item.id ? "stop-circle-outline" : "volume-high-outline"} variant="ghost" size="sm" inline
+                disabled={busy || voiceActive || photos.busy || photos.removing || readAloud.busy && readAloud.messageId !== item.id}
+                onPress={() => { if (guard.current || voiceActive || photos.busy || photos.removing) return; if (readAloud.messageId === item.id) void readAloud.stop().catch(() => undefined); else readAloud.read(item); }} />}
             </Bubble>
           )}
           {item.state === "pending" && <>

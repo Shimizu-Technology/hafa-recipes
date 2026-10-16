@@ -417,3 +417,48 @@ unchanged. This is renewed reachability evidence, not an advisory fix. Complete
 repository checks on the final source and actual native provider playback,
 background/focus closure and return-to-workout acceptance remain separate gates.
 A rebuilt native binary is required; export maps do not establish device behavior.
+
+
+## Dictation and read-aloud with Photo and source playback — 2026-10-16 UTC
+
+The private `4c9cabf` prototype combines accepted Photo 718, dictation 2c3 and
+read-aloud 65 on main `f33e523`, including the inline-code text correction. Its
+lock adds only the `expo-speech` 57.0.3 and `expo-speech-recognition` 57.1.1 nodes
+and root dependency edges. Every inherited package node remains unchanged,
+including WebView 13.16.1, Markdown and Clipboard. A fresh ordinary owned install
+added 906 packages; the installed dependency tree passed.
+
+Doctor 21/21, fresh iOS/Android/web JavaScript exports with two Metro workers,
+and the unchanged native-bundle gate pass on this exact source. Both native maps
+include `expo-speech/build/ExponentSpeech.js`, which requires native `ExpoSpeech`,
+and `expo-speech-recognition/build/ExpoSpeechRecognitionModule.js`, which requires
+native `ExpoSpeechRecognition`. The native module entry files are selected rather
+than their `.web.js` alternatives; the SDK's shared `ExpoWebSpeechRecognition.js`
+wrapper is also present. Native Clerk, the Expo Router fork, platform WebView,
+Markdown and Clipboard remain selected. Forge, braces, micromatch, stream-json,
+Jayson and Solana source groups remain absent. The legacy decoder 0.2.2 remains
+bundled under its existing conditional Router/fallback constraints; elimination
+or unconditional unreachability is not claimed.
+
+- iOS: 1,960 sources; map SHA-256
+  `8b76dbf1a949c99bcc0bfddf79ccdf79de97c699610ada606bd71a83e3ed4f89`.
+- Android: 1,959 sources; map SHA-256
+  `a0ef9b7f223d9d035ca0aec0c18f93bf434c11218c388494057f19cce588e52e`.
+
+The complete production audit reports 33 affected packages (5 moderate, 28 high,
+0 critical), exactly the same six advisory IDs and no unexpected advisory.
+The reviewed fingerprint is
+`a6489ad064e24ab0a2f4e03826935c4b7fe1a50d0ea892c4085e5575b6e88169`.
+The exact six advisory IDs, November 3 expiry, date bounds and all fail-closed
+checks remain unchanged. This is dependency reachability evidence, not an
+advisory fix. The fingerprint is renewed after review of the complete audit,
+installed native entry points and both actual native source maps.
+
+The initial composed source passed 412 tests across seven existing suites.
+After the inline-code correction, 162 affected read-aloud/Coach tests and types,
+routes and dependency-tree checks pass on `4c9cabf`. No complete repository gate,
+native prebuild/build, or actual combined speech/photo acceptance has run for
+this prototype. Native registration, permissions, recognition availability,
+confirmed speech stop before capture, and the photo/voice composer with the
+keyboard remain required acceptance. Device speech services may use networking;
+these checks make no offline or audible-output claim.

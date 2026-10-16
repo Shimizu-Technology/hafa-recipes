@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 // Exact reviewed dependency tree: any lock change requires renewed reachability
 // assessment. These are temporary documented exceptions, not security fixes.
-const reviewedLock = "9fd355c87f67cde153f8bbc8063ccaa10b00c1075f14b35ac9ff8bd7d27b1c47";
+const reviewedLock = "a6489ad064e24ab0a2f4e03826935c4b7fe1a50d0ea892c4085e5575b6e88169";
 const reviewed = new Set(["braces:1240992", "decode-uri-component:1147955", "node-forge:1240912", "stream-json:1164823", "stream-json:1241262", "stream-json:1241263"]);
 const lock = readFileSync(new URL("../package-lock.json", import.meta.url));
 const now = Date.now();

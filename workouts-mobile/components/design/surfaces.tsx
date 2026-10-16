@@ -41,6 +41,7 @@ export function Screen({
   onScroll,
   onContentSizeChange,
   disableBrowserScrollAnchoring = false,
+  constrainFooter = false,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
@@ -56,6 +57,8 @@ export function Screen({
   onEndReached?: () => void;
   /** Opt out when this screen restores reading position itself. Web only. */
   disableBrowserScrollAnchoring?: boolean;
+  /** Let a footer with its own scrolling body shrink above the keyboard. */
+  constrainFooter?: boolean;
   scrollRef?: Ref<ScrollView>;
   onScroll?: ScrollViewProps["onScroll"];
   onContentSizeChange?: ScrollViewProps["onContentSizeChange"];
@@ -114,6 +117,7 @@ export function Screen({
       {!!footer && (
         <View
           style={{
+            ...(constrainFooter ? { flexShrink: 1, minHeight: 0 } : {}),
             paddingHorizontal: spacing.lg - 4,
             paddingTop: spacing.sm,
             paddingBottom: Math.max(insets.bottom, spacing.sm) + 4,
@@ -122,7 +126,7 @@ export function Screen({
             backgroundColor: c.surface,
           }}
         >
-          <View style={{ width: "100%", maxWidth: contentWidth, alignSelf: "center", gap: spacing.xs }}>{footer}</View>
+          <View style={{ ...(constrainFooter ? { flexShrink: 1, minHeight: 0 } : {}), width: "100%", maxWidth: contentWidth, alignSelf: "center", gap: spacing.xs }}>{footer}</View>
         </View>
       )}
     </KeyboardAvoidingView>
