@@ -137,7 +137,7 @@ describe('recipe image multipart requests', () => {
 
     await api.editRecipe('recipe-1', edit);
 
-    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit, { requestGuard: undefined });
+    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit, { requestGuard: expect.any(Function) });
   });
 
   it.each([false, true])('checks an editor account after delayed auth (photo=%s)', async (photo) => {
