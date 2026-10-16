@@ -817,3 +817,114 @@ it("source review waits for a held archive transaction before reading either sou
   expect((await slot.load(() => {})).value).toBeNull();
   expect(readDuringHandoff).toBe(false);
 });
+
+const iosContainerParent = "file:///var/mobile/Containers/Data/Application/";
+const oldCache = `${iosContainerParent}11111111-1111-4111-8111-111111111111/Library/Caches/`;
+const newCache = `${iosContainerParent}22222222-2222-4222-8222-222222222222/Library/Caches/`;
+const relocationKey = "hafa-workouts:capture-cleanup:v1:A:relocated-operation";
+const relocatedJournal = (root = newCache) => createCaptureCleanupJournal(
+  journalStorage(), () => root, uri => native.remove(uri), async () => native.nativeProcess);
+function relocationRecord(uri: string, kind = "capture", extra: Record<string, unknown> = {}) {
+  const record = { version: 1, owner: "A", operation: "relocated-operation", assets: [{ uri, kind }],
+    nativeProcessIdentity: "old-native-process", state: "settled", nativeKind: null, opaqueIncomplete: false, ...extra };
+  native.records.set(relocationKey, JSON.stringify(record));
+  return record;
+}
+
+it.each(["hafa-workouts-capture/", "ImagePicker/", "DocumentPicker/", "ImageManipulator/"])("recovers a settled relocated iOS cache asset only under the current root (%s)", async directory => {
+  const kind = ({ "hafa-workouts-capture/": "capture", "ImagePicker/": "picker", "DocumentPicker/": "document", "ImageManipulator/": "manipulator" } as const)[directory as "ImagePicker/"];
+  const old = `${oldCache}${directory}owned.jpg`, current = `${newCache}${directory}owned.jpg`;
+  relocationRecord(old, kind); native.files.set(current, "Relocated owned bytes");
+  native.files.set(old, "Never touch the retired container");
+  await relocatedJournal().recover("A");
+  expect(native.remove).toHaveBeenCalledWith(current); expect(native.remove).not.toHaveBeenCalledWith(old);
+  expect(native.files.get(old)).toBe("Never touch the retired container");
+  expect(native.files.has(current)).toBe(false); expect(native.records.has(relocationKey)).toBe(false);
+});
+
+it("settled relocation cleans an already missing current asset idempotently", async () => {
+  relocationRecord(`${oldCache}hafa-workouts-capture/gone.jpg`);
+  await relocatedJournal().recover("A");
+  expect(native.remove).toHaveBeenCalledWith(`${newCache}hafa-workouts-capture/gone.jpg`);
+  expect(native.records.has(relocationKey)).toBe(false);
+});
+
+it("protects a registered draft's relocated capture and never rewrites its ownership metadata", async () => {
+  const old = `${oldCache}hafa-workouts-capture/registered.jpg`, current = `${newCache}hafa-workouts-capture/registered.jpg`;
+  relocationRecord(old); native.files.set(current, "Accepted source bytes");
+  const key = draftKey("A", "capture:1"), draft = JSON.stringify({ files: [{ owned: true, uri: old }] });
+  native.records.set(key, draft);
+  await relocatedJournal().recover("A");
+  expect(native.remove).not.toHaveBeenCalled(); expect(native.files.get(current)).toBe("Accepted source bytes");
+  expect(native.records.get(key)).toBe(draft); expect(native.records.has(relocationKey)).toBe(false);
+});
+
+it("persists only the rebased asset before deletion and retains it for a failed-delete retry", async () => {
+  const old = `${oldCache}hafa-workouts-capture/retry.jpg`, current = `${newCache}hafa-workouts-capture/retry.jpg`;
+  const original = relocationRecord(old); native.files.set(current, "Retry bytes");
+  native.remove.mockImplementationOnce(async () => {
+    expect(JSON.parse(native.records.get(relocationKey)!)).toMatchObject({ ...original, assets: [{ uri: current, kind: "capture" }] });
+    throw Error("temporary delete failure");
+  });
+  await expect(relocatedJournal().recover("A")).rejects.toThrow("temporary delete failure");
+  expect(JSON.parse(native.records.get(relocationKey)!).assets).toEqual([{ uri: current, kind: "capture" }]);
+  await relocatedJournal().recover("A");
+  expect(native.records.has(relocationKey)).toBe(false); expect(native.remove).not.toHaveBeenCalledWith(old);
+});
+
+it.each([
+  `${oldCache}hafa-workouts-capture/../escape.jpg`,
+  `${oldCache}hafa-workouts-capture/%2e%2e/escape.jpg`,
+  `${oldCache}hafa-workouts-capture/%252e%252e/escape.jpg`,
+  `${oldCache}hafa-workouts-capture/%2fescape.jpg`,
+  `${oldCache}hafa-workouts-capture/owned.jpg?query`,
+  `${oldCache}hafa-workouts-capture/owned.jpg#fragment`,
+  `${oldCache}hafa-workouts-capture/nested\\escape.jpg`,
+  `${oldCache}ImagePicker/owned.jpg`,
+  `${oldCache}unknown/owned.jpg`,
+  "file:///arbitrary/Containers/Data/Application/11111111-1111-4111-8111-111111111111/Library/Caches/hafa-workouts-capture/owned.jpg",
+  "file://foreign/var/mobile/Containers/Data/Application/11111111-1111-4111-8111-111111111111/Library/Caches/hafa-workouts-capture/owned.jpg",
+])("rejects unsafe or mismatched legacy cache paths without deleting or rewriting (%s)", async uri => {
+  const original = relocationRecord(uri), raw = JSON.stringify(original);
+  await expect(relocatedJournal().recover("A")).rejects.toThrow("metadata needs review");
+  expect(native.remove).not.toHaveBeenCalled(); expect(native.records.get(relocationKey)).toBe(raw);
+});
+
+it("does not rebase a different simulator device or a non-iOS cache root", async () => {
+  const parent = "file:///Users/qa/Library/Developer/CoreSimulator/Devices/33333333-3333-4333-8333-333333333333/data/Containers/Data/Application/";
+  const root = `${parent}22222222-2222-4222-8222-222222222222/Library/Caches/`;
+  relocationRecord(`${parent.replace("33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444")}11111111-1111-4111-8111-111111111111/Library/Caches/hafa-workouts-capture/owned.jpg`);
+  await expect(relocatedJournal(root).recover("A")).rejects.toThrow("metadata needs review");
+  relocationRecord(`${oldCache}hafa-workouts-capture/owned.jpg`);
+  await expect(relocatedJournal("file:///cache/").recover("A")).rejects.toThrow("metadata needs review");
+  expect(native.remove).not.toHaveBeenCalled();
+});
+
+it("does not use relocation to bypass same-process native writes or an opaque old operation", async () => {
+  const uri = `${oldCache}hafa-workouts-capture/active.jpg`;
+  relocationRecord(uri, "capture", { state: "open", nativeKind: "known", nativeProcessIdentity: native.nativeProcess });
+  const sameProcess = native.records.get(relocationKey);
+  await expect(relocatedJournal().recover("A")).rejects.toThrow("still finishing");
+  expect(native.records.get(relocationKey)).toBe(sameProcess);
+  relocationRecord(uri, "capture", { state: "open", nativeKind: "opaque" });
+  const opaque = native.records.get(relocationKey);
+  await expect(relocatedJournal().recover("A")).rejects.toThrow("did not return its file locations");
+  expect(native.records.get(relocationKey)).toBe(opaque); expect(native.remove).not.toHaveBeenCalled();
+});
+
+it("permits relocated known-writer recovery only after its native process changed", async () => {
+  const old = `${oldCache}hafa-workouts-capture/cold-known.jpg`;
+  relocationRecord(old, "capture", { state: "open", nativeKind: "known" });
+  await relocatedJournal().recover("A");
+  expect(native.remove).toHaveBeenCalledWith(`${newCache}hafa-workouts-capture/cold-known.jpg`);
+  expect(native.records.has(relocationKey)).toBe(false);
+});
+
+it("keeps new capture admission current-root only and preserves opaque-incomplete recovery", async () => {
+  const journal = relocatedJournal(), lease = await journal.begin("A", "new-operation");
+  await expect(lease.remember([{ uri: `${oldCache}hafa-workouts-capture/old.jpg`, kind: "capture" }])).rejects.toThrow("cannot be owned");
+  await lease.finish(); await lease.cleanup();
+  relocationRecord(`${oldCache}hafa-workouts-capture/opaque.jpg`, "capture", { opaqueIncomplete: true });
+  await expect(journal.recover("A")).rejects.toThrow("ended without confirming its files");
+  expect(JSON.parse(native.records.get(relocationKey)!)).toMatchObject({ opaqueIncomplete: true, assets: [] });
+});
