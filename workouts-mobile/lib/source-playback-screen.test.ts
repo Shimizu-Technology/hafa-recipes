@@ -88,6 +88,7 @@ it("offers fallback after the load timeout and tears down the background listene
   await act(async () => { vi.advanceTimersByTime(15001); });
   expect(nodes("WebView")).toHaveLength(0); expect(button("Try player again")).toBeDefined();
   await click("Open original source"); expect(f.original).toHaveBeenCalledOnce();
+  await act(async () => { f.background!("inactive"); }); expect(f.close).not.toHaveBeenCalled();
   await act(async () => { f.background!("background"); }); expect(f.close).toHaveBeenCalledOnce();
   await act(async () => { tree!.unmount(); }); tree = undefined; expect(f.background).toBeNull();
 });
