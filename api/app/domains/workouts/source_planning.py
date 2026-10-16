@@ -14,6 +14,14 @@ from app.domains.workouts.programming import (
 from app.domains.workouts.schemas import ProgramProposal, ScheduledPrescription
 
 
+def _equipment_label(value):
+    label = value.strip().lower()
+    words = label.split(maxsplit=1)
+    # An explicit single item is the same equipment, without treating a pair,
+    # another variation, or a different load as interchangeable.
+    return words[1] if len(words) == 2 and words[0] in {"one", "1", "a", "an"} else label
+
+
 def requires_recovery(workout):
     """Only catalog walking is treated as easy activity; unknown work needs rest."""
     exercises = [exercise for block in workout.blocks for exercise in block.exercises]
@@ -77,10 +85,10 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
         questions.append(
             f"{workout.title}: it exceeds your available time; adapt it before scheduling."
         )
-    # Match catalog compatibility's exact case/outer-whitespace normalization;
-    # retain source spelling and never infer an equipment alias or substitute.
-    known = {item.strip().lower() for item in profile.equipment or []}
-    required = {item.strip().lower() for item in workout.equipment_required}
+    # Compare the same named equipment, allowing an explicit single-item prefix.
+    # Retain the source wording; never infer aliases, plural quantities or substitutes.
+    known = {_equipment_label(item) for item in profile.equipment or []}
+    required = {_equipment_label(item) for item in workout.equipment_required}
     if not required <= known:
         questions.append(
             f"{workout.title}: required equipment is unavailable at your selected location."

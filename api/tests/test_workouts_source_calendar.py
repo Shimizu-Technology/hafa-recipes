@@ -78,6 +78,12 @@ def test_source_replacement_of_easy_slots_preserves_recovery():
     (["Kettlebell"], ["kettlebell"]),
     (["  Kettlebell  "], ["\tKETTLEBELL\n"]),
     (["Kettlebell", "CHAIR"], ["chair", "kettlebell"]),
+    (["one kettlebell"], ["kettlebell"]),
+    (["1 kettlebell"], ["kettlebell"]),
+    (["a kettlebell"], ["kettlebell"]),
+    (["an adjustable kettlebell"], ["adjustable kettlebell"]),
+    (["  ONE\tKETTLEBELL "], ["kettlebell"]),
+    (["kettlebell"], ["one kettlebell"]),
 ])
 def test_source_planning_matches_declared_equipment_case_and_outer_spaces_without_rewriting(required, available):
     source = squat()
@@ -94,6 +100,10 @@ def test_source_planning_matches_declared_equipment_case_and_outer_spaces_withou
     (["Kettlebell", "secure_anchor"], ["kettlebell"]),
     (["Special custom sled"], ["kettlebell"]),
     (["Kettlebells"], ["kettlebell"]),
+    (["two kettlebells"], ["kettlebell"]),
+    (["a pair of kettlebells"], ["kettlebell"]),
+    (["one 16kg kettlebell"], ["kettlebell"]),
+    (["one adjustable kettlebell"], ["kettlebell"]),
     (["Kettlebell"], []),
     (["  "], []),
 ])
