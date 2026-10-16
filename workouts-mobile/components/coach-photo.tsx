@@ -101,7 +101,7 @@ export function CoachPhotoControl({ state, allowed, disabled }: { state: ReturnT
   const expired = !!state.photo?.expires_at && Date.parse(state.photo.expires_at) <= Date.now();
   return <>
     {state.photo ? <>
-      <Copy kind="small">{state.photo.discard ? "Photo removal needs confirmation" : expired ? "Photo expired · remove it before choosing another" : state.photo.attachment_id ? "Photo ready · shared with AI when you send" : "Uploading photo…"}</Copy>
+      <Copy kind="small">{state.photo.discard ? "Photo removal needs confirmation" : expired ? "Photo expired · remove it before choosing another" : state.photo.attachment_id ? "Photo ready · shared with AI when you send" : state.busy ? "Uploading photo…" : "Photo upload not confirmed"}</Copy>
       {!state.photo.discard && !expired && (state.photo.file
         ? <Image cachePolicy="none" source={{ uri: state.photo.file.uri }} style={{ width: 100, height: 100, borderRadius: 12 }} accessibilityLabel="Selected coach photo" />
         : state.photo.attachment_id && <CoachMessagePhoto id={state.photo.attachment_id} generation={state.generation} expires={state.photo.expires_at} removable={false} />)}
