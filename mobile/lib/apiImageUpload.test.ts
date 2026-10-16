@@ -468,6 +468,11 @@ describe('recipe image multipart requests', () => {
 
 
 describe('frozen recipe write authentication', () => {
+  beforeEach(() => {
+    mocks.client.patch.mockReset(); mocks.post.mockReset();
+    mocks.readBytes.mockReset(); mocks.readBytes.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    vi.stubGlobal('FormData', InspectableFormData);
+  });
   it.each(['image-edit', 'patch-edit', 'original-restore', 'version-restore'] as const)(
     'rejects a held %s token after credentials clear before the editor unmounts', async operation => {
       let finishToken!: (token: string) => void;
