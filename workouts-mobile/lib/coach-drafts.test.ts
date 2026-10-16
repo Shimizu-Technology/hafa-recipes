@@ -1,4 +1,4 @@
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import { createCoachDraftStore } from "./coach-drafts";
 import { draftKey } from "./drafts";
 it("clears all conversation focuses for only this owner/generation and fences delayed saves from the old reset epoch", async () => {
