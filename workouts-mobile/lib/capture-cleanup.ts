@@ -65,7 +65,25 @@ export function createCaptureCleanupJournal(
       return false;
     }
   }
-  function checked(value: Record, key: string) {
+  function recoveredAsset(asset: Asset): Asset | null {
+    if (valid(asset)) return asset;
+    const root = cache();
+    if (!root || !Object.prototype.hasOwnProperty.call(directories, asset.kind)) return null;
+    const uuid = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}";
+    // An iOS upgrade can move this same app's cache to a new data-container UUID.
+    // Keep the physical/simulator parent exact, including the simulator device.
+    const container = root.match(new RegExp(
+      String.raw`^(file:///(?:var/mobile|private/var/mobile|Users/[^/\\?#\x00]+/Library/Developer/CoreSimulator/Devices/${uuid}/data)/Containers/Data/Application/)(${uuid})/Library/Caches/$`
+    ));
+    if (!container || !asset.uri.startsWith(container[1])) return null;
+    const old = asset.uri.slice(container[1].length).match(new RegExp(`^(${uuid})/Library/Caches/(.+)$`));
+    if (!old || old[1].toLowerCase() === container[2].toLowerCase()) return null;
+    // Encoded separators or another encoding layer are not a recoverable asset name.
+    if (/%(?:2f|5c|00|25)/i.test(old[2])) return null;
+    const recovered = { ...asset, uri: root + old[2] };
+    return valid(recovered) ? recovered : null;
+  }
+  function checked(value: Record, key: string, checkLocations = true) {
     if (
       value?.version !== 1 ||
       typeof value.owner !== "string" ||
@@ -80,7 +98,8 @@ export function createCaptureCleanupJournal(
       (value.state === "settled" && value.nativeKind !== null) ||
       typeof value.opaqueIncomplete !== "boolean" ||
       !Array.isArray(value.assets) ||
-      value.assets.some((asset) => !asset || !valid(asset))
+      value.assets.some((asset) => !asset || typeof asset.uri !== "string" ||
+        !Object.prototype.hasOwnProperty.call(directories, asset.kind) || checkLocations && !valid(asset))
     )
       throw Error("Source-file cleanup metadata needs review before private training can open.");
     return value;
@@ -94,7 +113,11 @@ export function createCaptureCleanupJournal(
       if (!raw) continue;
       // An unreadable draft may contain a registered source; fail closed.
       const draft = JSON.parse(raw) as { files?: Array<{ owned?: boolean; uri?: string }> };
-      for (const file of draft.files ?? []) if (file.owned && typeof file.uri === "string") protectedUris.add(file.uri);
+      for (const file of draft.files ?? []) if (file.owned && typeof file.uri === "string") {
+        protectedUris.add(file.uri);
+        const recovered = recoveredAsset({ uri: file.uri, kind: "capture" });
+        if (recovered) protectedUris.add(recovered.uri);
+      }
     }
     return protectedUris;
   }
@@ -258,24 +281,35 @@ export function createCaptureCleanupJournal(
       for (const key of keys) {
         const value = await ordered(key, async () => {
           const raw = await storage.getItem(key);
-          return raw ? checked(JSON.parse(raw), key) : null;
+          if (!raw) return null;
+          const value = checked(JSON.parse(raw), key, false);
+          const live = liveLeases.get(key);
+          if (live?.nativeProcessIdentity === identity) live.cancelled = true;
+          if (value.state === "open") {
+            // Missing JS liveness is not evidence that an old native write stopped.
+            if (value.nativeProcessIdentity === identity)
+              throw Error(
+                "A source action is still finishing. Close it, then retry cleanup. If it cannot finish, fully close and reopen the app."
+              );
+            if (value.nativeKind === "opaque")
+              throw Error(
+                "An earlier source action did not return its file locations. Cleanup needs review before private training can open."
+              );
+            // A changed native process token proves known writers from that process
+            // cannot create bytes after this cleanup. It is not a clock/JS session.
+          }
+          const assets = value.assets.map((asset) => {
+            const recovered = recoveredAsset(asset);
+            if (!recovered) throw Error("Source-file cleanup metadata needs review before private training can open.");
+            return recovered;
+          });
+          const normalized = { ...value, assets };
+          // Persist the current-cache targets before an idempotent delete can run.
+          if (assets.some((asset, index) => asset.uri !== value.assets[index].uri))
+            await storage.setItem(key, JSON.stringify(normalized));
+          return normalized;
         });
         if (!value) continue;
-        const live = liveLeases.get(key);
-        if (live?.nativeProcessIdentity === identity) live.cancelled = true;
-        if (value.state === "open") {
-          // Missing JS liveness is not evidence that an old native write stopped.
-          if (value.nativeProcessIdentity === identity)
-            throw Error(
-              "A source action is still finishing. Close it, then retry cleanup. If it cannot finish, fully close and reopen the app."
-            );
-          if (value.nativeKind === "opaque")
-            throw Error(
-              "An earlier source action did not return its file locations. Cleanup needs review before private training can open."
-            );
-          // A changed native process token proves known writers from that process
-          // cannot create bytes after this cleanup. It is not a clock/JS session.
-        }
         const recovering = lease(value.owner, value.operation, value.nativeProcessIdentity, value);
         await recovering.finish();
         await recovering.cleanup();
