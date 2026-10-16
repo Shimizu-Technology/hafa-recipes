@@ -371,20 +371,33 @@ export function createWorkoutsApi(
       return (await request<{ message: string; cleanup: { id: string; status: string } }>("/api/users/me", "DELETE"))
         .data;
     },
+    async uploadCoachImage(uploadId: string, body: { base64_data: string; content_type: string }, generation: number, signal?: AbortSignal) {
+      return (await request<{ id: string; expires_at: string }>(`/coach/image-uploads/${encodeURIComponent(uploadId)}`, "POST", body, { generation, timeout_ms: 65000, signal })).data;
+    },
+    async discardCoachImage(uploadId: string, generation: number) {
+      await request<void>(`/coach/image-uploads/${encodeURIComponent(uploadId)}`, "DELETE", undefined, { generation });
+    },
+    async removeCoachImage(id: string, generation: number) {
+      await request<void>(`/coach/images/${encodeURIComponent(id)}`, "DELETE", undefined, { generation });
+    },
+    async coachImage(id: string, generation: number) {
+      return (await request<{ url: string; expires_in: number }>(`/coach/images/${encodeURIComponent(id)}`, "GET", undefined, { generation })).data;
+    },
     async coachHistory(offset = 0) {
       return (await request<CoachHistory>(`/coach/messages?limit=50&offset=${offset}`)).data;
     },
-    async coachMessage(request_id: string, message: string, focus: CoachFocus, generation: number, signal?: AbortSignal) {
+    async coachMessage(request_id: string, message: string, focus: CoachFocus, generation: number, signal?: AbortSignal, attachment_id?: string) {
       return (
         await request<CoachMessage>(
           "/coach/messages",
           "POST",
-          { request_id, message, ...focus },
+          { request_id, message, ...focus, ...(attachment_id ? { attachment_id } : {}) },
           { generation, timeout_ms: 120000, signal }
         )
       ).data;
     },
-    async coachStream(request_id: string, message: string, focus: CoachFocus, generation: number, signal: AbortSignal, onText: (text: string) => Promise<void> | void) {
+    async coachStream(request_id: string, message: string, focus: CoachFocus, generation: number, signal: AbortSignal, onText: (text: string) => Promise<void> | void, attachment_id?: string) {
+      const body = { request_id, message, ...focus, ...(attachment_id ? { attachment_id } : {}) };
       guardAccount();
       if (!base) throw new ApiError("The training service is not configured for this build.", 0);
       const token = await getToken(); guardAccount();
@@ -392,7 +405,7 @@ export function createWorkoutsApi(
       return streamCoachRequest({ url: `${base.replace(/\/$/, "")}/api/v1/workouts/coach/messages/stream`,
         headers: { Authorization: `Bearer ${token}`, "X-Workouts-Generation": String(generation),
           ...(account?.owner ? { "X-Hafa-Account-ID": account.owner } : {}) },
-        body: { request_id, message, ...focus }, generation, signal, current: guardAccount, onText });
+        body, generation, signal, current: guardAccount, onText });
     },
     async cancelCoachMessage(request_id: string, generation: number) {
       return (await request<CoachMessage>(`/coach/messages/${encodeURIComponent(request_id)}/cancel`, "POST", undefined, { generation })).data;

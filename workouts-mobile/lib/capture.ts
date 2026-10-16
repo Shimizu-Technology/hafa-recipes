@@ -113,6 +113,7 @@ export interface Capabilities {
   coach: boolean;
   coach_cancellation?: boolean;
   coach_streaming?: boolean;
+  coach_images?: boolean;
   health_sync: boolean;
   /** Absent on servers before Discover; only an explicit true shows Discover. */
   discover?: boolean;

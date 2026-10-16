@@ -1,3 +1,4 @@
+import { CoachMessagePhoto, CoachPhotoControl, useCoachPhoto } from "@/components/coach-photo";
 import { CoachReply } from "@/components/coach-reply";
 import { createCoachDraftStore } from "@/lib/coach-drafts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -147,12 +148,13 @@ export default function Coach() {
     enabled: !!enrollment?.enrolled,
     refetchInterval: query => focused && foreground && (pending || query.state.data?.pages.some(page => page.messages.some(item => item.state === "pending"))) ? 3000 : false,
   });
+  const photos = useCoachPhoto(focusToken, epoch, busy || !!pending || !loaded || !capabilities.data?.coach_images || !consent.data?.accepted);
   const delivery = useRef(false);
-  const deliveryScope = useMemo(() => ({}), [replyScope, consent.data?.accepted, capabilities.data?.coach]);
+  const deliveryScope = useMemo(() => ({}), [replyScope, consent.data?.accepted, capabilities.data?.coach, photos.busy, photos.removing]);
   const liveDelivery = useRef<object | null>(null);
   useLayoutEffect(() => {
     liveDelivery.current = deliveryScope;
-    delivery.current = focused && foreground && !!consent.data?.accepted && !!capabilities.data?.coach;
+    delivery.current = focused && foreground && !!consent.data?.accepted && !!capabilities.data?.coach && !photos.busy && !photos.removing;
     if (!delivery.current) { sending.current?.controller.abort(); setProvisional(""); }
     return () => { if (liveDelivery.current === deliveryScope) { liveDelivery.current = null; sending.current?.controller.abort(); } };
   }, [deliveryScope]);
@@ -303,6 +305,8 @@ export default function Coach() {
     const completion = {}; finishing.current = completion;
     try {
       if (!(await sameConversation()) || finishing.current !== completion || pendingRef.current?.request_id !== request.request_id) return;
+      await photos.handoff(request.attachment_id);
+      if (!(await sameConversation()) || finishing.current !== completion || pendingRef.current?.request_id !== request.request_id) return;
       if (sending.current?.request_id === receipt.request_id) {
         sending.current.controller.abort(); sending.current = null;
         guard.current = false; setBusy(false);
@@ -315,6 +319,9 @@ export default function Coach() {
       else if (request.stop_requested) setDraftNotice(receipt.state === "completed"
         ? "This reply finished before Stop. Its reply and suggestions remain in your saved conversation."
         : "This request had already finished without a reply. Your message is ready to edit.");
+    } catch {
+      if (currentConversation() && finishing.current === completion && pendingRef.current?.request_id === request.request_id && await sameConversation() && finishing.current === completion && pendingRef.current?.request_id === request.request_id)
+        setError("The reply is saved. Retry checking it to finish photo cleanup on this device.");
     } finally { if (finishing.current === completion) finishing.current = null; }
   }
   function rememberReceipt(receipt: CoachMessage) {
@@ -370,6 +377,10 @@ export default function Coach() {
   async function send() {
     if (guard.current || stoppingRef.current || !currentDelivery() || !loaded) return;
     if (pendingRef.current?.stop_requested) return; // A lost Stop acknowledgement must never resend.
+    if (!pending && (!photos.loaded || photos.busy || photos.removing || photos.photo?.discard ||
+        photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now()))) {
+      setError("Finish uploading or removing the photo before sending."); return;
+    }
     const problems = coachFocusErrors(focus);
     if (!pending && (!message.trim() || message.length > 4000)) problems.push("Write a message of 1–4000 characters.");
     if (!consent.data?.accepted) problems.push("Accept the separate AI sharing disclosure first.");
@@ -390,6 +401,7 @@ export default function Coach() {
         message: message.trim(),
         generation,
         focus,
+        ...(photos.photo?.attachment_id ? { attachment_id: photos.photo.attachment_id } : {}),
         created_at: new Date().toISOString(),
       };
       if (!(await drafts.save(owner, generation, focusKey, { message: request.message, pending: request }, epoch)))
@@ -407,8 +419,8 @@ export default function Coach() {
           if (!currentDelivery() || sending.current !== active || (pendingRef.current?.stop_requested || pendingRef.current?.request_id !== request.request_id) || !(await sameConversation()))
             throw Error("This reply view was retired. Check the saved request when you return.");
           if (currentDelivery() && sending.current === active && !pendingRef.current?.stop_requested && pendingRef.current?.request_id === request.request_id) setProvisional(text);
-        })
-        : await api.coachMessage(request.request_id, request.message, request.focus, request.generation, active.controller.signal);
+        }, request.attachment_id)
+        : await api.coachMessage(request.request_id, request.message, request.focus, request.generation, active.controller.signal, request.attachment_id);
       if (!currentDelivery() || sending.current !== operation || active.controller.signal.aborted ||
           (await drafts.epoch(owner, generation)) !== epoch || !currentDelivery() || active.controller.signal.aborted) return;
       if (receipt.request_id !== request.request_id || receipt.generation !== request.generation)
@@ -430,12 +442,17 @@ export default function Coach() {
   }
   async function clear() {
     if (!currentConversation() || guard.current || stoppingRef.current) return;
+    let releasePhotoClear: () => void;
+    try { releasePhotoClear = photos.beginClear(); }
+    catch (error) { if (currentConversation()) setError((error as Error).message); return; }
     guard.current = true;
     setBusy(true);
     setError("");
     try {
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
       await api.clearCoach(generation);
+      if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
+      await photos.clearAfterConfirmedServerClear();
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
       setPending(null);
       setMessage("");
@@ -449,6 +466,7 @@ export default function Coach() {
     } catch (e) {
       if (currentConversation()) setError((e as Error).message);
     } finally {
+      releasePhotoClear();
       if (current()) { guard.current = false; setBusy(false); }
     }
   }
@@ -489,6 +507,7 @@ export default function Coach() {
           }}
           placeholder="Help me fit strength and running around basketball this week."
         />}
+        {!pending && <CoachPhotoControl state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded} />}
         {pending && (
           <Copy kind="small" tone="muted">
             {pending.stop_requested ? "Stop was requested. Until the service confirms the outcome, this message will not be resent. You can leave and return to retry stopping it."
@@ -502,7 +521,7 @@ export default function Coach() {
           icon="send"
           busy={busy}
           size="sm"
-          disabled={!loaded || !!stopping || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
+          disabled={!loaded || !pending && (!photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard || !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now())) || !!stopping || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
           onPress={() => {
             void send();
           }}
@@ -651,7 +670,7 @@ export default function Coach() {
         title="Clear saved coach conversation"
         variant="ghost"
         icon="trash-outline"
-        disabled={busy || !!stopping || !enrollment?.enrolled}
+        disabled={busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled}
         onPress={() => { if (currentConversation()) setClearConfirm(true); }}
       />
       {clearConfirm && (
@@ -664,6 +683,7 @@ export default function Coach() {
             title="Clear conversation and pending suggestions"
             variant="destructive"
             busy={busy}
+            disabled={photos.busy || photos.removing}
             onPress={() => {
               void clear();
             }}
@@ -687,6 +707,7 @@ export default function Coach() {
         <View key={item.id} collapsable={false} ref={node => { if (node) messageViews.current.set(item.id, node); else messageViews.current.delete(item.id); }} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
           <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.cancelled ? "Stopped" : item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : "Sent"}`}>
             <Copy selectable>{item.user_message}</Copy>
+            {item.attachment_id && <CoachMessagePhoto id={item.attachment_id} generation={item.generation} expires={item.attachment_expires_at} />}
           </Bubble>
           {!!item.assistant_message && (
             <Bubble from="coach">

@@ -1004,3 +1004,24 @@ it("uses exact frozen cover bytes in browser multipart and rejects malformed or 
   await expect(coverImageForm("A".repeat(3 * 1024 * 1024), () => {}, "cover-web")).rejects.toThrow("smaller");
   expect(native.write).not.toHaveBeenCalled();
 });
+it("keeps default multi-image capture and supports a single-photo selection without deleting user originals", async () => {
+  const original = "file:///user/single.jpg";
+  native.files.set(original, "USER PHOTO");
+  native.picker.mockResolvedValue({ canceled: false, assets: [{ uri: original, width: 100, height: 100 }] });
+  const selected = await pickImages(false, () => {}, "photo-owner", 1);
+  expect(native.picker).toHaveBeenLastCalledWith(expect.objectContaining({ allowsMultipleSelection: false, selectionLimit: 1 }));
+  expect(selected).toHaveLength(1);
+  await cleanupCaptureFiles(selected);
+  expect(native.files.get(original)).toBe("USER PHOTO");
+  await pickImages(false, () => {}, "import-owner");
+  expect(native.picker).toHaveBeenLastCalledWith(expect.objectContaining({ allowsMultipleSelection: true, selectionLimit: 4 }));
+});
+it("rejects an oversized single-photo picker result before normalizing and cleans only journaled SDK files", async () => {
+  const sdk = "file:///cache/ImagePicker/extra.jpg", original = "file:///user/original.jpg";
+  native.files.set(sdk, "SDK PHOTO"); native.files.set(original, "USER PHOTO");
+  native.picker.mockResolvedValue({ canceled: false, assets: [{ uri: sdk }, { uri: original }] });
+  await expect(pickImages(false, () => {}, "photo-owner", 1)).rejects.toThrow("Choose up to 1 image.");
+  expect(native.copy).not.toHaveBeenCalled();
+  expect(native.files.has(sdk)).toBe(false);
+  expect(native.files.get(original)).toBe("USER PHOTO");
+});
