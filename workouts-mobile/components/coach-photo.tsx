@@ -6,7 +6,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect } from "expo-router";
 import { Button, Copy, Notice, Row } from "./ui";
 import { useTraining } from "@/lib/context";
-import { cleanupCaptureFiles, pickImages } from "@/lib/capture-io";
+import { cleanupCaptureFiles, pickImages, recoverCaptureCleanup } from "@/lib/capture-io";
 import { createCoachPhotoStore, type CoachPhoto } from "@/lib/coach-photos";
 
 type Activation = { scope: object; controller?: AbortController };
@@ -91,6 +91,16 @@ export function useCoachPhoto(focus: string, epoch: string, disabled: boolean) {
       try { await store.discard(photo, current); current(); setPhoto(null); }
       catch { if (live.current === scope && activation.current()) setError("Could not confirm photo removal. Retry removing it; it will not be sent."); }
       finally { scope.removing = false; if (live.current === scope) setRemoving(false); }
+    },
+    beginClear() {
+      current();
+      if (scope.lock || scope.removing) throw Error("Wait for the photo to finish or remove it before clearing.");
+      scope.lock = true; scope.cancelled = true; scope.controller?.abort();
+      return () => { scope.lock = false; };
+    },
+    async clearAfterConfirmedServerClear() {
+      await store.clearAfterConfirmedServerClear(current, () => recoverCaptureCleanup(owner));
+      current(); setPhoto(null); setLoaded(true); setError("");
     },
     async handoff(id: string | undefined) { await store.handoff(id, current); current(); setPhoto(await store.load()); },
     async clearAll() { scope.cancelled = true; scope.controller?.abort(); setPhoto(value => value ? { ...value, discard: true } : null); await store.clearAll(current); current(); setPhoto(null); },

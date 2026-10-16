@@ -442,6 +442,9 @@ export default function Coach() {
   }
   async function clear() {
     if (!currentConversation() || guard.current || stoppingRef.current) return;
+    let releasePhotoClear: () => void;
+    try { releasePhotoClear = photos.beginClear(); }
+    catch (error) { if (currentConversation()) setError((error as Error).message); return; }
     guard.current = true;
     setBusy(true);
     setError("");
@@ -449,7 +452,7 @@ export default function Coach() {
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
       await api.clearCoach(generation);
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
-      await photos.clearAll();
+      await photos.clearAfterConfirmedServerClear();
       if (!currentConversation() || !(await sameConversation()) || !currentConversation()) return;
       setPending(null);
       setMessage("");
@@ -463,6 +466,7 @@ export default function Coach() {
     } catch (e) {
       if (currentConversation()) setError((e as Error).message);
     } finally {
+      releasePhotoClear();
       if (current()) { guard.current = false; setBusy(false); }
     }
   }
@@ -666,7 +670,7 @@ export default function Coach() {
         title="Clear saved coach conversation"
         variant="ghost"
         icon="trash-outline"
-        disabled={busy || !!stopping || !enrollment?.enrolled}
+        disabled={busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled}
         onPress={() => { if (currentConversation()) setClearConfirm(true); }}
       />
       {clearConfirm && (
@@ -679,6 +683,7 @@ export default function Coach() {
             title="Clear conversation and pending suggestions"
             variant="destructive"
             busy={busy}
+            disabled={photos.busy || photos.removing}
             onPress={() => {
               void clear();
             }}

@@ -79,6 +79,16 @@ export function createCoachPhotoStore(storage: Storage & { getAllKeys(): Promise
         await cleanup(photo.file ? [photo.file] : []); current(); await storage.removeItem(key);
       });
     },
+    async clearAfterConfirmedServerClear(current: () => void, recover: () => Promise<void>) {
+      current();
+      for (const at of await storage.getAllKeys()) {
+        if (!at.startsWith(prefix)) continue;
+        await ordered(at, async () => { current(); await storage.removeItem(at); current(); });
+      }
+      // Server Clear already tombstoned every private upload. Never interpret a
+      // corrupted file URI; native cleanup retains its own exact, guarded debt.
+      current(); await recover(); current();
+    },
     async clearAll(current: () => void) {
       for (const at of await storage.getAllKeys()) {
         if (!at.startsWith(prefix)) continue;
