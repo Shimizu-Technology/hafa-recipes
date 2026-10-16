@@ -114,7 +114,7 @@ export function CoachPhotoControl({ state, allowed, disabled }: { state: ReturnT
       <Copy kind="small">{state.photo.discard ? "Photo removal needs confirmation" : expired ? "Photo expired · remove it before choosing another" : state.photo.attachment_id ? "Photo ready · shared with AI when you send" : state.busy ? "Uploading photo…" : "Photo upload not confirmed"}</Copy>
       {!state.photo.discard && !expired && (state.photo.file
         ? <Image cachePolicy="none" source={{ uri: state.photo.file.uri }} style={{ width: 100, height: 100, borderRadius: 12 }} accessibilityLabel="Selected coach photo" />
-        : state.photo.attachment_id && <CoachMessagePhoto id={state.photo.attachment_id} generation={state.generation} expires={state.photo.expires_at} removable={false} />)}
+        : state.photo.attachment_id && <CoachMessagePhoto id={state.photo.attachment_id} generation={state.generation} expires={state.photo.expires_at} removable={false} compact />)}
       <Row wrap>
         <Button title={state.photo.discard ? "Retry removing photo" : "Remove photo"} secondary size="sm" inline busy={state.removing}
           onPress={() => void state.remove()} />
@@ -126,7 +126,7 @@ export function CoachPhotoControl({ state, allowed, disabled }: { state: ReturnT
   </>;
 }
 
-export function CoachMessagePhoto({ id, generation, expires, removable = true }: { id: string; generation: number; expires?: string; removable?: boolean }) {
+export function CoachMessagePhoto({ id, generation, expires, removable = true, compact = false }: { id: string; generation: number; expires?: string; removable?: boolean; compact?: boolean }) {
   const { api, storage, owner, isCurrentAccount } = useTraining();
   const base = useMemo(() => ({}), [id, generation, storage, owner]), activation = usePhotoActivation(base);
   const scope = useMemo(() => ({ busy: false }), [base, activation.token]), live = useRef<object | null>(null);
@@ -157,7 +157,7 @@ export function CoachMessagePhoto({ id, generation, expires, removable = true }:
     finally { scope.busy = false; if (live.current === scope) setBusy(false); }
   }
   const expired = removed || !!expires && Date.parse(expires) <= Date.now();
-  return <>{url ? <Image cachePolicy="none" source={{ uri: url }} style={{ width: 180, height: 180, borderRadius: 12 }} accessibilityLabel="Private coach photo" />
+  return <>{url ? <Image cachePolicy="none" source={{ uri: url }} style={{ width: compact ? 100 : 180, height: compact ? 100 : 180, borderRadius: 12 }} accessibilityLabel="Private coach photo" />
     : <Button title={expired ? "Photo expired" : "View private photo"} secondary size="sm" inline disabled={expired} busy={busy} onPress={() => void show()} />}
     {removable && !expired && (confirm ? <>
       <Copy kind="small">Remove this photo from the chat? Its message and training history stay available.</Copy>

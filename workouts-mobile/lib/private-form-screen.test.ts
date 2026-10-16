@@ -2926,6 +2926,18 @@ it("keeps the idle photo composer compact and shows only one selected preview", 
   expect(nodes("CoachImage")).toHaveLength(1); expect(button("View private photo")).toBeUndefined();
   expect(button("Remove photo")).toBeDefined(); expect(fixture.coachImage).not.toHaveBeenCalled();
 });
+it.each([true, false])("keeps a viewed private photo compact in the composer=%s while preserving saved-message size", async composer => {
+  if (composer) fixture.map.set(draftKey(fixture.owner, "coach-photo:1:general"), JSON.stringify({
+    upload_id: photoUploadUuid, attachment_id: photoAttachmentUuid, expires_at: "2099-01-01T00:00:00Z"
+  }));
+  await mountPhoto(composer ? PhotoFixture : () => createElement(CoachMessagePhoto, { id: photoAttachmentUuid, generation: 1 }));
+  await act(async () => button("View private photo").props.onPress()); await settle();
+  expect(nodes("CoachImage")).toHaveLength(1);
+  expect(nodes("CoachImage")[0].props.style).toMatchObject({ width: composer ? 100 : 180, height: composer ? 100 : 180 });
+  expect(nodes("CoachImage")[0].props.cachePolicy).toBe("none");
+  expect(nodes("CoachImage")[0].props.source.uri).toBe("https://signed.test/private?ttl=60");
+  expect(button(composer ? "Remove photo" : "Remove photo from chat")).toBeDefined();
+});
 it.each(["before-pick", "during-pick"] as const)("retired photo sharing permission blocks selection %s while removal remains available", async when => {
   const picked = deferred<typeof coachPhotoFile[]>(); fixture.pickImages.mockReturnValueOnce(picked.promise);
   await mountPhoto(); const retained = button("Attach a photo").props.onPress;
