@@ -7,25 +7,30 @@ import type { SavedLocalSession } from "./training";
 
 const fixture = vi.hoisted(() => ({
   owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false,
-  enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(),
-  active: null as null | { workout: { title: string }; actuals: { completed: boolean }[] },
+  enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
+  active: null as null | { workout: { title: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
   session: vi.fn(), correct: vi.fn(), sync: vi.fn(),
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram };
+  const { useMemo } = await import("react");
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
       const member = { enrolled: fixture.enrolled, generation: fixture.generation,
         adult_confirmed: true, shared_account_deletion_acknowledged: true, disclosure_version: 1, enrolled_at: null };
       const enrollmentQuery = useQuery({ queryKey: [owner, "enrollment"], queryFn: fixture.enrollment, initialData: member });
+      const storage = useMemo(() => ({ isCurrent: () => fixture.epoch === epoch }), [owner, fixture.generation, epoch]);
       return { api, owner, units: fixture.units, enrollment: member, enrollmentQuery,
-        isCurrentAccount: () => fixture.current && fixture.owner === owner,
-        storage: { isCurrent: () => fixture.epoch === epoch } };
+        isCurrentAccount: () => fixture.current && fixture.owner === owner, storage };
     },
-    useOfflineTraining: () => ({ state: { active: fixture.active, history: fixture.history }, error: "", ready: true, store: { start: fixture.start, correct: fixture.correct, sync: fixture.sync } }),
+    useOfflineTraining: () => {
+      const store = useMemo(() => ({ start: fixture.start, correct: fixture.correct, sync: fixture.sync,
+        snapshot: () => ({ active: fixture.active, history: fixture.history }) }), [fixture.owner, fixture.generation, fixture.epoch]);
+      return { state: { active: fixture.active, history: fixture.history }, error: "", ready: true, store };
+    },
   };
 });
 vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View" }));
@@ -62,7 +67,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
   fixture.epoch = 0; fixture.available = false; fixture.active = null; fixture.drafts.clear(); fixture.history = []; fixture.units = "metric";
-  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync, fixture.archiveProgram]) mock.mockReset();
+  for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync, fixture.archiveProgram, fixture.setReadiness]) mock.mockReset();
   const available = () => { if (!fixture.available) throw Error("The training service is unavailable. Your draft is safe."); };
   fixture.enrollment.mockImplementation(async () => { available(); return member(); });
   fixture.profile.mockImplementation(async () => { available(); return profile; });
@@ -439,4 +444,214 @@ it.each(["move", "archive"])("a held %s prevents an overlapping plan mutation fr
   expect(fixture.updateProgram).toHaveBeenCalledTimes(first === "move" ? 1 : 0);
   expect(fixture.archiveProgram).toHaveBeenCalledTimes(first === "archive" ? 1 : 0);
   await act(async () => finish({ ...program, revision: 2 })); await settle();
+});
+
+function maintainablePlan(): Program {
+  const workout: Workout = { id: "w", title: "Strength session", generation: 1, revision: 1, kind: "session", provenance: "user",
+    instructions: ["Rest between rounds"], notes: ["Private owner note"], source_context: { parts: [{ location: "caption", text: "2 x 8 rows" }], truncated: false },
+    blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [{ name: "Row", sets: 2, reps_min: 8, instructions: "Keep your back steady", notes: "Private cue" }] }] };
+  return { id: "plan", title: "My plan", generation: 1, revision: 1, status: "ready", questions: [], warnings: [], assumptions: [],
+    source_ids: [], rule_version: "test", sessions: [
+      { id: "past", date: "2020-01-01", purpose: "Past", workout },
+      { id: "today", date: dateInTimezone(new Date(), "UTC"), purpose: "Today", workout },
+      { id: "future", date: "2099-01-02", purpose: "Future", workout },
+    ] };
+}
+async function mountPlan(program = maintainablePlan()) {
+  fixture.available = true; fixture.programs.mockResolvedValue([program]);
+  fixture.updateProgram.mockImplementation(async p => ({ ...p, revision: p.revision + 1 }));
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  return program;
+}
+const planRow = (title: string) => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === title)!;
+async function openRename() {
+  await act(async () => renderer!.root.findAllByType("IconButton" as never).find(node => node.props.label.startsWith("More actions for "))!.props.onPress());
+  await act(async () => planRow("Rename plan").props.onPress());
+}
+it("renames a plan without changing its dates, workout instructions or recorded history", async () => {
+  const original = await mountPlan(); await openRename();
+  const name = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "Plan name")!;
+  await act(async () => name.props.onChange(" My renamed plan "));
+  await act(async () => buttons("Save plan name")[0].props.onPress()); await settle();
+  expect(fixture.updateProgram).toHaveBeenCalledWith({ ...original, title: "My renamed plan" });
+  expect(cache.getQueryData<Program[]>(["owner-A", "programs", 1])?.[0]).toMatchObject({ title: "My renamed plan", revision: 2, sessions: original.sessions });
+  expect(original.title).toBe("My plan"); expect(fixture.start).not.toHaveBeenCalled();
+});
+it("removes only a confirmed future unrecorded day while preserving the other plan entries", async () => {
+  const original = await mountPlan(); expect(buttons("Remove from plan")).toHaveLength(1);
+  await act(async () => buttons("Remove from plan")[0].props.onPress());
+  expect(fixture.updateProgram).not.toHaveBeenCalled();
+  await act(async () => buttons("Keep planned session")[0].props.onPress());
+  expect(fixture.updateProgram).not.toHaveBeenCalled();
+  await act(async () => buttons("Remove from plan")[0].props.onPress());
+  await act(async () => buttons("Remove planned session")[0].props.onPress()); await settle();
+  expect(fixture.updateProgram).toHaveBeenCalledWith({ ...original, sessions: original.sessions.slice(0, 2) });
+  expect(cache.getQueryData<Program[]>(["owner-A", "programs", 1])?.[0].sessions.map(session => session.id)).toEqual(["past", "today"]);
+  expect(original.sessions).toHaveLength(3); expect(fixture.sessions).toHaveBeenCalledTimes(1);
+});
+it.each(["recorded", "active", "pending", "paused", "archived"])("does not offer removing %s planned work", async kind => {
+  const program = maintainablePlan();
+  if (kind === "recorded") fixture.sessions.mockResolvedValue([{ id: "recorded", generation: 1, client_session_id: "client", content: {
+    client_session_id: "client", program_id: program.id, program_session_id: "future", status: "partial", started_at: "2099-01-02T00:00:00Z",
+    actuals: [{ completed: true }], prescription_snapshot: program.sessions[2].workout } }]);
+  if (kind === "active") fixture.active = { workout: { title: "Active future session" }, actuals: [], source: { program_id: program.id, program_session_id: "future" } };
+  if (kind === "pending") fixture.history = [{ generation: 1, state: "blocked", workout: program.sessions[2].workout,
+    request: { client_session_id: "pending", program_id: program.id, program_revision: 1, program_session_id: "future", started_at: "2099-01-02T00:00:00Z", finished_at: "2099-01-02T00:01:00Z", status: "partial", actuals: [] } }];
+  if (kind === "paused") program.schedule_state = { status: "paused" };
+  if (kind === "archived") program.schedule_state = { status: "paused", archived_at: "2026-10-15" };
+  await mountPlan(program);
+  if (kind === "archived") { await act(async () => buttons("Archived plans")[0].props.onPress()); }
+  expect(buttons("Remove from plan")).toHaveLength(0);
+});
+it("rechecks live active training before confirming removal", async () => {
+  const program = await mountPlan();
+  await act(async () => buttons("Remove from plan")[0].props.onPress());
+  fixture.active = { workout: { title: "Started on this device" }, actuals: [], source: { program_id: program.id, program_session_id: "future" } };
+  await act(async () => buttons("Remove planned session")[0].props.onPress()); await settle();
+  expect(fixture.updateProgram).not.toHaveBeenCalled(); expect(text()).toContain("Only future sessions");
+});
+it.each(["rename", "remove"])("a held %s fences duplicate taps and late acknowledgments after account changes", async kind => {
+  const program = await mountPlan();
+  let resolve!: (program: Program) => void;
+  fixture.updateProgram.mockImplementationOnce(() => new Promise<Program>(done => { resolve = done; }));
+  if (kind === "rename") await openRename();
+  else await act(async () => buttons("Remove from plan")[0].props.onPress());
+  const press = buttons(kind === "rename" ? "Save plan name" : "Remove planned session")[0].props.onPress;
+  await act(async () => { press(); press(); }); expect(fixture.updateProgram).toHaveBeenCalledTimes(1);
+  fixture.owner = "owner-B"; fixture.epoch++;
+  await act(async () => resolve({ ...program, title: "Old account acknowledgment", revision: 2 })); await settle();
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([program]);
+  expect(cache.getQueryData(["owner-B", "programs", 1])).toBeUndefined();
+});
+it("rejects invalid names and stale program revisions before sending, and refreshes server conflicts", async () => {
+  const program = await mountPlan(); await openRename();
+  const name = () => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "Plan name")!;
+  await act(async () => name().props.onChange("  "));
+  await act(async () => buttons("Save plan name")[0].props.onPress());
+  expect(fixture.updateProgram).not.toHaveBeenCalled(); expect(text()).toContain("Use a plan name");
+  await act(async () => name().props.onChange("Good name"));
+  await act(async () => { cache.setQueryData(["owner-A", "programs", 1], [{ ...program, revision: 2 }]); });
+  await act(async () => buttons("Save plan name")[0].props.onPress());
+  expect(fixture.updateProgram).not.toHaveBeenCalled(); expect(text()).toContain("This plan changed");
+  await act(async () => buttons("Keep original name")[0].props.onPress()); await openRename();
+  fixture.updateProgram.mockRejectedValueOnce(Object.assign(Error("Refresh the saved program."), { status: 409 }));
+  await act(async () => buttons("Save plan name")[0].props.onPress()); await settle();
+  expect(fixture.updateProgram).toHaveBeenCalledTimes(1); expect(fixture.programs.mock.calls.length).toBeGreaterThan(1);
+  expect(text()).toContain("Refresh the saved program");
+});
+
+it("does not write a held maintenance acknowledgment into a new enrollment or overwrite a newer plan revision", async () => {
+  const program = await mountPlan(); await openRename();
+  let resolve!: (program: Program) => void;
+  fixture.updateProgram.mockImplementationOnce(() => new Promise<Program>(done => { resolve = done; }));
+  await act(async () => buttons("Save plan name")[0].props.onPress());
+  const newer = { ...program, revision: 3, title: "Newer server title" };
+  await act(async () => { cache.setQueryData(["owner-A", "programs", 1], [newer]); });
+  await act(async () => resolve({ ...program, revision: 2 })); await settle();
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([newer]);
+  await openRename();
+  fixture.updateProgram.mockImplementationOnce(() => new Promise<Program>(done => { resolve = done; }));
+  await act(async () => buttons("Save plan name")[0].props.onPress());
+  fixture.generation = 2; fixture.programs.mockResolvedValue([]);
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Plan)))); await settle();
+  await act(async () => resolve({ ...newer, revision: 4 })); await settle();
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([newer]);
+  expect(cache.getQueryData(["owner-A", "programs", 2])).toEqual([]);
+});
+
+it("an old generation acknowledgment cannot unlock an in-flight maintenance command in the new generation", async () => {
+  const original = await mountPlan(); await openRename();
+  let oldAck!: (program: Program) => void, newAck!: (program: Program) => void;
+  fixture.updateProgram.mockImplementationOnce(() => new Promise<Program>(done => { oldAck = done; }));
+  await act(async () => buttons("Save plan name")[0].props.onPress());
+  const next = { ...original, generation: 2, title: "New enrollment plan" };
+  fixture.generation = 2; fixture.programs.mockResolvedValue([next]);
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Plan)))); await settle();
+  await openRename();
+  fixture.updateProgram.mockImplementationOnce(() => new Promise<Program>(done => { newAck = done; }));
+  const press = buttons("Save plan name")[0].props.onPress;
+  await act(async () => press());
+  await act(async () => oldAck({ ...original, revision: 2 })); await settle();
+  await act(async () => press());
+  expect(fixture.updateProgram).toHaveBeenCalledTimes(2);
+  expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([original]);
+  expect(cache.getQueryData(["owner-A", "programs", 2])).toEqual([next]);
+  await act(async () => newAck({ ...next, revision: 2 })); await settle();
+  expect(cache.getQueryData<Program[]>(["owner-A", "programs", 2])?.[0].revision).toBe(2);
+});
+
+it.each(["owner", "storage", "generation"] as const)("a retired native date callback cannot overwrite the %s scope's new editor", async kind => {
+  await mountPlan();
+  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  const old = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.onChange;
+  if (kind === "owner") fixture.owner = "owner-B";
+  else if (kind === "storage") fixture.epoch += 1;
+  else fixture.generation += 1;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Plan)))); await settle();
+  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  await act(async () => old("2099-08-20"));
+  const field = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!;
+  expect(field.props.value).toBe("2099-01-02"); expect(fixture.updateProgram).not.toHaveBeenCalled();
+});
+it("a native date callback for the previous editor cannot overwrite a different session or a reopened editor", async () => {
+  await mountPlan();
+  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  const old = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.onChange;
+  await act(async () => buttons("Move this session")[0].props.onPress());
+  await act(async () => old("2099-08-20"));
+  expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe(dateInTimezone(new Date(), "UTC"));
+  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  await act(async () => old("2099-08-21"));
+  expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe("2099-01-02");
+});
+
+const readinessRejection = () => Object.assign(new Error("Refresh the saved program."), {
+  status: 409, detail: "Confirm readiness before applying a training change",
+});
+async function requirePlanReadiness() {
+  await mountPlan();
+  fixture.updateProgram.mockRejectedValueOnce(readinessRejection());
+  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  const date = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!;
+  await act(async () => date.props.onChange("2099-02-10"));
+  await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
+}
+it("confirms expired daily readiness in the date editor and preserves the entered date through a failed confirmation", async () => {
+  await requirePlanReadiness();
+  expect(text()).toContain("Confirm your current readiness in the date editor");
+  expect(buttons("I’m ready to train today")).toHaveLength(1);
+  fixture.setReadiness.mockRejectedValueOnce(Error("Readiness confirmation unavailable"));
+  await act(async () => buttons("I’m ready to train today")[0].props.onPress()); await settle();
+  expect(text()).toContain("Readiness confirmation unavailable");
+  fixture.setReadiness.mockResolvedValueOnce({ state: "ready" });
+  await act(async () => buttons("I’m ready to train today")[0].props.onPress()); await settle();
+  expect(fixture.setReadiness.mock.calls).toEqual([["ready", 1], ["ready", 1]]);
+  expect(buttons("I’m ready to train today")).toHaveLength(0);
+  expect(fixture.updateProgram).toHaveBeenCalledTimes(1); // Confirmation never moves a session implicitly.
+  expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe("2099-02-10");
+  await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
+  expect(fixture.updateProgram.mock.calls[1][0].sessions.at(-1).date).toBe("2099-02-10");
+});
+it.each(["owner", "storage", "editor"] as const)("a readiness confirmation callback cannot borrow a replacement %s", async kind => {
+  await requirePlanReadiness();
+  const oldConfirm = buttons("I’m ready to train today")[0].props.onPress;
+  if (kind === "editor") await act(async () => buttons("Move this session")[0].props.onPress());
+  else {
+    if (kind === "owner") fixture.owner = "owner-B"; else fixture.epoch += 1;
+    await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Plan)))); await settle();
+  }
+  await act(async () => oldConfirm()); await settle();
+  expect(fixture.setReadiness).not.toHaveBeenCalled();
+});
+it("a held readiness acknowledgment preserves a newly opened date editor", async () => {
+  await requirePlanReadiness();
+  let finish!: () => void;
+  fixture.setReadiness.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  await act(async () => { buttons("I’m ready to train today")[0].props.onPress(); });
+  // Capture and invoke the old move affordance to model an already queued native interaction.
+  await act(async () => buttons("Move this session")[0].props.onPress());
+  await act(async () => finish()); await settle();
+  expect(buttons("Save new date")).toHaveLength(1);
+  expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe(dateInTimezone(new Date(), "UTC"));
+  expect(fixture.updateProgram).toHaveBeenCalledTimes(1);
 });

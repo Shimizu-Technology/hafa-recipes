@@ -13,7 +13,7 @@ export function programMoveError(error: unknown): string {
       case "Another plan already has a session on this date":
         return "Another plan already has a session that day. Choose a different date.";
       case "Confirm readiness before applying a training change":
-        return "Confirm your current readiness in your training profile before moving this session.";
+        return "Confirm your current readiness in the date editor before moving this session.";
     }
   }
   return error instanceof Error ? error.message : "The session could not be moved. Try again.";
