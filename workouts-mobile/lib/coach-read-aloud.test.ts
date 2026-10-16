@@ -108,6 +108,20 @@ it("retains uncertain Stop authority, blocks new speech and retries until native
   await control.stop(scope); expect(control.snapshot().phase).toBe("idle");
   read("retry"); await settle(); expect(control.snapshot().messageId).toBe("retry");
 });
+it.each([
+  ["onDone", "scoped"], ["onDone", "global"],
+  ["onStopped", "scoped"], ["onStopped", "global"],
+] as const)("allows %s completion after failed Stop to unblock a later %s stop", async (completion, mode) => {
+  const { speech, control, scope, read } = fixture(); read(); await settle();
+  const callbacks = speech.speak.mock.calls[0][1];
+  speech.stop.mockRejectedValueOnce(Error("native stop failed"));
+  await expect(control.stop(scope)).rejects.toThrow("confirm speech stopped");
+  expect(control.snapshot().phase).toBe("stop_failed");
+  callbacks[completion]?.();
+  expect(control.snapshot()).toMatchObject({ phase: "idle", messageId: null, error: "" });
+  await expect(mode === "global" ? control.stop() : control.stop(scope)).resolves.toBeUndefined();
+  expect(speech.stop).toHaveBeenCalledTimes(2);
+});
 it("retains uncertain replacement-stop authority when A is speaking and B cannot stop it", async () => {
   const { speech, control, scope, read } = fixture(); read("A"); await settle();
   speech.stop.mockRejectedValueOnce(Error("replacement stop failed")); read("B"); await settle();

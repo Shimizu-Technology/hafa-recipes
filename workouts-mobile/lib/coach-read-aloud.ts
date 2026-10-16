@@ -66,7 +66,8 @@ export function createCoachReadAloud(speech: DeviceSpeech, localWebVoice = false
   }
   function stop(scope?: object) {
     const active = session;
-    if (!active || active.cancelled && value.phase !== "stop_failed" || scope && active.scope !== scope && value.phase !== "stop_failed") return tail;
+    if (!active) return tail.catch(() => undefined);
+    if (active.cancelled && value.phase !== "stop_failed" || scope && active.scope !== scope && value.phase !== "stop_failed") return tail;
     active.cancelled = true;
     active.cancelLookup?.();
     publish({ scope: active.scope, messageId: active.message.id, phase: "stopping", error: "" });
