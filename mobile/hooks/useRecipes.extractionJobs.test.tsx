@@ -795,3 +795,31 @@ describe('recipe detail deletion navigation', () => {
     } finally { if (change !== 'unmount') await act(async () => renderer.unmount()); client.clear(); }
   });
 });
+
+
+it.each(['same-auth', 'changed-auth', 'returned-auth'] as const)(
+  'rolls back an unmounted failed deletion only under its frozen %s authority', async next => {
+    const client = new QueryClient(); mocks.getUserId.mockReturnValue('owner-a');
+    const key = recipeKeys.infinite(); const original = { pages: [{ items: [{ id: 'deleted' }, { id: 'kept' }], total: 2 }], pageParams: [0] };
+    client.setQueryData(key, original);
+    let reject!: (error: Error) => void;
+    mocks.deleteRecipe.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    let mutation!: ReturnType<typeof useDeleteRecipe>;
+    function Hook() { mutation = useDeleteRecipe(); return null; }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<QueryClientProvider client={client}><Hook /></QueryClientProvider>); });
+    let pending!: Promise<unknown>;
+    await act(async () => { pending = mutation.mutateAsync('deleted').catch(() => undefined); });
+    expect(client.getQueryData(key)).toMatchObject({ pages: [{ items: [{ id: 'kept' }], total: 1 }] });
+    await act(async () => renderer.unmount());
+    const replacement = { pages: [{ items: [{ id: 'new-account' }], total: 1 }], pageParams: [0] };
+    if (next !== 'same-auth') {
+      mocks.getUserId.mockReturnValue('owner-b'); mocks.getAuthScope();
+      if (next === 'returned-auth') { mocks.getUserId.mockReturnValue('owner-a'); mocks.getAuthScope(); }
+      client.clear(); client.setQueryData(key, replacement);
+    }
+    await act(async () => { reject(new Error('Offline')); await pending; });
+    expect(client.getQueryData(key)).toEqual(next === 'same-auth' ? original : replacement);
+    client.clear();
+  }
+);

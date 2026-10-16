@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
     _config?: unknown,
   ): Promise<{ data: Record<string, unknown> }> => ({ data: { success: true } }));
   return {
+    readBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
     client: {
       delete: vi.fn(),
       get: vi.fn(),
@@ -33,7 +34,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
 vi.mock('expo-file-system', () => ({ File: class {
   constructor(public uri: string) {}
-  async bytes() { return new Uint8Array([1, 2, 3]); }
+  async bytes() { return mocks.readBytes(); }
 } }));
 
 vi.mock('axios', () => ({
@@ -71,6 +72,7 @@ function uploadedFiles(formData: unknown, fieldName: string) {
 
 describe('recipe image multipart requests', () => {
   beforeEach(() => {
+    mocks.readBytes.mockReset(); mocks.readBytes.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mocks.post.mockClear();
     mocks.addBreadcrumb.mockClear();
     mocks.captureError.mockClear();
@@ -461,5 +463,50 @@ describe('recipe image multipart requests', () => {
       { text: 'Read this response', voice: 'nova' },
       { responseType: 'blob', signal: controller.signal },
     );
+  });
+});
+
+
+describe('frozen recipe write authentication', () => {
+  it.each(['image-edit', 'patch-edit', 'original-restore', 'version-restore'] as const)(
+    'rejects a held %s token after credentials clear before the editor unmounts', async operation => {
+      let finishToken!: (token: string) => void;
+      api.setAuthContext(() => new Promise<string>(resolve => { finishToken = resolve; }), 'owner-a');
+      const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+      const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+      const dispatch = async (url: string, _body: unknown, config: unknown) => {
+        await interceptor({ ...(config as object), url, headers: {} }); return transport();
+      };
+      mocks.client.patch.mockImplementationOnce(dispatch); mocks.post.mockImplementationOnce(dispatch);
+      const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+      try {
+        const request = operation === 'original-restore' ? api.restoreOriginalRecipe('recipe-a', () => {})
+          : operation === 'version-restore' ? api.restoreRecipeVersion('recipe-a', 'version-a')
+            : api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, operation === 'image-edit' ? 'file:///recipe.jpg' : null, () => {});
+        void request.catch(() => undefined);
+        for (let tick = 0; tick < 30 && !finishToken; tick++) await Promise.resolve();
+        expect(finishToken).toBeTypeOf('function');
+        api.setTokenGetter(null); finishToken('held-owner-a-token');
+        await expect(request).rejects.toThrow('Authentication changed');
+        expect(transport).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+      } finally { api.setAuthContext(null, null); mocks.post.mockReset(); }
+    }
+  );
+
+  it('freezes image-edit authentication before asynchronous image conversion', async () => {
+    let finishImage!: (bytes: Uint8Array) => void;
+    mocks.readBytes.mockImplementationOnce(() => new Promise<Uint8Array>(resolve => { finishImage = resolve; }));
+    const getToken = vi.fn(async () => 'replacement-token'); api.setAuthContext(getToken, 'owner-a');
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      void request.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishImage; tick++) await Promise.resolve();
+      expect(finishImage).toBeTypeOf('function');
+      api.setAuthContext(async () => 'b-token', 'owner-b'); api.setAuthContext(getToken, 'owner-a');
+      finishImage(new Uint8Array([1, 2, 3]));
+      await expect(request).rejects.toThrow('Authentication changed');
+      expect(getToken).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+    } finally { api.setAuthContext(null, null); }
   });
 });
