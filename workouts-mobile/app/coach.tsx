@@ -394,10 +394,11 @@ export default function Coach() {
       };
       if (!(await drafts.save(owner, generation, focusKey, { message: request.message, pending: request }, epoch)))
         throw Error("This conversation was cleared while the draft was open. Reload before sending another message.");
-      if (!currentDelivery()) return;
+      if (!currentConversation()) return;
       if (!(await sameConversation())) throw Error("This conversation was cleared while the draft was open. Reload before sending another message.");
-      if (!currentDelivery()) return;
+      if (!currentConversation()) return;
       setPending(request);
+      if (!currentDelivery()) return;
       operation = { request_id: request.request_id, controller: new AbortController() };
       sending.current = operation;
       const active = operation;
