@@ -148,10 +148,15 @@ export default function Coach() {
     refetchInterval: query => focused && foreground && (pending || query.state.data?.pages.some(page => page.messages.some(item => item.state === "pending"))) ? 3000 : false,
   });
   const delivery = useRef(false);
+  const deliveryScope = useMemo(() => ({}), [replyScope, consent.data?.accepted, capabilities.data?.coach]);
+  const liveDelivery = useRef<object | null>(null);
   useLayoutEffect(() => {
+    liveDelivery.current = deliveryScope;
     delivery.current = focused && foreground && !!consent.data?.accepted && !!capabilities.data?.coach;
     if (!delivery.current) { sending.current?.controller.abort(); setProvisional(""); }
-  }, [focused, foreground, consent.data?.accepted, capabilities.data?.coach]);
+    return () => { if (liveDelivery.current === deliveryScope) { liveDelivery.current = null; sending.current?.controller.abort(); } };
+  }, [deliveryScope]);
+  const currentDelivery = () => currentConversation() && liveDelivery.current === deliveryScope && delivery.current && routeActive.current && AppState.currentState === "active";
   useLayoutEffect(() => {
     if (sending.current && sending.current.request_id !== pending?.request_id) {
       sending.current.controller.abort(); setProvisional("");
@@ -363,7 +368,7 @@ export default function Coach() {
     }
   }
   async function send() {
-    if (guard.current || stoppingRef.current || !currentConversation() || !loaded || !focused || !foreground) return;
+    if (guard.current || stoppingRef.current || !currentDelivery() || !loaded) return;
     if (pendingRef.current?.stop_requested) return; // A lost Stop acknowledgement must never resend.
     const problems = coachFocusErrors(focus);
     if (!pending && (!message.trim() || message.length > 4000)) problems.push("Write a message of 1–4000 characters.");
@@ -389,28 +394,28 @@ export default function Coach() {
       };
       if (!(await drafts.save(owner, generation, focusKey, { message: request.message, pending: request }, epoch)))
         throw Error("This conversation was cleared while the draft was open. Reload before sending another message.");
-      if (!currentConversation()) return;
+      if (!currentDelivery()) return;
       if (!(await sameConversation())) throw Error("This conversation was cleared while the draft was open. Reload before sending another message.");
-      if (!currentConversation()) return;
+      if (!currentDelivery()) return;
       setPending(request);
       operation = { request_id: request.request_id, controller: new AbortController() };
       sending.current = operation;
       const active = operation;
       const receipt = capabilities.data?.coach_streaming
         ? await api.coachStream(request.request_id, request.message, request.focus, request.generation, active.controller.signal, async text => {
-          if (!current() || !delivery.current || sending.current !== active || (pendingRef.current?.stop_requested || pendingRef.current?.request_id !== request.request_id) || !(await sameConversation()))
+          if (!currentDelivery() || sending.current !== active || (pendingRef.current?.stop_requested || pendingRef.current?.request_id !== request.request_id) || !(await sameConversation()))
             throw Error("This reply view was retired. Check the saved request when you return.");
-          if (current() && delivery.current && sending.current === active && !pendingRef.current?.stop_requested && pendingRef.current?.request_id === request.request_id) setProvisional(text);
+          if (currentDelivery() && sending.current === active && !pendingRef.current?.stop_requested && pendingRef.current?.request_id === request.request_id) setProvisional(text);
         })
         : await api.coachMessage(request.request_id, request.message, request.focus, request.generation, active.controller.signal);
-      if (!current() || sending.current !== operation || active.controller.signal.aborted || !delivery.current ||
-          (await drafts.epoch(owner, generation)) !== epoch || !current() || !delivery.current || active.controller.signal.aborted) return;
+      if (!currentDelivery() || sending.current !== operation || active.controller.signal.aborted ||
+          (await drafts.epoch(owner, generation)) !== epoch || !currentDelivery() || active.controller.signal.aborted) return;
       if (receipt.request_id !== request.request_id || receipt.generation !== request.generation)
         throw Error("Could not confirm delivery of this saved message. Retry the same request.");
       rememberReceipt(receipt); await finishReply(receipt);
       void cache.invalidateQueries({ queryKey: [owner, "coach-history"] });
     } catch (e) {
-      if (currentConversation() && (!operation || sending.current === operation) && !pendingRef.current?.stop_requested) {
+      if (currentDelivery() && (!operation || sending.current === operation) && !pendingRef.current?.stop_requested) {
         setError((e as Error).message);
         setClearedRequest((e as { status?: number }).status === 410);
       }
