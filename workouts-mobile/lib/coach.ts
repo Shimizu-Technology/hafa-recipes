@@ -18,6 +18,7 @@ export interface CoachMessage {
   request_id: string;
   generation: number;
   state: "pending" | "completed" | "failed";
+  cancelled?: boolean;
   user_message: string;
   assistant_message: string | null;
   actions: CoachSummary[];
@@ -74,6 +75,8 @@ export interface PendingCoachMessage {
   generation: number;
   focus: CoachFocus;
   created_at: string;
+  // Device-only intent: retry cancellation, never resubmit this message.
+  stop_requested?: true;
 }
 export function coachFocusErrors(focus: CoachFocus) {
   const count = [focus.context_workout_id, focus.context_program_id, focus.context_session_id].filter(Boolean).length;
