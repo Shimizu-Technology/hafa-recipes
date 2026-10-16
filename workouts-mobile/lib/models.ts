@@ -86,6 +86,7 @@ export interface Workout {
     parts: Array<{ location: string; text: string }>;
     truncated: boolean;
   } | null;
+  cover_origin?: "user" | null;
   extraction_warnings?: string[];
   instructions?: string[];
   notes?: string[];

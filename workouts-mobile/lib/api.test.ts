@@ -369,3 +369,18 @@ it("does not start a profile write when its paired revision is absent", async ()
   await expect(api.saveProfileSnapshot({} as import("./models").TrainingProfile, null, 1)).rejects.toMatchObject({ status: 428 });
   expect(transport).not.toHaveBeenCalled();
 });
+
+
+it("uploads cover multipart with exact frozen identity and account headers, while leaving the boundary to the transport", async () => {
+  const transport = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "workout", generation: 7, revision: 5,
+    content: { title: "Original", cover_origin: "user", source_thumbnail_url: "https://example.test/cover" } })));
+  const api = createWorkoutsApi("https://example.test", async () => "synthetic", transport,
+    { owner: "owner", binding: "binding", currentBinding: () => "binding" });
+  const body = new FormData(); body.append("image", new Blob(["exact image bytes"], { type: "image/jpeg" }), "workout-cover.jpg");
+  const result = await api.uploadWorkoutCover({ id: "workout", revision: 4, generation: 7 }, body, "frozen-uuid");
+  expect(transport.mock.calls[0][0]).toBe("https://example.test/api/v1/workouts/library/workout/cover?expected_revision=4");
+  expect(transport.mock.calls[0][1].body).toBe(body);
+  expect(transport.mock.calls[0][1].headers).toEqual({ Authorization: "Bearer synthetic", "X-Hafa-Account-ID": "owner",
+    "X-Workouts-Generation": "7", "Idempotency-Key": "frozen-uuid" });
+  expect(result.cover_origin).toBe("user"); expect(result.revision).toBe(5);
+});

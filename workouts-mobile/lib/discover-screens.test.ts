@@ -1130,3 +1130,18 @@ it("keeps saved workout instructions ahead of optional diagnostics without losin
   await act(async () => button("Hide import diagnostics")!.props.onPress());
   expect(renderedText()).not.toContain(warning);
 });
+
+it.each([undefined, false, true])("gates the owner cover editor on actual server cover readiness %s", async ready => {
+  fixture.params = { id: saved.id }; fixture.workout.mockResolvedValue({ ...saved, cover_origin: "user", source_thumbnail_url: "https://example.test/user.jpg",
+    source_title: "Original source title", source_creator: "Original creator" });
+  fixture.capabilities.mockResolvedValue({ ...caps(false), cover_upload: ready });
+  await mount(WorkoutDetail);
+  const change = nodes("Button").find(node => node.props.title === "Change cover photo");
+  expect(!!change).toBe(ready === true);
+  expect(nodes("SourceImage")[0].props.label).toBe("Custom workout cover photo");
+  expect(nodes("Copy").flatMap(node => node.children).join(" ")).toContain("Original creator");
+  if (change) {
+    await act(async () => change.props.onPress());
+    expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout-cover/[id]", params: { id: saved.id } });
+  }
+});

@@ -127,7 +127,7 @@ export async function normalizeImages(inputs: ImageInputs, guard: CaptureGuard, 
     throw error;
   }
 }
-export async function pickImages(camera: boolean, guard: CaptureGuard, owner: string): Promise<CaptureFile[]> {
+export async function pickImages(camera: boolean, guard: CaptureGuard, owner: string, limit: 1 | 4 = 4): Promise<CaptureFile[]> {
   guard();
   const lease = await journal.begin(owner, Crypto.randomUUID());
   try {
@@ -146,8 +146,8 @@ export async function pickImages(camera: boolean, guard: CaptureGuard, owner: st
           ? ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
           : ImagePicker.launchImageLibraryAsync({
               mediaTypes: ["images"],
-              allowsMultipleSelection: true,
-              selectionLimit: 4,
+              allowsMultipleSelection: limit > 1,
+              selectionLimit: limit,
               quality: 1
             });
       },
@@ -284,4 +284,34 @@ export async function cleanupCaptureFiles(files: CaptureFile[], strict = false) 
         })
       )
   );
+}
+
+
+/** Recreate a temporary multipart part from frozen bytes; picker/cache loss cannot change a retry. */
+export async function coverImageForm(base64: string, guard: CaptureGuard, owner: string) {
+  guard();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64) || base64.length % 4 || base64.length * 0.75 > 2 * 1024 * 1024)
+    throw Error("Choose a smaller available cover photo.");
+  const body = new FormData();
+  if (Platform.OS === "web") {
+    const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+    body.append("image", new Blob([bytes], { type: "image/jpeg" }), "workout-cover.jpg");
+    return { body, cleanup: async () => {} };
+  }
+  const lease = await journal.begin(owner, Crypto.randomUUID());
+  try {
+    const uri = `${ownedPrefix()}${Crypto.randomUUID()}.jpg`;
+    await lease.remember([{ uri, kind: "capture" }]); guard();
+    await FileSystem.makeDirectoryAsync(ownedPrefix(), { intermediates: true }); guard();
+    await lease.native("known", () => FileSystem.writeAsStringAsync(uri, base64,
+      { encoding: FileSystem.EncodingType.Base64 }), undefined, guard);
+    await lease.finish(); guard();
+    const { File } = await import("expo-file-system");
+    const file = new File(uri);
+    body.append("image", { uri, name: "workout-cover.jpg", type: "image/jpeg", bytes: () => file.bytes() } as unknown as Blob);
+    return { body, cleanup: () => lease.cleanup() };
+  } catch (error) {
+    try { await lease.finish(); } finally { await lease.cleanup(); }
+    throw error;
+  }
 }

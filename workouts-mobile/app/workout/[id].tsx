@@ -284,6 +284,9 @@ export default function WorkoutDetail() {
               {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
             </Card>}
             <WorkoutSource source={workout} />
+            {capabilities.data?.cover_upload === true && <Button
+              title={workout.source_thumbnail_url ? "Change cover photo" : "Choose cover photo"} secondary icon="image-outline"
+              disabled={busy || deleteBusy || publishing} onPress={() => { if (!action.current && isCurrentAccount()) router.push({ pathname: "/workout-cover/[id]", params: { id: workout.id } }); }} /> }
             {workout.source_url && /^https?:\/\//i.test(workout.source_url) && (
               <Button title="Open original source" icon="open-outline" secondary onPress={() => {
                 void Linking.openURL(workout.source_url!).catch(() => setError("Could not open the original source."));

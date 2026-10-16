@@ -211,7 +211,9 @@ export function createWorkoutsApi(
     if (options.signal?.aborted) controller.abort();
     const timer = setTimeout(() => controller.abort(), options.timeout_ms ?? 20000);
     try {
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      const multipart = body instanceof FormData;
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (!multipart) headers["Content-Type"] = "application/json";
       if (account?.owner) headers["X-Hafa-Account-ID"] = account.owner;
       if (options.generation != null) headers["X-Workouts-Generation"] = String(options.generation);
       if (options.revision != null) headers["If-Match"] = `"${options.revision}"`;
@@ -221,7 +223,7 @@ export function createWorkoutsApi(
         {
           method,
           headers,
-          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          ...(body !== undefined ? { body: multipart ? body as FormData : JSON.stringify(body) } : {}),
           signal: controller.signal,
         }
       );
@@ -986,6 +988,15 @@ export function createWorkoutsApi(
           })
         ).data
       );
+    },
+    async uploadWorkoutCover(target: Pick<Workout, "id" | "revision" | "generation">, image: FormData, key: string) {
+      const row = workoutRecord((await request<RecordEnvelope<Workout>>(
+        `/library/${encodeURIComponent(target.id)}/cover?expected_revision=${target.revision}`,
+        "POST", image, { generation: target.generation, creationKey: key, timeout_ms: 60000 }
+      )).data);
+      if (row.generation !== target.generation || row.id !== target.id)
+        throw new ApiError("Your saved workout changed. Reload before continuing.", 409);
+      return row;
     },
     async deleteWorkout(id: string, generation: number) {
       await request(`/library/${encodeURIComponent(id)}`, "DELETE", undefined, { generation });

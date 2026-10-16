@@ -19,6 +19,7 @@ const native = vi.hoisted(() => ({
   copy: vi.fn(),
   remove: vi.fn(),
   read: vi.fn(),
+  write: vi.fn(),
   size: 100
 }));
 vi.mock("@react-native-async-storage/async-storage", () => ({
@@ -49,10 +50,13 @@ vi.mock("expo-file-system/legacy", () => ({
   copyAsync: native.copy,
   deleteAsync: native.remove,
   readAsStringAsync: native.read,
+  writeAsStringAsync: native.write,
   getInfoAsync: async (uri: string) => ({ exists: native.files.has(uri), isDirectory: false, size: native.size }),
   EncodingType: { Base64: "base64" }
 }));
-import { normalizeImages, normalizeDocument, pickImages, pickDocument, sourceFor, recoverCaptureCleanup, cleanupCaptureFiles } from "./capture-io";
+vi.mock("expo-file-system", () => ({ File: class { constructor(readonly uri: string) {}
+  async bytes() { return Uint8Array.from(atob(native.files.get(this.uri)!), char => char.charCodeAt(0)); } } }));
+import { normalizeImages, normalizeDocument, pickImages, pickDocument, sourceFor, recoverCaptureCleanup, cleanupCaptureFiles, coverImageForm } from "./capture-io";
 import { createPrivateStorageRegistry } from "./private-storage";
 import { createCaptureCleanupJournal } from "./capture-cleanup";
 import { draftKey } from "./drafts";
@@ -99,6 +103,7 @@ beforeEach(() => {
     native.files.delete(uri);
   });
   native.read.mockImplementation(async (uri: string) => native.files.get(uri));
+  native.write.mockImplementation(async (uri: string, bytes: string) => { native.files.set(uri, bytes); });
   native.manipulate.mockImplementation(async () => {
     const uri = `file:///cache/ImageManipulator/${++native.next}.jpg`;
     native.files.set(uri, "normalized");
@@ -964,4 +969,38 @@ it("rebases the same Simulator device container while retaining owner and operat
   await relocatedJournal(root).recover("A");
   expect(native.remove).toHaveBeenCalledWith(`${root}hafa-workouts-capture/owned.jpg`);
   expect(native.remove).not.toHaveBeenCalledWith(old);
+});
+
+
+it("freezes a single normalized cover selection and recreates native multipart bytes under the cleanup journal", async () => {
+  native.files.set("file:///user/original.jpg", "ORIGINAL USER PHOTO");
+  native.picker.mockResolvedValue({ canceled: false, assets: [{ uri: "file:///user/original.jpg", width: 100, height: 100 }] });
+  const selected = await pickImages(false, () => {}, "cover-owner", 1);
+  expect(native.picker).toHaveBeenCalledWith(expect.objectContaining({ allowsMultipleSelection: false, selectionLimit: 1 }));
+  await cleanupCaptureFiles(selected);
+  const appended: unknown[][] = [];
+  class Multipart { append(...part: unknown[]) { appended.push(part); } }
+  vi.stubGlobal("FormData", Multipart);
+  try {
+    native.write.mockImplementation(async (uri: string, bytes: string) => {
+      const record = [...native.records.values()].map(raw => JSON.parse(raw)).find(record => record.assets.some((asset: { uri: string }) => asset.uri === uri));
+      expect(record).toMatchObject({ state: "open", nativeKind: "known" });
+      native.files.set(uri, bytes);
+    });
+    const part = await coverImageForm("SU1BR0U=", () => {}, "cover-owner");
+    const image = appended[0][1] as { uri: string; type: string; bytes(): Promise<Uint8Array> };
+    expect(image.type).toBe("image/jpeg"); expect(native.files.get(image.uri)).toBe("SU1BR0U=");
+    expect(new TextDecoder().decode(await image.bytes())).toBe("IMAGE");
+    await part.cleanup(); expect(native.files.has(image.uri)).toBe(false);
+    expect(native.files.get("file:///user/original.jpg")).toBe("ORIGINAL USER PHOTO");
+  } finally { vi.unstubAllGlobals(); }
+});
+it("uses exact frozen cover bytes in browser multipart and rejects malformed or oversized data before writing", async () => {
+  native.platform = "web";
+  const image = await coverImageForm("SU1BR0U=", () => {}, "cover-web");
+  const file = image.body.get("image") as Blob;
+  expect(await file.text()).toBe("IMAGE"); expect(file.type).toBe("image/jpeg"); await image.cleanup();
+  await expect(coverImageForm("invalid", () => {}, "cover-web")).rejects.toThrow("smaller");
+  await expect(coverImageForm("A".repeat(3 * 1024 * 1024), () => {}, "cover-web")).rejects.toThrow("smaller");
+  expect(native.write).not.toHaveBeenCalled();
 });
