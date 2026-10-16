@@ -12,7 +12,7 @@ export function SourcePlayerModal({ player, title, onClose, onOpenOriginal }: So
   const [attempt, setAttempt] = useState(0);
   const [stage, setStage] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
-    const sub = AppState.addEventListener("change", next => { if (next !== "active") onClose(); });
+    const sub = AppState.addEventListener("change", next => { if (next === "background") onClose(); });
     return () => sub.remove();
   }, [onClose]);
   useEffect(() => {

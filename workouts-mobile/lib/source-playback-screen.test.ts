@@ -83,6 +83,13 @@ it("mounts the native player only after presentation and confines its URLs, popu
   expect(nodes("WebView")).toHaveLength(0); expect(button("Open original source")).toBeDefined();
   await click("Try player again"); expect(nodes("WebView")).toHaveLength(1);
 });
+it("keeps a loaded player open during transient inactivity and closes on background", async () => {
+  await mountNative(); await showPlayer();
+  await act(async () => { nodes("WebView")[0].props.onLoadEnd(); });
+  await act(async () => { f.background!("inactive"); f.background!("active"); });
+  expect(f.close).not.toHaveBeenCalled(); expect(nodes("WebView")).toHaveLength(1);
+  await act(async () => { f.background!("background"); }); expect(f.close).toHaveBeenCalledOnce();
+});
 it("offers fallback after the load timeout and tears down the background listener", async () => {
   vi.useFakeTimers(); await mountNative(); await showPlayer();
   await act(async () => { vi.advanceTimersByTime(15001); });
