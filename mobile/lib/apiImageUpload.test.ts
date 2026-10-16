@@ -245,13 +245,16 @@ describe('recipe image multipart requests', () => {
       verified_paths: ['title'],
     };
 
-    await api.editRecipe('recipe-1', edit, 'file:///recipe.jpg');
-    const request = fetchMock.mock.calls[0][1];
-    const fields = (request.body as InspectableFormData).fields;
-    expect(fields).toContainEqual({ name: 'recipe_data', value: JSON.stringify(edit) });
-
-    await expect(api.editRecipe('recipe-1', edit, 'file:///recipe.jpg'))
-      .rejects.toThrow('This recipe changed after review started. Reload it before saving.');
+    api.setTokenGetter(async () => 'owner-token');
+    try {
+      await api.editRecipe('recipe-1', edit, 'file:///recipe.jpg');
+      const request = fetchMock.mock.calls[0][1];
+      const fields = (request.body as InspectableFormData).fields;
+      expect(fields).toContainEqual({ name: 'recipe_data', value: JSON.stringify(edit) });
+  
+      await expect(api.editRecipe('recipe-1', edit, 'file:///recipe.jpg'))
+        .rejects.toThrow('This recipe changed after review started. Reload it before saving.');
+    } finally { api.setTokenGetter(null); }
   });
 
   it('preserves explicit shared-image metadata in the single-image OCR request', async () => {
@@ -522,6 +525,21 @@ describe('frozen recipe write authentication', () => {
 
 
 describe('bounded multipart editor authentication', () => {
+  it.each(['missing-getter', 'empty-token', 'rejected-token'] as const)('does not dispatch private recipe or image data after %s', async failure => {
+    vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
+    const getter = failure === 'missing-getter' ? null
+      : failure === 'empty-token' ? vi.fn(async () => null) : vi.fn(async () => { throw Error('Token unavailable'); });
+    api.setAuthContext(getter, 'bounded-editor');
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'Keep my private draft', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      const rejected = expect(request).rejects.toThrow('Sign in again before saving this recipe.');
+      await vi.runAllTimersAsync(); await rejected;
+      expect(fetchMock).not.toHaveBeenCalled();
+      if (getter) expect(getter).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
+    } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
+  });
+
   it.each([false, true])('settles a hung image-edit token without dispatching retired authority (retired=%s)', async retired => {
     vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
     const getToken = vi.fn(() => new Promise<string>(() => undefined));
@@ -535,11 +553,10 @@ describe('bounded multipart editor authentication', () => {
       expect(getToken).toHaveBeenCalledOnce();
       if (retired) api.setTokenGetter(null);
       await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS * AUTH_TOKEN_MAX_ATTEMPTS + AUTH_TOKEN_RETRY_DELAY_MS * (AUTH_TOKEN_MAX_ATTEMPTS - 1));
-      expect(outcome).toBe(retired ? 'Authentication changed; reopen this recipe.' : 'Not authenticated');
-      expect(fetchMock).toHaveBeenCalledTimes(retired ? 0 : 1);
+      expect(outcome).toBe(retired ? 'Authentication changed; reopen this recipe.' : 'Sign in again before saving this recipe.');
+      expect(fetchMock).not.toHaveBeenCalled();
       if (!retired) {
         expect(getToken).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
-        expect(fetchMock.mock.calls[0][1].headers).toEqual({});
       }
     } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
   });
