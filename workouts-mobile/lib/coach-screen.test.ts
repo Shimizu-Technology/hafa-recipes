@@ -3,11 +3,13 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { draftKey } from "./drafts";
+import { streamCoachRequest } from "./coach-stream";
 import type { CoachMessage } from "./coach";
 const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, run: 0, uuid: 0,
   params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
-  focusVersion: 0, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
+  stream: vi.fn(), streaming: false, stop: vi.fn(), writeFailure: false, coach: true, cancellation: true as boolean | undefined, consent: true,
+  focusVersion: 0, routeFocused: true, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
   measureAnchor: vi.fn(), contentEnabled: false, contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
   historyGate: null as Promise<{ messages: CoachMessage[]; limit: number; offset: number }> | null,
   bubble: null as typeof import("../components/design/surfaces").Bubble | null,
@@ -15,12 +17,12 @@ const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGa
 vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => f.current,
     getItem: async (key: string) => { if (f.readFailure && key.includes("coach-draft")) throw Error("Disk unavailable"); return f.values.get(key) ?? null; },
-    setItem: async (key: string, value: string) => { f.values.set(key, value); if (key.includes("coach-draft") && JSON.parse(value).pending && f.pendingSaveGate) await f.pendingSaveGate; },
+    setItem: async (key: string, value: string) => { if (f.writeFailure) throw Error("Disk unavailable"); f.values.set(key, value); if (key.includes("coach-draft") && JSON.parse(value).pending && f.pendingSaveGate) await f.pendingSaveGate; },
     removeItem: async (key: string) => { f.values.delete(key); }, getAllKeys: async () => [...f.values.keys()] };
   const replacementStorage = { ...storage };
-  const api = { profile: async () => f.profileGate ?? ({ adult_confirmed: true }), capabilities: async () => ({ coach: true }),
-    aiConsent: async () => ({ accepted: true }), readiness: async () => ({}), setReadiness: f.readiness,
-    coachHistory: async (offset = 0) => { f.historyCalls.push(offset); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, clearCoach: f.clear };
+  const api = { profile: async () => f.profileGate ?? ({ adult_confirmed: true }), capabilities: async () => ({ coach: f.coach, coach_cancellation: f.cancellation, coach_streaming: f.streaming }),
+    aiConsent: async () => ({ accepted: f.consent }), readiness: async () => ({}), setReadiness: f.readiness,
+    coachHistory: async (offset = 0) => { f.historyCalls.push(offset); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, cancelCoachMessage: f.stop, clearCoach: f.clear };
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
 });
 vi.mock("react-native", () => ({ View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
@@ -38,7 +40,7 @@ vi.mock("expo-router", async () => {
   f.paramsContext = React.createContext<Record<string, string> | null>(null);
   return { router: { push: f.push, replace: vi.fn() },
     useLocalSearchParams: () => React.useContext(f.paramsContext!) ?? f.params,
-    useFocusEffect: (fn: () => void) => useEffect(fn, [fn, f.focusVersion]) };
+    useFocusEffect: (fn: () => void) => useEffect(() => f.routeFocused ? fn() : undefined, [fn, f.focusVersion, f.routeFocused]) };
 });
 vi.mock("@/components/ui", () => ({
   ...Object.fromEntries(["Button", "Card", "Chip", "ChipRow", "Copy", "Field", "ListGroup", "ListRow", "Notice", "SectionHeader"].map(name => [name, name])),
@@ -75,7 +77,8 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
-  f.focusVersion = 0; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
+  f.focusVersion = 0; f.routeFocused = true; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
+  f.stream.mockReset(); f.streaming = false; f.stop.mockReset(); f.writeFailure = false; f.coach = true; f.cancellation = true; f.consent = true;
   f.platform = "ios"; f.appState = "active"; f.openURL.mockReset(); f.openURL.mockResolvedValue(undefined); f.scrollTo.mockReset(); f.scrollEnd.mockReset(); f.pageSize = 50; f.historyGate = null;
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
@@ -92,13 +95,13 @@ it("preserves unsent text through remount", async () => { await mount(); await t
 it("retries the exact durable request after a lost acknowledgement and remount", async () => {
   f.send.mockRejectedValueOnce(Error("Connection interrupted")); await mount(); await type("Use the saved focus"); await click("Send message");
   const original = f.send.mock.calls[0]; expect(nodes("Field")).toHaveLength(0); await unmount(); await mount();
-  f.send.mockResolvedValueOnce({ ...reply("done"), state: "completed" }); await click("Retry saved message");
-  expect(f.send.mock.calls[1]).toEqual(original); expect(f.uuid).toBe(1); expect(draft().pending).toBeNull();
+  f.send.mockResolvedValueOnce({ ...reply("request-1"), state: "completed" }); await click("Retry saved message");
+  expect(f.send.mock.calls[1].slice(0, 4)).toEqual(original.slice(0, 4)); expect(f.uuid).toBe(1); expect(draft().pending).toBeNull();
 });
 it("keeps a failed message editable and requires an explicit new send", async () => {
-  f.send.mockResolvedValueOnce(reply("failed", "failed")); await mount(); await type("My useful question"); await click("Send message");
+  f.send.mockResolvedValueOnce(reply("request-1", "failed")); await mount(); await type("My useful question"); await click("Send message");
   expect(nodes("Field")[0].props.value).toBe("My useful question"); expect(nodes("Field")[0].props.disabled).toBe(false); expect(f.send).toHaveBeenCalledTimes(1);
-  f.send.mockResolvedValueOnce(reply("again")); await click("Send message"); expect(f.send.mock.calls.map(args => args[0])).toEqual(["request-1", "request-2"]);
+  f.send.mockResolvedValueOnce(reply("request-2")); await click("Send message"); expect(f.send.mock.calls.map(args => args[0])).toEqual(["request-1", "request-2"]);
 });
 it("a failed history item restores a draft without sending or applying proposals", async () => {
   f.history = [reply("failed", "failed")]; await mount(); await click("Use message again"); expect(nodes("Field")[0].props.value).toBe("Question failed"); expect(f.send).not.toHaveBeenCalled();
@@ -122,7 +125,7 @@ it("a confirmed pending reply remains locked through refresh and checks the same
   f.send.mockImplementation(async (id, message) => { const item = { ...reply(id, "pending"), request_id: id, user_message: message }; f.history = [item]; return item; });
   await mount(); await type("Prepare a reply"); await click("Send message");
   expect(button("Check for reply")).toBeTruthy(); const original = f.send.mock.calls[0];
-  await click("Check for reply"); expect(f.send.mock.calls[1]).toEqual(original); expect(f.uuid).toBe(1); expect(nodes("Field")).toHaveLength(0);
+  await click("Check for reply"); expect(f.send.mock.calls[1].slice(0, 4)).toEqual(original.slice(0, 4)); expect(f.uuid).toBe(1); expect(nodes("Field")).toHaveLength(0);
 });
 it("a response arriving after the private storage lease closes cannot change the local draft", async () => {
   const gate = deferred<CoachMessage>(); f.send.mockReturnValue(gate.promise); await mount(); await type("Keep pending"); await click("Send message");
@@ -285,7 +288,7 @@ it("measures visibility after sending rotates the first history page without row
     row("Question older").props.onLayout({ nativeEvent: { layout: { y: 500 } } });
     row("Question newer").props.onLayout({ nativeEvent: { layout: { y: 1300 } } });
   });
-  f.send.mockImplementation(async () => { const sent = { ...reply("latest"), created_at: "2026-10-16T00:00:00Z" }; f.history = [sent, reply("newer"), reply("older")]; return sent; });
+  f.send.mockImplementation(async requestId => { const sent = { ...reply("latest"), request_id: requestId, created_at: "2026-10-16T00:00:00Z" }; f.history = [sent, reply("newer"), reply("older")]; return sent; });
   await type("A new question"); await click("Send message");
   expect(nodes("Markdown").map(node => node.props.children)).toEqual(["Reply newer", "Reply latest"]);
   // The retained row moved up to500, but its unchanged size emitted no layout.
@@ -516,7 +519,7 @@ it("retired layout and scroll callbacks cannot scroll a replacement conversation
 it.each(["receipt", "error"] as const)("an old send %s cannot overwrite a restored successor conversation after focus reload", async kind => {
   const held = deferred<void>();
   if (kind === "receipt") {
-    f.send.mockResolvedValueOnce(reply("completed"));
+    f.send.mockImplementationOnce(async id => reply(id));
     vi.spyOn(cache, "invalidateQueries").mockImplementationOnce(() => held.promise);
   } else f.send.mockImplementationOnce(async () => { await held.promise; throw Error("Old request failed"); });
   await mount(); await type("Original question"); await click("Send message");
@@ -562,7 +565,7 @@ it("keeps an active request compact and retries the same durable message after a
   expect(button("Retry saved message")).toBeDefined(); expect(nodes("Field")).toHaveLength(0);
   expect(nodes("Notice").some(node => String(node.props.children).includes("Connection interrupted"))).toBe(true);
   f.send.mockImplementationOnce(async id => reply(id)); await click("Retry saved message");
-  expect(f.send.mock.calls[1]).toEqual(request);
+  expect(f.send.mock.calls[1].slice(0, 4)).toEqual(request.slice(0, 4));
   expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("");
   expect(nodes("Field")[0].props.disabled).toBe(false);
 });
@@ -601,4 +604,275 @@ it("keeps the native photo reply nested list complete and copyable inside the re
   expect(bubble.children.at(-1)).toMatchObject({ props: { title: "Copy reply" } });
   await click("Copy reply"); expect(f.copy).toHaveBeenCalledWith(answer);
   expect(button("Reply copied")).toBeTruthy();
+});
+
+function savedPending(id = "saved-request", stop_requested?: true) {
+  const pending = { request_id: id, message: "Keep my question", generation: f.generation, focus: {},
+    created_at: new Date().toISOString(), ...(stop_requested ? { stop_requested } : {}) };
+  f.values.set(draftKey(f.owner, `coach-draft:${f.generation}:general`), JSON.stringify({ message: pending.message, pending }));
+  return pending;
+}
+const stopped = (id: string): CoachMessage => ({ ...reply(id, "failed"), cancelled: true, assistant_message: "Reply stopped." });
+it("persists Stop before acknowledgement, coalesces taps, and retires only the matching send after confirmation", async () => {
+  const sending = deferred<CoachMessage>(), stopping = deferred<CoachMessage>();
+  f.send.mockReturnValue(sending.promise); f.stop.mockReturnValue(stopping.promise);
+  await mount(); await type("My question"); await click("Send message");
+  const signal = f.send.mock.calls[0][4] as AbortSignal;
+  const stop = button("Stop reply");
+  await act(async () => { stop.props.onPress(); stop.props.onPress(); }); await settle();
+  expect(f.stop).toHaveBeenCalledExactlyOnceWith("request-1", 1);
+  expect(draft().pending.stop_requested).toBe(true); expect(signal.aborted).toBe(false);
+  f.history = [stopped("request-1")];
+  await act(async () => stopping.resolve(f.history[0])); await settle();
+  expect(signal.aborted).toBe(true); expect(draft().pending).toBeNull();
+  expect(nodes("Field")[0].props.value).toBe("My question");
+  await type("My next unsent draft");
+  await act(async () => sending.resolve(reply("request-1"))); await settle();
+  expect(nodes("Field")[0].props.value).toBe("My next unsent draft");
+  expect(f.send).toHaveBeenCalledTimes(1); expect(f.uuid).toBe(1);
+});
+it("keeps lost Stop acknowledgement durable across remount and accepts a hidden pre-send terminal receipt", async () => {
+  savedPending(); f.stop.mockRejectedValueOnce(Error("Offline")); await mount();
+  const staleSend = button("Retry saved message").props.onPress; await click("Stop reply");
+  expect(draft().pending.stop_requested).toBe(true);
+  await act(async () => staleSend()); await settle(); expect(f.send).not.toHaveBeenCalled();
+  await unmount(); await mount();
+  expect(button("Retry stopping reply")).toBeTruthy();
+  expect(nodes("Button").some(node => /Send message|Retry saved message|Check for reply/.test(node.props.title))).toBe(false);
+  f.stop.mockResolvedValueOnce({ ...stopped("saved-request"), user_message: "", assistant_message: "" });
+  await click("Retry stopping reply");
+  expect(f.stop.mock.calls).toEqual([["saved-request", 1], ["saved-request", 1]]);
+  expect(f.send).not.toHaveBeenCalled(); expect(draft().pending).toBeNull();
+  expect(nodes("Field")[0].props.value).toBe("Keep my question");
+  expect(nodes("Bubble")).toHaveLength(0);
+});
+it("keeps a completed-first reply and its reviewable proposal without claiming it stopped", async () => {
+  savedPending();
+  const completed = { ...reply("saved-request"), actions: [{ proposal_id: "review-me", kind: "schedule" as const,
+    status: "ready", state: "proposed" as const }] };
+  f.stop.mockImplementation(async () => { f.history = [completed]; return completed; });
+  await mount(); await click("Stop reply");
+  expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("");
+  expect(nodes("Notice").some(node => String(node.props.children).includes("finished before Stop"))).toBe(true);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("Reply stopped"))).toBe(false);
+  await click("Review schedule suggestion"); expect(f.push).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ id: "review-me" }) }));
+  expect(f.send).not.toHaveBeenCalled();
+});
+it("stops a visible history request without replacing a separate unsent draft", async () => {
+  f.history = [reply("remote", "pending")];
+  f.stop.mockImplementation(async () => { f.history = [stopped("remote")]; return f.history[0]; });
+  await mount(); await type("My unrelated draft"); await click("Stop this reply");
+  expect(f.stop).toHaveBeenCalledExactlyOnceWith("remote", 1);
+  expect(draft().message).toBe("My unrelated draft"); expect(draft().pending).toBeNull();
+  expect(nodes("Bubble")[0].props.meta).toContain("Stopped"); expect(f.send).not.toHaveBeenCalled();
+});
+it("allows Stop after AI disable and consent revocation while Send stays disabled", async () => {
+  savedPending(); f.coach = false; f.consent = false;
+  f.stop.mockResolvedValueOnce(stopped("saved-request")); await mount();
+  expect(button("Retry saved message").props.disabled).toBe(true);
+  expect(button("Stop reply").props.disabled).toBe(false); await click("Stop reply");
+  expect(f.stop).toHaveBeenCalledExactlyOnceWith("saved-request", 1); expect(f.send).not.toHaveBeenCalled();
+});
+it("does not offer simulated Stop on an older server or resend a restored stop intent", async () => {
+  savedPending("saved-request", true); f.cancellation = undefined; await mount();
+  expect(nodes("Button").some(node => /Stop reply|Retry stopping reply|Retry saved message|Send message/.test(node.props.title))).toBe(false);
+  expect(f.send).not.toHaveBeenCalled(); expect(f.stop).not.toHaveBeenCalled(); expect(draft().pending.stop_requested).toBe(true);
+});
+it("does not call cancellation until its pending Stop intent can be stored", async () => {
+  savedPending(); await mount(); f.writeFailure = true; await click("Stop reply");
+  expect(f.stop).not.toHaveBeenCalled(); expect(f.send).not.toHaveBeenCalled();
+  expect(button("Retry stopping reply")).toBeTruthy();
+  f.writeFailure = false; f.stop.mockResolvedValueOnce(stopped("saved-request")); await click("Retry stopping reply");
+  expect(f.stop).toHaveBeenCalledExactlyOnceWith("saved-request", 1); expect(draft().pending).toBeNull();
+});
+it.each(["owner", "generation", "focus"] as const)("ignores late Stop acknowledgement after %s changes", async change => {
+  savedPending(); const stopping = deferred<CoachMessage>(); f.stop.mockReturnValue(stopping.promise);
+  await mount(); await click("Stop reply"); const original = stopped("saved-request");
+  if (change === "owner") f.owner = "new-owner";
+  else if (change === "generation") f.generation = 2;
+  else f.params = { workout_id: "another-workout", revision: "1" };
+  await refresh(); await type("New scope draft");
+  await act(async () => stopping.resolve(original)); await settle();
+  expect(nodes("Field")[0].props.value).toBe("New scope draft"); expect(f.send).not.toHaveBeenCalled();
+});
+it("ignores late Stop after the storage lease retires or the view unmounts", async () => {
+  savedPending(); const stopping = deferred<CoachMessage>(); f.stop.mockReturnValue(stopping.promise);
+  await mount(); await click("Stop reply"); const before = new Map(f.values); f.current = false;
+  await unmount(); await act(async () => stopping.resolve(stopped("saved-request"))); await settle();
+  expect(f.values).toEqual(before); expect(f.send).not.toHaveBeenCalled();
+});
+it("an old conversation epoch cannot be revived by a late Stop response", async () => {
+  savedPending(); const stopping = deferred<CoachMessage>(); f.stop.mockReturnValue(stopping.promise);
+  await mount(); await click("Stop reply");
+  f.values.set(draftKey(f.owner, "coach-reset:1"), "new-epoch");
+  const key = draftKey(f.owner, "coach-draft:1:general");
+  const next = JSON.stringify({ message: "New conversation", pending: null, epoch: "new-epoch" }); f.values.set(key, next);
+  await act(async () => stopping.resolve(stopped("saved-request"))); await settle();
+  expect(f.values.get(key)).toBe(next); expect(f.send).not.toHaveBeenCalled();
+});
+it("uses a confirmed terminal history outcome when the Stop response is lost", async () => {
+  savedPending(); let reject!: (error: Error) => void;
+  f.stop.mockReturnValue(new Promise((_, fail) => { reject = fail; }));
+  await mount(); await click("Stop reply");
+  f.history = [reply("saved-request")];
+  await act(async () => { await cache.invalidateQueries({ queryKey: [f.owner, "coach-history"] }); }); await settle();
+  await act(async () => reject(Error("Lost acknowledgement"))); await settle();
+  expect(draft().pending).toBeNull();
+  expect(nodes("Notice").some(node => String(node.props.children).includes("finished before Stop"))).toBe(true);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("may still finish"))).toBe(false);
+});
+it.each(["pending", "wrong-request", "wrong-generation"] as const)("does not unlock or resend on a %s cancellation response", async mismatch => {
+  savedPending(); f.stop.mockResolvedValueOnce({ ...stopped(mismatch === "wrong-request" ? "different" : "saved-request"),
+    ...(mismatch === "pending" ? { state: "pending" } : {}), ...(mismatch === "wrong-generation" ? { generation: 2 } : {}) });
+  await mount(); await click("Stop reply");
+  expect(draft().pending.stop_requested).toBe(true); expect(button("Retry stopping reply")).toBeTruthy();
+  expect(f.send).not.toHaveBeenCalled(); expect(nodes("Field")).toHaveLength(0);
+});
+
+it("shows actual provisional deltas only in RAM, clears a tool turn, and exposes actions only from the canonical final receipt", async () => {
+  f.streaming = true;
+  let emit!: (text: string) => Promise<void>, finish!: (message: CoachMessage) => void;
+  f.stream.mockImplementation((_id, _message, _focus, _generation, _signal, onText) => {
+    emit = onText; return new Promise<CoachMessage>(done => { finish = done; });
+  });
+  await mount(); await type("Make a plan"); await click("Send message");
+  await act(async () => emit("First turn preview")); await settle();
+  expect(nodes("Bubble").find(node => String(node.props.meta).includes("not saved"))?.findByType("Copy" as never).props.children).toBe("First turn preview");
+  expect(JSON.stringify([...f.values.values()])).not.toContain("First turn preview");
+  expect(cache.getQueryData([f.owner, "coach-history", 1, "initial"])).not.toMatchObject({ assistant_message: "First turn preview" });
+  expect(button("Review schedule suggestion")).toBeUndefined();
+  await act(async () => emit("")); expect(nodes("Bubble").filter(node => String(node.props.meta).includes("not saved"))).toHaveLength(0);
+  await act(async () => emit("Final turn preview"));
+  const id = f.stream.mock.calls[0][0];
+  const canonical: CoachMessage = { ...reply(id), actions: [{ proposal_id: "approved", kind: "schedule", status: "ready", state: "proposed" }] };
+  f.history = [canonical]; await act(async () => finish(canonical)); await settle();
+  expect(nodes("Bubble").filter(node => String(node.props.meta).includes("not saved"))).toHaveLength(0);
+  expect(button("Review schedule suggestion")).toBeDefined(); expect(f.send).not.toHaveBeenCalled();
+});
+it("an interrupted stream discards provisional text and retries the frozen request without a JSON fallback or fresh UUID", async () => {
+  f.streaming = true;
+  f.stream.mockImplementationOnce(async (_id, _message, _focus, _generation, _signal, onText) => { await onText("Unsaved preview"); throw Error("Connection lost"); });
+  await mount(); await type("Frozen question"); await click("Send message");
+  const original = f.stream.mock.calls[0];
+  expect(nodes("Bubble").filter(node => String(node.props.meta).includes("not saved"))).toHaveLength(0);
+  expect(draft().pending.request_id).toBe(original[0]);
+  f.stream.mockImplementationOnce(async id => reply(id)); await click("Retry saved message");
+  expect(f.stream.mock.calls[1].slice(0, 4)).toEqual(original.slice(0, 4)); expect(f.uuid).toBe(1); expect(f.send).not.toHaveBeenCalled();
+});
+it("Stop hides provisional text immediately but only a durable matching cancellation retires the request", async () => {
+  f.streaming = true;
+  let emit!: (text: string) => Promise<void>;
+  f.stream.mockImplementation((_id, _message, _focus, _generation, _signal, onText) => { emit = onText; return new Promise(() => {}); });
+  const stopped = deferred<CoachMessage>(); f.stop.mockReturnValue(stopped.promise);
+  await mount(); await type("Keep this question"); await click("Send message");
+  await act(async () => emit("Unsaved")); await click("Stop reply");
+  expect(draft().pending.stop_requested).toBe(true);
+  expect(nodes("Bubble").filter(node => String(node.props.meta).includes("not saved"))).toHaveLength(0);
+  expect(nodes("Field")).toHaveLength(0);
+  await expect(emit("Late delta")).rejects.toThrow("retired");
+  const id = f.stream.mock.calls[0][0];
+  await act(async () => stopped.resolve({ ...reply(id, "failed"), cancelled: true })); await settle();
+  expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("Keep this question");
+});
+
+it.each([true, false])("a canonical terminal stream replay resolves saved delivery uncertainty and restores editing for cancelled=%s", async cancelled => {
+  f.streaming = true; f.stream.mockRejectedValueOnce(Error("Lost stream acknowledgment"));
+  await mount(); await type("Keep my exact question"); await click("Send message");
+  const original = f.stream.mock.calls[0].slice(0, 4);
+  await unmount(); await mount();
+  const guidance = cancelled ? "Reply stopped. No training changes were applied."
+    : "I couldn't finish this request. Review your current training information and send a new message to retry.";
+  f.stream.mockImplementationOnce((id, message, focus, generation, signal, onText) => {
+    const terminal = { ...reply(id, "failed"), user_message: message, assistant_message: guidance, ...(cancelled ? { cancelled: true } : {}) };
+    const body = new TextEncoder().encode(JSON.stringify({ type: "receipt", request_id: id, generation, receipt: terminal }) + "\n");
+    const transport = vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(controller) { controller.enqueue(body); controller.close(); } }),
+      { headers: { "Content-Type": "application/x-ndjson" } }));
+    return streamCoachRequest({ url: "https://example.test", headers: {}, body: { request_id: id, message, ...focus }, generation, signal,
+      current: () => undefined, onText, fetchImpl: transport as unknown as NonNullable<Parameters<typeof streamCoachRequest>[0]["fetchImpl"]> });
+  });
+  await click("Retry saved message");
+  expect(f.stream.mock.calls[1].slice(0, 4)).toEqual(original); expect(f.uuid).toBe(1); expect(f.send).not.toHaveBeenCalled();
+  expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("Keep my exact question");
+  expect(nodes("Field")[0].props.disabled).toBe(false); expect(button("Send message")).toBeDefined();
+  expect(button("Retry saved message")).toBeUndefined(); expect(button("Review schedule suggestion")).toBeUndefined();
+});
+
+
+it("keeps canonical stopped history and one composer recovery without a redundant reuse action", async () => {
+  savedPending(); const canonical = { ...stopped("saved-request"), user_message: "Keep my question", assistant_message: "Reply stopped. No training changes were applied." };
+  f.stop.mockImplementationOnce(async () => { f.history = [canonical]; return canonical; }); await mount(); await click("Stop reply");
+  expect(nodes("Markdown").map(node => node.props.children)).toEqual([canonical.assistant_message]);
+  const footer = nodes("PinnedFooter")[0];
+  const recovery = nodes("Notice").filter(node => String(node.props.children).includes("Reply stopped"));
+  expect(recovery).toHaveLength(1); expect(footer.findAll(node => node === recovery[0])).toHaveLength(1);
+  expect(nodes("Field")[0].props.value).toBe(canonical.user_message); expect(button("Use message again")).toBeUndefined();
+  await type("A different draft"); await click("Use message again");
+  expect(nodes("Field")[0].props.value).toBe("A different draft"); expect(button("Replace unsent draft")).toBeDefined();
+  await click("Keep my draft"); expect(nodes("Field")[0].props.value).toBe("A different draft");
+});
+
+it("an old Stop acknowledgement cannot overwrite the successor conversation restored after external Clear", async () => {
+  savedPending(); const held = deferred<CoachMessage>(); f.stop.mockReturnValueOnce(held.promise);
+  await mount(); await click("Stop reply"); expect(f.stop).toHaveBeenCalledOnce();
+  f.values.set(draftKey(f.owner, "coach-reset:1"), "successor-epoch");
+  f.values.set(draftKey(f.owner, "coach-draft:1:general"), JSON.stringify({ epoch: "successor-epoch", message: "Successor draft", pending: null }));
+  f.focusVersion++; await refresh();
+  await act(async () => held.resolve(stopped("saved-request"))); await settle();
+  expect(nodes("Field")[0].props.value).toBe("Successor draft"); expect(draft().message).toBe("Successor draft");
+  expect(nodes("Notice").some(node => String(node.props.children).includes("Reply stopped"))).toBe(false);
+});
+
+it("a retained pre-Clear Stop command cannot cancel or overwrite the next conversation", async () => {
+  savedPending(); await mount(); const oldStop = button("Stop reply").props.onPress;
+  f.values.set(draftKey(f.owner, "coach-reset:1"), "successor-epoch");
+  f.values.set(draftKey(f.owner, "coach-draft:1:general"), JSON.stringify({ epoch: "successor-epoch", message: "Successor draft", pending: null }));
+  f.focusVersion++; await refresh(); await act(async () => oldStop()); await settle();
+  expect(f.stop).not.toHaveBeenCalled(); expect(nodes("Field")[0].props.value).toBe("Successor draft");
+});
+
+it.each(["background", "storage", "epoch"] as const)("retires provisional stream callbacks after %s without losing the saved successor", async retirement => {
+  f.streaming = true; const answer = deferred<CoachMessage>(); let emit!: (value: string) => Promise<void>;
+  f.stream.mockImplementation((_id, _message, _focus, _generation, _signal, onText) => { emit = onText; return answer.promise; });
+  await mount(); await type("Frozen request"); await click("Send message");
+  const [id, , , , signal] = f.stream.mock.calls[0]; await act(async () => emit("Private unsaved preview"));
+  if (retirement === "background") { f.appState = "background"; await act(async () => { for (const listener of f.foreground) listener("background"); }); }
+  else if (retirement === "storage") { f.storageVersion++; await refresh(); }
+  else {
+    f.values.set(draftKey(f.owner, "coach-reset:1"), "successor-epoch");
+    f.values.set(draftKey(f.owner, "coach-draft:1:general"), JSON.stringify({ epoch: "successor-epoch", message: "Successor draft", pending: null }));
+    f.focusVersion++; await refresh();
+  }
+  expect((signal as AbortSignal).aborted).toBe(true);
+  await expect(emit("Late private preview")).rejects.toThrow("retired");
+  await act(async () => answer.resolve(reply(id))); await settle();
+  expect(nodes("Bubble").some(node => String(node.props.meta).includes("not saved"))).toBe(false);
+  expect(JSON.stringify([...f.values.values()])).not.toContain("Private unsaved preview");
+  if (retirement === "epoch") expect(nodes("Field")[0].props.value).toBe("Successor draft");
+  else expect(draft().pending.request_id).toBe(id);
+});
+
+it("keeps older-page navigation available when a canonical receipt grows the cached first page", async () => {
+  f.pageSize = 2; f.history = [reply("newer"), reply("older"), { ...reply("oldest"), created_at: "2026-10-14T00:00:00Z" }];
+  await mount(); vi.spyOn(cache, "invalidateQueries").mockResolvedValue(undefined);
+  f.send.mockImplementationOnce(async id => reply(id)); await type("One more question"); await click("Send message");
+  expect(nodes("Markdown")).toHaveLength(3); expect(button("Load earlier messages")).toBeDefined();
+  await click("Load earlier messages"); expect(f.historyCalls).toContain(2);
+  expect(nodes("Markdown").map(node => node.props.children)).toContain("Reply oldest");
+});
+
+
+it.each(["background-return", "blur-return"])("does not admit a saved send from a retired %s activation", async retirement => {
+  await mount(); await type("My saved question"); const held = deferred<void>(); f.pendingSaveGate = held.promise;
+  await click("Send message"); expect(f.send).not.toHaveBeenCalled(); expect(draft().pending?.message).toBe("My saved question");
+  if (retirement === "background-return") {
+    for (const state of ["background", "active"]) {
+      f.appState = state; await act(async () => { for (const listener of f.foreground) listener(state); }); await settle();
+    }
+  } else {
+    f.routeFocused = false; await refresh(); f.routeFocused = true; await refresh();
+  }
+  f.pendingSaveGate = null; await act(async () => held.resolve()); await settle();
+  expect(f.send).not.toHaveBeenCalled(); expect(f.stream).not.toHaveBeenCalled();
+  expect(draft().pending?.request_id).toBe("request-1");
+  await click("Retry saved message"); expect(f.send).toHaveBeenCalledOnce(); expect(f.send.mock.calls[0][0]).toBe("request-1");
 });

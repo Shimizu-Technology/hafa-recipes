@@ -25,3 +25,14 @@ it("clears all conversation focuses for only this owner/generation and fences de
   expect(values.has(draftKey("owner", "coach-draft:3:plan"))).toBe(true);
   expect(await store.save("owner", 2, "plan", { message: "new explicit message", pending: null }, "reset")).toBe(true);
 });
+it("restores exact pending cancellation intent without changing the request identity or focus", async () => {
+  const values = new Map<string, string>();
+  const storage = { getItem: async (key: string) => values.get(key) ?? null,
+    setItem: async (key: string, value: string) => { values.set(key, value); },
+    removeItem: async (key: string) => { values.delete(key); }, getAllKeys: async () => [...values.keys()] };
+  const pending = { request_id: "same-request", message: "Private question", generation: 2,
+    focus: { context_workout_id: "workout", context_revision: 7 }, created_at: "2026-10-15T00:00:00Z", stop_requested: true as const };
+  expect(await createCoachDraftStore(storage).save("owner", 2, "workout", { message: pending.message, pending }, "initial")).toBe(true);
+  expect((await createCoachDraftStore(storage).load("owner", 2, "workout")).value?.pending).toEqual(pending);
+  expect((await createCoachDraftStore(storage).load("other", 2, "workout")).value).toBeNull();
+});

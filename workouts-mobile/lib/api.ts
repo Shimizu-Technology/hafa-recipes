@@ -1,3 +1,4 @@
+import { streamCoachRequest } from "./coach-stream";
 import {
   activityQuery,
   type ActivityPage,
@@ -373,15 +374,28 @@ export function createWorkoutsApi(
     async coachHistory(offset = 0) {
       return (await request<CoachHistory>(`/coach/messages?limit=50&offset=${offset}`)).data;
     },
-    async coachMessage(request_id: string, message: string, focus: CoachFocus, generation: number) {
+    async coachMessage(request_id: string, message: string, focus: CoachFocus, generation: number, signal?: AbortSignal) {
       return (
         await request<CoachMessage>(
           "/coach/messages",
           "POST",
           { request_id, message, ...focus },
-          { generation, timeout_ms: 120000 }
+          { generation, timeout_ms: 120000, signal }
         )
       ).data;
+    },
+    async coachStream(request_id: string, message: string, focus: CoachFocus, generation: number, signal: AbortSignal, onText: (text: string) => Promise<void> | void) {
+      guardAccount();
+      if (!base) throw new ApiError("The training service is not configured for this build.", 0);
+      const token = await getToken(); guardAccount();
+      if (!token) throw new ApiError("Sign in again to access your training.", 401);
+      return streamCoachRequest({ url: `${base.replace(/\/$/, "")}/api/v1/workouts/coach/messages/stream`,
+        headers: { Authorization: `Bearer ${token}`, "X-Workouts-Generation": String(generation),
+          ...(account?.owner ? { "X-Hafa-Account-ID": account.owner } : {}) },
+        body: { request_id, message, ...focus }, generation, signal, current: guardAccount, onText });
+    },
+    async cancelCoachMessage(request_id: string, generation: number) {
+      return (await request<CoachMessage>(`/coach/messages/${encodeURIComponent(request_id)}/cancel`, "POST", undefined, { generation })).data;
     },
     async clearCoach(generation: number) {
       return (await request<void>("/coach/messages", "DELETE", undefined, { generation })).data;

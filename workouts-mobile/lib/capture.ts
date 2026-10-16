@@ -111,6 +111,8 @@ export interface Capabilities {
   public_beta: boolean;
   imports: boolean;
   coach: boolean;
+  coach_cancellation?: boolean;
+  coach_streaming?: boolean;
   health_sync: boolean;
   /** Absent on servers before Discover; only an explicit true shows Discover. */
   discover?: boolean;

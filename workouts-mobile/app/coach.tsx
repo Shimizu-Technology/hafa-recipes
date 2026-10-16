@@ -5,10 +5,10 @@ import { AppState, View, type ScrollView } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Bubble, Button, Card, Chip, ChipRow, Copy, Field, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
-import { coachFocusErrors, type CoachFocus, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
+import { coachFocusErrors, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
 const HISTORY_POSITION_ERROR = "Could not keep your reading position. Try loading earlier messages again.";
 const COPY_ERROR = "Could not copy this reply. Try again or select the text to copy it.";
 const messageOrder = (a: CoachMessage, b: CoachMessage) =>
@@ -48,6 +48,11 @@ export default function Coach() {
   const [pending, updatePending] = useState<PendingCoachMessage | null>(null);
   const pendingRef = useRef<PendingCoachMessage | null>(null);
   function setPending(value: PendingCoachMessage | null) { pendingRef.current = value; updatePending(value); }
+  const sending = useRef<{ request_id: string; controller: AbortController } | null>(null);
+  const stoppingRef = useRef<object | null>(null);
+  const finishing = useRef<object | null>(null);
+  const [provisional, setProvisional] = useState("");
+  const [stopping, setStopping] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [draftLoadError, setDraftLoadError] = useState(false);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
@@ -67,12 +72,14 @@ export default function Coach() {
     return () => { if (liveConversation.current === conversation) liveConversation.current = null; };
   }, [conversation]);
   const currentConversation = () => current() && liveConversation.current === conversation;
+  useLayoutEffect(() => { finishing.current = null; }, [scope, epoch]);
   useLayoutEffect(() => {
     liveScope.current = scope; loadedScope.current = null;
     setCopied(null); setDraftNotice(""); setReuse(null); setError(""); setBusy(false);
     setClearConfirm(false); setClearedRequest(false); setShowCheckIn(false); setReadiness("unknown");
-    guard.current = false;
-    return () => { if (liveScope.current === scope) liveScope.current = null; };
+    sending.current?.controller.abort(); sending.current = null; setProvisional("");
+    stoppingRef.current = null; finishing.current = null; setStopping(null); guard.current = false;
+    return () => { if (liveScope.current === scope) { liveScope.current = null; sending.current?.controller.abort(); } };
   }, [scope]);
   useEffect(() => {
     if (!copied) return;
@@ -136,10 +143,25 @@ export default function Coach() {
     queryKey: [owner, "coach-history", generation, epoch],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => api.coachHistory(pageParam),
-    getNextPageParam: (page) => (page.messages.length === page.limit ? page.offset + page.limit : undefined),
+    getNextPageParam: (page) => (page.messages.length >= page.limit ? page.offset + page.limit : undefined),
     enabled: !!enrollment?.enrolled,
     refetchInterval: query => focused && foreground && (pending || query.state.data?.pages.some(page => page.messages.some(item => item.state === "pending"))) ? 3000 : false,
   });
+  const delivery = useRef(false);
+  const deliveryScope = useMemo(() => ({}), [replyScope, consent.data?.accepted, capabilities.data?.coach]);
+  const liveDelivery = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    liveDelivery.current = deliveryScope;
+    delivery.current = focused && foreground && !!consent.data?.accepted && !!capabilities.data?.coach;
+    if (!delivery.current) { sending.current?.controller.abort(); setProvisional(""); }
+    return () => { if (liveDelivery.current === deliveryScope) { liveDelivery.current = null; sending.current?.controller.abort(); } };
+  }, [deliveryScope]);
+  const currentDelivery = () => currentConversation() && liveDelivery.current === deliveryScope && delivery.current && routeActive.current && AppState.currentState === "active";
+  useLayoutEffect(() => {
+    if (sending.current && sending.current.request_id !== pending?.request_id) {
+      sending.current.controller.abort(); setProvisional("");
+    }
+  }, [pending?.request_id, epoch]);
   const history = [
     ...new Map(q.data?.pages.flatMap((page) => page.messages).map((item) => [item.id, item]) ?? []).values(),
   ].sort(messageOrder);
@@ -272,16 +294,82 @@ export default function Coach() {
   }, [loaded, message, pending, owner, focusKey, focusToken, generation, epoch, storage]);
   useEffect(() => {
     if (!pending) return;
-    const receipt = history.find((item) => item.request_id === pending.request_id);
-    if (receipt && receipt.state !== "pending") {
-      setPending(null);
-      setMessage(receipt.state === "failed" ? pending.message : "");
-      if (receipt.state === "failed")
-        setError("Your coach couldn’t finish this reply. Your message is ready to edit and send again; no training changes were applied.");
-    }
+    const receipt = history.find(item => item.request_id === pending.request_id);
+    if (receipt && receipt.state !== "pending") void finishReply(receipt);
   }, [history, pending]);
+  async function finishReply(receipt: CoachMessage) {
+    const request = pendingRef.current;
+    if (!currentConversation() || receipt.generation !== generation || !request || request.request_id !== receipt.request_id || receipt.state === "pending" || finishing.current) return;
+    const completion = {}; finishing.current = completion;
+    try {
+      if (!(await sameConversation()) || finishing.current !== completion || pendingRef.current?.request_id !== request.request_id) return;
+      if (sending.current?.request_id === receipt.request_id) {
+        sending.current.controller.abort(); sending.current = null;
+        guard.current = false; setBusy(false);
+      }
+      setProvisional(""); setPending(null);
+      setMessage(receipt.state === "failed" ? request.message : "");
+      setError(receipt.state === "failed" && !receipt.cancelled
+        ? "Your coach couldn’t finish this reply. Your message is ready to edit and send again; no training changes were applied." : "");
+      if (receipt.cancelled) setDraftNotice("Reply stopped. Your message is ready to edit; no training changes were applied.");
+      else if (request.stop_requested) setDraftNotice(receipt.state === "completed"
+        ? "This reply finished before Stop. Its reply and suggestions remain in your saved conversation."
+        : "This request had already finished without a reply. Your message is ready to edit.");
+    } finally { if (finishing.current === completion) finishing.current = null; }
+  }
+  function rememberReceipt(receipt: CoachMessage) {
+    if (!receipt.user_message) return; // Pre-send Stop tombstones remain hidden.
+    cache.setQueryData<InfiniteData<CoachHistory>>([owner, "coach-history", generation, epoch], previous => {
+      const pages = previous?.pages ?? [{ messages: [], limit: 50, offset: 0 }];
+      const found = pages.some(page => page.messages.some(item => item.request_id === receipt.request_id));
+      return { pageParams: previous?.pageParams ?? [0], pages: pages.map((page, index) => ({ ...page,
+        messages: found ? page.messages.map(item => item.request_id === receipt.request_id ? receipt : item)
+          : index === 0 ? [receipt, ...page.messages] : page.messages,
+      })) };
+    });
+  }
+  async function stopReply(requestId: string) {
+    if (stoppingRef.current || !currentConversation() || !loaded || !capabilities.data?.coach_cancellation) return;
+    const operation = {};
+    stoppingRef.current = operation; setStopping(requestId); setError(""); setProvisional("");
+    try {
+      const request = pendingRef.current;
+      if (request?.request_id === requestId) {
+        const intent: PendingCoachMessage = { ...request, stop_requested: true };
+        setPending(intent);
+        if (!(await drafts.save(owner, generation, focusKey, { message: intent.message, pending: intent }, epoch)))
+          throw Error("This conversation was cleared. Refresh the saved conversation before continuing.");
+      }
+      if (!currentConversation() || stoppingRef.current !== operation || (await drafts.epoch(owner, generation)) !== epoch || !currentConversation()) return;
+      const receipt = await api.cancelCoachMessage(requestId, generation);
+      if (!currentConversation() || stoppingRef.current !== operation || (await drafts.epoch(owner, generation)) !== epoch || !currentConversation()) return;
+      if (receipt.request_id !== requestId || receipt.generation !== generation || receipt.state === "pending")
+        throw Error("The service has not confirmed that this reply stopped. Try stopping it again.");
+      rememberReceipt(receipt);
+      await finishReply(receipt);
+      if (!currentConversation() || stoppingRef.current !== operation || !(await sameConversation())) return;
+      if (!pendingRef.current && receipt.cancelled) setDraftNotice("Reply stopped. No training changes were applied.");
+      void cache.invalidateQueries({ queryKey: [owner, "coach-history"] });
+    } catch (e) {
+      if (currentConversation() && stoppingRef.current === operation && await sameConversation() && stoppingRef.current === operation) {
+        const known = cache.getQueryData<InfiniteData<CoachHistory>>([owner, "coach-history", generation, epoch])
+          ?.pages.flatMap(page => page.messages).find(item => item.request_id === requestId && item.generation === generation && item.state !== "pending");
+        if (known) {
+          await finishReply(known);
+          if (!currentConversation() || stoppingRef.current !== operation || !(await sameConversation())) return;
+          if (pendingRef.current?.request_id === requestId) return;
+          setDraftNotice(known.cancelled ? "Reply stopped. No training changes were applied."
+            : known.state === "completed" ? "This reply finished before Stop. Its reply and suggestions remain in your saved conversation."
+              : "This request had already finished without a reply. Your message is ready to edit.");
+        } else setError(`Could not confirm Stop. The reply may still finish; retry stopping it. ${(e as Error).message}`);
+      }
+    } finally {
+      if (current() && stoppingRef.current === operation) { stoppingRef.current = null; setStopping(null); }
+    }
+  }
   async function send() {
-    if (guard.current || !currentConversation() || !loaded || !focused || !foreground) return;
+    if (guard.current || stoppingRef.current || !currentDelivery() || !loaded) return;
+    if (pendingRef.current?.stop_requested) return; // A lost Stop acknowledgement must never resend.
     const problems = coachFocusErrors(focus);
     if (!pending && (!message.trim() || message.length > 4000)) problems.push("Write a message of 1–4000 characters.");
     if (!consent.data?.accepted) problems.push("Accept the separate AI sharing disclosure first.");
@@ -295,6 +383,7 @@ export default function Coach() {
     setDraftNotice("");
     setReuse(null);
     setClearedRequest(false);
+    let operation: NonNullable<typeof sending.current> | undefined;
     try {
       const request = pending ?? {
         request_id: Crypto.randomUUID(),
@@ -309,23 +398,30 @@ export default function Coach() {
       if (!(await sameConversation())) throw Error("This conversation was cleared while the draft was open. Reload before sending another message.");
       if (!currentConversation()) return;
       setPending(request);
-      const receipt = await api.coachMessage(request.request_id, request.message, request.focus, request.generation);
-      if (!currentConversation() || (await drafts.epoch(owner, generation)) !== epoch || !currentConversation()) return;
-      await cache.invalidateQueries({ queryKey: [owner, "coach-history"] });
-      if (!currentConversation()) return;
-      if (receipt.state !== "pending") {
-        setPending(null);
-        setMessage(receipt.state === "failed" ? request.message : "");
-        if (receipt.state === "failed")
-          setError("Your coach couldn’t finish this reply. Your message is ready to edit and send again; no training changes were applied.");
-      }
+      if (!currentDelivery()) return;
+      operation = { request_id: request.request_id, controller: new AbortController() };
+      sending.current = operation;
+      const active = operation;
+      const receipt = capabilities.data?.coach_streaming
+        ? await api.coachStream(request.request_id, request.message, request.focus, request.generation, active.controller.signal, async text => {
+          if (!currentDelivery() || sending.current !== active || (pendingRef.current?.stop_requested || pendingRef.current?.request_id !== request.request_id) || !(await sameConversation()))
+            throw Error("This reply view was retired. Check the saved request when you return.");
+          if (currentDelivery() && sending.current === active && !pendingRef.current?.stop_requested && pendingRef.current?.request_id === request.request_id) setProvisional(text);
+        })
+        : await api.coachMessage(request.request_id, request.message, request.focus, request.generation, active.controller.signal);
+      if (!currentDelivery() || sending.current !== operation || active.controller.signal.aborted ||
+          (await drafts.epoch(owner, generation)) !== epoch || !currentDelivery() || active.controller.signal.aborted) return;
+      if (receipt.request_id !== request.request_id || receipt.generation !== request.generation)
+        throw Error("Could not confirm delivery of this saved message. Retry the same request.");
+      rememberReceipt(receipt); await finishReply(receipt);
+      void cache.invalidateQueries({ queryKey: [owner, "coach-history"] });
     } catch (e) {
-      if (currentConversation()) {
+      if (currentDelivery() && (!operation || sending.current === operation) && !pendingRef.current?.stop_requested) {
         setError((e as Error).message);
         setClearedRequest((e as { status?: number }).status === 410);
       }
     } finally {
-      if (current()) { guard.current = false; setBusy(false); }
+      if (current() && (!operation || sending.current === operation)) { sending.current = null; guard.current = false; setBusy(false); setProvisional(""); }
     }
   }
   async function sameConversation() {
@@ -333,7 +429,7 @@ export default function Coach() {
     catch { return false; }
   }
   async function clear() {
-    if (!currentConversation() || guard.current) return;
+    if (!currentConversation() || guard.current || stoppingRef.current) return;
     guard.current = true;
     setBusy(true);
     setError("");
@@ -374,8 +470,8 @@ export default function Coach() {
   }
   const composer = (
       <View style={{ gap: 8 }}>
-        {awayFromLatest && !!history.length && <Button title="Jump to latest reply" variant="ghost" size="sm" onPress={latest} />}
-        {!!draftNotice && <Copy kind="small" tone="muted">{draftNotice}</Copy>}
+        {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" variant="ghost" size="sm" onPress={latest} />}
+        {!!draftNotice && <Notice>{draftNotice}</Notice>}
         {!!error && <Notice error>{error}</Notice>}
         {draftLoadError && <Button title="Retry restoring message draft" secondary onPress={() => { if (currentConversation()) { setError(""); setRestoreAttempt(value => value + 1); } }} />}
         {pending ? (
@@ -395,21 +491,26 @@ export default function Coach() {
         />}
         {pending && (
           <Copy kind="small" tone="muted">
-            {busy ? "Sending your message…" : history.some(item => item.request_id === pending.request_id)
+            {pending.stop_requested ? "Stop was requested. Until the service confirms the outcome, this message will not be resent. You can leave and return to retry stopping it."
+              : busy ? "Sending your message…" : history.some(item => item.request_id === pending.request_id)
               ? "Preparing a reply. You can leave and return."
               : "Delivery unconfirmed. Retry uses this saved message."}
           </Copy>
         )}
-        {(!pending || !busy) && <Button
+        {(!pending || !busy) && !pending?.stop_requested && <Button
           title={pending ? history.some(item => item.request_id === pending.request_id) ? "Check for reply" : "Retry saved message" : "Send message"}
           icon="send"
           busy={busy}
           size="sm"
-          disabled={!loaded || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
+          disabled={!loaded || !!stopping || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
           onPress={() => {
             void send();
           }}
         />}
+        {pending && capabilities.data?.coach_cancellation && <Button
+          title={pending.stop_requested ? "Retry stopping reply" : "Stop reply"}
+          secondary busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
+          onPress={() => { void stopReply(pending.request_id); }} />}
       </View>
   );
   if (enrollment?.enrolled && profile.isPending) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy></Screen>;
@@ -427,7 +528,7 @@ export default function Coach() {
       scrollRef={scroll}
       disableBrowserScrollAnchoring
       onScroll={({ nativeEvent }) => {
-        if (!currentConversation() || !history.length) return;
+        if (!currentConversation() || (!history.length && !provisional)) return;
         const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
         if (earlier.current) {
           earlier.current.offset = contentOffset.y; reading.current.offset = contentOffset.y;
@@ -438,7 +539,7 @@ export default function Coach() {
         setAwayFromLatest(!atLatest);
       }}
       onContentSizeChange={() => {
-        if (currentConversation() && history.length && reading.current.latest && !earlier.current)
+        if (currentConversation() && (history.length || provisional) && reading.current.latest && !earlier.current)
           scroll.current?.scrollToEnd({ animated: false });
       }}
     >
@@ -550,7 +651,7 @@ export default function Coach() {
         title="Clear saved coach conversation"
         variant="ghost"
         icon="trash-outline"
-        disabled={busy || !enrollment?.enrolled}
+        disabled={busy || !!stopping || !enrollment?.enrolled}
         onPress={() => { if (currentConversation()) setClearConfirm(true); }}
       />
       {clearConfirm && (
@@ -584,7 +685,7 @@ export default function Coach() {
       {!!history.length && <SectionHeader title="Conversation" />}
       {history.map((item) => (
         <View key={item.id} collapsable={false} ref={node => { if (node) messageViews.current.set(item.id, node); else messageViews.current.delete(item.id); }} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
-          <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : "Sent"}`}>
+          <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.cancelled ? "Stopped" : item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : "Sent"}`}>
             <Copy selectable>{item.user_message}</Copy>
           </Bubble>
           {!!item.assistant_message && (
@@ -593,24 +694,24 @@ export default function Coach() {
               <Button title={copied === item.id ? "Reply copied" : "Copy reply"} icon={copied === item.id ? "checkmark" : "copy-outline"} variant="ghost" size="sm" inline onPress={() => { void copyReply(item.assistant_message!, item.id); }} />
             </Bubble>
           )}
-          {item.state === "pending" && (
-            <Notice>
-              Still processing. You can leave and return; this request will not be resent as a new message.
-            </Notice>
-          )}
+          {item.state === "pending" && <>
+            <Notice>Still processing. You can leave and return; this request will not be resent as a new message.</Notice>
+            {capabilities.data?.coach_cancellation && item.request_id !== pending?.request_id && <Button
+              title="Stop this reply" secondary busy={stopping === item.request_id} disabled={!loaded || !!stopping}
+              onPress={() => { void stopReply(item.request_id); }} />}
+          </>}
           {item.state === "failed" && <>
-            <Notice>Your coach couldn’t finish this reply. No training changes were applied.</Notice>
-            <Button title="Use message again" variant="ghost" size="sm" inline disabled={busy || !!pending || !loaded} onPress={() => {
+            {!item.assistant_message && <Notice>{item.cancelled ? "Reply stopped. No training changes were applied." : "Your coach couldn’t finish this reply. No training changes were applied."}</Notice>}
+            {message !== item.user_message && <Button title="Use message again" variant="ghost" size="sm" inline disabled={busy || !!pending || !loaded} onPress={() => {
               if (!currentConversation() || !loaded || busy || pending) return;
               if (message.trim() && message !== item.user_message) setReuse({ id: item.id, message: item.user_message });
               else useMessage(item.user_message);
-            }} />
+            }} />}
             {reuse?.id === item.id && <Card compact tone="sunken">
               <Copy>Replace your current unsent draft with this message?</Copy>
               <Button title="Replace unsent draft" secondary onPress={() => useMessage(reuse.message)} />
               <Button title="Keep my draft" variant="ghost" onPress={() => { if (currentConversation()) setReuse(null); }} />
             </Card>}
-            {!!draftNotice && message === item.user_message && <Copy kind="small" tone="muted">Message ready in the composer below.</Copy>}
           </>}
           {item.actions.map((action) => (
             <Card key={action.proposal_id} tone="accent" compact>
@@ -632,6 +733,7 @@ export default function Coach() {
           ))}
         </View>
       ))}
+      {!!provisional && <Bubble from="coach" meta="Reply in progress · not saved yet"><Copy>{provisional}</Copy></Bubble>}
     </Screen>
   );
 }

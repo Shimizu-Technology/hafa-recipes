@@ -1,3 +1,4 @@
+vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
 import { it, expect, vi } from "vitest";
 import { canAcceptCoach, coachFocusErrors, needsReturnConfirmation, type CoachAction } from "./coach";
 import { createWorkoutsApi } from "./api";
@@ -69,4 +70,92 @@ it("reads paused queue metadata outside proposal.sessions and never forwards it 
   expect(program.schedule_state?.paused_sessions?.[0].id).toBe("future");
   await api.updateProgram(program);
   expect(JSON.parse(transport.mock.calls[1][1].body).proposal).not.toHaveProperty("schedule_state");
+});
+it("cancels the exact request using its original generation and an ordinary authenticated route", async () => {
+  const receipt = { request_id: "original/request", state: "failed", cancelled: true };
+  const transport = vi.fn().mockImplementation(async () => new Response(JSON.stringify(receipt)));
+  const api = createWorkoutsApi("https://example.test", async () => "token", transport);
+  expect(await api.cancelCoachMessage("original/request", 7)).toEqual(receipt);
+  expect(transport.mock.calls[0][0]).toContain("/coach/messages/original%2Frequest/cancel");
+  expect(transport.mock.calls[0][1]).toMatchObject({ method: "POST", headers: { "X-Workouts-Generation": "7" } });
+  expect(transport.mock.calls[0][1].body).toBeUndefined();
+});
+
+// Reuse the existing coach test suite for native/web transport, without a second harness.
+import { streamCoachRequest } from "./coach-stream";
+const wireId = "00000000-0000-4000-8000-000000000001";
+const wireReceipt = { id: wireId, request_id: wireId, generation: 1, state: "completed", user_message: "Question",
+  assistant_message: "Canonical answer", actions: [], created_at: "2026-10-16T00:00:00Z", focus: {} };
+const frame = (event: Record<string, unknown>) => JSON.stringify({ request_id: wireId, generation: 1, ...event }) + "\n";
+function streamingTransport(chunks: Uint8Array[]) {
+  const source = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
+  return vi.fn().mockResolvedValue(new Response(source, { headers: { "Content-Type": "application/x-ndjson" } }));
+}
+const runStream = (fetchImpl: ReturnType<typeof streamingTransport>, onText = vi.fn()) => streamCoachRequest({
+  url: "https://example.test/api/v1/workouts/coach/messages/stream", headers: { Authorization: "Bearer test", "X-Workouts-Generation": "1" },
+  body: { request_id: wireId, message: "Question" }, generation: 1, current: () => undefined, onText,
+  fetchImpl: fetchImpl as unknown as NonNullable<Parameters<typeof streamCoachRequest>[0]["fetchImpl"]>,
+});
+it("incrementally decodes fragmented Unicode, resets provisional turns and returns only the canonical receipt", async () => {
+  const text = frame({ type: "reset", turn: 1 }) + frame({ type: "delta", text: "Preview 🏋️" }) + frame({ type: "reset", turn: 2 }) +
+    frame({ type: "delta", text: "Second preview" }) + frame({ type: "receipt", receipt: wireReceipt });
+  const bytes = new TextEncoder().encode(text), chunks = Array.from(bytes, value => new Uint8Array([value]));
+  const onText = vi.fn(); const transport = streamingTransport(chunks);
+  expect(await runStream(transport, onText)).toEqual(wireReceipt);
+  expect(onText.mock.calls.map(([value]) => value)).toEqual(["", "Preview 🏋️", "", "Second preview"]);
+  expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({ request_id: wireId, message: "Question" });
+});
+it.each([
+  frame({ type: "delta", text: "No reset" }),
+  frame({ type: "reset", turn: 2 }),
+  frame({ type: "reset", turn: 1 }) + frame({ type: "delta", text: "x".repeat(16001) }),
+  frame({ type: "receipt", receipt: { ...wireReceipt, generation: 2 } }),
+  frame({ type: "receipt", receipt: { ...wireReceipt, state: "pending", actions: [{ proposal_id: wireId }] } }),
+  frame({ type: "tool", arguments: "PRIVATE TOOL" }),
+  frame({ type: "receipt", receipt: wireReceipt }) + frame({ type: "delta", text: "Late" }),
+  "PRIVATE MALFORMED JSON\n",
+  "x".repeat(65537),
+  frame({ type: "reset", turn: 1 }) + frame({ type: "delta", text: "Incomplete" }),
+])("rejects malformed, oversized, mismatched or unterminated streams without exposing raw data", async text => {
+  await expect(runStream(streamingTransport([new TextEncoder().encode(text)]))).rejects.toThrow("Could not confirm");
+});
+it("rechecks account authority before every delivered frame and stops reading after retirement", async () => {
+  let current = true;
+  const transport = streamingTransport([new TextEncoder().encode(frame({ type: "reset", turn: 1 }) + frame({ type: "delta", text: "Allowed" }) + frame({ type: "receipt", receipt: wireReceipt }))]);
+  await expect(streamCoachRequest({ url: "https://example.test", headers: {}, body: { request_id: wireId, message: "Question" }, generation: 1,
+    current: () => { if (!current) throw Error("Retired account"); }, onText: () => { current = false; },
+    fetchImpl: transport as unknown as NonNullable<Parameters<typeof streamCoachRequest>[0]["fetchImpl"]> })).rejects.toThrow("Retired account");
+});
+
+it("uses native Expo streaming with the original authenticated account generation and frozen request body", async () => {
+  const { fetch: nativeFetch } = await import("expo/fetch");
+  const transport = streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: wireReceipt }))]);
+  vi.mocked(nativeFetch).mockImplementation(transport as unknown as typeof nativeFetch);
+  let binding = "current";
+  const api = createWorkoutsApi("https://example.test/", async () => "account-token", vi.fn(),
+    { owner: "stable-owner", binding, currentBinding: () => binding });
+  expect(await api.coachStream(wireId, "Question", {}, 1, new AbortController().signal, () => undefined)).toEqual(wireReceipt);
+  expect(transport.mock.calls[0][0]).toBe("https://example.test/api/v1/workouts/coach/messages/stream");
+  expect(transport.mock.calls[0][1].headers).toMatchObject({ Authorization: "Bearer account-token", "X-Hafa-Account-ID": "stable-owner", "X-Workouts-Generation": "1" });
+  binding = "retired";
+  await expect(api.coachStream(wireId, "Question", {}, 1, new AbortController().signal, () => undefined)).rejects.toThrow("changed");
+  expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  { cancelled: true, text: "Reply stopped. No training changes were applied." },
+  { cancelled: false, text: "I couldn't finish this request. Review your current training information and send a new message to retry." },
+  { cancelled: false, text: "This request timed out. Send a new message to retry." },
+])("accepts bounded canonical failed/stopped guidance as a terminal replay receipt: $text", async ({ cancelled, text }) => {
+  const failed = { ...wireReceipt, state: "failed", assistant_message: text, ...(cancelled ? { cancelled: true } : {}) };
+  const onText = vi.fn();
+  expect(await runStream(streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: failed }))]), onText)).toEqual(failed);
+  expect(onText).not.toHaveBeenCalled();
+});
+it.each([
+  { ...wireReceipt, state: "pending", assistant_message: "Not a terminal answer" },
+  { ...wireReceipt, state: "failed", actions: [{ proposal_id: wireId, kind: "schedule", status: "ready", state: "proposed" }] },
+  { ...wireReceipt, state: "failed", assistant_message: "x".repeat(16001) },
+])("still rejects pending answers, noncompleted actions and oversized guidance", async failed => {
+  await expect(runStream(streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: failed }))]))).rejects.toThrow("Could not confirm");
 });
