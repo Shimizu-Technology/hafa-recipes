@@ -1104,3 +1104,26 @@ it.each([undefined, "workouts_ai_budget_unavailable", "workouts_ai_budget_exceed
   await act(async () => button("Check details")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
 });
+
+it("keeps saved workout instructions ahead of optional diagnostics without losing correction or source recovery", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  const warning = "Unsupported reps_min removed from Goblet squat.";
+  const warnings = [warning, warning, "Unsupported reps_max removed from Goblet squat."];
+  fixture.workout.mockResolvedValue({ ...saved, instructions: ["Repeat this circuit with controlled movements."],
+    source_url: "https://example.test/original", extraction_warnings: warnings });
+  await mount(WorkoutDetail);
+  const collapsed = JSON.stringify(renderer!.toJSON());
+  expect(collapsed).not.toContain(warning);
+  expect(collapsed.indexOf("Repeat this circuit")).toBeLessThan(collapsed.indexOf("Review workout details"));
+  expect(collapsed.indexOf("Goblet squat")).toBeLessThan(collapsed.indexOf("Review workout details"));
+  expect(nodes("Copy").filter(node => node.children.join("").includes("Some workout details need checking"))).toHaveLength(1);
+  await act(async () => button("Check details")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+  await act(async () => button("Recover from caption or source")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
+  await act(async () => button("Import diagnostics")!.props.onPress());
+  expect(nodes("Copy").filter(node => node.children.join("") === warning)).toHaveLength(1);
+  expect(warnings).toEqual([warning, warning, "Unsupported reps_max removed from Goblet squat."]);
+  await act(async () => button("Hide import diagnostics")!.props.onPress());
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain(warning);
+});
