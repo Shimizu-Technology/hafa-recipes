@@ -2316,15 +2316,16 @@ def test_complete_single_movement_dose_name_quote_keeps_matching_reps(quote):
     assert item.reps_min == item.reps_max == 10
 
 
-def test_reused_name_quote_keeps_explicit_side_count_instead_of_model_total():
+@pytest.mark.parametrize("candidate,expected,per_side", [(5, 5, True), (10, None, None)])
+def test_reused_name_quote_requires_the_stated_side_count(candidate, expected, per_side):
     quote = "5 Squat (5 each side)"
     raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
-        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+        {"name": "Squat", "reps_min": candidate, "reps_max": candidate,
          "evidence": [evidence("name", quote)]}]}]}
     workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
     item = workout.blocks[0].exercises[0]
-    assert item.reps_min == item.reps_max == 5
-    assert item.per_side is True
+    assert item.reps_min == item.reps_max == expected
+    assert item.per_side is per_side
 
 
 def test_reused_name_quote_declines_excessive_whitespace_without_changing_the_source():
