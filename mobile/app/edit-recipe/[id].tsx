@@ -8,8 +8,9 @@ import type { NutritionEstimateValues } from '@/lib/api';
  * For extracted recipes, saves the original on first edit.
  */
 
-import type { QuantityEstimate } from '@/types/recipe';
-import { useState, useEffect, useRef } from 'react';
+import type { QuantityEstimate, Recipe } from '@/types/recipe';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useAuth } from '@clerk/expo';
 import {
   StyleSheet,
   ScrollView,
@@ -105,12 +106,21 @@ const UNIT_OPTIONS = [
 ];
 
 export default function EditRecipeScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { userId } = useAuth();
+  return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
+}
+
+function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const alive = useRef(false);
+  useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const guard = () => { if (!alive.current || !owner) throw new Error('Account changed; reopen this recipe.'); };
 
   // Form state
   const [title, setTitle] = useState('');
@@ -159,17 +169,22 @@ export default function EditRecipeScreen() {
   latestNutritionInputs.current = nutritionInputFingerprint;
 
   // Fetch existing recipe
-  const { data: recipe, isLoading: isLoadingRecipe } = useQuery({
-    queryKey: ['recipe', id],
-    queryFn: () => api.getRecipe(id!),
-    enabled: !!id,
+  const { data: loadedRecipe, isLoading: isLoadingRecipe, isError, refetch } = useQuery({
+    queryKey: ['recipe', id, owner],
+    queryFn: ({ signal }) => api.getRecipe(id!, signal, guard),
+    enabled: !!id && !!owner,
   });
+  const [draftRecipe, setDraftRecipe] = useState<Recipe | null>(null);
+  const recipe = draftRecipe ?? loadedRecipe;
+  useEffect(() => { if (!draftRecipe && loadedRecipe) setDraftRecipe(loadedRecipe); }, [draftRecipe, loadedRecipe]);
+  const newerRecipeAvailable = !!draftRecipe && !!loadedRecipe
+    && (draftRecipe.content_revision ?? 1) !== (loadedRecipe.content_revision ?? 1);
 
   // Check if recipe has original version
   const { data: originalStatus } = useQuery({
-    queryKey: ['recipe-original', id],
-    queryFn: () => api.checkHasOriginal(id!),
-    enabled: !!id,
+    queryKey: ['recipe-original', id, owner],
+    queryFn: ({ signal }) => api.checkHasOriginal(id!, signal, guard),
+    enabled: !!id && !!owner,
   });
 
   // Pre-populate form when recipe loads
@@ -189,6 +204,7 @@ export default function EditRecipeScreen() {
       setTags((extracted.tags || []).join(', '));
       setIsPublic(recipe.is_public);
       setThumbnailUrl(recipe.thumbnail_url || null);
+      setNewImageUri(null);
       setEstimateInputsChanged(false);
       setNutritionRecalculated(false);
       setNutritionModel(extracted.derivedData?.nutrition?.model || null);
@@ -379,7 +395,7 @@ export default function EditRecipeScreen() {
   // Edit recipe mutation
   const editMutation = useMutation({
     mutationFn: ({ data, imageUri }: EditSnapshot) => {
-      return api.editRecipe(id!, data, imageUri);
+      return api.editRecipe(id!, data, imageUri, guard);
     },
     onSuccess: (updatedRecipe) => {
       // Invalidate recipe queries to refresh
@@ -389,22 +405,24 @@ export default function EditRecipeScreen() {
       // Also invalidate version history (new version was created)
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
+      if (!alive.current) return;
       
       const message = updatedRecipe.review_state === 'source_incomplete'
         ? 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.'
         : 'Recipe updated.';
       Alert.alert('Saved', message, [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
       ]);
     },
     onError: (error: unknown) => {
+      if (!alive.current) return;
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));
     },
   });
 
   // Restore original mutation
   const restoreMutation = useMutation({
-    mutationFn: () => api.restoreOriginalRecipe(id!),
+    mutationFn: () => api.restoreOriginalRecipe(id!, guard),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
@@ -412,12 +430,14 @@ export default function EditRecipeScreen() {
       // Also invalidate version history
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'list', id] });
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
+      if (!alive.current) return;
       
       Alert.alert('Restored!', 'Recipe has been restored to the original version.', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
       ]);
     },
     onError: (error: Error) => {
+      if (!alive.current) return;
       Alert.alert('Error', error.message || 'Failed to restore recipe');
     },
   });
@@ -431,6 +451,7 @@ export default function EditRecipeScreen() {
   };
 
   const submitEdit = async () => {
+    if (!alive.current) return;
     Keyboard.dismiss();
     let snapshot: EditSnapshot;
     try {
@@ -446,10 +467,14 @@ export default function EditRecipeScreen() {
         return;
       }
     }
-    editMutation.mutate(snapshot);
+    if (alive.current) editMutation.mutate(snapshot);
   };
 
   const handleSubmit = () => {
+    if (newerRecipeAvailable) {
+      Alert.alert('Recipe changed', 'Your edits are still here. Reload the latest recipe before saving.');
+      return;
+    }
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
       return;
@@ -730,6 +755,13 @@ export default function EditRecipeScreen() {
       </View>
     );
   }
+  if (!recipe || !owner) {
+    return <View style={styles.loadingContainer}>
+      <Text>{owner ? 'Couldn’t load this recipe.' : 'Sign in to edit this recipe.'}</Text>
+      {owner && isError && <TouchableOpacity onPress={() => { void refetch(); }}><Text>Try again</Text></TouchableOpacity>}
+      <TouchableOpacity onPress={() => router.back()}><Text>Go back</Text></TouchableOpacity>
+    </View>;
+  }
 
   return (
     <>
@@ -768,6 +800,17 @@ export default function EditRecipeScreen() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           >
+            {newerRecipeAvailable && <RNView style={{ paddingBottom: spacing.md }} accessibilityRole="alert">
+              <Text>This recipe changed elsewhere. Your edits are kept.</Text>
+              <TouchableOpacity accessibilityLabel="Reload latest recipe" onPress={() => Alert.alert(
+                'Reload recipe?', 'This replaces your unsaved changes with the latest saved recipe.', [
+                  { text: 'Keep editing', style: 'cancel' },
+                  { text: 'Reload', style: 'destructive', onPress: () => {
+                    if (alive.current) setDraftRecipe(loadedRecipe ?? null);
+                  } },
+                ],
+              )}><Text style={{ color: colors.tint }}>Reload latest recipe</Text></TouchableOpacity>
+            </RNView>}
             {/* Image Section */}
             <TouchableOpacity
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}

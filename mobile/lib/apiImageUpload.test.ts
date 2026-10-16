@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
     _config?: unknown,
   ): Promise<{ data: Record<string, unknown> }> => ({ data: { success: true } }));
   return {
+    platform: 'ios',
     client: {
       delete: vi.fn(),
       get: vi.fn(),
@@ -30,7 +31,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+vi.mock('react-native', () => ({ Platform: { get OS() { return mocks.platform; } } }));
 vi.mock('expo-file-system', () => ({ File: class {
   constructor(public uri: string) {}
   async bytes() { return new Uint8Array([1, 2, 3]); }
@@ -60,6 +61,7 @@ class InspectableFormData {
 import {
   api,
   AUTH_TOKEN_MAX_ATTEMPTS,
+  AUTH_TOKEN_TIMEOUT_MS,
   AUTH_TOKEN_RETRY_DELAY_MS,
 } from './api';
 
@@ -71,6 +73,7 @@ function uploadedFiles(formData: unknown, fieldName: string) {
 
 describe('recipe image multipart requests', () => {
   beforeEach(() => {
+    mocks.platform = 'ios';
     mocks.post.mockClear();
     mocks.addBreadcrumb.mockClear();
     mocks.captureError.mockClear();
@@ -135,9 +138,89 @@ describe('recipe image multipart requests', () => {
 
     await api.editRecipe('recipe-1', edit);
 
-    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit);
+    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit, { requestGuard: expect.any(Function) });
   });
 
+  it.each([false, true])('checks an editor account after delayed auth (photo=%s)', async (photo) => {
+    let owner = 'owner-a';
+    let finishToken!: (token: string) => void;
+    api.setTokenGetter(() => new Promise<string>((resolve) => { finishToken = resolve; }));
+    const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const guard = () => { if (owner !== 'owner-a') throw new Error('Editor account changed'); };
+    const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    mocks.client.patch.mockImplementationOnce(async (url, _body, config) => {
+      await interceptor({ ...config, url, headers: {} });
+      return transport();
+    });
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, photo ? 'file:///recipe.jpg' : null, guard);
+      void request.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishToken; tick += 1) await Promise.resolve();
+      owner = 'owner-b'; finishToken('new-account-token');
+      await expect(request).rejects.toThrow('Editor account changed');
+      expect(transport).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+    } finally { api.setTokenGetter(null); }
+  });
+
+  it.each(['clear', 'replace'] as const)('retires a held delete token when legacy auth callers %s credentials', async action => {
+    let finishToken!: (token: string) => void;
+    api.setAuthContext(() => new Promise<string>(resolve => { finishToken = resolve; }), 'owner-a');
+    const admittedScope = api.getAuthScope();
+    const guard = () => { if (api.getAuthScope() !== admittedScope) throw new Error('Root authentication changed'); };
+    const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+    const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    mocks.client.delete.mockImplementationOnce(async (url, config) => {
+      await interceptor({ ...config, url, headers: {} }); return transport();
+    });
+    try {
+      const pending = api.deleteRecipe('recipe-a', guard); void pending.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishToken; tick += 1) await Promise.resolve();
+      api.setTokenGetter(action === 'clear' ? null : async () => 'unidentified-token');
+      finishToken('held-owner-a-token');
+      await expect(pending).rejects.toThrow('Root authentication changed');
+      expect(transport).not.toHaveBeenCalled();
+      expect(api.getAuthScope().userId).toBeNull();
+      expect(api.getAuthScope()).not.toBe(admittedScope);
+    } finally { api.setAuthContext(null, null); }
+  });
+
+  it('keeps root request authority across token refreshes but retires it at sign-out and account changes', () => {
+    try {
+      api.setAuthContext(async () => 'token-a', 'owner-a');
+      const original = api.getAuthScope();
+      api.setAuthContext(async () => 'refreshed-a', 'owner-a');
+      expect(api.getAuthScope()).toBe(original);
+      api.setAuthContext(null, null);
+      expect(api.getAuthScope().userId).toBeNull();
+      api.setAuthContext(async () => 'new-a', 'owner-a');
+      expect(api.getAuthScope()).not.toBe(original);
+      expect(api.getAuthScope().epoch).toBeGreaterThan(original.epoch);
+      const signedInAgain = api.getAuthScope();
+      api.setAuthContext(async () => 'token-b', 'owner-b');
+      api.setAuthContext(async () => 'returned-a', 'owner-a');
+      expect(api.getAuthScope()).not.toBe(signedInAgain);
+    } finally { api.setAuthContext(null, null); }
+  });
+
+  it('checks the frozen delete account after delayed token lookup', async () => {
+    let owner = 'owner-a';
+    let finishToken!: (token: string) => void;
+    api.setTokenGetter(() => new Promise<string>(resolve => { finishToken = resolve; }));
+    const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+    const guard = () => { if (owner !== 'owner-a') throw new Error('Delete account changed'); };
+    const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+    mocks.client.delete.mockImplementationOnce(async (url, config) => {
+      await interceptor({ ...config, url, headers: {} }); return transport();
+    });
+    try {
+      const request = api.deleteRecipe('recipe-a', guard); void request.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishToken; tick += 1) await Promise.resolve();
+      owner = 'owner-b'; finishToken('new-account-token');
+      await expect(request).rejects.toThrow('Delete account changed');
+      expect(transport).not.toHaveBeenCalled();
+    } finally { api.setTokenGetter(null); }
+  });
   it('preserves review fields in image edits and surfaces structured stale-review errors', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
@@ -162,13 +245,16 @@ describe('recipe image multipart requests', () => {
       verified_paths: ['title'],
     };
 
-    await api.editRecipe('recipe-1', edit, 'file:///recipe.jpg');
-    const request = fetchMock.mock.calls[0][1];
-    const fields = (request.body as InspectableFormData).fields;
-    expect(fields).toContainEqual({ name: 'recipe_data', value: JSON.stringify(edit) });
+    api.setTokenGetter(async () => 'owner-token');
+    try {
+      await api.editRecipe('recipe-1', edit, 'file:///recipe.jpg');
+      const request = fetchMock.mock.calls[0][1];
+      const fields = (request.body as InspectableFormData).fields;
+      expect(fields).toContainEqual({ name: 'recipe_data', value: JSON.stringify(edit) });
 
-    await expect(api.editRecipe('recipe-1', edit, 'file:///recipe.jpg'))
-      .rejects.toThrow('This recipe changed after review started. Reload it before saving.');
+      await expect(api.editRecipe('recipe-1', edit, 'file:///recipe.jpg'))
+        .rejects.toThrow('This recipe changed after review started. Reload it before saving.');
+    } finally { api.setTokenGetter(null); }
   });
 
   it('preserves explicit shared-image metadata in the single-image OCR request', async () => {
@@ -381,5 +467,118 @@ describe('recipe image multipart requests', () => {
       { text: 'Read this response', voice: 'nova' },
       { responseType: 'blob', signal: controller.signal },
     );
+  });
+});
+
+
+describe('frozen recipe write authentication', () => {
+  beforeEach(() => {
+    mocks.client.patch.mockReset(); mocks.post.mockReset();
+    mocks.platform = 'ios';
+    vi.stubGlobal('FormData', InspectableFormData);
+  });
+  it.each(['image-edit', 'patch-edit', 'original-restore', 'version-restore'] as const)(
+    'rejects a held %s token after credentials clear before the editor unmounts', async operation => {
+      let finishToken!: (token: string) => void;
+      api.setAuthContext(() => new Promise<string>(resolve => { finishToken = resolve; }), 'owner-a');
+      const transport = vi.fn(async () => ({ data: { id: 'recipe-a' } }));
+      const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+      const dispatch = async (url: string, _body: unknown, config: unknown) => {
+        await interceptor({ ...(config as object), url, headers: {} }); return transport();
+      };
+      mocks.client.patch.mockImplementationOnce(dispatch); mocks.post.mockImplementationOnce(dispatch);
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) }); vi.stubGlobal('fetch', fetchMock);
+      try {
+        const request = operation === 'original-restore' ? api.restoreOriginalRecipe('recipe-a', () => {})
+          : operation === 'version-restore' ? api.restoreRecipeVersion('recipe-a', 'version-a')
+            : api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, operation === 'image-edit' ? 'file:///recipe.jpg' : null, () => {});
+        void request.catch(() => undefined);
+        for (let tick = 0; tick < 30 && !finishToken; tick++) await Promise.resolve();
+        expect(finishToken).toBeTypeOf('function');
+        api.setTokenGetter(null); finishToken('held-owner-a-token');
+        await expect(request).rejects.toThrow('Authentication changed');
+        expect(transport).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled();
+      } finally { api.setAuthContext(null, null); mocks.post.mockReset(); }
+    }
+  );
+
+  it('freezes image-edit authentication before asynchronous image conversion', async () => {
+    mocks.platform = 'web';
+    let finishImage!: (value: { ok: boolean; blob(): Promise<Blob> }) => void;
+    const getToken = vi.fn(async () => 'replacement-token'); api.setAuthContext(getToken, 'owner-a');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) })
+      .mockImplementationOnce(() => new Promise(resolve => { finishImage = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      void request.catch(() => undefined);
+      for (let tick = 0; tick < 20 && !finishImage; tick++) await Promise.resolve();
+      expect(finishImage).toBeTypeOf('function');
+      api.setAuthContext(async () => 'b-token', 'owner-b'); api.setAuthContext(getToken, 'owner-a');
+      finishImage({ ok: true, blob: async () => new Blob(['selected image'], { type: 'image/jpeg' }) });
+      await expect(request).rejects.toThrow('Authentication changed');
+      expect(getToken).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('file:///recipe.jpg');
+    } finally { api.setAuthContext(null, null); }
+  });
+});
+
+
+describe('bounded multipart editor authentication', () => {
+  it.each(['missing-getter', 'empty-token', 'rejected-token'] as const)('does not dispatch private recipe or image data after %s', async failure => {
+    vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
+    const getter = failure === 'missing-getter' ? null
+      : failure === 'empty-token' ? vi.fn(async () => null) : vi.fn(async () => { throw Error('Token unavailable'); });
+    api.setAuthContext(getter, 'bounded-editor');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) }); vi.stubGlobal('fetch', fetchMock);
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'Keep my private draft', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      const outcome = request.then(value => ({ value }), error => ({ error }));
+      await vi.runAllTimersAsync();
+      expect(await outcome).toMatchObject({ error: { message: 'Sign in again before saving this recipe.' } });
+      expect(fetchMock).not.toHaveBeenCalled();
+      if (getter) expect(getter).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
+    } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
+  });
+
+  it.each([false, true])('settles a hung image-edit token without dispatching retired authority (retired=%s)', async retired => {
+    vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
+    const getToken = vi.fn(() => new Promise<string>(() => undefined));
+    api.setAuthContext(getToken, 'bounded-editor');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ detail: 'Not authenticated' }) });
+    vi.stubGlobal('fetch', fetchMock); let outcome: unknown = 'pending';
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'Keep my draft', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      void request.then(() => { outcome = 'saved'; }, error => { outcome = (error as Error).message; });
+      for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+      expect(getToken).toHaveBeenCalledOnce();
+      if (retired) api.setTokenGetter(null);
+      await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS * AUTH_TOKEN_MAX_ATTEMPTS + AUTH_TOKEN_RETRY_DELAY_MS * (AUTH_TOKEN_MAX_ATTEMPTS - 1));
+      expect(outcome).toBe(retired ? 'Authentication changed; reopen this recipe.' : 'Sign in again before saving this recipe.');
+      expect(fetchMock).not.toHaveBeenCalled();
+      if (!retired) {
+        expect(getToken).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
+      }
+    } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
+  });
+  it('retries a timed-out editor token once, then ignores the late first result without a second upload', async () => {
+    vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
+    let finishFirst!: (token: string) => void;
+    const getToken = vi.fn().mockImplementationOnce(() => new Promise<string>(resolve => { finishFirst = resolve; }))
+      .mockResolvedValue('current-token');
+    api.setAuthContext(getToken, 'bounded-editor');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) }); vi.stubGlobal('fetch', fetchMock);
+    let outcome: unknown = 'pending';
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      void request.then(value => { outcome = value; }, error => { outcome = error; });
+      for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS + AUTH_TOKEN_RETRY_DELAY_MS);
+      expect(outcome).toEqual({ id: 'recipe-a' });
+      expect(getToken).toHaveBeenCalledTimes(2); expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: 'Bearer current-token' });
+      finishFirst('late-first-token'); await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS * AUTH_TOKEN_MAX_ATTEMPTS);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
   });
 });

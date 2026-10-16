@@ -4,14 +4,15 @@ import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
  * React Query hooks for recipe operations.
  */
 
-import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery, type InfiniteData, type QueryClient, type MutateOptions } from '@tanstack/react-query';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
 import { api, type CaptureSourceType } from '../lib/api';
 import {
   reconcileSavedStateAfterError,
+  removeDeletedRecipeFromCache,
   savedStateInRecipePages,
   updateSavedStateInRecipePages,
 } from '../lib/recipeCache';
@@ -1108,32 +1109,43 @@ export function useAsyncExtractionController() {
  */
 export function useDeleteRecipe() {
   const queryClient = useQueryClient();
+  const { userId } = useAuth();
+  const captured = useMemo(() => ({ userId }), [userId]);
+  const identity = useRef<typeof captured | null>(null);
+  useLayoutEffect(() => {
+    identity.current = captured;
+    return () => { if (identity.current === captured) identity.current = null; };
+  }, [captured]);
 
-  return useMutation({
-    mutationFn: (id: string) => api.deleteRecipe(id),
+  const freeze = (id: string) => {
+    const current = () => !!userId && identity.current === captured;
+    const authScope = api.getAuthScope();
+    const admitted = current() && authScope.userId === userId;
+    const authorized = () => admitted && api.getAuthScope() === authScope;
+    const guard = () => {
+      if (!authorized()) throw new Error('Account changed; reopen your library.');
+    };
+    return { id, current, guard, authorized };
+  };
+  const mutation = useMutation({
+    mutationFn: ({ id, guard }: ReturnType<typeof freeze>) => api.deleteRecipe(id, guard),
     
     // Optimistic update - remove immediately from UI
-    onMutate: async (deletedId) => {
+    onMutate: async ({ id: deletedId, current, guard, authorized }) => {
+      guard();
       // Cancel any outgoing refetches for both My Recipes and Discover
       await queryClient.cancelQueries({ queryKey: recipeKeys.all });
       await queryClient.cancelQueries({ queryKey: recipeKeys.discover() });
+      await queryClient.cancelQueries({ queryKey: recipeKeys.saved() });
+      guard();
       
       // Snapshot previous data for rollback
       const previousRecipeQueries = queryClient.getQueriesData({ queryKey: recipeKeys.all });
       const previousDiscoverQueries = queryClient.getQueriesData({ queryKey: recipeKeys.discover() });
+      const previousSavedQueries = queryClient.getQueriesData({ queryKey: recipeKeys.saved() });
       
       // Helper function to remove recipe from paginated data
-      const removeFromPages = (old: any) => {
-        if (!old?.pages) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page: any) => ({
-            ...page,
-            items: page.items?.filter((item: any) => item.id !== deletedId) || [],
-            total: Math.max(0, (page.total || 0) - 1),
-          })),
-        };
-      };
+      const removeFromPages = (old: unknown) => removeDeletedRecipeFromCache(old, deletedId);
       
       // Optimistically remove from My Recipes queries
       queryClient.setQueriesData(
@@ -1146,12 +1158,14 @@ export function useDeleteRecipe() {
         { queryKey: recipeKeys.discover() },
         removeFromPages
       );
+      queryClient.setQueriesData({ queryKey: recipeKeys.saved() }, removeFromPages);
       
-      return { previousRecipeQueries, previousDiscoverQueries };
+      return { previousRecipeQueries, previousDiscoverQueries, previousSavedQueries, current, authorized };
     },
     
     // On error, roll back both
     onError: (err, deletedId, context) => {
+      if (!context?.authorized()) return;
       if (context?.previousRecipeQueries) {
         context.previousRecipeQueries.forEach(([queryKey, data]) => {
           queryClient.setQueryData(queryKey, data);
@@ -1162,18 +1176,44 @@ export function useDeleteRecipe() {
           queryClient.setQueryData(queryKey, data);
         });
       }
+      context.previousSavedQueries.forEach(([queryKey, data]) => queryClient.setQueryData(queryKey, data));
     },
     
-    onSuccess: (_, deletedId) => {
+    onSuccess: (_, { id: deletedId }, context) => {
+      if (!context?.current()) return;
       // Remove detail from cache
       queryClient.removeQueries({ queryKey: recipeKeys.detail(deletedId) });
+      queryClient.removeQueries({ predicate: (query) => {
+        const [root, kind, id] = query.queryKey;
+        return (['recipe', 'recipe-original', 'recipeNotes', 'recipeSaved'].includes(String(root)) && kind === deletedId)
+          || (root === 'recipeVersions' && id === deletedId);
+      } });
       // Invalidate counts to get accurate numbers (both My Recipes and Discover)
       queryClient.invalidateQueries({ queryKey: recipeKeys.count() });
       queryClient.invalidateQueries({ queryKey: recipeKeys.discoverCount() });
     },
     
-    // No need to invalidate lists - optimistic update handles it
+    onSettled: (_, __, ___, context) => {
+      if (!context) return;
+      // The API deletes these relationships, including when its acknowledgement is lost.
+      for (const queryKey of [recipeKeys.all, recipeKeys.discover(), recipeKeys.saved(),
+        ['savedRecipesCount'], ['collections'], ['meal-plans'], ['extractionJobs']]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    },
   });
+  type Options = MutateOptions<Awaited<ReturnType<typeof api.deleteRecipe>>, Error, string,
+    Parameters<NonNullable<NonNullable<Parameters<typeof mutation.mutate>[1]>['onSuccess']>>[2]>;
+  // Keep callers' string IDs while each request owns a frozen account guard.
+  const callbacks = (options?: Options): Parameters<typeof mutation.mutate>[1] => options && ({
+    onSuccess: (data, intent, context, mutationContext) => { if (intent.current()) options.onSuccess?.(data, intent.id, context, mutationContext); },
+    onError: (error, intent, context, mutationContext) => { if (intent.current()) options.onError?.(error, intent.id, context, mutationContext); },
+    onSettled: (data, error, intent, context, mutationContext) => { if (intent.current()) options.onSettled?.(data, error, intent.id, context, mutationContext); },
+  });
+  return { ...mutation, variables: mutation.variables?.id,
+    mutate: (id: string, options?: Options) => mutation.mutate(freeze(id), callbacks(options)),
+    mutateAsync: (id: string, options?: Options) => mutation.mutateAsync(freeze(id), callbacks(options)),
+  };
 }
 
 /**

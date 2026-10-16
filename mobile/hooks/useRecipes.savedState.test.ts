@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { PaginatedRecipes, RecipeListItem } from '@/types/recipe';
 import {
   reconcileSavedStateAfterError,
+  removeDeletedRecipeFromCache,
   savedStateInRecipePages,
   updateSavedStateInRecipePages,
 } from '@/lib/recipeCache';
@@ -50,6 +51,28 @@ function pages(): InfiniteData<PaginatedRecipes> {
     pageParams: [0, 1],
   };
 }
+
+describe('deleted recipe cache projection', () => {
+  it('removes one recipe and adjusts the shared count once across all loaded pages', () => {
+    const before = pages();
+    const after = removeDeletedRecipeFromCache(before, 'two') as InfiniteData<PaginatedRecipes>;
+    expect(after.pages.map(page => page.total)).toEqual([1, 1]);
+    expect(after.pages[0].items.map(item => item.id)).toEqual(['one']);
+    expect(after.pages[1].items).toEqual([]);
+    expect(before.pages[1].items).toHaveLength(1);
+  });
+  it('leaves unrelated filters, count records, and unfetched results intact', () => {
+    const before = pages(), count = { count: 5 };
+    expect(removeDeletedRecipeFromCache(before, 'absent')).toBe(before);
+    expect(removeDeletedRecipeFromCache(count, 'two')).toBe(count);
+    expect(removeDeletedRecipeFromCache(undefined, 'two')).toBeUndefined();
+  });
+  it('removes a matching result from ordinary pages and recent arrays', () => {
+    const before = pages().pages[0];
+    expect(removeDeletedRecipeFromCache(before, 'one')).toMatchObject({ items: [], total: 1 });
+    expect(removeDeletedRecipeFromCache(before.items, 'one')).toEqual([]);
+  });
+});
 
 describe('updateSavedStateInRecipePages', () => {
   it('updates the matching recipe across an infinite Discover result', () => {

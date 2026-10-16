@@ -168,6 +168,7 @@ export function getSafeApiErrorCode(data: unknown): string | undefined {
 class ApiClient {
   private client: AxiosInstance;
   private getTokenFn: TokenGetter | null = null;
+  private authScope: Readonly<{ userId: string | null; epoch: number }> = Object.freeze({ userId: null, epoch: 0 });
 
   constructor() {
     this.client = axios.create({
@@ -282,7 +283,30 @@ class ApiClient {
    * This will be called on every request to get a fresh token.
    */
   setTokenGetter(getter: TokenGetter | null) {
+    // A legacy caller supplies no account authority, including during sign-out.
+    this.setAuthContext(getter, null);
+  }
+
+  /** Root-owned request authority survives route unmounts, but never an account boundary. */
+  setAuthContext(getter: TokenGetter | null, userId: string | null) {
+    if (userId !== this.authScope.userId) {
+      this.authScope = Object.freeze({ userId, epoch: this.authScope.epoch + 1 });
+    }
     this.getTokenFn = getter;
+  }
+
+  getAuthScope() {
+    return this.authScope;
+  }
+
+  private recipeWriteGuard(requestGuard?: RequestGuard): RequestGuard {
+    const authScope = this.authScope;
+    const guard = () => {
+      if (this.authScope !== authScope) throw new Error('Authentication changed; reopen this recipe.');
+      requestGuard?.();
+    };
+    guard();
+    return guard;
   }
 
   /** Get a fresh session token with the same bounded retry for Axios and streams. */
@@ -428,8 +452,8 @@ class ApiClient {
     return data;
   }
 
-  async deleteRecipe(id: string): Promise<{ message: string; id: string }> {
-    const { data } = await this.client.delete(`/api/recipes/${id}`);
+  async deleteRecipe(id: string, requestGuard?: RequestGuard): Promise<{ message: string; id: string }> {
+    const { data } = await this.client.delete(`/api/recipes/${id}`, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
@@ -1264,11 +1288,13 @@ class ApiClient {
       verified_paths?: string[];
       resolved_issue_ids?: string[];
     },
-    imageUri?: string | null
+    imageUri?: string | null,
+    requestGuard?: RequestGuard,
   ): Promise<Recipe> {
+    requestGuard = this.recipeWriteGuard(requestGuard);
     // If no image, use simple PATCH
     if (!imageUri) {
-      const { data } = await this.client.patch(`/api/recipes/${recipeId}`, editData);
+      const { data } = await this.client.patch(`/api/recipes/${recipeId}`, editData, { requestGuard } as GuardedRequestConfig);
       return data;
     }
 
@@ -1277,13 +1303,16 @@ class ApiClient {
     formData.append('recipe_data', JSON.stringify(editData));
     
     await appendRecipeImage(formData, 'image', imageUri);
+    requestGuard();
 
-    const token = this.getTokenFn ? await this.getTokenFn() : null;
+    const token = await this.getAuthTokenWithRetry(`/api/recipes/${recipeId}/edit`);
+    requestGuard();
+    if (!token) throw new Error('Sign in again before saving this recipe.');
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
       method: 'POST',
       headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Authorization: `Bearer ${token}`,
       },
       body: formData,
     });
@@ -1301,13 +1330,14 @@ class ApiClient {
     return response.json();
   }
 
-  async restoreOriginalRecipe(recipeId: string): Promise<Recipe> {
-    const { data } = await this.client.post(`/api/recipes/${recipeId}/restore`);
+  async restoreOriginalRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<Recipe> {
+    requestGuard = this.recipeWriteGuard(requestGuard);
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/restore`, null, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
-  async checkHasOriginal(recipeId: string): Promise<{ has_original: boolean; source_type: string }> {
-    const { data } = await this.client.get(`/api/recipes/${recipeId}/has-original`);
+  async checkHasOriginal(recipeId: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<{ has_original: boolean; source_type: string }> {
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/has-original`, { signal, requestGuard } as GuardedRequestConfig);
     return data;
   }
 
@@ -1409,7 +1439,8 @@ class ApiClient {
   }
 
   async restoreRecipeVersion(recipeId: string, versionId: string): Promise<any> {
-    const { data } = await this.client.post(`/api/recipes/${recipeId}/versions/${versionId}/restore`);
+    const requestGuard = this.recipeWriteGuard();
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/versions/${versionId}/restore`, undefined, { requestGuard } as GuardedRequestConfig);
     return data;
   }
 
