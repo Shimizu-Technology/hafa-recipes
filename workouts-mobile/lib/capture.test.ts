@@ -850,15 +850,35 @@ it("settled relocation cleans an already missing current asset idempotently", as
   expect(native.records.has(relocationKey)).toBe(false);
 });
 
-it("protects a registered draft's relocated capture and never rewrites its ownership metadata", async () => {
-  const old = `${oldCache}hafa-workouts-capture/registered.jpg`, current = `${newCache}hafa-workouts-capture/registered.jpg`;
-  relocationRecord(old); native.files.set(current, "Accepted source bytes");
-  const key = draftKey("A", "capture:1"), draft = JSON.stringify({ files: [{ owned: true, uri: old }] });
-  native.records.set(key, draft);
-  await relocatedJournal().recover("A");
-  expect(native.remove).not.toHaveBeenCalled(); expect(native.files.get(current)).toBe("Accepted source bytes");
-  expect(native.records.get(key)).toBe(draft); expect(native.records.has(relocationKey)).toBe(false);
-});
+it.each([
+  ["capture", "hafa-workouts-capture/"], ["picker", "ImagePicker/"],
+  ["document", "DocumentPicker/"], ["manipulator", "ImageManipulator/"],
+].flatMap(([kind, directory]) => [false, true].map(relocated => ({ kind, directory, relocated }))))(
+  "protects registered owned $kind assets (relocated=$relocated) and cleans debt after unregister", async ({ kind, directory, relocated }) => {
+    const root = relocated ? newCache : "file:///cache/";
+    const originalUri = `${relocated ? oldCache : root}${directory}registered.jpg`, current = `${root}${directory}registered.jpg`;
+    relocationRecord(originalUri, kind); native.files.set(current, "Registered source bytes");
+    const key = draftKey("A", "capture:1"), draft = JSON.stringify({ files: [{ owned: true, uri: originalUri }] });
+    native.records.set(key, draft);
+    const journal = relocatedJournal(root);
+    await journal.recover("A");
+    expect(native.remove).not.toHaveBeenCalled(); expect(native.files.get(current)).toBe("Registered source bytes");
+    expect(native.records.get(key)).toBe(draft);
+    if (kind === "capture" && !relocated) {
+      // Current capture files retain the existing transfer to draft-owned cleanup.
+      expect(native.records.has(relocationKey)).toBe(false);
+    } else {
+      expect(JSON.parse(native.records.get(relocationKey)!)).toMatchObject({ state: "settled", assets: [{ kind, uri: current }] });
+    }
+    native.records.delete(key);
+    // Normal draft cleanup handles current captures; startup/account erasure also
+    // recovers journals after unregister, including SDK and relocated capture debt.
+    await cleanupCaptureFiles([{ uri: originalUri, name: "registered.jpg", mime_type: "image/jpeg", owned: true }], true);
+    await journal.recover("A");
+    expect(native.files.has(current)).toBe(false); expect(native.records.has(relocationKey)).toBe(false);
+    expect(native.remove).not.toHaveBeenCalledWith(relocated ? originalUri : "file:///outside-cache.jpg");
+  }
+);
 
 it("persists only the rebased asset before deletion and retains it for a failed-delete retry", async () => {
   const old = `${oldCache}hafa-workouts-capture/retry.jpg`, current = `${newCache}hafa-workouts-capture/retry.jpg`;
