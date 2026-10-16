@@ -21,6 +21,8 @@ export interface CoachMessage {
   cancelled?: boolean;
   user_message: string;
   assistant_message: string | null;
+  attachment_id?: string;
+  attachment_expires_at?: string;
   actions: CoachSummary[];
   created_at: string;
   focus: CoachFocus;
@@ -70,6 +72,7 @@ export interface CoachResult {
   state: "accepted" | "undone";
 }
 export interface PendingCoachMessage {
+  attachment_id?: string;
   request_id: string;
   message: string;
   generation: number;

@@ -36,6 +36,7 @@ const fixture = vi.hoisted(() => ({
   intent: { webUrl: "", text: "", files: [] as { path: string; mimeType: string; fileName: string }[] },
   resetIntent: vi.fn(),
   alert: vi.fn(),
+  uploadCoachImage: vi.fn(), discardCoachImage: vi.fn(), coachImage: vi.fn(), removeCoachImage: vi.fn(), photoInfo: vi.fn(), photoRead: vi.fn(),
   pickImages: vi.fn(),
   pickDocument: vi.fn(),
   cleanup: vi.fn(),
@@ -55,12 +56,14 @@ const fixture = vi.hoisted(() => ({
   writeFailure: false,
   readFailure: false,
   removeFailureScope: "",
+  appState: "active", photoFocus: false, routeFocused: true, routeListeners: new Set<(focused: boolean) => void>(),
   foreground: new Set<(state: string) => void>(),
   os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
 }));
 vi.mock("@/lib/context", () => {
   const storage = {
     isCurrent: () => fixture.current,
+    getAllKeys: async () => [...fixture.map.keys()],
     removeItem: async (key: string) => {
       if (fixture.removeFailureScope && key === draftKey(fixture.owner, fixture.removeFailureScope)) throw Error("device cleanup failed");
       fixture.map.delete(key);
@@ -92,6 +95,7 @@ vi.mock("@/lib/context", () => {
       )
   };
   const api = {
+    uploadCoachImage: fixture.uploadCoachImage, discardCoachImage: fixture.discardCoachImage, coachImage: fixture.coachImage, removeCoachImage: fixture.removeCoachImage,
     capabilities: fixture.capabilities,
     publishingDisclosure: fixture.publishingDisclosure,
     acceptPublishingDisclosure: fixture.acceptPublishingDisclosure,
@@ -141,7 +145,7 @@ vi.mock("react-native", () => ({
   ScrollView: "ScrollView",
   useWindowDimensions: () => ({ width: 390, height: 844 }),
   Alert: { alert: fixture.alert },
-  AppState: { currentState: "active", addEventListener: (_event: string, listener: (state: string) => void) => {
+  AppState: { get currentState() { return fixture.appState; }, addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.foreground.add(listener); return { remove: () => fixture.foreground.delete(listener) };
   } },
   Linking: { openURL: vi.fn() }
@@ -163,10 +167,20 @@ vi.mock("@/lib/capture-io", () => ({
 }));
 vi.mock("expo-router", () => ({
   router: { push: fixture.push, replace: fixture.replace, dismissTo: fixture.dismissTo },
-  useFocusEffect() {},
+  useFocusEffect(callback: () => void | (() => void)) {
+    useLayoutEffect(() => {
+      if (!fixture.photoFocus) return;
+      let cleanup: void | (() => void);
+      const change = (focused: boolean) => { cleanup?.(); cleanup = undefined; if (focused) cleanup = callback(); };
+      change(fixture.routeFocused); fixture.routeListeners.add(change);
+      return () => { fixture.routeListeners.delete(change); cleanup?.(); };
+    }, [callback]);
+  },
   useLocalSearchParams: () => fixture.params
 }));
-vi.mock("expo-crypto", () => ({ randomUUID: () => `command-${++fixture.next}` }));
+vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => `command-${++fixture.next}`) }));
+vi.mock("expo-image", () => ({ Image: "CoachImage" }));
+vi.mock("expo-file-system/legacy", () => ({ cacheDirectory: "file:///cache/", getInfoAsync: fixture.photoInfo, readAsStringAsync: fixture.photoRead, EncodingType: { Base64: "base64" } }));
 vi.mock("@/components/ui", () => ({
   Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
   useColors: () => ({ background: "#000" }),
@@ -304,7 +318,7 @@ beforeEach(() => {
   fixture.current = true; fixture.storageVersion = 0;
   fixture.next = 0;
   fixture.share = false;
-  fixture.foreground.clear();
+  fixture.foreground.clear(); fixture.routeListeners.clear(); fixture.photoFocus = false; fixture.routeFocused = true; fixture.appState = "active";
   fixture.os = "android"; fixture.nativeSharing = false;
   fixture.intent = { webUrl: "", text: "", files: [] };
   for (const value of Object.values(fixture)) if (typeof value === "function") value.mockReset();
@@ -2772,4 +2786,159 @@ it("a retired cover picker cannot replace or unlock a new storage scope on the s
   expect(fixture.sourceFor).toHaveBeenCalledOnce();
   expect(nodes("SourceImage")[0].props.uri).toBe("data:image/jpeg;base64,SU1BR0U=");
   expect(button("Save cover photo").props.busy).toBe(false);
+});
+
+import { CoachPhotoControl, CoachMessagePhoto, useCoachPhoto } from "../components/coach-photo";
+const photoUploadUuid = "00000000-0000-4000-8000-000000000001", photoAttachmentUuid = "00000000-0000-4000-8000-000000000002";
+const coachPhotoFile = { uri: "file:///cache/hafa-workouts-capture/photo.jpg", mime_type: "image/jpeg", name: "Coach photo", owned: true };
+function PhotoFixture({ allowed = true }: { allowed?: boolean }) {
+  const state = useCoachPhoto("general", "initial", !allowed);
+  return createElement(CoachPhotoControl, { state, allowed, disabled: false });
+}
+async function mountPhoto(component: ComponentType = PhotoFixture) { fixture.photoFocus = true; await mount(component); }
+async function photoVisibility(kind: "blur" | "focus" | "background" | "active") {
+  await act(async () => {
+    if (kind === "blur" || kind === "focus") {
+      fixture.routeFocused = kind === "focus"; fixture.routeListeners.forEach(listener => listener(fixture.routeFocused));
+    } else { fixture.appState = kind; fixture.foreground.forEach(listener => listener(kind)); }
+  }); await settle();
+}
+beforeEach(() => {
+  fixture.uploadCoachImage.mockReset().mockResolvedValue({ id: photoAttachmentUuid, expires_at: "2099-01-01T00:00:00Z" });
+  fixture.discardCoachImage.mockReset().mockResolvedValue(undefined);
+  fixture.coachImage.mockReset().mockResolvedValue({ url: "https://signed.test/private?ttl=60", expires_in: 60 });
+  fixture.removeCoachImage.mockReset().mockResolvedValue(undefined);
+  fixture.photoInfo.mockReset().mockResolvedValue({ exists: true, isDirectory: false, size: 10 });
+  fixture.photoRead.mockReset().mockResolvedValue("aW1hZ2U=");
+});
+it("photo composer uploads one normalized private image, retires its local copy and keeps bytes out of device drafts", async () => {
+  const crypto = await import("expo-crypto"); vi.mocked(crypto.randomUUID).mockReturnValueOnce(photoUploadUuid);
+  fixture.pickImages.mockResolvedValueOnce([coachPhotoFile]);
+  await mountPhoto(); await act(async () => button("Attach a photo").props.onPress()); await settle();
+  expect(fixture.pickImages).toHaveBeenCalledWith(false, expect.any(Function), fixture.owner, 1);
+  expect(fixture.uploadCoachImage).toHaveBeenCalledWith(photoUploadUuid, { base64_data: "aW1hZ2U=", content_type: "image/jpeg" }, 1, expect.any(AbortSignal));
+  expect(fixture.cleanup).toHaveBeenCalledWith([coachPhotoFile], true);
+  expect(JSON.stringify([...fixture.map.values()])).not.toContain("aW1hZ2U=");
+  expect(button("View private photo")).toBeDefined(); expect(button("Remove photo")).toBeDefined();
+});
+it("removing a photo during upload uses its original UUID and ignores its late acknowledgment", async () => {
+  const crypto = await import("expo-crypto"); vi.mocked(crypto.randomUUID).mockReturnValueOnce(photoUploadUuid);
+  fixture.pickImages.mockResolvedValueOnce([coachPhotoFile]);
+  const upload = deferred<{ id: string; expires_at: string }>(); fixture.uploadCoachImage.mockReturnValueOnce(upload.promise);
+  await mountPhoto(); await act(async () => button("Attach a photo").props.onPress()); await settle();
+  const signal = fixture.uploadCoachImage.mock.calls[0][3] as AbortSignal;
+  await act(async () => button("Remove photo").props.onPress()); await settle();
+  expect(fixture.discardCoachImage).toHaveBeenCalledWith(photoUploadUuid, 1); expect(signal.aborted).toBe(true);
+  await act(async () => upload.resolve({ id: photoAttachmentUuid, expires_at: "2099-01-01T00:00:00Z" })); await settle();
+  expect(button("View private photo")).toBeUndefined(); expect(button("Attach a photo")).toBeDefined();
+  expect(nodes("Notice").some(node => String(node.props.children).includes("Finish the current message"))).toBe(false);
+  expect([...fixture.map.values()].some(raw => raw.includes(photoUploadUuid))).toBe(false);
+});
+it("photo selection from a retired account cleans its exact returned copy without starting an upload", async () => {
+  const picked = deferred<typeof coachPhotoFile[]>(); fixture.pickImages.mockReturnValueOnce(picked.promise);
+  await mountPhoto(); await act(async () => button("Attach a photo").props.onPress());
+  fixture.owner = "new-photo-owner";
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(PhotoFixture)))); await settle();
+  await act(async () => picked.resolve([coachPhotoFile])); await settle();
+  expect(fixture.uploadCoachImage).not.toHaveBeenCalled(); expect(fixture.cleanup).toHaveBeenCalledWith([coachPhotoFile], true);
+});
+it("photo removal remains available when AI sharing is off and retries an uncertain deletion after remount", async () => {
+  const key = draftKey(fixture.owner, "coach-photo:1:general");
+  fixture.map.set(key, JSON.stringify({ upload_id: photoUploadUuid, attachment_id: photoAttachmentUuid, expires_at: "2099-01-01T00:00:00Z" }));
+  fixture.discardCoachImage.mockRejectedValueOnce(Error("Offline"));
+  await mountPhoto(() => createElement(PhotoFixture, { allowed: false }));
+  await act(async () => button("Remove photo").props.onPress()); await settle();
+  expect(JSON.parse(fixture.map.get(key)!).discard).toBe(true);
+  await unmount(); await mountPhoto(() => createElement(PhotoFixture, { allowed: false }));
+  await act(async () => button("Retry removing photo").props.onPress()); await settle();
+  expect(fixture.discardCoachImage.mock.calls).toEqual([[photoUploadUuid, 1], [photoUploadUuid, 1]]);
+  expect(fixture.map.has(key)).toBe(false); expect(fixture.uploadCoachImage).not.toHaveBeenCalled();
+});
+it("a photo journal write failure stops upload and cleans only the selected normalized file", async () => {
+  const crypto = await import("expo-crypto"); vi.mocked(crypto.randomUUID).mockReturnValueOnce(photoUploadUuid);
+  fixture.pickImages.mockResolvedValueOnce([coachPhotoFile]); await mountPhoto(); fixture.writeFailure = true;
+  await act(async () => button("Attach a photo").props.onPress()); await settle();
+  expect(fixture.uploadCoachImage).not.toHaveBeenCalled(); expect(fixture.cleanup).toHaveBeenCalledWith([coachPhotoFile], true);
+});
+
+it.each(["blur", "background"] as const)("a deferred photo picker cannot upload after %s and return", async kind => {
+  const picked = deferred<typeof coachPhotoFile[]>(); fixture.pickImages.mockReturnValueOnce(picked.promise);
+  await mountPhoto(); await act(async () => button("Attach a photo").props.onPress());
+  await photoVisibility(kind); await photoVisibility(kind === "blur" ? "focus" : "active");
+  await act(async () => picked.resolve([coachPhotoFile])); await settle();
+  expect(fixture.uploadCoachImage).not.toHaveBeenCalled();
+  expect(fixture.cleanup).toHaveBeenCalledWith([coachPhotoFile], true);
+  expect(button("Attach a photo")).toBeDefined();
+});
+it.each(["blur", "background"] as const)("a photo upload retired by %s retains original intent and ignores its late ACK after return", async kind => {
+  const crypto = await import("expo-crypto"); vi.mocked(crypto.randomUUID).mockReturnValueOnce(photoUploadUuid);
+  const upload = deferred<{ id: string; expires_at: string }>(); fixture.uploadCoachImage.mockReturnValueOnce(upload.promise);
+  fixture.pickImages.mockResolvedValueOnce([coachPhotoFile]); await mountPhoto();
+  await act(async () => button("Attach a photo").props.onPress()); await settle();
+  expect(nodes("CoachImage")[0].props.cachePolicy).toBe("none");
+  const signal = fixture.uploadCoachImage.mock.calls[0][3] as AbortSignal;
+  await photoVisibility(kind); expect(signal.aborted).toBe(true);
+  await photoVisibility(kind === "blur" ? "focus" : "active");
+  await act(async () => upload.resolve({ id: photoAttachmentUuid, expires_at: "2099-01-01T00:00:00Z" })); await settle();
+  expect(button("View private photo")).toBeUndefined(); expect(button("Retry photo upload")).toBeDefined();
+  const stored = JSON.parse(fixture.map.get(draftKey(fixture.owner, "coach-photo:1:general"))!);
+  expect(stored.upload_id).toBe(photoUploadUuid); expect(stored.attachment_id).toBeUndefined();
+  expect(fixture.discardCoachImage).not.toHaveBeenCalled();
+  await act(async () => button("Retry photo upload").props.onPress()); await settle();
+  expect(fixture.uploadCoachImage.mock.calls.map(call => call[0])).toEqual([photoUploadUuid, photoUploadUuid]);
+});
+it.each(["blur", "background"] as const)("private signed reads cannot reappear after %s and return; displayed images opt out of cache", async kind => {
+  const read = deferred<{ url: string; expires_in: number }>(); fixture.coachImage.mockReturnValueOnce(read.promise);
+  await mountPhoto(() => createElement(CoachMessagePhoto, { id: photoAttachmentUuid, generation: 1 }));
+  await act(async () => button("View private photo").props.onPress());
+  await photoVisibility(kind); await photoVisibility(kind === "blur" ? "focus" : "active");
+  await act(async () => read.resolve({ url: "https://signed.test/old", expires_in: 60 })); await settle();
+  expect(nodes("CoachImage")).toHaveLength(0);
+  await act(async () => button("View private photo").props.onPress()); await settle();
+  expect(nodes("CoachImage")[0].props.cachePolicy).toBe("none");
+  expect(nodes("CoachImage")[0].props.source.uri).toBe("https://signed.test/private?ttl=60");
+  await photoVisibility(kind); expect(nodes("CoachImage")).toHaveLength(0);
+});
+it("a retired private-photo expiry callback cannot clear a fresh activation's signed image", async () => {
+  const timers = vi.spyOn(globalThis, "setTimeout");
+  try {
+    await mountPhoto(() => createElement(CoachMessagePhoto, { id: photoAttachmentUuid, generation: 1 }));
+    await act(async () => button("View private photo").props.onPress()); await settle();
+    const retired = timers.mock.calls.find(call => call[1] === 59000)![0];
+    await photoVisibility("blur"); await photoVisibility("focus");
+    fixture.coachImage.mockResolvedValueOnce({ url: "https://signed.test/fresh", expires_in: 60 });
+    await act(async () => button("View private photo").props.onPress()); await settle();
+    await act(async () => { if (typeof retired === "function") retired(); });
+    expect(nodes("CoachImage")[0].props.source.uri).toBe("https://signed.test/fresh");
+  } finally { timers.mockRestore(); }
+});
+
+it("keeps the idle photo composer compact and shows only one selected preview", async () => {
+  await mountPhoto();
+  expect(button("Attach a photo")).toBeDefined(); expect(nodes("CoachImage")).toHaveLength(0);
+  expect(nodes("Copy").some(node => String(node.props.children).includes("AI provider"))).toBe(false);
+  await unmount();
+  fixture.map.set(draftKey(fixture.owner, "coach-photo:1:general"), JSON.stringify({ upload_id: photoUploadUuid,
+    file: coachPhotoFile, attachment_id: photoAttachmentUuid, expires_at: "2099-01-01T00:00:00Z" }));
+  await mountPhoto();
+  expect(nodes("CoachImage")).toHaveLength(1); expect(button("View private photo")).toBeUndefined();
+  expect(button("Remove photo")).toBeDefined(); expect(fixture.coachImage).not.toHaveBeenCalled();
+});
+it.each(["before-pick", "during-pick"] as const)("retired photo sharing permission blocks selection %s while removal remains available", async when => {
+  const picked = deferred<typeof coachPhotoFile[]>(); fixture.pickImages.mockReturnValueOnce(picked.promise);
+  await mountPhoto(); const retained = button("Attach a photo").props.onPress;
+  if (when === "during-pick") await act(async () => retained());
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(PhotoFixture, { allowed: false })))); await settle();
+  if (when === "before-pick") await act(async () => retained());
+  else { await act(async () => picked.resolve([coachPhotoFile])); await settle(); }
+  expect(fixture.uploadCoachImage).not.toHaveBeenCalled();
+  if (when === "before-pick") expect(fixture.pickImages).not.toHaveBeenCalled();
+  else expect(fixture.cleanup).toHaveBeenCalledWith([coachPhotoFile], true);
+});
+it("an expired selected photo exposes removal without rendering local or remote bytes", async () => {
+  fixture.map.set(draftKey(fixture.owner, "coach-photo:1:general"), JSON.stringify({ upload_id: photoUploadUuid,
+    file: coachPhotoFile, attachment_id: photoAttachmentUuid, expires_at: "2000-01-01T00:00:00Z" }));
+  await mountPhoto(); expect(nodes("CoachImage")).toHaveLength(0);
+  expect(button("View private photo")).toBeUndefined(); expect(button("Remove photo")).toBeDefined();
+  expect(fixture.coachImage).not.toHaveBeenCalled();
 });

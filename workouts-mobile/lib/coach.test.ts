@@ -159,3 +159,44 @@ it.each([
 ])("still rejects pending answers, noncompleted actions and oversized guidance", async failed => {
   await expect(runStream(streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: failed }))]))).rejects.toThrow("Could not confirm");
 });
+
+
+it("photo routes use original upload UUID privacy deletion and freeze only attachment ID into coach sends", async () => {
+  const transport = vi.fn().mockImplementation(async (_url, init) => new Response(init.method === "DELETE" ? null : JSON.stringify({ id: "photo", expires_at: "2099-01-01T00:00:00Z" }),
+    { status: init.method === "DELETE" ? 204 : 200, headers: { "Content-Type": "application/json" } }));
+  const api = createWorkoutsApi("https://example.test", async () => "token", transport);
+  await api.uploadCoachImage("original-upload", { base64_data: "photo-bytes", content_type: "image/jpeg" }, 2);
+  await api.discardCoachImage("original-upload", 2);
+  await api.removeCoachImage("attachment", 2);
+  await api.coachMessage("request", "Question", {}, 2, undefined, "attachment");
+  expect(transport.mock.calls.map(([url]) => url)).toEqual([
+    "https://example.test/api/v1/workouts/coach/image-uploads/original-upload", "https://example.test/api/v1/workouts/coach/image-uploads/original-upload",
+    "https://example.test/api/v1/workouts/coach/images/attachment", "https://example.test/api/v1/workouts/coach/messages"]);
+  expect(transport.mock.calls.every(([, init]) => init.headers["X-Workouts-Generation"] === "2")).toBe(true);
+  expect(JSON.parse(transport.mock.calls[3][1].body)).toEqual({ request_id: "request", message: "Question", attachment_id: "attachment" });
+});
+
+it("freezes stream attachment and focus before an asynchronous auth token lookup", async () => {
+  const { fetch: nativeFetch } = await import("expo/fetch");
+  const transport = streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: wireReceipt }))]);
+  vi.mocked(nativeFetch).mockImplementation(transport as unknown as typeof nativeFetch);
+  let token!: (value: string) => void; const api = createWorkoutsApi("https://example.test", () => new Promise(done => { token = done; }), vi.fn());
+  const focus = { context_workout_id: "original-workout", context_revision: 3 }, attachment = "7098abe8-bd72-43cc-bcaf-9f5963fe32cb";
+  const request = api.coachStream(wireId, "Question", focus, 1, new AbortController().signal, () => undefined, attachment);
+  focus.context_workout_id = "changed-workout"; focus.context_revision = 9; token("token"); await request;
+  expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({ request_id: wireId, message: "Question", context_workout_id: "original-workout", context_revision: 3, attachment_id: attachment });
+});
+it.each(["completed", "failed"])("accepts only ID/expiry photo metadata on a canonical %s receipt", async state => {
+  const metadata = { attachment_id: "7098abe8-bd72-43cc-bcaf-9f5963fe32cb", attachment_expires_at: "2026-10-17T00:00:00Z" };
+  const photo = { ...wireReceipt, state, ...metadata, ...(state === "failed" ? { cancelled: true } : {}) };
+  const result = await runStream(streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: { ...photo, signed_url: "https://private.test/raw", image_bytes: "raw" } }))]));
+  expect(result).toEqual(photo); expect(result).not.toHaveProperty("signed_url"); expect(result).not.toHaveProperty("image_bytes");
+});
+it.each([
+  { attachment_id: "7098abe8-bd72-43cc-bcaf-9f5963fe32cb" },
+  { attachment_expires_at: "2026-10-17T00:00:00Z" },
+  { attachment_id: "https://private.test/photo", attachment_expires_at: "2026-10-17T00:00:00Z" },
+  { attachment_id: "7098abe8-bd72-43cc-bcaf-9f5963fe32cb", attachment_expires_at: "invalid" },
+])("rejects malformed or partial photo metadata while preserving same-request recovery", async metadata => {
+  await expect(runStream(streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: { ...wireReceipt, ...metadata } }))]))).rejects.toThrow("Could not confirm");
+});

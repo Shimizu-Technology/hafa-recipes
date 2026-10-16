@@ -35,14 +35,20 @@ function receipt(value: unknown, requestId: string, generation: number): CoachMe
   if (value.state !== "completed" && actions.length) throw unavailable();
   if (value.state === "pending" && value.assistant_message) throw unavailable();
   if (value.cancelled != null && typeof value.cancelled !== "boolean") throw unavailable();
+  if ((value.attachment_id != null) !== (value.attachment_expires_at != null)) throw unavailable();
+  if (value.attachment_id != null && (typeof value.attachment_id !== "string" ||
+      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.attachment_id) ||
+      typeof value.attachment_expires_at !== "string" || value.attachment_expires_at.length > 40 ||
+      !Number.isFinite(Date.parse(value.attachment_expires_at)))) throw unavailable();
   return { id: value.id, request_id: requestId, generation, state: value.state as CoachMessage["state"],
     user_message: value.user_message, assistant_message: value.assistant_message as string | null, actions,
-    created_at: value.created_at, focus, ...(value.cancelled === true ? { cancelled: true } : {}) };
+    created_at: value.created_at, focus, ...(value.cancelled === true ? { cancelled: true } : {}),
+    ...(typeof value.attachment_id === "string" ? { attachment_id: value.attachment_id, attachment_expires_at: value.attachment_expires_at as string } : {}) };
 }
 
 /** Bounded native/web NDJSON. No JSON fallback or fresh UUID after uncertain delivery. */
 export async function streamCoachRequest(options: {
-  url: string; headers: Record<string, string>; body: { request_id: string; message: string } & CoachFocus;
+  url: string; headers: Record<string, string>; body: { request_id: string; message: string; attachment_id?: string } & CoachFocus;
   generation: number; signal?: AbortSignal; current(): void; onText(text: string): Promise<void> | void;
   fetchImpl?: ExpoFetch;
 }): Promise<CoachMessage> {

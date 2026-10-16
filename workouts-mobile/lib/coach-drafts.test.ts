@@ -36,3 +36,70 @@ it("restores exact pending cancellation intent without changing the request iden
   expect((await createCoachDraftStore(storage).load("owner", 2, "workout")).value?.pending).toEqual(pending);
   expect((await createCoachDraftStore(storage).load("other", 2, "workout")).value).toBeNull();
 });
+
+
+import { createCoachPhotoStore } from "./coach-photos";
+const photoUuid = "00000000-0000-4000-8000-000000000001", attachmentUuid = "00000000-0000-4000-8000-000000000002";
+const selectedPhoto = { upload_id: photoUuid, file: { uri: "file:///cache/hafa-workouts-capture/photo.jpg", mime_type: "image/jpeg", name: "Coach photo", owned: true } };
+function photoFixture() {
+  const values = new Map<string, string>();
+  const storage = { getItem: async (key: string) => values.get(key) ?? null, setItem: async (key: string, value: string) => { values.set(key, value); },
+    removeItem: async (key: string) => { values.delete(key); }, getAllKeys: async () => [...values.keys()] };
+  const api = { uploadCoachImage: vi.fn().mockResolvedValue({ id: attachmentUuid, expires_at: "2099-01-01T00:00:00Z" }), discardCoachImage: vi.fn().mockResolvedValue(undefined) };
+  const cleanup = vi.fn().mockResolvedValue(undefined);
+  const store = createCoachPhotoStore(storage, "owner", 1, "general", api, cleanup);
+  return { store, values, storage, api, cleanup };
+}
+it("persists photo identity before upload, stores no bytes or signed URL, then hands off without deleting chat media", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => undefined);
+  f.api.uploadCoachImage.mockImplementationOnce(async () => {
+    expect((await f.store.load())?.upload_id).toBe(photoUuid);
+    return { id: attachmentUuid, expires_at: "2099-01-01T00:00:00Z" };
+  });
+  const ready = await f.store.upload(selectedPhoto, { base64_data: "PRIVATE IMAGE BYTES", content_type: "image/jpeg" }, () => undefined);
+  expect(ready).toEqual({ upload_id: photoUuid, attachment_id: attachmentUuid, expires_at: "2099-01-01T00:00:00Z" });
+  expect(JSON.stringify([...f.values.values()])).not.toContain("PRIVATE IMAGE BYTES");
+  expect(f.cleanup).toHaveBeenCalledWith([selectedPhoto.file]);
+  await f.store.handoff(attachmentUuid, () => undefined);
+  expect(await f.store.load()).toBeNull(); expect(f.api.discardCoachImage).not.toHaveBeenCalled();
+});
+it("keeps the same upload UUID and exact file after a lost acknowledgment", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => undefined);
+  f.api.uploadCoachImage.mockRejectedValueOnce(Error("Lost upload acknowledgement"));
+  const body = { base64_data: "bytes", content_type: "image/jpeg" };
+  await expect(f.store.upload(selectedPhoto, body, () => undefined)).rejects.toThrow("Lost upload");
+  expect(await f.store.load()).toEqual(selectedPhoto);
+  await f.store.upload((await f.store.load())!, body, () => undefined);
+  expect(f.api.uploadCoachImage.mock.calls.map(call => call.slice(0, 3))).toEqual([[photoUuid, body, 1], [photoUuid, body, 1]]);
+});
+it("a concurrent remove tombstones original upload identity and a late upload acknowledgment cannot resurrect it", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => undefined);
+  let finish!: (value: { id: string; expires_at: string }) => void;
+  f.api.uploadCoachImage.mockImplementationOnce(() => new Promise(done => { finish = done; }));
+  const pending = f.store.upload(selectedPhoto, { base64_data: "bytes", content_type: "image/jpeg" }, () => undefined);
+  while (!finish) await Promise.resolve();
+  await f.store.discard(selectedPhoto, () => undefined);
+  finish({ id: attachmentUuid, expires_at: "2099-01-01T00:00:00Z" });
+  expect(await pending).toBeNull(); expect(await f.store.load()).toBeNull();
+  expect(f.api.discardCoachImage).toHaveBeenCalledWith(photoUuid, 1);
+});
+it("failed privacy deletion survives remount, blocks upload, and retries the same deletion identity", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => undefined);
+  f.api.discardCoachImage.mockRejectedValueOnce(Error("Offline"));
+  await expect(f.store.discard(selectedPhoto, () => undefined)).rejects.toThrow("Offline");
+  const restored = createCoachPhotoStore(f.storage, "owner", 1, "general", f.api, f.cleanup);
+  expect((await restored.load())?.discard).toBe(true);
+  await expect(restored.upload(selectedPhoto, { base64_data: "bytes", content_type: "image/jpeg" }, () => undefined)).rejects.toThrow("removed");
+  expect(f.api.uploadCoachImage).not.toHaveBeenCalled();
+  await restored.discard((await restored.load())!, () => undefined);
+  expect(f.api.discardCoachImage.mock.calls).toEqual([[photoUuid, 1], [photoUuid, 1]]);
+});
+it("conversation photo cleanup covers all own focuses while preserving other owners and generations", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => undefined);
+  const stores = [["owner", 1, "workout"], ["other", 1, "general"], ["owner", 2, "general"]] as const;
+  for (const [owner, generation, focus] of stores) await createCoachPhotoStore(f.storage, owner, generation, focus, f.api, f.cleanup).select(selectedPhoto, () => undefined);
+  await f.store.clearAll(() => undefined);
+  expect(f.api.discardCoachImage).toHaveBeenCalledTimes(2);
+  expect([...f.values.keys()]).toHaveLength(2);
+  expect([...f.values.keys()].every(key => key.includes("other") || key.includes("photo%3A2%3A"))).toBe(true);
+});

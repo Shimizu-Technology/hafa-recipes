@@ -8,6 +8,7 @@ import type { CoachMessage } from "./coach";
 const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, run: 0, uuid: 0,
   params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
+  photo: null as null | { attachment_id: string; state: string; expires_at: string }, handoff: vi.fn(), clearPhotos: vi.fn(),
   stream: vi.fn(), streaming: false, stop: vi.fn(), writeFailure: false, coach: true, cancellation: true as boolean | undefined, consent: true,
   focusVersion: 0, routeFocused: true, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
   measureAnchor: vi.fn(), contentEnabled: false, contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
@@ -25,6 +26,8 @@ vi.mock("@/lib/context", () => {
     coachHistory: async (offset = 0) => { f.historyCalls.push(offset); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, cancelCoachMessage: f.stop, clearCoach: f.clear };
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
 });
+vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoControl", CoachMessagePhoto: "CoachMessagePhoto",
+  useCoachPhoto: () => ({ photo: f.photo, loaded: true, busy: false, removing: false, error: "", handoff: f.handoff, clearAll: f.clearPhotos }) }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
 // Exercise the real Screen wrapper below without loading unrelated native modules.
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
@@ -78,6 +81,7 @@ beforeEach(() => {
   f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
   f.focusVersion = 0; f.routeFocused = true; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
+  f.photo = null; f.handoff.mockReset().mockResolvedValue(undefined); f.clearPhotos.mockReset().mockResolvedValue(undefined);
   f.stream.mockReset(); f.streaming = false; f.stop.mockReset(); f.writeFailure = false; f.coach = true; f.cancellation = true; f.consent = true;
   f.platform = "ios"; f.appState = "active"; f.openURL.mockReset(); f.openURL.mockResolvedValue(undefined); f.scrollTo.mockReset(); f.scrollEnd.mockReset(); f.pageSize = 50; f.historyGate = null;
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -875,4 +879,46 @@ it.each(["background-return", "blur-return"])("does not admit a saved send from 
   expect(f.send).not.toHaveBeenCalled(); expect(f.stream).not.toHaveBeenCalled();
   expect(draft().pending?.request_id).toBe("request-1");
   await click("Retry saved message"); expect(f.send).toHaveBeenCalledOnce(); expect(f.send.mock.calls[0][0]).toBe("request-1");
+});
+
+
+it("freezes the photo with the durable request and completes local handoff before unlocking the composer", async () => {
+  const photoID = "7098abe8-bd72-43cc-bcaf-9f5963fe32cb", cleanup = deferred<void>();
+  f.photo = { attachment_id: photoID, state: "ready", expires_at: "2099-01-01T00:00:00Z" };
+  f.handoff.mockReturnValue(cleanup.promise); f.send.mockImplementation(async id => reply(id));
+  await mount(); await type("Check this form"); await click("Send message");
+  expect(f.send.mock.calls[0][5]).toBe(photoID); expect(draft().pending.attachment_id).toBe(photoID);
+  expect(nodes("Field")).toHaveLength(0); expect(f.handoff).toHaveBeenCalledWith(photoID);
+  await act(async () => cleanup.resolve()); await settle(); expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.disabled).toBe(false);
+});
+it("a photo handoff failure preserves the exact pending request for an explicit delivery retry", async () => {
+  f.photo = { attachment_id: "7098abe8-bd72-43cc-bcaf-9f5963fe32cb", state: "ready", expires_at: "2099-01-01T00:00:00Z" };
+  f.handoff.mockRejectedValue(Error("disk unavailable")); f.send.mockImplementation(async id => reply(id));
+  await mount(); await type("Check form"); await click("Send message"); const original = f.send.mock.calls[0];
+  expect(draft().pending.request_id).toBe(original[0]); expect(nodes("Field")).toHaveLength(0);
+  expect(nodes("Notice").some(node => String(node.props.children).includes("photo cleanup"))).toBe(true);
+  f.handoff.mockResolvedValue(undefined); await click("Retry saved message");
+  expect(f.send.mock.calls[1].filter((_: unknown, index: number) => index !== 4)).toEqual(original.filter((_: unknown, index: number) => index !== 4)); expect(draft().pending).toBeNull();
+});
+
+it("checks the frozen request even after its selected photo expires without creating a new send identity", async () => {
+  const photoID = "7098abe8-bd72-43cc-bcaf-9f5963fe32cb";
+  f.photo = { attachment_id: photoID, state: "ready", expires_at: "2099-01-01T00:00:00Z" };
+  f.send.mockRejectedValueOnce(Error("lost response")); await mount(); await type("Check form"); await click("Send message");
+  f.photo = { ...f.photo, expires_at: "2000-01-01T00:00:00Z" }; await refresh();
+  expect(button("Retry saved message").props.disabled).toBe(false);
+  f.send.mockImplementation(async id => reply(id)); await click("Retry saved message");
+  expect(f.send.mock.calls.map(args => [args[0], args[5]])).toEqual([["request-1", photoID], ["request-1", photoID]]); expect(draft().pending).toBeNull();
+});
+
+it("a held photo handoff cannot erase the successor draft after external Clear", async () => {
+  const held = deferred<void>(); f.handoff.mockReturnValueOnce(held.promise);
+  f.photo = { attachment_id: "7098abe8-bd72-43cc-bcaf-9f5963fe32cb", state: "ready", expires_at: "2099-01-01T00:00:00Z" };
+  f.send.mockImplementationOnce(async id => reply(id)); await mount(); await type("Old photo question"); await click("Send message");
+  expect(f.handoff).toHaveBeenCalled();
+  f.values.set(draftKey(f.owner, "coach-reset:1"), "after-photo-clear");
+  f.values.set(draftKey(f.owner, "coach-draft:1:general"), JSON.stringify({ epoch: "after-photo-clear", message: "Successor draft", pending: null }));
+  f.focusVersion++; await refresh(); await act(async () => held.resolve()); await settle();
+  expect(nodes("Field")[0].props.value).toBe("Successor draft"); expect(draft().message).toBe("Successor draft");
+  expect(nodes("Notice").some(node => String(node.props.children).includes("photo cleanup"))).toBe(false);
 });
