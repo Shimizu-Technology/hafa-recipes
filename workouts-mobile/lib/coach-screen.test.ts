@@ -5,17 +5,19 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { draftKey } from "./drafts";
 import { streamCoachRequest } from "./coach-stream";
 import type { CoachMessage } from "./coach";
+import { createCoachVoice, type Recognition } from "./coach-voice";
 const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, run: 0, uuid: 0,
-  params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
+  voice: null as ReturnType<typeof createCoachVoice> | null, params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
   photoStore: null as ReturnType<typeof import("./coach-photos").createCoachPhotoStore> | null, photoBusy: false, photoRemoving: false, photoSweep: vi.fn(), beginPhotoClear: vi.fn(),
   photo: null as null | { attachment_id: string; state: string; expires_at: string }, handoff: vi.fn(), clearPhotos: vi.fn(),
   stream: vi.fn(), streaming: false, stop: vi.fn(), writeFailure: false, coach: true, cancellation: true as boolean | undefined, consent: true,
   focusVersion: 0, routeFocused: true, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
-  measureAnchor: vi.fn(), contentEnabled: false, contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
+  speak: vi.fn(), speechStop: vi.fn(async () => undefined), speechQuiet: vi.fn(async () => false), measureAnchor: vi.fn(), contentEnabled: false, contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
   historyGate: null as Promise<{ messages: CoachMessage[]; limit: number; offset: number }> | null,
   bubble: null as typeof import("../components/design/surfaces").Bubble | null,
   foreground: new Set<(value: string) => void>() }));
+vi.mock("./coach-speech-recognition", () => ({ get coachVoice() { return f.voice; } }));
 vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => f.current,
     getItem: async (key: string) => { if (f.readFailure && key.includes("coach-draft")) throw Error("Disk unavailable"); return f.values.get(key) ?? null; },
@@ -39,6 +41,8 @@ vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
 vi.mock("../components/design/foundation", () => ({ Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => ({ background: "background" }), useReducedMotion: () => true, useSurface: () => "surface" }));
 vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
+vi.mock("expo-speech", () => ({ speak: f.speak, stop: f.speechStop, isSpeakingAsync: f.speechQuiet,
+  getAvailableVoicesAsync: async () => [{ identifier: "local", language: "en-US" }], maxSpeechInputLength: 4000 }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: f.copy }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `request-${++f.uuid}` }));
 vi.mock("expo-router", async () => {
@@ -81,7 +85,8 @@ function reply(id: string, state: CoachMessage["state"] = "completed"): CoachMes
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
+  f.voice = createCoachVoice(null); f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
+  f.speak.mockClear(); f.speechStop.mockReset(); f.speechStop.mockResolvedValue(undefined); f.speechQuiet.mockReset(); f.speechQuiet.mockResolvedValue(false);
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
   f.focusVersion = 0; f.routeFocused = true; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
   f.photoStore = null; f.photoBusy = false; f.photoRemoving = false; f.photoSweep.mockReset().mockResolvedValue(undefined);
@@ -610,7 +615,7 @@ it("keeps the native photo reply nested list complete and copyable inside the re
   const tokens = markdown.markdownit.parse(answer, {});
   expect(tokens.filter((token: { type: string }) => token.type === "bullet_list_open")).toHaveLength(2);
   expect(tokens.filter((token: { type: string }) => token.type === "inline").map((token: { content: string }) => token.content)).toContain("6 rows total — 3 each side");
-  expect(bubble.children.at(-1)).toMatchObject({ props: { title: "Copy reply" } });
+  expect(bubble.children.filter(node => typeof node !== "string" && String(node.type) === "Button").map(node => typeof node !== "string" && node.props.title)).toEqual(["Copy reply", "Read aloud"]);
   await click("Copy reply"); expect(f.copy).toHaveBeenCalledWith(answer);
   expect(button("Reply copied")).toBeTruthy();
 });
@@ -957,4 +962,145 @@ it.each(["owner", "epoch"])("server Clear cannot remove replacement photo journa
   if (change === "owner") { f.owner = "successor-photo-owner"; await refresh(); }
   else { f.values.set(draftKey(f.owner, "coach-reset:1"), "new-photo-epoch"); f.focusVersion++; await refresh(); }
   await act(async () => held.resolve()); await settle(); expect(f.clearPhotos).not.toHaveBeenCalled();
+});
+
+it("dictates into the real editable composer without sending, hides mic while pending, and retains the exact retry", async () => {
+  let events!: Parameters<Recognition["listen"]>[0]; const abort = vi.fn();
+  f.voice = createCoachVoice({ available: () => true, permission: async () => true,
+    listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort });
+  await mount(); await type("Typed base");
+  expect(nodes("Copy").some(node => String(node.props.children).includes("device’s speech service"))).toBe(false);
+  await click("About voice input");
+  expect(nodes("Copy").some(node => String(node.props.children).includes("device’s speech service"))).toBe(true);
+  await click("Dictate message"); await act(async () => events.result("add rows")); await settle();
+  expect(nodes("Field")[0].props.value).toBe("Typed base add rows"); expect(f.send).not.toHaveBeenCalled();
+  f.send.mockRejectedValueOnce(Error("Connection interrupted")); await click("Send message");
+  expect(abort).toHaveBeenCalled(); expect(button("Dictate message")).toBeUndefined();
+  const original = f.send.mock.calls[0]; await act(async () => events.result("late")); await settle();
+  expect(draft().pending.message).toBe("Typed base add rows");
+  f.send.mockResolvedValueOnce(reply("request-1")); await click("Retry saved message");
+  expect(f.send.mock.calls[1].slice(0, 4)).toEqual(original.slice(0, 4)); expect(f.uuid).toBe(1);
+  expect(button("Stopping voice input…").props.disabled).toBe(true);
+  await act(async () => events.end()); await settle(); expect(button("Dictate message")).toBeDefined();
+});
+it("Clear cancels dictation before transport and late recognition cannot restore its draft", async () => {
+  let events!: Parameters<Recognition["listen"]>[0]; const abort = vi.fn();
+  f.voice = createCoachVoice({ available: () => true, permission: async () => true,
+    listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort });
+  f.clear.mockImplementation(async () => { expect(abort).toHaveBeenCalled(); });
+  await mount(); await type("Only my draft"); await click("Dictate message");
+  await click("Clear saved coach conversation"); await click("Clear conversation and pending suggestions");
+  await act(async () => events.result("Late private dictation")); await settle();
+  expect(f.clear).toHaveBeenCalledOnce(); expect(nodes("Field")[0].props.value).toBe(""); expect(f.send).not.toHaveBeenCalled();
+});
+
+it("keeps dictated stream text editable and Stop canonical while retired recognition and transport callbacks arrive", async () => {
+  let events!: Parameters<Recognition["listen"]>[0]; const abort = vi.fn();
+  f.voice = createCoachVoice({ available: () => true, permission: async () => true,
+    listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort });
+  f.streaming = true; const answer = deferred<CoachMessage>();
+  let emit!: (value: string) => Promise<void>;
+  f.stream.mockImplementation((_id, _text, _focus, _generation, _signal, onText) => { emit = onText; return answer.promise; });
+  await mount(); await type("Typed base"); await click("Dictate message");
+  await act(async () => events.result("and dictated rows")); await settle();
+  expect(f.stream).not.toHaveBeenCalled(); expect(f.send).not.toHaveBeenCalled();
+  await click("Send message"); const [id, text, , , signal] = f.stream.mock.calls[0];
+  expect(text).toBe("Typed base and dictated rows"); expect(abort).toHaveBeenCalled();
+  expect(button("Dictate message")).toBeUndefined();
+  await act(async () => emit("Unsaved incremental reply")); await settle();
+  expect(JSON.stringify([...f.values.values()])).not.toContain("Unsaved incremental reply");
+  f.stop.mockResolvedValueOnce(stopped("request-1"));
+  await click("Stop reply"); expect(f.stop).toHaveBeenCalledWith(id, 1);
+  expect((signal as AbortSignal).aborted).toBe(true);
+  await act(async () => { events.result("late private recognition"); answer.resolve(reply(id)); }); await settle();
+  expect(nodes("Field")[0].props.value).toBe(text); expect(draft().pending).toBeNull();
+  expect(f.stream).toHaveBeenCalledOnce(); expect(f.send).not.toHaveBeenCalled();
+  expect(JSON.stringify([...f.values.values()])).not.toContain("late private recognition");
+  await act(async () => events.end()); await settle(); expect(button("Dictate message")).toBeDefined();
+});
+
+it("offers inline read controls only for canonical current replies and confirms silence before Clear", async () => {
+  f.history = [reply("older"), { ...reply("pending", "pending"), assistant_message: "Provisional" },
+    reply("failed", "failed"), { ...reply("stale"), generation: 2 }];
+  await mount(); expect(f.speak).not.toHaveBeenCalled();
+  expect(nodes("Button").filter(node => node.props.title === "Read aloud")).toHaveLength(1);
+  await click("Read aloud"); expect(f.speak).toHaveBeenCalledOnce();
+  expect(button("Stop reading").props.inline).toBe(true);
+  f.speechQuiet.mockResolvedValueOnce(true); await click("Clear saved coach conversation");
+  await click("Clear conversation and pending suggestions");
+  expect(f.clear).not.toHaveBeenCalled(); expect(button("Retry stopping speech")).toBeDefined();
+  await click("Retry stopping speech"); await click("Clear conversation and pending suggestions");
+  expect(f.clear).toHaveBeenCalledOnce();
+});
+it("a retained read button cannot restart speech after route blur and return", async () => {
+  f.history = [reply("older")]; await mount(); const retained = button("Read aloud").props.onPress;
+  await act(async () => { f.focusVersion++; view!.update(createElement(QueryClientProvider, { client: cache }, createElement(Coach))); }); await settle();
+  await act(async () => { retained(); }); await settle();
+  // The cleanup retires its committed speech scope; only the newly rendered control may start.
+  expect(f.speak).not.toHaveBeenCalled();
+  await click("Read aloud"); expect(f.speak).toHaveBeenCalledOnce();
+});
+
+it("does not admit retained reading while a confirmed Clear awaits its server acknowledgement", async () => {
+  f.history = [reply("older")]; await mount(); const retained = button("Read aloud").props.onPress;
+  const held = deferred<void>(); f.clear.mockImplementationOnce(() => held.promise);
+  await click("Clear saved coach conversation");
+  let clearing!: Promise<void>;
+  await act(async () => { clearing = button("Clear conversation and pending suggestions").props.onPress(); }); await settle();
+  expect(f.clear).toHaveBeenCalledOnce(); expect(button("Read aloud").props.disabled).toBe(true);
+  await act(async () => { retained(); }); await settle(); expect(f.speak).not.toHaveBeenCalled();
+  await act(async () => { held.resolve(); await clearing; }); await settle();
+});
+
+it("does not clear a successor durable epoch after waiting for native speech to stop", async () => {
+  f.history = [reply("older")]; await mount(); await click("Read aloud");
+  const held = deferred<undefined>(); f.speechStop.mockImplementationOnce(() => held.promise);
+  await click("Clear saved coach conversation"); let clearing!: Promise<void>;
+  await act(async () => { clearing = button("Clear conversation and pending suggestions").props.onPress(); }); await settle();
+  expect(f.speechStop).toHaveBeenCalledTimes(2); expect(f.clear).not.toHaveBeenCalled();
+  const next = JSON.stringify({ epoch: "external-successor", message: "Keep the successor question", pending: null });
+  f.values.set(draftKey(f.owner, "coach-reset:1"), "external-successor");
+  f.values.set(draftKey(f.owner, "coach-draft:1:general"), next);
+  await act(async () => { held.resolve(undefined); await clearing; }); await settle();
+  expect(f.clear).not.toHaveBeenCalled();
+  expect(f.values.get(draftKey(f.owner, "coach-reset:1"))).toBe("external-successor");
+  expect(f.values.get(draftKey(f.owner, "coach-draft:1:general"))).toBe(next);
+  f.focusVersion++; await refresh(); expect(nodes("Field")[0].props.value).toBe("Keep the successor question");
+});
+
+it("confirms device speech is quiet before microphone permission and keeps photos disabled during dictation", async () => {
+  const permission = vi.fn(async () => true), held = deferred<undefined>();
+  let events!: Parameters<Recognition["listen"]>[0];
+  f.voice = createCoachVoice({ available: () => true, permission,
+    listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort: vi.fn() });
+  f.history = [reply("read-this")]; await mount(); await type("Editable base"); await click("Read aloud");
+  f.speechStop.mockImplementationOnce(() => held.promise);
+  await click("Dictate message"); expect(permission).not.toHaveBeenCalled();
+  expect(nodes("CoachPhotoControl")[0].props.disabled).toBe(true);
+  await act(async () => held.resolve(undefined)); await settle(); expect(permission).toHaveBeenCalledOnce();
+  expect(button("Read aloud").props.disabled).toBe(true);
+  await act(async () => events.result("add rows")); await settle();
+  expect(nodes("Field")[0].props.value).toBe("Editable base add rows"); expect(f.send).not.toHaveBeenCalled();
+});
+it("failed speech quiet confirmation blocks dictation without losing the editable draft", async () => {
+  const permission = vi.fn(async () => true);
+  f.voice = createCoachVoice({ available: () => true, permission, listen: vi.fn(), start: vi.fn(), stop: vi.fn(), abort: vi.fn() });
+  f.history = [reply("read-this")]; await mount(); await type("Keep this draft"); await click("Read aloud");
+  f.speechQuiet.mockResolvedValue(true); await click("Dictate message");
+  expect(permission).not.toHaveBeenCalled(); expect(nodes("Field")[0].props.value).toBe("Keep this draft");
+  expect(button("Retry stopping speech")).toBeDefined(); expect(f.send).not.toHaveBeenCalled();
+  f.speechQuiet.mockResolvedValue(false); await click("Retry stopping speech");
+});
+it("a retained microphone command cannot start while a photo upload owns the composer", async () => {
+  const permission = vi.fn(async () => true);
+  f.voice = createCoachVoice({ available: () => true, permission, listen: vi.fn(), start: vi.fn(), stop: vi.fn(), abort: vi.fn() });
+  await mount(); const retained = button("Dictate message").props.onPress;
+  f.photoBusy = true; await refresh(); await act(async () => retained()); await settle();
+  expect(permission).not.toHaveBeenCalled(); expect(button("Dictate message").props.disabled).toBe(true);
+});
+
+it("a retained read command cannot restart speech after a photo operation owns the composer", async () => {
+  f.history = [reply("read-this")]; await mount(); const retained = button("Read aloud").props.onPress;
+  f.photoBusy = true; await refresh(); await act(async () => retained()); await settle();
+  expect(f.speak).not.toHaveBeenCalled(); expect(button("Read aloud").props.disabled).toBe(true);
 });
