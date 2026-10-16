@@ -105,7 +105,7 @@ export function createCaptureCleanupJournal(
     return value;
   }
   async function registered(owner: string) {
-    const protectedUris = new Set<string>();
+    const protectedUris = new Set<string>(), transferredCaptures = new Set<string>();
     const draftPrefix = `hafa-workouts:v1:${encodeURIComponent(owner)}:capture%3A`;
     for (const key of await storage.getAllKeys()) {
       if (!key.startsWith(draftPrefix)) continue;
@@ -115,11 +115,15 @@ export function createCaptureCleanupJournal(
       const draft = JSON.parse(raw) as { files?: Array<{ owned?: boolean; uri?: string }> };
       for (const file of draft.files ?? []) if (file.owned && typeof file.uri === "string") {
         protectedUris.add(file.uri);
-        const recovered = recoveredAsset({ uri: file.uri, kind: "capture" });
-        if (recovered) protectedUris.add(recovered.uri);
+        for (const kind of Object.keys(directories) as CaptureAssetKind[]) {
+          const asset = { uri: file.uri, kind }, recovered = recoveredAsset(asset);
+          if (recovered) protectedUris.add(recovered.uri);
+          // Only current capture-directory URIs can be retired by draft cleanup.
+          if (kind === "capture" && valid(asset)) transferredCaptures.add(file.uri);
+        }
       }
     }
-    return protectedUris;
+    return { protectedUris, transferredCaptures };
   }
   function lease(owner: string, operation: string, identity: string, initial?: Record, live?: LiveLease) {
     const key = keyFor(owner, operation);
@@ -223,17 +227,21 @@ export function createCaptureCleanupJournal(
           await persisted();
           if (state !== "settled" || live?.nativePending)
             throw Error("A source action is still finishing. Retry cleanup after it closes.");
-          const active = await registered(owner),
-            remaining: Asset[] = [];
+          const { protectedUris, transferredCaptures } = await registered(owner);
+          const remaining: Asset[] = [];
           let failure: unknown;
           for (const asset of local) {
             if (!kinds.includes(asset.kind)) {
               remaining.push(asset);
               continue;
             }
-            // A registered asset is transferred to its draft. Journal failures must
-            // never turn an accepted source into a startup deletion candidate.
-            if (asset.kind === "capture" && active.has(asset.uri)) continue;
+            // Never delete a source still owned by a registered draft. SDK paths
+            // and relocated draft URIs need this journal after draft retirement;
+            // ordinary current capture URIs retain their existing transfer.
+            if (protectedUris.has(asset.uri)) {
+              if (asset.kind !== "capture" || !transferredCaptures.has(asset.uri)) remaining.push(asset);
+              continue;
+            }
             try {
               await remove(asset.uri);
             } catch (error) {
