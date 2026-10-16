@@ -251,7 +251,7 @@ describe('recipe image multipart requests', () => {
       const request = fetchMock.mock.calls[0][1];
       const fields = (request.body as InspectableFormData).fields;
       expect(fields).toContainEqual({ name: 'recipe_data', value: JSON.stringify(edit) });
-  
+
       await expect(api.editRecipe('recipe-1', edit, 'file:///recipe.jpg'))
         .rejects.toThrow('This recipe changed after review started. Reload it before saving.');
     } finally { api.setTokenGetter(null); }
@@ -530,11 +530,12 @@ describe('bounded multipart editor authentication', () => {
     const getter = failure === 'missing-getter' ? null
       : failure === 'empty-token' ? vi.fn(async () => null) : vi.fn(async () => { throw Error('Token unavailable'); });
     api.setAuthContext(getter, 'bounded-editor');
-    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) }); vi.stubGlobal('fetch', fetchMock);
     try {
       const request = api.editRecipe('recipe-a', { title: 'Keep my private draft', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
-      const rejected = expect(request).rejects.toThrow('Sign in again before saving this recipe.');
-      await vi.runAllTimersAsync(); await rejected;
+      const outcome = request.then(value => ({ value }), error => ({ error }));
+      await vi.runAllTimersAsync();
+      expect(await outcome).toMatchObject({ error: { message: 'Sign in again before saving this recipe.' } });
       expect(fetchMock).not.toHaveBeenCalled();
       if (getter) expect(getter).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
     } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
