@@ -161,6 +161,26 @@ export default function Coach() {
     enabled: !!enrollment?.enrolled,
     refetchInterval: query => focused && foreground && (pending || query.state.data?.pages.some(page => page.messages.some(item => item.state === "pending"))) ? 3000 : false,
   });
+  const prerequisiteErrors = [...new Set([profile.error, consent.error, capabilities.error].flatMap(error => error ? [error.message] : []))];
+  const [retryingCoach, setRetryingCoach] = useState(false);
+  const retryAttempt = useRef<object | null>(null);
+  const retryActivation = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    retryActivation.current = replyScope; retryAttempt.current = null; setRetryingCoach(false);
+    return () => { if (retryActivation.current === replyScope) retryActivation.current = null; };
+  }, [replyScope]);
+  async function retryCoach() {
+    if (!currentConversation() || retryActivation.current !== replyScope || !routeActive.current ||
+      AppState.currentState !== "active" || retryAttempt.current) return;
+    const attempt = {}; retryAttempt.current = attempt; setRetryingCoach(true);
+    try {
+      await Promise.allSettled([profile.refetch(), consent.refetch(), capabilities.refetch(), ...(q.error ? [q.refetch()] : [])]);
+    } finally {
+      if (currentConversation() && retryActivation.current === replyScope && retryAttempt.current === attempt) {
+        retryAttempt.current = null; setRetryingCoach(false);
+      }
+    }
+  }
   const photos = useCoachPhoto(focusToken, epoch, busy || !!pending || !loaded || voiceActive || !capabilities.data?.coach_images || !consent.data?.accepted, stopCoachReadAloud);
   const delivery = useRef(false);
   const deliveryScope = useMemo(() => ({}), [replyScope, consent.data?.accepted, capabilities.data?.coach, photos.busy, photos.removing]);
@@ -560,7 +580,7 @@ export default function Coach() {
           onPress={() => { void stopReply(pending.request_id); }} />}
       </View>
   );
-  if (enrollment?.enrolled && profile.isPending) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
+  if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
   if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Your coach starts with you." subtitle="Set up your training preferences when you’re ready.">
     {speechFeedback}
     <Copy>Choose a goal, your equipment and a realistic schedule so the coach can use your saved workouts. Personal measurements are optional.</Copy>
@@ -611,9 +631,11 @@ export default function Coach() {
           usable.
         </Notice>
       )}
-      {profile.error && <Notice error>{profile.error.message}</Notice>}
-      {consent.error && <Notice error>{consent.error.message}</Notice>}
-      {q.error && (
+      {(prerequisiteErrors.length > 0 || retryingCoach) && <>
+        {prerequisiteErrors.length > 0 && <Notice error>{[...new Set([...prerequisiteErrors, ...(q.error ? [q.error.message] : [])])].join(" ")}</Notice>}
+        <Button title="Retry loading coach" secondary busy={retryingCoach} onPress={() => { void retryCoach(); }} />
+      </>}
+      {q.error && !prerequisiteErrors.length && !retryingCoach && (
         <>
           <Notice error>{q.error.message}</Notice>
           <Button

@@ -6,7 +6,7 @@ import { draftKey } from "./drafts";
 import { streamCoachRequest } from "./coach-stream";
 import type { CoachMessage } from "./coach";
 import { createCoachVoice, type Recognition } from "./coach-voice";
-const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, run: 0, uuid: 0,
+const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, prerequisiteError: "", prerequisiteFailures: [] as string[], prerequisiteGate: null as Promise<void> | null, prerequisiteCalls: [] as string[], historyError: "", run: 0, uuid: 0,
   voice: null as ReturnType<typeof createCoachVoice> | null, params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
   photoStore: null as ReturnType<typeof import("./coach-photos").createCoachPhotoStore> | null, photoBusy: false, photoRemoving: false, photoSweep: vi.fn(), beginPhotoClear: vi.fn(),
@@ -24,9 +24,10 @@ vi.mock("@/lib/context", () => {
     setItem: async (key: string, value: string) => { if (f.writeFailure) throw Error("Disk unavailable"); f.values.set(key, value); if (key.includes("coach-draft") && JSON.parse(value).pending && f.pendingSaveGate) await f.pendingSaveGate; },
     removeItem: async (key: string) => { f.values.delete(key); }, getAllKeys: async () => [...f.values.keys()] };
   const replacementStorage = { ...storage };
-  const api = { profile: async () => f.profileGate ?? ({ adult_confirmed: true }), capabilities: async () => ({ coach: f.coach, coach_cancellation: f.cancellation, coach_streaming: f.streaming }),
-    aiConsent: async () => ({ accepted: f.consent }), readiness: async () => ({}), setReadiness: f.readiness,
-    coachHistory: async (offset = 0) => { f.historyCalls.push(offset); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, cancelCoachMessage: f.stop, clearCoach: f.clear };
+  const prerequisite = async (name: string) => { f.prerequisiteCalls.push(name); if (f.prerequisiteGate) await f.prerequisiteGate; if (f.prerequisiteError && (!f.prerequisiteFailures.length || f.prerequisiteFailures.includes(name))) throw Error(f.prerequisiteError); };
+  const api = { profile: async () => { await prerequisite("profile"); return f.profileGate ?? ({ adult_confirmed: true }); }, capabilities: async () => { await prerequisite("capabilities"); return { coach: f.coach, coach_cancellation: f.cancellation, coach_streaming: f.streaming }; },
+    aiConsent: async () => { await prerequisite("consent"); return { accepted: f.consent }; }, readiness: async () => ({}), setReadiness: f.readiness,
+    coachHistory: async (offset = 0) => { f.historyCalls.push(offset); if (f.historyError) throw Error(f.historyError); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, cancelCoachMessage: f.stop, clearCoach: f.clear };
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
 });
 vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoControl", CoachMessagePhoto: "CoachMessagePhoto",
@@ -85,7 +86,7 @@ function reply(id: string, state: CoachMessage["state"] = "completed"): CoachMes
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.voice = createCoachVoice(null); f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
+  f.voice = createCoachVoice(null); f.prerequisiteError = ""; f.prerequisiteFailures = []; f.prerequisiteGate = null; f.prerequisiteCalls = []; f.historyError = ""; f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.speak.mockClear(); f.speechStop.mockReset(); f.speechStop.mockResolvedValue(undefined); f.speechQuiet.mockReset(); f.speechQuiet.mockResolvedValue(false);
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
   f.focusVersion = 0; f.routeFocused = true; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
@@ -1103,4 +1104,69 @@ it("a retained read command cannot restart speech after a photo operation owns t
   f.history = [reply("read-this")]; await mount(); const retained = button("Read aloud").props.onPress;
   f.photoBusy = true; await refresh(); await act(async () => retained()); await settle();
   expect(f.speak).not.toHaveBeenCalled(); expect(button("Read aloud").props.disabled).toBe(true);
+});
+
+
+it("retries failed coach prerequisites on the same screen with one notice and preserves the unsent draft", async () => {
+  f.prerequisiteError = f.historyError = "Could not reach the service"; await mount(); await type("Keep my question");
+  expect(button("Send message").props.disabled).toBe(true);
+  expect(nodes("Notice").filter(n => String(n.props.children).includes("Could not reach the service"))).toHaveLength(1);
+  f.prerequisiteError = f.historyError = ""; await click("Retry loading coach");
+  expect(button("Send message").props.disabled).toBe(false); expect(button("Retry loading coach")).toBeUndefined();
+  expect(f.prerequisiteCalls.sort()).toEqual(["capabilities", "capabilities", "consent", "consent", "profile", "profile"]);
+  expect(f.historyCalls).toEqual([0, 0]); expect(nodes("Field")[0].props.value).toBe("Keep my question"); expect(draft().message).toBe("Keep my question");
+  expect(f.send).not.toHaveBeenCalled(); expect(f.clear).not.toHaveBeenCalled();
+});
+it("deduplicates rapid coach retry taps and keeps its busy control visible until every read settles", async () => {
+  f.prerequisiteError = "Offline"; await mount(); const retry = button("Retry loading coach").props.onPress;
+  const held = deferred<void>(); f.prerequisiteError = ""; f.prerequisiteGate = held.promise;
+  await act(async () => { retry(); retry(); }); await settle();
+  expect(f.prerequisiteCalls).toHaveLength(6); expect(button("Retry loading coach").props.busy).toBe(true);
+  await act(async () => held.resolve()); await settle(); expect(button("Send message").props.disabled).toBe(false);
+});
+async function retireRetry(change: "owner" | "generation" | "epoch" | "focus") {
+  if (change === "owner") f.owner = "replacement-coach-owner";
+  else if (change === "generation") f.generation++;
+  else if (change === "epoch") {
+    f.values.set(draftKey(f.owner, `coach-reset:${f.generation}`), "replacement-epoch");
+    f.values.set(draftKey(f.owner, `coach-draft:${f.generation}:general`), JSON.stringify({ epoch: "replacement-epoch", message: "Replacement draft", pending: null })); f.focusVersion++;
+  } else { f.routeFocused = false; await refresh(); f.routeFocused = true; f.focusVersion++; }
+  await refresh();
+}
+it.each(["owner", "generation", "epoch", "focus"] as const)("a retained retry cannot refetch after %s retirement", async change => {
+  f.prerequisiteError = "Offline"; await mount(); const retry = button("Retry loading coach").props.onPress;
+  await retireRetry(change); const before = [...f.prerequisiteCalls]; await type("Replacement draft");
+  await act(async () => retry()); await settle(); expect(f.prerequisiteCalls).toEqual(before); expect(draft().message).toBe("Replacement draft");
+});
+it.each(["owner", "generation"] as const)("a late retry completion cannot unlock the replacement retry after %s retirement", async change => {
+  f.prerequisiteError = "Offline"; await mount(); const first = deferred<void>(); f.prerequisiteGate = first.promise;
+  await act(async () => button("Retry loading coach").props.onPress()); await settle();
+  f.prerequisiteGate = null; await retireRetry(change); await type("Replacement draft");
+  const second = deferred<void>(); f.prerequisiteGate = second.promise;
+  await act(async () => button("Retry loading coach").props.onPress()); await settle();
+  await act(async () => first.resolve()); await settle(); expect(button("Retry loading coach").props.busy).toBe(true);
+  expect(nodes("Field")[0].props.value).toBe("Replacement draft"); expect(draft().message).toBe("Replacement draft");
+  f.prerequisiteError = ""; await act(async () => second.resolve()); await settle(); expect(button("Send message").props.disabled).toBe(false);
+});
+it("keeps the history-only refresh when prerequisites loaded successfully", async () => {
+  f.historyError = "History unavailable"; await mount(); await type("Keep this draft");
+  expect(button("Retry loading coach")).toBeUndefined(); expect(button("Refresh saved conversation")).toBeTruthy();
+  const before = [...f.prerequisiteCalls]; f.historyError = ""; await click("Refresh saved conversation");
+  expect(f.prerequisiteCalls).toEqual(before); expect(f.historyCalls).toEqual([0, 0]); expect(nodes("Field")[0].props.value).toBe("Keep this draft");
+});
+
+it.each(["epoch", "focus"] as const)("settles a held same-owner prerequisite read without changing the draft after %s retirement", async change => {
+  f.prerequisiteError = "Offline"; await mount(); await type("Replacement draft");
+  const first = deferred<void>(); f.prerequisiteGate = first.promise;
+  await act(async () => button("Retry loading coach").props.onPress()); await settle();
+  await retireRetry(change); const saved = new Map(f.values);
+  await act(async () => first.resolve()); await settle();
+  expect(f.values).toEqual(saved); expect(nodes("Field")[0].props.value).toBe("Replacement draft");
+  expect(button("Retry loading coach").props.busy).toBe(false); expect(f.send).not.toHaveBeenCalled();
+});
+it.each(["profile", "consent", "capabilities"])("offers recovery when only %s fails and keeps another failed retry available", async failed => {
+  f.prerequisiteError = "Read unavailable"; f.prerequisiteFailures = [failed]; await mount(); await type("Retain my draft");
+  expect(button("Send message").props.disabled).toBe(true); await click("Retry loading coach");
+  expect(button("Retry loading coach").props.busy).toBe(false); expect(nodes("Field")[0].props.value).toBe("Retain my draft");
+  f.prerequisiteError = ""; await click("Retry loading coach"); expect(button("Send message").props.disabled).toBe(false);
 });
