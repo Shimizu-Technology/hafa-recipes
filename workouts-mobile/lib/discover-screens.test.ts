@@ -465,6 +465,8 @@ it("saved detail retains source metadata and prevents starting a source-only dra
   await act(async () => button("Recover workout instructions")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
+  expect(nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ")).not.toContain("No readable instructions");
+  await act(async () => button("Import diagnostics")!.props.onPress());
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
   expect(button("Recover from caption or source")).toBeUndefined();
@@ -1044,4 +1046,87 @@ it("retired collection remove and field callbacks cannot act for a replacement a
   expect(collectionField("Collection name: Collection").props.value).toBe("Collection");
   expect(button("Remove this collection")).toBeUndefined();
   expect(fixture.removeCollection).not.toHaveBeenCalled();
+});
+
+it("puts the workout before one accurate review summary and keeps raw diagnostics optional", async () => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(true));
+  const job = importJob("url", "incomplete");
+  const warning = "Unsupported reps_min removed from Squat.";
+  const coverage = "Transcript was unavailable; caption was read.";
+  const warnings = [warning, warning, "Unsupported reps_max removed from Squat."];
+  fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, warnings,
+    source: { ...job.result.source, coverage_notes: [coverage, warning] } } });
+  await mount(ImportReview);
+  const collapsed = JSON.stringify(renderer!.toJSON());
+  expect(collapsed).not.toContain(warning); expect(collapsed).not.toContain(coverage);
+  expect(collapsed).not.toContain("not in the source");
+  expect(nodes("Notice").filter(n => n.children.join("").includes("confirm all workout details"))).toHaveLength(1);
+  expect(collapsed.indexOf(job.result.workout.title)).toBeLessThan(collapsed.indexOf("confirm all workout details"));
+  expect(button("Correct workout details")).toBeDefined();
+  expect(choice("Share to Discover")!.props.disabled).toBe(true);
+  await act(async () => button("Source details")!.props.onPress());
+  const expanded = JSON.stringify(renderer!.toJSON());
+  expect(expanded).toContain("Import diagnostics"); expect(expanded).toContain(coverage);
+  expect(nodes("Copy").filter(n => n.children.join("") === warning)).toHaveLength(1);
+  expect(warnings).toEqual([warning, warning, "Unsupported reps_max removed from Squat."]);
+  await act(async () => button("Hide source details")!.props.onPress());
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain(warning);
+});
+
+it.each([
+  ["workouts_ai_budget_unavailable", "couldn’t finish checking", "usage limit"],
+  ["workouts_ai_budget_exceeded", "usage limit", "couldn’t finish checking"],
+])("explains %s once without exposing machine codes or blaming the caption", async (code, expected, other) => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
+  const job = importJob("text", "incomplete");
+  fixture.importJob.mockResolvedValue({ ...job, result: { ...job.result, error_code: code,
+    warnings: [code, "Source extraction could not finish"] } });
+  await mount(ImportReview);
+  let view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain(expected); expect(view).not.toContain(other); expect(view).not.toContain(code);
+  expect(view).not.toContain("not in the source"); expect(view).not.toContain("Source extraction could not finish");
+  expect(nodes("Notice").filter(n => n.children.join("").includes(expected))).toHaveLength(1);
+  await act(async () => button("Source details")!.props.onPress());
+  view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain(`Import status`); expect(view).toContain(code);
+});
+
+it.each([undefined, "workouts_ai_budget_unavailable", "workouts_ai_budget_exceeded"])("keeps one actionable review summary for an already saved draft (%s)", async (code) => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
+  const job = importJob("url", "incomplete");
+  fixture.importJob.mockResolvedValue({ ...job, accepted_workout_id: "saved", result: { ...job.result,
+    error_code: code, warnings: ["Unsupported reps_min removed from Squat."] } });
+  await mount(ImportReview);
+  const view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain("Open the saved workout to check or edit those details.");
+  expect(view).not.toContain("before saving");
+  expect(nodes("Notice").filter(n => n.children.join("").includes("Open the saved workout"))).toHaveLength(1);
+  expect(button("Open saved workout")).toBeDefined(); expect(button("Check details")).toBeDefined();
+  expect(button("Save workout")).toBeUndefined();
+  await act(async () => button("Check details")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
+});
+
+it("keeps saved workout instructions ahead of optional diagnostics without losing correction or source recovery", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  const warning = "Unsupported reps_min removed from Goblet squat.";
+  const warnings = [warning, warning, "Unsupported reps_max removed from Goblet squat."];
+  fixture.workout.mockResolvedValue({ ...saved, instructions: ["Repeat this circuit with controlled movements."],
+    source_url: "https://example.test/original", extraction_warnings: warnings });
+  await mount(WorkoutDetail);
+  const renderedText = () => nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  const collapsed = renderedText();
+  expect(collapsed).not.toContain(warning);
+  expect(collapsed.indexOf("Repeat this circuit")).toBeLessThan(collapsed.indexOf("Review workout details"));
+  expect(collapsed.indexOf("Goblet squat")).toBeLessThan(collapsed.indexOf("Review workout details"));
+  expect(nodes("Copy").filter(node => node.children.join("").includes("Some workout details need checking"))).toHaveLength(1);
+  await act(async () => button("Check details")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+  await act(async () => button("Recover from caption or source")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
+  await act(async () => button("Import diagnostics")!.props.onPress());
+  expect(nodes("Copy").filter(node => node.children.join("") === warning)).toHaveLength(1);
+  expect(warnings).toEqual([warning, warning, "Unsupported reps_max removed from Goblet squat."]);
+  await act(async () => button("Hide import diagnostics")!.props.onPress());
+  expect(renderedText()).not.toContain(warning);
 });

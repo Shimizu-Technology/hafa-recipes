@@ -55,6 +55,7 @@ export default function WorkoutDetail() {
   const [deleting, setDeleting] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [diagnosticScope, setDiagnosticScope] = useState<string | null>(null);
   const cache = useQueryClient();
   const toast = useToast();
   const disclosure = usePublishingDisclosure();
@@ -140,6 +141,7 @@ export default function WorkoutDetail() {
   const trackingWarning = workout ? trackingPrescriptionWarning(workout) : null;
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
+  const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
     router.push(to);
@@ -186,16 +188,6 @@ export default function WorkoutDetail() {
         <Button title="Review tracking details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout!.id } })} />
       </Card>}
       {workout && exercises === 0 && <Notice tone="warning">This source has no extracted exercises yet. Check the source and edit its details before training.</Notice>}
-      {workout && exercises > 0 && !!workout.extraction_warnings?.length && !!(workout.source_url || workout.capture_kind) && <Card compact>
-        <Copy kind="subheading">Recover the source</Copy>
-        <Copy kind="small">Try its link again or paste the creator’s caption or transcript. Your saved draft stays unchanged.</Copy>
-        <Button title="Recover from caption or source" secondary icon="refresh-outline" onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />
-      </Card>}
-      {!!workout?.extraction_warnings?.length && <Card compact tone="sunken">
-        <Copy kind="subheading">Details to check</Copy>
-        {workout.extraction_warnings.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
-        <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout!.id } })} />
-      </Card>}
       {workout?.kind === "program" && (
         <Card tone="sunken" compact>
           <Copy kind="small">
@@ -280,6 +272,17 @@ export default function WorkoutDetail() {
                 ))}
               </Card>
             ))}
+            {diagnostics.length > 0 && <Card compact tone="sunken">
+              <Copy kind="subheading">Review workout details</Copy>
+              <Copy kind="small">Some workout details need checking. Review the source or edit the details before training.</Copy>
+              <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } })} />
+              {exercises > 0 && !!(workout.source_url || workout.capture_kind) && <Button
+                title="Recover from caption or source" secondary icon="refresh-outline"
+                onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />}
+              <Button title={diagnosticScope === scope ? "Hide import diagnostics" : "Import diagnostics"} variant="ghost"
+                onPress={() => setDiagnosticScope(diagnosticScope === scope ? null : scope)} />
+              {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
+            </Card>}
             <WorkoutSource source={workout} />
             {workout.source_url && /^https?:\/\//i.test(workout.source_url) && (
               <Button title="Open original source" icon="open-outline" secondary onPress={() => {
