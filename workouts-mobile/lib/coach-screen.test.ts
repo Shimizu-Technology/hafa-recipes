@@ -1170,3 +1170,38 @@ it.each(["profile", "consent", "capabilities"])("offers recovery when only %s fa
   expect(button("Retry loading coach").props.busy).toBe(false); expect(nodes("Field")[0].props.value).toBe("Retain my draft");
   f.prerequisiteError = ""; await click("Retry loading coach"); expect(button("Send message").props.disabled).toBe(false);
 });
+
+
+it("keeps Send and Stop outside a scrollable composer body with the full draft, photo and voice controls", async () => {
+  const question = "Review the synthetic circuit photo, keeping its targets unchanged. ".padEnd(192, "x");
+  f.photo = { attachment_id: "selected-photo", state: "ready", expires_at: "2999-01-01T00:00:00Z" };
+  await mount(); await type(question);
+  const body = nodes("ScrollView").find(n => n.findAll(child => String(child.type) === "Field").length)!;
+  expect(body).toBeTruthy(); expect(nodes("Screen")[0].props.constrainFooter).toBe(true); expect(body.props.keyboardShouldPersistTaps).toBe("handled");
+  expect(body.props.style).toMatchObject({ flexGrow: 0, flexShrink: 1 });
+  expect(body.findByType("Field" as never).props.value).toBe(question);
+  expect(body.findByType("CoachPhotoControl" as never).props.state.photo.attachment_id).toBe("selected-photo");
+  expect(body.findAll(n => n === button("Send message"))).toHaveLength(0);
+  expect(body.findAll(n => String(n.type) === "Button" && n.props.title === "Dictate message")).toHaveLength(1);
+  await click("About voice input");
+  expect(body.findAll(n => String(n.type) === "Copy" && String(n.props.children).includes("device’s speech service"))).toHaveLength(1);
+  const held = deferred<CoachMessage>(); f.send.mockReturnValueOnce(held.promise); await click("Send message");
+  const pendingBody = nodes("ScrollView")[0];
+  expect(pendingBody.findAll(n => String(n.type) === "Field")).toHaveLength(0);
+  expect(pendingBody.findAll(n => String(n.type) === "Button" && n.props.title === "Stop reply")).toHaveLength(0);
+  expect(button("Stop reply")).toBeTruthy(); expect(draft().pending.message).toBe(question);
+  expect(f.send.mock.calls[0][0]).toBe("request-1"); expect(f.send.mock.calls[0][5]).toBe("selected-photo");
+  f.stop.mockResolvedValueOnce(stopped("request-1")); await click("Stop reply");
+  expect(nodes("Field")[0].props.value).toBe(question); expect(f.uuid).toBe(1);
+});
+it.each(["web", "ios", "android"])("the real Screen bounds both footer ancestors only when requested (%s)", async platform => {
+  f.platform = platform as typeof f.platform;
+  const { Screen } = await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces");
+  const footer = createElement("Composer", null, "Full composer contents");
+  await act(async () => { view = create(createElement(Screen, { title: "Conversation", footer, constrainFooter: true })); });
+  const content = () => view!.root.findByType("Composer" as never);
+  expect(content().parent!.props.style).toMatchObject({ flexShrink: 1, minHeight: 0 });
+  expect(content().parent!.parent!.props.style).toMatchObject({ flexShrink: 1, minHeight: 0 });
+  await act(async () => view!.update(createElement(Screen, { title: "Other screen", footer })));
+  expect(content().parent!.props.style.flexShrink).toBeUndefined(); expect(content().parent!.parent!.props.style.flexShrink).toBeUndefined();
+});

@@ -5,7 +5,7 @@ import { CoachMessagePhoto, CoachPhotoControl, useCoachPhoto } from "@/component
 import { CoachReply } from "@/components/coach-reply";
 import { createCoachDraftStore } from "@/lib/coach-drafts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AppState, Platform, View, type ScrollView } from "react-native";
+import { AppState, Platform, ScrollView, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
@@ -531,7 +531,8 @@ export default function Coach() {
     {!!readAloud.messageId && Platform.OS === "ios" && <Copy kind="small" tone="muted">If you can’t hear speech, turn off silent mode.</Copy>}
   </>;
   const composer = (
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: 8, flexShrink: 1, minHeight: 0 }}>
+        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
         {speechFeedback}
         {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" variant="ghost" size="sm" onPress={latest} />}
         {!!draftNotice && <Notice>{draftNotice}</Notice>}
@@ -564,6 +565,8 @@ export default function Coach() {
               : "Delivery unconfirmed. Retry uses this saved message."}
           </Copy>
         )}
+        </ScrollView>
+        <View style={{ gap: 8 }}>
         {(!pending || !busy) && !pending?.stop_requested && <Button
           title={pending ? history.some(item => item.request_id === pending.request_id) ? "Check for reply" : "Retry saved message" : "Send message"}
           icon="send"
@@ -578,6 +581,7 @@ export default function Coach() {
           title={pending.stop_requested ? "Retry stopping reply" : "Stop reply"}
           secondary busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
           onPress={() => { void stopReply(pending.request_id); }} />}
+        </View>
       </View>
   );
   if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
@@ -595,6 +599,7 @@ export default function Coach() {
       footer={composer}
       scrollRef={scroll}
       disableBrowserScrollAnchoring
+      constrainFooter
       onScroll={({ nativeEvent }) => {
         if (!currentConversation() || (!history.length && !provisional)) return;
         const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
