@@ -5,6 +5,20 @@ import { SavedSourceText } from "./workout-source";
 import { prescriptionLine } from "@/lib/discover";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
 import { blockSummary, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "@/lib/amrap-editor";
+function invalidBlockSettings(block: AuthoredWorkout["blocks"][number]) {
+  return !!executionError(block) || !block.label.trim() || block.label.length > 200 ||
+    (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
+    (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200));
+}
+function invalidExerciseDetails(e: ExercisePrescription) {
+  return (e.load != null && (!Number.isFinite(e.load) || e.load < 0 || e.load > 2000 || !e.load_unit || !e.load_convention)) ||
+    (e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200)) ||
+    (e.instructions?.length ?? 0) > 2000 || (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
+}
+function retainExpanded(current: string[], revealed: string[]) {
+  const missing = revealed.filter(key => !current.includes(key));
+  return missing.length ? [...current, ...missing] : current;
+}
 export function WorkoutEditor({
   value,
   onChange,
@@ -19,7 +33,23 @@ export function WorkoutEditor({
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
-  function update(next: AuthoredWorkout) { if (!disabled) onChange(next); }
+  function update(next: AuthoredWorkout, removedExercise?: { blockId: string; index: number }) {
+    if (disabled) return;
+    // Keep automatically revealed fields mounted when a correction clears their error.
+    setExpandedBlocks(current => retainExpanded(current, value.blocks.filter(invalidBlockSettings).map(block => block.id)));
+    setExpandedExercises(current => {
+      const retained = retainExpanded(current, value.blocks.flatMap(block =>
+        block.exercises.flatMap((e, index) => invalidExerciseDetails(e) ? [`${block.id}:${index}`] : [])));
+      if (!removedExercise) return retained;
+      const prefix = `${removedExercise.blockId}:`;
+      return retained.flatMap(key => {
+        if (!key.startsWith(prefix)) return [key];
+        const index = Number(key.slice(prefix.length));
+        return index === removedExercise.index ? [] : [`${prefix}${index > removedExercise.index ? index - 1 : index}`];
+      });
+    });
+    onChange(next);
+  }
   function toggle(key: string, selected: string[], set: (keys: string[]) => void) {
     if (!disabled) set(selected.includes(key) ? selected.filter((item) => item !== key) : [...selected, key]);
   }
@@ -88,9 +118,7 @@ export function WorkoutEditor({
           : "Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator instructions."}
       </Notice>
       {value.blocks.map((block, bi) => {
-        const blockInvalid = !!executionError(block) || !block.label.trim() || block.label.length > 200 || (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
-          (block.rest_between_rounds_seconds != null && (!Number.isInteger(block.rest_between_rounds_seconds) || block.rest_between_rounds_seconds < 0 || block.rest_between_rounds_seconds > 7200));
-        const blockExpanded = expandedBlocks.includes(block.id) || blockInvalid;
+        const blockExpanded = expandedBlocks.includes(block.id) || invalidBlockSettings(block);
         return (
         <Card key={block.id}>
           <Copy kind="heading">{block.label || "Workout block"}</Copy>
@@ -139,10 +167,7 @@ export function WorkoutEditor({
           </>}
           {block.exercises.map((e, ei) => {
             const key = `${block.id}:${ei}`;
-            const invalidLoad = e.load != null && (!Number.isFinite(e.load) || e.load < 0 || e.load > 2000 || !e.load_unit || !e.load_convention);
-            const invalidRest = e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200);
-            const invalidText = (e.instructions?.length ?? 0) > 2000 || (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
-            const expanded = expandedExercises.includes(key) || invalidLoad || invalidRest || invalidText;
+            const expanded = expandedExercises.includes(key) || invalidExerciseDetails(e);
             const range = e.reps_max != null && e.reps_max !== e.reps_min;
             return (
             <Card key={key} tone="sunken" compact>
@@ -256,7 +281,7 @@ export function WorkoutEditor({
                       blocks: value.blocks.map((b, i) =>
                         i === bi ? { ...b, exercises: b.exercises.filter((_, j) => j !== ei) } : b
                       )
-                    })
+                    }, { blockId: block.id, index: ei })
                   }
                 />
               )}
