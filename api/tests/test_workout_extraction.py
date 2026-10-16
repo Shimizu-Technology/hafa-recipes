@@ -2314,3 +2314,25 @@ def test_complete_single_movement_dose_name_quote_keeps_matching_reps(quote):
     workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
     item = workout.blocks[0].exercises[0]
     assert item.reps_min == item.reps_max == 10
+
+
+def test_reused_name_quote_keeps_explicit_side_count_instead_of_model_total():
+    quote = "5 Squat (5 each side)"
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+         "evidence": [evidence("name", quote)]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)]))
+    item = workout.blocks[0].exercises[0]
+    assert item.reps_min == item.reps_max == 5
+    assert item.per_side is True
+
+
+def test_reused_name_quote_declines_excessive_whitespace_without_changing_the_source():
+    quote = "10 x Squat" + " " * 2000 + "?"
+    raw = {"title": "Source", "blocks": [{"id": "main", "label": "Main", "exercises": [
+        {"name": "Squat", "reps_min": 10, "reps_max": 10,
+         "evidence": [evidence("name", "10 x Squat")]}]}]}
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", quote)])
+    workout, _, _ = ground_workout(raw, source)
+    assert workout.blocks[0].exercises[0].reps_min is None
+    assert source.parts[0].text == quote

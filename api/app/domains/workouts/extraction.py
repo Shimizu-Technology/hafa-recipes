@@ -1182,17 +1182,20 @@ def _prescription_wording(item, entry, source):
 
 def _reuse_rep_name_quotes(item, source: SourceBundle):
     """Reuse only an unambiguous whole movement/dose row, never a nearby number."""
-    row = (rf"\s*\d+\s*(?:[x×]\s*|(?:reps?|repetitions?)\s+)?{re.escape(item.name)}"
-           r"(?:\s*\(\d+\s+(?:each|per)\s+(?:side|leg|arm|limb)\))?\s*[.!]?\s*")
+    row = re.compile(
+        rf"\s{{0,8}}\d{{1,4}}\s{{0,8}}(?:[x×]\s{{0,8}}|(?:reps?|repetitions?)\s{{1,8}})?{re.escape(item.name)}"
+        r"(?:\s{0,8}\(\d{1,4}\s{1,8}(?:each|per)\s{1,8}(?:side|leg|arm|limb)\))?\s{0,8}[.!]?\s{0,8}",
+        re.I,
+    )
     for field_name in ("reps_min", "reps_max"):
         value = getattr(item, field_name)
         if value is None or len(item.evidence) >= 100:
             continue
         for entry in list(item.evidence):
-            if (entry.field != "name" or not re.fullmatch(row, entry.wording, re.I)
+            if (entry.field != "name" or not row.fullmatch(entry.wording)
                     or not _numeric_supported(field_name, value, entry.wording, item.name)
                     or not any(part.location == entry.location and any(
-                        entry.wording in line and re.fullmatch(row, line, re.I)
+                        entry.wording in line and row.fullmatch(line)
                         and _numeric_supported(field_name, value, line, item.name)
                         for line in part.text.splitlines()) for part in source.parts)):
                 continue
