@@ -128,3 +128,31 @@ it("confirmed photo cleanup preserves fail-closed native recovery and allows ret
   expect(f.values.has(key)).toBe(false); await f.store.clearAfterConfirmedServerClear(() => {}, recover);
   expect(recover).toHaveBeenCalledTimes(2);
 });
+it("confirmed Clear retires a known uncertain upload before forgetting its identity", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => {});
+  f.api.discardCoachImage.mockImplementationOnce(async () => {
+    expect([...f.values.values()].some(raw => JSON.parse(raw).upload_id === photoUuid)).toBe(true);
+  });
+  const recover = vi.fn();
+  await f.store.clearAfterConfirmedServerClear(() => {}, recover);
+  expect(f.api.discardCoachImage).toHaveBeenCalledWith(photoUuid, 1);
+  expect(await f.store.load()).toBeNull(); expect(recover).toHaveBeenCalledOnce();
+  expect(f.cleanup).not.toHaveBeenCalled();
+});
+it("confirmed Clear retains the exact upload identity until remote retirement can be retried", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => {});
+  f.api.discardCoachImage.mockRejectedValueOnce(Error("Retirement not confirmed"));
+  const recover = vi.fn();
+  await expect(f.store.clearAfterConfirmedServerClear(() => {}, recover)).rejects.toThrow("Retirement not confirmed");
+  expect(await f.store.load()).toEqual(selectedPhoto); expect(recover).not.toHaveBeenCalled();
+  await f.store.clearAfterConfirmedServerClear(() => {}, recover);
+  expect(f.api.discardCoachImage.mock.calls).toEqual([[photoUuid, 1], [photoUuid, 1]]);
+  expect(await f.store.load()).toBeNull(); expect(recover).toHaveBeenCalledOnce();
+});
+it("confirmed Clear fences account retirement during the exact remote upload deletion", async () => {
+  const f = photoFixture(); await f.store.select(selectedPhoto, () => {}); let retired = false;
+  f.api.discardCoachImage.mockImplementationOnce(async () => { retired = true; });
+  const recover = vi.fn();
+  await expect(f.store.clearAfterConfirmedServerClear(() => { if (retired) throw Error("Account retired"); }, recover)).rejects.toThrow("Account retired");
+  expect(await f.store.load()).toEqual(selectedPhoto); expect(recover).not.toHaveBeenCalled();
+});

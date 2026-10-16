@@ -83,10 +83,21 @@ export function createCoachPhotoStore(storage: Storage & { getAllKeys(): Promise
       current();
       for (const at of await storage.getAllKeys()) {
         if (!at.startsWith(prefix)) continue;
-        await ordered(at, async () => { current(); await storage.removeItem(at); current(); });
+        await ordered(at, async () => {
+          current(); const raw = await storage.getItem(at); current();
+          let uploadId: string | undefined;
+          try {
+            const value = JSON.parse(raw ?? "null");
+            if (typeof value?.upload_id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.upload_id)) uploadId = value.upload_id;
+          } catch { /* Confirmed server Clear can still recover malformed metadata. */ }
+          // A timed-out upload may reach the server after Clear. Retire its known
+          // UUID before forgetting it, retaining metadata if deletion needs retry.
+          if (uploadId) { current(); await api.discardCoachImage(uploadId, generation); current(); }
+          await storage.removeItem(at); current();
+        });
       }
-      // Server Clear already tombstoned every private upload. Never interpret a
-      // corrupted file URI; native cleanup retains its own exact, guarded debt.
+      // Never interpret a corrupted file URI; native cleanup retains its own
+      // exact, guarded debt independently of upload metadata.
       current(); await recover(); current();
     },
     async clearAll(current: () => void) {
