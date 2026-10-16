@@ -378,3 +378,42 @@ Android `9d40e370e51e665bdb398f196a0c52720b7b51a1270e539f9a0c1bc98dbac62f`.
 These are dependency and bundle checks. Actual native/provider playback,
 background closure and return-to-workout acceptance remain required; they have
 not passed while device automation is unavailable.
+
+
+## Source playback with current Coach reading — 2026-10-16 UTC
+
+The isolated `f9b177a` dependency-review source combines official source playback
+with the reading and clipboard code on main `ef580ab`. The frozen lock changes
+only the root WebView 13.16.1 dependency edge and removes its existing node’s
+optional/peer flags. No package version, tarball, integrity or other dependency
+edge changes. All current Markdown and Clipboard dependencies remain present;
+the original playback-only and historical reading evidence above is preserved.
+
+Fresh ordinary Node 22/npm installs and `npm ls --all` pass in an owned physical
+four-app fixture. The complete Workouts production audit reports 33 affected
+packages (5 moderate, 28 high, 0 critical), exactly the same six reviewed advisory
+IDs and no unexpected advisory. The active WebView iOS/Android sources, Markdown
+URL helper and render rules, and Markdown-it metadata are byte-identical to the
+corresponding fresh Recipes installation. WebView adds no new advisory exception.
+
+243 affected policy, mounted player, Discover and private-form tests, generated
+routes, typecheck, Doctor 21/21, fresh all-platform exports and the native bundle
+gate pass. Both native maps select `source-player.native.tsx` and WebView’s
+platform `src/WebView` implementation alongside native Clerk, the Router fork,
+Clipboard and Markdown. Forge, braces, micromatch, stream-json, Jayson and Solana
+sources remain absent. The inherited legacy decoder remains bundled under its
+existing constraints; source-player URL handling uses built-in URL parsing.
+
+- iOS: 1,941 sources; map SHA-256
+  `1e4b93576b564052952234d14b285745565e2e8f68a19ddffa49aacfb43b4bd4`.
+- Android: 1,940 sources; map SHA-256
+  `d7bf3f2e54e04085924db64d082f33c71bbc2f0f645563411e493dbe96e3101d`.
+
+Only after this fresh install, complete audit and native-map assessment, the
+reviewed lock fingerprint is renewed to
+`9fd355c87f67cde153f8bbc8063ccaa10b00c1075f14b35ac9ff8bd7d27b1c47`.
+The exact six advisory IDs, November 3 expiry and all fail-closed checks are
+unchanged. This is renewed reachability evidence, not an advisory fix. Complete
+repository checks on the final source and actual native provider playback,
+background/focus closure and return-to-workout acceptance remain separate gates.
+A rebuilt native binary is required; export maps do not establish device behavior.
