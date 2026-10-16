@@ -947,9 +947,9 @@ it("confirmed server Clear recovers a malformed local photo journal without trus
 it.each(["upload", "removal"])("a retained Clear confirmation cannot race an active photo %s", async phase => {
   await mount(); const confirm = await clearHandler();
   if (phase === "upload") f.photoBusy = true; else f.photoRemoving = true;
-  await refresh(); expect(button("Clear saved coach conversation").props.disabled).toBe(true);
-  await act(async () => confirm()); await settle();
+  await refresh(); await act(async () => confirm()); await settle();
   expect(f.clear).not.toHaveBeenCalled(); expect(f.clearPhotos).not.toHaveBeenCalled();
+  expect(button("Clear saved coach conversation").props.disabled).toBe(true);
 });
 it.each(["owner", "epoch"])("server Clear cannot remove replacement photo journals after %s changes while its acknowledgement is held", async change => {
   const held = deferred<void>(); f.clear.mockReturnValueOnce(held.promise);
