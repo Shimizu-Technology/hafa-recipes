@@ -1305,7 +1305,7 @@ class ApiClient {
     await appendRecipeImage(formData, 'image', imageUri);
     requestGuard();
 
-    const token = this.getTokenFn ? await this.getTokenFn() : null;
+    const token = await this.getAuthTokenWithRetry(`/api/recipes/${recipeId}/edit`);
     requestGuard();
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
