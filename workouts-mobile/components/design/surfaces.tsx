@@ -635,6 +635,7 @@ export function Bubble({ from, children, meta }: PropsWithChildren<{ from: "you"
       <View
         style={{
           maxWidth: "88%",
+          width: you ? undefined : "88%",
           paddingVertical: 12,
           paddingHorizontal: 16,
           gap: 6,

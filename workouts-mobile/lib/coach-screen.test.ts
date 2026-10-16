@@ -10,6 +10,7 @@ const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGa
   focusVersion: 0, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
   measureAnchor: vi.fn(), contentEnabled: false, contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
   historyGate: null as Promise<{ messages: CoachMessage[]; limit: number; offset: number }> | null,
+  bubble: null as typeof import("../components/design/surfaces").Bubble | null,
   foreground: new Set<(value: string) => void>() }));
 vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => f.current,
@@ -40,7 +41,8 @@ vi.mock("expo-router", async () => {
     useFocusEffect: (fn: () => void) => useEffect(fn, [fn, f.focusVersion]) };
 });
 vi.mock("@/components/ui", () => ({
-  ...Object.fromEntries(["Bubble", "Button", "Card", "Chip", "ChipRow", "Copy", "Field", "ListGroup", "ListRow", "Notice", "SectionHeader"].map(name => [name, name])),
+  ...Object.fromEntries(["Button", "Card", "Chip", "ChipRow", "Copy", "Field", "ListGroup", "ListRow", "Notice", "SectionHeader"].map(name => [name, name])),
+  Bubble: (props: React.ComponentProps<typeof import("../components/design/surfaces").Bubble>) => createElement(f.bubble ?? "Bubble", props),
   Sheet: (props: { visible: boolean; children?: React.ReactNode }) => props.visible ? createElement("Sheet", props, props.children) : null,
   useColors: () => ({ text: "ink", accentText: "accent", sunken: "sunken" }),
   Screen: (props: { children?: React.ReactNode; footer?: React.ReactNode; scrollRef?: { current: unknown } }) => {
@@ -71,7 +73,7 @@ function reply(id: string, state: CoachMessage["state"] = "completed"): CoachMes
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false;
+  f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
   f.focusVersion = 0; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
   f.platform = "ios"; f.appState = "active"; f.openURL.mockReset(); f.openURL.mockResolvedValue(undefined); f.scrollTo.mockReset(); f.scrollEnd.mockReset(); f.pageSize = 50; f.historyGate = null;
@@ -578,4 +580,34 @@ it.each(["web", "ios", "android"])("the real Screen disables browser anchoring o
   expect(nodes("ScrollView")[0].props.style).toEqual(platform === "web" ? { overflowAnchor: "none" } : undefined);
   await act(async () => { view!.update(createElement(Screen, { title: "Other screen" })); });
   expect(nodes("ScrollView")[0].props.style).toBeUndefined();
+});
+
+
+it("keeps the native photo reply nested list complete and copyable inside the real assistant bubble", async () => {
+  // Actual Yoga dimensions are a separate native acceptance check. This mounts
+  // the production Bubble/CoachReply composition and the exact failing content.
+  f.bubble = (await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces")).Bubble;
+  const answer = "- **Title:** QA CIRCUIT ZEPHYR42  \n- **Duration:** 7 minutes  \n- **Format:** AMRAP \u2014 as many rounds as possible  \n- **Exercises per round:**\n  - 4 goblet squats\n  - 6 rows total \u2014 3 each side\n- **Instruction:** Repeat the sequence until 7 minutes are complete.";
+  f.history = [{ ...reply("older"), assistant_message: answer }]; await mount();
+  const replies = view!.root.findAllByType(f.bubble!);
+  const coach = replies.find(node => node.props.from === "coach")!;
+  const user = replies.find(node => node.props.from === "you")!;
+  const bubble = coach.findAll(node => node.type === "View")[1];
+  const userBubble = user.findAll(node => node.type === "View")[1];
+  expect(bubble.props.style.width).toBe("88%");
+  expect(userBubble.props.style.width).toBeUndefined();
+  expect(userBubble.props.style.maxWidth).toBe("88%");
+  const markdown = coach.findAll(node => node.type === "Markdown")[0].props;
+  expect(markdown.children).toBe(answer);
+  const tokens = markdown.markdownit.parse(answer, {});
+  expect(tokens.filter((token: { type: string }) => token.type === "bullet_list_open")).toHaveLength(2);
+  expect(tokens.filter((token: { type: string }) => token.type === "inline").map((token: { content: string }) => token.content)).toContain("6 rows total — 3 each side");
+  expect(markdown.style.body.flexShrink).toBe(0);
+  expect(markdown.style.paragraph.flexShrink).toBe(0);
+  expect(markdown.style.list_item.flexWrap).toBe("nowrap");
+  expect(markdown.style.bullet_list_content).toMatchObject({ flexBasis: 0, flexGrow: 1, flexShrink: 1, minWidth: 0 });
+  expect(markdown.style.ordered_list_content).toEqual(markdown.style.bullet_list_content);
+  expect(bubble.children.at(-1)).toMatchObject({ props: { title: "Copy reply" } });
+  await click("Copy reply"); expect(f.copy).toHaveBeenCalledWith(answer);
+  expect(button("Reply copied")).toBeTruthy();
 });

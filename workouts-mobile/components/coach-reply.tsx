@@ -47,16 +47,17 @@ export function CoachReply({ text, scopeToken, isCurrent }: { text: string; scop
     } catch { setFailure({ message: "This coach link cannot be opened safely.", current }); }
     return false;
   }
-  return <View style={{ gap: 8 }}><Markdown markdownit={parser} rules={rules} onLinkPress={openLink} style={{
-    body: { ...typography.body, color: c.text, flexShrink: 1 },
-    paragraph: { marginVertical: 4, flexShrink: 1 },
+  return <View style={{ gap: 8, alignSelf: "stretch", minWidth: 0, flexShrink: 0 }}><Markdown markdownit={parser} rules={rules} onLinkPress={openLink} style={{
+    body: { ...typography.body, color: c.text, flexShrink: 0 },
+    paragraph: { marginVertical: 4, flexShrink: 0 },
     strong: { fontFamily: typography.heading.fontFamily },
     em: { fontStyle: "italic" },
     bullet_list: { marginVertical: 4 }, ordered_list: { marginVertical: 4 },
-    list_item: { marginVertical: 2, flexShrink: 1, flexWrap: "wrap" },
+    list_item: { marginVertical: 2, flexShrink: 0, flexWrap: "nowrap", alignItems: "flex-start" },
     bullet_list_icon: { color: c.accentText, marginRight: 8 },
     ordered_list_icon: { color: c.accentText, marginRight: 8 },
-    bullet_list_content: { flexShrink: 1 }, ordered_list_content: { flexShrink: 1 },
+    bullet_list_content: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
+    ordered_list_content: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0 },
     heading1: { ...typography.heading, color: c.text, marginVertical: 8 },
     heading2: { ...typography.subheading, color: c.text, marginVertical: 6 },
     heading3: { ...typography.label, color: c.text, marginVertical: 4 },
