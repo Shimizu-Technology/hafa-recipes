@@ -331,3 +331,89 @@ Typed routes, 211 focused mounted/domain tests, TypeScript, Doctor 21/21, all-pl
 The loading-to-ready mounted regression failed on the preceding runtime specifically because Jump could not call the mounted scroll ref, then passed after the correction. These results establish dependency reachability and focused engineering behavior. Complete repository checks, actual reading/copy/link/keyboard journeys and native Clipboard acceptance remain separate gates; no device acceptance is inferred from export maps.
 
 The historical verification above records its named source and 211 focused tests; it does not describe the later `3fbc8dee37f82189970620e8a60b8ae3040a3b4e` (212 focused tests). Public reading source `96f4cc16453528eb2b1e2cd32a8377c416f5ac39` subsequently passed 224 focused tests and its complete repository gate on October 15 UTC (October 16 Guam). Browser acceptance for that exact source covered phone and desktop, light and dark; native acceptance remains pending.
+
+## Official source playback (2026-10-15, original branch evidence)
+
+Workouts now directly declares `react-native-webview 13.16.1`, the exact version
+already used by Recipes. Compared with `8d654fc`, the lock changes only that root
+dependency edge and removes the existing WebView node’s optional/peer flags.
+No package version, resolved tarball, integrity or existing dependency edge changed.
+
+Fresh iOS/Android Hermes maps contain 1,833/1,832 sources and select the native
+player and the corresponding WebView platform implementation. Native Clerk and
+the Router fork remain selected. Forge, braces, micromatch, stream-json, Jayson
+and Solana remain absent. The legacy decoder remains bundled under the existing
+constraints; source-player URL handling uses built-in URL parsing. The web
+surface opens the original source and does not load a native player.
+
+The fresh production audit retains 32 inherited findings (5 moderate, 27 high),
+the same six advisory IDs, zero critical and zero unexpected findings. Typecheck,
+Doctor 21/21, all-platform export and native bundle checks pass. The reviewed
+lock SHA-256 is `b85b6d57e2b55d250636a53612d5eb06bf1bf04bad074687ace67ba080109d93`.
+No exception or advisory ID was added; the expiry remains 2026-11-03.
+
+Players are created only after an explicit tap, use official identified provider
+documents, require a play action, and restrict navigation and popups. Instagram
+and unsupported sources open externally. Mounted tests cover load/error/timeout,
+retry, closure and navigation guards; actual native provider playback, background
+closure and return-to-workout acceptance remain required before release.
+
+### Combined SDK patch and source playback (2026-10-16)
+
+Against main `66d7e4b`, fresh Node 22/npm frozen installation and `npm ls --all`
+pass. The combined lock changes only the root WebView dependency and removes
+optional/peer flags on the existing 13.16.1 node. No package version, tarball,
+integrity, or other dependency edge changes. The lock SHA-256 is
+`6a11e115f873d356f2d264b3030c946e40b33bf79793a3557292569bff065577`.
+The production audit retains 32 inherited findings, the same six advisory IDs,
+zero critical and zero unexpected findings; the November 3 expiry is unchanged.
+
+217 affected policy, player, Discover and private-form tests, types, Doctor 21/21,
+all-platform exports and native bundle checks pass. Fresh iOS/Android Hermes
+maps contain 1,838/1,837 sources, select the native player and WebView as well as
+native Clerk and the Router fork, and exclude the reviewed build/socket paths.
+Map SHA-256: iOS
+`78bf7a7c2cbb0ec80df98362061b0efd47ce33c64682ad5e38b37a572317f18e`;
+Android `9d40e370e51e665bdb398f196a0c52720b7b51a1270e539f9a0c1bc98dbac62f`.
+These are dependency and bundle checks. Actual native/provider playback,
+background closure and return-to-workout acceptance remain required; they have
+not passed while device automation is unavailable.
+
+
+## Source playback with current Coach reading — 2026-10-16 UTC
+
+The isolated `f9b177a` dependency-review source combines official source playback
+with the reading and clipboard code on main `ef580ab`. The frozen lock changes
+only the root WebView 13.16.1 dependency edge and removes its existing node’s
+optional/peer flags. No package version, tarball, integrity or other dependency
+edge changes. All current Markdown and Clipboard dependencies remain present;
+the original playback-only and historical reading evidence above is preserved.
+
+Fresh ordinary Node 22/npm installs and `npm ls --all` pass in an owned physical
+four-app fixture. The complete Workouts production audit reports 33 affected
+packages (5 moderate, 28 high, 0 critical), exactly the same six reviewed advisory
+IDs and no unexpected advisory. The active WebView iOS/Android sources, Markdown
+URL helper and render rules, and Markdown-it metadata are byte-identical to the
+corresponding fresh Recipes installation. WebView adds no new advisory exception.
+
+243 affected policy, mounted player, Discover and private-form tests, generated
+routes, typecheck, Doctor 21/21, fresh all-platform exports and the native bundle
+gate pass. Both native maps select `source-player.native.tsx` and WebView’s
+platform `src/WebView` implementation alongside native Clerk, the Router fork,
+Clipboard and Markdown. Forge, braces, micromatch, stream-json, Jayson and Solana
+sources remain absent. The inherited legacy decoder remains bundled under its
+existing constraints; source-player URL handling uses built-in URL parsing.
+
+- iOS: 1,941 sources; map SHA-256
+  `1e4b93576b564052952234d14b285745565e2e8f68a19ddffa49aacfb43b4bd4`.
+- Android: 1,940 sources; map SHA-256
+  `d7bf3f2e54e04085924db64d082f33c71bbc2f0f645563411e493dbe96e3101d`.
+
+Only after this fresh install, complete audit and native-map assessment, the
+reviewed lock fingerprint is renewed to
+`9fd355c87f67cde153f8bbc8063ccaa10b00c1075f14b35ac9ff8bd7d27b1c47`.
+The exact six advisory IDs, November 3 expiry and all fail-closed checks are
+unchanged. This is renewed reachability evidence, not an advisory fix. Complete
+repository checks on the final source and actual native provider playback,
+background/focus closure and return-to-workout acceptance remain separate gates.
+A rebuilt native binary is required; export maps do not establish device behavior.
