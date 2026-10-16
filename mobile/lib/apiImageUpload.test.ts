@@ -61,6 +61,7 @@ class InspectableFormData {
 import {
   api,
   AUTH_TOKEN_MAX_ATTEMPTS,
+  AUTH_TOKEN_TIMEOUT_MS,
   AUTH_TOKEN_RETRY_DELAY_MS,
 } from './api';
 
@@ -516,5 +517,50 @@ describe('frozen recipe write authentication', () => {
       expect(getToken).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith('file:///recipe.jpg');
     } finally { api.setAuthContext(null, null); }
+  });
+});
+
+
+describe('bounded multipart editor authentication', () => {
+  it.each([false, true])('settles a hung image-edit token without dispatching retired authority (retired=%s)', async retired => {
+    vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
+    const getToken = vi.fn(() => new Promise<string>(() => undefined));
+    api.setAuthContext(getToken, 'bounded-editor');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ detail: 'Not authenticated' }) });
+    vi.stubGlobal('fetch', fetchMock); let outcome: unknown = 'pending';
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'Keep my draft', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      void request.then(() => { outcome = 'saved'; }, error => { outcome = (error as Error).message; });
+      for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+      expect(getToken).toHaveBeenCalledOnce();
+      if (retired) api.setTokenGetter(null);
+      await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS * AUTH_TOKEN_MAX_ATTEMPTS + AUTH_TOKEN_RETRY_DELAY_MS * (AUTH_TOKEN_MAX_ATTEMPTS - 1));
+      expect(outcome).toBe(retired ? 'Authentication changed; reopen this recipe.' : 'Not authenticated');
+      expect(fetchMock).toHaveBeenCalledTimes(retired ? 0 : 1);
+      if (!retired) {
+        expect(getToken).toHaveBeenCalledTimes(AUTH_TOKEN_MAX_ATTEMPTS);
+        expect(fetchMock.mock.calls[0][1].headers).toEqual({});
+      }
+    } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
+  });
+  it('retries a timed-out editor token once, then ignores the late first result without a second upload', async () => {
+    vi.useFakeTimers(); mocks.platform = 'ios'; vi.stubGlobal('FormData', InspectableFormData);
+    let finishFirst!: (token: string) => void;
+    const getToken = vi.fn().mockImplementationOnce(() => new Promise<string>(resolve => { finishFirst = resolve; }))
+      .mockResolvedValue('current-token');
+    api.setAuthContext(getToken, 'bounded-editor');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'recipe-a' }) }); vi.stubGlobal('fetch', fetchMock);
+    let outcome: unknown = 'pending';
+    try {
+      const request = api.editRecipe('recipe-a', { title: 'A', ingredients: [], steps: [] }, 'file:///recipe.jpg', () => {});
+      void request.then(value => { outcome = value; }, error => { outcome = error; });
+      for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS + AUTH_TOKEN_RETRY_DELAY_MS);
+      expect(outcome).toEqual({ id: 'recipe-a' });
+      expect(getToken).toHaveBeenCalledTimes(2); expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: 'Bearer current-token' });
+      finishFirst('late-first-token'); await vi.advanceTimersByTimeAsync(AUTH_TOKEN_TIMEOUT_MS * AUTH_TOKEN_MAX_ATTEMPTS);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
   });
 });
