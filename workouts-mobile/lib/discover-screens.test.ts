@@ -465,6 +465,8 @@ it("saved detail retains source metadata and prevents starting a source-only dra
   await act(async () => button("Recover workout instructions")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
+  expect(nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ")).not.toContain("No readable instructions");
+  await act(async () => button("Import diagnostics")!.props.onPress());
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("No readable instructions"); expect(button("Check details")).toBeDefined();
   expect(button("Recover from caption or source")).toBeUndefined();
@@ -1112,7 +1114,8 @@ it("keeps saved workout instructions ahead of optional diagnostics without losin
   fixture.workout.mockResolvedValue({ ...saved, instructions: ["Repeat this circuit with controlled movements."],
     source_url: "https://example.test/original", extraction_warnings: warnings });
   await mount(WorkoutDetail);
-  const collapsed = JSON.stringify(renderer!.toJSON());
+  const renderedText = () => nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  const collapsed = renderedText();
   expect(collapsed).not.toContain(warning);
   expect(collapsed.indexOf("Repeat this circuit")).toBeLessThan(collapsed.indexOf("Review workout details"));
   expect(collapsed.indexOf("Goblet squat")).toBeLessThan(collapsed.indexOf("Review workout details"));
@@ -1125,5 +1128,5 @@ it("keeps saved workout instructions ahead of optional diagnostics without losin
   expect(nodes("Copy").filter(node => node.children.join("") === warning)).toHaveLength(1);
   expect(warnings).toEqual([warning, warning, "Unsupported reps_max removed from Goblet squat."]);
   await act(async () => button("Hide import diagnostics")!.props.onPress());
-  expect(JSON.stringify(renderer!.toJSON())).not.toContain(warning);
+  expect(renderedText()).not.toContain(warning);
 });
