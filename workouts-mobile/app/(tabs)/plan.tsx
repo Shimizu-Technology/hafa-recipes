@@ -1,6 +1,6 @@
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui";
 import { radii } from "@/constants/theme";
 import { View } from "react-native";
+import { CalendarDate } from "@/components/calendar-date";
 import { QueryState } from "@/components/query-state";
 import { PrescriptionPreview } from "@/components/program-preview";
 import { isISODate } from "@/lib/sharing";
@@ -60,12 +61,27 @@ export default function Plan() {
   const [error, setError] = useState("");
   const [menu, setMenu] = useState<Program | null>(null);
   const [busy, setBusy] = useState(false);
-  const moving = useRef(false);
-  const archiving = useRef(false);
+  const scope = useMemo(() => ({ moving: false, archiving: false, maintaining: false, starting: false }),
+    [owner, enrollment?.generation, storage, offline.store]);
+  const liveScope = useRef<typeof scope | null>(null);
+  function current() { return liveScope.current === scope && isCurrentAccount() && storage.isCurrent(); }
+  const [renaming, setRenaming] = useState<{ program: Program; title: string } | null>(null);
+  const [removing, setRemoving] = useState<{ program: Program; session: ScheduledSession } | null>(null);
   const [view, setView] = useState<"active" | "archived">("active");
   const [editing, setEditing] = useState<string | null>(null);
   const [date, setDate] = useState("");
+  const editor = useMemo(() => ({ key: editing }), [scope, editing]);
+  const [readinessNeeded, setReadinessNeeded] = useState<typeof editor | null>(null);
+  const committedEditor = useRef<typeof editor | null>(null);
+  useLayoutEffect(() => { committedEditor.current = editor; setReadinessNeeded(null);
+    return () => { if (committedEditor.current === editor) committedEditor.current = null; };
+  }, [editor]);
   const [inspecting, setInspecting] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    liveScope.current = scope;
+    setRenaming(null); setRemoving(null); setMenu(null); setEditing(null); setDate(""); setInspecting(null); setError(""); setBusy(false);
+    return () => { if (liveScope.current === scope) liveScope.current = null; };
+  }, [scope]);
   const actuals = useQuery(sessionsQuery(api, owner, enrollment));
   const statuses = programSessionStates(actuals.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(actuals.data));
   const profile = useQuery({ queryKey: [owner, "profile", enrollment?.generation], queryFn: api.profile, enabled: !!enrollment?.enrolled });
@@ -77,23 +93,23 @@ export default function Plan() {
   });
   const shownPrograms = q.data?.filter((p) => !!p.schedule_state?.archived_at === (view === "archived"));
   async function archive(p: Program, archived: boolean) {
-    if (busy || archiving.current || moving.current || !isCurrentAccount() || !storage.isCurrent()) return;
-    archiving.current = true;
+    if (busy || scope.archiving || scope.moving || scope.maintaining || scope.starting || !current()) return;
+    scope.archiving = true;
     setBusy(true);
     setError("");
     try {
       const saved = await api.archiveProgram(p, archived);
-      if (!isCurrentAccount() || !storage.isCurrent()) return;
+      if (!current()) return;
       cache.setQueryData<Program[]>([owner, "programs", enrollment?.generation], (old) =>
         old?.map((item) => item.id === p.id && item.revision <= saved.revision ? saved : item));
       await cache.invalidateQueries({ queryKey: [owner, "programs", enrollment?.generation] });
-      if (!isCurrentAccount() || !storage.isCurrent()) return;
+      if (!current()) return;
       setMenu(null);
       setEditing(null);
       const latest = cache.getQueryData<Program[]>([owner, "programs", enrollment?.generation])?.find((item) => item.id === p.id) ?? saved;
       setView(latest.schedule_state?.archived_at ? "archived" : "active");
     } catch (e) {
-      if (isCurrentAccount() && storage.isCurrent()) {
+      if (current()) {
         setError((e as Error).message);
         if ((e as { status?: number }).status === 409) {
           setMenu(null);
@@ -101,12 +117,13 @@ export default function Plan() {
         }
       }
     } finally {
-      archiving.current = false;
-      if (isCurrentAccount() && storage.isCurrent()) setBusy(false);
+      scope.archiving = false;
+      if (current()) setBusy(false);
     }
   }
   async function start(p: Program, s: ScheduledSession) {
-    if (!offline.store || !offline.ready || p.schedule_state?.status === "paused") return;
+    if (busy || scope.starting || scope.moving || scope.archiving || scope.maintaining || !current() || !offline.store || !offline.ready || p.schedule_state?.status === "paused") return;
+    scope.starting = true;
     setBusy(true);
     setError("");
     try {
@@ -115,21 +132,22 @@ export default function Plan() {
         { program_id: p.id, program_revision: p.revision, program_session_id: s.id },
         Crypto.randomUUID()
       );
-      router.push("/training");
+      if (current()) router.push("/training");
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      scope.starting = false;
+      if (current()) setBusy(false);
     }
   }
   async function move(p: Program, s: ScheduledSession) {
-    if (busy || moving.current || archiving.current || !isCurrentAccount() || !storage.isCurrent()) return;
+    if (busy || scope.moving || scope.archiving || scope.maintaining || scope.starting || !current()) return;
     if (statuses.has(programSessionKey(p.id, s.id)!)) {
       setError("Recorded sessions keep their original date. Start a separate session to train again.");
       return;
     }
     if (!isISODate(date) || date < today) {
-      setError("Choose today or a future date in YYYY-MM-DD format.");
+      setError("Choose today or a future date.");
       return;
     }
     if (q.data?.some((otherProgram) => otherProgram.status === "ready" && otherProgram.schedule_state?.status !== "paused" && otherProgram.sessions.some((other) =>
@@ -137,25 +155,74 @@ export default function Plan() {
       setError("That day already has a planned session. Choose another day to preserve recovery.");
       return;
     }
-    moving.current = true;
+    scope.moving = true;
     setBusy(true);
     setError("");
+    setReadinessNeeded(null);
     try {
       const saved = await api.updateProgram({
         ...p,
         sessions: p.sessions.map((item) => (item.id === s.id ? { ...item, date } : item)),
       });
-      if (!isCurrentAccount() || !storage.isCurrent()) return;
+      if (!current()) return;
       cache.setQueryData<Program[]>([owner, "programs", enrollment?.generation], (old) =>
         old?.map((item) => (item.id === p.id && item.revision <= saved.revision ? saved : item))
       );
       setEditing(null);
     } catch (e) {
-      if (isCurrentAccount() && storage.isCurrent()) setError(programMoveError(e));
+      if (current()) {
+        setError(programMoveError(e));
+        if (committedEditor.current === editor && (e as { status?: number }).status === 409 &&
+            (e as { detail?: string }).detail === "Confirm readiness before applying a training change") setReadinessNeeded(editor);
+      }
     } finally {
-      moving.current = false;
-      if (isCurrentAccount() && storage.isCurrent()) setBusy(false);
+      scope.moving = false;
+      if (current()) setBusy(false);
     }
+  }
+  async function confirmReadiness() {
+    const generation = enrollment?.generation;
+    if (!enrollment?.enrolled || !generation || !current() || readinessNeeded !== editor || committedEditor.current !== editor || busy ||
+        scope.maintaining || scope.moving || scope.archiving || scope.starting) return;
+    scope.maintaining = true; setBusy(true); setError("");
+    try {
+      await api.setReadiness("ready", generation);
+      if (current() && committedEditor.current === editor) { setReadinessNeeded(null); setError(""); }
+    } catch (e) { if (current() && committedEditor.current === editor) setError(e instanceof Error ? e.message : "Could not confirm readiness. Try again."); }
+    finally { scope.maintaining = false; if (current()) setBusy(false); }
+  }
+  function removable(p: Program, session: ScheduledSession) {
+    const todayNow = dateInTimezone(new Date(), profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const local = offline.store?.snapshot();
+    const activeSource = local?.active?.source;
+    return offline.ready && p.status === "ready" && !p.schedule_state?.archived_at && p.schedule_state?.status !== "paused" && session.date > todayNow &&
+      !statuses.has(programSessionKey(p.id, session.id)!) &&
+      !(activeSource && "program_id" in activeSource && activeSource.program_id === p.id && activeSource.program_session_id === session.id) &&
+      !(local?.history ?? offline.state.history).some(item => item.generation === p.generation && item.request.program_id === p.id && item.request.program_session_id === session.id);
+  }
+  async function maintain(p: Program, action: "rename" | "remove", title = "", session?: ScheduledSession) {
+    if (busy || scope.maintaining || scope.moving || scope.archiving || scope.starting || !current()) return;
+    if (p.schedule_state?.archived_at || p.schedule_state?.status === "paused") { setError("Restore or review this plan before changing it."); return; }
+    const latest = cache.getQueryData<Program[]>([owner, "programs", enrollment?.generation])?.find(item => item.id === p.id);
+    if (!latest || latest.revision !== p.revision) { setError("This plan changed. Reopen its actions before making another change."); return; }
+    if (action === "rename" && (!title.trim() || title.trim().length > 200)) { setError("Use a plan name from 1 to 200 characters."); return; }
+    if (action === "remove" && (!session || !removable(p, session))) { setError("Only future sessions without active or recorded work can be removed."); return; }
+    scope.maintaining = true; setBusy(true); setError("");
+    try {
+      const saved = await api.updateProgram(action === "rename" ? { ...p, title: title.trim() } :
+        { ...p, sessions: p.sessions.filter(item => item.id !== session!.id) });
+      if (!current()) return;
+      cache.setQueryData<Program[]>([owner, "programs", enrollment?.generation], old =>
+        old?.map(item => item.id === p.id && item.revision <= saved.revision ? saved : item));
+      setRenaming(null); setRemoving(null); setMenu(null); setEditing(null);
+    } catch (e) {
+      if (!current()) return;
+      setError(programMoveError(e));
+      if ((e as { status?: number }).status === 409) {
+        setRenaming(null); setRemoving(null); setMenu(null);
+        void cache.invalidateQueries({ queryKey: [owner, "programs", enrollment?.generation] });
+      }
+    } finally { scope.maintaining = false; if (current()) setBusy(false); }
   }
   return (
     <Screen
@@ -332,13 +399,19 @@ export default function Plan() {
                           />}
                         </Row>
                       )}
+                      {removable(p, s) && <Button title="Remove from plan" variant="ghost" size="sm" inline disabled={busy}
+                        onPress={() => { if (current()) { setError(""); setRemoving({ program: p, session: s }); } }} />}
                       {editing === key && !status && (
                         <Card tone="sunken" compact>
-                          <Field label="New date · YYYY-MM-DD" value={date} onChange={setDate} />
+                          <CalendarDate label="New date" value={date} disabled={busy} onChange={value => { if (current() && committedEditor.current === editor && editor.key === key) setDate(value ?? ""); }} />
                           <Copy kind="small" tone="muted">
                             Choose today or a future date. The workout instructions stay unchanged;
                             recorded sessions keep their original dates.
                           </Copy>
+                          {readinessNeeded === editor && <>
+                            <Copy kind="small">Confirm you’re ready to train today, then save the new date. Your entered date stays here.</Copy>
+                            <Button title="I’m ready to train today" secondary busy={busy} onPress={() => void confirmReadiness()} />
+                          </>}
                           <Row gap={10}>
                             <Button
                               title="Save new date"
@@ -374,6 +447,10 @@ export default function Plan() {
                 router.push({ pathname: "/coach", params: { program_id: menu.id, revision: String(menu.revision) } });
               }}
             />
+            {!menu.schedule_state?.archived_at && menu.schedule_state?.status !== "paused" && <ListRow
+              icon="create-outline" title="Rename plan" disabled={busy}
+              onPress={() => { if (current()) { setError(""); setRenaming({ program: menu, title: menu.title }); setMenu(null); } }}
+            />}
             {!menu.schedule_state?.archived_at && <ListRow
               icon="archive-outline" title="Archive plan" disabled={busy}
               onPress={() => void archive(menu, true)}
@@ -389,6 +466,23 @@ export default function Plan() {
             />
           </>
         )}
+      </Sheet>
+      <Sheet visible={!!renaming} onClose={() => { if (!busy) setRenaming(null); }} title="Rename plan">
+        {renaming && <>
+          <Field label="Plan name" value={renaming.title} disabled={busy} onChange={title => { if (current() && !scope.maintaining) setRenaming({ ...renaming, title }); }} />
+          {!!error && <Notice error>{error}</Notice>}
+          <Button title="Save plan name" busy={busy} onPress={() => void maintain(renaming.program, "rename", renaming.title)} />
+          <Button title="Keep original name" secondary disabled={busy} onPress={() => setRenaming(null)} />
+        </>}
+      </Sheet>
+      <Sheet visible={!!removing} onClose={() => { if (!busy) setRemoving(null); }} title="Remove planned session?">
+        {removing && <>
+          <Copy>Remove {removing.session.workout.title} on {removing.session.date} from {removing.program.title}?</Copy>
+          <Copy kind="small">This removes the future plan entry. Your saved workout, other planned days and recorded training stay available.</Copy>
+          {!!error && <Notice error>{error}</Notice>}
+          <Button title="Remove planned session" variant="destructive" busy={busy} onPress={() => void maintain(removing.program, "remove", "", removing.session)} />
+          <Button title="Keep planned session" secondary disabled={busy} onPress={() => setRemoving(null)} />
+        </>}
       </Sheet>
     </Screen>
   );
