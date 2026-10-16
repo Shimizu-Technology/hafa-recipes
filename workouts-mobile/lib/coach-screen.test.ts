@@ -592,12 +592,12 @@ it("keeps the native photo reply nested list complete and copyable inside the re
   const replies = view!.root.findAllByType(f.bubble!);
   const coach = replies.find(node => node.props.from === "coach")!;
   const user = replies.find(node => node.props.from === "you")!;
-  const bubble = coach.findAll(node => node.type === "View")[1];
-  const userBubble = user.findAll(node => node.type === "View")[1];
+  const bubble = coach.findAll(node => String(node.type) === "View")[1];
+  const userBubble = user.findAll(node => String(node.type) === "View")[1];
   expect(bubble.props.style.width).toBe("88%");
   expect(userBubble.props.style.width).toBeUndefined();
   expect(userBubble.props.style.maxWidth).toBe("88%");
-  const markdown = coach.findAll(node => node.type === "Markdown")[0].props;
+  const markdown = coach.findAll(node => String(node.type) === "Markdown")[0].props;
   expect(markdown.children).toBe(answer);
   const tokens = markdown.markdownit.parse(answer, {});
   expect(tokens.filter((token: { type: string }) => token.type === "bullet_list_open")).toHaveLength(2);
