@@ -1,4 +1,4 @@
-import { Children, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactElement, type ReactNode } from "react";
+import { Children, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactElement, type ReactNode, type Ref } from "react";
 import {
   Animated,
   KeyboardAvoidingView,
@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ScrollView,
   View,
+  type ScrollViewProps,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -36,6 +37,10 @@ export function Screen({
   refreshing,
   onRefresh,
   onEndReached,
+  scrollRef,
+  onScroll,
+  onContentSizeChange,
+  disableBrowserScrollAnchoring = false,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
@@ -49,6 +54,11 @@ export function Screen({
   onRefresh?: () => void;
   /** Called when the person scrolls near the end (infinite feeds). */
   onEndReached?: () => void;
+  /** Opt out when this screen restores reading position itself. Web only. */
+  disableBrowserScrollAnchoring?: boolean;
+  scrollRef?: Ref<ScrollView>;
+  onScroll?: ScrollViewProps["onScroll"];
+  onContentSizeChange?: ScrollViewProps["onContentSizeChange"];
 }>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -69,20 +79,21 @@ export function Screen({
         </View>
       </View>
       <ScrollView
+        ref={scrollRef}
+        style={Platform.OS === "web" && disableBrowserScrollAnchoring ? { overflowAnchor: "none" } as ViewStyle : undefined}
+        onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"
         refreshControl={
           onRefresh ? (
             <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={c.action} colors={[c.action]} />
           ) : undefined
         }
-        scrollEventThrottle={onEndReached ? 200 : undefined}
-        onScroll={
-          onEndReached
-            ? ({ nativeEvent: { layoutMeasurement, contentOffset, contentSize } }) => {
-                if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 600) onEndReached();
-              }
-            : undefined
-        }
+        scrollEventThrottle={onScroll ? 100 : onEndReached ? 200 : undefined}
+        onScroll={onScroll || onEndReached ? event => {
+          onScroll?.(event);
+          const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+          if (onEndReached && layoutMeasurement.height + contentOffset.y >= contentSize.height - 600) onEndReached();
+        } : undefined}
         contentContainerStyle={{
           paddingTop: spacing.md,
           paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl),
@@ -624,6 +635,7 @@ export function Bubble({ from, children, meta }: PropsWithChildren<{ from: "you"
       <View
         style={{
           maxWidth: "88%",
+          width: you ? undefined : "88%",
           paddingVertical: 12,
           paddingHorizontal: 16,
           gap: 6,

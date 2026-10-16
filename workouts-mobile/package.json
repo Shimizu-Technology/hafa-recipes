@@ -30,6 +30,7 @@
     "expo-apple-authentication": "~57.0.2",
     "expo-auth-session": "~57.0.16",
     "expo-build-properties": "~57.0.22",
+    "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.22",
     "expo-crypto": "~57.0.4",
     "expo-dev-client": "~57.0.20",
@@ -58,7 +59,9 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-web": "~0.21.0"
+    "react-native-web": "~0.21.0",
+    "@believer/react-native-markdown-display": "8.4.1",
+    "markdown-it": "14.3.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.10",
@@ -75,6 +78,7 @@
     },
     "jayson": {
       "uuid": "11.1.1"
-    }
+    },
+    "markdown-it": "14.3.1"
   }
 }
