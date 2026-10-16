@@ -166,6 +166,7 @@ export async function pickImages(camera: boolean, guard: CaptureGuard, owner: st
       return [];
     }
     guard();
+    if (result.assets.length > limit) throw Error(`Choose up to ${limit} image${limit === 1 ? "" : "s"}.`);
     const output = await normalized(
       result.assets.map((a) => ({ uri: a.uri, width: a.width, height: a.height, name: a.fileName ?? undefined })),
       guard,
