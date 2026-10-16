@@ -1307,11 +1307,12 @@ class ApiClient {
 
     const token = await this.getAuthTokenWithRetry(`/api/recipes/${recipeId}/edit`);
     requestGuard();
+    if (!token) throw new Error('Sign in again before saving this recipe.');
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
       method: 'POST',
       headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Authorization: `Bearer ${token}`,
       },
       body: formData,
     });
