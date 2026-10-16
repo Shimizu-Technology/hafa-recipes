@@ -800,7 +800,7 @@ it.each([true, false])("a canonical terminal stream replay resolves saved delive
 
 it("keeps canonical stopped history and one composer recovery without a redundant reuse action", async () => {
   savedPending(); const canonical = { ...stopped("saved-request"), user_message: "Keep my question", assistant_message: "Reply stopped. No training changes were applied." };
-  f.stop.mockResolvedValueOnce(canonical); await mount(); await click("Stop reply");
+  f.stop.mockImplementationOnce(async () => { f.history = [canonical]; return canonical; }); await mount(); await click("Stop reply");
   expect(nodes("Markdown").map(node => node.props.children)).toEqual([canonical.assistant_message]);
   const footer = nodes("PinnedFooter")[0];
   const recovery = nodes("Notice").filter(node => String(node.props.children).includes("Reply stopped"));
