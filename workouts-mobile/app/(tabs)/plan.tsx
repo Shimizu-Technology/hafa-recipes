@@ -284,7 +284,7 @@ export default function Plan() {
                   <Grow>
                     <Copy kind="heading">{p.title}</Copy>
                     <Copy kind="small" tone="muted">
-                      {p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0)} sessions saved
+                      {p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0)} {p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0) === 1 ? "session" : "sessions"} saved
                     </Copy>
                   </Grow>
                   {p.schedule_state?.archived_at ? (
