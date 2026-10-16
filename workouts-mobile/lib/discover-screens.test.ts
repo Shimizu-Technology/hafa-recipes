@@ -1088,3 +1088,19 @@ it.each([
   view = JSON.stringify(renderer!.toJSON());
   expect(view).toContain(`Import status`); expect(view).toContain(code);
 });
+
+it.each([undefined, "workouts_ai_budget_unavailable", "workouts_ai_budget_exceeded"])("keeps one actionable review summary for an already saved draft (%s)", async (code) => {
+  fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
+  const job = importJob("url", "incomplete");
+  fixture.importJob.mockResolvedValue({ ...job, accepted_workout_id: "saved", result: { ...job.result,
+    error_code: code, warnings: ["Unsupported reps_min removed from Squat."] } });
+  await mount(ImportReview);
+  const view = JSON.stringify(renderer!.toJSON());
+  expect(view).toContain("Open the saved workout to check or edit those details.");
+  expect(view).not.toContain("before saving");
+  expect(nodes("Notice").filter(n => n.children.join("").includes("Open the saved workout"))).toHaveLength(1);
+  expect(button("Open saved workout")).toBeDefined(); expect(button("Check details")).toBeDefined();
+  expect(button("Save workout")).toBeUndefined();
+  await act(async () => button("Check details")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
+});

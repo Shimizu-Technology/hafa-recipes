@@ -332,15 +332,23 @@ export default function ImportReview() {
   const result = q.data?.result;
   const workout = (routeReady ? edited : null) ?? result?.workout;
   const hasExercises = !!workout?.blocks.some(block => block.exercises.length);
+  const savedId = q.data?.accepted_workout_id;
+  const reviewAction = savedId
+    ? "Open the saved workout to check or edit those details."
+    : "Check the source or edit the details before saving.";
   const usageLimitReached = result?.error_code === "workouts_ai_budget_exceeded";
   const reviewMessage = usageLimitReached
-    ? "AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually."
+    ? savedId
+      ? `AI importing has reached its usage limit. Your workout is saved. ${reviewAction}`
+      : "AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually."
     : result?.error_code === "workouts_ai_budget_unavailable"
-      ? "We couldn’t finish checking this source. Your draft is saved. Try again later, or correct the details before saving."
+      ? savedId
+        ? `We couldn’t finish checking this source. Your workout is saved. ${reviewAction}`
+        : "We couldn’t finish checking this source. Your draft is saved. Try again later, or correct the details before saving."
       : q.data?.status === "incomplete"
-        ? "We couldn’t confirm all workout details. Check the source or edit the details before saving."
+        ? `We couldn’t confirm all workout details. ${reviewAction}`
         : result?.warnings.length
-          ? "Some workout details may need checking. Review the workout before saving."
+          ? `Some workout details may need checking. ${reviewAction}`
           : null;
   const diagnostics = [...new Set([...(result?.warnings ?? []), ...(result?.source.coverage_notes ?? [])])];
   const discoverOn = capabilities.data?.discover === true;
@@ -367,7 +375,6 @@ export default function ImportReview() {
       if (isCurrent()) setError("Your workout is saved. Try loading again to finish clearing its temporary source.");
     });
   }, [q.data?.accepted_workout_id, routeReady, restored, epoch, id]);
-  const savedId = q.data?.accepted_workout_id;
   const savedDraft = savedId && q.data?.status === "incomplete";
   return (
     <Screen back title={savedDraft ? "Draft saved." : savedId ? "Workout saved." : "Your workout."}
