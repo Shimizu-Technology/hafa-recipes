@@ -9,7 +9,7 @@ const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGa
   params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
   stream: vi.fn(), streaming: false, stop: vi.fn(), writeFailure: false, coach: true, cancellation: true as boolean | undefined, consent: true,
-  focusVersion: 0, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
+  focusVersion: 0, routeFocused: true, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
   measureAnchor: vi.fn(), contentEnabled: false, contentView: {}, platform: "ios" as "web" | "ios", appState: "active", openURL: vi.fn(), scrollTo: vi.fn(), scrollEnd: vi.fn(), pageSize: 50,
   historyGate: null as Promise<{ messages: CoachMessage[]; limit: number; offset: number }> | null,
   bubble: null as typeof import("../components/design/surfaces").Bubble | null,
@@ -40,7 +40,7 @@ vi.mock("expo-router", async () => {
   f.paramsContext = React.createContext<Record<string, string> | null>(null);
   return { router: { push: f.push, replace: vi.fn() },
     useLocalSearchParams: () => React.useContext(f.paramsContext!) ?? f.params,
-    useFocusEffect: (fn: () => void) => useEffect(fn, [fn, f.focusVersion]) };
+    useFocusEffect: (fn: () => void) => useEffect(() => f.routeFocused ? fn() : undefined, [fn, f.focusVersion, f.routeFocused]) };
 });
 vi.mock("@/components/ui", () => ({
   ...Object.fromEntries(["Button", "Card", "Chip", "ChipRow", "Copy", "Field", "ListGroup", "ListRow", "Notice", "SectionHeader"].map(name => [name, name])),
@@ -77,7 +77,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
-  f.focusVersion = 0; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
+  f.focusVersion = 0; f.routeFocused = true; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
   f.stream.mockReset(); f.streaming = false; f.stop.mockReset(); f.writeFailure = false; f.coach = true; f.cancellation = true; f.consent = true;
   f.platform = "ios"; f.appState = "active"; f.openURL.mockReset(); f.openURL.mockResolvedValue(undefined); f.scrollTo.mockReset(); f.scrollEnd.mockReset(); f.pageSize = 50; f.historyGate = null;
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -858,4 +858,21 @@ it("keeps older-page navigation available when a canonical receipt grows the cac
   expect(nodes("Markdown")).toHaveLength(3); expect(button("Load earlier messages")).toBeDefined();
   await click("Load earlier messages"); expect(f.historyCalls).toContain(2);
   expect(nodes("Markdown").map(node => node.props.children)).toContain("Reply oldest");
+});
+
+
+it.each(["background-return", "blur-return"])("does not admit a saved send from a retired %s activation", async retirement => {
+  await mount(); await type("My saved question"); const held = deferred<void>(); f.pendingSaveGate = held.promise;
+  await click("Send message"); expect(f.send).not.toHaveBeenCalled(); expect(draft().pending?.message).toBe("My saved question");
+  if (retirement === "background-return") {
+    for (const state of ["background", "active"]) {
+      f.appState = state; await act(async () => { for (const listener of f.foreground) listener(state); }); await settle();
+    }
+  } else {
+    f.routeFocused = false; await refresh(); f.routeFocused = true; await refresh();
+  }
+  f.pendingSaveGate = null; await act(async () => held.resolve()); await settle();
+  expect(f.send).not.toHaveBeenCalled(); expect(f.stream).not.toHaveBeenCalled();
+  expect(draft().pending?.request_id).toBe("request-1");
+  await click("Retry saved message"); expect(f.send).toHaveBeenCalledOnce(); expect(f.send.mock.calls[0][0]).toBe("request-1");
 });
