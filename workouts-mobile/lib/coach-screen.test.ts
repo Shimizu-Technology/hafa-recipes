@@ -8,6 +8,7 @@ import type { CoachMessage } from "./coach";
 const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, run: 0, uuid: 0,
   params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
+  photoStore: null as ReturnType<typeof import("./coach-photos").createCoachPhotoStore> | null, photoBusy: false, photoRemoving: false, photoSweep: vi.fn(), beginPhotoClear: vi.fn(),
   photo: null as null | { attachment_id: string; state: string; expires_at: string }, handoff: vi.fn(), clearPhotos: vi.fn(),
   stream: vi.fn(), streaming: false, stop: vi.fn(), writeFailure: false, coach: true, cancellation: true as boolean | undefined, consent: true,
   focusVersion: 0, routeFocused: true, pendingSaveGate: null as Promise<void> | null, storageVersion: 0, readiness: vi.fn(), send: vi.fn(), copy: vi.fn(), clear: vi.fn(), readFailure: false, push: vi.fn(),
@@ -27,7 +28,9 @@ vi.mock("@/lib/context", () => {
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
 });
 vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoControl", CoachMessagePhoto: "CoachMessagePhoto",
-  useCoachPhoto: () => ({ photo: f.photo, loaded: true, busy: false, removing: false, error: "", handoff: f.handoff, clearAll: f.clearPhotos }) }));
+  useCoachPhoto: () => ({ photo: f.photo, loaded: true, busy: f.photoBusy, removing: f.photoRemoving, error: "", handoff: f.handoff,
+    beginClear: f.beginPhotoClear, clearAll: () => f.photoStore ? f.photoStore.clearAll(() => {}) : f.clearPhotos(),
+    clearAfterConfirmedServerClear: () => f.photoStore ? f.photoStore.clearAfterConfirmedServerClear(() => {}, f.photoSweep) : f.clearPhotos() }) }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
 // Exercise the real Screen wrapper below without loading unrelated native modules.
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
@@ -81,6 +84,8 @@ beforeEach(() => {
   f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.owner = `coach-owner-${++f.run}`; f.generation = 1; f.current = true; f.uuid = 0; f.params = {}; f.values.clear(); f.history = []; f.historyCalls = []; f.readFailure = false;
   f.focusVersion = 0; f.routeFocused = true; f.pendingSaveGate = null; f.storageVersion = 0; f.readiness.mockReset(); f.send.mockReset(); f.clear.mockReset(); f.copy.mockReset(); f.copy.mockResolvedValue(true);
+  f.photoStore = null; f.photoBusy = false; f.photoRemoving = false; f.photoSweep.mockReset().mockResolvedValue(undefined);
+  f.beginPhotoClear.mockReset().mockImplementation(() => { if (f.photoBusy || f.photoRemoving) throw Error("Wait for the photo to finish or remove it before clearing."); return () => {}; });
   f.photo = null; f.handoff.mockReset().mockResolvedValue(undefined); f.clearPhotos.mockReset().mockResolvedValue(undefined);
   f.stream.mockReset(); f.streaming = false; f.stop.mockReset(); f.writeFailure = false; f.coach = true; f.cancellation = true; f.consent = true;
   f.platform = "ios"; f.appState = "active"; f.openURL.mockReset(); f.openURL.mockResolvedValue(undefined); f.scrollTo.mockReset(); f.scrollEnd.mockReset(); f.pageSize = 50; f.historyGate = null;
@@ -921,4 +926,35 @@ it("a held photo handoff cannot erase the successor draft after external Clear",
   f.focusVersion++; await refresh(); await act(async () => held.resolve()); await settle();
   expect(nodes("Field")[0].props.value).toBe("Successor draft"); expect(draft().message).toBe("Successor draft");
   expect(nodes("Notice").some(node => String(node.props.children).includes("photo cleanup"))).toBe(false);
+});
+
+
+it("confirmed server Clear recovers a malformed local photo journal without trusting its file locations", async () => {
+  const { createCoachPhotoStore } = await import("./coach-photos");
+  const photoKey = draftKey(f.owner, "coach-photo:1:") + "general";
+  const foreign = draftKey("other-owner", "coach-photo:1:") + "general";
+  f.values.set(photoKey, '{broken metadata'); f.values.set(foreign, 'foreign untouched');
+  const localDelete = vi.fn();
+  f.photoStore = createCoachPhotoStore({ getItem: async key => f.values.get(key) ?? null,
+    setItem: async (key, value) => { f.values.set(key, value); }, removeItem: async key => { f.values.delete(key); },
+    getAllKeys: async () => [...f.values.keys()] }, f.owner, 1, "general", { uploadCoachImage: vi.fn(), discardCoachImage: vi.fn() }, localDelete);
+  await mount(); await type("Draft before clear"); const confirm = await clearHandler();
+  await act(async () => confirm()); await settle();
+  expect(f.clear).toHaveBeenCalledOnce(); expect(f.values.has(photoKey)).toBe(false); expect(f.values.get(foreign)).toBe('foreign untouched');
+  expect(localDelete).not.toHaveBeenCalled(); expect(f.photoSweep).toHaveBeenCalledOnce();
+  expect(nodes("Field")[0].props.value).toBe("");
+});
+it.each(["upload", "removal"])("a retained Clear confirmation cannot race an active photo %s", async phase => {
+  await mount(); const confirm = await clearHandler();
+  if (phase === "upload") f.photoBusy = true; else f.photoRemoving = true;
+  await refresh(); expect(button("Clear saved coach conversation").props.disabled).toBe(true);
+  await act(async () => confirm()); await settle();
+  expect(f.clear).not.toHaveBeenCalled(); expect(f.clearPhotos).not.toHaveBeenCalled();
+});
+it.each(["owner", "epoch"])("server Clear cannot remove replacement photo journals after %s changes while its acknowledgement is held", async change => {
+  const held = deferred<void>(); f.clear.mockReturnValueOnce(held.promise);
+  await mount(); const confirm = await clearHandler(); await act(async () => confirm()); await settle();
+  if (change === "owner") { f.owner = "successor-photo-owner"; await refresh(); }
+  else { f.values.set(draftKey(f.owner, "coach-reset:1"), "new-photo-epoch"); f.focusVersion++; await refresh(); }
+  await act(async () => held.resolve()); await settle(); expect(f.clearPhotos).not.toHaveBeenCalled();
 });

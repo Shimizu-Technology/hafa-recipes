@@ -36,6 +36,7 @@ const fixture = vi.hoisted(() => ({
   intent: { webUrl: "", text: "", files: [] as { path: string; mimeType: string; fileName: string }[] },
   resetIntent: vi.fn(),
   alert: vi.fn(),
+  recoverCleanup: vi.fn(),
   uploadCoachImage: vi.fn(), discardCoachImage: vi.fn(), coachImage: vi.fn(), removeCoachImage: vi.fn(), photoInfo: vi.fn(), photoRead: vi.fn(),
   pickImages: vi.fn(),
   pickDocument: vi.fn(),
@@ -162,7 +163,7 @@ vi.mock("@/lib/capture-io", () => ({
   normalizeDocument: fixture.normalizeDocument,
   pickImages: fixture.pickImages,
   pickDocument: fixture.pickDocument,
-  cleanupCaptureFiles: fixture.cleanup,
+  cleanupCaptureFiles: fixture.cleanup, recoverCaptureCleanup: fixture.recoverCleanup,
   sourceFor: fixture.sourceFor
 }));
 vi.mock("expo-router", () => ({
@@ -2791,8 +2792,9 @@ it("a retired cover picker cannot replace or unlock a new storage scope on the s
 import { CoachPhotoControl, CoachMessagePhoto, useCoachPhoto } from "../components/coach-photo";
 const photoUploadUuid = "00000000-0000-4000-8000-000000000001", photoAttachmentUuid = "00000000-0000-4000-8000-000000000002";
 const coachPhotoFile = { uri: "file:///cache/hafa-workouts-capture/photo.jpg", mime_type: "image/jpeg", name: "Coach photo", owned: true };
+let livePhotoState: ReturnType<typeof useCoachPhoto>;
 function PhotoFixture({ allowed = true }: { allowed?: boolean }) {
-  const state = useCoachPhoto("general", "initial", !allowed);
+  const state = useCoachPhoto("general", "initial", !allowed); livePhotoState = state;
   return createElement(CoachPhotoControl, { state, allowed, disabled: false });
 }
 async function mountPhoto(component: ComponentType = PhotoFixture) { fixture.photoFocus = true; await mount(component); }
@@ -2941,4 +2943,23 @@ it("an expired selected photo exposes removal without rendering local or remote 
   await mountPhoto(); expect(nodes("CoachImage")).toHaveLength(0);
   expect(button("View private photo")).toBeUndefined(); expect(button("Remove photo")).toBeDefined();
   expect(fixture.coachImage).not.toHaveBeenCalled();
+});
+
+
+it("photo Clear admission rejects a held upload and serializes retained picker commands until release", async () => {
+  const picked = deferred<typeof coachPhotoFile[]>(); fixture.pickImages.mockReturnValueOnce(picked.promise);
+  await mountPhoto(); const attach = button("Attach a photo").props.onPress;
+  const release = livePhotoState.beginClear();
+  await act(async () => attach()); await settle(); expect(fixture.pickImages).not.toHaveBeenCalled(); release();
+  await act(async () => attach()); await settle(); expect(fixture.pickImages).toHaveBeenCalledOnce();
+  expect(() => livePhotoState.beginClear()).toThrow("photo");
+  await act(async () => picked.resolve([])); await settle();
+});
+it("a corrupted photo journal recovers after confirmed server Clear using the existing native sweep", async () => {
+  const key = draftKey(fixture.owner, "coach-photo:1:") + "general"; fixture.map.set(key, '{broken');
+  await mountPhoto(); expect(button("Retry restoring photo")).toBeDefined();
+  const release = livePhotoState.beginClear();
+  await act(async () => livePhotoState.clearAfterConfirmedServerClear()); await settle(); release();
+  expect(fixture.map.has(key)).toBe(false); expect(fixture.recoverCleanup).toHaveBeenCalledWith(fixture.owner);
+  expect(button("Attach a photo").props.disabled).toBe(false);
 });

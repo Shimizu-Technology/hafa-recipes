@@ -1,6 +1,7 @@
 import { it, expect } from "vitest";
 import { createCoachDraftStore } from "./coach-drafts";
 import { draftKey } from "./drafts";
+import { draftKey } from "./drafts";
 it("clears all conversation focuses for only this owner/generation and fences delayed saves from the old reset epoch", async () => {
   const values = new Map<string, string>();
   const storage = {
@@ -102,4 +103,29 @@ it("conversation photo cleanup covers all own focuses while preserving other own
   expect(f.api.discardCoachImage).toHaveBeenCalledTimes(2);
   expect([...f.values.keys()]).toHaveLength(2);
   expect([...f.values.keys()].every(key => key.includes("other") || key.includes("photo%3A2%3A"))).toBe(true);
+});
+
+
+it("confirmed server Clear removes malformed own-generation photo metadata and sweeps only exact native cleanup debt", async () => {
+  const f = photoFixture(), own = draftKey("owner", "coach-photo:1:");
+  f.values.set(own + "broken", '{not-json'); f.values.set(own + "invalid", JSON.stringify({ upload_id: "invalid", file: { uri: "file:///foreign/private.jpg" } }));
+  f.values.set(draftKey("other", "coach-photo:1:") + "general", "foreign");
+  f.values.set(draftKey("owner", "coach-photo:2:") + "general", "other generation");
+  const recover = vi.fn(async () => { expect([...f.values.keys()].some(key => key.startsWith(own))).toBe(false); });
+  await f.store.clearAfterConfirmedServerClear(() => {}, recover);
+  expect(f.cleanup).not.toHaveBeenCalled(); expect(f.api.discardCoachImage).not.toHaveBeenCalled();
+  expect(recover).toHaveBeenCalledOnce(); expect([...f.values.values()]).toEqual(["foreign", "other generation"]);
+});
+it.each(["owner", "epoch"])("confirmed photo cleanup rejects retired %s authority before changing metadata", async reason => {
+  const f = photoFixture(), key = draftKey("owner", "coach-photo:1:") + "broken"; f.values.set(key, 'broken');
+  const recover = vi.fn();
+  await expect(f.store.clearAfterConfirmedServerClear(() => { throw Error(`${reason} retired`); }, recover)).rejects.toThrow(`${reason} retired`);
+  expect(f.values.get(key)).toBe('broken'); expect(recover).not.toHaveBeenCalled();
+});
+it("confirmed photo cleanup preserves fail-closed native recovery and allows retry without forgetting that debt", async () => {
+  const f = photoFixture(), key = draftKey("owner", "coach-photo:1:") + "broken"; f.values.set(key, 'broken');
+  const nativeDebt = "opaque native journal retained", recover = vi.fn().mockRejectedValueOnce(Error(nativeDebt)).mockResolvedValueOnce(undefined);
+  await expect(f.store.clearAfterConfirmedServerClear(() => {}, recover)).rejects.toThrow(nativeDebt);
+  expect(f.values.has(key)).toBe(false); await f.store.clearAfterConfirmedServerClear(() => {}, recover);
+  expect(recover).toHaveBeenCalledTimes(2);
 });
