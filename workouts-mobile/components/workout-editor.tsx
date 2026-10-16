@@ -33,12 +33,21 @@ export function WorkoutEditor({
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
-  function update(next: AuthoredWorkout) {
+  function update(next: AuthoredWorkout, removedExercise?: { blockId: string; index: number }) {
     if (disabled) return;
     // Keep automatically revealed fields mounted when a correction clears their error.
     setExpandedBlocks(current => retainExpanded(current, value.blocks.filter(invalidBlockSettings).map(block => block.id)));
-    setExpandedExercises(current => retainExpanded(current, value.blocks.flatMap(block =>
-      block.exercises.flatMap((e, index) => invalidExerciseDetails(e) ? [`${block.id}:${index}`] : []))));
+    setExpandedExercises(current => {
+      const retained = retainExpanded(current, value.blocks.flatMap(block =>
+        block.exercises.flatMap((e, index) => invalidExerciseDetails(e) ? [`${block.id}:${index}`] : [])));
+      if (!removedExercise) return retained;
+      const prefix = `${removedExercise.blockId}:`;
+      return retained.flatMap(key => {
+        if (!key.startsWith(prefix)) return [key];
+        const index = Number(key.slice(prefix.length));
+        return index === removedExercise.index ? [] : [`${prefix}${index > removedExercise.index ? index - 1 : index}`];
+      });
+    });
     onChange(next);
   }
   function toggle(key: string, selected: string[], set: (keys: string[]) => void) {
@@ -272,7 +281,7 @@ export function WorkoutEditor({
                       blocks: value.blocks.map((b, i) =>
                         i === bi ? { ...b, exercises: b.exercises.filter((_, j) => j !== ei) } : b
                       )
-                    })
+                    }, { blockId: block.id, index: ei })
                   }
                 />
               )}

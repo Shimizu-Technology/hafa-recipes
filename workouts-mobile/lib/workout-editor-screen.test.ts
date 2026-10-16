@@ -48,3 +48,22 @@ it("keeps automatically revealed block settings mounted after the first valid ch
   await act(async () => button("Hide block settings: Main circuit").props.onPress());
   expect(field("Block name")).toBeUndefined();
 });
+
+it("keeps retained details with their exercise after removing an earlier exercise", async () => {
+  const initial = workout(); initial.blocks[0].exercises = [
+    { name: "First" }, { name: "Invalid", instructions: "x".repeat(2001) }, { name: "Neighbor" },
+  ];
+  await render(initial);
+  const label = "Instructions or cues · included when sharing";
+  const neighborDetails = () => renderer!.root.findAllByType("Card" as never).find(card => {
+    const names = card.findAllByType("Field" as never).filter(node => node.props.label === "Exercise name");
+    return names.length === 1 && names[0].props.value === "Neighbor";
+  })!.findAllByType("Field" as never).filter(node => node.props.label === label);
+  await act(async () => button("Remove First").props.onPress());
+  expect(neighborDetails()).toHaveLength(0);
+  const original = field(label)!;
+  await act(async () => original.props.onChange("K"));
+  expect(field(label)).toBe(original);
+  expect(field(label)!.props.value).toBe("K");
+  expect(neighborDetails()).toHaveLength(0);
+});
