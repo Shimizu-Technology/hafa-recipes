@@ -66,11 +66,14 @@ describe('import intake coordinator', () => {
     expect(mocks.start).not.toHaveBeenCalled(); expect(mocks.reset).not.toHaveBeenCalled();
   });
   it('preserves an uncertain submission and reconciles a successful reconnect', async () => {
-    await importInbox.add({ id: 'b', ownerId: 'owner-a', createdAt: 1, state: 'ready', capture: { kind: 'url', url: 'https://example.com/b' } });
+    const request = { url: 'https://example.com/b', notes: '2 cups rice\nSimmer 20 minutes.', location: 'Hawaii', is_public: false };
+    await importInbox.add({ id: 'b', ownerId: 'owner-a', createdAt: 1, state: 'ready',
+      capture: { kind: 'url', url: request.url, notes: request.notes }, request });
     mocks.extraction.isExtracting = false; mocks.extraction.jobId = null;
     mocks.start.mockRejectedValueOnce(new Error('Connection dropped'));
     await act(async () => { renderer = create(<Harness />); });
-    expect(importInbox.snapshot()[0]).toMatchObject({ state: 'error', capture: { url: 'https://example.com/b' } });
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(request, 'share:b');
+    expect(importInbox.snapshot()[0]).toMatchObject({ state: 'error', capture: { url: 'https://example.com/b', notes: request.notes }, request });
     mocks.extraction.requestKey = 'share:b'; mocks.extraction.isExtracting = true; mocks.extraction.jobId = 'job-b';
     await act(async () => renderer!.update(<Harness />));
     expect(importInbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'job-b' });

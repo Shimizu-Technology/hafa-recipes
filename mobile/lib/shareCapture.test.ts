@@ -34,6 +34,65 @@ describe('native recipe share routing', () => {
       .toEqual({ kind: 'url', url: 'https://example.com/rice' });
   });
 
+  it.each([
+    { webUrl: 'https://www.instagram.com/reel/local-fixture/' },
+    { meta: { url: 'https://www.tiktok.com/@fixture/video/123' } },
+    {},
+  ])('keeps a recipe caption with a direct, metadata, or embedded URL (%j)', (source) => {
+    const url = source.webUrl || source.meta?.url || 'https://youtu.be/local-fixture';
+    expect(resolveShareIntent(shareIntent({
+      ...source,
+      text: `  Red Rice\r\n2 cups rice\r\n\r\nSimmer for 20 minutes.\r\n${url}  `,
+    }), true)).toEqual({
+      kind: 'url', url, notes: 'Red Rice\n2 cups rice\n\nSimmer for 20 minutes.',
+    });
+  });
+
+  it.each([
+    'https://example.com/rice',
+    'Check out this video on TikTok: https://example.com/rice',
+    'Watch this reel on Instagram!\nhttps://example.com/rice',
+    'Shared via YouTube\nhttps://example.com/rice',
+    'Someone shared a video with you.\nhttps://example.com/rice',
+    'Check this out: https://example.com/rice',
+    '#recipe #food @cook\nhttps://example.com/rice',
+  ])('does not promote URL-only or generic sharing copy to notes (%s)', (text) => {
+    expect(resolveShareIntent(shareIntent({ text }), true))
+      .toEqual({ kind: 'url', url: 'https://example.com/rice' });
+  });
+
+  it('removes boilerplate lines while retaining source wording, quantities, and non-English captions', () => {
+    expect(resolveShareIntent(shareIntent({
+      webUrl: 'https://example.com/rice',
+      text: 'Watch this video\nArroz rojo\n½ taza de arroz\nCocinar 20 minutos.\nShared via TikTok',
+    }), true)).toEqual({
+      kind: 'url', url: 'https://example.com/rice',
+      notes: 'Arroz rojo\n½ taza de arroz\nCocinar 20 minutos.',
+    });
+  });
+
+  it('bounds captions to the existing API notes limit without splitting Unicode characters', () => {
+    const caption = `Rice ${'🥥'.repeat(4_000)}`;
+    const action = resolveShareIntent(shareIntent({ webUrl: 'https://example.com/rice', text: caption }), true);
+    expect(action).toEqual({ kind: 'url', url: 'https://example.com/rice', notes: Array.from(caption).slice(0, 4_000).join('') });
+  });
+
+  it('keeps URL caption intake available to signed-out users without routing it as authenticated text', () => {
+    expect(resolveShareIntent(shareIntent({
+      text: '2 cups rice\nCook for 20 minutes.\nhttps://example.com/rice',
+    }), false)).toEqual({
+      kind: 'url', url: 'https://example.com/rice', notes: '2 cups rice\nCook for 20 minutes.',
+    });
+  });
+
+  it('preserves standalone source quantities with their following ingredient lines', () => {
+    expect(resolveShareIntent(shareIntent({
+      webUrl: 'https://example.com/rice', text: 'Rice\n1/2\ncup stock\nCook 20 minutes.',
+    }), true)).toEqual({
+      kind: 'url', url: 'https://example.com/rice', notes: 'Rice\n1/2\ncup stock\nCook 20 minutes.',
+    });
+  });
+
   it('routes plain recipe text for signed-in users and gives guests a clear boundary', () => {
     const intent = shareIntent({ text: '  Red Rice\r\n2 cups rice\r\nCook it.  ' });
 
