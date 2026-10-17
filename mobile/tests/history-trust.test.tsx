@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { RecipeListItem } from '@/types/recipe';
+import type { Collection, RecipeListItem } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,7 +32,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
 }));
 vi.mock('@clerk/expo', () => ({
-  useAuth: () => ({ userId: 'viewer-1', isSignedIn: true }),
+  useAuth: () => ({ userId: 'viewer-1', isSignedIn: library.signedIn }),
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
@@ -61,10 +61,16 @@ const library = vi.hoisted(() => ({
   cached: [] as RecipeListItem[],
   moreSearch: vi.fn(), moreSaved: vi.fn(), moreOwn: vi.fn(),
   hasMoreSearch: false,
+  signedIn: true,
+  collections: {
+    data: [] as Collection[] | undefined,
+    isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+  },
+  refetchRecipes: vi.fn(), refetchSaved: vi.fn(),
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useRecipes: () => ({ recipes: [], total: 0, fetchNextPage: library.moreOwn, hasNextPage: true }),
-  useSavedRecipes: () => ({ recipes: library.cached, fetchNextPage: library.moreSaved, hasNextPage: true }),
+  useRecipes: () => ({ recipes: [], total: 0, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
+  useSavedRecipes: () => ({ recipes: library.cached, fetchNextPage: library.moreSaved, hasNextPage: true, refetch: library.refetchSaved }),
   useSearchRecipes: (filters: Record<string, unknown>) => {
     library.filters = filters;
     return { recipes: library.search, total: library.search.length, isSuccess: true,
@@ -73,9 +79,9 @@ vi.mock('@/hooks/useRecipes', () => ({
   useRecipeCount: () => ({ data: { count: 0 } }),
   usePopularTags: () => ({ data: [] }),
 }));
-vi.mock('@/hooks/useCollections', () => ({ useCollections: () => ({ data: [], isLoading: false }) }));
+vi.mock('@/hooks/useCollections', () => ({ useCollections: () => library.collections }));
 vi.mock('@/hooks/useViewPreference', () => ({ useViewPreference: () => ({ viewMode: 'list', isGrid: false }) }));
-vi.mock('@/hooks/usePullToRefresh', () => ({ usePullToRefresh: () => ({ isPullRefreshing: false, onPullRefresh: vi.fn() }) }));
+vi.mock('@/hooks/usePullToRefresh', () => ({ usePullToRefresh: (refresh: () => Promise<unknown>) => ({ isPullRefreshing: false, onPullRefresh: refresh }) }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (value: string) => value }));
 vi.mock('@/constants/Colors', () => ({
   default: { light: {}, dark: {} },
@@ -116,6 +122,9 @@ const colors = {
 beforeEach(() => {
   library.filters = {}; library.search = []; library.cached = []; library.hasMoreSearch = false;
   library.moreSearch.mockClear(); library.moreSaved.mockClear(); library.moreOwn.mockClear();
+  library.signedIn = true;
+  Object.assign(library.collections, { data: [], isLoading: false, isError: false, isFetching: false });
+  library.collections.refetch.mockClear(); library.refetchRecipes.mockClear(); library.refetchSaved.mockClear();
 });
 
 function recipe(
@@ -226,6 +235,78 @@ describe('Saved library search', () => {
         expect(library.moreSaved).not.toHaveBeenCalled();
         expect(library.moreOwn).not.toHaveBeenCalled();
       }
+    } finally { await act(async () => renderer.unmount()); }
+  });
+});
+
+describe('Library collection recovery', () => {
+  beforeEach(() => {
+    Object.assign(library.collections, { data: undefined, isError: true });
+  });
+
+  async function renderLibrary() {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    await act(async () => { renderer.render(<HistoryScreen />); });
+    return renderer;
+  }
+
+  it('offers an explicit retry after the initial collection request fails', async () => {
+    const renderer = await renderLibrary();
+    try {
+      expect(renderer.container.queryAll(instance =>
+        instance.props.children === 'Couldn’t load your collections. Check your connection and try again.',
+      )).toHaveLength(1);
+      const retry = renderer.container.queryAll(instance => instance.props.title === 'Try again')[0];
+      await act(async () => { retry.props.onPress(); });
+      expect(library.collections.refetch).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('retains cached collection cards and disables retry while reconnecting', async () => {
+    library.collections.data = [{ id: 'collection-1', name: 'Weeknight dinners', recipe_count: 1 } as Collection];
+    library.collections.isFetching = true;
+    const renderer = await renderLibrary();
+    try {
+      expect(renderer.container.queryAll(instance => instance.props.children === 'Weeknight dinners')).toHaveLength(1);
+      expect(renderer.container.queryAll(instance =>
+        instance.props.children === 'Couldn’t refresh your collections. Your last loaded collections are still shown.',
+      )).toHaveLength(1);
+      expect(renderer.container.queryAll(instance => instance.props.title === 'Trying again…')[0].props.disabled).toBe(true);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('keeps creation available without claiming the failed cached list is empty', async () => {
+    library.collections.data = [];
+    const renderer = await renderLibrary();
+    try {
+      expect(renderer.container.queryAll(instance =>
+        instance.props.children === 'Create your first collection to organize recipes',
+      )).toHaveLength(0);
+      const create = renderer.container.queryAll(instance => instance.props.title === 'New collection')[0];
+      await act(async () => { create.props.onPress(); });
+      expect(renderer.container.queryAll(instance => instance.type === 'CreateCollectionModal')[0].props.visible).toBe(true);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('includes collections in the normal Library pull to refresh', async () => {
+    const renderer = await renderLibrary();
+    try {
+      const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
+      await act(async () => { await list.props.refreshControl.props.onRefresh(); });
+      expect(library.collections.refetch).toHaveBeenCalledOnce();
+      expect(library.refetchRecipes).toHaveBeenCalledOnce();
+      expect(library.refetchSaved).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('does not display collection errors or refetch collections for a guest', async () => {
+    library.signedIn = false;
+    const renderer = await renderLibrary();
+    try {
+      expect(renderer.container.queryAll(instance => instance.props.accessibilityRole === 'alert')).toHaveLength(0);
+      const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
+      await act(async () => { await list.props.refreshControl.props.onRefresh(); });
+      expect(library.collections.refetch).not.toHaveBeenCalled();
     } finally { await act(async () => renderer.unmount()); }
   });
 });

@@ -301,7 +301,13 @@ export default function HistoryScreen() {
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all'); // all, own, or saved only
 
   // Collections
-  const { data: collections, isLoading: isLoadingCollections } = useCollections(!!isSignedIn);
+  const {
+    data: collections,
+    isLoading: isLoadingCollections,
+    isError: isCollectionsError,
+    isFetching: isFetchingCollections,
+    refetch: refetchCollections,
+  } = useCollections(!!isSignedIn);
 
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -377,11 +383,12 @@ export default function HistoryScreen() {
 
   const handleRefreshAll = useCallback(async () => {
     await Promise.all([
+      isAuthenticated ? refetchCollections() : Promise.resolve(),
       hasActiveFilters ? refetchSearch() : Promise.resolve(),
       showOwnRecipes ? refetchRecipes() : Promise.resolve(),
       showSavedRecipes ? refetchSaved() : Promise.resolve(),
     ]);
-  }, [hasActiveFilters, refetchRecipes, refetchSaved, refetchSearch, showOwnRecipes, showSavedRecipes]);
+  }, [hasActiveFilters, isAuthenticated, refetchCollections, refetchRecipes, refetchSaved, refetchSearch, showOwnRecipes, showSavedRecipes]);
 
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
@@ -936,6 +943,28 @@ export default function HistoryScreen() {
           </RNView>
         )}
 
+        {isSignedIn && isCollectionsError && (
+          <RNView style={[styles.collectionRecovery, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+            <Text accessibilityRole="alert" style={{ color: colors.textSecondary }}>
+              {collections === undefined
+                ? 'Couldn’t load your collections. Check your connection and try again.'
+                : 'Couldn’t refresh your collections. Your last loaded collections are still shown.'}
+            </Text>
+            <Button
+              title={isFetchingCollections ? 'Trying again…' : 'Try again'}
+              disabled={isFetchingCollections}
+              onPress={() => { void refetchCollections(); }}
+            />
+            {!collections?.length && (
+              <Button
+                title="New collection"
+                variant="outline"
+                onPress={() => setShowCreateCollectionModal(true)}
+              />
+            )}
+          </RNView>
+        )}
+
         {/* Collections row - show skeleton while loading, or real content */}
         {isLoadingCollections ? (
           <RNView style={styles.collectionsSection}>
@@ -989,7 +1018,7 @@ export default function HistoryScreen() {
         ) : null}
 
         {/* Show "Create first collection" prompt if no collections */}
-        {collections && collections.length === 0 && !isLoadingCollections && (
+        {collections && collections.length === 0 && !isLoadingCollections && !isCollectionsError && (
           <TouchableOpacity
             style={[styles.createFirstCollection, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}
             onPress={() => setShowCreateCollectionModal(true)}
@@ -1406,6 +1435,13 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   // Collections styles
+  collectionRecovery: {
+    padding: spacing.md,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+  },
   collectionsSection: {
     marginTop: spacing.md,
   },
