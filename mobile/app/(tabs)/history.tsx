@@ -955,6 +955,13 @@ export default function HistoryScreen() {
               disabled={isFetchingCollections}
               onPress={() => { void refetchCollections(); }}
             />
+            {!collections?.length && (
+              <Button
+                title="New collection"
+                variant="outline"
+                onPress={() => setShowCreateCollectionModal(true)}
+              />
+            )}
           </RNView>
         )}
 

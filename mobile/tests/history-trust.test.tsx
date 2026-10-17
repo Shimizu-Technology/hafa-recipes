@@ -275,13 +275,16 @@ describe('Library collection recovery', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('does not offer a first-collection prompt for a failed cached empty list', async () => {
+  it('keeps creation available without claiming the failed cached list is empty', async () => {
     library.collections.data = [];
     const renderer = await renderLibrary();
     try {
       expect(renderer.container.queryAll(instance =>
         instance.props.children === 'Create your first collection to organize recipes',
       )).toHaveLength(0);
+      const create = renderer.container.queryAll(instance => instance.props.title === 'New collection')[0];
+      await act(async () => { create.props.onPress(); });
+      expect(renderer.container.queryAll(instance => instance.type === 'CreateCollectionModal')[0].props.visible).toBe(true);
     } finally { await act(async () => renderer.unmount()); }
   });
 
