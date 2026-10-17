@@ -33,6 +33,13 @@ from app.image_validation import (
     normalize_thumbnail_image,
 )
 from app.security import PublicHTTPTransport, assert_public_http_url
+from app.services.source_acquisition import (
+    TRANSIENT_SOURCE_ERRORS,
+    AcquisitionFailure,
+    acquire_video_metadata,
+    public_instagram_metadata,
+    source_failure_code,
+)
 from app.source_urls import canonicalize_source
 
 MAX_TEXT_CHARS = 30_000
@@ -132,6 +139,7 @@ class SourceBundle:
     images: list[SourceImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     paid_recovery_denied: bool = False
+    acquisition_failures: list[AcquisitionFailure] = field(default_factory=list, repr=False)
     progress: ProgressCallback | None = field(default=None, repr=False, compare=False)
 
     async def report(self, stage: ImportStage):
@@ -609,42 +617,11 @@ class ProductionSourceAcquirer:
         if canonical.key is None or not canonical.key.startswith(f"{platform}:"):
             raise ExtractionFailure("unsupported_video_url")
         from app.config import get_settings
-        from app.services.video import VideoMetadata
-
-        try:
-            metadata = await self._within_deadline(
-                video_service.get_video_metadata_ytdlp(normalized), deadline
-            )
-        except Exception:
-            metadata = VideoMetadata()
-        # Recipes already has bounded platform oEmbed readers. Merge fields
-        # independently; an inaccessible download must not erase a public caption.
-        if not all(
-            getattr(metadata, key, None)
-            for key in ("title", "description", "uploader", "thumbnail")
-        ):
-            try:
-                fallback = await self._within_deadline(
-                    video_service.fetch_oembed(normalized, platform), deadline
-                )
-                for key in ("title", "description", "uploader", "thumbnail"):
-                    if not getattr(metadata, key, None):
-                        setattr(metadata, key, getattr(fallback, key, None))
-            except Exception:
-                pass
-        if platform == "instagram" and not all(
-            getattr(metadata, key, None)
-            for key in ("title", "description", "uploader", "thumbnail")
-        ):
-            try:
-                fallback = await self._within_deadline(
-                    self._public_video_metadata(normalized), deadline
-                )
-                for key, value in fallback.items():
-                    if not getattr(metadata, key, None):
-                        setattr(metadata, key, value)
-            except Exception:
-                pass
+        acquired = await acquire_video_metadata(
+            video_service, normalized, platform,
+            public_reader=self._public_video_metadata, deadline=deadline,
+        )
+        metadata = acquired.metadata
         duration = getattr(metadata, "duration", None)
         duration = (
             duration
@@ -662,6 +639,7 @@ class ProductionSourceAcquirer:
                 thumbnail_url=self._metadata_text(getattr(metadata, "thumbnail", None), 2000),
             )
         )
+        source.acquisition_failures.extend(acquired.failures)
         if duration is not None and duration > get_settings().video_max_duration_seconds:
             raise ExtractionFailure("video_duration_limit", source=source)
         caption = self._metadata_text(getattr(metadata, "description", None), 12_000)
@@ -702,6 +680,8 @@ class ProductionSourceAcquirer:
                     video_service.extract_video_frames(normalized), deadline
                 )
                 if not frames.success or not frames.frames:
+                    if getattr(frames, "error_code", None):
+                        source.acquisition_failures.append(AcquisitionFailure("frames", frames.error_code))
                     raise ExtractionFailure("source_frames_unavailable")
                 for index, frame in enumerate(frames.frames[:MAX_IMAGES]):
                     valid = decode_and_validate_base64_image(
@@ -719,6 +699,7 @@ class ProductionSourceAcquirer:
                         f"image:{index} sampled at {frame.timestamp_seconds:g}s; samples do not cover every frame."
                     )
             except asyncio.TimeoutError:
+                source.acquisition_failures.append(AcquisitionFailure("frames", "TIMEOUT"))
                 source.metadata.coverage_notes.append(
                     "Frame processing reached the import time limit; available captions remain usable."
                 )
@@ -748,6 +729,8 @@ class ProductionSourceAcquirer:
             audio = await self._within_deadline(video_service.download_audio(url), deadline)
             transcribe = getattr(provider, "transcribe", None)
             if not audio.success or not audio.file_path or transcribe is None:
+                if getattr(audio, "error_code", None):
+                    source.acquisition_failures.append(AcquisitionFailure("audio", audio.error_code))
                 raise ExtractionFailure("source_audio_unavailable")
             text = await self._within_deadline(transcribe(audio.file_path), deadline)
             if not text.strip():
@@ -755,6 +738,7 @@ class ProductionSourceAcquirer:
             source.parts.append(SourcePart("transcript", text[:18_000]))
             source.metadata.channels.append("transcript")
         except asyncio.TimeoutError:
+            source.acquisition_failures.append(AcquisitionFailure("audio", "TIMEOUT"))
             source.metadata.coverage_notes.append(
                 "Audio processing reached the import time limit; available captions/frames remain usable."
             )
@@ -768,30 +752,7 @@ class ProductionSourceAcquirer:
                     video_service.cleanup_audio_file(audio.file_path)
 
     async def _public_video_metadata(self, url):
-        current, soup = await asyncio.wait_for(self._page(url), timeout=25)
-        # A login redirect is not metadata for the original workout.
-        if canonicalize_source(current).key != canonicalize_source(url).key:
-            raise ExtractionFailure("source_metadata_unavailable")
-
-        def meta(*names):
-            for name in names:
-                tag = soup.find("meta", attrs={"property": name}) or soup.find(
-                    "meta", attrs={"name": name}
-                )
-                if tag and isinstance(tag.get("content"), str) and tag["content"].strip():
-                    return tag["content"].strip()
-            return None
-
-        title = meta("og:title", "twitter:title")
-        creator = meta("author", "article:author")
-        if not creator and title and " on Instagram:" in title:
-            creator = title.split(" on Instagram:", 1)[0]
-        return {
-            "title": title,
-            "description": meta("og:description", "description", "twitter:description"),
-            "uploader": creator,
-            "thumbnail": meta("og:image", "twitter:image"),
-        }
+        return await public_instagram_metadata(url, page_loader=self._page)
 
     async def _download_images(self, urls: list[str]) -> list[SourceImage]:
         from app.image_validation import validate_image_bytes
@@ -1780,6 +1741,8 @@ class WorkoutExtractor:
                 await acquire_media()
                 staged_media = False
             if not source.images and not any(part.text.strip() for part in source.parts):
+                if source_failure_code(source.acquisition_failures) in TRANSIENT_SOURCE_ERRORS:
+                    raise ExtractionFailure("source_or_provider_unavailable", source=source)
                 return draft(
                     source,
                     "insufficient_source",

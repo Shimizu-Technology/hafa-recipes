@@ -173,6 +173,7 @@ CONFIDENCE RULES:
 STRUCTURE RULES:
 - Set sourceUrl to the decoded source URL value and costLocation to the decoded cost-location value.
 - If the recipe has distinct parts such as a main dish, sauce, glaze, or marinade, create one component for each part. Each component must contain only its supported ingredients and ordered steps.
+- Include every source-provided cooking action in component steps, including final baking, cooking, assembly, and cooling. Keep their temperatures and durations in those steps; recipe notes cannot replace executable steps. Shared finishing instructions may use a final Assembly or Baking component with an empty ingredients array.
 - Ingredient quantity values must be strings or null, never numbers. Ingredient names must be non-empty strings.
 - Equipment must be an array of strings. Include only equipment supported by the source or directly required by a supported step.
 - mealTypes may contain: "breakfast", "lunch", "dinner", "snack", "dessert".

@@ -5,6 +5,7 @@ import base64
 import io
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -1128,7 +1129,7 @@ async def test_public_instagram_metadata_recovers_caption_when_downloads_fail(mo
 
 
 @pytest.mark.asyncio
-async def test_oembed_fills_missing_metadata_without_replacing_known_caption(monkeypatch):
+async def test_public_metadata_fills_missing_fields_without_replacing_known_caption(monkeypatch):
     from app.services.video import VideoMetadata
 
     service = await mock_video_acquirer(monkeypatch)
@@ -1136,19 +1137,21 @@ async def test_oembed_fills_missing_metadata_without_replacing_known_caption(mon
     async def metadata(url):
         return VideoMetadata(description=TEXT)
 
-    async def oembed(url, platform):
+    async def public_metadata(self, url):
         return VideoMetadata(
-            title="oEmbed title",
-            uploader="oEmbed creator",
-            thumbnail="https://example.com/oembed.jpg",
+            title="Public title",
+            description="Weaker fallback caption",
+            uploader="Public creator",
+            thumbnail="https://example.com/public.jpg",
         )
 
-    service.get_video_metadata_ytdlp, service.fetch_oembed = metadata, oembed
+    service.get_video_metadata_ytdlp = metadata
+    monkeypatch.setattr(ProductionSourceAcquirer, "_public_video_metadata", public_metadata)
     result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
     )
-    assert result.status == "ready" and result.workout.source_title == "oEmbed title"
-    assert result.workout.source_creator == "oEmbed creator"
+    assert result.status == "ready" and result.workout.source_title == "Public title"
+    assert result.workout.source_creator == "Public creator"
 
 
 @pytest.mark.asyncio
@@ -2337,3 +2340,38 @@ def test_reused_name_quote_declines_excessive_whitespace_without_changing_the_so
     workout, _, _ = ground_workout(raw, source)
     assert workout.blocks[0].exercises[0].reps_min is None
     assert source.parts[0].text == quote
+
+
+@pytest.mark.asyncio
+async def test_optional_metadata_deadline_preserves_workout_caption(monkeypatch):
+    import asyncio
+
+    import app.domains.workouts.extraction as module
+    from app.services.video import VideoMetadata
+
+    service = await mock_video_acquirer(monkeypatch)
+    service.get_video_metadata_ytdlp = AsyncMock(return_value=VideoMetadata(description=TEXT))
+    async def stalled(self, url):
+        await asyncio.sleep(60)
+    monkeypatch.setattr(ProductionSourceAcquirer, "_public_video_metadata", stalled)
+    monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert result.status == "ready" and result.source.channels == ["caption"]
+    assert result.workout.blocks[0].exercises[0].sets == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage,code", [("audio", "TIMEOUT"), ("frames", "TIMEOUT"), ("frames", "RATE_LIMITED")])
+async def test_empty_workout_keeps_transient_media_failure(monkeypatch, stage, code):
+    service = await mock_video_acquirer(monkeypatch, empty=True)
+    monkeypatch.setattr(ProductionSourceAcquirer, "_public_video_metadata", AsyncMock(return_value=SimpleNamespace()))
+    if stage == "audio":
+        service.download_audio = AsyncMock(side_effect=asyncio.TimeoutError)
+    elif code == "TIMEOUT":
+        service.extract_video_frames = AsyncMock(side_effect=asyncio.TimeoutError)
+    else:
+        service.extract_video_frames = AsyncMock(return_value=SimpleNamespace(success=False, frames=[], error_code=code))
+    result = await WorkoutExtractor(FakeProvider()).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert result.error_code == "source_or_provider_unavailable"

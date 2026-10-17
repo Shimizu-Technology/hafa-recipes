@@ -180,6 +180,13 @@ def get_friendly_video_error(raw_error: str, platform: str = "video") -> tuple[s
         Tuple of (error_code, friendly_message)
     """
     error_lower = raw_error.lower()
+
+    if platform == "instagram" and any(value in error_lower for value in ("http error 401", "status code 401", "401: unauthorized")):
+        return "INSTAGRAM_AUTH_REQUIRED", "Håfa could not authenticate with Instagram. You can keep the link and add recipe text or screenshots."
+    if any(value in error_lower for value in ("http error 429", "status code 429", "429: too many requests")):
+        return "RATE_LIMITED", "The source is limiting requests. Please try again shortly."
+    if "failed to parse json" in error_lower:
+        return "SOURCE_RESPONSE_INVALID", "The source returned an unreadable response. Please try again shortly."
     
     for pattern, error_info in VIDEO_ERROR_PATTERNS.items():
         if pattern in error_lower:
@@ -204,6 +211,7 @@ class VideoMetadata:
     thumbnail: Optional[str] = None
     duration: int = 0
     uploader: str = ""
+    error_code: Optional[str] = None
 
 
 @dataclass
@@ -1540,7 +1548,7 @@ class VideoService:
                 return await self._get_video_metadata_ytdlp(url)
         except MediaCapacityExceeded:
             _media_log("⚠️ Media process capacity unavailable for video metadata")
-            return VideoMetadata()
+            return VideoMetadata(error_code="MEDIA_BUSY")
 
     async def _get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
         """Get video metadata using yt-dlp (no download)."""
@@ -1597,11 +1605,16 @@ class VideoService:
                     duration=data.get("duration", 0),
                     uploader=data.get("uploader", "")
                 )
+            code, _ = get_friendly_video_error(stderr.decode(errors="replace"), platform)
+            _media_log(f"Metadata acquisition failed: stage=downloader_metadata code={code}")
+            return VideoMetadata(error_code=code)
         except asyncio.TimeoutError:
             await _terminate_process(process)
             _media_log("⚠️ yt-dlp metadata extraction timed out")
+            return VideoMetadata(error_code="TIMEOUT")
         except Exception as e:
-            _media_log(f"⚠️ yt-dlp metadata extraction failed: {e}")
+            _media_log(f"Metadata acquisition failed: stage=downloader_metadata type={type(e).__name__}")
+            return VideoMetadata(error_code="SOURCE_UNAVAILABLE")
         finally:
             await _terminate_process(process)
             if credential_file:

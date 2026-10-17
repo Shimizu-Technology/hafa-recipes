@@ -12,11 +12,12 @@ from app.config import get_settings
 from app.db.database import AsyncSessionLocal
 from app.models.recipe import ExtractionJob
 from app.publishing import PublishingDisclosureRequired
+from app.services.source_acquisition import TRANSIENT_SOURCE_ERRORS
 
 settings = get_settings()
 ACTIVE_JOB_STATUSES = frozenset({"queued", "claimed", "processing"})
 TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "cancelled", "expired"})
-RETRYABLE_EXTRACTION_ERROR_CODES = frozenset(
+RETRYABLE_EXTRACTION_ERROR_CODES = TRANSIENT_SOURCE_ERRORS | frozenset(
     {
         "IMAGE_DOWNLOAD_FAILED",
         "LLM_EXTRACTION_FAILED",

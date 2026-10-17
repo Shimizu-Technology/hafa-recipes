@@ -12,6 +12,31 @@ from app.services.video import VideoService
 from app.services.website import WebsiteService
 
 
+@pytest.mark.asyncio
+async def test_shared_instagram_public_metadata_has_a_byte_cap(monkeypatch):
+    import app.services.source_acquisition as module
+
+    monkeypatch.setattr(module, "PublicHTTPTransport", lambda: httpx.MockTransport(
+        lambda request: httpx.Response(200, headers={"content-type": "text/html", "content-length": "99999999"})
+    ))
+    with pytest.raises(ResponseTooLarge):
+        await module.public_instagram_metadata("https://www.instagram.com/reel/Example/")
+
+
+@pytest.mark.asyncio
+async def test_shared_instagram_rejects_login_redirect_metadata(monkeypatch):
+    import app.services.source_acquisition as module
+
+    def handler(request):
+        if request.url.path.startswith("/reel/"):
+            return httpx.Response(302, headers={"location": "/accounts/login/"})
+        return httpx.Response(200, headers={"content-type": "text/html"}, text='<meta property="og:description" content="Login page, not evidence">')
+
+    monkeypatch.setattr(module, "PublicHTTPTransport", lambda: httpx.MockTransport(handler))
+    result = await module.public_instagram_metadata("https://www.instagram.com/reel/Example/")
+    assert result.error_code == "INSTAGRAM_AUTH_REQUIRED" and not result.description
+
+
 def _client(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
