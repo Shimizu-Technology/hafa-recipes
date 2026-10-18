@@ -17,9 +17,9 @@ it("authenticated cold root opens the saved-workout Library and unresolved authe
 });
 
 
-it("shows five main destinations while keeping Today routable as a Plan child", () => {
+it("shows five main destinations while keeping Today routable from Plan", () => {
   const screens = Layout().props.children as Array<{ props: { name: string; options: { title?: string; href?: null } } }>;
   expect(screens.filter(screen => screen.props.options.href !== null).map(screen => screen.props.options.title))
-    .toEqual(["Discover", "Extract", "Library", "Plan", "Progress"]);
+    .toEqual(["Discover", "Library", "Extract", "Plan", "Progress"]);
   expect(screens.find(screen => screen.props.name === "index")!.props.options.href).toBeNull();
 });
