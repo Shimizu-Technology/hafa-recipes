@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
+  removeWaiting: vi.fn(async () => undefined),
+  jobs: [] as any[],
   addInbox: vi.fn(async (_entry: any) => undefined),
   claimInbox: vi.fn(async () => undefined),
   pendingShareCount: 0,
@@ -24,6 +26,9 @@ const mocks = vi.hoisted(() => ({
   save: vi.fn(async () => ({ id: 'captured-recipe' })),
   checkDuplicate: vi.fn(),
   extraction: {
+    jobId: null as string | null,
+    requestKey: null as string | null,
+    cancel: vi.fn(async (_id?: string) => undefined),
     canRetryStart: false,
     canSaveDraft: false,
     confidenceWarning: null,
@@ -79,7 +84,7 @@ vi.mock('expo-share-intent', () => ({
   ShareIntentModule: {
     addListener: vi.fn((_name: string, callback: (event: { pendingCount: number }) => void) => {
       mocks.queueChanged = callback;
-      return { remove: vi.fn() };
+      return { remove: vi.fn(), removeWaiting: mocks.removeWaiting };
     }),
     getPendingShareCount: vi.fn(async () => mocks.pendingShareCount),
     getShareIntent: mocks.getShareIntent,
@@ -96,7 +101,7 @@ vi.mock('react-native', async () => {
     Alert: { alert: mocks.alert },
     Image: host('Image'),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
-    Keyboard: { dismiss: vi.fn(), isVisible: () => false, addListener: () => ({ remove: vi.fn() }) },
+    Keyboard: { dismiss: vi.fn(), isVisible: () => false, addListener: () => ({ remove: vi.fn(), removeWaiting: mocks.removeWaiting }) },
     Modal: (props: Record<string, unknown>) => props.visible ? ReactModule.createElement('Modal', props, props.children as React.ReactNode) : null,
     Linking: { openURL: vi.fn() },
     Platform: { OS: 'ios' },
@@ -171,7 +176,7 @@ vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: undefined }),
   useSaveCapturedRecipe: () => ({ mutateAsync: mocks.save }),
   useCheckDuplicate: () => ({ mutateAsync: mocks.checkDuplicate }),
-  useExtractionJobs: () => ({ data: [] }),
+  useExtractionJobs: () => ({ data: mocks.jobs }),
   useLocations: () => ({ data: { locations: [
     { code: 'Guam', name: 'Guam' },
     { code: 'Hawaii', name: 'Hawaii' },
@@ -188,7 +193,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('@/lib/shareCapture', () => ({ consumePendingShareCapture: () => mocks.pendingCapture, stagePendingShareCapture: (capture: any) => { mocks.pendingCapture = capture; return 'token'; } }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.inboxEntries, storageError: null }) }));
-vi.mock('@/lib/importInbox', () => ({ importInbox: { hydrate: async () => undefined, snapshot: () => mocks.inboxEntries, add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn() } }));
+vi.mock('@/lib/importInbox', () => ({ importInbox: { hydrate: async () => undefined, snapshot: () => mocks.inboxEntries, add: mocks.addInbox, claim: mocks.claimInbox, patch: vi.fn(), remove: vi.fn(), removeWaiting: mocks.removeWaiting } }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
     requestPublishing: mocks.requestPublishing, didChoosePrivate: () => true,
@@ -234,6 +239,9 @@ describe('classified image recovery', () => {
     mocks.clipboard.mockResolvedValue('https://example.com/copied');
     mocks.requestPublishing.mockReset();
     mocks.requestPublishing.mockResolvedValue(true);
+    mocks.jobs = []; mocks.removeWaiting.mockClear();
+    mocks.extraction.jobId = null; mocks.extraction.requestKey = null; mocks.extraction.canRetryStart = false; mocks.extraction.canSaveDraft = false;
+    mocks.extraction.cancel.mockReset(); mocks.extraction.cancel.mockResolvedValue(undefined);
     mocks.extraction.isComplete = false;
     mocks.extraction.isExtracting = false;
     mocks.extraction.isFailed = false;
@@ -250,6 +258,53 @@ describe('classified image recovery', () => {
     mocks.extraction.reset.mockResolvedValue(undefined);
     mocks.extraction.startExtraction.mockReset();
     mocks.extraction.startExtraction.mockResolvedValue({ isExisting: false });
+  });
+
+  it.each(['failed', 'expired', 'processing'] as const)('confirms cancellation for selected %s imports and retains the composer', async (status) => {
+    mocks.extraction.jobId = 'selected-attempt';
+    mocks.extraction.isFailed = status !== 'processing';
+    mocks.extraction.isExtracting = status === 'processing';
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findByProps({ placeholder: 'Paste a recipe link' }).props.onChangeText('https://example.com/next'));
+    const label = status === 'processing' ? 'Cancel import' : 'Remove unfinished import';
+    await act(async () => touchableWithText(renderer, label)!.props.onPress());
+    expect(mocks.extraction.cancel).not.toHaveBeenCalled();
+    const confirm = mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === label);
+    await act(async () => confirm.onPress());
+    expect(mocks.extraction.cancel).toHaveBeenCalledExactlyOnceWith('selected-attempt');
+    expect(renderer.root.findByProps({ placeholder: 'Paste a recipe link' }).props.value).toBe('https://example.com/next');
+    await act(async () => renderer.unmount());
+  });
+
+  it('keeps an offline failed attempt retryable after confirming removal', async () => {
+    mocks.extraction.jobId = 'failed'; mocks.extraction.isFailed = true;
+    mocks.extraction.cancel.mockRejectedValueOnce(new Error('Offline'));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => touchableWithText(renderer, 'Remove unfinished import')!.props.onPress());
+    const confirm = mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === 'Remove unfinished import');
+    await act(async () => confirm.onPress());
+    expect(mocks.extraction.reset).not.toHaveBeenCalled();
+    expect(mocks.alert).toHaveBeenLastCalledWith('Could Not Remove Import', 'Offline');
+    expect(touchableWithText(renderer, 'Remove unfinished import')).toBeTruthy();
+    await act(async () => renderer.unmount());
+  });
+
+  it('requires Reconnect for an uncertain receipt and protects saved source drafts', async () => {
+    mocks.extraction.isFailed = true; mocks.extraction.canRetryStart = true; mocks.extraction.requestKey = 'share:uncertain';
+    mocks.inboxEntries = [{ id: 'uncertain', ownerId: 'owner-a', state: 'error', capture: { kind: 'url', url: 'https://example.com/a' } }];
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    expect(touchableWithText(renderer, 'Remove unfinished import')).toBeUndefined();
+    expect(renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType).some(node => node.props.accessibilityLabel === 'Remove waiting import')).toBe(false);
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Reconnect')!.props.onPress());
+    expect(mocks.extraction.retryPendingStart).toHaveBeenCalled();
+    expect(mocks.extraction.cancel).not.toHaveBeenCalled(); expect(mocks.extraction.reset).not.toHaveBeenCalled();
+    mocks.extraction.canRetryStart = false; mocks.extraction.jobId = 'draft-job'; mocks.extraction.recipeId = 'saved-draft';
+    await act(async () => renderer.update(<ExtractScreen />));
+    expect(touchableWithText(renderer, 'Remove unfinished import')).toBeUndefined();
+    await act(async () => renderer.unmount());
   });
 
   it('keeps settings separate from help and retains notes and visibility after closing', async () => {

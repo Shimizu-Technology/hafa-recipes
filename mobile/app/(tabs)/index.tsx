@@ -33,6 +33,7 @@ import { getImportStatusPresentation } from '@/lib/importStatusPresentation';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { ImportActivityCard } from '@/components/ImportActivityCard';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
+import type { JobStatus } from '@/types/recipe';
 import { api, type RecipeImageUpload } from '@/lib/api';
 import { consumePendingShareCapture, stagePendingShareCapture } from '@/lib/shareCapture';
 import { importInbox, type ImportInboxEntry } from '@/lib/importInbox';
@@ -193,6 +194,14 @@ export default function ExtractScreen() {
   const openCapturedEntry = async (entry: ImportInboxEntry) => {
     if (!inbox.ownerId) { router.push('/(auth)/sign-in'); return; }
     const owner = inbox.ownerId;
+    if (entry.submissionClaimed || entry.state === 'submitting') {
+      if (!(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`)) {
+        await extraction.recoverImport(entry);
+      }
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
+      await extraction.retryPendingStart();
+      return;
+    }
     if (entry.capture.kind === 'url' && entry.request?.is_public) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
@@ -455,19 +464,6 @@ export default function ExtractScreen() {
     }
   };
 
-  const cancelCurrentExtraction = async () => {
-    try {
-      await extraction.cancel();
-      return true;
-    } catch {
-      Alert.alert(
-        'Could Not Cancel',
-        'We could not reach the server, so the extraction may still be running. We will keep it here and try again when your connection improves.'
-      );
-      return false;
-    }
-  };
-
   const handleExtract = async () => {
     if (!url.trim()) {
       Alert.alert('Missing URL', 'Please paste a video URL to extract a recipe.');
@@ -545,30 +541,29 @@ export default function ExtractScreen() {
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = (job?: JobStatus) => {
+    const targetId = job?.id ?? extraction.jobId;
+    const originalOwner = inbox.ownerId;
+    if (!targetId) return;
+    const remove = job ? job.status === 'failed' || job.status === 'expired' : extraction.isFailed;
+    const label = remove ? 'Remove unfinished import' : 'Cancel import';
     Alert.alert(
-      'Cancel Extraction?',
-      'What would you like to do?',
+      `${label}?`,
+      remove ? 'Remove this attempt from Unfinished imports? Any saved recipes will stay in your library.'
+        : 'Stop this import? Any recipes already saved will stay in your library.',
       [
-        { text: 'Keep Waiting', style: 'cancel' },
-        {
-          text: 'Stop Extraction',
-          style: 'destructive',
-          onPress: async () => {
-            // Cancel the backend job (prevents recipe from being saved)
-            const cancelled = await cancelCurrentExtraction();
-            if (!cancelled) return;
-            setExtractingAsWebsite(false);
+        { text: 'Keep import', style: 'cancel' },
+        { text: label, style: 'destructive', onPress: async () => {
+          if (captureOwner.current.ownerId !== originalOwner) return;
+          try {
+            await extraction.cancel(targetId);
+            if (captureOwner.current.ownerId === originalOwner && targetId === extraction.jobId) setExtractingAsWebsite(false);
+          } catch (error: any) {
+            if (captureOwner.current.ownerId !== originalOwner) return;
+            Alert.alert('Could Not Remove Import', error?.message || 'We could not reach the server. This import is still here so you can try again.');
           }
-        },
-        {
-          text: 'Check Later',
-          onPress: () => {
-            // Just navigate away - extraction continues in background
-            router.push('/history');
-          }
-        },
-      ]
+        } },
+      ],
     );
   };
 
@@ -842,12 +837,17 @@ export default function ExtractScreen() {
                   size="md"
                 />
               </RNView>
+              {extraction.jobId && !extraction.recipeId && !extraction.canRetryStart && <TouchableOpacity
+                style={styles.textAction} onPress={() => handleCancel()} disabled={isSavingSourceDraft}
+                accessibilityRole="button" accessibilityLabel="Remove unfinished import">
+                <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Remove unfinished import</Text>
+              </TouchableOpacity>}
             </>
           ) : (
             <RNView style={styles.statusActions}>
               <Text style={[styles.hint, { color: colors.textMuted, flex: 1 }]}>You can leave Håfa while this imports.</Text>
-              <TouchableOpacity style={styles.textAction} onPress={handleCancel} accessibilityRole="button" accessibilityLabel="Cancel recipe import">
-                <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Cancel</Text>
+              <TouchableOpacity style={styles.textAction} onPress={() => handleCancel()} accessibilityRole="button" accessibilityLabel="Cancel import">
+                <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Cancel import</Text>
               </TouchableOpacity>
             </RNView>
           )}
@@ -867,16 +867,16 @@ export default function ExtractScreen() {
                   {entry.error || (entry.ownerId === null ? 'Choose an account to finish importing' : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
                 </Text>
               </RNView>
-              {(entry.state === 'waiting' || entry.state === 'error' || entry.ownerId === null) && <TouchableOpacity onPress={() => {
-                void openCapturedEntry(entry).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
-              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.tint }}>{entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
-              {entry.state !== 'submitting' && <TouchableOpacity onPress={() => { void importInbox.remove(entry.id).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
+              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting} onPress={() => {
+                void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
+              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.tint }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
+              {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
             </RNView>)}
           </RNView>}
 
           {isSignedIn && <ImportActivityCard jobs={(recentImports.data || []).filter((job) => !(job.id === extraction.jobId && (extraction.isExtracting || extraction.isComplete || extraction.isFailed)))}
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
-            onRestore={extraction.restoreJob} />}
+            onRestore={extraction.restoreJob} onCancel={handleCancel} />}
           <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>OTHER WAYS TO ADD</Text>
           <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             {([

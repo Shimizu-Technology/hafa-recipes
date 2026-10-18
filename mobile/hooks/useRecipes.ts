@@ -17,6 +17,7 @@ import {
   updateSavedStateInRecipePages,
 } from '../lib/recipeCache';
 import { getApiErrorMessage } from '../lib/apiErrorMessage';
+import { importInbox, importInboxRequest, type ImportInboxEntry } from '../lib/importInbox';
 import {
   hasDiscoverSearchRequestFilters,
   normalizeDiscoverSearchQuery,
@@ -511,7 +512,7 @@ export function useAsyncExtractionController() {
     queryFn: () => api.getExtractionJobs({ limit: 1, activeOnly: true }),
     enabled: Boolean(
       isAuthLoaded && clerkUserId && identity.isSuccess && durableUserId &&
-      hasHydratedStoredJob && !jobId && !isStarting,
+      hasHydratedStoredJob && !jobId && !isStarting && !canRetryStart,
     ),
     staleTime: 0,
     refetchInterval: 15_000,
@@ -659,6 +660,12 @@ export function useAsyncExtractionController() {
   }, [clearActiveJob, durableUserId, invalidateCompletedRecipe, queryClient, stopPollingTimers]);
 
   const restoreJob = useCallback((status: JobStatus) => {
+    if (canRetryStart) {
+      setError('Reconnect to confirm the pending import before opening another.');
+      return;
+    }
+    if (currentJobIdRef.current !== status.id) setRequestKey(null);
+    currentJobIdRef.current = status.id;
     setJobKind(status.job_kind || 'extract');
     setJobStatus(status);
     setJobId(status.id);
@@ -690,7 +697,7 @@ export function useAsyncExtractionController() {
         ),
       );
     }
-  }, [startPolling, stopPollingTimers]);
+  }, [canRetryStart, startPolling, stopPollingTimers]);
 
   const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob, expectedEpoch = identityEpochRef.current) => {
     const identityEpoch = expectedEpoch;
@@ -707,6 +714,22 @@ export function useAsyncExtractionController() {
     setConnectionNotice(null);
     setTerminalState(null);
     setJobKind(storedJob.request.kind);
+
+    const acceptJob = async (jobId: string, recipeId?: string | null, isExisting = false) => {
+      await saveActiveJob({ ...storedJob, jobId });
+      assertCurrentOwner();
+      setJobId(jobId);
+      setStartTime(storedJob.startTime);
+      startPolling(jobId, storedJob.startTime);
+      setIsStarting(false);
+      queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
+      return {
+        status: 'processing' as const,
+        jobId,
+        recipeId: recipeId ?? undefined,
+        isExisting,
+      };
+    };
 
     try {
       const result = storedJob.request.kind === 'extract'
@@ -741,6 +764,7 @@ export function useAsyncExtractionController() {
         });
         return {
           status: 'completed' as const,
+          jobId: undefined,
           recipeId: result.recipe_id,
           isExisting: true,
         };
@@ -748,33 +772,38 @@ export function useAsyncExtractionController() {
 
       if (!result.job_id) throw new Error('The server did not return an extraction job.');
 
-      const confirmedJob = { ...storedJob, jobId: result.job_id };
-      await saveActiveJob(confirmedJob);
-      assertCurrentOwner();
-      setJobId(result.job_id);
-      setStartTime(storedJob.startTime);
-      startPolling(result.job_id, storedJob.startTime);
-      setIsStarting(false);
-      queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
-
-      return {
-        status: 'processing' as const,
-        jobId: result.job_id,
-        recipeId: result.recipe_id,
-        isExisting: Boolean(result.is_existing),
-      };
+      return await acceptJob(result.job_id, result.recipe_id, Boolean(result.is_existing));
     } catch (startError: any) {
       if (!isCurrentOwner()) throw startError;
-      setIsStarting(false);
       const responseStatus = startError?.response?.status as number | undefined;
-      const definitivelyRejected = responseStatus !== undefined &&
+      const potentiallyRejected = !storedJob.jobId && responseStatus !== undefined &&
         [400, 403, 404, 409, 422].includes(responseStatus);
-      if (definitivelyRejected) {
-        await clearActiveJob();
+      let definitivelyRejected = false;
+      if (potentiallyRejected) {
+        try {
+          // Policy or payload checks may reject a replay of an accepted job.
+          // Only an owner-scoped, exact-key lookup can rule out that acceptance.
+          const jobs = await api.getExtractionJobs({ limit: 1, includeCancelled: true,
+            jobKind: storedJob.request.kind, idempotencyKey: storedJob.idempotencyKey });
+          assertCurrentOwner();
+          if (jobs.length) return await acceptJob(jobs[0].id, jobs[0].recipe_id, true);
+          if (storedJob.request.kind === 'extract' && storedJob.idempotencyKey.startsWith('share:')) {
+            // Reconnect has no intake promise to notify. Persist the exact claim's
+            // rejection before retiring its pointer or allowing a sibling to start.
+            await importInbox.rejectSubmission(storedJob.idempotencyKey.slice('share:'.length), storedJob.userId,
+              getApiErrorMessage(startError, 'We could not start this extraction.'));
+          }
+          assertCurrentOwner();
+          await clearActiveJob();
+          definitivelyRejected = true;
+        } catch {
+          // If lookup or reconciliation is unavailable, retain the receipt and claim.
+          definitivelyRejected = false;
+        }
         assertCurrentOwner();
-      } else {
-        setCanRetryStart(true);
       }
+      setCanRetryStart(!definitivelyRejected);
+      setIsStarting(false);
       const message = definitivelyRejected
         ? getApiErrorMessage(startError, 'We could not start this extraction.')
         : responseStatus === 401
@@ -784,12 +813,13 @@ export function useAsyncExtractionController() {
             : 'We could not confirm the start because the connection dropped. Reconnect to safely check the same request.';
       setTerminalState('failed');
       setError(message);
-      throw new Error(message);
+      throw Object.assign(new Error(message), { startRejected: definitivelyRejected });
     }
   }, [clearActiveJob, invalidateCompletedRecipe, queryClient, saveActiveJob, startPolling]);
 
   const retryPendingStart = useCallback(async () => {
-    if (!durableUserId) return;
+    if (!durableUserId || startingRef.current) return;
+    startingRef.current = true;
     const identityEpoch = identityEpochRef.current;
     const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
     try {
@@ -809,8 +839,57 @@ export function useAsyncExtractionController() {
       await beginStoredRequest(storedJob, identityEpoch);
     } catch {
       // beginStoredRequest already preserves the pending key and friendly error.
+    } finally {
+      if (isCurrentOwner()) startingRef.current = false;
     }
   }, [beginStoredRequest, durableUserId, startPolling]);
+
+  /** Repair a claim/receipt crash gap locally. Only Reconnect may replay its key. */
+  const recoverImport = async (entry: ImportInboxEntry) => {
+    const identityEpoch = identityEpochRef.current;
+    const assertCurrentOwner = () => {
+      if (!controllerMountedRef.current || identityEpoch !== identityEpochRef.current ||
+          !durableUserId || entry.ownerId !== durableUserId || currentOwnerRef.current !== durableUserId) {
+        throw new Error('Your account changed. Reopen this import in its original account.');
+      }
+    };
+    assertCurrentOwner();
+    if (!hasHydratedStoredJob || isPolling || isStarting || startingRef.current || canRetryStart) {
+      throw new Error('Reconnect or finish the current import before recovering another.');
+    }
+    if (entry.state === 'accepted' || !(entry.submissionClaimed || entry.state === 'submitting') ||
+        entry.capture.kind !== 'url') throw new Error('This import is not awaiting confirmation.');
+    startingRef.current = true;
+    const storedJob: StoredExtractionJob = {
+      userId: entry.ownerId!, jobId: entry.jobId ?? null, idempotencyKey: `share:${entry.id}`,
+      startTime: entry.createdAt, request: { kind: 'extract', payload: importInboxRequest(entry) },
+    };
+    try {
+      // Unlike a confirmed server job, this pointer must be durable before the
+      // controller offers Reconnect. The claimed inbox remains the fallback.
+      await AsyncStorage.setItem(activeJobKey(storedJob.userId), JSON.stringify(storedJob));
+      assertCurrentOwner();
+      stopPollingTimers();
+      currentJobIdRef.current = null;
+      setJobId(null);
+      setJobStatus(null);
+      setJobKind('extract');
+      setRequestKey(storedJob.idempotencyKey);
+      setConnectionNotice(null);
+      if (storedJob.jobId) {
+        setCanRetryStart(false);
+        setTerminalState(null);
+        setError(null);
+        startPolling(storedJob.jobId, storedJob.startTime);
+      } else {
+        setCanRetryStart(true);
+        setTerminalState('failed');
+        setError('The app did not receive the job confirmation. Reconnect to safely check the same request.');
+      }
+    } finally {
+      if (identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId) startingRef.current = false;
+    }
+  };
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -923,6 +1002,7 @@ export function useAsyncExtractionController() {
   }, [activeJobsQuery.data, hasHydratedStoredJob, isStarting, restoreJob]);
 
   const startExtraction = async (request: ExtractRequest, idempotencyKey?: string) => {
+    if (canRetryStart) throw new Error('Reconnect to confirm the pending import before starting another.');
     if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
       throw new Error('Your account changed. Please reopen the import in its original account.');
     }
@@ -954,6 +1034,7 @@ export function useAsyncExtractionController() {
   };
 
   const startReExtraction = async (recipeId: string, location = 'Guam') => {
+    if (canRetryStart) throw new Error('Reconnect to confirm the pending import before starting another.');
     if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
       throw new Error('Your account changed. Please reopen the import in its original account.');
     }
@@ -985,7 +1066,9 @@ export function useAsyncExtractionController() {
   };
 
   const reset = async () => {
+    if (canRetryStart && !jobId) throw new Error('Reconnect to find this import before dismissing it.');
     if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
+    const resetJobId = currentJobIdRef.current;
     stopPollingTimers();
     currentJobIdRef.current = null;
     currentStartTimeRef.current = null;
@@ -1001,23 +1084,27 @@ export function useAsyncExtractionController() {
     setElapsedTime(0);
     await clearActiveJob();
     if (durableUserId) {
-      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(durableUserId), []);
+      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(durableUserId),
+        (jobs) => jobs?.filter((job) => job.id !== resetJobId));
     }
     queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
   };
 
-  const cancel = async () => {
+  const cancel = async (targetJobId: string | null = jobId) => {
     const identityEpoch = identityEpochRef.current;
-    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
-    if (jobId) {
-      try {
-        await api.cancelJob(jobId);
-      } catch (cancelError: any) {
-        if (cancelError?.response?.status !== 404) throw cancelError;
-      }
+    if (!controllerMountedRef.current || !durableUserId || currentOwnerRef.current !== durableUserId) {
+      throw new Error('Your account changed. Reopen this import in its original account.');
     }
+    if (!targetJobId) throw new Error('Reconnect to find this import before cancelling it.');
+    await api.cancelJob(targetJobId);
     if (identityEpoch !== identityEpochRef.current || currentOwnerRef.current !== durableUserId) return;
-    await reset();
+    // A different attempt at the same URL, or the current display, may have changed
+    // while DELETE was pending. Only retire the exact acknowledged job.
+    queryClient.setQueriesData<JobStatus[]>({ queryKey: extractionJobKeys.all,
+      predicate: (query) => query.queryKey[2] === durableUserId,
+    }, (jobs) => jobs?.filter((job) => job.id !== targetJobId));
+    if (currentJobIdRef.current === targetJobId) await reset();
+    else queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
   };
 
   const saveSourceDraft = async () => {
@@ -1098,6 +1185,7 @@ export function useAsyncExtractionController() {
     startExtraction,
     startReExtraction,
     retryPendingStart,
+    recoverImport,
     saveSourceDraft,
     reset,
     cancel,

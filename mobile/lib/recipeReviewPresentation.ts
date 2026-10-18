@@ -66,7 +66,7 @@ export function getRecipeReviewDetails(
       ? 'Some amounts need a check'
       : 'Some details may need a check';
   const message = state === 'source_incomplete'
-    ? 'Add the ingredients or instructions the source did not provide. Your draft is saved privately.'
+    ? 'Add the ingredients or instructions we could not recover. Your draft is saved privately.'
     : 'Checking is optional.';
 
   const modalities = Array.isArray(envelope.source?.modalities)

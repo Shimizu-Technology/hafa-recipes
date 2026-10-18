@@ -12,6 +12,7 @@ type ImportActivityCardProps = {
   jobs: JobStatus[];
   onOpenRecipe: (job: JobStatus) => void;
   onRestore: (job: JobStatus) => void;
+  onCancel?: (job: JobStatus) => void;
 };
 
 type ImportPresentation = {
@@ -106,6 +107,7 @@ export function ImportActivityCard({
   jobs,
   onOpenRecipe,
   onRestore,
+  onCancel,
 }: ImportActivityCardProps) {
   const colors = useColors();
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -125,30 +127,37 @@ export function ImportActivityCard({
     const statusColor = colorFor(presentation.colorKind);
     const detail = importSourceDetail(job.url);
     return (
-      <TouchableOpacity key={job.id} disabled={!presentation.action}
-        accessibilityRole={presentation.action ? 'button' : undefined}
-        accessibilityLabel={presentation.actionLabel ? `${presentation.actionLabel} ${importSourceLabel(job.url)} import, ${detail}` : undefined}
-        accessibilityHint={presentation.label}
-        onPress={() => {
-          if (presentation.action === 'open') onOpenRecipe(job);
-          if (presentation.action === 'restore') onRestore(job);
-        }} style={[styles.jobRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderLight }]}>
-        <Ionicons name={presentation.icon} size={20} color={statusColor} />
-        <RNView style={styles.jobCopy}>
-          <Text style={[styles.source, { color: colors.text }]}>{importSourceLabel(job.url)}</Text>
-          <Text numberOfLines={2} style={[styles.status, { color: colors.textSecondary }]}>{detail}</Text>
-          <Text style={[styles.status, { color: statusColor }]}>{presentation.label}</Text>
-          {ACTIVE_STATUSES.includes(job.status) && (
-            <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
-              accessibilityRole="progressbar" accessibilityLabel={`${importSourceLabel(job.url)} import progress`}
-              accessibilityValue={{ min: 0, max: 100, now: job.progress }}>
-              <RNView style={[styles.progressFill, { backgroundColor: colors.tint, width: `${Math.max(2, Math.min(100, job.progress))}%` }]} />
-            </RNView>
-          )}
-        </RNView>
-        <Text style={[styles.age, { color: colors.textMuted }]}>{importAgeLabel(job.completed_at || job.updated_at || job.created_at)}</Text>
-        {presentation.action && <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
-      </TouchableOpacity>
+      <RNView key={job.id} style={index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderLight }}>
+        <TouchableOpacity disabled={!presentation.action}
+          accessibilityRole={presentation.action ? 'button' : undefined}
+          accessibilityLabel={presentation.actionLabel ? `${presentation.actionLabel} ${importSourceLabel(job.url)} import, ${detail}` : undefined}
+          accessibilityHint={presentation.label}
+          onPress={() => {
+            if (presentation.action === 'open') onOpenRecipe(job);
+            if (presentation.action === 'restore') onRestore(job);
+          }} style={styles.jobRow}>
+          <Ionicons name={presentation.icon} size={20} color={statusColor} />
+          <RNView style={styles.jobCopy}>
+            <Text style={[styles.source, { color: colors.text }]}>{importSourceLabel(job.url)}</Text>
+            <Text numberOfLines={2} style={[styles.status, { color: colors.textSecondary }]}>{detail}</Text>
+            <Text style={[styles.status, { color: statusColor }]}>{presentation.label}</Text>
+            {ACTIVE_STATUSES.includes(job.status) && (
+              <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
+                accessibilityRole="progressbar" accessibilityLabel={`${importSourceLabel(job.url)} import progress`}
+                accessibilityValue={{ min: 0, max: 100, now: job.progress }}>
+                <RNView style={[styles.progressFill, { backgroundColor: colors.tint, width: `${Math.max(2, Math.min(100, job.progress))}%` }]} />
+              </RNView>
+            )}
+          </RNView>
+          <Text style={[styles.age, { color: colors.textMuted }]}>{importAgeLabel(job.completed_at || job.updated_at || job.created_at)}</Text>
+          {presentation.action && <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />}
+        </TouchableOpacity>
+        {onCancel && (ACTIVE_STATUSES.includes(job.status) || (!job.recipe_id && (job.status === 'failed' || job.status === 'expired'))) &&
+          <TouchableOpacity onPress={() => onCancel(job)} style={styles.cancelAction} accessibilityRole="button"
+            accessibilityLabel={`${ACTIVE_STATUSES.includes(job.status) ? 'Cancel import' : 'Remove unfinished import'} ${importSourceLabel(job.url)}, ${detail}`}>
+            <Text style={[styles.status, { color: colors.textSecondary }]}>{ACTIVE_STATUSES.includes(job.status) ? 'Cancel import' : 'Remove unfinished import'}</Text>
+          </TouchableOpacity>}
+      </RNView>
     );
   };
 
@@ -179,6 +188,7 @@ const styles = StyleSheet.create({
   historyToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
   historyTitle: { flex: 1, fontFamily: fontFamily.semibold, fontSize: fontSize.sm },
   jobRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
+  cancelAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   jobCopy: { flex: 1, minWidth: 0 },
   source: { fontFamily: fontFamily.semibold, fontSize: fontSize.sm },
   status: { fontSize: fontSize.xs, lineHeight: 18, marginTop: 2 },

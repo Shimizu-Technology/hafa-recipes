@@ -212,7 +212,7 @@ async def test_metadata_only_title_fails_before_llm_and_remains_saveable(monkeyp
     result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=metadata-only")
 
     assert result.success is False
-    assert result.error_code == "INSUFFICIENT_SOURCE_EVIDENCE"
+    assert result.error_code == "VIDEO_ANALYSIS_UNAVAILABLE"
     assert "keep the source as a draft" in result.friendly_error.lower()
     llm_call.assert_not_awaited()
 
@@ -245,7 +245,7 @@ async def test_non_recipe_transcript_fails_before_llm(monkeypatch, tmp_path):
     result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=music-only")
 
     assert result.success is False
-    assert result.error_code == "INSUFFICIENT_SOURCE_EVIDENCE"
+    assert result.error_code == "VIDEO_ANALYSIS_UNAVAILABLE"
     assert not audio_path.exists()
     llm_call.assert_not_awaited()
 

@@ -60,6 +60,20 @@ describe('API error telemetry', () => {
   });
 });
 
+describe('extraction job lookup requests', () => {
+  it('looks up an exact extraction key including cancelled jobs without changing default history', async () => {
+    const idempotencyKey = 'share:exact key+/?';
+    await api.getExtractionJobs({ limit: 1, includeCancelled: true, jobKind: 'extract', idempotencyKey });
+    expect(mocks.client.get).toHaveBeenLastCalledWith('/api/jobs', { params: {
+      limit: 1, active_only: undefined, include_cancelled: true, job_kind: 'extract', idempotency_key: idempotencyKey,
+    } });
+    await api.getExtractionJobs();
+    expect(mocks.client.get).toHaveBeenLastCalledWith('/api/jobs', { params: {
+      limit: 8, active_only: undefined, include_cancelled: undefined, job_kind: undefined, idempotency_key: undefined,
+    } });
+  });
+});
+
 describe('search requests', () => {
   it('sends the requested library ownership scope without changing legacy callers', async () => {
     await api.searchRecipes('adobo', 20, 20, 'website', 'quick', ['dinner'], undefined, 'saved');

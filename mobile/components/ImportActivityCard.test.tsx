@@ -100,6 +100,26 @@ describe('ImportActivityCard', () => {
     });
   });
 
+  it('targets individual attempts at the same source and never offers removal for saved drafts', async () => {
+    const onCancel = vi.fn();
+    const failed = job({ id: 'failed-a', status: 'failed', recipe_id: null });
+    const expired = job({ id: 'expired-b', status: 'expired', recipe_id: null });
+    const active = job({ id: 'active-c', status: 'queued', recipe_id: null });
+    const screen = await render(<ImportActivityCard jobs={[failed, expired, active,
+      job({ id: 'draft', status: 'failed', recipe_id: 'saved-draft', review_state: 'source_incomplete' })]}
+      onCancel={onCancel} onOpenRecipe={vi.fn()} onRestore={vi.fn()} />);
+    const removals = screen.getAllByLabelText('Remove unfinished import YouTube, watch · abc');
+    expect(removals).toHaveLength(2);
+    await fireEvent.press(removals[1]);
+    expect(onCancel).toHaveBeenCalledExactlyOnceWith(expired);
+    await fireEvent.press(screen.getByLabelText('Cancel import YouTube, watch · abc'));
+    expect(onCancel).toHaveBeenLastCalledWith(active);
+    await fireEvent.press(screen.getByLabelText('Recent imports'));
+    expect(screen.getByText('Draft saved')).toBeTruthy();
+    expect(screen.getAllByLabelText('Remove unfinished import YouTube, watch · abc')).toHaveLength(2);
+    screen.unmount();
+  });
+
   it('routes each visible action explicitly and exposes active progress', async () => {
     const onOpenRecipe = vi.fn();
     const onRestore = vi.fn();
