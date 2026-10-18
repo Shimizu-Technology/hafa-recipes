@@ -52,7 +52,7 @@ class OpenAIService:
                         response_format="text",
                         temperature=0.0,
                     )
-                if not transcription:
+                if not transcription or not transcription.strip():
                     invocation.fail("empty_response")
                     return TranscriptionResult(
                         success=False,

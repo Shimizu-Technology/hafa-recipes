@@ -21,7 +21,7 @@ from app.public_identity import public_contributor_id
 logger = logging.getLogger("hafa.ai")
 
 PROMPT_VERSIONS = {
-    "recipe_extraction": "recipe-extraction-v3",
+    "recipe_extraction": "recipe-extraction-v4",
     "pasted_text": "recipe-pasted-text-v3",
     "ocr": "recipe-ocr-v4",
     "tiktok_slideshow": "recipe-tiktok-slideshow-v2",

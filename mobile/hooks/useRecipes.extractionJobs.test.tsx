@@ -355,6 +355,9 @@ describe('durable extraction recovery', () => {
       controller!.restoreJob({
         id: 'failed-job',
         url: 'https://example.com/failed',
+        notes: '2 cups rice\nSimmer 20 minutes.',
+        location: 'Hawaii',
+        requested_is_public: true,
         status: 'failed',
         progress: 20,
         current_step: 'error',
@@ -367,6 +370,10 @@ describe('durable extraction recovery', () => {
       error: 'Could not read the source',
       isComplete: false,
       isFailed: true,
+      sourceUrl: 'https://example.com/failed',
+      sourceNotes: '2 cups rice\nSimmer 20 minutes.',
+      sourceLocation: 'Hawaii',
+      requestedIsPublic: true,
     });
 
     await act(async () => {

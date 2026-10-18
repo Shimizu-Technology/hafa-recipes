@@ -10,7 +10,13 @@ from app.config import get_settings
 from app.recipe_review import is_missing_quantity
 from app.services.llm_client import llm_service
 from app.services.openai_client import openai_service  # Used for transcription
-from app.services.video import VideoFrame, VideoMetadata, VideoService, video_service
+from app.services.source_acquisition import (
+    TRANSIENT_SOURCE_ERRORS,
+    AcquisitionFailure,
+    acquire_video_metadata,
+    source_failure_code,
+)
+from app.services.video import VideoFrame, VideoService, video_service
 
 settings = get_settings()
 
@@ -43,6 +49,69 @@ class FullExtractionResult:
     cover_images: Optional[list[str]] = None  # Transient slideshow bytes for cover comparison
 
 
+
+_TEMPERATURE = re.compile(r"\b(\d{2,3}(?:\.\d+)?)\s*(?:°|degrees?\s*)?\s*(fahrenheit|celsius|[fc])\b", re.I)
+_DURATION = re.compile(r"\b(\d+(?:\.\d+)?)(?:\s*(?:[-–—]|to)\s*(\d+(?:\.\d+)?))?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", re.I)
+_THERMAL_FORMS = {
+    form: action
+    for action, forms in {
+        "bake": ("bake", "bakes", "baked", "baking"),
+        "fry": ("fry", "fries", "fried", "frying"),
+        "freeze": ("freeze", "freezes", "freezing", "frozen", "froze"),
+        "microwave": ("microwave", "microwaves", "microwaved", "microwaving"),
+        **{action: (action, action + "s", action + "ed", action + "ing")
+           for action in ("cook", "roast", "broil", "boil", "simmer", "grill", "steam",
+                          "heat", "preheat", "chill", "cool", "rest")},
+    }.items()
+    for form in forms
+}
+_THERMAL_ACTION = re.compile(r"\b(?:" + "|".join(_THERMAL_FORMS) + r")\b", re.I)
+
+
+def _missing_source_cooking_details(recipe, raw_text):
+    """Flag omitted explicit details; never guess their component or step order."""
+    steps = "\n".join(
+        str(step) for component in recipe.get("components", [])
+        for step in component.get("steps", [])
+    )
+
+    def temperatures(text):
+        return [(float(value) - 32) * 5 / 9 if unit.lower().startswith("f") else float(value)
+                for value, unit in _TEMPERATURE.findall(text)]
+
+    def durations(text):
+        values = set()
+        for start, end, unit in _DURATION.findall(text):
+            factor = 3600 if unit.lower().startswith("h") else 60 if unit.lower().startswith("m") else 1
+            values.add((float(start) * factor, float(end or start) * factor))
+        return values
+
+    def instructions(text):
+        for sentence in re.split(r"(?<=[.!?])\s+|\n", text or ""):
+            actions = list(_THERMAL_ACTION.finditer(sentence))
+            for index, action in enumerate(actions):
+                end = actions[index + 1].start() if index + 1 < len(actions) else len(sentence)
+                yield _THERMAL_FORMS[action.group().lower()], sentence[action.start():end]
+
+    step_instructions = list(instructions(steps))
+    oven_actions = {"bake", "preheat", "roast", "broil"}
+    for action, detail in instructions(raw_text):
+        same_action = " ".join(text for name, text in step_instructions if name == action)
+        if not durations(detail).issubset(durations(same_action)):
+            return True
+        # Oven temperature may reasonably be specified in a preceding preheat
+        # step. Require the cooking action too, so chilling cannot stand for baking.
+        temperature_steps = " ".join(text for name, text in step_instructions
+                                     if name == action or action in oven_actions and name in oven_actions)
+        source_temperatures = temperatures(detail)
+        if source_temperatures and not (temperature_steps if action == "preheat" else same_action):
+            return True
+        if any(not any(abs(value - observed) <= 2 for observed in temperatures(temperature_steps))
+               for value in source_temperatures):
+            return True
+    return False
+
+
 def _check_extraction_confidence(
     recipe: Optional[dict],
     raw_text: str,
@@ -57,6 +126,8 @@ def _check_extraction_confidence(
         Tuple of (is_low_confidence, warning_message)
     """
     warnings = []
+    if recipe and _missing_source_cooking_details(recipe, raw_text):
+        warnings.append("a cooking temperature or duration from the source is missing from the cooking steps; compare the original before cooking")
 
     if recipe and recipe.get("lowConfidence") is True:
         model_warning = recipe.get("confidenceWarning")
@@ -345,7 +416,7 @@ class RecipeExtractor:
                     progress_callback=progress_callback
                 )
         
-        # Step 2: Get video metadata via oEmbed
+        # Step 2: Acquire source metadata through shared bounded adapters
         if progress_callback:
             await progress_callback(ExtractionProgress(
                 step="metadata",
@@ -353,37 +424,12 @@ class RecipeExtractor:
                 message="Fetching video metadata..."
             ))
         
-        metadata = await video_service.fetch_oembed(url, platform)
+        acquired = await acquire_video_metadata(video_service, url, platform)
+        metadata = acquired.metadata
         thumbnail_url = metadata.thumbnail
         
-        # For Instagram (or if oEmbed fails), fetch metadata from yt-dlp
-        # oEmbed for Instagram requires a Facebook Graph API token which we may not have
-        # yt-dlp also provides richer descriptions for Instagram
-        ytdlp_metadata = None
-        if platform == "instagram" or not thumbnail_url or not metadata.description:
-            print(f"📷 Fetching metadata from yt-dlp for {platform}...")
-            ytdlp_metadata = await video_service.get_video_metadata_ytdlp(url)
-            
-            if ytdlp_metadata.thumbnail and not thumbnail_url:
-                thumbnail_url = ytdlp_metadata.thumbnail
-                print(f"✅ Got thumbnail from yt-dlp: {thumbnail_url[:80]}...")
-            
-            # Use yt-dlp metadata if oEmbed didn't provide it (common for Instagram)
-            if ytdlp_metadata.title and not metadata.title:
-                metadata = VideoMetadata(
-                    title=ytdlp_metadata.title,
-                    description=ytdlp_metadata.description,
-                    thumbnail=thumbnail_url,
-                    uploader=ytdlp_metadata.uploader or metadata.uploader
-                )
-            elif ytdlp_metadata.description and not metadata.description:
-                # Keep oEmbed title but use yt-dlp description
-                metadata = VideoMetadata(
-                    title=metadata.title,
-                    description=ytdlp_metadata.description,
-                    thumbnail=thumbnail_url,
-                    uploader=ytdlp_metadata.uploader or metadata.uploader
-                )
+        # Keep the existing fallback flow on the merged source evidence.
+        ytdlp_metadata = metadata
         
         # Step 3: Try to download audio and transcribe with Whisper
         # Skip audio download in fast_mode (used for re-extraction)
@@ -450,6 +496,8 @@ class RecipeExtractor:
                 # Store error info for later use if metadata also fails
                 audio_error_code = audio_result.error_code
                 audio_friendly_error = audio_result.friendly_error
+                if audio_error_code:
+                    acquired.failures.append(AcquisitionFailure("audio", audio_error_code))
                 
                 # Check for Instagram-specific auth error
                 if audio_result.error_code == "INSTAGRAM_AUTH_REQUIRED":
@@ -512,41 +560,21 @@ class RecipeExtractor:
                         friendly_error=audio_friendly_error
                     )
             
-            # Provide platform-specific error messages
-            if platform == "instagram":
-                # Report Instagram auth failure to Sentry for monitoring
-                sentry_sdk.capture_message(
-                    "Instagram extraction failed - auth required",
-                    level="warning",
-                    extras={
-                        "url": url,
-                        "platform": platform,
-                        "has_cookies": video_service.instagram_cookies_configured,
-                    },
-                    tags={
-                        "platform": "instagram",
-                        "error_type": "auth_required",
-                    }
-                )
-                print("⚠️ Instagram auth failure reported to Sentry")
-                
-                return FullExtractionResult(
-                    success=False,
-                    error="Instagram requires login to access this content. Try one of these alternatives:\n\n"
-                          "• Use Photo Scan to capture the recipe from a screenshot\n"
-                          "• Try a TikTok or YouTube video instead\n"
-                          "• If the recipe is in the caption, copy it to the Notes field and try again",
-                    error_code="INSTAGRAM_AUTH_REQUIRED",
-                    friendly_error="This Instagram video requires login to access."
-                )
-            
-            # Use friendly error if we have one, otherwise generic
-            friendly_msg = audio_friendly_error or "We couldn't extract any content from this video. Please check the link and try again."
+            code = source_failure_code(acquired.failures)
+            message = (
+                "Håfa could not authenticate with Instagram. Keep the link and add the "
+                "caption or screenshots, or retry once access is restored."
+                if code == "INSTAGRAM_AUTH_REQUIRED"
+                else "We could not read the source right now. Your link is kept; you can "
+                "retry or add the recipe text or screenshots."
+            )
+            sentry_sdk.capture_message(
+                "Source acquisition failed",
+                level="warning",
+                tags={"platform": platform, "error_code": code},
+            )
             return FullExtractionResult(
-                success=False,
-                error="No content could be extracted from the video",
-                error_code=audio_error_code or "NO_CONTENT",
-                friendly_error=friendly_msg
+                success=False, error=message, error_code=code, friendly_error=message,
             )
 
         if not _has_actionable_recipe_evidence(combined_content):
@@ -564,6 +592,13 @@ class RecipeExtractor:
             )
             if visual_result:
                 return visual_result
+            code = source_failure_code(acquired.failures)
+            if code in TRANSIENT_SOURCE_ERRORS:
+                message = "We could not finish reading the source. Your link is kept; retry or add the recipe text or screenshots."
+                return FullExtractionResult(
+                    success=False, error=message, error_code=code, friendly_error=message,
+                    thumbnail_url=thumbnail_url,
+                )
             return FullExtractionResult(
                 success=False,
                 thumbnail_url=thumbnail_url,

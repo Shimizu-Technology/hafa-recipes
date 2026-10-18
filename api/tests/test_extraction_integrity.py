@@ -22,6 +22,36 @@ from app.services.video import AudioExtractionResult, VideoMetadata
 from app.services.website import WebsiteService
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["TIMEOUT", "RATE_LIMITED", "MEDIA_BUSY", "INSTAGRAM_AUTH_REQUIRED", "NOT_FOUND"])
+async def test_empty_instagram_preserves_acquisition_cause(monkeypatch, code):
+    monkeypatch.setattr("app.services.extractor.video_service.get_video_metadata_ytdlp", AsyncMock(return_value=VideoMetadata(error_code=code)))
+    monkeypatch.setattr("app.services.source_acquisition.public_instagram_metadata", AsyncMock(return_value=VideoMetadata()))
+    monkeypatch.setattr("app.services.extractor.video_service.download_audio", AsyncMock(return_value=AudioExtractionResult(success=False, error_code=code)))
+    provider = AsyncMock()
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_recipe", provider)
+    result = await RecipeExtractor().extract("https://www.instagram.com/reel/Example/")
+    assert not result.success and result.error_code == code
+    provider.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_shared_metadata_keeps_caption_and_never_uses_instagram_oembed():
+    from types import SimpleNamespace
+
+    from app.services.source_acquisition import acquire_video_metadata
+
+    service = SimpleNamespace(
+        get_video_metadata_ytdlp=AsyncMock(return_value=VideoMetadata(description="Add 2 cups rice and simmer for 20 minutes.")),
+        fetch_oembed=AsyncMock(),
+    )
+    fallback = AsyncMock(return_value=VideoMetadata(title="Rice", description="Weaker caption", uploader="Creator", thumbnail="https://example.com/rice.jpg"))
+    result = await acquire_video_metadata(service, "https://www.instagram.com/reel/Example/", "instagram", public_reader=fallback)
+    assert result.metadata.title == "Rice"
+    assert result.metadata.description.startswith("Add 2 cups")
+    service.fetch_oembed.assert_not_called()
+
+
 def _complete_recipe(source_url: str = "https://example.test/video") -> dict:
     """Build a complete provider-shaped recipe fixture."""
 
@@ -100,7 +130,7 @@ def test_recipe_structured_output_contract_is_strict_and_versioned():
     assert RECIPE_RESPONSE_FORMAT["json_schema"]["strict"] is True
     _assert_every_object_is_strict(RECIPE_RESPONSE_FORMAT["json_schema"]["schema"])
     assert RECIPE_SCHEMA_VERSION == "recipe-components-v3-estimates"
-    assert PROMPT_VERSIONS["recipe_extraction"] == "recipe-extraction-v3"
+    assert PROMPT_VERSIONS["recipe_extraction"] == "recipe-extraction-v4"
     assert PROMPT_VERSIONS["tiktok_slideshow"] == "recipe-tiktok-slideshow-v2"
 
 
@@ -505,3 +535,109 @@ async def test_website_ai_result_propagates_model_uncertainty(monkeypatch):
     assert result.success is True
     assert result.low_confidence is True
     assert result.confidence_warning == "Verify the unstated stock amount."
+
+
+@pytest.mark.asyncio
+async def test_title_only_instagram_retains_transient_audio_failure(monkeypatch):
+    monkeypatch.setattr("app.services.extractor.video_service.get_video_metadata_ytdlp", AsyncMock(return_value=VideoMetadata(title="Recipe video")))
+    monkeypatch.setattr("app.services.source_acquisition.public_instagram_metadata", AsyncMock(return_value=VideoMetadata()))
+    monkeypatch.setattr("app.services.extractor.video_service.download_audio", AsyncMock(return_value=AudioExtractionResult(success=False, error_code="TIMEOUT")))
+    monkeypatch.setattr(RecipeExtractor, "_attempt_video_frame_recovery", AsyncMock(return_value=None))
+    provider = AsyncMock()
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_recipe", provider)
+    result = await RecipeExtractor().extract("https://www.instagram.com/reel/Example/")
+    assert not result.success and result.error_code == "TIMEOUT"
+    provider.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_shared_metadata_timeout_preserves_acquired_caption_and_cancellation():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.services.source_acquisition import acquire_video_metadata
+
+    service = SimpleNamespace(get_video_metadata_ytdlp=AsyncMock(return_value=VideoMetadata(description="Squat 3 sets of 10 reps.")))
+    async def stalled(url):
+        await asyncio.sleep(60)
+    result = await acquire_video_metadata(service, "https://www.instagram.com/reel/Example/", "instagram", public_reader=stalled, deadline=asyncio.get_running_loop().time() + 0.01)
+    assert result.metadata.description == "Squat 3 sets of 10 reps."
+    assert [(failure.stage, failure.code) for failure in result.failures] == [("public_metadata", "TIMEOUT")]
+    with pytest.raises(asyncio.CancelledError):
+        await acquire_video_metadata(service, "https://www.instagram.com/reel/Example/", "instagram", public_reader=AsyncMock(side_effect=asyncio.CancelledError))
+
+
+@pytest.mark.parametrize("steps,expected", [
+    (["Mix the dough."], True),
+    (["Mix the dough.", "Bake at 325°F for 12–15 minutes."], True),
+    (["Mix the dough.", "Bake at 175°C for 12-15 minutes."], False),
+])
+def test_source_cooking_details_must_reach_steps_and_durable_review(steps, expected):
+    from app.recipe_review import assess_recipe_review
+    recipe = _complete_recipe()
+    recipe['components'][0]['steps'] = steps
+    recipe['notes'] = 'Bake at 350°F (175°C) for 12–15 minutes.'
+    recipe['times']['cook'] = '12–15 minutes'
+    source = 'Mix the dough. Bake at 350°F (175°C) for 12–15 minutes. ' + 'Ingredient details. ' * 30
+    low, warning = _check_extraction_confidence(recipe, source, 'high', True)
+    assert bool(warning and 'cooking temperature or duration' in warning) is expected
+    recipe['lowConfidence'], recipe['confidenceWarning'] = low, warning
+    assessment = assess_recipe_review(recipe, source_type='instagram', extraction_method='basic', content_revision=1)
+    if expected:
+        assert assessment.state == 'needs_review'
+        assert any(i['code'] == 'source_warning' for i in assessment.evidence['assessment']['issues'])
+        edited = {**recipe, 'title': 'Updated cookies', 'lowConfidence': False, 'confidenceWarning': None}
+        after_edit = assess_recipe_review(edited, source_type='instagram', extraction_method='basic', content_revision=2,
+                                         previous_extracted=recipe, previous_evidence=assessment.evidence, verified_paths=[])
+        assert any('cooking temperature or duration' in i.get('message', '') for i in after_edit.evidence['assessment']['issues'])
+        resolved = assess_recipe_review(edited, source_type='instagram', extraction_method='basic', content_revision=3,
+                                       previous_extracted=edited, previous_evidence=after_edit.evidence, verified_paths=[],
+                                       resolved_issue_ids=[i['id'] for i in after_edit.evidence['assessment']['issues']])
+        assert not resolved.evidence['assessment']['issues']
+    else:
+        assert not any('cooking temperature or duration' in i.get('message', '') for i in assessment.evidence['assessment']['issues'])
+
+
+@pytest.mark.parametrize("source,steps,missing", [
+    ("Bake the cookies for 12 minutes.", ["Bake for 12 minutes."], False),
+    ("Cookies take 15 minutes.", ["Mix dough."], False),
+    ("Preheat to 350F. Bake for 15 minutes.", ["Bake at 350F for 15 minutes."], False),
+    ("Bake at 350F.", ["Preheat to 350F."], True),
+    ("Baking at 350F for 15 minutes.", ["Mix dough."], True),
+    ("Fried at 350F for 5 minutes.", ["Fry at 350F for 5 minutes."], False),
+    ("Freezing for 30 minutes.", ["Mix dough."], True),
+    ("Microwaving for 2 minutes.", ["Microwave for 2 minutes."], False),
+    ("Broil for 3 minutes.", ["Mix dough."], True),
+    ("Bake at 350°F for 12–15 minutes.", ["Preheat to 350°F.", "Chill for 12–15 minutes."], True),
+    ("Bake at 350 degrees Fahrenheit for 15 minutes.", ["Bake for 15 minutes."], True),
+    ("Bake for 12 to 15 minutes.", ["Bake for 12–15 minutes."], False),
+    ("Bake at 350°F for 15 minutes.", ["Preheat to 350°F.", "Bake for 15 minutes."], False),
+])
+def test_source_cooking_details_match_actions_and_common_units(source, steps, missing):
+    from app.services.extractor import _missing_source_cooking_details
+    assert _missing_source_cooking_details({"components": [{"steps": steps}]}, source) is missing
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure,expected", [
+    ("website_size_limit", "SOURCE_TOO_LARGE"),
+    ("website_content_unsupported", "SOURCE_CONTENT_UNSUPPORTED"),
+    ("website_redirect_limit", "SOURCE_REDIRECT_LIMIT"),
+    ("website_redirect_invalid", "SOURCE_REDIRECT_MISMATCH"),
+    ("invalid_source_url", "SOURCE_INVALID"),
+    ("unrecognized", "SOURCE_UNAVAILABLE"),
+])
+async def test_shared_adapter_preserves_terminal_failures_and_existing_caption(failure, expected):
+    from types import SimpleNamespace
+
+    from app.domains.workouts.extraction import ExtractionFailure
+    from app.services.source_acquisition import acquire_video_metadata, source_failure_code
+
+    service = SimpleNamespace(get_video_metadata_ytdlp=AsyncMock(return_value=VideoMetadata(description="Known caption")))
+    result = await acquire_video_metadata(
+        service, "https://www.instagram.com/reel/Example/", "instagram",
+        public_reader=AsyncMock(side_effect=ExtractionFailure(failure)),
+    )
+    assert result.metadata.description == "Known caption"
+    assert [(item.stage, item.code) for item in result.failures] == [("public_metadata", expected)]
+    assert source_failure_code(result.failures) == expected

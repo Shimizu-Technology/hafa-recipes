@@ -224,3 +224,18 @@ async def test_cancellation_settles_child_before_releasing_original_two_slot_poo
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stderr,code", [
+    (b"HTTP Error 401: Unauthorized", "INSTAGRAM_AUTH_REQUIRED"),
+    (b"HTTP Error 429: Too Many Requests", "RATE_LIMITED"),
+    (b"Failed to parse JSON (caused by JSONDecodeError)", "SOURCE_RESPONSE_INVALID"),
+])
+async def test_metadata_subprocess_preserves_failure_classification(monkeypatch, stderr, code):
+    process = MediaProcess(returncode=1, stderr=stderr)
+    service = video.VideoService()
+    monkeypatch.setattr(video.asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+    monkeypatch.setattr(service, "_create_instagram_cookies_file", lambda: None)
+    result = await service.get_video_metadata_ytdlp("https://www.instagram.com/reel/Example/")
+    assert result.error_code == code and not result.description

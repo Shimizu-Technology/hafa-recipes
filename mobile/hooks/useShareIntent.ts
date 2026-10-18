@@ -118,7 +118,7 @@ export function useHandleShareIntent() {
           jobId: native?.jobId ?? undefined, recipeId: native?.recipeId ?? undefined,
           preferences: capturedPreferences,
           ...(action.kind === 'url' ? { request: {
-            url: action.url, location: capturedPreferences.location, notes: '',
+            url: action.url, location: capturedPreferences.location, notes: action.notes || '',
             is_public: capturedPreferences.isPublic,
           } } : {}),
         });

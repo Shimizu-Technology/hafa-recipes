@@ -24,7 +24,7 @@ export type PendingShareCapture =
   | { kind: 'images'; images: SharedRecipeImage[] };
 
 export type ShareIntentAction =
-  | { kind: 'url'; url: string }
+  | { kind: 'url'; url: string; notes?: string }
   | { kind: 'text'; text: string }
   | { kind: 'images'; images: SharedRecipeImage[] }
   | { kind: 'sign-in-required' }
@@ -48,13 +48,36 @@ function extractSharedUrl(shareIntent: ShareIntent): string | null {
   return match?.[0] || null;
 }
 
+/** Keep source caption context, without turning share UI copy into recipe evidence. */
+function extractSharedNotes(value: string): string {
+  const caption = normalizePastedRecipeText(value.replace(/https?:\/\/[^\s<>"']+/gi, ''));
+  const lines = caption.split('\n').filter((line) => {
+    if (!line.trim()) return true;
+    const content = line.trim().replace(/^[\s()[\]<>:.,!—–-]+|[\s()[\]<>:.,!—–-]+$/g, '').replace(/\s+/g, ' ');
+    if (!/[\p{L}\p{N}]/u.test(content.replace(/[#@][\p{L}\p{N}_]+/gu, ''))) return false;
+    return ![
+      /^(?:check out|watch|see|try)(?: this| the| my)?(?: (?:video|reel|post|short|recipe|link))?(?: on (?:instagram|tiktok|youtube))?(?: tonight)?$/i,
+      /^(?:check this out|look at this)$/i,
+      /^(?:shared (?:via|from|on)|sent from) (?:instagram|tiktok|youtube)$/i,
+      /^(?:\S+ )?shared (?:a|this) (?:video|reel|post|link) with you$/i,
+      /^(?:open|download) (?:the )?(?:instagram|tiktok|youtube)(?: app)?(?: to (?:watch|see)(?: more| this video)?)?$/i,
+    ].some((pattern) => pattern.test(content));
+  });
+  // Match ExtractRequest.notes' existing 4,000-character API limit. Longer
+  // captions contribute their leading context; no new extraction schema is used.
+  return Array.from(normalizePastedRecipeText(lines.join('\n'))).slice(0, 4_000).join('');
+}
+
 /** Resolve one native share payload into a deterministic application action. */
 export function resolveShareIntent(
   shareIntent: ShareIntent,
   isSignedIn: boolean,
 ): ShareIntentAction {
   const url = extractSharedUrl(shareIntent);
-  if (url) return { kind: 'url', url };
+  if (url) {
+    const notes = extractSharedNotes(shareIntent.text || '');
+    return { kind: 'url', url, ...(notes ? { notes } : {}) };
+  }
 
   const files = shareIntent.files || [];
   if (files.length > 0) {

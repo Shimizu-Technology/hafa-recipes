@@ -49,15 +49,18 @@ describe('durable share intake', () => {
     expect(mocks.replace).toHaveBeenCalledWith({ pathname: '/', params: { inboxCaptureId: 'capture-a' } });
   });
   it('round-trips the exact native public/private preference and location', async () => {
+    mocks.action = { ...mocks.action, notes: '2 cups rice\nSimmer 20 minutes.' };
     mocks.payload._hafa = { ...mocks.payload._hafa, requestedIsPublic: true, location: 'Hawaii' };
     await render();
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({
-      request: expect.objectContaining({ is_public: true, location: 'Hawaii' }),
+      capture: expect.objectContaining({ notes: '2 cups rice\nSimmer 20 minutes.' }),
+      request: expect.objectContaining({ is_public: true, location: 'Hawaii', notes: '2 cups rice\nSimmer 20 minutes.' }),
       preferences: { isPublic: true, location: 'Hawaii' },
     }));
     mocks.payload = { ...mocks.payload, _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a', requestedIsPublic: false } };
     await act(async () => renderer.update(<Harness />));
     expect(mocks.add.mock.calls[1][0].request.is_public).toBe(false);
+    expect(mocks.add.mock.calls[1][0].request.notes).toBe('2 cups rice\nSimmer 20 minutes.');
   });
   it('retains visibility for shared text and images awaiting review', async () => {
     mocks.action = { kind: 'text', text: 'Rice recipe' };
@@ -82,6 +85,7 @@ describe('durable share intake', () => {
     expect(mocks.getShareIntent).toHaveBeenCalled();
   });
   it('ignores duplicate A2 snapshots while the native head moves to queued B', async () => {
+    mocks.action = { ...mocks.action, notes: '2 cups rice\nSimmer 20 minutes.' };
     let finishA!: () => void;
     mocks.add.mockImplementationOnce(() => new Promise<void>((resolve) => { finishA = resolve; }));
     await render();
@@ -90,6 +94,7 @@ describe('durable share intake', () => {
     mocks.metadata.mockResolvedValue(JSON.stringify({ captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' }));
     await act(async () => finishA());
     expect(mocks.add).toHaveBeenCalledOnce(); expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('key-a');
+    expect(mocks.add.mock.calls[0][0].request.notes).toBe('2 cups rice\nSimmer 20 minutes.');
     expect(mocks.metadata).not.toHaveBeenCalled();
     mocks.getShareIntent.mockImplementationOnce(async () => {
       mocks.payload = { webUrl: 'https://example.com/b', files: null, text: null, type: 'weburl', _hafa: { captureKey: 'key-b', captureId: 'capture-b', accountScopeId: 'scope-a' } };
@@ -165,15 +170,19 @@ describe('durable share intake', () => {
   });
   it('retains a signed-out URL without silently assigning it after sign-in', async () => {
     mocks.signedIn = false;
+    mocks.action = { ...mocks.action, notes: '2 cups rice\nSimmer 20 minutes.' };
     mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a' };
     await render();
-    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: null, state: 'waiting' }));
+    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: null, state: 'waiting',
+      request: expect.objectContaining({ notes: '2 cups rice\nSimmer 20 minutes.', is_public: false }) }));
     expect(mocks.ack).toHaveBeenCalledWith('key-a');
   });
   it('uses the original native owner after an account switch', async () => {
+    mocks.action = { ...mocks.action, notes: '2 cups rice\nSimmer 20 minutes.' };
     mocks.scopeOwner.mockResolvedValue('different-original-owner');
     await render();
-    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'different-original-owner' }));
+    expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'different-original-owner',
+      request: expect.objectContaining({ notes: '2 cups rice\nSimmer 20 minutes.' }) }));
   });
   it('quarantines a scoped capture whose owner mapping is unavailable', async () => {
     mocks.scopeOwner.mockResolvedValue(null);
@@ -181,6 +190,7 @@ describe('durable share intake', () => {
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ ownerId: null, accountScopeId: 'scope-a', state: 'waiting' }));
   });
   it('stores server-submitted jobs without starting another extraction', async () => {
+    mocks.action = { ...mocks.action, notes: '2 cups rice\nSimmer 20 minutes.' };
     mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a', submitted: true, jobId: 'job-a' };
     await render();
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ state: 'accepted', jobId: 'job-a' }));

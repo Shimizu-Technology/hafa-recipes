@@ -12,6 +12,35 @@ function storage() {
 }
 
 describe('durable import inbox', () => {
+  it('retains URL captions and request notes through restart and explicit account association', async () => {
+    const persisted = storage();
+    const inbox = createImportInbox(persisted);
+    const notes = '2 cups rice\nSimmer 20 minutes.';
+    const request = { url: 'https://example.com/shared', notes, location: 'Hawaii', is_public: false };
+    await inbox.add({ ...entry('shared', null), capture: { kind: 'url', url: request.url, notes }, request });
+    const restarted = createImportInbox(persisted);
+    await restarted.hydrate();
+    expect(restarted.snapshot()[0]).toMatchObject({ ownerId: null, state: 'waiting', capture: { notes }, request });
+    await restarted.claim('shared', 'owner-b');
+    expect(restarted.snapshot()[0]).toMatchObject({ ownerId: 'owner-b', state: 'ready', capture: { notes }, request });
+    await restarted.patch('shared', { state: 'accepted', jobId: 'job-shared' });
+    await restarted.add({ ...entry('shared'), capture: { kind: 'url', url: request.url, notes }, request });
+    expect(restarted.snapshot()[0]).toEqual(expect.objectContaining({
+      ownerId: 'owner-b', state: 'accepted', jobId: 'job-shared', capture: { kind: 'url', url: '' },
+    }));
+    expect(restarted.snapshot()[0].request).toBeUndefined();
+    expect(persisted.setItem.mock.lastCall?.[1]).not.toContain(notes.split('\n')[0]);
+  });
+
+  it('redacts captions for native jobs already accepted instead of changing or resubmitting them', async () => {
+    const inbox = createImportInbox(storage());
+    await inbox.add({ ...entry('native'), state: 'accepted', jobId: 'job-native',
+      capture: { kind: 'url', url: 'https://example.com/native', notes: '2 cups rice' },
+      request: { url: 'https://example.com/native', notes: '2 cups rice' } });
+    expect(inbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'job-native', capture: { kind: 'url', url: '' } });
+    expect(inbox.snapshot()[0].request).toBeUndefined();
+  });
+
   it('serializes concurrent captures and recovers all pending entries after restart', async () => {
     const persisted = storage();
     const inbox = createImportInbox(persisted);

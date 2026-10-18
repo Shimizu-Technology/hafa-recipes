@@ -3,7 +3,7 @@ import type { ExtractRequest } from '@/types/recipe';
 import type { SharedRecipeImage } from './shareCapture';
 
 export type ImportCapture =
-  | { kind: 'url'; url: string }
+  | { kind: 'url'; url: string; notes?: string }
   | { kind: 'text'; text: string }
   | { kind: 'images'; images: SharedRecipeImage[] };
 

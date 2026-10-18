@@ -5,6 +5,7 @@ import base64
 import io
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -1128,7 +1129,7 @@ async def test_public_instagram_metadata_recovers_caption_when_downloads_fail(mo
 
 
 @pytest.mark.asyncio
-async def test_oembed_fills_missing_metadata_without_replacing_known_caption(monkeypatch):
+async def test_public_metadata_fills_missing_fields_without_replacing_known_caption(monkeypatch):
     from app.services.video import VideoMetadata
 
     service = await mock_video_acquirer(monkeypatch)
@@ -1136,19 +1137,21 @@ async def test_oembed_fills_missing_metadata_without_replacing_known_caption(mon
     async def metadata(url):
         return VideoMetadata(description=TEXT)
 
-    async def oembed(url, platform):
+    async def public_metadata(self, url):
         return VideoMetadata(
-            title="oEmbed title",
-            uploader="oEmbed creator",
-            thumbnail="https://example.com/oembed.jpg",
+            title="Public title",
+            description="Weaker fallback caption",
+            uploader="Public creator",
+            thumbnail="https://example.com/public.jpg",
         )
 
-    service.get_video_metadata_ytdlp, service.fetch_oembed = metadata, oembed
+    service.get_video_metadata_ytdlp = metadata
+    monkeypatch.setattr(ProductionSourceAcquirer, "_public_video_metadata", public_metadata)
     result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
         ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True)
     )
-    assert result.status == "ready" and result.workout.source_title == "oEmbed title"
-    assert result.workout.source_creator == "oEmbed creator"
+    assert result.status == "ready" and result.workout.source_title == "Public title"
+    assert result.workout.source_creator == "Public creator"
 
 
 @pytest.mark.asyncio
@@ -1321,6 +1324,98 @@ async def test_transcription_deadline_cleans_audio_and_preserves_caption(monkeyp
 def test_rep_suffix_shorthand_is_grounded_without_confusing_sets(wording, value, supported):
     assert _numeric_supported("reps_min", value, wording) is supported
     assert _numeric_supported("reps_max", value, wording) is supported
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("set_quote,sets,supported", [
+    ("No Repeats; Perform Each Exercise x1 Set", 1, True),
+    ("No Repeats; Perform Each Exercise ×1 Set", 1, True),
+    ("Perform Each Exercise X 1 SET", 1, True),
+    ("Perform Each Exercise × 1 Set", 1, True),
+    ("Perform Each Exercise x2 Sets", 2, True),
+    ("Perform Each Exercise 3 sets", 3, True),
+    ("Perform Each Exercise sets: 3", 3, True),
+    ("Perform Each Exercise 3x12", 3, True),
+    ("Perform Each Exercise 3x10", 3, True),
+    ("Perform Each Exercise 3x1-2", 3, True),
+    ("Choose 1 or 2 movements. Perform Each Exercise x1 Set", 1, True),
+    ("Choose x1 or ×2. Perform Each Exercise ×1 Set", 1, True),
+    ("Perform 1 or 2 sets. Perform Each Exercise x1 Set", 1, True),
+    ("Perform Each Exercise x1 Set", 2, False),
+    ("Perform Each Exercise x11 Set", 1, False),
+    ("Perform Each Exercise x1 Rep", 1, False),
+    ("Perform Each Exercise ×1 Round", 1, False),
+    ("Perform Each Exercise x1", 1, False),
+    ("No Repeats; Perform Each Exercise", 1, False),
+    ("Perform Each Exercise x1-2 Sets", 1, False),
+    ("Perform Each Exercise x1–2 Sets", 2, False),
+    ("Perform Each Exercise x1 to 2 Sets", 2, False),
+    ("Perform Each Exercise x1 - 2 Sets", 2, False),
+    ("Perform Each Exercise Sets: 1 to 2", 1, False),
+    ("Perform Each Exercise 1 or 2 sets", 1, False),
+    ("Perform Each Exercise 1 or 2 sets", 2, False),
+    ("Perform Each Exercise 2 or 1 sets", 1, False),
+    ("Perform Each Exercise 2 or 1 sets", 2, False),
+    ("Perform Each Exercise x1 or 2 Sets", 2, False),
+    ("Perform Each Exercise ×2 or 1 Sets", 1, False),
+    ("Perform Each Exercise x1 or x2 Sets", 2, False),
+    ("Perform Each Exercise ×2 or ×1 Sets", 1, False),
+    ("Perform Each Exercise 1 or x2 Sets", 2, False),
+    ("Perform Each Exercise 2 or ×1 Sets", 1, False),
+    ("Perform Each Exercise X 1  OR  × 2 SETS", 2, False),
+    ("Perform Each Exercise × 2\tOr\tX 1 sets", 1, False),
+    ("Perform Each Exercise x1 Set or x2 Sets", 1, False),
+    ("Perform Each Exercise x1 Set or x2 Sets", 2, False),
+    ("Perform Each Exercise ×2 Sets or ×1 Set", 1, False),
+    ("Perform Each Exercise ×2 Sets or ×1 Set", 2, False),
+    ("Perform Each Exercise Sets: 1 or 2", 1, False),
+    ("Perform Each Exercise Sets: 2 OR 1", 2, False),
+    ("Perform Each Exercise sets = 1 or ×2 Sets", 1, False),
+    ("Perform Each Exercise sets = 1 or ×2 Sets", 2, False),
+    ("Perform Each Exercise x0.1 Set", 1, False),
+    ("Perform Each Exercise x-1 Set", 1, False),
+    ("Perform Each Exercise prefix1 Set", 1, False),
+    ("Perform Each Exercise prefix×1 Set", 1, False),
+    ("Perform Each Exercise prefix× 1 Set", 1, False),
+    ("Perform Each Exercise x1 Setup", 1, False),
+    ("Do not perform x1 Set", 1, False),
+    ("Do not perform exactly x1 Set", 1, False),
+    ("Never perform only x1 Set", 1, False),
+    ("Do not just perform exactly ×1 Set", 1, False),
+    ("No Repeats; Perform Each Exercise exactly x1 Set", 1, True),
+    ("Perform Each Exercise only x1 Set", 1, True),
+    ("Do not perform × 1 Set", 1, False),
+])
+async def test_global_multiplier_set_evidence_controls_grounding_and_readiness(
+    set_quote, sets, supported
+):
+    # Synthetic movements; the header reproduces the native YouTube caption.
+    names = [f"Beginner movement {index}" for index in range(1, 17)]
+    timing = "Timed Intervals (45 seconds work per exercise, followed by 15 seconds of rest)"
+    caption = "\n".join(["16 Bodyweight Beginner Exercises", timing, set_quote, *names])
+    raw = {"title": "Beginner workout", "kind": "session", "blocks": [{
+        "id": "main", "label": "Bodyweight", "grouping": "sequential", "exercises": [
+            {"name": name, "sets": sets, "duration_seconds": 45, "rest_seconds": 15,
+             "evidence": [evidence("name", name, "caption"),
+                          evidence("sets", set_quote, "caption"),
+                          evidence("duration_seconds", timing, "caption"),
+                          evidence("rest_seconds", timing, "caption")]} for name in names]}]}
+    provider = FakeProvider(raw)
+    source = SourceBundle(SourceMetadata(platform="youtube"), [SourcePart("caption", caption)])
+    # Exercise the staged caption path: a ready result must skip media recovery.
+    acquirer = SimpleNamespace(acquire_text=AsyncMock(return_value=source),
+                               acquire_media=AsyncMock())
+    result = await WorkoutExtractor(provider, acquirer).extract(ExtractionRequest(
+        kind="url", source_url="https://www.youtube.com/watch?v=C7-xW9mRNiI", ai_consent=True))
+    exercises = result.workout.blocks[0].exercises
+    assert [item.name for item in exercises] == names
+    assert [(item.sets, item.duration_seconds, item.rest_seconds) for item in exercises] == [
+        (sets if supported else None, 45, 15)] * 16
+    assert result.status == ("ready" if supported else "incomplete")
+    assert result.warnings == ([] if supported else [
+        f"Unsupported sets removed from {name}." for name in names])
+    assert len(provider.calls) == (1 if supported else 2)
+    assert acquirer.acquire_media.await_count == (0 if supported else 1)
 
 
 @pytest.mark.asyncio
@@ -2337,3 +2432,38 @@ def test_reused_name_quote_declines_excessive_whitespace_without_changing_the_so
     workout, _, _ = ground_workout(raw, source)
     assert workout.blocks[0].exercises[0].reps_min is None
     assert source.parts[0].text == quote
+
+
+@pytest.mark.asyncio
+async def test_optional_metadata_deadline_preserves_workout_caption(monkeypatch):
+    import asyncio
+
+    import app.domains.workouts.extraction as module
+    from app.services.video import VideoMetadata
+
+    service = await mock_video_acquirer(monkeypatch)
+    service.get_video_metadata_ytdlp = AsyncMock(return_value=VideoMetadata(description=TEXT))
+    async def stalled(self, url):
+        await asyncio.sleep(60)
+    monkeypatch.setattr(ProductionSourceAcquirer, "_public_video_metadata", stalled)
+    monkeypatch.setattr(module, "MAX_ACQUISITION_SECONDS", 0.01)
+    result = await WorkoutExtractor(FakeProvider(complete_workout("caption"))).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert result.status == "ready" and result.source.channels == ["caption"]
+    assert result.workout.blocks[0].exercises[0].sets == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage,code", [("audio", "TIMEOUT"), ("frames", "TIMEOUT"), ("frames", "RATE_LIMITED")])
+async def test_empty_workout_keeps_transient_media_failure(monkeypatch, stage, code):
+    service = await mock_video_acquirer(monkeypatch, empty=True)
+    monkeypatch.setattr(ProductionSourceAcquirer, "_public_video_metadata", AsyncMock(return_value=SimpleNamespace()))
+    if stage == "audio":
+        service.download_audio = AsyncMock(side_effect=asyncio.TimeoutError)
+    elif code == "TIMEOUT":
+        service.extract_video_frames = AsyncMock(side_effect=asyncio.TimeoutError)
+    else:
+        service.extract_video_frames = AsyncMock(return_value=SimpleNamespace(success=False, frames=[], error_code=code))
+    result = await WorkoutExtractor(FakeProvider()).extract(
+        ExtractionRequest(kind="url", source_url=INSTAGRAM, ai_consent=True))
+    assert result.error_code == "source_or_provider_unavailable"
