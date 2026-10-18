@@ -239,3 +239,49 @@ async def test_metadata_subprocess_preserves_failure_classification(monkeypatch,
     monkeypatch.setattr(service, "_create_instagram_cookies_file", lambda: None)
     result = await service.get_video_metadata_ytdlp("https://www.instagram.com/reel/Example/")
     assert result.error_code == code and not result.description
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["metadata", "audio", "frames"])
+async def test_monitor_cancellation_settles_media_child_credentials_temp_and_semaphore(
+    monkeypatch, tmp_path, kind,
+):
+    service = video.VideoService(max_concurrency=1)
+    started = asyncio.Event()
+
+    class HeldProcess(MediaProcess):
+        async def communicate(self):
+            started.set()
+            await asyncio.Event().wait()
+
+    process = HeldProcess(returncode=None)
+    monkeypatch.setattr(video.asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+    credential = tmp_path / "test-cookie"
+    credential.write_text("synthetic credential")
+    monkeypatch.setattr(service, "_create_instagram_cookies_file",
+                        lambda: video.CredentialFile(str(credential), temporary=True))
+    parents = []
+    mkdtemp = video.tempfile.mkdtemp
+
+    def temp(**kwargs):
+        path = mkdtemp(dir=tmp_path, **kwargs)
+        parents.append(path)
+        return path
+
+    monkeypatch.setattr(video.tempfile, "mkdtemp", temp)
+    operation = {"metadata": service.get_video_metadata_ytdlp,
+                 "audio": service.download_audio, "frames": service.extract_video_frames}[kind]
+    task = asyncio.create_task(operation("https://www.instagram.com/reel/DehHrUVg7kB/"))
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        assert service._media_slots._value == 0
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert process.killed and process.waited
+        assert service._media_slots._value == 1
+        assert not credential.exists() and all(not os.path.exists(path) for path in parents)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

@@ -67,6 +67,7 @@ from app.routers import (
     tts_router,
     users_router,
 )
+from app.routers.import_health import router as import_health_router
 from app.routers.platform import router as platform_router
 from app.widget_credentials import verify_widget_credential_schema
 
@@ -118,6 +119,7 @@ app.add_middleware(RequestContextMiddleware)
 
 # Include routers
 app.include_router(health_router)
+app.include_router(import_health_router)
 app.include_router(platform_router)
 app.include_router(workouts_library_router)
 app.include_router(workouts_measurements_router)
