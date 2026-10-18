@@ -34,9 +34,9 @@ settings = get_settings()
 
 
 def _media_log(message):
-    # Shared media acquisition serves both products. Private workout sources
-    # must not expose URLs, extracted values or provider errors in stdout.
-    if (current_ai_context().route or "").startswith("/api/v1/workouts"):
+    # Private workout sources and fixed-canary monitoring must not expose
+    # URLs, extracted values or provider errors in stdout.
+    if (current_ai_context().route or "").startswith(("/api/v1/workouts", "/internal/import-health")):
         return
     print(message)
 
@@ -885,14 +885,12 @@ class VideoService:
                 "--quiet",
             ]
             
-            # Add YouTube proxy if configured (required for cloud hosting)
+            # Preserve the proxy and let yt-dlp choose its maintained YouTube clients.
             # YouTube blocks datacenter IPs, so we need a residential proxy
             if platform == "youtube" and settings.youtube_proxy:
                 _media_log("🔄 Using YouTube proxy for extraction")
                 command.extend([
                     "--proxy", settings.youtube_proxy,
-                    # Use android_vr client - doesn't require PO Token
-                    "--extractor-args", "youtube:player_client=android_vr",
                 ])
             
             # Add proxy + cookies for Instagram if configured
@@ -1201,8 +1199,6 @@ class VideoService:
                     [
                         "--proxy",
                         settings.youtube_proxy,
-                        "--extractor-args",
-                        "youtube:player_client=android_vr",
                     ]
                 )
             if platform == "instagram":
@@ -1564,11 +1560,10 @@ class VideoService:
                 "--quiet",
             ]
             
-            # Add YouTube proxy if configured (required for cloud hosting)
+            # Preserve the proxy and let yt-dlp choose its maintained YouTube clients.
             if platform == "youtube" and settings.youtube_proxy:
                 command.extend([
                     "--proxy", settings.youtube_proxy,
-                    "--extractor-args", "youtube:player_client=android_vr",
                 ])
             
             # Add proxy + cookies for Instagram if configured

@@ -41,6 +41,51 @@ def test_recipe_telemetry_retains_existing_behavior():
     assert redact_workouts_transaction(event) is event
 
 
+def test_monitor_telemetry_is_minimal_for_request_context_and_explicit_failure_event(capsys):
+    from app.ai_governance import ai_request_context
+    from app.services.video import _media_log
+
+    event = {
+        "event_id": "monitor-event", "level": "error",
+        "request": {"url": "https://api/internal/import-health/instagram?token=secret",
+                    "headers": {"Authorization": "Bearer secret"}, "data": "private source"},
+        "breadcrumbs": [{"message": "private provider error"}],
+        "exception": {"values": [{"value": "source caption", "stacktrace": {"frames": [
+            {"vars": {"token": "secret", "cookie": "private"}},
+        ]}}]},
+        "contexts": {"trace": "private source"}, "extra": {"path": "/tmp/private"},
+        "user": {"id": "private"}, "message": "raw provider failure",
+        "tags": {"monitor": "import-health", "platform": "instagram", "stage": "audio",
+                 "caption": "private"}, "fingerprint": ["private source"],
+    }
+    expected = {"event_id": "monitor-event", "level": "error",
+                "message": "Shared media health check failed",
+                "tags": {"monitor": "import-health", "platform": "instagram", "stage": "audio"},
+                "fingerprint": ["import-health", "instagram", "audio"]}
+    assert redact_workouts_event(event) == expected
+    assert redact_workouts_transaction(event) is None
+    without_request = {key: value for key, value in event.items() if key != "request"}
+    assert redact_workouts_event(without_request) == expected
+    with ai_request_context(route="/internal/import-health/instagram"):
+        context_only = redact_workouts_event({"exception": event["exception"]})
+        assert context_only["tags"] == {"monitor": "import-health", "platform": "unknown", "stage": "unknown"}
+        assert redact_workouts_transaction({}) is None
+        _media_log("source URL caption cookie provider error /tmp/private")
+    assert capsys.readouterr().out == ""
+    event["tags"] = {"monitor": "import-health", "platform": "private source", "stage": "/tmp/private"}
+    assert redact_workouts_event(event)["fingerprint"] == ["import-health", "unknown", "unknown"]
+
+
+def test_monitor_access_log_drops_arbitrary_query_values():
+    import logging
+
+    from app.domains.workouts.privacy import WorkoutsAccessLogFilter
+
+    record = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, "%s",
+                              ("POST", "/internal/import-health/instagram?token=private"), None)
+    assert WorkoutsAccessLogFilter().filter(record) is False
+
+
 def test_workout_worker_context_protects_background_errors():
     from app.ai_governance import ai_request_context
 

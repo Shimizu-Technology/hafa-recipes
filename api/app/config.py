@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     # Optional
     ig_oembed_token: str | None = None
 
+    # Fixed public-canary monitor only; unset disables the protected endpoint.
+    import_health_token: SecretStr | None = None
+
     # Instagram cookies (for yt-dlp authentication)
     # Can be either a file path or the raw cookie content
     instagram_cookies: str | None = None

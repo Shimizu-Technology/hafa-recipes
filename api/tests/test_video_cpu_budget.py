@@ -1,6 +1,7 @@
 """Frame thread scopes must retain evidence, deadlines and child settlement."""
 
 import asyncio
+import json
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -239,3 +240,96 @@ async def test_metadata_subprocess_preserves_failure_classification(monkeypatch,
     monkeypatch.setattr(service, "_create_instagram_cookies_file", lambda: None)
     result = await service.get_video_metadata_ytdlp("https://www.instagram.com/reel/Example/")
     assert result.error_code == code and not result.description
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["metadata", "audio", "frames"])
+async def test_monitor_cancellation_settles_media_child_credentials_temp_and_semaphore(
+    monkeypatch, tmp_path, kind,
+):
+    service = video.VideoService(max_concurrency=1)
+    started = asyncio.Event()
+
+    class HeldProcess(MediaProcess):
+        async def communicate(self):
+            started.set()
+            await asyncio.Event().wait()
+
+    process = HeldProcess(returncode=None)
+    monkeypatch.setattr(video.asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+    credential = tmp_path / "test-cookie"
+    credential.write_text("synthetic credential")
+    monkeypatch.setattr(service, "_create_instagram_cookies_file",
+                        lambda: video.CredentialFile(str(credential), temporary=True))
+    parents = []
+    mkdtemp = video.tempfile.mkdtemp
+
+    def temp(**kwargs):
+        path = mkdtemp(dir=tmp_path, **kwargs)
+        parents.append(path)
+        return path
+
+    monkeypatch.setattr(video.tempfile, "mkdtemp", temp)
+    operation = {"metadata": service.get_video_metadata_ytdlp,
+                 "audio": service.download_audio, "frames": service.extract_video_frames}[kind]
+    task = asyncio.create_task(operation("https://www.instagram.com/reel/DehHrUVg7kB/"))
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        assert service._media_slots._value == 0
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert process.killed and process.waited
+        assert service._media_slots._value == 1
+        assert not credential.exists() and all(not os.path.exists(path) for path in parents)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["metadata", "audio", "frames"])
+async def test_youtube_proxy_uses_maintained_clients_for_all_evidence_paths(
+    monkeypatch, tmp_path, kind,
+):
+    """The forced android_vr client returned 403 through the configured proxy."""
+    service = video.VideoService()
+    commands = []
+    proxy = "http://synthetic-proxy.invalid:8080"
+    url = "https://www.youtube.com/watch?v=public-source"
+    monkeypatch.setattr(video.settings, "youtube_proxy", proxy)
+
+    class DownloadProcess(MediaProcess):
+        async def communicate(self):
+            return json.dumps({"title": "Public video", "duration": 30}).encode(), b""
+
+    async def create(*command, **kwargs):
+        commands.append(command)
+        if "--output" in command:
+            output = command[command.index("--output") + 1]
+            video.Path(output.replace("%(ext)s", "mp3" if kind == "audio" else "mp4")).write_bytes(b"media")
+        return DownloadProcess()
+
+    monkeypatch.setattr(video.asyncio, "create_subprocess_exec", create)
+    monkeypatch.setattr(service, "_get_audio_duration", AsyncMock(return_value=30))
+    monkeypatch.setattr(service, "_get_media_duration", AsyncMock(return_value=30))
+    if kind == "metadata":
+        result = await service.get_video_metadata_ytdlp(url)
+        assert result.title == "Public video" and not result.error_code
+    elif kind == "audio":
+        result = await service.download_audio(url)
+        try:
+            assert result.success and result.duration == 30
+        finally:
+            service.cleanup_audio_file(result.file_path)
+    else:
+        path, duration = await service._download_video_for_frames(url, str(tmp_path))
+        assert video.Path(path).is_file() and duration == 30
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[-1] == url
+    assert command[command.index("--proxy") + 1] == proxy
+    assert "--extractor-args" not in command
+    if kind != "metadata":
+        assert "--max-filesize" in command and "--match-filter" in command

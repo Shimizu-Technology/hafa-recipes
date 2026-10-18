@@ -11,6 +11,17 @@ def _settings(database_url: str) -> Settings:
     )
 
 
+def test_import_health_is_unconfigured_by_default_and_token_is_secret(monkeypatch):
+    monkeypatch.delenv("IMPORT_HEALTH_TOKEN", raising=False)
+    settings = Settings(_env_file=None, database_url="postgresql://localhost/hafa_test",
+                        openai_api_key="test-openai-key")
+    assert settings.import_health_token is None
+    configured = Settings(_env_file=None, database_url="postgresql://localhost/hafa_test",
+                          openai_api_key="test-openai-key", import_health_token="monitor-secret")
+    assert configured.import_health_token.get_secret_value() == "monitor-secret"
+    assert "monitor-secret" not in repr(configured) + configured.model_dump_json()
+
+
 def test_async_database_url_removes_sslmode_and_preserves_other_query_params():
     settings = _settings(
         "postgresql://user:pass@example.com/db?sslmode=require&application_name=hafa"

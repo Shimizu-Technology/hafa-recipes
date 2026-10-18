@@ -1,0 +1,85 @@
+name: Shared media health
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Daily and manual runs share admission. Never cancel a media download mid-run.
+concurrency:
+  group: shared-media-health
+  cancel-in-progress: false
+
+jobs:
+  canaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check fixed public canaries sequentially
+        env:
+          IMPORT_HEALTH_TOKEN: ${{ secrets.IMPORT_HEALTH_TOKEN }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import tempfile
+
+          # No checkout, arbitrary destination, cookies, paid AI, or retries.
+          destination = "https://recipe-api-x5na.onrender.com/internal/import-health/"
+          token = os.environ.get("IMPORT_HEALTH_TOKEN", "")
+          if not token or any(c in token for c in '\r\n'):
+              raise SystemExit("IMPORT_HEALTH_TOKEN is missing or invalid")
+          # Escape curl config syntax; keep the token off argv and all output.
+          header = ("Authorization: Bearer " + token).replace('\\', '\\\\').replace('"', '\\"')
+          codes = set("""DISABLED UNAUTHORIZED INVALID_INPUT CHECK_BUSY CHECK_FAILED
+              VIDEO_UNAVAILABLE VIDEO_REMOVED VIDEO_PRIVATE AGE_RESTRICTED
+              INSTAGRAM_AUTH_REQUIRED RATE_LIMITED ACCOUNT_NOT_FOUND MEMBERS_ONLY
+              BOT_DETECTION EXTRACTION_FAILED NOT_FOUND ACCESS_DENIED
+              SOURCE_RESPONSE_INVALID SOURCE_UNAVAILABLE INSTAGRAM_ERROR TIKTOK_ERROR
+              YOUTUBE_ERROR UNKNOWN_ERROR MEDIA_BUSY TIMEOUT SYSTEM_ERROR NO_AUDIO
+              AUDIO_TOO_LARGE VIDEO_TOO_LONG NO_VIDEO_FRAMES
+              VIDEO_FRAME_EXTRACTION_FAILED NO_METADATA""".split())
+          stages = {"auth", "input", "lock", "metadata", "audio", "frames", "complete"}
+          failed = False
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("| Platform | Status | Stage | Error |\n|---|---|---|---|\n")
+              for platform in ("instagram", "tiktok", "youtube"):
+                  status, stage, code = "failed", "unknown", "INVALID_RESPONSE"
+                  with tempfile.TemporaryDirectory() as directory:
+                      output = os.path.join(directory, "response.json")
+                      try:
+                          response = subprocess.run([
+                              "curl", "--config", "-", "--silent", "--request", "POST",
+                              "--connect-timeout", "10", "--max-time", "210",
+                              "--max-filesize", "4096", "--output", output,
+                              "--write-out", "%{http_code}", destination + platform,
+                          ], input=f'header = "{header}"\n', text=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=220)
+                          with open(output) as body:
+                              data = json.load(body)
+                          valid = (
+                              data.get("platform") == platform
+                              and data.get("status") in {"ok", "failed"}
+                              and data.get("stage") in stages
+                              and (data.get("error_code") is None or data.get("error_code") in codes)
+                              and isinstance(data.get("elapsed"), (int, float))
+                              and 0 <= data["elapsed"] <= 210
+                          )
+                          if valid:
+                              status, stage, code = data["status"], data["stage"], data["error_code"]
+                          ok = (valid and response.returncode == 0 and response.stdout == "200"
+                                and status == "ok" and stage == "complete" and code is None)
+                      except (OSError, ValueError, TypeError, AttributeError):
+                          ok = False
+                      except subprocess.TimeoutExpired:
+                          ok, code = False, "TIMEOUT"
+                  failed |= not ok
+                  summary.write(f"| {platform} | {'ok' if ok else 'failed'} | {stage} | {code or '-'} |\n")
+                  print(f"{platform}: {'ok' if ok else 'failed'} stage={stage} code={code or '-'}")
+          raise SystemExit(1 if failed else 0)
+          PY
