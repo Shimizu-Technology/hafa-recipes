@@ -22,6 +22,38 @@ from app.routers.chat import MAX_CHAT_HISTORY_ITEMS, ChatMessage, ChatRequest, c
 from app.services.llm_client import LLMService
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_text", [None, "", " \t\n", "Stir the batter."])
+async def test_transcription_requires_non_whitespace_evidence(monkeypatch, tmp_path, provider_text):
+    import app.services.openai_client as audio_module
+
+    audio = tmp_path / "audio.mp3"
+    audio.write_bytes(b"local audio fixture")
+    create = AsyncMock(return_value=provider_text)
+    client = SimpleNamespace(audio=SimpleNamespace(transcriptions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(audio_module, "AsyncOpenAI", lambda **kwargs: client)
+    monkeypatch.setattr(
+        audio_module,
+        "settings",
+        SimpleNamespace(
+            openai_api_key="test",
+            transcription_model="whisper-1",
+            is_ai_capability_enabled=lambda capability: True,
+        ),
+    )
+    recorded = AsyncMock()
+    monkeypatch.setattr(ai_governance, "record_ai_invocation", recorded)
+
+    result = await audio_module.OpenAIService().transcribe_audio(str(audio))
+
+    usable = bool(provider_text and provider_text.strip())
+    assert result.success is usable
+    assert result.text == (provider_text if usable else "")
+    assert result.error == (None if usable else "Transcription returned no text")
+    assert recorded.await_args.kwargs["status"] == ("success" if usable else "failed")
+    assert recorded.await_args.kwargs["error_code"] == (None if usable else "empty_response")
+
+
 def test_usage_and_cost_include_cached_tokens_without_double_counting():
     response = SimpleNamespace(
         usage=SimpleNamespace(
