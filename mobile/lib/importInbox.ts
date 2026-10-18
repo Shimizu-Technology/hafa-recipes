@@ -25,6 +25,12 @@ export type ImportInboxEntry = {
 type Storage = Pick<typeof AsyncStorage, 'getItem' | 'setItem'>;
 const STORAGE_KEY = 'hafa_import_inbox_v1';
 
+/** Keep recovery byte-for-byte consistent with the request used by intake. */
+export const importInboxRequest = (entry: ImportInboxEntry): ExtractRequest => entry.request ?? {
+  url: entry.capture.kind === 'url' ? entry.capture.url : '',
+  location: 'Guam', notes: '', is_public: false,
+};
+
 /** Persist intake before acknowledging native data. Serialize read-modify-write operations. */
 export function createImportInbox(storage: Storage) {
   let entries: ImportInboxEntry[] = [];
@@ -84,7 +90,8 @@ export function createImportInbox(storage: Storage) {
       const entry = entries.find((item) => item.id === id);
       if (!entry || entry !== expected || entry.ownerId !== ownerId || entry.state !== 'ready' ||
           entry.submissionClaimed || entry.jobId || entry.capture.kind !== 'url') return null;
-      const claimed = { ...entry, state: 'submitting' as const, submissionClaimed: true, error: undefined };
+      const claimed = { ...entry, request: importInboxRequest(entry),
+        state: 'submitting' as const, submissionClaimed: true, error: undefined };
       const next = entries.map((item) => item === entry ? claimed : item);
       await storage.setItem(STORAGE_KEY, JSON.stringify(next));
       entries = next;

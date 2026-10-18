@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('expo-router', () => ({ useIsFocused: () => mocks.focused }));
 
 vi.mock('@clerk/expo', () => ({
-  useAuth: () => ({ isLoaded: true, userId: mocks.getUserId() }),
+  useAuth: () => ({ isLoaded: true, isSignedIn: Boolean(mocks.getUserId()), userId: mocks.getUserId() }),
 }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
@@ -56,6 +56,9 @@ vi.mock('../lib/api', () => ({
 
 import { useRecipeDeletion } from './useRecipeDeletion';
 import { recipeKeys, useAsyncExtractionController, useDeleteRecipe, useExtractionJobs } from './useRecipes';
+import { importInbox, createImportInbox } from '../lib/importInbox';
+import { ExtractionProvider, useAsyncExtraction } from '../contexts/ExtractionContext';
+import { useImportInboxProcessor } from './useImportInbox';
 
 type Controller = ReturnType<typeof useAsyncExtractionController>;
 
@@ -161,6 +164,112 @@ describe('durable extraction recovery', () => {
     });
     expect(mocks.cancelJob).not.toHaveBeenCalled(); expect(mocks.removeItem).not.toHaveBeenCalled();
     expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:receipt' });
+    await act(async () => renderer.unmount()); queryClient.clear();
+  });
+
+  it.each(['claim gap', 'lost response', 'cleared terminal receipt', 'terminal polling'] as const)(
+    'recovers an inbox claim across reload without a new key or automatic submission: %s', async (crash) => {
+      const persisted = new Map<string, string>();
+      mocks.getItem.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mocks.setItem.mockImplementation(async (key: string, value: string) => { persisted.set(key, value); });
+      mocks.removeItem.mockImplementation(async (key: string) => { persisted.delete(key); });
+      mocks.getExtractionJobs.mockResolvedValue([]);
+      await importInbox.hydrate();
+      for (const item of importInbox.snapshot()) await importInbox.remove(item.id);
+      const request = { url: 'https://example.com/crash', notes: '2 cups rice', location: 'Hawaii', is_public: false };
+      await importInbox.add({ id: 'crash', ownerId: 'app-stable-user', createdAt: Date.now(), state: 'ready',
+        capture: { kind: 'url', url: request.url }, request });
+      await importInbox.claimForSubmit('crash', 'app-stable-user', importInbox.snapshot()[0]);
+      const receiptKey = 'active_extraction_job_v2:app-stable-user';
+      if (crash === 'terminal polling') persisted.set(receiptKey, JSON.stringify({
+        userId: 'app-stable-user', jobId: 'original-job', idempotencyKey: 'share:crash',
+        startTime: Date.now(), request: { kind: 'extract', payload: request },
+      }));
+      if (crash === 'cleared terminal receipt') await importInbox.patch('crash', { state: 'error', error: 'Lost confirmation' });
+      let remoteJobs = crash === 'claim gap' || crash === 'lost response' ? 0 : 1;
+      let loseResponse = crash === 'lost response';
+      mocks.startAsyncExtraction.mockImplementation(async (_request, key, guard) => {
+        guard();
+        expect(key).toBe('share:crash');
+        if (!remoteJobs) remoteJobs += 1;
+        if (loseResponse) { loseResponse = false; throw new Error('Response lost after server acceptance'); }
+        return { job_id: 'original-job', status: 'failed', is_existing: true };
+      });
+      mocks.getJobStatus.mockResolvedValue({ id: 'original-job', url: request.url, status: 'failed',
+        progress: 30, current_step: 'error', message: 'Failed', recipe_id: null, error_message: 'No recipe found' });
+      let controller!: Controller;
+      function Harness() { controller = useAsyncExtraction(); useImportInboxProcessor(); return null; }
+      let queryClient!: QueryClient;
+      let renderer!: ReactTestRenderer;
+      const mount = async () => {
+        queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        await act(async () => { renderer = create(<QueryClientProvider client={queryClient}>
+          <ExtractionProvider><Harness /></ExtractionProvider></QueryClientProvider>); });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+      };
+      const unmount = async () => { await act(async () => renderer.unmount()); queryClient.clear(); };
+      await mount();
+      expect(mocks.startAsyncExtraction).not.toHaveBeenCalled();
+      if (crash !== 'terminal polling') {
+        expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:crash' });
+        await act(async () => { await importInbox.removeWaiting('crash', 'app-stable-user'); });
+        expect(importInbox.snapshot()[0].submissionClaimed).toBe(true);
+        if (crash === 'lost response') {
+          await act(async () => controller.retryPendingStart());
+          expect(controller.canRetryStart).toBe(true);
+          expect(remoteJobs).toBe(1);
+        }
+        await unmount();
+        const reloaded = createImportInbox({ getItem: mocks.getItem, setItem: mocks.setItem });
+        await reloaded.hydrate();
+        expect(reloaded.snapshot()[0]).toMatchObject({ submissionClaimed: true, request });
+        await mount();
+        const callsBeforeReconnect = mocks.startAsyncExtraction.mock.calls.length;
+        expect(callsBeforeReconnect).toBe(crash === 'lost response' ? 1 : 0);
+        await act(async () => controller.retryPendingStart());
+        expect(mocks.startAsyncExtraction).toHaveBeenLastCalledWith(request, 'share:crash', expect.any(Function));
+      }
+      expect(remoteJobs).toBe(1);
+      expect(controller).toMatchObject({ jobId: 'original-job', isFailed: true, canRetryStart: false });
+      expect(importInbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'original-job' });
+      expect(persisted.has(receiptKey)).toBe(false);
+      await act(async () => controller.restoreJob({ id: 'other-attempt', url: request.url, status: 'failed',
+        progress: 0, current_step: 'error', message: 'Failed', recipe_id: null, error_message: null }));
+      expect(controller.requestKey).toBeNull();
+      const callsAfterConfirmation = mocks.startAsyncExtraction.mock.calls.length;
+      await unmount();
+      await mount();
+      expect(mocks.startAsyncExtraction).toHaveBeenCalledTimes(callsAfterConfirmation);
+      expect(controller.canRetryStart).toBe(false);
+      await unmount();
+    },
+  );
+
+  it('keeps a recovered receipt with its exact owner when accounts switch during its persistence', async () => {
+    mocks.getExtractionJobs.mockResolvedValue([]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let controller!: Controller;
+    function Harness() { controller = useAsyncExtractionController(); return null; }
+    const tree = () => <QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>;
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(tree()); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const entry = { id: 'owned', ownerId: 'app-stable-user', createdAt: Date.now(), state: 'submitting' as const,
+      submissionClaimed: true, capture: { kind: 'url' as const, url: 'https://example.com/owned' } };
+    let release!: () => void;
+    mocks.setItem.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    let recovery!: Promise<void>;
+    await act(async () => { recovery = controller.recoverImport(entry); void recovery.catch(() => undefined); });
+    mocks.getUserId.mockReturnValue('clerk-b'); mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-b' });
+    await act(async () => renderer.update(tree()));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    await act(async () => release());
+    await expect(recovery).rejects.toThrow('account changed');
+    expect(controller).toMatchObject({ requestKey: null, canRetryStart: false, jobId: null });
+    await expect(controller.recoverImport(entry)).rejects.toThrow('account changed');
+    expect(mocks.setItem).toHaveBeenCalledExactlyOnceWith('active_extraction_job_v2:app-stable-user',
+      expect.stringContaining('"idempotencyKey":"share:owned"'));
+    expect(mocks.startAsyncExtraction).not.toHaveBeenCalled();
     await act(async () => renderer.unmount()); queryClient.clear();
   });
 

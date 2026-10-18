@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
-  owner: 'owner-a', data: null as string | null, start: vi.fn(), reset: vi.fn(),
+  owner: 'owner-a', data: null as string | null, start: vi.fn(), reset: vi.fn(), recover: vi.fn(),
   disclosure: vi.fn(async () => ({ requires_acceptance: false })),
   extraction: { isReady: true, isExtracting: true, isComplete: false, isFailed: false, canRetryStart: false, jobId: 'job-a' as string | null, recipeId: null as string | null, requestKey: null as string | null },
 }));
@@ -11,7 +11,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
 vi.mock('@/hooks/useRecipes', () => ({ useCurrentUserIdentity: () => ({ data: { id: mocks.owner } }) }));
 vi.mock('@/lib/api', () => ({ api: { getPublishingDisclosure: mocks.disclosure } }));
-vi.mock('@/contexts/ExtractionContext', () => ({ useAsyncExtraction: () => ({ ...mocks.extraction, startExtraction: mocks.start, reset: mocks.reset }) }));
+vi.mock('@/contexts/ExtractionContext', () => ({ useAsyncExtraction: () => ({ ...mocks.extraction, startExtraction: mocks.start, reset: mocks.reset, recoverImport: mocks.recover }) }));
 import { importInbox } from '@/lib/importInbox';
 import { useImportInboxProcessor } from './useImportInbox';
 function Harness() { useImportInboxProcessor(); return null; }
@@ -22,9 +22,71 @@ beforeEach(async () => {
   await importInbox.hydrate();
   for (const entry of importInbox.snapshot()) await importInbox.remove(entry.id);
   mocks.reset.mockResolvedValue(undefined); mocks.start.mockResolvedValue({ jobId: 'job-b' });
+  mocks.recover.mockResolvedValue(undefined);
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
 describe('import intake coordinator', () => {
+  it('repairs a persisted submission before processing a ready sibling, without submitting it again', async () => {
+    await importInbox.add({ id: 'crashed', ownerId: 'owner-a', createdAt: 1, state: 'submitting',
+      submissionClaimed: true, capture: { kind: 'url', url: 'https://example.com/crashed' } });
+    await importInbox.add({ id: 'next', ownerId: 'owner-a', createdAt: 2, state: 'ready',
+      capture: { kind: 'url', url: 'https://example.com/next' } });
+    mocks.extraction.isExtracting = false; mocks.extraction.jobId = null;
+    await act(async () => { renderer = create(<Harness />); });
+    expect(mocks.recover).toHaveBeenCalledExactlyOnceWith(importInbox.snapshot()[0]);
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.reset).not.toHaveBeenCalled();
+    await importInbox.removeWaiting('crashed', 'owner-a');
+    expect(importInbox.snapshot()[0].id).toBe('crashed');
+  });
+
+  it.each(['submitting', 'error'] as const)('reconciles a confirmed terminal receipt for a claimed %s entry', async (state) => {
+    await importInbox.add({ id: 'failed', ownerId: 'owner-a', createdAt: 1, state,
+      submissionClaimed: true, capture: { kind: 'url', url: 'https://example.com/failed' } });
+    mocks.extraction = { ...mocks.extraction, isExtracting: false, isFailed: true,
+      requestKey: 'share:failed', jobId: 'terminal-job' };
+    await act(async () => { renderer = create(<Harness />); });
+    expect(importInbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'terminal-job' });
+    expect(mocks.recover).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it('reconciles multiple claimed entries in order, independently of their URL', async () => {
+    for (const id of ['a', 'b']) await importInbox.add({ id, ownerId: 'owner-a', createdAt: 1,
+      state: 'error', submissionClaimed: true, capture: { kind: 'url', url: 'https://example.com/same' } });
+    await importInbox.add({ id: 'foreign', ownerId: 'owner-b', createdAt: 1,
+      state: 'submitting', submissionClaimed: true, capture: { kind: 'url', url: 'https://example.com/same' } });
+    mocks.extraction.isExtracting = false; mocks.extraction.jobId = null;
+    mocks.recover.mockImplementation(async (entry) => {
+      mocks.extraction.jobId = null;
+      mocks.extraction.canRetryStart = true; mocks.extraction.requestKey = `share:${entry.id}`;
+    });
+    await act(async () => { renderer = create(<Harness />); });
+    expect(mocks.recover.mock.calls.map(([entry]) => entry.id)).toEqual(['a']);
+    mocks.extraction.canRetryStart = false; mocks.extraction.jobId = 'job-a'; mocks.extraction.isFailed = true;
+    await act(async () => renderer!.update(<Harness />));
+    expect(mocks.recover.mock.calls.map(([entry]) => entry.id)).toEqual(['a', 'b']);
+    expect(importInbox.snapshot()).toMatchObject([{ id: 'a', state: 'accepted', jobId: 'job-a' },
+      { id: 'b', state: 'error' }, { id: 'foreign', state: 'submitting' }]);
+    mocks.extraction.canRetryStart = false; mocks.extraction.jobId = 'job-b';
+    await act(async () => renderer!.update(<Harness />));
+    expect(importInbox.snapshot()[1]).toMatchObject({ id: 'b', state: 'accepted', jobId: 'job-b' });
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it('keeps a legacy submitting claim protected when receipt persistence fails', async () => {
+    await importInbox.add({ id: 'legacy', ownerId: 'owner-a', createdAt: 1, state: 'submitting',
+      capture: { kind: 'url', url: 'https://example.com/legacy' } });
+    mocks.extraction.isExtracting = false; mocks.extraction.jobId = null;
+    mocks.recover.mockRejectedValueOnce(new Error('Storage unavailable'));
+    await act(async () => { renderer = create(<Harness />); });
+    await act(async () => importInbox.removeWaiting('legacy', 'owner-a'));
+    expect(importInbox.snapshot()[0]).toMatchObject({ id: 'legacy', state: 'error', submissionClaimed: true,
+      error: 'Storage unavailable' });
+    expect(mocks.recover).toHaveBeenCalledOnce();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
   it.each(['disclosure', 'reset'] as const)('does not submit a capture removed during %s', async (boundary) => {
     let finish!: () => void;
     const barrier = new Promise<void>((resolve) => { finish = resolve; });

@@ -194,6 +194,14 @@ export default function ExtractScreen() {
   const openCapturedEntry = async (entry: ImportInboxEntry) => {
     if (!inbox.ownerId) { router.push('/(auth)/sign-in'); return; }
     const owner = inbox.ownerId;
+    if (entry.submissionClaimed || entry.state === 'submitting') {
+      if (!(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`)) {
+        await extraction.recoverImport(entry);
+      }
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
+      await extraction.retryPendingStart();
+      return;
+    }
     if (entry.capture.kind === 'url' && entry.request?.is_public) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) return;
@@ -859,9 +867,9 @@ export default function ExtractScreen() {
                   {entry.error || (entry.ownerId === null ? 'Choose an account to finish importing' : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
                 </Text>
               </RNView>
-              {(entry.state === 'waiting' || entry.state === 'error' || entry.ownerId === null) && <TouchableOpacity onPress={() => {
+              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting} onPress={() => {
                 void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
-              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.tint }}>{extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
+              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.tint }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
               {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
             </RNView>)}
           </RNView>}

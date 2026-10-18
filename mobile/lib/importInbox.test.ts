@@ -12,6 +12,20 @@ function storage() {
 }
 
 describe('durable import inbox', () => {
+  it('retains the exact submission request through a claim/receipt crash and refuses local removal after reload', async () => {
+    const persisted = storage();
+    const inbox = createImportInbox(persisted);
+    const request = { url: 'https://example.com/shared', location: 'Hawaii', notes: '2 cups rice', is_public: true };
+    await inbox.add({ ...entry('crashed'), request });
+    await inbox.claimForSubmit('crashed', 'owner-a', inbox.snapshot()[0]);
+    const restarted = createImportInbox(persisted);
+    await restarted.hydrate();
+    await restarted.removeWaiting('crashed', 'owner-a');
+    await restarted.claim('crashed', 'owner-a', { ...request, notes: 'Changed request' });
+    expect(restarted.snapshot()).toMatchObject([{ id: 'crashed', state: 'submitting', submissionClaimed: true, request }]);
+    expect(await restarted.claimForSubmit('crashed', 'owner-a', restarted.snapshot()[0])).toBeNull();
+  });
+
   it('serializes removal and submission claims, retaining only an owned current entry', async () => {
     const inbox = createImportInbox(storage());
     await inbox.add(entry('removed'));

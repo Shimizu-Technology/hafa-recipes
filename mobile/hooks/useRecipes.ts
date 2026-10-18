@@ -17,6 +17,7 @@ import {
   updateSavedStateInRecipePages,
 } from '../lib/recipeCache';
 import { getApiErrorMessage } from '../lib/apiErrorMessage';
+import { importInboxRequest, type ImportInboxEntry } from '../lib/importInbox';
 import {
   hasDiscoverSearchRequestFilters,
   normalizeDiscoverSearchQuery,
@@ -660,6 +661,7 @@ export function useAsyncExtractionController() {
 
   const restoreJob = useCallback((status: JobStatus) => {
     if (canRetryStart) return;
+    if (currentJobIdRef.current !== status.id) setRequestKey(null);
     currentJobIdRef.current = status.id;
     setJobKind(status.job_kind || 'extract');
     setJobStatus(status);
@@ -791,7 +793,8 @@ export function useAsyncExtractionController() {
   }, [clearActiveJob, invalidateCompletedRecipe, queryClient, saveActiveJob, startPolling]);
 
   const retryPendingStart = useCallback(async () => {
-    if (!durableUserId) return;
+    if (!durableUserId || startingRef.current) return;
+    startingRef.current = true;
     const identityEpoch = identityEpochRef.current;
     const isCurrentOwner = () => controllerMountedRef.current && identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId;
     try {
@@ -811,8 +814,57 @@ export function useAsyncExtractionController() {
       await beginStoredRequest(storedJob, identityEpoch);
     } catch {
       // beginStoredRequest already preserves the pending key and friendly error.
+    } finally {
+      if (isCurrentOwner()) startingRef.current = false;
     }
   }, [beginStoredRequest, durableUserId, startPolling]);
+
+  /** Repair a claim/receipt crash gap locally. Only Reconnect may replay its key. */
+  const recoverImport = async (entry: ImportInboxEntry) => {
+    const identityEpoch = identityEpochRef.current;
+    const assertCurrentOwner = () => {
+      if (!controllerMountedRef.current || identityEpoch !== identityEpochRef.current ||
+          !durableUserId || entry.ownerId !== durableUserId || currentOwnerRef.current !== durableUserId) {
+        throw new Error('Your account changed. Reopen this import in its original account.');
+      }
+    };
+    assertCurrentOwner();
+    if (!hasHydratedStoredJob || isPolling || isStarting || startingRef.current || canRetryStart) {
+      throw new Error('Reconnect or finish the current import before recovering another.');
+    }
+    if (entry.state === 'accepted' || !(entry.submissionClaimed || entry.state === 'submitting') ||
+        entry.capture.kind !== 'url') throw new Error('This import is not awaiting confirmation.');
+    startingRef.current = true;
+    const storedJob: StoredExtractionJob = {
+      userId: entry.ownerId!, jobId: entry.jobId ?? null, idempotencyKey: `share:${entry.id}`,
+      startTime: entry.createdAt, request: { kind: 'extract', payload: importInboxRequest(entry) },
+    };
+    try {
+      // Unlike a confirmed server job, this pointer must be durable before the
+      // controller offers Reconnect. The claimed inbox remains the fallback.
+      await AsyncStorage.setItem(activeJobKey(storedJob.userId), JSON.stringify(storedJob));
+      assertCurrentOwner();
+      stopPollingTimers();
+      currentJobIdRef.current = null;
+      setJobId(null);
+      setJobStatus(null);
+      setJobKind('extract');
+      setRequestKey(storedJob.idempotencyKey);
+      setConnectionNotice(null);
+      if (storedJob.jobId) {
+        setCanRetryStart(false);
+        setTerminalState(null);
+        setError(null);
+        startPolling(storedJob.jobId, storedJob.startTime);
+      } else {
+        setCanRetryStart(true);
+        setTerminalState('failed');
+        setError('The app did not receive the job confirmation. Reconnect to safely check the same request.');
+      }
+    } finally {
+      if (identityEpoch === identityEpochRef.current && currentOwnerRef.current === durableUserId) startingRef.current = false;
+    }
+  };
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -1108,6 +1160,7 @@ export function useAsyncExtractionController() {
     startExtraction,
     startReExtraction,
     retryPendingStart,
+    recoverImport,
     saveSourceDraft,
     reset,
     cancel,
