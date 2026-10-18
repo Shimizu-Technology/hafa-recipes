@@ -311,7 +311,7 @@ export default function ImportReview() {
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
       await cache.invalidateQueries({ queryKey: [owner, "imports"] });
       await q.refetch();
-      if (dismiss) { current(); router.replace("/(tabs)/library"); }
+      if (dismiss) { current(); router.replace("/(tabs)/extract"); }
     } catch (e) {
       if (isCurrent()) setError((e as Error).message);
     } finally {
@@ -339,14 +339,14 @@ export default function ImportReview() {
   const usageLimitReached = result?.error_code === "workouts_ai_budget_exceeded";
   const reviewMessage = usageLimitReached
     ? savedId
-      ? `AI importing has reached its usage limit. Your workout is saved. ${reviewAction}`
-      : "AI importing has reached its usage limit. Your source stays saved. Try again later, or add the exercises manually."
-    : result?.error_code === "workouts_ai_budget_unavailable"
+      ? `AI importing is temporarily paused. Your workout is saved. ${reviewAction}`
+      : "AI importing is temporarily paused. Your source stays saved. Try again later, or add the exercises manually."
+    : !!result?.error_code
       ? savedId
         ? `We couldn’t finish checking this source. Your workout is saved. ${reviewAction}`
-        : "We couldn’t finish checking this source. Your draft is saved. Try again later, or correct the details before saving."
+        : "We couldn’t finish checking this source. Your source stays saved. Try again later, or add the exercises manually."
       : q.data?.status === "incomplete"
-        ? `We couldn’t confirm all workout details. ${reviewAction}`
+        ? hasExercises ? `We couldn’t confirm all workout details. ${reviewAction}` : "No exercises were extracted. Check the source, retry with instructions, or add exercises manually."
         : result?.warnings.length
           ? `Some workout details may need checking. ${reviewAction}`
           : null;
@@ -378,7 +378,7 @@ export default function ImportReview() {
   const savedDraft = savedId && q.data?.status === "incomplete";
   return (
     <Screen back title={savedDraft ? "Draft saved." : savedId ? "Workout saved." : "Your workout."}
-      subtitle={savedDraft ? "Saved privately in your library. Check the missing details before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : "Your source becomes a workout you can use."}
+      subtitle={savedDraft ? "Saved privately in your library. Review the workout before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : q.data && ["queued", "processing"].includes(q.data.status) ? "Reading your source. You can leave and check back in Extract." : "Check the result and choose your next step."}
       footer={!!error && <>
         <Notice error>{error}</Notice>
         {q.data?.replace_target && attemptedUpdate !== null && hasExercises && !editing && !savedId && <Button
@@ -417,13 +417,13 @@ export default function ImportReview() {
                 ? "This import expired"
                 : q.data.status === "cancelled"
                   ? "Import cancelled"
-                  : "Could not read this source"
+                  : usageLimitReached ? "AI importing temporarily paused" : result?.error_code ? "Processing did not finish" : "No workout extracted"
             }
             description={q.data.status === "cancelled"
               ? "This import was cleared and its source is no longer available here. Your library shows the workouts you’ve kept."
               : q.data.status === "expired"
                 ? "This temporary source expired. Any workout you saved remains in your library."
-                : "We couldn’t read a usable workout from this source. Try clearer instructions or screenshots, or write it yourself."}
+                : result?.error_code ? "Your source is still available for retry. Try again later or add the exercises manually." : "We couldn’t read a usable workout from this source. Try clearer instructions or screenshots, or write it yourself."}
             action={<><Button title="Try another source" secondary onPress={() => router.push("/capture")} />
               <Button title="Write workout manually" secondary onPress={() => router.push("/add-workout")} /></>}
           />

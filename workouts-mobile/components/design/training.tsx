@@ -283,6 +283,7 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
 export const tabIcons = {
   index: ["sunny", "sunny-outline"],
   discover: ["compass", "compass-outline"],
+  extract: ["sparkles", "sparkles-outline"],
   library: ["albums", "albums-outline"],
   plan: ["calendar", "calendar-outline"],
   progress: ["stats-chart", "stats-chart-outline"],

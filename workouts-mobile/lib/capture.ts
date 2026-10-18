@@ -119,7 +119,7 @@ export interface Capabilities {
   discover?: boolean;
   /** Explicit server readiness for registered custom covers (migration048). */
   cover_upload?: boolean;
-  limits: { successful_or_pending_imports_per_rolling_day: number; coach_messages_per_rolling_day: number };
+  limits: { successful_or_pending_imports_per_rolling_day: number; imports_unlimited?: boolean; coach_messages_per_rolling_day: number };
   billing_active: boolean;
 }
 export function captureErrors(draft: CaptureDraft): string[] {

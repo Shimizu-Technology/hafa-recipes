@@ -55,3 +55,10 @@ it("rejects unrelated origins/schemes, credentials, control characters and ambig
     "/invalid-link"
   );
 });
+
+
+it("accepts the dedicated Extract destination and preserves capture share links", () => {
+  expect(incomingNativePath("hafaworkouts://extract")).toBe("/extract");
+  expect(incomingNativePath("/(tabs)/extract")).toBe("/(tabs)/extract");
+  expect(incomingNativePath("hafaworkouts://capture?shared=1&request_id=source-request")).toBe("/capture?shared=1&request_id=source-request");
+});

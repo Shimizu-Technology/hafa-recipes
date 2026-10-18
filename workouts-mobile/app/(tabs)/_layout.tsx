@@ -3,7 +3,7 @@ import type { ColorValue } from "react-native";
 import { TabIcon, useColors } from "@/components/ui";
 import { fonts } from "@/constants/theme";
 
-// Tab order: Today · Discover · Library · Plan · Progress.
+// Today remains a deep-linkable child of Plan; five destinations stay visible.
 export default function Layout() {
   const c = useColors();
   const tab = (title: string, route: Parameters<typeof TabIcon>[0]["route"]) => ({
@@ -24,8 +24,9 @@ export default function Layout() {
         sceneStyle: { backgroundColor: c.background },
       }}
     >
-      <Tabs.Screen name="index" options={tab("Today", "index")} />
+      <Tabs.Screen name="index" options={{ href: null }} />
       <Tabs.Screen name="discover" options={tab("Discover", "discover")} />
+      <Tabs.Screen name="extract" options={tab("Extract", "extract")} />
       <Tabs.Screen name="library" options={tab("Library", "library")} />
       <Tabs.Screen name="plan" options={tab("Plan", "plan")} />
       <Tabs.Screen name="progress" options={tab("Progress", "progress")} />

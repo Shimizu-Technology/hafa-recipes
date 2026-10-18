@@ -166,7 +166,9 @@ vi.mock("@/lib/capture-io", () => ({
   cleanupCaptureFiles: fixture.cleanup, recoverCaptureCleanup: fixture.recoverCleanup,
   sourceFor: fixture.sourceFor
 }));
+vi.mock("@/components/import-list", () => ({ ImportList: "ImportList" }));
 vi.mock("expo-router", () => ({
+  Redirect: "Redirect",
   router: { push: fixture.push, replace: fixture.replace, dismissTo: fixture.dismissTo },
   useFocusEffect(callback: () => void | (() => void)) {
     useLayoutEffect(() => {
@@ -230,7 +232,7 @@ vi.mock("expo-share-intent", () => ({
 import { ShareCapture } from "../components/share-capture";
 import ImportReview from "../app/import/[id]";
 import RecoverWorkout from "../app/recover-workout/[id]";
-import Capture from "../app/capture";
+import Capture from "../app/(tabs)/extract";
 import AddWorkout from "../app/add-workout";
 import WorkoutCover from "../app/workout-cover/[id]";
 import Profile from "../app/profile";
@@ -2536,7 +2538,7 @@ it.each(["caption cleanup", "navigation"])("reopens an acknowledged retry after 
   expect(fixture.replace).toHaveBeenLastCalledWith({ pathname: "/import/[id]", params: { id: "existing-retry" } });
 });
 
-it("explains a usage limit without blaming an available source caption", async () => {
+it("explains paused importing without blaming an available source caption", async () => {
   fixture.params = { id: "limit-job" };
   fixture.importJob.mockResolvedValue({ id: "limit-job", generation: 1, status: "incomplete", result: {
     error_code: "workouts_ai_budget_exceeded", workout: { ...workout, blocks: [] },
@@ -2544,7 +2546,7 @@ it("explains a usage limit without blaming an available source caption", async (
   } });
   await mount(ImportReview);
   const view = JSON.stringify(renderer!.toJSON());
-  expect(view).toContain("usage limit"); expect(view).not.toContain("Source extraction could not finish");
+  expect(view).toContain("temporarily paused"); expect(view).not.toContain("Source extraction could not finish");
   expect(button("Add exercises manually")).toBeDefined();
   expect(nodes("Button").some(node => node.props.title === "Save workout")).toBe(false);
 });
@@ -3000,4 +3002,45 @@ it("failed quiet confirmation keeps photo selection retryable without requesting
   expect(fixture.pickImages).not.toHaveBeenCalled(); expect(button("Attach a photo").props.disabled).toBe(false);
   expect(nodes("Notice").some(node => String(node.props.children).includes("Could not confirm speech stopped"))).toBe(true);
   await act(async () => button("Attach a photo").props.onPress()); await settle(); expect(fixture.pickImages).toHaveBeenCalledOnce();
+});
+
+
+it("keeps Extract input and its unfinished hub together without clearing a draft when toggled", async () => {
+  await mount(Capture);
+  await act(async () => nodes("Field").find(node => node.props.label === "Source link")!.props.onChange("https://example.test/keep-this-source"));
+  expect(nodes("ImportList")).toHaveLength(1);
+  await click("Hide unfinished imports");
+  expect(nodes("ImportList")).toHaveLength(0);
+  expect(nodes("Field").find(node => node.props.label === "Source link")!.props.value).toBe("https://example.test/keep-this-source");
+  await click("View processing and unfinished imports");
+  expect(nodes("ImportList")).toHaveLength(1);
+});
+
+it("forwards legacy capture links and native share parameters into Extract", async () => {
+  const { default: CaptureLink } = await import("../app/capture");
+  fixture.params = { shared: "1", request_id: "source-request" };
+  await mount(CaptureLink);
+  expect(nodes("Redirect")[0].props.href).toEqual({ pathname: "/(tabs)/extract", params: fixture.params });
+  expect(fixture.startImport).not.toHaveBeenCalled();
+});
+
+it("collapses an unavailable source image and restores the viewer for a different source", async () => {
+  const { SourceImage } = await vi.importActual<typeof import("../components/source-image")>("../components/source-image");
+  await mount(() => createElement(SourceImage, { uri: "https://example.test/broken.webp", label: "Source" }));
+  await act(async () => nodes("Image")[0].props.onError());
+  expect(nodes("Image")).toHaveLength(0);
+  expect(nodes("Pressable")).toHaveLength(0);
+  expect(JSON.stringify(renderer!.toJSON())).toContain("This image is unavailable");
+  await act(async () => renderer!.update(createElement(SourceImage, { uri: "https://example.test/new.webp", label: "New source" })));
+  expect(nodes("Pressable")).toHaveLength(1);
+});
+
+
+it.each([undefined, false, true])("hides the numeric allowance only for server-reported unlimited imports (%s)", async unlimited => {
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, limits: { successful_or_pending_imports_per_rolling_day: 100, imports_unlimited: unlimited } });
+  await mount(Capture);
+  const view = JSON.stringify(renderer!.toJSON());
+  expect(view.includes("pending imports in each rolling day")).toBe(unlimited !== true);
+  expect(view).not.toContain("Free beta");
+  if (!unlimited) expect(view).toContain("100");
 });

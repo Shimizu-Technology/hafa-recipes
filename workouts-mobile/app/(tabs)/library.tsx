@@ -1,4 +1,3 @@
-import { ImportList } from "@/components/import-list";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -170,7 +169,7 @@ export default function Library() {
           onPress={() => setFilters(true)}
         />
       </ChipRow>
-      <ImportList />
+      <ListRow icon="sparkles-outline" title="Extract a workout" detail="Add a source or check unfinished imports" onPress={() => router.push("/(tabs)/extract")} />
       <QueryState
         loading={false}
         error={q.error}
