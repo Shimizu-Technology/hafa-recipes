@@ -963,9 +963,13 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
             negation_prefix = re.sub(
                 r"\b(?:exactly|only|just|even|necessarily|ever|always|longer)\s+", "", prefix, flags=re.I,
             )
+            # Neither endpoint of "1 or 2 sets" is a definite prescription.
+            # Bind alternatives to this count, not an earlier sentence.
             if (not _side_count_negated(negation_prefix, len(negation_prefix))
-                    and not re.search(r"[x×]\s*$", wording[:match.start()], re.I)
-                    and not re.search(r"\d\s*(?:[-–]|\bto\b)\s*$", wording[:match.start()], re.I)):
+                    and not re.search(r"[x×]\s*$", prefix, re.I)
+                    and not re.search(r"\d\s*(?:[-–]|\bto\b)\s*$", prefix, re.I)
+                    and not re.search(r"\d\s*(?:sets?\s*)?\bor\s*$", prefix, re.I)
+                    and not re.match(r"\s*or\b\s*(?:[x×]\s*)?\d", wording[match.end():], re.I)):
                 return True
         return False
     if field_name == "rounds":
