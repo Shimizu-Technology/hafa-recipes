@@ -21,8 +21,10 @@ from app.domains.workouts.extraction import (
 )
 from app.domains.workouts.import_usage_service import (
     charge_usable_import,
+    enforce_attempt_allowance,
     enforce_import_allowance,
     purge_import_usage,
+    unlimited_imports,
 )
 from app.domains.workouts.lifecycle import lock_owner, membership_for, now
 from app.domains.workouts.models import WorkoutsConsent
@@ -30,7 +32,7 @@ from app.domains.workouts.router import content_digest
 
 TERMINAL = {"ready", "incomplete", "failed", "cancelled", "expired"}
 RETRYABLE = {"source_or_provider_unavailable", "source_or_provider_timeout"}
-MAX_IMPORTS_PER_DAY = 15
+MAX_IMPORTS_PER_DAY = 100
 MAX_IMPORT_ATTEMPTS = 3
 
 
@@ -45,7 +47,7 @@ async def require_ai_consent(db, user_id, generation, *, expected=None):
 
 async def create_import(
     db, user_id, generation, request_id, request, *, auto_save=False, is_public=False,
-    display_name="Håfa member", replace_target=None,
+    display_name="Håfa member", replace_target=None, is_admin=False,
 ):
     await membership_for(db, user_id, generation=generation, write=True)
     consent = await require_ai_consent(db, user_id, generation)
@@ -76,7 +78,33 @@ async def create_import(
         target = await owned_record(db, WorkoutRecord, replace_target["workout_id"], user_id, generation)
         if target.revision != replace_target["expected_revision"]:
             raise HTTPException(409, "Workout changed; reload before extracting again")
-    await enforce_import_allowance(db, user_id, generation, request_id, limit=MAX_IMPORTS_PER_DAY)
+    unlimited = unlimited_imports(user_id, is_admin=is_admin)
+    await enforce_import_allowance(
+        db, user_id, generation, request_id, limit=MAX_IMPORTS_PER_DAY, unlimited=unlimited
+    )
+    if not unlimited:
+        await enforce_attempt_allowance(db, user_id)
+        # Preserve durable sharing protection across workers/restarts and apply
+        # it equally to foreground imports, including unsuccessful attempts.
+        recent = await db.scalar(select(func.count()).select_from(WorkoutImport).where(
+            WorkoutImport.app_user_id == user_id,
+            WorkoutImport.created_at >= now() - timedelta(hours=1),
+        ))
+        if recent >= 30:
+            raise HTTPException(429, "Import limit reached; try again later",
+                                headers={"Retry-After": "3600"})
+        from app.rate_limit import QuotaWindow, RateLimitExceeded, ai_rate_limiter
+
+        try:
+            await ai_rate_limiter.consume_quota(
+                user_id=user_id, capability="workout_import",
+                windows=(QuotaWindow(seconds=3600, limit=30), QuotaWindow(seconds=86400, limit=100)),
+            )
+        except RateLimitExceeded as exc:
+            raise HTTPException(
+                429, "You have imported many workouts recently; please try again later",
+                headers={"Retry-After": str(exc.retry_after)},
+            ) from None
     row = WorkoutImport(
         id=uuid4(),
         app_user_id=user_id,

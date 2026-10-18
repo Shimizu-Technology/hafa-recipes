@@ -1,5 +1,25 @@
 # Durable Workouts AI admission budget
 
+## Normal application policy (2026-10-18)
+
+`WORKOUTS_AI_BUDGET_ENFORCED` defaults to `false`. Normal imports, transcription
+and coaching validate provider envelopes and retain AI invocation usage/outcome
+accounting, without reserving the historical shared $5 evaluation allocation.
+Transcription outcomes are recorded; exact audio billing remains unknown when
+the provider supplies no usage. Historical admission rows remain unchanged and
+do not restrict normal use. Admin diagnostics explicitly report this mode.
+
+Set the flag to `true` only for an evaluation that deliberately needs the legacy
+allocation below. Its authority, pricing and conservative reservation requirements
+then apply unchanged, including indefinite unresolved holds and fallback limits.
+
+Public imports have 30/hour and 100/day attempt protection, plus 100 successful
+or pending imports per rolling day. Verified admins and server-configured named
+testers are exempt from import counts, including native shares for named testers.
+Replay checks, expired success receipts, account ownership, AI consent, provider
+flags and media limits apply to every user. No admission rows are reset or refunded.
+
+
 The original ledger slice started at `4e1065b`. Provider integration followed;
 the October 11 hardening adds explicit authority configuration, conservative
 carryover and shutdown cleanup. Recipes paid-provider controls remain unchanged.
@@ -87,8 +107,9 @@ admission capacity. The provider's billing records remain the invoice authority.
 ## Root integration contract
 
 Add settings `workouts_ai_budget_24h_microusd:int=0` and
-`workouts_ai_max_attempt_microusd:int=5000000`. Zero daily budget is unconfigured:
+`workouts_ai_max_attempt_microusd:int=5000000`. When `WORKOUTS_AI_BUDGET_ENFORCED=true`, zero daily budget is unconfigured:
 no live Workouts provider can run, and admission performs no database connection.
+Normal mode does not use this allocation and remains available with a zero budget.
 Disabled master API likewise performs no connection. This must not invalidate
 Recipes startup or change its paid-provider controls.
 

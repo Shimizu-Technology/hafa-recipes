@@ -186,19 +186,6 @@ async def submit(request: CaptureRequest, db: Database, credential: Credential):
             WorkoutImport.request_id == request.capture_id,
         )
     )
-    if existing is None:
-        recent = await db.scalar(
-            select(func.count())
-            .select_from(WorkoutImport)
-            .where(
-                WorkoutImport.app_user_id == credential.app_user_id,
-                WorkoutImport.created_at >= now() - timedelta(hours=1),
-            )
-        )
-        if recent >= 30:
-            raise HTTPException(
-                429, "Sharing limit reached; try later", headers={"Retry-After": "3600"}
-            )
     row = await create_import(
         db,
         credential.app_user_id,

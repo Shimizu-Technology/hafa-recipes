@@ -525,9 +525,10 @@ async def test_audio_failure_or_cancellation_never_refunds(
     assert Tracker.attempts[0].status in {"cancelled", "transcription_failed"}
 
 
-async def test_default_unconfigured_guard_prevents_http_without_database(
+async def test_opt_in_unconfigured_guard_prevents_http_without_database(
     provider_environment, monkeypatch
 ):
+    provider_environment.workouts_ai_budget_enforced = True
     calls = install_http(monkeypatch)
     with pytest.raises(ExtractionFailure, match="workouts_ai_budget_unconfigured"):
         await ProductionExtractionProvider(development_api_key="fake").extract(source())
@@ -660,3 +661,41 @@ async def test_remote_coach_stop_closes_http_context_and_retains_admitted_budget
     assert closed.is_set()
     assert len(budget.reservations) == 1 and budget.outcomes == ["cancelled"]
     assert Tracker.attempts[0].status == "cancelled"
+
+
+async def test_normal_provider_calls_are_not_blocked_by_legacy_allocation(provider_environment, monkeypatch):
+    # No authority connection or admission rows: defaults still validate the
+    # transport, and the tracker records every success/failure as before.
+    calls = install_http(monkeypatch)
+    provider = ProductionExtractionProvider(development_api_key="fake")
+    for _ in range(12):
+        await provider.extract(source())
+    assert len(calls) == 12
+    assert all(attempt.status == "success" for attempt in Tracker.attempts)
+
+
+async def test_normal_provider_can_dispatch_terra_without_beta_attempt_cap(provider_environment, monkeypatch):
+    Tracker.selected_model = "gpt-5.6-terra"
+    calls = install_http(monkeypatch)
+    await ProductionExtractionProvider(development_api_key="fake").extract(source())
+    assert len(calls) == 1
+    assert Tracker.attempts[0].model == "gpt-5.6-terra"
+    assert Tracker.attempts[0].status == "success"
+
+
+async def test_normal_coach_dispatch_without_legacy_authority(provider_environment, monkeypatch):
+    calls = install_http(monkeypatch, values=[coach_response()])
+    await ProductionCoachProvider(development_api_key="fake").respond([], tools=[])
+    assert len(calls) == 1 and Tracker.attempts[-1].status == "success"
+
+
+async def test_normal_transcription_dispatch_without_legacy_authority(provider_environment, monkeypatch, tmp_path):
+    async def probe(_):
+        return 61.1
+
+    monkeypatch.setattr(video_service, "_get_media_duration", probe)
+    _, calls = install_audio(monkeypatch)
+    path = tmp_path / "bounded.mp3"
+    path.write_bytes(b"synthetic audio")
+    text = await ProductionExtractionProvider(development_api_key="fake").transcribe(str(path))
+    assert text and len(calls) == 1 and Tracker.attempts[-1].status == "success"

@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.domains.workouts.automation_models import WorkoutImport, WorkoutProposal, WorkoutReadiness
+from app.domains.workouts.budget import budget_ready
 from app.domains.workouts.discover import discover_ready, require_discover, set_publication
 from app.domains.workouts.extraction import (
     IMPORT_STAGES,
@@ -18,6 +19,7 @@ from app.domains.workouts.extraction import (
     ImportStage,
     WorkoutExtractionResult,
 )
+from app.domains.workouts.import_usage_service import unlimited_imports
 from app.domains.workouts.imports import (
     MAX_IMPORT_ATTEMPTS,
     MAX_IMPORTS_PER_DAY,
@@ -88,13 +90,11 @@ async def capabilities(user: User, db: Database):
         "coach_cancellation": True,
         "coach_streaming": True,
         "imports": configured.workouts_imports_enabled
-        and configured.workouts_ai_budget_24h_microusd > 0
-        and bool(configured.workouts_ai_budget_database_url)
+        and budget_ready(configured)
         and configured.workouts_ai_enabled
         and configured.is_ai_capability_enabled("workout_extraction"),
         "coach": configured.workouts_ai_enabled
-        and configured.workouts_ai_budget_24h_microusd > 0
-        and bool(configured.workouts_ai_budget_database_url)
+        and budget_ready(configured)
         and configured.is_ai_capability_enabled("workout_coach"),
         "coach_images": configured.workouts_ai_enabled
         and configured.is_ai_capability_enabled("workout_coach") and await available(db),
@@ -102,6 +102,7 @@ async def capabilities(user: User, db: Database):
         "discover": await discover_ready(db),
         "limits": {
             "successful_or_pending_imports_per_rolling_day": MAX_IMPORTS_PER_DAY,
+            "imports_unlimited": unlimited_imports(user.id, is_admin=user.is_admin),
             "coach_messages_per_rolling_day": 50,
         },
         "billing_active": False,
@@ -210,6 +211,7 @@ async def import_source(request: ImportRequest, user: User, db: Database, genera
     row = await create_import(
         db, user.id, generation, request.request_id, request.source,
         auto_save=request.auto_save, is_public=request.is_public, display_name=user.display_name,
+        is_admin=user.is_admin,
         replace_target=request.replace_target.model_dump(mode="json") if request.replace_target else None,
     )
     workout_import_worker.notify()

@@ -133,8 +133,11 @@ def positive_rate(value):
     return number
 
 
-def admission_upper_bound(capability, model, envelope, policy):
-    validate_policy(policy)
+def admission_upper_bound(capability, model, envelope, policy, *, enforce_limits=True):
+    if enforce_limits:
+        validate_policy(policy)
+    elif not policy.enabled:
+        raise BudgetError("workouts_ai_budget_disabled")
     if type(capability) is not str or capability not in CAPABILITIES:
         raise BudgetError("workouts_ai_capability_unsupported")
     if type(model) is not str:
@@ -210,9 +213,9 @@ def admission_upper_bound(capability, model, envelope, policy):
                 MODEL_INPUT_UPPER_BOUND * input_upper_rate + output * output_upper_rate
             ).to_integral_value(rounding=ROUND_CEILING)
         )
-    if amount > policy.max_attempt_microusd:
+    if enforce_limits and amount > policy.max_attempt_microusd:
         raise BudgetError("workouts_ai_attempt_cap_exceeded")
-    if amount > policy.budget_24h_microusd:
+    if enforce_limits and amount > policy.budget_24h_microusd:
         raise BudgetError("workouts_ai_budget_exceeded", retry_after_seconds=None)
     return amount
 
@@ -518,3 +521,40 @@ async def verify_budget_connection(connection):
         AND tgenabled IN ('O','A') AND NOT tgisinternal)""")
     ):
         raise RuntimeError("Workouts AI admission immutability trigger is missing")
+
+
+def budget_ready(settings):
+    """The optional evaluation allocation must not hide normal app features."""
+    return not settings.workouts_ai_budget_enforced or bool(
+        settings.workouts_ai_budget_24h_microusd > 0
+        and settings.workouts_ai_budget_database_url
+    )
+
+
+class UsageOnlyGuard:
+    """Validate provider envelopes; AIInvocationTracker records actual usage.
+
+    No legacy admission receipt is created, refunded or modified in this mode.
+    Old failed reservations therefore cannot block normal application use.
+    """
+
+    def __init__(self, policy):
+        self.policy = policy
+
+    def attempt(self, *, capability, model, envelope):
+        return BudgetAttempt(self, capability, model, envelope)
+
+    async def reserve(self, capability, model, envelope):
+        amount = admission_upper_bound(
+            capability, model, envelope, self.policy, enforce_limits=False
+        )
+        return uuid4(), amount
+
+    async def finish(self, identifier, outcome, estimated_cost):
+        # Provider usage/outcomes are recorded by the surrounding invocation tracker.
+        pass
+
+
+def provider_budget(settings):
+    policy = BudgetPolicy.from_settings(settings)
+    return BudgetGuard(policy) if settings.workouts_ai_budget_enforced else UsageOnlyGuard(policy)

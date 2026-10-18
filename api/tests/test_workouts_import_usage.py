@@ -36,7 +36,10 @@ pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="Disposable TEST_DATABA
 
 
 @pytest.fixture
-async def usage_api(automation_api):
+async def usage_api(automation_api, monkeypatch):
+    from app.domains.workouts import imports
+
+    monkeypatch.setattr(imports, "MAX_IMPORTS_PER_DAY", 15)
     await migration.run_migration(configured=settings(), migration_engine=automation_api.engine)
     await consent(automation_api)
     return automation_api
@@ -454,3 +457,64 @@ async def test_migration_does_not_charge_bookmark_only_draft(automation_api):
     assert await api.worker.tick()
     await migration.run_migration(configured=settings(), migration_engine=api.engine)
     assert await count_receipts(api) == 0
+
+
+async def test_named_tester_imports_are_unlimited_but_replay_stays_safe(usage_api, monkeypatch):
+    from app.domains.workouts import imports
+
+    monkeypatch.setattr(usage, "get_settings", lambda: settings(workouts_tester_user_ids="owner"))
+    await seed_receipts(usage_api, 100)
+    first = await enqueue(usage_api)
+    assert first.status_code == 202
+    for _ in range(35):
+        assert (await enqueue(usage_api)).status_code == 202
+    async with usage_api.sessions() as db:
+        row = await db.get(WorkoutImport, UUID(first.json()["id"]))
+        replay = await imports.create_import(db, "owner", 1, row.request_id,
+            ExtractionRequest(kind="text", text=TEXT, ai_consent=True))
+        assert str(replay.id) == first.json()["id"]
+    # Unlimited changes allowance only; retained success identities stay fenced.
+    identifier = (await seed_receipts(usage_api, 1))[0]
+    assert (await enqueue(usage_api, identifier)).status_code == 410
+
+
+async def test_verified_admin_bypasses_count_limits(usage_api):
+    await seed_receipts(usage_api, 100)
+    async with usage_api.sessions() as db:
+        job = await create_import(db, "owner", 1, uuid4(),
+            ExtractionRequest(kind="text", text=TEXT, ai_consent=True), is_admin=True)
+        assert job.status == "queued"
+
+
+async def test_failed_imports_cannot_bypass_attempt_throttle(usage_api, monkeypatch):
+    from app.domains.workouts import imports
+
+    monkeypatch.setattr(imports, "MAX_IMPORTS_PER_DAY", 100)
+    for _ in range(30):
+        response = await enqueue(usage_api)
+        assert response.status_code == 202
+        async with usage_api.sessions() as db:
+            row = await db.get(WorkoutImport, UUID(response.json()["id"]))
+            row.status = "failed"
+            await db.commit()
+    response = await enqueue(usage_api)
+    assert response.status_code == 429 and response.headers["retry-after"]
+
+
+async def test_production_daily_attempt_boundary_survives_process_counter_reset(usage_api, monkeypatch):
+    from app.domains.workouts import imports
+    from app.rate_limit import ai_rate_limiter
+
+    monkeypatch.setattr(imports, "MAX_IMPORTS_PER_DAY", 100)
+    # Older failed jobs consume no success allowance and no current hourly slot.
+    async with usage_api.sessions() as db:
+        for _ in range(99):
+            db.add(WorkoutImport(id=uuid4(), app_user_id="owner", generation=1,
+                request_id=uuid4(), request_hash="a" * 64, status="failed", attempt_count=1,
+                ai_accepted_at=now()-timedelta(hours=2), created_at=now()-timedelta(hours=2), expires_at=now()+timedelta(hours=22)))
+        await db.commit()
+    hundredth = await enqueue(usage_api)
+    assert hundredth.status_code == 202
+    ai_rate_limiter.reset()  # Another process/restart has no memory of admissions.
+    rejected = await enqueue(usage_api)
+    assert rejected.status_code == 429 and rejected.headers["retry-after"]

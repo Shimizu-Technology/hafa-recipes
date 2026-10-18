@@ -1717,7 +1717,8 @@ def test_every_explicit_dose_is_checked_after_headings_and_across_separators(sep
 
 
 @pytest.mark.parametrize("quote", ["whole_line", "movement", "side_count"])
-@pytest.mark.parametrize("side_count", ["5 each side", "5 reps each side", "5 repetitions per arm"])
+@pytest.mark.parametrize("side_count", ["5 each side", "5 per side", "5/side", "5 / side",
+                                      "5 reps each side", "5 repetitions per arm"])
 @pytest.mark.parametrize("squat_reps,squat_side,row_reps,row_side", [
     (10, False, 10, True), (10, True, 5, True), (5, True, 10, False)])
 def test_combined_caption_side_count_belongs_only_to_its_own_movement(
@@ -1742,7 +1743,8 @@ def test_combined_caption_side_count_belongs_only_to_its_own_movement(
 
 
 @pytest.mark.parametrize("reps,per_side", [(10, False), (5, True)])
-@pytest.mark.parametrize("side_count", ["5 each side", "5 reps each side", "5 repetitions per arm"])
+@pytest.mark.parametrize("side_count", ["5 each side", "5 per side", "5/side", "5 / side",
+                                      "5 reps each side", "5 repetitions per arm"])
 @pytest.mark.parametrize("negation", ["not", "never", "instead of", "rather than", "do not do"])
 def test_negated_side_counts_do_not_become_source_prescription(reps, per_side, side_count, negation):
     caption = f"10x Squat total reps ({negation} {side_count})"
@@ -2432,6 +2434,65 @@ def test_reused_name_quote_declines_excessive_whitespace_without_changing_the_so
     workout, _, _ = ground_workout(raw, source)
     assert workout.blocks[0].exercises[0].reps_min is None
     assert source.parts[0].text == quote
+
+
+@pytest.mark.parametrize("side_count", ["5/side", "5 / side", "5 per side", "5 each side"])
+@pytest.mark.parametrize("candidate", [5, 10])
+@pytest.mark.parametrize("quote_kind", ["full", "side", "name_only"])
+def test_rows_explicit_side_count_preserves_dose_and_original_evidence(side_count, candidate, quote_kind):
+    row = f"10 Rows ({side_count})"
+    caption = ("Every 3 Minutes × 8 Rounds\n10 Kettlebell Swings\n10 Thrusters\n"
+               f"{row}\n10 Burpees\nRest the remainder of the 3-minute window")
+    quote = side_count if quote_kind == "side" else row
+    entries = [evidence("name", row)]
+    if quote_kind != "name_only":
+        entries += [evidence(field, quote) for field in ("reps_min", "reps_max", "per_side")]
+    raw = {"title": "Circuit", "blocks": [{"id": "main", "label": "Circuit", "grouping": "interval",
+        "rounds": 8, "evidence": [evidence("rounds", "Every 3 Minutes × 8 Rounds")],
+        "exercises": [{"name": "Rows", "reps_min": candidate, "reps_max": candidate,
+                       "per_side": True, "evidence": entries}]}]}
+    source = SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)])
+    workout, warnings, _ = ground_workout(raw, source)
+    item = workout.blocks[0].exercises[0]
+    # The whole movement row supplies both the total and the explicit side
+    # count, including when the model quoted only the side qualifier.
+    assert (item.reps_min, item.reps_max, item.per_side) == (5, 5, True)
+    assert workout.blocks[0].rounds == 8
+    assert workout.blocks[0].grouping == "interval"
+    assert all(entry in [value.model_dump() for value in item.evidence] for entry in entries)
+    assert source.parts[0].text == caption
+    assert not any("Unsupported per_side" in warning for warning in warnings)
+
+
+@pytest.mark.parametrize("caption,candidate,expected", [
+    ("10 Rows total reps", 10, 10),
+    ("10 Rows (10 total)", 10, 10),
+    ("10 Rows (10 total)", 5, None),
+    ("10 Rows (5/side)", 7, None),
+    ("10 Rows (not 5/side)", 5, None),
+])
+def test_rows_total_or_unsupported_claim_does_not_invent_side_dose(caption, candidate, expected):
+    raw = {"title": "Circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": "Rows", "reps_min": candidate, "reps_max": candidate, "per_side": True,
+         "evidence": [evidence(field, caption) for field in ("name", "reps_min", "reps_max", "per_side")]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    item = workout.blocks[0].exercises[0]
+    assert (item.reps_min, item.reps_max) == (expected, expected)
+    assert item.per_side is (True if caption == "10 Rows (5/side)" else None)
+
+
+@pytest.mark.parametrize("qualifier", ["5/side or 6/side", "5/side or 10 total",
+    "5 or 6/side", "5 per side or 6 per side", "5/side and 6/side"])
+@pytest.mark.parametrize("candidate", [5, 6, 10])
+def test_conflicting_side_counts_cannot_become_a_definite_prescription(qualifier, candidate):
+    caption = f"10 Rows ({qualifier})"
+    raw = {"title": "Circuit", "blocks": [{"id": "main", "label": "Circuit", "exercises": [
+        {"name": "Rows", "reps_min": candidate, "reps_max": candidate, "per_side": True,
+         "evidence": [evidence(field, caption) for field in ("name", "reps_min", "reps_max", "per_side")]}]}]}
+    workout, _, _ = ground_workout(raw, SourceBundle(SourceMetadata(), [SourcePart("provided_text", caption)]))
+    item = workout.blocks[0].exercises[0]
+    assert (item.reps_min, item.reps_max) == ((10, 10) if candidate == 10 else (None, None))
+    assert item.per_side is None
 
 
 @pytest.mark.asyncio

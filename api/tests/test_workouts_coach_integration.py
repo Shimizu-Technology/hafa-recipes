@@ -2372,8 +2372,8 @@ async def test_photo_capability_requires_priced_vision_and_private_schema(coach_
      "workouts_development_ai_api_key": "synthetic-development-key"},
     {"environment": "development", "allow_paid_ai_in_development": True,
      "workouts_development_ai_api_key": None},  # Production key cannot authorize development.
-    {"workouts_ai_budget_database_url": None},
-    {"workouts_ai_budget_24h_microusd": 0},
+    {"workouts_ai_budget_database_url": None, "workouts_ai_budget_enforced": True},
+    {"workouts_ai_budget_24h_microusd": 0, "workouts_ai_budget_enforced": True},
     {"workouts_ai_enabled": False},
     {"ai_disabled_capabilities": "workout_coach"},
 ])

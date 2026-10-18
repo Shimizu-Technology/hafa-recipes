@@ -153,6 +153,7 @@ async def test_operational_capabilities_hide_ai_when_budget_is_zero(
 ):
     configured = settings(workouts_imports_enabled=True, workouts_ai_enabled=True).model_copy(
         update={
+            "workouts_ai_budget_enforced": True,
             "workouts_ai_budget_24h_microusd": budget,
             "workouts_ai_budget_database_url": authority,
         }
@@ -172,6 +173,7 @@ async def test_empty_authority_keeps_operational_ai_capabilities_off(automation_
         workouts_ai_enabled=True,
         workouts_ai_budget_24h_microusd=5_000_000,
         workouts_ai_budget_database_url=authority,
+        workouts_ai_budget_enforced=True,
     )
     assert configured.workouts_ai_budget_database_url is None
     monkeypatch.setattr(automation_router, "get_settings", lambda: configured)
@@ -1819,3 +1821,10 @@ async def test_reextract_keeps_registered_owner_cover_and_original_training_snap
     assert retry.status_code == 200 and retry.json()["revision"] == 3
     original = await api.client.get(f"/api/v1/workouts/sessions/{actual.json()['id']}")
     assert original.json() == actual.json()
+
+
+async def test_normal_capabilities_do_not_require_beta_allocation(automation_api):
+    response = await automation_api.client.get("/api/v1/workouts/capabilities")
+    assert response.status_code == 200
+    assert response.json()["imports"] is True
+    assert response.json()["coach"] is True

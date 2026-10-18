@@ -20,9 +20,12 @@ async def ai_budget_diagnostics(
 ):
     del admin
     try:
-        return await BudgetGuard(BudgetPolicy.from_settings(get_settings())).diagnostics(
-            limit=limit
-        )
+        settings = get_settings()
+        if not settings.workouts_ai_budget_enforced:
+            return {"enforced": False, "accounting": "ai_invocations",
+                    "historical_admissions_preserved": True}
+        result = await BudgetGuard(BudgetPolicy.from_settings(settings)).diagnostics(limit=limit)
+        return {**result, "enforced": True}
     except BudgetError as exc:
         raise HTTPException(exc.status_code, exc.code) from None
     except Exception:
