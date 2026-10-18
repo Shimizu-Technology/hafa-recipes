@@ -174,6 +174,36 @@ export default function Capture() {
       active = false;
     };
   }, [slot, generation]);
+  useEffect(() => {
+    if (!ready || busy || shared !== "1" || !sharedRequest || draftRef.current.request_id === sharedRequest) return;
+    let active = true;
+    void (async () => {
+      // A persistent tab can receive a share after its initial load. Let its
+      // own saves settle before reading the replacement committed by sharing.
+      await writes.current.catch(() => undefined);
+      if (!active) return;
+      currentScope();
+      if (guard.current || pendingWrites.current) return;
+      const prior = saved.current, priorDraft = draftRef.current, priorView = view.current;
+      const next = await slot.load(currentScope);
+      if (!active) return;
+      currentScope();
+      if (guard.current || pendingWrites.current || saved.current !== prior ||
+        draftRef.current !== priorDraft || view.current !== priorView ||
+        next.value?.request_id !== sharedRequest || next.value.generation !== generation) return;
+      slot.assertCurrent(next.revision);
+      saved.current = next;
+      view.current++;
+      draftRef.current = next.value;
+      setDraft(next.value);
+      setSubmittedId(null);
+      setStale(false);
+      setError("");
+    })().catch(() => {
+      // Keep the existing draft and conflict state if the account or slot moved.
+    });
+    return () => { active = false; };
+  }, [slot, generation, shared, sharedRequest, ready, busy]);
   function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url">>) {
     if (guard.current || draftRef.current.pending_import || !readyRef.current || stale) return;
     try {

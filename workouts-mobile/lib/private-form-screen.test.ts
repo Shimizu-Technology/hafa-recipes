@@ -487,6 +487,7 @@ it("a discarded owner render cannot delete files already registered by the commi
 });
 
 it("same-slot compare/save stays serialized through delayed storage and an intentional shared replacement", async () => {
+  fixture.startImport.mockResolvedValue({ id: "delayed-share-job" });
   await mount(overlappingCapture);
   const entered = deferred<void>(),
     held = deferred<void>();
@@ -509,6 +510,11 @@ it("same-slot compare/save stays serialized through delayed storage and an inten
   await settle();
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).source_url).toBe("https://example.test/B");
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/capture", params: { shared: "1", request_id: expect.any(String) } });
+  const incoming = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  fixture.params = fixture.push.mock.calls.find(([route]) => route.pathname === "/capture")![0].params;
+  await rerender(overlappingCapture);
+  expect(fixture.startImport).toHaveBeenCalledExactlyOnceWith(incoming.request_id,
+    expect.objectContaining({ source_url: "https://example.test/B" }), 1);
 });
 
 it("a changed share intent during an acknowledged storage write never deletes its still-registered source", async () => {
@@ -1760,6 +1766,57 @@ it("a shared link with existing consent starts once without a capture confirmati
   expect(fixture.sourceFor.mock.calls[0][0].text).toBe("Original caption");
   expect(fixture.setAiConsent).not.toHaveBeenCalled();
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "shared-job", auto: "1" } });
+});
+it.each([
+  { consent: true, imports: true },
+  { consent: false, imports: true },
+  { consent: true, imports: false }
+])("a mounted Extract loads a newly routed share with consent=$consent and imports=$imports", async ({ consent, imports }) => {
+  fixture.aiConsent.mockResolvedValue({ accepted: consent, disclosure_version: 1 });
+  fixture.capabilities.mockResolvedValue({ imports });
+  fixture.startImport.mockResolvedValue({ id: "warm-share-job" });
+  await mount(overlappingCapture);
+  await act(async () => nodes("Field")[0].props.onChange("https://example.test/original"));
+  await settle();
+  fixture.share = true;
+  fixture.intent = { webUrl: "https://example.test/warm-share", text: "New shared caption", files: [] };
+  await rerender(overlappingCapture);
+  await act(async () => fixture.alert.mock.calls[0][2][1].onPress());
+  await settle();
+  const incoming = JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!);
+  expect(nodes("Field")[0].props.value).toBe("https://example.test/original");
+  fixture.params = fixture.push.mock.calls.find(([route]) => route.pathname === "/capture")![0].params;
+  await rerender(overlappingCapture);
+  if (consent && imports) {
+    expect(fixture.startImport).toHaveBeenCalledExactlyOnceWith(incoming.request_id,
+      expect.objectContaining({ source_url: "https://example.test/warm-share" }), 1);
+    expect(fixture.sourceFor.mock.calls[0][0].text).toBe("New shared caption");
+    expect(fixture.push).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "warm-share-job", auto: "1" } });
+    await rerender(overlappingCapture);
+    expect(fixture.startImport).toHaveBeenCalledTimes(1);
+  } else {
+    expect(nodes("Field")[0].props.value).toBe("https://example.test/warm-share");
+    expect(nodes("Button").some(node => node.props.title === "Load saved source")).toBe(false);
+    expect(fixture.startImport).not.toHaveBeenCalled();
+    if (!consent) expect(button("Agree and extract")).toBeDefined();
+  }
+  expect(fixture.setAiConsent).not.toHaveBeenCalled();
+});
+it.each(["request", "generation"])("a mounted Extract preserves its draft when an incoming share mismatches the saved %s", async mismatch => {
+  await mount(Capture);
+  await act(async () => nodes("Field")[0].props.onChange("https://example.test/keep-draft"));
+  await settle();
+  const key = draftKey(fixture.owner, "capture:1");
+  const replacement = JSON.stringify({ request_id: mismatch === "request" ? "newer-share" : "incoming-share",
+    generation: mismatch === "generation" ? 2 : 1, kind: "url", source_url: "https://example.test/newer",
+    text: "", files: [], created_at: "2026-10-13T00:00:00Z" });
+  fixture.map.set(key, replacement);
+  fixture.params = { shared: "1", request_id: "incoming-share" };
+  await rerender(Capture);
+  expect(nodes("Field")[0].props.value).toBe("https://example.test/keep-draft");
+  expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(JSON.parse(fixture.map.get(key)!)).toMatchObject(JSON.parse(replacement));
+  expect(button("Load saved source")).toBeDefined();
 });
 it("a first shared link waits for one explicit AI disclosure action", async () => {
   sharedLinkDraft();
