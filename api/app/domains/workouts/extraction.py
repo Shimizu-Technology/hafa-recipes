@@ -953,11 +953,17 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
             for number, unit in units
         )
     if field_name == "sets":
-        return bool(
-            re.search(
-                rf"\b{value:g}\s*(?:sets?\b|[x×]\s*\d)|\bsets?\s*[:=]?\s*{value:g}\b", wording, re.I
-            )
-        )
+        for match in re.finditer(
+            rf"(?<![\w.\-–×])(?:[x×]\s*)?{value:g}\s*sets?\b"
+            rf"|(?<![\w.\-–×]){value:g}\s*[x×]\s*\d"
+            rf"|\bsets?\s*[:=]?\s*{value:g}(?![\w.\-–]|\s*(?:[-–]|\bto\b)\s*\d)", wording, re.I,
+        ):
+            # Explicit x1 Set is a count, not a rep suffix or range endpoint.
+            if (not _side_count_negated(wording, match.start())
+                    and not re.search(r"[x×]\s*$", wording[:match.start()], re.I)
+                    and not re.search(r"\d\s*(?:[-–]|\bto\b)\s*$", wording[:match.start()], re.I)):
+                return True
+        return False
     if field_name == "rounds":
         return bool(
             re.search(rf"\b{value:g}\s*rounds?\b|\brounds?\s*[:=]?\s*{value:g}\b", wording, re.I)
