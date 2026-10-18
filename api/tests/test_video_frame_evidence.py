@@ -637,3 +637,26 @@ async def test_failed_visual_request_preserves_useful_text_draft(has_draft, erro
     else:
         assert not result.success
         assert result.error_code == code
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("visual_enabled", [False, True])
+async def test_optional_visual_failure_preserves_retryable_text_failure(monkeypatch, visual_channels, visual_enabled):
+    from app.job_worker import should_retry_extraction_error
+
+    frames, vision, text = visual_channels
+    monkeypatch.setattr("app.services.extractor.settings.video_frame_extraction_enabled", visual_enabled)
+    monkeypatch.setattr(
+        "app.services.extractor.video_service.get_video_metadata_ytdlp",
+        AsyncMock(return_value=VideoMetadata(description="Add 2 cups rice and simmer for 20 minutes.")),
+    )
+    text.return_value = ExtractionResult(success=False, error="Temporary text provider failure")
+    frames.return_value = VideoFrameExtractionResult(success=False, error_code="VIDEO_TOO_LARGE")
+
+    result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=text-provider-failure")
+
+    assert not result.success
+    assert result.error_code == "LLM_EXTRACTION_FAILED"
+    assert should_retry_extraction_error(result.error_code)
+    text.assert_awaited_once()
+    vision.assert_not_awaited()

@@ -601,7 +601,8 @@ class RecipeExtractor:
                 has_audio_transcript=has_audio_transcript,
                 progress_callback=progress_callback,
                 enabled=not fast_mode,
-                acquisition_failures=acquired.failures,            )
+                acquisition_failures=acquired.failures,
+            )
             if visual_result:
                 return visual_result
             code = source_failure_code(acquired.failures)
@@ -652,14 +653,15 @@ class RecipeExtractor:
                 has_audio_transcript=has_audio_transcript,
                 progress_callback=progress_callback,
                 enabled=not fast_mode,
-                acquisition_failures=acquired.failures,            )
-            if visual_result:
+                acquisition_failures=acquired.failures,
+            )
+            if visual_result and visual_result.success:
                 return visual_result
             return FullExtractionResult(
                 success=False,
                 error=extraction_result.error,
                 error_code="LLM_EXTRACTION_FAILED",
-                friendly_error="We couldn't extract a recipe from this video. The content may not contain a clear recipe."
+                friendly_error="We could not finish extracting the recipe. Retry, or add recipe text or screenshots."
             )
         
         # Add thumbnail to recipe
@@ -688,7 +690,8 @@ class RecipeExtractor:
                 has_audio_transcript=has_audio_transcript,
                 progress_callback=progress_callback,
                 enabled=not fast_mode,
-                acquisition_failures=acquired.failures,            )
+                acquisition_failures=acquired.failures,
+            )
             if visual_result:
                 return visual_result
         
