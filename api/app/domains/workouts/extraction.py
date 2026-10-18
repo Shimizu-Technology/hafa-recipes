@@ -23,7 +23,7 @@ import httpx
 from bs4 import BeautifulSoup
 from pydantic import Field, ValidationError, model_validator
 
-from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
+from app.domains.workouts.budget import BudgetError, ProviderEnvelope, provider_budget
 from app.domains.workouts.execution import is_amrap, supports_amrap
 from app.domains.workouts.schemas import DomainModel, Evidence, WorkoutContent
 from app.domains.workouts.source_context import retain_source_context
@@ -372,7 +372,7 @@ class ProductionExtractionProvider:
         self._budget_guard = budget_guard
 
     def _guard(self, settings):
-        return self._budget_guard or BudgetGuard(BudgetPolicy.from_settings(settings))
+        return self._budget_guard or provider_budget(settings)
 
     def _key(self, settings) -> str | None:
         if settings.environment != "development":

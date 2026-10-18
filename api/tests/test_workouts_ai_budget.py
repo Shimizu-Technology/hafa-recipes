@@ -54,6 +54,7 @@ async def budget_api(data_api, monkeypatch):  # noqa: F811 -- imported reusable 
     await migration.run_migration(configured=settings(), migration_engine=data_api.engine)
     data_api.app.include_router(budget_router.router)
     configured = SimpleNamespace(
+        workouts_ai_budget_enforced=True,
         workouts_api_enabled=True,
         workouts_ai_budget_24h_microusd=5_000_000,
         workouts_ai_max_attempt_microusd=5_000_000,

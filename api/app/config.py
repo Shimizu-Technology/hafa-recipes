@@ -208,6 +208,8 @@ class Settings(BaseSettings):
     migration_042_restore_point: str | None = None
     migration_043_restore_point: str | None = None
     migration_044_restore_point: str | None = None
+    # Normal use records provider usage without the old shared beta allocation.
+    workouts_ai_budget_enforced: bool = False
     workouts_ai_budget_24h_microusd: int = Field(
         default=0, ge=0, le=5_000_000
     )

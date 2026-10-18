@@ -8,7 +8,12 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.domains.workouts import coach_attachments as images
 from app.domains.workouts.automation_models import WorkoutCoachMessage
-from app.domains.workouts.budget import BudgetPolicy, ProviderEnvelope, admission_upper_bound
+from app.domains.workouts.budget import (
+    BudgetPolicy,
+    ProviderEnvelope,
+    admission_upper_bound,
+    budget_ready,
+)
 from app.domains.workouts.lifecycle import now
 from app.models.deletion import DeletionCleanupJob
 
@@ -21,7 +26,7 @@ def priced():
     settings = get_settings()
     admission_upper_bound("workout_coach", settings.workout_coach_model,
         ProviderEnvelope(endpoint="responses", max_output_tokens=1800, includes_images=True, function_tools=True),
-        BudgetPolicy.from_settings(settings))
+        BudgetPolicy.from_settings(settings), enforce_limits=settings.workouts_ai_budget_enforced)
 
 
 async def available(db):
@@ -29,7 +34,7 @@ async def available(db):
     from app.domains.workouts.coach import ProductionCoachProvider
 
     try:
-        if not ProductionCoachProvider().enabled or not get_settings().workouts_ai_budget_database_url:
+        if not ProductionCoachProvider().enabled or not budget_ready(get_settings()):
             return False
         priced()
         return images.storage_service.is_enabled and await images.attachments_ready(db)

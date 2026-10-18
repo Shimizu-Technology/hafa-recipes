@@ -44,7 +44,7 @@ def test_config_rejects_above_combined_authorized_ceiling(field):
 
 async def test_positive_budget_without_authority_cannot_dispatch(provider_environment, monkeypatch):
     configured = provider_environment.model_copy(
-        update={"workouts_ai_budget_24h_microusd": 5_000_000}
+        update={"workouts_ai_budget_24h_microusd": 5_000_000, "workouts_ai_budget_enforced": True}
     )
     monkeypatch.setattr(config, "get_settings", lambda: configured)
     calls = install_http(monkeypatch)
@@ -264,6 +264,7 @@ async def test_real_authority_provider_and_admin_share_durable_ledger(
     configured = provider_environment.model_copy(
         update={
             "workouts_ai_budget_24h_microusd": LUNA,
+            "workouts_ai_budget_enforced": True,
             "workouts_ai_budget_database_url": SecretStr(DATABASE_URL),
         }
     )
@@ -359,7 +360,8 @@ async def test_valid_app_schema_cannot_mask_invalid_separate_authority(
         configured = provider_environment.model_copy(
             update={
                 "workouts_ai_budget_24h_microusd": 5_000_000,
-                "workouts_ai_budget_database_url": SecretStr(authority_url),
+                "workouts_ai_budget_enforced": True,
+            "workouts_ai_budget_database_url": SecretStr(authority_url),
             }
         )
         monkeypatch.setattr(config, "get_settings", lambda: configured)
@@ -404,6 +406,7 @@ async def test_role_default_shadow_cannot_split_public_global_capacity_or_diagno
     configured = settings().model_copy(
         update={
             "workouts_ai_budget_24h_microusd": LUNA,
+            "workouts_ai_budget_enforced": True,
             "workouts_ai_budget_database_url": SecretStr(DATABASE_URL),
         }
     )

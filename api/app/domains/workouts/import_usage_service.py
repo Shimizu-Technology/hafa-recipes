@@ -37,7 +37,12 @@ def usable_job_predicate():
     )
 
 
-async def enforce_import_allowance(db, owner, generation, request_id, *, limit=15):
+def unlimited_imports(owner, *, is_admin=False):
+    # Stable server-configured owners also cover restricted native share credentials.
+    return is_admin or owner in get_settings().workouts_testers
+
+
+async def enforce_import_allowance(db, owner, generation, request_id, *, limit=100, unlimited=False):
     """Caller holds the AppUser write lock; count distinct reservations/charges."""
     current = now()
     durable = await usage_schema_present(db)
@@ -47,6 +52,9 @@ async def enforce_import_allowance(db, owner, generation, request_id, *, limit=1
             raise HTTPException(
                 410, "This completed import identity has expired; use a new request ID"
             )
+    # Exempt owners still pass replay/tombstone checks above.
+    if unlimited:
+        return
     pending = select(WorkoutImport.request_id).where(
         WorkoutImport.app_user_id == owner,
         WorkoutImport.generation == generation,
@@ -68,7 +76,7 @@ async def enforce_import_allowance(db, owner, generation, request_id, *, limit=1
     count = await db.scalar(select(func.count()).select_from(union(pending, charged).subquery()))
     if count >= limit:
         raise HTTPException(
-            429, "Free beta includes 15 successful or pending imports per rolling day"
+            429, f"You have reached {limit} successful or pending imports today; try again later"
         )
 
 

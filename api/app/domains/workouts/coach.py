@@ -18,7 +18,7 @@ from app.db.database import AsyncSessionLocal
 from app.domains.workouts import coach_images
 from app.domains.workouts.automation_models import WorkoutCoachMessage, WorkoutProposal
 from app.domains.workouts.automation_router import effective_profile, proposal_context_hash
-from app.domains.workouts.budget import BudgetError, BudgetGuard, BudgetPolicy, ProviderEnvelope
+from app.domains.workouts.budget import BudgetError, ProviderEnvelope, provider_budget
 from app.domains.workouts.coach_actions import (
     current_actuals,
     health_derived,
@@ -190,7 +190,7 @@ class ProductionCoachProvider:
             schema_version="coach-tools-2",
         ) as invocation:
             try:
-                guard = self._budget_guard or BudgetGuard(BudgetPolicy.from_settings(settings))
+                guard = self._budget_guard or provider_budget(settings)
                 async with guard.attempt(
                     capability="workout_coach",
                     model=invocation.model,
