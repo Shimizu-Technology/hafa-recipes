@@ -344,7 +344,7 @@ it("defaults Share to Discover on for link imports and publishes on accept", asy
 it("refreshes a warm empty inbox and saved library after sharing while the focused app is backgrounded", async () => {
   fixture.focus = true; fixture.capabilities.mockResolvedValue({ ...caps(false), server_auto_save: true });
   fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
-  await mount(Library);
+  await mount(() => createElement("Flow", null, createElement(Library), createElement(ImportList)));
   expect(fixture.importJobs).toHaveBeenCalledTimes(1); expect(nodes("MediaCard")).toHaveLength(0);
   const change = async (state: string) => {
     fixture.appState = state;
@@ -1076,7 +1076,7 @@ it("puts the workout before one accurate review summary and keeps raw diagnostic
 
 it.each([
   ["workouts_ai_budget_unavailable", "couldn’t finish checking", "usage limit"],
-  ["workouts_ai_budget_exceeded", "usage limit", "couldn’t finish checking"],
+  ["workouts_ai_budget_exceeded", "temporarily paused", "usage limit"],
 ])("explains %s once without exposing machine codes or blaming the caption", async (code, expected, other) => {
   fixture.params = { id: "job" }; fixture.capabilities.mockResolvedValue(caps(false));
   const job = importJob("text", "incomplete");

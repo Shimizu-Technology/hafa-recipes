@@ -237,6 +237,7 @@ export default function Plan() {
         </Row>
       }
     >
+      <ListRow icon="sunny-outline" title="Today · start a workout" detail="Your daily plan, quick start and activity log" onPress={() => router.push("/(tabs)")} />
       {offline.state.active && (
         <Card tone="hero" compact>
           <Copy kind="subheading">{offline.state.active.workout.title}</Copy>

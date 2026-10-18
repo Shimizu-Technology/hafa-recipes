@@ -1,7 +1,9 @@
 import { it, expect, vi } from "vitest";
 const auth = vi.hoisted(() => ({ value: { isLoaded: true, isSignedIn: false } }));
 vi.mock("@clerk/expo", () => ({ useAuth: () => auth.value }));
-vi.mock("expo-router", () => ({ Redirect: () => null }));
+vi.mock("expo-router", () => ({ Redirect: () => null, Tabs: Object.assign(() => null, { Screen: () => null }) }));
+vi.mock("@/components/ui", () => ({ TabIcon: () => null, useColors: () => ({}) }));
+import Layout from "../app/(tabs)/_layout";
 import RootDestination from "../app/index";
 it("cold root renders sign-in destination after Clerk resolves instead of shared/undefined", () => {
   auth.value = { isLoaded: true, isSignedIn: false };
@@ -12,4 +14,12 @@ it("authenticated cold root opens the saved-workout Library and unresolved authe
   expect(RootDestination()?.props.href).toBe("/(tabs)/library");
   auth.value = { isLoaded: false, isSignedIn: false };
   expect(RootDestination()).toBeNull();
+});
+
+
+it("shows five main destinations while keeping Today routable from Plan", () => {
+  const screens = Layout().props.children as Array<{ props: { name: string; options: { title?: string; href?: null } } }>;
+  expect(screens.filter(screen => screen.props.options.href !== null).map(screen => screen.props.options.title))
+    .toEqual(["Discover", "Library", "Extract", "Plan", "Progress"]);
+  expect(screens.find(screen => screen.props.name === "index")!.props.options.href).toBeNull();
 });

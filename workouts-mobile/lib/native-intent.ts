@@ -27,9 +27,11 @@ const fixedRoutes = new Set([
   "/sharing-links",
   "/(tabs)",
   "/(tabs)/library",
+  "/(tabs)/extract",
   "/(tabs)/plan",
   "/(tabs)/progress",
   "/library",
+  "/extract",
   "/plan",
   "/progress",
 ]);

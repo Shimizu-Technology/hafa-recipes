@@ -9,12 +9,13 @@ import { canSaveAutomatically, importIsTerminal, retireCapturedImport, updateImp
 import { workoutErrors } from "@/lib/library";
 import { cleanupCaptureFiles } from "@/lib/capture-io";
 import * as Crypto from "expo-crypto";
-export function ImportList() {
+export function ImportList({ showEmpty = false }: { showEmpty?: boolean }) {
   const { api, localDrafts, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const [items, setItems] = useState<Array<{ id: string; label: string; auto_save?: boolean }>>([]);
   const scope = `${owner}:${enrollment?.generation}`;
   const [itemScope, setItemScope] = useState(scope);
   const [deviceError, setDeviceError] = useState("");
+  const [deviceLoaded, setDeviceLoaded] = useState(false);
   const [visible, setVisible] = useState(false);
   const [active, setActive] = useState(AppState.currentState === "active");
   const cache = useQueryClient();
@@ -26,7 +27,7 @@ export function ImportList() {
     const read = ++reads.current;
     const current = () => alive() && read === reads.current && live.current.scope === scope && storage.isCurrent() && live.current.isCurrentAccount();
     void localDrafts.load<Array<{ id: string; label: string; auto_save?: boolean }>>(owner, `imports:${enrollment?.generation}`)
-      .then(value => { if (current()) { setItems(value ?? []); setItemScope(scope); } })
+      .then(value => { if (current()) { setItems(value ?? []); setItemScope(scope); setDeviceLoaded(true); } })
       .catch(() => { if (current()) setDeviceError("Could not restore this device’s imports. Server imports are still available when connected."); });
   }, [localDrafts, owner, enrollment?.generation, scope, storage]);
   const capabilities = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities,
@@ -49,7 +50,7 @@ export function ImportList() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setVisible(true); setItems([]); setDeviceError("");
+      setVisible(true); setItems([]); setDeviceError(""); setDeviceLoaded(false);
       reloadDeviceImports(() => active);
       return () => {
         active = false;
@@ -80,6 +81,7 @@ export function ImportList() {
   }
   return (
     <>
+      {showEmpty && deviceLoaded && !inbox.size && !capabilities.isPending && (capabilities.data?.server_auto_save !== true || !server.isPending) && !server.error && !deviceError && <Copy kind="small" tone="muted">No unfinished imports. Saved workouts are in Library.</Copy>}
       {!!deviceError && <Notice error>{deviceError}</Notice>}
       {server.error && <><Notice error>Could not check your imports. Your saved workouts are still in your library.</Notice>
         <Button title="Retry imports" secondary onPress={() => { void server.refetch(); }} /></>}

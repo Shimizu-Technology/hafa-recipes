@@ -245,7 +245,7 @@ export function createWorkoutsApi(
                     : response.status === 422
                       ? "Some details could not be saved. Review your entries and try again."
                       : response.status === 429
-                        ? "The service is busy or the beta allowance is used. Your draft is safe; try again later."
+                        ? "The service is busy or a request limit was reached. Your draft is safe; try again later."
                         : response.status === 428
                           ? "Reload the saved record before editing; a revision is required."
                           : "The training service could not finish this request. Please try again.";

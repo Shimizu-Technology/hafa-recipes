@@ -655,3 +655,26 @@ it("a held readiness acknowledgment preserves a newly opened date editor", async
   expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe(dateInTimezone(new Date(), "UTC"));
   expect(fixture.updateProgram).toHaveBeenCalledTimes(1);
 });
+
+
+it("keeps Today and active training one tap from Plan", async () => {
+  const { router } = await import("expo-router");
+  fixture.active = { workout: { title: "In progress" }, actuals: [] };
+  await mountPlan();
+  const today = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Today · start a workout")!;
+  await act(async () => today.props.onPress());
+  expect(router.push).toHaveBeenLastCalledWith("/(tabs)");
+  await act(async () => buttons("Resume active session")[0].props.onPress());
+  expect(router.push).toHaveBeenLastCalledWith("/training");
+});
+
+
+it("keeps the existing Coach entry reachable from Today", async () => {
+  const { router } = await import("expo-router");
+  fixture.available = true;
+  await mount();
+  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Adjust today with your coach")!;
+  expect(coach.props.icon).toBe("chatbubble-ellipses-outline");
+  await act(async () => coach.props.onPress());
+  expect(router.push).toHaveBeenLastCalledWith("/coach");
+});

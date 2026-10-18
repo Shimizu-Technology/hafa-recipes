@@ -3,11 +3,16 @@ import { boundedSource } from "./capture";
 
 export function importPresentation(job?: ImportJob) {
   if (job?.accepted_workout_id) return { label: job.status === "incomplete" ? "Draft saved" : "Workout saved", action: "Open workout" };
+  if (job && ["incomplete", "failed"].includes(job.status) && job.result?.error_code === "workouts_ai_budget_exceeded")
+    return { label: "AI importing temporarily paused", action: "View recovery options" };
   switch (job?.status) {
     case "queued": return { label: "Waiting to start", action: "View progress" };
     case "processing": return { label: job.attempt_count > 1 ? `Trying again · attempt ${job.attempt_count}` : "Reading your workout", action: "View progress" };
     case "ready": return { label: "Ready to save", action: "Review workout" };
-    case "incomplete": return { label: "Needs a few details", action: "Check details" };
+    case "incomplete":
+      if (job.result?.error_code) return { label: "Processing did not finish", action: "Retry or add caption" };
+      if (!job.result?.workout?.blocks.some(block => block.exercises.length)) return { label: "No exercises extracted", action: "Retry or add caption" };
+      return { label: "Needs a few details", action: "Check details" };
     case "failed": return { label: "Could not read this source", action: "Retry or add caption" };
     case "cancelled": return { label: "Cancelled", action: "View options" };
     case "expired": return { label: "Import expired", action: "View options" };

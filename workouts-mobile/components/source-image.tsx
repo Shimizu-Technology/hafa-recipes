@@ -10,6 +10,7 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
   const size = useWindowDimensions();
   const c = useColors();
   useEffect(() => { setFailed(false); setOpen(false); setZoom(1); }, [uri]);
+  if (failed) return <Copy kind="small">This image is unavailable. You can still check the original source.</Copy>;
   return (
     <>
       <Pressable
@@ -23,7 +24,7 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
         <Image
           source={{ uri }}
           accessibilityLabel={label}
-          onError={() => setFailed(true)}
+          onError={() => { setFailed(true); setOpen(false); }}
           onLoad={(event) => {
             const source = event.nativeEvent?.source;
             if (Number.isFinite(source?.width) && Number.isFinite(source?.height) && source.width > 0 && source.height > 0) {
@@ -34,9 +35,7 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
           style={{ width: "100%", height: 260, resizeMode: "contain" }}
         />
         <Copy kind="small">
-          {failed
-            ? "This image is unavailable. You can still check the original source."
-            : "Tap to inspect source image"}
+          Tap to inspect source image
         </Copy>
       </Pressable>
       <Modal visible={open} onRequestClose={() => setOpen(false)} presentationStyle="fullScreen">
