@@ -1976,7 +1976,7 @@ it("returns from a saved incomplete import to the mounted capture and starts ano
   let reviewing = false;
   const journey = () => createElement(Fragment, null, createElement(Capture), reviewing && createElement(ImportReview));
   await mount(journey);
-  expect(button("Resume existing import")).toBeDefined();
+  expect(button("Open previous import")).toBeDefined();
   expect(nodes("Field")[0].props.disabled).toBe(false);
   reviewing = true; await rerender(journey);
   expect(fixture.map.has(key)).toBe(false);
@@ -2140,7 +2140,7 @@ it("cold restored acknowledged source opens an editable composer and retains exa
   const archiveKey = draftKey(fixture.owner, submittedCaptureScope(1, "queued-job"));
   expect(JSON.parse(fixture.map.get(archiveKey)!)).toMatchObject(original);
   expect(fixture.cleanup).not.toHaveBeenCalled();
-  await click("Resume existing import");
+  await click("Open previous import");
   expect(fixture.push).toHaveBeenLastCalledWith({ pathname: "/import/[id]", params: { id: "queued-job" } });
   await act(async () => nodes("Field")[0].props.onChange("https://example.test/another")); await settle();
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).source_url).toBe("https://example.test/another");
@@ -2197,7 +2197,7 @@ it("acknowledged imports release the composer after each request without losing 
   expect(fixture.startImport.mock.calls[0][0]).toBe(first.request_id);
   expect(fixture.startImport.mock.calls[1][0]).toBe(second.request_id);
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!).map((item: { id: string }) => item.id)).toEqual(["second-job", "first-job"]);
-  await click("Resume existing import");
+  await click("Open previous import");
   expect(fixture.push).toHaveBeenLastCalledWith({ pathname: "/import/[id]", params: { id: "second-job" } });
 });
 

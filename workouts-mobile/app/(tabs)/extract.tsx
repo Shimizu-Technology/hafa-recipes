@@ -477,8 +477,8 @@ export default function Capture() {
       {showImports && <ImportList showEmpty />}
       {(draft.job_id || submittedId) && <Card>
         <Copy kind="heading">Your previous import is saved.</Copy>
-        <Copy>{draft.job_id ? "Start another source to unlock this form. Your original source stays saved for this import." : "Add another workout below, or resume this import to check its progress."}</Copy>
-        <Button title="Resume existing import" secondary onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
+        <Copy>{draft.job_id ? "Start another source to unlock this form. Your original source stays saved for this import." : "Add another workout below, or open your previous import."}</Copy>
+        <Button title="Open previous import" secondary onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
         {!!draft.job_id && <Button title="Start another source draft" secondary busy={busy} onPress={() => { void startAnother(); }} />}
       </Card>}
       {!!error && <Notice error>{error}</Notice>}
