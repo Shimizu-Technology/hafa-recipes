@@ -900,12 +900,20 @@ def _side_count_negated(wording: str, count_start: int) -> bool:
 
 
 def _affirmative_side_counts(wording: str):
+    counts = []
     for match in re.finditer(
-        r"(?<![\w.\-–])(\d+)\s+(?:(?:reps?|repetitions?)\s+)?(?:each|per)\s+(?:side|leg|arm|limb)\b",
+        r"(?<![\w.\-–])(\d+)(?:\s+(?:(?:reps?|repetitions?)\s+)?(?:each|per)\s+|\s*/\s*)"
+        r"(?:side|leg|arm|limb)\b",
         wording, re.I,
     ):
-        if not _side_count_negated(wording, match.start()):
-            yield match
+        if (_side_count_negated(wording, match.start())
+                or re.search(r"(?:\bor\b|\bto\b|\d\s*[-–])\s*\(?\s*$", wording[:match.start()], re.I)
+                or re.match(r"\s*\)?\s*\bor\b", wording[match.end():], re.I)):
+            continue
+        counts.append(match)
+    # Two explicit side doses are not one definite scalar prescription.
+    if len({int(match[1]) for match in counts}) == 1:
+        yield from counts
 
 
 def _numeric_supported(field_name: str, value: int | float, wording: str, exercise_name: str | None = None) -> bool:
@@ -1034,8 +1042,12 @@ def _value_supported(field_name: str, value, wording: str, exercise_name: str | 
         return _numeric_supported(field_name, value, wording, exercise_name)
     if field_name == "per_side":
         if value:
+            if any(_affirmative_side_counts(wording)):
+                return True
             for match in re.finditer(r"\b(?:each|per)\s+(?:side|leg|arm|limb)\b", wording, re.I):
                 count = re.search(r"\d+\s*(?:(?:reps?|repetitions?)\s*)?$", wording[:match.start()], re.I)
+                if count:
+                    continue  # Counted qualifiers must pass the ambiguity check above.
                 if not _side_count_negated(wording, count.start() if count else match.start()):
                     return True
             return False
@@ -1159,7 +1171,7 @@ def _reuse_rep_name_quotes(item, source: SourceBundle):
     """Reuse only an unambiguous whole movement/dose row, never a nearby number."""
     row = re.compile(
         rf"\s{{0,8}}\d{{1,4}}\s{{0,8}}(?:[x×]\s{{0,8}}|(?:reps?|repetitions?)\s{{1,8}})?{re.escape(item.name)}"
-        r"(?:\s{0,8}\(\d{1,4}\s{1,8}(?:each|per)\s{1,8}(?:side|leg|arm|limb)\))?\s{0,8}[.!]?\s{0,8}",
+        r"(?:\s{0,8}\(\d{1,4}(?:\s{1,8}(?:each|per)\s{1,8}|\s{0,8}/\s{0,8})(?:side|leg|arm|limb)\))?\s{0,8}[.!]?\s{0,8}",
         re.I,
     )
     for field_name in ("reps_min", "reps_max"):
