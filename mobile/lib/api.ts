@@ -810,6 +810,7 @@ class ApiClient {
     activeOnly?: boolean;
     includeCancelled?: boolean;
     jobKind?: 'extract' | 'reextract';
+    idempotencyKey?: string;
   } = {}): Promise<JobStatus[]> {
     const { data } = await this.client.get('/api/jobs', {
       params: {
@@ -817,6 +818,7 @@ class ApiClient {
         active_only: options.activeOnly || undefined,
         include_cancelled: options.includeCancelled,
         job_kind: options.jobKind,
+        idempotency_key: options.idempotencyKey,
       },
     });
     return data;

@@ -712,6 +712,22 @@ export function useAsyncExtractionController() {
     setTerminalState(null);
     setJobKind(storedJob.request.kind);
 
+    const acceptJob = async (jobId: string, recipeId?: string | null, isExisting = false) => {
+      await saveActiveJob({ ...storedJob, jobId });
+      assertCurrentOwner();
+      setJobId(jobId);
+      setStartTime(storedJob.startTime);
+      startPolling(jobId, storedJob.startTime);
+      setIsStarting(false);
+      queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
+      return {
+        status: 'processing' as const,
+        jobId,
+        recipeId: recipeId ?? undefined,
+        isExisting,
+      };
+    };
+
     try {
       const result = storedJob.request.kind === 'extract'
         ? await api.startAsyncExtraction(storedJob.request.payload, storedJob.idempotencyKey, assertCurrentOwner)
@@ -745,6 +761,7 @@ export function useAsyncExtractionController() {
         });
         return {
           status: 'completed' as const,
+          jobId: undefined,
           recipeId: result.recipe_id,
           isExisting: true,
         };
@@ -752,28 +769,21 @@ export function useAsyncExtractionController() {
 
       if (!result.job_id) throw new Error('The server did not return an extraction job.');
 
-      const confirmedJob = { ...storedJob, jobId: result.job_id };
-      await saveActiveJob(confirmedJob);
-      assertCurrentOwner();
-      setJobId(result.job_id);
-      setStartTime(storedJob.startTime);
-      startPolling(result.job_id, storedJob.startTime);
-      setIsStarting(false);
-      queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
-
-      return {
-        status: 'processing' as const,
-        jobId: result.job_id,
-        recipeId: result.recipe_id,
-        isExisting: Boolean(result.is_existing),
-      };
+      return await acceptJob(result.job_id, result.recipe_id, Boolean(result.is_existing));
     } catch (startError: any) {
       if (!isCurrentOwner()) throw startError;
       const responseStatus = startError?.response?.status as number | undefined;
-      let definitivelyRejected = !storedJob.jobId && responseStatus !== undefined &&
+      const potentiallyRejected = !storedJob.jobId && responseStatus !== undefined &&
         [400, 403, 404, 409, 422].includes(responseStatus);
-      if (definitivelyRejected) {
+      let definitivelyRejected = false;
+      if (potentiallyRejected) {
         try {
+          // Policy or payload checks may reject a replay of an accepted job.
+          // Only an owner-scoped, exact-key lookup can rule out that acceptance.
+          const jobs = await api.getExtractionJobs({ limit: 1, includeCancelled: true,
+            jobKind: storedJob.request.kind, idempotencyKey: storedJob.idempotencyKey });
+          assertCurrentOwner();
+          if (jobs.length) return await acceptJob(jobs[0].id, jobs[0].recipe_id, true);
           if (storedJob.request.kind === 'extract' && storedJob.idempotencyKey.startsWith('share:')) {
             // Reconnect has no intake promise to notify. Persist the exact claim's
             // rejection before retiring its pointer or allowing a sibling to start.
@@ -782,8 +792,9 @@ export function useAsyncExtractionController() {
           }
           assertCurrentOwner();
           await clearActiveJob();
+          definitivelyRejected = true;
         } catch {
-          // If reconciliation could not be saved, retain the receipt and claim.
+          // If lookup or reconciliation is unavailable, retain the receipt and claim.
           definitivelyRejected = false;
         }
         assertCurrentOwner();

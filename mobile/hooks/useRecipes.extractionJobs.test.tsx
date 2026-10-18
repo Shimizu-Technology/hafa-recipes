@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   startAsyncExtraction: vi.fn(),
+  startReExtraction: vi.fn(),
   getExtractionJobs: vi.fn(),
   getCurrentUserIdentity: vi.fn(),
   getItem: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock('react-native', () => ({
 vi.mock('../lib/api', () => ({
   api: {
     startAsyncExtraction: mocks.startAsyncExtraction,
+    startReExtraction: mocks.startReExtraction,
     getCurrentUserIdentity: mocks.getCurrentUserIdentity,
     getExtractionJobs: mocks.getExtractionJobs,
     getJobStatus: mocks.getJobStatus,
@@ -167,7 +169,7 @@ describe('durable extraction recovery', () => {
     await act(async () => renderer.unmount()); queryClient.clear();
   });
 
-  it.each(['claim gap', 'lost response', 'cleared terminal receipt', 'terminal polling'] as const)(
+  it.each(['claim gap', 'lost response', 'cleared terminal receipt', 'terminal polling', 'cancelled replay', 'processing replay'] as const)(
     'recovers an inbox claim across reload without a new key or automatic submission: %s', async (crash) => {
       const persisted = new Map<string, string>();
       mocks.getItem.mockImplementation(async (key: string) => persisted.get(key) ?? null);
@@ -188,15 +190,20 @@ describe('durable extraction recovery', () => {
       if (crash === 'cleared terminal receipt') await importInbox.patch('crash', { state: 'error', error: 'Lost confirmation' });
       let remoteJobs = crash === 'claim gap' || crash === 'lost response' ? 0 : 1;
       let loseResponse = crash === 'lost response';
+      const replayRejected = ['lost response', 'cleared terminal receipt', 'cancelled replay', 'processing replay'].includes(crash);
+      const remoteStatus = crash === 'cancelled replay' ? 'cancelled' : crash === 'processing replay' ? 'processing' : 'failed';
+      const originalJob = { id: 'original-job', url: request.url, status: remoteStatus,
+        progress: 30, current_step: 'error', message: 'Original job', recipe_id: null, error_message: 'No recipe found' };
+      mocks.getExtractionJobs.mockImplementation(async (options) => options.idempotencyKey ? [originalJob] : []);
       mocks.startAsyncExtraction.mockImplementation(async (_request, key, guard) => {
         guard();
         expect(key).toBe('share:crash');
         if (!remoteJobs) remoteJobs += 1;
         if (loseResponse) { loseResponse = false; throw new Error('Response lost after server acceptance'); }
+        if (replayRejected) throw { response: { status: 409 } };
         return { job_id: 'original-job', status: 'failed', is_existing: true };
       });
-      mocks.getJobStatus.mockResolvedValue({ id: 'original-job', url: request.url, status: 'failed',
-        progress: 30, current_step: 'error', message: 'Failed', recipe_id: null, error_message: 'No recipe found' });
+      mocks.getJobStatus.mockResolvedValue(originalJob);
       let controller!: Controller;
       function Harness() { controller = useAsyncExtraction(); useImportInboxProcessor(); return null; }
       let queryClient!: QueryClient;
@@ -230,8 +237,25 @@ describe('durable extraction recovery', () => {
         expect(mocks.startAsyncExtraction).toHaveBeenLastCalledWith(request, 'share:crash', expect.any(Function));
       }
       expect(remoteJobs).toBe(1);
-      expect(controller).toMatchObject({ jobId: 'original-job', isFailed: true, canRetryStart: false });
+      expect(controller).toMatchObject({ jobId: 'original-job', isFailed: remoteStatus !== 'processing',
+        canRetryStart: false, requestKey: 'share:crash' });
       expect(importInbox.snapshot()[0]).toMatchObject({ state: 'accepted', jobId: 'original-job' });
+      if (replayRejected) {
+        expect(mocks.getExtractionJobs).toHaveBeenCalledWith({ limit: 1, includeCancelled: true,
+          jobKind: 'extract', idempotencyKey: 'share:crash' });
+        expect(mocks.setItem).toHaveBeenCalledWith(receiptKey, expect.stringContaining('"jobId":"original-job"'));
+        expect(controller.jobStatus?.status).toBe(remoteStatus);
+        const recentKey = ['extractionJobs', 'recent', 'app-stable-user', 'extract'];
+        const sibling = { ...originalJob, id: 'same-url-different-attempt' };
+        queryClient.setQueryData(recentKey, [originalJob, sibling]);
+        mocks.cancelJob.mockResolvedValueOnce({ job_id: 'original-job' });
+        const callsBeforeRemoval = mocks.startAsyncExtraction.mock.calls.length;
+        await act(async () => controller.cancel());
+        expect(mocks.cancelJob).toHaveBeenCalledExactlyOnceWith('original-job');
+        expect(queryClient.getQueryData(recentKey)).toEqual([sibling]);
+        expect(controller.jobId).toBeNull();
+        expect(mocks.startAsyncExtraction).toHaveBeenCalledTimes(callsBeforeRemoval);
+      }
       expect(persisted.has(receiptKey)).toBe(false);
       await act(async () => controller.restoreJob({ id: 'other-attempt', url: request.url, status: 'failed',
         progress: 0, current_step: 'error', message: 'Failed', recipe_id: null, error_message: null }));
@@ -245,7 +269,7 @@ describe('durable extraction recovery', () => {
     },
   );
 
-  it.each([400, 403, 404, 409, 422, 401, 'network', 'storage'] as const)(
+  it.each([400, 403, 404, 409, 422, 401, 'network', 'storage', 'lookup404', 'lookupNetwork'] as const)(
     'reconciles only definite recovered-start rejections and unblocks the next capture: %s', async (status) => {
       const persisted = new Map<string, string>();
       let rejectionStorageUnavailable = status === 'storage';
@@ -257,7 +281,11 @@ describe('durable extraction recovery', () => {
         persisted.set(key, value);
       });
       mocks.removeItem.mockImplementation(async (key: string) => { persisted.delete(key); });
-      mocks.getExtractionJobs.mockResolvedValue([]);
+      mocks.getExtractionJobs.mockImplementation(async (options) => {
+        if (options.idempotencyKey && status === 'lookup404') throw { response: { status: 404 } };
+        if (options.idempotencyKey && status === 'lookupNetwork') throw new Error('Lookup offline');
+        return [];
+      });
       await importInbox.hydrate();
       for (const item of importInbox.snapshot()) await importInbox.remove(item.id);
       const request = { url: 'https://example.com/same', notes: '2 cups rice', location: 'Hawaii', is_public: true };
@@ -270,7 +298,7 @@ describe('durable extraction recovery', () => {
       mocks.startAsyncExtraction.mockImplementation(async (_request, key, guard) => {
         guard();
         if (key === 'share:rejected') throw status === 'network' ? new Error('Offline')
-          : { response: { status: status === 'storage' ? 403 : status,
+          : { response: { status: status === 'storage' ? 403 : typeof status === 'string' ? 409 : status,
             data: { detail: 'Review public sharing to finish this import.' } } };
         expect(key).toBe('share:next');
         return { job_id: 'next-job', status: 'processing' };
@@ -289,10 +317,14 @@ describe('durable extraction recovery', () => {
         expect(importInbox.snapshot()[0].submissionClaimed).toBe(true);
         await act(async () => controller.retryPendingStart());
         expect(mocks.startAsyncExtraction).toHaveBeenNthCalledWith(1, request, 'share:rejected', expect.any(Function));
+        const exactLookups = mocks.getExtractionJobs.mock.calls.filter(([options]) => options.idempotencyKey);
+        expect(exactLookups).toEqual(status === 401 || status === 'network' ? [] : [[{
+          limit: 1, includeCancelled: true, jobKind: 'extract', idempotencyKey: 'share:rejected',
+        }]]);
         const reloaded = createImportInbox({ getItem: mocks.getItem, setItem: mocks.setItem });
         await reloaded.hydrate();
         expect(importInbox.snapshot()[1]).toMatchObject({ id: 'foreign', ownerId: 'other-owner', submissionClaimed: true });
-        if (status === 401 || status === 'network' || status === 'storage') {
+        if (status === 401 || status === 'network' || status === 'storage' || status === 'lookup404' || status === 'lookupNetwork') {
           expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:rejected', jobId: null });
           expect(reloaded.snapshot()[0]).toMatchObject({ submissionClaimed: true, request });
           await act(async () => importInbox.removeWaiting('rejected', 'app-stable-user'));
@@ -326,6 +358,82 @@ describe('durable extraction recovery', () => {
       }
     },
   );
+
+  it.each(['empty', 'found', 'unavailable'] as const)(
+    'retains the original claim when accounts switch during exact-key resolution: %s', async (lookup) => {
+      const persisted = new Map<string, string>();
+      mocks.getItem.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mocks.setItem.mockImplementation(async (key: string, value: string) => { persisted.set(key, value); });
+      mocks.removeItem.mockImplementation(async (key: string) => { persisted.delete(key); });
+      let finish!: () => void;
+      mocks.getExtractionJobs.mockImplementation(async (options) => {
+        if (!options.idempotencyKey) return [];
+        expect(options).toEqual({ limit: 1, includeCancelled: true, jobKind: 'extract', idempotencyKey: 'share:owned' });
+        return new Promise((resolve, reject) => { finish = () => lookup === 'unavailable'
+          ? reject(new Error('Offline')) : resolve(lookup === 'empty' ? [] : [{ id: 'old-account-job' }]); });
+      });
+      mocks.startAsyncExtraction.mockRejectedValue({ response: { status: 409 } });
+      await importInbox.hydrate();
+      for (const item of importInbox.snapshot()) await importInbox.remove(item.id);
+      const entry = { id: 'owned', ownerId: 'app-stable-user', createdAt: Date.now(), state: 'submitting' as const,
+        submissionClaimed: true, capture: { kind: 'url' as const, url: 'https://example.com/owned' } };
+      await importInbox.add(entry);
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      let controller!: Controller, renderer!: ReactTestRenderer;
+      function Harness() { controller = useAsyncExtractionController(); return null; }
+      const tree = () => <QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>;
+      try {
+        await act(async () => { renderer = create(tree()); });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+        await act(async () => controller.recoverImport(entry));
+        let reconnect!: Promise<void>;
+        await act(async () => { reconnect = controller.retryPendingStart(); });
+        expect(finish).toBeDefined();
+        mocks.getUserId.mockReturnValue('clerk-b'); mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-b' });
+        await act(async () => renderer.update(tree()));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+        mocks.removeItem.mockClear();
+        await act(async () => { finish(); await reconnect; });
+        const receiptKey = 'active_extraction_job_v2:app-stable-user';
+        expect(JSON.parse(persisted.get(receiptKey)!)).toMatchObject({ jobId: null, idempotencyKey: 'share:owned' });
+        expect(mocks.removeItem).not.toHaveBeenCalledWith(receiptKey);
+        expect(importInbox.snapshot()[0]).toMatchObject({ state: 'submitting', submissionClaimed: true });
+        expect(controller).toMatchObject({ jobId: null, requestKey: null, canRetryStart: false });
+        expect(mocks.getJobStatus).not.toHaveBeenCalled();
+        expect(mocks.startAsyncExtraction).toHaveBeenCalledOnce();
+      } finally {
+        if (renderer) await act(async () => renderer.unmount());
+        queryClient.clear();
+      }
+    },
+  );
+
+  it('returns acceptance for a rejected reextract replay resolved by its exact key and kind', async () => {
+    mocks.getExtractionJobs.mockImplementation(async (options) => options.idempotencyKey
+      ? [{ id: 'reextract-job', recipe_id: 'original-recipe' }] : []);
+    mocks.startReExtraction.mockRejectedValue({ response: { status: 403 } });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let controller!: Controller, renderer!: ReactTestRenderer;
+    function Harness() { controller = useAsyncExtractionController(); return null; }
+    try {
+      await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+      await act(async () => {
+        await expect(controller.startReExtraction('original-recipe')).resolves.toEqual({
+          status: 'processing', jobId: 'reextract-job', recipeId: 'original-recipe', isExisting: true,
+        });
+      });
+      const key = mocks.startReExtraction.mock.calls[0][2];
+      expect(mocks.getExtractionJobs).toHaveBeenCalledWith({ limit: 1, includeCancelled: true,
+        jobKind: 'reextract', idempotencyKey: key });
+      expect(controller).toMatchObject({ jobId: 'reextract-job', requestKey: key, canRetryStart: false, isPolling: true });
+      expect(mocks.startReExtraction).toHaveBeenCalledOnce();
+      expect(mocks.getJobStatus).toHaveBeenCalledExactlyOnceWith('reextract-job');
+    } finally {
+      if (renderer) await act(async () => renderer.unmount());
+      queryClient.clear();
+    }
+  });
 
   it('keeps a recovered receipt with its exact owner when accounts switch during its persistence', async () => {
     mocks.getExtractionJobs.mockResolvedValue([]);
