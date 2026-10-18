@@ -511,7 +511,7 @@ async def test_production_daily_attempt_boundary_survives_process_counter_reset(
         for _ in range(99):
             db.add(WorkoutImport(id=uuid4(), app_user_id="owner", generation=1,
                 request_id=uuid4(), request_hash="a" * 64, status="failed", attempt_count=1,
-                created_at=now()-timedelta(hours=2), expires_at=now()+timedelta(hours=22)))
+                ai_accepted_at=now()-timedelta(hours=2), created_at=now()-timedelta(hours=2), expires_at=now()+timedelta(hours=22)))
         await db.commit()
     hundredth = await enqueue(usage_api)
     assert hundredth.status_code == 202
