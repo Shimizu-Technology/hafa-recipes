@@ -1510,7 +1510,11 @@ async def cancel_job(
     if not await _user_can_access_job(db, job, user):
         raise HTTPException(status_code=404, detail="Job not found")
     
-    if job.status not in ACTIVE_JOB_STATUSES:
+    if job.status == "cancelled":
+        return {"message": "Job cancelled successfully", "job_id": str(job_id)}
+
+    removable_failure = job.status in ("failed", "expired")
+    if job.recipe_id or (job.status not in ACTIVE_JOB_STATUSES and not removable_failure):
         raise HTTPException(
             status_code=400, 
             detail=f"Cannot cancel job with status '{job.status}'"

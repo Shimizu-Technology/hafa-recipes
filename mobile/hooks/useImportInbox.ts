@@ -36,12 +36,13 @@ export function useImportInboxProcessor() {
   }, [entries, ownerId, extraction.requestKey, extraction.isExtracting, extraction.isComplete,
     extraction.jobId, extraction.recipeId]);
   useEffect(() => {
-    const entry = entries.find((item) => item.ownerId === ownerId && (item.state === 'ready' || item.state === 'submitting') &&
+    const entry = entries.find((item) => item.ownerId === ownerId && item.state === 'ready' && !item.submissionClaimed &&
       item.capture.kind === 'url');
     if (!ownerId || !entry || !extraction.isReady || extraction.isExtracting || extraction.canRetryStart || submitting.current) return;
     submitting.current = true;
     void (async () => {
       let persistedOutcome = false;
+      let claimedForSubmission = false;
       try {
         if (entry.request?.is_public) {
           const disclosure = await api.getPublishingDisclosure();
@@ -55,10 +56,18 @@ export function useImportInboxProcessor() {
         // Retire the completed display only when a new job takes its place.
         if (extraction.jobId || extraction.isComplete || extraction.isFailed) await extraction.reset();
         if (ownerRef.current !== ownerId) return;
-        await importInbox.patch(entry.id, { state: 'submitting', error: undefined });
-        if (ownerRef.current !== ownerId) return;
-        const request = entry.request ?? {
-          url: entry.capture.kind === 'url' ? entry.capture.url : '',
+        const claimed = await importInbox.claimForSubmit(entry.id, ownerId, entry);
+        if (!claimed) {
+          persistedOutcome = true;
+          return;
+        }
+        if (ownerRef.current !== ownerId) {
+          await importInbox.patch(entry.id, { state: 'ready', submissionClaimed: false });
+          return;
+        }
+        claimedForSubmission = true;
+        const request = claimed.request ?? {
+          url: claimed.capture.kind === 'url' ? claimed.capture.url : '',
           location: 'Guam', notes: '', is_public: false,
         };
         const result = await extraction.startExtraction(request, `share:${entry.id}`);
@@ -71,6 +80,7 @@ export function useImportInboxProcessor() {
         // An inbox error never discards the capture or silently submits it twice.
         await importInbox.patch(entry.id, {
           state: 'error', error: error instanceof Error ? error.message : 'Could not start this import.',
+          submissionClaimed: claimedForSubmission && !(error as { startRejected?: boolean })?.startRejected,
         }).then(() => { persistedOutcome = true; }).catch(() => undefined);
       } finally {
         submitting.current = false;

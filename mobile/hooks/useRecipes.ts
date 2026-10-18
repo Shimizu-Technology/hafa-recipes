@@ -511,7 +511,7 @@ export function useAsyncExtractionController() {
     queryFn: () => api.getExtractionJobs({ limit: 1, activeOnly: true }),
     enabled: Boolean(
       isAuthLoaded && clerkUserId && identity.isSuccess && durableUserId &&
-      hasHydratedStoredJob && !jobId && !isStarting,
+      hasHydratedStoredJob && !jobId && !isStarting && !canRetryStart,
     ),
     staleTime: 0,
     refetchInterval: 15_000,
@@ -659,6 +659,8 @@ export function useAsyncExtractionController() {
   }, [clearActiveJob, durableUserId, invalidateCompletedRecipe, queryClient, stopPollingTimers]);
 
   const restoreJob = useCallback((status: JobStatus) => {
+    if (canRetryStart) return;
+    currentJobIdRef.current = status.id;
     setJobKind(status.job_kind || 'extract');
     setJobStatus(status);
     setJobId(status.id);
@@ -690,7 +692,7 @@ export function useAsyncExtractionController() {
         ),
       );
     }
-  }, [startPolling, stopPollingTimers]);
+  }, [canRetryStart, startPolling, stopPollingTimers]);
 
   const beginStoredRequest = useCallback(async (storedJob: StoredExtractionJob, expectedEpoch = identityEpochRef.current) => {
     const identityEpoch = expectedEpoch;
@@ -784,7 +786,7 @@ export function useAsyncExtractionController() {
             : 'We could not confirm the start because the connection dropped. Reconnect to safely check the same request.';
       setTerminalState('failed');
       setError(message);
-      throw new Error(message);
+      throw Object.assign(new Error(message), { startRejected: definitivelyRejected });
     }
   }, [clearActiveJob, invalidateCompletedRecipe, queryClient, saveActiveJob, startPolling]);
 
@@ -923,6 +925,7 @@ export function useAsyncExtractionController() {
   }, [activeJobsQuery.data, hasHydratedStoredJob, isStarting, restoreJob]);
 
   const startExtraction = async (request: ExtractRequest, idempotencyKey?: string) => {
+    if (canRetryStart) throw new Error('Reconnect to confirm the pending import before starting another.');
     if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
       throw new Error('Your account changed. Please reopen the import in its original account.');
     }
@@ -954,6 +957,7 @@ export function useAsyncExtractionController() {
   };
 
   const startReExtraction = async (recipeId: string, location = 'Guam') => {
+    if (canRetryStart) throw new Error('Reconnect to confirm the pending import before starting another.');
     if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) {
       throw new Error('Your account changed. Please reopen the import in its original account.');
     }
@@ -985,7 +989,9 @@ export function useAsyncExtractionController() {
   };
 
   const reset = async () => {
+    if (canRetryStart && !jobId) throw new Error('Reconnect to find this import before dismissing it.');
     if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
+    const resetJobId = currentJobIdRef.current;
     stopPollingTimers();
     currentJobIdRef.current = null;
     currentStartTimeRef.current = null;
@@ -1001,23 +1007,27 @@ export function useAsyncExtractionController() {
     setElapsedTime(0);
     await clearActiveJob();
     if (durableUserId) {
-      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(durableUserId), []);
+      queryClient.setQueryData<JobStatus[]>(extractionJobKeys.active(durableUserId),
+        (jobs) => jobs?.filter((job) => job.id !== resetJobId));
     }
     queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
   };
 
-  const cancel = async () => {
+  const cancel = async (targetJobId: string | null = jobId) => {
     const identityEpoch = identityEpochRef.current;
-    if (!controllerMountedRef.current || currentOwnerRef.current !== durableUserId) return;
-    if (jobId) {
-      try {
-        await api.cancelJob(jobId);
-      } catch (cancelError: any) {
-        if (cancelError?.response?.status !== 404) throw cancelError;
-      }
+    if (!controllerMountedRef.current || !durableUserId || currentOwnerRef.current !== durableUserId) {
+      throw new Error('Your account changed. Reopen this import in its original account.');
     }
+    if (!targetJobId) throw new Error('Reconnect to find this import before cancelling it.');
+    await api.cancelJob(targetJobId);
     if (identityEpoch !== identityEpochRef.current || currentOwnerRef.current !== durableUserId) return;
-    await reset();
+    // A different attempt at the same URL, or the current display, may have changed
+    // while DELETE was pending. Only retire the exact acknowledged job.
+    queryClient.setQueriesData<JobStatus[]>({ queryKey: extractionJobKeys.all,
+      predicate: (query) => query.queryKey[2] === durableUserId,
+    }, (jobs) => jobs?.filter((job) => job.id !== targetJobId));
+    if (currentJobIdRef.current === targetJobId) await reset();
+    else queryClient.invalidateQueries({ queryKey: extractionJobKeys.all });
   };
 
   const saveSourceDraft = async () => {

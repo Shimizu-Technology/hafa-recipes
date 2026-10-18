@@ -18,6 +18,7 @@ export type ImportInboxEntry = {
   jobId?: string;
   recipeId?: string;
   error?: string;
+  submissionClaimed?: boolean;
   preferences?: { isPublic: boolean; location: string };
 };
 
@@ -74,9 +75,26 @@ export function createImportInbox(storage: Storage) {
         ...(patch.state === 'accepted' ? { capture: { kind: 'url' as const, url: '' }, request: undefined } : {}) } : entry)
     )),
     remove: (id: string) => update((current) => current.filter((entry) => entry.id !== id)),
+    removeWaiting: (id: string, ownerId: string | null) => update((current) => current.filter((entry) =>
+      entry.id !== id || entry.ownerId !== ownerId || Boolean(entry.accountScopeId && !ownerId) ||
+      entry.state === 'submitting' || entry.state === 'accepted' || Boolean(entry.submissionClaimed || entry.jobId))),
+    /** Claim after all preparatory awaits, atomically with local removal. */
+    claimForSubmit: (id: string, ownerId: string, expected: ImportInboxEntry) => transaction(async () => {
+      await load();
+      const entry = entries.find((item) => item.id === id);
+      if (!entry || entry !== expected || entry.ownerId !== ownerId || entry.state !== 'ready' ||
+          entry.submissionClaimed || entry.jobId || entry.capture.kind !== 'url') return null;
+      const claimed = { ...entry, state: 'submitting' as const, submissionClaimed: true, error: undefined };
+      const next = entries.map((item) => item === entry ? claimed : item);
+      await storage.setItem(STORAGE_KEY, JSON.stringify(next));
+      entries = next;
+      emit();
+      return claimed;
+    }),
     /** Signed-out captures require an explicit choice before associating an account. */
     claim: (id: string, ownerId: string, request?: ExtractRequest) => update((current) => (
-      current.map((entry) => entry.id === id && (entry.ownerId === null && !entry.accountScopeId || entry.ownerId === ownerId)
+      current.map((entry) => entry.id === id && !entry.submissionClaimed && entry.state !== 'submitting' && entry.state !== 'accepted' &&
+        (entry.ownerId === null && !entry.accountScopeId || entry.ownerId === ownerId)
         ? { ...entry, ownerId, request: request ?? entry.request,
           state: entry.capture.kind === 'url' ? 'ready' : 'waiting', error: undefined }
         : entry)

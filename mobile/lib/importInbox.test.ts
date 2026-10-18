@@ -12,6 +12,41 @@ function storage() {
 }
 
 describe('durable import inbox', () => {
+  it('serializes removal and submission claims, retaining only an owned current entry', async () => {
+    const inbox = createImportInbox(storage());
+    await inbox.add(entry('removed'));
+    const removed = inbox.snapshot()[0];
+    await inbox.removeWaiting('removed', 'owner-a');
+    expect(await inbox.claimForSubmit('removed', 'owner-a', removed)).toBeNull();
+    await inbox.add(entry('kept'));
+    const kept = inbox.snapshot()[0];
+    expect(await inbox.claimForSubmit('kept', 'owner-b', kept)).toBeNull();
+    await inbox.removeWaiting('kept', 'owner-b');
+    expect(inbox.snapshot()).toEqual([kept]);
+    const [first, second] = await Promise.all([
+      inbox.claimForSubmit('kept', 'owner-a', kept), inbox.claimForSubmit('kept', 'owner-a', kept),
+    ]);
+    expect(first).toMatchObject({ id: 'kept', state: 'submitting', submissionClaimed: true });
+    expect(second).toBeNull();
+    await inbox.removeWaiting('kept', 'owner-a');
+    await inbox.patch('kept', { state: 'error', error: 'Uncertain start' });
+    await inbox.claim('kept', 'owner-a');
+    await inbox.removeWaiting('kept', 'owner-a');
+    expect(inbox.snapshot()).toMatchObject([{ id: 'kept', state: 'error', submissionClaimed: true }]);
+  });
+
+  it('does not claim a changed entry or expose a claim when persistence fails', async () => {
+    const persisted = storage();
+    const inbox = createImportInbox(persisted);
+    await inbox.add(entry('a'));
+    const old = inbox.snapshot()[0];
+    await inbox.patch('a', { request: { url: 'https://example.com/new' } });
+    expect(await inbox.claimForSubmit('a', 'owner-a', old)).toBeNull();
+    persisted.setItem.mockRejectedValueOnce(new Error('Disk full'));
+    await expect(inbox.claimForSubmit('a', 'owner-a', inbox.snapshot()[0])).rejects.toThrow('Disk full');
+    expect(inbox.snapshot()[0].state).toBe('ready');
+  });
+
   it('retains URL captions and request notes through restart and explicit account association', async () => {
     const persisted = storage();
     const inbox = createImportInbox(persisted);

@@ -25,6 +25,40 @@ beforeEach(async () => {
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
 describe('import intake coordinator', () => {
+  it.each(['disclosure', 'reset'] as const)('does not submit a capture removed during %s', async (boundary) => {
+    let finish!: () => void;
+    const barrier = new Promise<void>((resolve) => { finish = resolve; });
+    if (boundary === 'disclosure') mocks.disclosure.mockImplementationOnce(async () => { await barrier; return { requires_acceptance: false }; });
+    else mocks.reset.mockImplementationOnce(() => barrier);
+    await importInbox.add({ id: 'removed', ownerId: 'owner-a', createdAt: 1, state: 'ready',
+      capture: { kind: 'url', url: 'https://example.com/same' }, request: { url: 'https://example.com/same', is_public: boundary === 'disclosure' } });
+    mocks.extraction.isExtracting = false;
+    await act(async () => { renderer = create(<Harness />); });
+    await act(async () => {
+      await importInbox.removeWaiting('removed', 'owner-a');
+      await importInbox.add({ id: 'next', ownerId: 'owner-a', createdAt: 2, state: 'ready',
+        capture: { kind: 'url', url: 'https://example.com/next' } });
+    });
+    await act(async () => finish());
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(
+      { url: 'https://example.com/next', location: 'Guam', notes: '', is_public: false }, 'share:next');
+    expect(importInbox.snapshot()).toMatchObject([{ id: 'next', state: 'accepted' }]);
+  });
+
+  it('keeps the original owner capture when accounts switch during disclosure', async () => {
+    let finish!: (value: { requires_acceptance: boolean }) => void;
+    mocks.disclosure.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await importInbox.add({ id: 'a', ownerId: 'owner-a', createdAt: 1, state: 'ready',
+      capture: { kind: 'url', url: 'https://example.com/a' }, request: { url: 'https://example.com/a', is_public: true } });
+    mocks.extraction.isExtracting = false;
+    await act(async () => { renderer = create(<Harness />); });
+    mocks.owner = 'owner-b';
+    await act(async () => renderer!.update(<Harness />));
+    await act(async () => finish({ requires_acceptance: false }));
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(importInbox.snapshot()).toMatchObject([{ id: 'a', ownerId: 'owner-a', state: 'ready' }]);
+  });
+
   it('keeps B queued while A runs, then submits B once with its stable capture key', async () => {
     await importInbox.add({ id: 'b', ownerId: 'owner-a', createdAt: 1, state: 'ready', capture: { kind: 'url', url: 'https://example.com/b' } });
     await act(async () => { renderer = create(<Harness />); });

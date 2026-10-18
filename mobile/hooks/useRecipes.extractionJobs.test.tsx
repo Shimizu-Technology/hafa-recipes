@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   removeItem: vi.fn(),
   setItem: vi.fn(),
   deleteRecipe: vi.fn(),
+  cancelJob: vi.fn(),
   alert: vi.fn(),
   focused: true,
   getAuthScope: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock('../lib/api', () => ({
     getExtractionJobs: mocks.getExtractionJobs,
     getJobStatus: mocks.getJobStatus,
     deleteRecipe: mocks.deleteRecipe,
+    cancelJob: mocks.cancelJob,
     getAuthScope: mocks.getAuthScope,
   },
 }));
@@ -87,6 +89,79 @@ describe('durable extraction recovery', () => {
       created_at: '2026-09-07T00:00:00Z',
     }]);
     mocks.getJobStatus.mockReturnValue(new Promise(() => undefined));
+  });
+
+  it.each(['success', 'offline', '404', 'other-selected', 'owner-switch'] as const)(
+    'retires only the acknowledged job after cancellation: %s', async (outcome) => {
+      mocks.getExtractionJobs.mockResolvedValue([]);
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      let controller!: Controller;
+      function Harness() { controller = useAsyncExtractionController(); return null; }
+      const tree = () => <QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>;
+      let renderer!: ReactTestRenderer;
+      await act(async () => { renderer = create(tree()); });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+      const failed = { id: 'attempt-a', url: 'https://example.com/same', status: 'failed' as const,
+        progress: 30, current_step: 'error', message: 'Failed', recipe_id: null, error_message: 'Try again' };
+      const second = { ...failed, id: 'attempt-b' };
+      const key = ['extractionJobs', 'recent', 'app-stable-user', 'extract'];
+      const foreignKey = ['extractionJobs', 'recent', 'app-other', 'extract'];
+      queryClient.setQueryData(key, [failed, second]); queryClient.setQueryData(foreignKey, [failed]);
+      await act(async () => controller.restoreJob(failed));
+      let finish!: () => void;
+      mocks.cancelJob.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      let cancellation!: Promise<void>;
+      await act(async () => { cancellation = controller.cancel(); });
+      expect(mocks.cancelJob).toHaveBeenCalledExactlyOnceWith('attempt-a');
+      expect(controller.jobId).toBe('attempt-a');
+      expect(queryClient.getQueryData(key)).toEqual([failed, second]);
+      if (outcome === 'other-selected') await act(async () => controller.restoreJob(second));
+      if (outcome === 'owner-switch') {
+        mocks.getUserId.mockReturnValue('clerk-b'); mocks.getCurrentUserIdentity.mockResolvedValue({ id: 'app-other' });
+        await act(async () => renderer.update(tree()));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+      }
+      await act(async () => { finish(); await cancellation; });
+      if (outcome === 'owner-switch') {
+        expect(queryClient.getQueryData(key)).toEqual([failed, second]);
+      } else {
+        expect(queryClient.getQueryData(key)).toEqual([second]);
+        expect(controller.jobId).toBe(outcome === 'other-selected' ? 'attempt-b' : null);
+      }
+      expect(queryClient.getQueryData(foreignKey)).toEqual([failed]);
+      if (outcome === 'offline' || outcome === '404') {
+        await act(async () => controller.restoreJob(second));
+        mocks.cancelJob.mockRejectedValueOnce(outcome === '404' ? { response: { status: 404 } } : new Error('Offline'));
+        await act(async () => { await expect(controller.cancel()).rejects.toBeDefined(); });
+        expect(controller.jobId).toBe('attempt-b');
+        expect(queryClient.getQueryData(key)).toEqual([second]);
+      }
+      await act(async () => renderer.unmount()); queryClient.clear();
+    },
+  );
+
+  it('retains an uncertain start receipt until Reconnect discovers the remote job', async () => {
+    mocks.getExtractionJobs.mockResolvedValue([]);
+    mocks.startAsyncExtraction.mockRejectedValueOnce(new Error('Offline'));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let controller!: Controller;
+    function Harness() { controller = useAsyncExtractionController(); return null; }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    await act(async () => { await expect(controller.startExtraction({ url: 'https://example.com/a' }, 'share:receipt')).rejects.toThrow(); });
+    expect(controller).toMatchObject({ jobId: null, canRetryStart: true, requestKey: 'share:receipt' });
+    mocks.removeItem.mockClear();
+    await act(async () => {
+      await expect(controller.cancel()).rejects.toThrow('Reconnect');
+      await expect(controller.reset()).rejects.toThrow('Reconnect');
+      await expect(controller.startExtraction({ url: 'https://example.com/other' })).rejects.toThrow('Reconnect');
+      controller.restoreJob({ id: 'other', url: 'https://example.com/other', status: 'failed', progress: 0,
+        current_step: 'error', message: 'Failed', recipe_id: null, error_message: null });
+    });
+    expect(mocks.cancelJob).not.toHaveBeenCalled(); expect(mocks.removeItem).not.toHaveBeenCalled();
+    expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:receipt' });
+    await act(async () => renderer.unmount()); queryClient.clear();
   });
 
   it('keeps recent-job cache data scoped to the signed-in account', async () => {
