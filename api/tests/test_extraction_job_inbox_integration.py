@@ -306,3 +306,23 @@ async def test_cancel_fences_late_worker_recipe_persistence(cancellation_session
     finally:
         finish.set()
         await worker
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["processing", "failed", "completed", "cancelled"])
+async def test_request_key_recovery_is_exact_and_owner_scoped(cancellation_sessions, status):
+    owner, other = _user("cancel_owner"), _user("cancel_other")
+    async with cancellation_sessions() as db:
+        own = ExtractionJob(url="https://example.test/claimed", user_id=owner.id,
+            idempotency_key="share:lost-confirmation", status=status)
+        foreign = ExtractionJob(url="https://example.test/foreign", user_id=other.id,
+            idempotency_key="share:lost-confirmation", status="processing")
+        sibling = ExtractionJob(url=own.url, user_id=owner.id,
+            idempotency_key="share:another-attempt", status="failed")
+        db.add_all([own, foreign, sibling])
+        await db.commit()
+        recovered = await list_extraction_jobs(limit=1, include_cancelled=True,
+            job_kind="extract", idempotency_key="share:lost-confirmation", db=db, user=owner)
+        assert [job.id for job in recovered] == [own.id]
+        assert recovered[0].status == status
+        assert await list_extraction_jobs(idempotency_key="share:missing", db=db, user=owner) == []

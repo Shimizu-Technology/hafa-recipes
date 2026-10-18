@@ -1332,12 +1332,15 @@ async def list_extraction_jobs(
     active_only: bool = False,
     include_cancelled: bool = True,
     job_kind: Optional[Literal["extract", "reextract"]] = None,
+    idempotency_key: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
     db: AsyncSession = Depends(get_db),
     user: ClerkUser = Depends(get_current_user),
 ):
     """List the signed-in user's newest jobs for recovery and recent activity."""
 
     filters = [ExtractionJob.user_id == user.id, ExtractionJob.job_kind.in_(("extract", "reextract"))]
+    if idempotency_key is not None:
+        filters.append(ExtractionJob.idempotency_key == idempotency_key)
     if active_only:
         filters.append(ExtractionJob.status.in_(ACTIVE_JOB_STATUSES))
     elif not include_cancelled:
