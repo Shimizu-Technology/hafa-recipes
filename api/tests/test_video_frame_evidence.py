@@ -387,6 +387,8 @@ def test_video_frame_prompt_forbids_visual_quantity_guessing():
     assert "tentative draft is a convenience, not evidence" in prompt
     assert "Never guess powders, liquids, seasonings" in prompt
     assert "Use null for every unstated quantity" in prompt
+    assert "A browned or finished dish does not prove" in prompt
+    assert "Recover demonstrated assembly without completing it from culinary knowledge" in prompt
     assert "[0.0, 4.5]" in prompt
 
 
@@ -496,3 +498,142 @@ async def test_failed_visual_recovery_preserves_existing_text_draft(monkeypatch)
     )
 
     assert result is None
+
+
+@pytest.fixture
+def visual_channels(monkeypatch):
+    """Keep acquisition and generation independently observable without network calls."""
+    monkeypatch.setattr("app.services.extractor.settings.video_frame_extraction_enabled", True)
+    for channel in ("get_video_metadata_ytdlp", "fetch_oembed"):
+        monkeypatch.setattr(
+            f"app.services.extractor.video_service.{channel}",
+            AsyncMock(return_value=VideoMetadata()),
+        )
+    monkeypatch.setattr(
+        "app.services.extractor.video_service.download_audio",
+        AsyncMock(return_value=AudioExtractionResult(success=False, error="No audio")),
+    )
+    frames = AsyncMock(return_value=VideoFrameExtractionResult(
+        success=True, frames=[VideoFrame(2.5, "/9j/synthetic")],
+    ))
+    vision = AsyncMock(return_value=ExtractionResult(success=True, recipe=_recipe(quantity=None)))
+    text = AsyncMock()
+    monkeypatch.setattr("app.services.extractor.video_service.extract_video_frames", frames)
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_from_video_frames", vision)
+    monkeypatch.setattr("app.services.extractor.llm_service.extract_recipe", text)
+    return frames, vision, text
+
+
+@pytest.mark.asyncio
+async def test_empty_caption_and_audio_still_recover_visible_steps(visual_channels):
+    frames, vision, text = visual_channels
+    result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=visual-only")
+
+    assert result.success
+    assert result.source_evidence["modalities"] == ["video_frames"]
+    assert result.low_confidence  # Unstated amounts stay missing, even after visual recovery.
+    assert result.recipe["components"][0]["ingredients"][0]["quantity"] is None
+    frames.assert_awaited_once()
+    vision.assert_awaited_once()
+    text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_disabled_visual_processing_does_not_blame_the_source(monkeypatch, visual_channels):
+    frames, vision, text = visual_channels
+    monkeypatch.setattr("app.services.extractor.settings.video_frame_extraction_enabled", False)
+    result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=visual-only")
+
+    assert not result.success
+    assert result.error_code == "VIDEO_ANALYSIS_UNAVAILABLE"
+    assert "keep the source as a draft" in result.friendly_error.lower()
+    frames.assert_not_awaited()
+    vision.assert_not_awaited()
+    text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["TIMEOUT", "MEDIA_BUSY", "RATE_LIMITED", "VIDEO_TOO_LARGE", "NO_VIDEO_FRAMES"])
+async def test_visual_acquisition_failure_keeps_its_cause(code, visual_channels):
+    from app.job_worker import should_retry_extraction_error
+
+    frames, vision, _ = visual_channels
+    frames.return_value = VideoFrameExtractionResult(success=False, error_code=code)
+    result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=visual-only")
+
+    assert not result.success
+    assert result.error_code == code
+    assert should_retry_extraction_error(result.error_code) == (code in {"TIMEOUT", "MEDIA_BUSY", "RATE_LIMITED"})
+    vision.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("provider_code", "expected"), [
+    ("provider_http_429", "RATE_LIMITED"),
+    ("provider_http_503", "VISION_EXTRACTION_FAILED"),
+    ("provider_http_401", "VIDEO_ANALYSIS_UNAVAILABLE"),
+    ("ocr_disabled", "VIDEO_ANALYSIS_UNAVAILABLE"),
+])
+async def test_visual_provider_failure_is_not_missing_recipe_evidence(provider_code, expected, visual_channels):
+    _, vision, _ = visual_channels
+    vision.return_value = ExtractionResult(success=False, error_code=provider_code)
+    result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=visual-only")
+
+    assert not result.success
+    assert result.error_code == expected
+
+
+@pytest.mark.asyncio
+async def test_private_video_does_not_start_visual_or_model_work(monkeypatch, visual_channels):
+    frames, vision, text = visual_channels
+    monkeypatch.setattr(
+        "app.services.extractor.video_service.download_audio",
+        AsyncMock(return_value=AudioExtractionResult(
+            success=False, error_code="VIDEO_PRIVATE", friendly_error="This video is private.",
+        )),
+    )
+    result = await RecipeExtractor().extract("https://www.youtube.com/watch?v=private")
+
+    assert result.error_code == "VIDEO_PRIVATE"
+    frames.assert_not_awaited()
+    vision.assert_not_awaited()
+    text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_visual_router_retains_last_provider_failure(monkeypatch):
+    service = LLMService()
+    service.openai_api_key = "synthetic-test-key"
+    failed = ExtractionResult(success=False, error_code="provider_http_503")
+    monkeypatch.setattr(service, "_try_multi_image_extraction", AsyncMock(side_effect=[
+        ExtractionResult(success=False, error_code="provider_http_429"), failed,
+    ]))
+    result = await service.extract_from_video_frames(
+        images_base64=["/9j/synthetic"], frame_timestamps=[2.5],
+        source_url="https://example.test/video", source_context="", initial_recipe=None,
+    )
+
+    assert result is failed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_draft", [False, True])
+@pytest.mark.parametrize(("error", "code"), [
+    (TimeoutError("simulated timeout"), "TIMEOUT"),
+    (ValueError("invalid provider JSON"), "VISION_EXTRACTION_FAILED"),
+])
+async def test_failed_visual_request_preserves_useful_text_draft(has_draft, error, code, visual_channels):
+    _, vision, _ = visual_channels
+    vision.side_effect = error
+    result = await RecipeExtractor()._attempt_video_frame_recovery(
+        url="https://www.youtube.com/watch?v=visual-only", platform="youtube",
+        location="Guam", source_context="", initial_recipe=_recipe() if has_draft else None,
+        base_method="basic", thumbnail_url=None, has_audio_transcript=False,
+        progress_callback=None, enabled=True,
+    )
+
+    if has_draft:
+        assert result is None
+    else:
+        assert not result.success
+        assert result.error_code == code

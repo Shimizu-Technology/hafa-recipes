@@ -541,6 +541,8 @@ SECURITY AND SOURCE RULES:
 - Add or correct an ingredient amount in canonical quantity/unit source fields only when the amount is written in source text, visible on-screen, or directly countable without ambiguity. Use quantityEstimate for a separate defensible contextual suggestion.
 - Packaging may support an ingredient identity only when its label is readable. Never guess powders, liquids, seasonings, sauces, package size, or hidden ingredients from appearance.
 - Record a cooking step only when its action is stated in source text, visible text, or clearly demonstrated in a sampled frame. Do not invent bridge steps.
+- A browned or finished dish does not prove a baking, frying, or other heating action. If essential heating or preparation is not shown or stated, omit that action, set sourceIncomplete true, and describe the missing method in confidenceWarning.
+- A request to comment or visit another page for the recipe is not the missing recipe. Recover demonstrated assembly without completing it from culinary knowledge.
 - Use null for every unstated quantity, unit, time, and serving count in canonical source fields; this does not prevent a contextual quantityEstimate suggestion. Do not substitute "to taste", "as needed", or "optional" unless the source says it.
 - If the available evidence does not support at least one ingredient and one actionable cooking step, return an empty components array.
 

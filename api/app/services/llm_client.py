@@ -681,7 +681,9 @@ class LLMService:
                 error_code="invalid_frame_evidence",
             )
         if not settings.is_ai_capability_enabled("ocr"):
-            return ExtractionResult(success=False, error="OCR is temporarily unavailable")
+            return ExtractionResult(
+                success=False, error="OCR is temporarily unavailable", error_code="ocr_disabled",
+            )
 
         prompt = get_video_frame_extraction_prompt(
             source_url=source_url,
@@ -707,6 +709,7 @@ class LLMService:
             if primary_result.success:
                 return primary_result
 
+        fallback_result: ExtractionResult | None = None
         if use_fallback and self.openai_api_key:
             fallback_result = await self._try_multi_image_extraction(
                 config=self.FALLBACK_VISION_CONFIG,
@@ -724,9 +727,10 @@ class LLMService:
             if fallback_result.success:
                 return fallback_result
 
-        return ExtractionResult(
+        return fallback_result or primary_result or ExtractionResult(
             success=False,
-            error="All video frame extraction attempts failed",
+            error="Video frame extraction is unavailable",
+            error_code="ocr_disabled",
         )
     
     async def generate_json(self, prompt: str) -> Optional[dict]:

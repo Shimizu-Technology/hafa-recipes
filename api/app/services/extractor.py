@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+import httpx
 import sentry_sdk
 
 from app.config import get_settings
@@ -559,6 +560,17 @@ class RecipeExtractor:
                         error_code=audio_error_code,
                         friendly_error=audio_friendly_error
                     )
+
+            visual_result = await self._attempt_video_frame_recovery(
+                url=url, platform=platform, location=location,
+                source_context="", initial_recipe=None,
+                base_method=extraction_method, thumbnail_url=thumbnail_url,
+                has_audio_transcript=has_audio_transcript,
+                progress_callback=progress_callback, enabled=not fast_mode,
+                acquisition_failures=acquired.failures,
+            )
+            if visual_result:
+                return visual_result
             
             code = source_failure_code(acquired.failures)
             message = (
@@ -589,7 +601,7 @@ class RecipeExtractor:
                 has_audio_transcript=has_audio_transcript,
                 progress_callback=progress_callback,
                 enabled=not fast_mode,
-            )
+                acquisition_failures=acquired.failures,            )
             if visual_result:
                 return visual_result
             code = source_failure_code(acquired.failures)
@@ -607,9 +619,9 @@ class RecipeExtractor:
                 error="The available source did not contain actionable recipe evidence",
                 error_code="INSUFFICIENT_SOURCE_EVIDENCE",
                 friendly_error=(
-                    "We found the post, but it did not include enough recipe details to "
-                    "extract accurately. You can keep the source as a draft and add the "
-                    "ingredients or steps yourself."
+                    "We could not recover enough recipe details from the available "
+                    "caption, audio, or sampled video frames. Keep a draft and add "
+                    "recipe text or screenshots."
                 ),
                 low_confidence=True,
                 confidence_warning="The source did not include enough recipe details.",
@@ -640,7 +652,7 @@ class RecipeExtractor:
                 has_audio_transcript=has_audio_transcript,
                 progress_callback=progress_callback,
                 enabled=not fast_mode,
-            )
+                acquisition_failures=acquired.failures,            )
             if visual_result:
                 return visual_result
             return FullExtractionResult(
@@ -676,7 +688,7 @@ class RecipeExtractor:
                 has_audio_transcript=has_audio_transcript,
                 progress_callback=progress_callback,
                 enabled=not fast_mode,
-            )
+                acquisition_failures=acquired.failures,            )
             if visual_result:
                 return visual_result
         
@@ -708,15 +720,31 @@ class RecipeExtractor:
         has_audio_transcript: bool,
         progress_callback,
         enabled: bool,
+        acquisition_failures: list[AcquisitionFailure] | None = None,
     ) -> FullExtractionResult | None:
         """Recover uncertain normal-video recipes with bounded visual evidence."""
 
-        if (
-            not enabled
-            or not settings.video_frame_extraction_enabled
-            or platform not in VideoService.SUPPORTED_PLATFORMS
-        ):
+        if not enabled or platform not in VideoService.SUPPORTED_PLATFORMS:
             return None
+
+        def unavailable(code: str) -> FullExtractionResult | None:
+            # Keep a useful text draft if optional visual reconciliation fails.
+            if initial_recipe is not None:
+                return None
+            message = (
+                "We could not finish reading this video. Keep the source as a draft, "
+                "then retry or add recipe text or screenshots."
+            )
+            return FullExtractionResult(
+                success=False, error=message, error_code=code,
+                friendly_error=message, thumbnail_url=thumbnail_url,
+            )
+
+        if not settings.video_frame_extraction_enabled:
+            prior_code = source_failure_code(acquisition_failures or [])
+            return unavailable(
+                prior_code if prior_code != "NO_CONTENT" else "VIDEO_ANALYSIS_UNAVAILABLE"
+            )
         if progress_callback:
             await progress_callback(
                 ExtractionProgress(
@@ -730,18 +758,37 @@ class RecipeExtractor:
         frames = frame_result.frames or []
         if not frame_result.success or not frames:
             print(f"⚠️ Video frame recovery unavailable: {frame_result.error_code}")
-            return None
+            return unavailable(frame_result.error_code or "VIDEO_FRAME_EXTRACTION_FAILED")
 
         timestamps = [frame.timestamp_seconds for frame in frames]
-        visual_result = await llm_service.extract_from_video_frames(
-            images_base64=[frame.image_base64 for frame in frames],
-            frame_timestamps=timestamps,
-            source_url=url,
-            source_context=source_context,
-            initial_recipe=initial_recipe,
-            location=location,
-        )
-        if not visual_result.success or not _visual_recovery_improves(
+        try:
+            visual_result = await llm_service.extract_from_video_frames(
+                images_base64=[frame.image_base64 for frame in frames],
+                frame_timestamps=timestamps,
+                source_url=url,
+                source_context=source_context,
+                initial_recipe=initial_recipe,
+                location=location,
+            )
+        except (TimeoutError, httpx.TimeoutException):
+            return unavailable("TIMEOUT")
+        except (httpx.HTTPError, ValueError):
+            return unavailable("VISION_EXTRACTION_FAILED")
+        if not visual_result.success:
+            code = visual_result.error_code or "VISION_EXTRACTION_FAILED"
+            if code == "provider_http_429":
+                code = "RATE_LIMITED"
+            elif code.startswith("provider_http_5"):
+                code = "VISION_EXTRACTION_FAILED"
+            elif code in {"provider_http_401", "provider_http_403", "ocr_disabled"}:
+                code = "VIDEO_ANALYSIS_UNAVAILABLE"
+            elif code in {"missing_ingredients", "missing_steps", "missing_components"}:
+                # The model could read the frames but found no usable recipe.
+                return None
+            else:
+                code = "VISION_EXTRACTION_FAILED"
+            return unavailable(code)
+        if not _visual_recovery_improves(
             initial_recipe,
             visual_result.recipe,
         ):
