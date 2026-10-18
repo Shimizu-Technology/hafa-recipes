@@ -12,6 +12,38 @@ function storage() {
 }
 
 describe('durable import inbox', () => {
+  it('makes a definitively rejected claim editable and retryable with its original capture ID', async () => {
+    const persisted = storage();
+    const inbox = createImportInbox(persisted);
+    await inbox.add(entry('rejected'));
+    await inbox.claimForSubmit('rejected', 'owner-a', inbox.snapshot()[0]);
+    await inbox.rejectSubmission('rejected', 'owner-a', 'Review public sharing.');
+    const restarted = createImportInbox(persisted);
+    await restarted.hydrate();
+    expect(restarted.snapshot()[0]).toMatchObject({ id: 'rejected', state: 'error', submissionClaimed: false });
+    const request = { url: 'https://example.com/rejected', notes: 'Corrected notes', is_public: false };
+    await restarted.claim('rejected', 'owner-a', request);
+    expect(await restarted.claimForSubmit('rejected', 'owner-a', restarted.snapshot()[0])).toMatchObject({
+      id: 'rejected', state: 'submitting', submissionClaimed: true, request,
+    });
+    await restarted.removeWaiting('rejected', 'owner-a');
+    expect(restarted.snapshot()).toHaveLength(1);
+  });
+
+  it.each(['owner', 'id', 'job', 'recipe', 'accepted'] as const)(
+    'does not release a different or confirmed claim after rejection: %s', async (boundary) => {
+      const inbox = createImportInbox(storage());
+      await inbox.add({ ...entry('protected'), state: 'submitting', submissionClaimed: true });
+      if (boundary === 'job') await inbox.patch('protected', { jobId: 'known-job' });
+      if (boundary === 'recipe') await inbox.patch('protected', { recipeId: 'known-recipe' });
+      if (boundary === 'accepted') await inbox.patch('protected', { state: 'accepted' });
+      const before = inbox.snapshot();
+      await inbox.rejectSubmission(boundary === 'id' ? 'different' : 'protected',
+        boundary === 'owner' ? 'owner-b' : 'owner-a', 'Rejected');
+      expect(inbox.snapshot()).toEqual(before);
+    },
+  );
+
   it('retains the exact submission request through a claim/receipt crash and refuses local removal after reload', async () => {
     const persisted = storage();
     const inbox = createImportInbox(persisted);

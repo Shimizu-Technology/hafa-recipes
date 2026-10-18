@@ -17,7 +17,7 @@ import {
   updateSavedStateInRecipePages,
 } from '../lib/recipeCache';
 import { getApiErrorMessage } from '../lib/apiErrorMessage';
-import { importInboxRequest, type ImportInboxEntry } from '../lib/importInbox';
+import { importInbox, importInboxRequest, type ImportInboxEntry } from '../lib/importInbox';
 import {
   hasDiscoverSearchRequestFilters,
   normalizeDiscoverSearchQuery,
@@ -769,16 +769,27 @@ export function useAsyncExtractionController() {
       };
     } catch (startError: any) {
       if (!isCurrentOwner()) throw startError;
-      setIsStarting(false);
       const responseStatus = startError?.response?.status as number | undefined;
-      const definitivelyRejected = responseStatus !== undefined &&
+      let definitivelyRejected = !storedJob.jobId && responseStatus !== undefined &&
         [400, 403, 404, 409, 422].includes(responseStatus);
       if (definitivelyRejected) {
-        await clearActiveJob();
+        try {
+          if (storedJob.request.kind === 'extract' && storedJob.idempotencyKey.startsWith('share:')) {
+            // Reconnect has no intake promise to notify. Persist the exact claim's
+            // rejection before retiring its pointer or allowing a sibling to start.
+            await importInbox.rejectSubmission(storedJob.idempotencyKey.slice('share:'.length), storedJob.userId,
+              getApiErrorMessage(startError, 'We could not start this extraction.'));
+          }
+          assertCurrentOwner();
+          await clearActiveJob();
+        } catch {
+          // If reconciliation could not be saved, retain the receipt and claim.
+          definitivelyRejected = false;
+        }
         assertCurrentOwner();
-      } else {
-        setCanRetryStart(true);
       }
+      setCanRetryStart(!definitivelyRejected);
+      setIsStarting(false);
       const message = definitivelyRejected
         ? getApiErrorMessage(startError, 'We could not start this extraction.')
         : responseStatus === 401

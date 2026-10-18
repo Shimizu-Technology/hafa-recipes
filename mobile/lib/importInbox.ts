@@ -84,6 +84,12 @@ export function createImportInbox(storage: Storage) {
     removeWaiting: (id: string, ownerId: string | null) => update((current) => current.filter((entry) =>
       entry.id !== id || entry.ownerId !== ownerId || Boolean(entry.accountScopeId && !ownerId) ||
       entry.state === 'submitting' || entry.state === 'accepted' || Boolean(entry.submissionClaimed || entry.jobId))),
+    /** Only a definitive start rejection can release an unconfirmed submission. */
+    rejectSubmission: (id: string, ownerId: string, error: string) => update((current) => current.map((entry) =>
+      entry.id === id && entry.ownerId === ownerId && entry.state !== 'accepted' &&
+      (entry.submissionClaimed || entry.state === 'submitting') && !entry.jobId && !entry.recipeId
+        ? { ...entry, state: 'error' as const, submissionClaimed: false, error }
+        : entry)),
     /** Claim after all preparatory awaits, atomically with local removal. */
     claimForSubmit: (id: string, ownerId: string, expected: ImportInboxEntry) => transaction(async () => {
       await load();

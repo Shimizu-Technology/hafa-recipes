@@ -245,6 +245,88 @@ describe('durable extraction recovery', () => {
     },
   );
 
+  it.each([400, 403, 404, 409, 422, 401, 'network', 'storage'] as const)(
+    'reconciles only definite recovered-start rejections and unblocks the next capture: %s', async (status) => {
+      const persisted = new Map<string, string>();
+      let rejectionStorageUnavailable = status === 'storage';
+      mocks.getItem.mockImplementation(async (key: string) => persisted.get(key) ?? null);
+      mocks.setItem.mockImplementation(async (key: string, value: string) => {
+        if (key === 'hafa_import_inbox_v1' && rejectionStorageUnavailable && value.includes('"submissionClaimed":false')) {
+          throw new Error('Disk full');
+        }
+        persisted.set(key, value);
+      });
+      mocks.removeItem.mockImplementation(async (key: string) => { persisted.delete(key); });
+      mocks.getExtractionJobs.mockResolvedValue([]);
+      await importInbox.hydrate();
+      for (const item of importInbox.snapshot()) await importInbox.remove(item.id);
+      const request = { url: 'https://example.com/same', notes: '2 cups rice', location: 'Hawaii', is_public: true };
+      await importInbox.add({ id: 'rejected', ownerId: 'app-stable-user', createdAt: Date.now(), state: 'submitting',
+        submissionClaimed: true, capture: { kind: 'url', url: request.url }, request });
+      await importInbox.add({ id: 'foreign', ownerId: 'other-owner', createdAt: Date.now(), state: 'error',
+        submissionClaimed: true, capture: { kind: 'url', url: request.url }, request });
+      await importInbox.add({ id: 'next', ownerId: 'app-stable-user', createdAt: Date.now(), state: 'ready',
+        capture: { kind: 'url', url: request.url } });
+      mocks.startAsyncExtraction.mockImplementation(async (_request, key, guard) => {
+        guard();
+        if (key === 'share:rejected') throw status === 'network' ? new Error('Offline')
+          : { response: { status: status === 'storage' ? 403 : status,
+            data: { detail: 'Review public sharing to finish this import.' } } };
+        expect(key).toBe('share:next');
+        return { job_id: 'next-job', status: 'processing' };
+      });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      let controller!: Controller;
+      function Harness() { controller = useAsyncExtraction(); useImportInboxProcessor(); return null; }
+      let renderer!: ReactTestRenderer;
+      try {
+        await act(async () => { renderer = create(<QueryClientProvider client={queryClient}>
+          <ExtractionProvider><Harness /></ExtractionProvider></QueryClientProvider>); });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+        expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:rejected' });
+        expect(mocks.startAsyncExtraction).not.toHaveBeenCalled();
+        await act(async () => importInbox.removeWaiting('rejected', 'app-stable-user'));
+        expect(importInbox.snapshot()[0].submissionClaimed).toBe(true);
+        await act(async () => controller.retryPendingStart());
+        expect(mocks.startAsyncExtraction).toHaveBeenNthCalledWith(1, request, 'share:rejected', expect.any(Function));
+        const reloaded = createImportInbox({ getItem: mocks.getItem, setItem: mocks.setItem });
+        await reloaded.hydrate();
+        expect(importInbox.snapshot()[1]).toMatchObject({ id: 'foreign', ownerId: 'other-owner', submissionClaimed: true });
+        if (status === 401 || status === 'network' || status === 'storage') {
+          expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:rejected', jobId: null });
+          expect(reloaded.snapshot()[0]).toMatchObject({ submissionClaimed: true, request });
+          await act(async () => importInbox.removeWaiting('rejected', 'app-stable-user'));
+          await act(async () => controller.retryPendingStart());
+          expect(mocks.startAsyncExtraction.mock.calls.map(([, key]) => key)).toEqual(['share:rejected', 'share:rejected']);
+          expect(JSON.parse(persisted.get('active_extraction_job_v2:app-stable-user')!)).toMatchObject({
+            jobId: null, idempotencyKey: 'share:rejected', request: { payload: request },
+          });
+          expect(importInbox.snapshot()).toMatchObject([{ id: 'rejected', submissionClaimed: true },
+            { id: 'foreign' }, { id: 'next', state: 'ready' }]);
+          if (status === 'storage') {
+            rejectionStorageUnavailable = false;
+            await act(async () => controller.retryPendingStart());
+            expect(importInbox.snapshot()[0]).toMatchObject({ state: 'error', submissionClaimed: false, request });
+            expect(importInbox.snapshot()[2]).toMatchObject({ state: 'accepted', jobId: 'next-job' });
+            expect(mocks.startAsyncExtraction.mock.calls.map(([, key]) => key)).toEqual([
+              'share:rejected', 'share:rejected', 'share:rejected', 'share:next',
+            ]);
+          }
+        } else {
+          expect(reloaded.snapshot()[0]).toMatchObject({ state: 'error', submissionClaimed: false, request,
+            error: 'Review public sharing to finish this import.' });
+          expect(importInbox.snapshot()[2]).toMatchObject({ id: 'next', state: 'accepted', jobId: 'next-job' });
+          expect(mocks.startAsyncExtraction.mock.calls.map(([, key]) => key)).toEqual(['share:rejected', 'share:next']);
+          await act(async () => importInbox.removeWaiting('rejected', 'app-stable-user'));
+          expect(importInbox.snapshot().map(({ id }) => id)).toEqual(['foreign', 'next']);
+        }
+      } finally {
+        if (renderer) await act(async () => renderer.unmount());
+        queryClient.clear();
+      }
+    },
+  );
+
   it('keeps a recovered receipt with its exact owner when accounts switch during its persistence', async () => {
     mocks.getExtractionJobs.mockResolvedValue([]);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
