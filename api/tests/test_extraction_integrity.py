@@ -599,6 +599,15 @@ def test_source_cooking_details_must_reach_steps_and_durable_review(steps, expec
 
 
 @pytest.mark.parametrize("source,steps,missing", [
+    ("Bake the cookies for 12 minutes.", ["Bake for 12 minutes."], False),
+    ("Cookies take 15 minutes.", ["Mix dough."], False),
+    ("Preheat to 350F. Bake for 15 minutes.", ["Bake at 350F for 15 minutes."], False),
+    ("Bake at 350F.", ["Preheat to 350F."], True),
+    ("Baking at 350F for 15 minutes.", ["Mix dough."], True),
+    ("Fried at 350F for 5 minutes.", ["Fry at 350F for 5 minutes."], False),
+    ("Freezing for 30 minutes.", ["Mix dough."], True),
+    ("Microwaving for 2 minutes.", ["Microwave for 2 minutes."], False),
+    ("Broil for 3 minutes.", ["Mix dough."], True),
     ("Bake at 350°F for 12–15 minutes.", ["Preheat to 350°F.", "Chill for 12–15 minutes."], True),
     ("Bake at 350 degrees Fahrenheit for 15 minutes.", ["Bake for 15 minutes."], True),
     ("Bake for 12 to 15 minutes.", ["Bake for 12–15 minutes."], False),
@@ -607,3 +616,28 @@ def test_source_cooking_details_must_reach_steps_and_durable_review(steps, expec
 def test_source_cooking_details_match_actions_and_common_units(source, steps, missing):
     from app.services.extractor import _missing_source_cooking_details
     assert _missing_source_cooking_details({"components": [{"steps": steps}]}, source) is missing
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure,expected", [
+    ("website_size_limit", "SOURCE_TOO_LARGE"),
+    ("website_content_unsupported", "SOURCE_CONTENT_UNSUPPORTED"),
+    ("website_redirect_limit", "SOURCE_REDIRECT_LIMIT"),
+    ("website_redirect_invalid", "SOURCE_REDIRECT_MISMATCH"),
+    ("invalid_source_url", "SOURCE_INVALID"),
+    ("unrecognized", "SOURCE_UNAVAILABLE"),
+])
+async def test_shared_adapter_preserves_terminal_failures_and_existing_caption(failure, expected):
+    from types import SimpleNamespace
+
+    from app.domains.workouts.extraction import ExtractionFailure
+    from app.services.source_acquisition import acquire_video_metadata, source_failure_code
+
+    service = SimpleNamespace(get_video_metadata_ytdlp=AsyncMock(return_value=VideoMetadata(description="Known caption")))
+    result = await acquire_video_metadata(
+        service, "https://www.instagram.com/reel/Example/", "instagram",
+        public_reader=AsyncMock(side_effect=ExtractionFailure(failure)),
+    )
+    assert result.metadata.description == "Known caption"
+    assert [(item.stage, item.code) for item in result.failures] == [("public_metadata", expected)]
+    assert source_failure_code(result.failures) == expected

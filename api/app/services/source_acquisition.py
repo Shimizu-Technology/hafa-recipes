@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 from bs4 import BeautifulSoup
 
-from app.http_limits import get_limited
+from app.http_limits import ResponseTooLarge, get_limited
 from app.security import PublicHTTPTransport
 from app.source_urls import canonicalize_source
 
@@ -121,7 +121,18 @@ async def acquire_video_metadata(service, url, platform, *, public_reader=None, 
             status = exc.response.status_code
             code = {401: "INSTAGRAM_AUTH_REQUIRED", 403: "ACCESS_DENIED", 404: "NOT_FOUND", 429: "RATE_LIMITED"}.get(status, "SOURCE_UNAVAILABLE")
             result.failures.append(AcquisitionFailure(stage, code))
-        except Exception:
+        except ResponseTooLarge:
+            result.failures.append(AcquisitionFailure(stage, "SOURCE_TOO_LARGE"))
+        except Exception as exc:
+            # Adapter-specific deterministic limits must not schedule retries.
+            # Allowlist codes without coupling this shared layer to a domain.
+            code = {
+                "website_size_limit": "SOURCE_TOO_LARGE",
+                "website_content_unsupported": "SOURCE_CONTENT_UNSUPPORTED",
+                "website_redirect_limit": "SOURCE_REDIRECT_LIMIT",
+                "website_redirect_invalid": "SOURCE_REDIRECT_MISMATCH",
+                "invalid_source_url": "SOURCE_INVALID",
+            }.get(getattr(exc, "code", None), "SOURCE_UNAVAILABLE")
             # Neither raw provider responses nor private URLs belong in logs.
-            result.failures.append(AcquisitionFailure(stage, "SOURCE_UNAVAILABLE"))
+            result.failures.append(AcquisitionFailure(stage, code))
     return result

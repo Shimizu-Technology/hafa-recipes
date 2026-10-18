@@ -52,7 +52,20 @@ class FullExtractionResult:
 
 _TEMPERATURE = re.compile(r"\b(\d{2,3}(?:\.\d+)?)\s*(?:°|degrees?\s*)?\s*(fahrenheit|celsius|[fc])\b", re.I)
 _DURATION = re.compile(r"\b(\d+(?:\.\d+)?)(?:\s*(?:[-–—]|to)\s*(\d+(?:\.\d+)?))?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", re.I)
-_THERMAL_ACTION = re.compile(r"\b(bake|cook|roast|fry|boil|simmer|grill|steam|heat|preheat|microwave|chill|cool|rest|freeze)\w*\b", re.I)
+_THERMAL_FORMS = {
+    form: action
+    for action, forms in {
+        "bake": ("bake", "bakes", "baked", "baking"),
+        "fry": ("fry", "fries", "fried", "frying"),
+        "freeze": ("freeze", "freezes", "freezing", "frozen", "froze"),
+        "microwave": ("microwave", "microwaves", "microwaved", "microwaving"),
+        **{action: (action, action + "s", action + "ed", action + "ing")
+           for action in ("cook", "roast", "broil", "boil", "simmer", "grill", "steam",
+                          "heat", "preheat", "chill", "cool", "rest")},
+    }.items()
+    for form in forms
+}
+_THERMAL_ACTION = re.compile(r"\b(?:" + "|".join(_THERMAL_FORMS) + r")\b", re.I)
 
 
 def _missing_source_cooking_details(recipe, raw_text):
@@ -78,7 +91,7 @@ def _missing_source_cooking_details(recipe, raw_text):
             actions = list(_THERMAL_ACTION.finditer(sentence))
             for index, action in enumerate(actions):
                 end = actions[index + 1].start() if index + 1 < len(actions) else len(sentence)
-                yield action.group(1).lower(), sentence[action.start():end]
+                yield _THERMAL_FORMS[action.group().lower()], sentence[action.start():end]
 
     step_instructions = list(instructions(steps))
     oven_actions = {"bake", "preheat", "roast", "broil"}
@@ -91,7 +104,7 @@ def _missing_source_cooking_details(recipe, raw_text):
         temperature_steps = " ".join(text for name, text in step_instructions
                                      if name == action or action in oven_actions and name in oven_actions)
         source_temperatures = temperatures(detail)
-        if source_temperatures and not same_action:
+        if source_temperatures and not (temperature_steps if action == "preheat" else same_action):
             return True
         if any(not any(abs(value - observed) <= 2 for observed in temperatures(temperature_steps))
                for value in source_temperatures):

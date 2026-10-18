@@ -24,6 +24,22 @@ async def test_shared_instagram_public_metadata_has_a_byte_cap(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_oversized_instagram_metadata_does_not_become_retryable(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import app.services.source_acquisition as module
+
+    monkeypatch.setattr(module, "PublicHTTPTransport", lambda: httpx.MockTransport(
+        lambda request: httpx.Response(200, headers={"content-type": "text/html", "content-length": "99999999"})
+    ))
+    service = SimpleNamespace(get_video_metadata_ytdlp=AsyncMock(return_value=video_module.VideoMetadata()))
+    result = await module.acquire_video_metadata(service, "https://www.instagram.com/reel/Example/", "instagram")
+    assert module.source_failure_code(result.failures) == "SOURCE_TOO_LARGE"
+    assert not result.metadata.description
+
+
+@pytest.mark.asyncio
 async def test_shared_instagram_rejects_login_redirect_metadata(monkeypatch):
     import app.services.source_acquisition as module
 
