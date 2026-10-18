@@ -499,3 +499,22 @@ async def test_failed_imports_cannot_bypass_attempt_throttle(usage_api, monkeypa
             await db.commit()
     response = await enqueue(usage_api)
     assert response.status_code == 429 and response.headers["retry-after"]
+
+
+async def test_production_daily_attempt_boundary_survives_process_counter_reset(usage_api, monkeypatch):
+    from app.domains.workouts import imports
+    from app.rate_limit import ai_rate_limiter
+
+    monkeypatch.setattr(imports, "MAX_IMPORTS_PER_DAY", 100)
+    # Older failed jobs consume no success allowance and no current hourly slot.
+    async with usage_api.sessions() as db:
+        for _ in range(99):
+            db.add(WorkoutImport(id=uuid4(), app_user_id="owner", generation=1,
+                request_id=uuid4(), request_hash="a" * 64, status="failed", attempt_count=1,
+                created_at=now()-timedelta(hours=2), expires_at=now()+timedelta(hours=22)))
+        await db.commit()
+    hundredth = await enqueue(usage_api)
+    assert hundredth.status_code == 202
+    ai_rate_limiter.reset()  # Another process/restart has no memory of admissions.
+    rejected = await enqueue(usage_api)
+    assert rejected.status_code == 429 and rejected.headers["retry-after"]

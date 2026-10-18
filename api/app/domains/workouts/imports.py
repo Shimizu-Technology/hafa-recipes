@@ -21,6 +21,7 @@ from app.domains.workouts.extraction import (
 )
 from app.domains.workouts.import_usage_service import (
     charge_usable_import,
+    enforce_attempt_allowance,
     enforce_import_allowance,
     purge_import_usage,
     unlimited_imports,
@@ -82,6 +83,7 @@ async def create_import(
         db, user_id, generation, request_id, limit=MAX_IMPORTS_PER_DAY, unlimited=unlimited
     )
     if not unlimited:
+        await enforce_attempt_allowance(db, user_id)
         # Preserve durable sharing protection across workers/restarts and apply
         # it equally to foreground imports, including unsuccessful attempts.
         recent = await db.scalar(select(func.count()).select_from(WorkoutImport).where(

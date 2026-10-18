@@ -80,6 +80,27 @@ async def enforce_import_allowance(db, owner, generation, request_id, *, limit=1
         )
 
 
+async def enforce_attempt_allowance(db, owner, *, limit=100):
+    """Shared rolling attempts, including retained failed/cancelled jobs.
+
+    Caller holds the owner lock through insertion/commit. Success receipts also
+    count after a completed job is retired; no source content is added to them.
+    """
+    cutoff = now() - ALLOWANCE_WINDOW
+    attempted = select(WorkoutImport.request_id).where(
+        WorkoutImport.app_user_id == owner, WorkoutImport.created_at > cutoff
+    )
+    queries = [attempted]
+    if await usage_schema_present(db):
+        queries.append(select(WorkoutImportUsage.request_id).where(
+            WorkoutImportUsage.app_user_id == owner, WorkoutImportUsage.charged_at > cutoff
+        ))
+    count = await db.scalar(select(func.count()).select_from(union(*queries).subquery()))
+    if count >= limit:
+        raise HTTPException(429, "You have imported many workouts today; try again later",
+                            headers={"Retry-After": "86400"})
+
+
 async def charge_usable_import(db, job, result):
     """Stage a receipt in the SAME transaction as the usable job result.
 

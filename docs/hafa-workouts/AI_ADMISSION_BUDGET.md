@@ -107,8 +107,9 @@ admission capacity. The provider's billing records remain the invoice authority.
 ## Root integration contract
 
 Add settings `workouts_ai_budget_24h_microusd:int=0` and
-`workouts_ai_max_attempt_microusd:int=5000000`. Zero daily budget is unconfigured:
+`workouts_ai_max_attempt_microusd:int=5000000`. When `WORKOUTS_AI_BUDGET_ENFORCED=true`, zero daily budget is unconfigured:
 no live Workouts provider can run, and admission performs no database connection.
+Normal mode does not use this allocation and remains available with a zero budget.
 Disabled master API likewise performs no connection. This must not invalidate
 Recipes startup or change its paid-provider controls.
 
