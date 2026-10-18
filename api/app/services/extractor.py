@@ -569,7 +569,13 @@ class RecipeExtractor:
                 progress_callback=progress_callback, enabled=not fast_mode,
                 acquisition_failures=acquired.failures,
             )
-            if visual_result:
+            # With vision disabled, keep the primary acquisition diagnosis and
+            # telemetry. Once visual work runs, its provider failures are current.
+            if visual_result and (
+                visual_result.success
+                or settings.video_frame_extraction_enabled
+                or source_failure_code(acquired.failures) == "NO_CONTENT"
+            ):
                 return visual_result
             
             code = source_failure_code(acquired.failures)

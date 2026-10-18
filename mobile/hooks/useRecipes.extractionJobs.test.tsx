@@ -165,7 +165,8 @@ describe('durable extraction recovery', () => {
         current_step: 'error', message: 'Failed', recipe_id: null, error_message: null });
     });
     expect(mocks.cancelJob).not.toHaveBeenCalled(); expect(mocks.removeItem).not.toHaveBeenCalled();
-    expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:receipt' });
+    expect(controller).toMatchObject({ canRetryStart: true, requestKey: 'share:receipt',
+      error: 'Reconnect to confirm the pending import before opening another.' });
     await act(async () => renderer.unmount()); queryClient.clear();
   });
 

@@ -3,7 +3,7 @@
 import asyncio
 import base64
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -660,3 +660,35 @@ async def test_optional_visual_failure_preserves_retryable_text_failure(monkeypa
     assert should_retry_extraction_error(result.error_code)
     text.assert_awaited_once()
     vision.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("visual_enabled", "provider_code", "expected"), [
+    (False, None, "INSTAGRAM_AUTH_REQUIRED"),
+    (True, "provider_http_429", "RATE_LIMITED"),
+    (True, "provider_http_503", "VISION_EXTRACTION_FAILED"),
+])
+async def test_primary_acquisition_diagnosis_survives_disabled_vision_but_not_readable_frames(
+    monkeypatch, visual_channels, visual_enabled, provider_code, expected,
+):
+    from app.services.source_acquisition import AcquisitionFailure, MetadataAcquisition
+
+    _, vision, _ = visual_channels
+    monkeypatch.setattr("app.services.extractor.settings.video_frame_extraction_enabled", visual_enabled)
+    monkeypatch.setattr("app.services.extractor.acquire_video_metadata", AsyncMock(return_value=MetadataAcquisition(
+        metadata=VideoMetadata(), failures=[AcquisitionFailure("metadata", "INSTAGRAM_AUTH_REQUIRED")],
+    )))
+    capture = Mock()
+    monkeypatch.setattr("app.services.extractor.sentry_sdk.capture_message", capture)
+    vision.return_value = ExtractionResult(success=False, error_code=provider_code)
+
+    result = await RecipeExtractor().extract("https://www.instagram.com/reel/mixed-evidence/")
+
+    assert result.error_code == expected
+    if visual_enabled:
+        vision.assert_awaited_once()
+        capture.assert_not_called()
+    else:
+        assert "authenticate with Instagram" in result.friendly_error
+        capture.assert_called_once_with("Source acquisition failed", level="warning",
+            tags={"platform": "instagram", "error_code": "INSTAGRAM_AUTH_REQUIRED"})

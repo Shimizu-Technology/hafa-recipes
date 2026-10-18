@@ -660,7 +660,10 @@ export function useAsyncExtractionController() {
   }, [clearActiveJob, durableUserId, invalidateCompletedRecipe, queryClient, stopPollingTimers]);
 
   const restoreJob = useCallback((status: JobStatus) => {
-    if (canRetryStart) return;
+    if (canRetryStart) {
+      setError('Reconnect to confirm the pending import before opening another.');
+      return;
+    }
     if (currentJobIdRef.current !== status.id) setRequestKey(null);
     currentJobIdRef.current = status.id;
     setJobKind(status.job_kind || 'extract');
