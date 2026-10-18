@@ -959,7 +959,11 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
             rf"|\bsets?\s*[:=]?\s*{value:g}(?![\w.\-–]|\s*(?:[-–]|\bto\b)\s*\d)", wording, re.I,
         ):
             # Explicit x1 Set is a count, not a rep suffix or range endpoint.
-            if (not _side_count_negated(wording, match.start())
+            prefix = wording[:match.start()]
+            negation_prefix = re.sub(
+                r"\b(?:exactly|only|just|even|necessarily|ever|always|longer)\s+", "", prefix, flags=re.I,
+            )
+            if (not _side_count_negated(negation_prefix, len(negation_prefix))
                     and not re.search(r"[x×]\s*$", wording[:match.start()], re.I)
                     and not re.search(r"\d\s*(?:[-–]|\bto\b)\s*$", wording[:match.start()], re.I)):
                 return True

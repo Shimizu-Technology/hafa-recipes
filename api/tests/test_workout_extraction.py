@@ -1355,6 +1355,11 @@ def test_rep_suffix_shorthand_is_grounded_without_confusing_sets(wording, value,
     ("Perform Each Exercise prefix× 1 Set", 1, False),
     ("Perform Each Exercise x1 Setup", 1, False),
     ("Do not perform x1 Set", 1, False),
+    ("Do not perform exactly x1 Set", 1, False),
+    ("Never perform only x1 Set", 1, False),
+    ("Do not just perform exactly ×1 Set", 1, False),
+    ("No Repeats; Perform Each Exercise exactly x1 Set", 1, True),
+    ("Perform Each Exercise only x1 Set", 1, True),
     ("Do not perform × 1 Set", 1, False),
 ])
 async def test_global_multiplier_set_evidence_controls_grounding_and_readiness(
