@@ -8,6 +8,8 @@ export default function Layout() {
   const c = useColors();
   const tab = (title: string, route: Parameters<typeof TabIcon>[0]["route"]) => ({
     title,
+    // The hidden Today route must not inflate the spoken visible-tab count.
+    tabBarAccessibilityLabel: `${title}, tab, ${["Discover", "Library", "Extract", "Plan", "Progress"].indexOf(title) + 1} of 5`,
     tabBarIcon: ({ color, focused }: { color: ColorValue; focused: boolean }) => (
       <TabIcon route={route} focused={focused} color={color} />
     ),
