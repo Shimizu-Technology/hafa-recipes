@@ -10,7 +10,7 @@ const fixture = vi.hoisted(() => ({
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
   active: null as null | { workout: { title: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
-  session: vi.fn(), correct: vi.fn(), sync: vi.fn(),
+  session: vi.fn(), correct: vi.fn(), sync: vi.fn(), appListeners: new Set<(state: string) => void>(),
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
@@ -34,7 +34,9 @@ vi.mock("@/lib/context", async () => {
   };
 });
 vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View", Pressable: "Pressable",
-  AppState: { addEventListener: () => ({ remove() {} }) } }));
+  AppState: { addEventListener: (_event: string, listener: (state: string) => void) => {
+    fixture.appListeners.add(listener); return { remove: () => fixture.appListeners.delete(listener) };
+  } } }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 } }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
@@ -680,6 +682,30 @@ it("a held readiness acknowledgment preserves a newly opened date editor", async
   expect(fixture.updateProgram).toHaveBeenCalledTimes(1);
 });
 
+
+it("Plan refetches only stale queries on return and every query when pulled down", async () => {
+  let now = Date.parse("2026-10-19T08:00:00Z");
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    await mountPlan();
+    const calls = () => [fixture.programs, fixture.sessions, fixture.profile].map((mock) => mock.mock.calls.length);
+    expect(calls()).toEqual([1, 1, 1]);
+    const foreground = async () => { await act(async () => { for (const listener of [...fixture.appListeners]) listener("active"); }); await settle(); };
+    await foreground();
+    expect(calls()).toEqual([1, 1, 1]); // Fresh data is left alone.
+    // Programs and profile were refreshed recently; only sessions (e.g. recorded on another device) went stale.
+    now += 31_000;
+    for (const key of [["owner-A", "programs", 1], ["owner-A", "profile", 1]])
+      await act(async () => { cache.setQueryData(key, cache.getQueryData(key), { updatedAt: now - 1_000 }); });
+    await settle();
+    await foreground();
+    expect(calls()).toEqual([1, 2, 1]);
+    const screen = () => renderer!.root.findAllByType("Screen" as never)[0];
+    await act(async () => screen().props.onRefresh()); await settle();
+    expect(calls()).toEqual([2, 3, 2]);
+    expect(screen().props.refreshing).toBe(false);
+  } finally { clock.mockRestore(); }
+});
 
 it("keeps Today and active training one tap from Plan", async () => {
   const { router } = await import("expo-router");

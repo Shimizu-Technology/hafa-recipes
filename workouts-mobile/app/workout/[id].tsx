@@ -166,7 +166,8 @@ export default function WorkoutDetail() {
           icon="play"
           size="lg"
           busy={busy}
-          disabled={!offline.ready || workout!.kind === "program" || (!offline.state.active && (exercises === 0 || !!trackingWarning))}
+          // A program can't be started as one workout, but an active session can always be resumed from here.
+          disabled={!offline.ready || (!offline.state.active && (workout!.kind === "program" || exercises === 0 || !!trackingWarning))}
           onPress={() => {
             if (offline.state.active) router.push("/training");
             else void start();

@@ -20,6 +20,7 @@ const fixture = vi.hoisted(() => ({
   deleteWorkout: vi.fn(),
   unpublishWorkout: vi.fn(),
   announce: vi.fn(),
+  active: null as null | { workout: { title: string }; source: { workout_id: string; workout_revision: number } },
   importJob: vi.fn(),
   importJobs: vi.fn(),
   searchLibrary: vi.fn(), collections: vi.fn(), createCollection: vi.fn(), renameCollection: vi.fn(), removeCollection: vi.fn(), organization: vi.fn(), saveOrganization: vi.fn(),
@@ -68,7 +69,7 @@ vi.mock("@/lib/context", () => {
     acceptPublishingDisclosure: fixture.acceptPublishingDisclosure,
   };
   return {
-    useOfflineTraining: () => ({ ready: true, state: { active: null, history: [] }, store: { start: vi.fn(), snapshot: () => ({ active: null, history: [] }) } }),
+    useOfflineTraining: () => ({ ready: true, state: { active: fixture.active, history: [] }, store: { start: vi.fn(), snapshot: () => ({ active: fixture.active, history: [] }) } }),
     useTraining: () => ({
       api,
       owner: fixture.owner,
@@ -199,6 +200,7 @@ beforeEach(() => {
     fixture.unpublishWorkout, fixture.announce]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
+  fixture.active = null;
   fixture.appState = "active"; fixture.appStateListeners.clear();
   fixture.current = true; fixture.generation = 1; fixture.owner = "owner";
   fixture.load.mockReset().mockImplementation(async (_owner, scope) => fixture.map.has(scope) ? JSON.parse(fixture.map.get(scope)!)
@@ -330,6 +332,16 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   expect(notice.props.children).toBe("Removed from Discover. People who already saved it keep their copy.");
   expect(fixture.announce).toHaveBeenCalledWith(notice.props.children);
   expect(nodes("ListRow").find((n) => n.props.title === "Share to Discover")).toBeDefined();
+});
+
+it.each([true, false])("a program workout page resumes an active session but never starts the program as one workout (active=%s)", async active => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.active = active ? { workout: { title: "Session in progress" }, source: { workout_id: "other", workout_revision: 1 } } : null;
+  fixture.workout.mockResolvedValue({ ...saved, kind: "program" });
+  await mount(WorkoutDetail);
+  const action = button(active ? "Resume current session" : "Start this workout")!;
+  expect(action.props.disabled).toBe(!active);
+  if (active) { await act(async () => action.props.onPress()); expect(fixture.push).toHaveBeenCalledWith("/training"); }
 });
 
 it("shows owners their own workout with unpublish and no save, report or block", async () => {

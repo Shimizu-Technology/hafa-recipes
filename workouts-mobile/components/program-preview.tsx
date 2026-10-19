@@ -78,7 +78,7 @@ export function ProgramPreview({ receipt }: { receipt: Pick<ProgramReceipt, "pro
             ...proposal.questions,
             ...proposal.warnings.map((warning) => warning.replace("qualified programming review is pending (D03).", "qualified programming review is pending.")),
           ].map((line, index) => (
-            <Copy key={index} kind="small">{`• ${line}`}</Copy>
+            <Copy key={`${index}:${line}`} kind="small">{`• ${line}`}</Copy>
           ))}
         </Card>
       )}

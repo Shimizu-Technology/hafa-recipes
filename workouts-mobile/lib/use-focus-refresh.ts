@@ -1,42 +1,58 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 
 /** Matches the app-wide query staleTime: only stale data is refetched on focus or foreground. */
 export const FOCUS_REFRESH_AFTER_MS = 30_000;
 
+interface RefreshableQuery {
+  refetch(): Promise<unknown>;
+  /** 0 until the query first loads. */
+  dataUpdatedAt: number;
+}
+
 /**
- * Keeps a tab's data fresh: refetches when the screen regains focus or the app
- * comes back to the foreground (only once its data is stale),
- * and drives pull-to-refresh.
+ * Keeps a tab's data fresh: when the screen regains focus or the app comes
+ * back to the foreground, each query whose data is stale refetches on its own.
+ * Pull-to-refresh refetches every query.
  */
 export function useFocusRefresh(
-  refresh: () => Promise<unknown>,
-  { enabled, updatedAt, staleAfterMs = FOCUS_REFRESH_AFTER_MS }: { enabled: boolean; updatedAt: number; staleAfterMs?: number }
+  queries: RefreshableQuery[],
+  { enabled, staleAfterMs = FOCUS_REFRESH_AFTER_MS }: { enabled: boolean; staleAfterMs?: number }
 ) {
-  const latest = useRef({ refresh, enabled, updatedAt });
-  latest.current = { refresh, enabled, updatedAt };
+  // Read each query's freshness during render: React Query only re-renders for
+  // result properties a render used, so a later read could see an old timestamp.
+  const current = queries.map((query) => ({ refetch: query.refetch, dataUpdatedAt: query.dataUpdatedAt }));
+  const latest = useRef({ queries: current, enabled });
+  // Only committed renders update what focus, foreground and pull handlers read.
+  useLayoutEffect(() => {
+    latest.current = { queries: current, enabled };
+  });
   const [refreshing, setRefreshing] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  const refreshIfStale = useCallback(() => {
-    const { refresh, enabled, updatedAt } = latest.current;
-    if (enabled && updatedAt > 0 && Date.now() - updatedAt >= staleAfterMs) void refresh();
+  const refreshStale = useCallback(() => {
+    const { queries, enabled } = latest.current;
+    if (!enabled) return;
+    const now = Date.now();
+    for (const query of queries)
+      if (query.dataUpdatedAt > 0 && now - query.dataUpdatedAt >= staleAfterMs) void query.refetch();
   }, [staleAfterMs]);
-  useFocusEffect(refreshIfStale);
+  useFocusEffect(refreshStale);
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") refreshIfStale();
+      if (state === "active") refreshStale();
     });
     return () => subscription.remove();
-  }, [refreshIfStale]);
+  }, [refreshStale]);
   const onRefresh = useCallback(() => {
-    if (!latest.current.enabled) return;
+    const { queries, enabled } = latest.current;
+    if (!enabled) return;
     setRefreshing(true);
-    void latest.current.refresh().finally(() => { if (mounted.current) setRefreshing(false); });
+    void Promise.all(queries.map((query) => query.refetch())).finally(() => { if (mounted.current) setRefreshing(false); });
   }, []);
   return { refreshing, onRefresh };
 }

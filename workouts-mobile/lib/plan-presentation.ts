@@ -33,7 +33,8 @@ export function nextPlannedSession(programs: Program[] | undefined, today: strin
 /** "2026-11-13" → "Fri, Nov 13" (the year is added when it isn't the current one). */
 export function formatPlanDate(iso: string, now = new Date(), locale?: string) {
   const at = new Date(`${iso}T12:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || Number.isNaN(at.getTime())) return iso;
+  // Shaped but impossible dates (2026-02-30) would roll into another month; keep them as written.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== iso) return iso;
   return new Intl.DateTimeFormat(locale, {
     weekday: "short",
     month: "short",

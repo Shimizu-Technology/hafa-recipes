@@ -120,8 +120,7 @@ export default function Plan() {
     enabled: !!enrollment?.enrolled,
   });
   const shownPrograms = q.data?.filter((p) => !!p.schedule_state?.archived_at === (view === "archived"));
-  const freshness = useFocusRefresh(() => Promise.all([q.refetch(), actuals.refetch(), profile.refetch()]),
-    { enabled: !!enrollment?.enrolled, updatedAt: q.dataUpdatedAt });
+  const freshness = useFocusRefresh([q, actuals, profile], { enabled: !!enrollment?.enrolled });
   // Only the next session still to train gets the filled Start button.
   const next = nextPlannedSession(q.data, today, (p, s) => statuses.has(programSessionKey(p.id, s.id)!));
   const openProgram = opened ? q.data?.find((p) => p.id === opened.programId) : undefined;

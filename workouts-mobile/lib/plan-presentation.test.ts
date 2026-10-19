@@ -8,6 +8,7 @@ describe("plan presentation", () => {
     expect(formatPlanDate("2026-11-13", now, "en-US")).toBe("Fri, Nov 13");
     expect(formatPlanDate("2027-01-02", now, "en-US")).toBe("Sat, Jan 2, 2027");
     expect(formatPlanDate("not-a-date", now, "en-US")).toBe("not-a-date");
+    expect(formatPlanDate("2026-02-30", now, "en-US")).toBe("2026-02-30");
   });
   it("summarizes a workout in one line and lets an AMRAP cap replace the estimate", () => {
     expect(workoutMeta({ minutes: 45, exercises: 4, equipment: ["Dumbbells", "pull-up bar"] })).toBe("45 min · 4 exercises · Dumbbells, pull-up bar");

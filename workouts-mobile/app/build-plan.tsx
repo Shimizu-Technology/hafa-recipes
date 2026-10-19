@@ -63,16 +63,18 @@ export default function BuildPlan() {
     redirected.current = true;
     router.replace({ pathname: "/profile", params: { return_to: "build-plan", ...(include ? { include } : {}) } });
   }, [profileMissing, include]);
-  useEffect(() => {
-    // A new proposal renders below the button; bring it into view and announce it.
-    if (!revealProposal.current || !draft.receipt) return;
+  // A new proposal renders below the button. Once its position is known (now, or
+  // when it first lays out), bring it into view and announce it.
+  function revealIfReady() {
+    if (!revealProposal.current || !draft.receipt || proposalY.current == null) return;
     revealProposal.current = false;
-    const timer = setTimeout(() => {
-      if (proposalY.current != null) scroller.current?.scrollTo({ y: Math.max(0, proposalY.current - 12), animated: !reduceMotion });
-      AccessibilityInfo.announceForAccessibility?.(`Proposed program ready with ${draft.receipt!.proposal.sessions.length} sessions. Review it below.`);
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [draft.receipt, reduceMotion]);
+    scroller.current?.scrollTo({ y: Math.max(0, proposalY.current - 12), animated: !reduceMotion });
+    AccessibilityInfo.announceForAccessibility?.(`Proposed program ready with ${draft.receipt.proposal.sessions.length} sessions. Review it below.`);
+  }
+  useEffect(() => {
+    if (!draft.receipt) proposalY.current = null;
+    else revealIfReady();
+  });
   useEffect(() => {
     let active = true;
     void localDrafts
@@ -243,7 +245,7 @@ export default function BuildPlan() {
       />
       {draft.receipt && (
         <>
-          <View onLayout={(event) => { proposalY.current = event.nativeEvent.layout.y; }} />
+          <View onLayout={(event) => { proposalY.current = event.nativeEvent.layout.y; revealIfReady(); }} />
           <ProgramPreview receipt={draft.receipt} />
           {draft.receipt.proposal.status === "ready" ? (
             <>
