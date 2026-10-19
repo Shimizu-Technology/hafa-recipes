@@ -5,6 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { ProgramPreview, PrescriptionPreview } from "@/components/program-preview";
 import { QueryState } from "@/components/query-state";
+import { CalendarDate } from "@/components/calendar-date";
+import { formatPlanDate } from "@/lib/plan-presentation";
 import { useTraining } from "@/lib/context";
 import { dateInTimezone } from "@/lib/training";
 import { sourceDayErrors, type ProgramReceipt } from "@/lib/plans";
@@ -138,7 +140,7 @@ export default function ReviewPlan() {
       }
     }
     if (Object.values(draft.dates ?? {}).some((date) => !isISODate(date))) {
-      setError("Choose valid planned dates in YYYY-MM-DD format.");
+      setError("Choose a valid date for each planned session.");
       return;
     }
     const invalid = Object.values(draft.minutes).some(
@@ -230,7 +232,7 @@ export default function ReviewPlan() {
                   the original instructions and assign each session deliberately.
                 </Notice>
                 <PrescriptionPreview workout={source.data} />
-                <Field label="First day · YYYY-MM-DD" value={draft.date} onChange={(date) => update({ date })} />
+                <CalendarDate label="First day" value={draft.date} disabled={busy} onChange={(date) => update({ date: date ?? "" })} />
                 {draft.days.map((day, index) => (
                   <Card key={index}>
                     <Field
@@ -316,13 +318,14 @@ export default function ReviewPlan() {
                 {program.data?.sessions.map((session) => (
                   <Card key={session.id}>
                     <Copy kind="heading">
-                      {session.date} · {session.workout.title}
+                      {formatPlanDate(session.date)} · {session.workout.title}
                     </Copy>
                     <PrescriptionPreview workout={session.workout} />
-                    <Field
-                      label="Planned date · YYYY-MM-DD"
+                    <CalendarDate
+                      label="Planned date"
                       value={draft.dates?.[session.id] ?? session.date}
-                      onChange={(date) => update({ dates: { ...draft.dates, [session.id]: date } })}
+                      disabled={busy}
+                      onChange={(date) => update({ dates: { ...draft.dates, [session.id]: date ?? "" } })}
                     />
                     <Copy kind="small">
                       Only dates you edit are overridden. The proposed calendar will be checked against your

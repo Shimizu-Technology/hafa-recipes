@@ -6,8 +6,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Button,
   Card,
-  Chip,
-  ChipRow,
   Choice,
   Copy,
   Empty,
@@ -22,7 +20,6 @@ import {
   Sheet,
   Skeleton,
   SkeletonCard,
-  StatTile,
   useToast,
 } from "@/components/ui";
 import { CreditLine, SourceArtwork } from "@/components/discover-card";
@@ -33,7 +30,6 @@ import {
   DISCOVER_STALE_MS,
   creatorCredit,
   discoverKeys,
-  platformInfo,
   prescriptionLine,
   formatSeconds,
   type DiscoverDetail,
@@ -41,6 +37,7 @@ import {
 } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { blockSummary } from "@/lib/amrap-editor";
+import { workoutMeta } from "@/lib/plan-presentation";
 import { blockedContributorsKey, contributorName } from "@/lib/safety";
 import { SourcePlayback } from "@/components/source-playback";
 
@@ -170,8 +167,9 @@ export default function DiscoverWorkout() {
   return (
     <Screen
       back
-      eyebrow={item ? `Discover · ${platformInfo(item.source_platform).label}` : "Discover"}
       title={item?.title ?? (q.isPending ? "Loading workout…" : "Discover.")}
+      subtitle={item ? workoutMeta({ minutes: item.estimated_minutes, exercises: item.exercise_count,
+        equipment: item.equipment_required.length ? item.equipment_required : ["No equipment"] }) : undefined}
       action={
         item && !item.is_owner ? (
           <IconButton icon="ellipsis-horizontal" label="More options" onPress={() => setSheet("menu")} />
@@ -218,21 +216,9 @@ export default function DiscoverWorkout() {
               </Copy>
             </View>
           )}
-          <Row gap={10}>
-            <StatTile value={item.estimated_minutes ?? "–"} unit={item.estimated_minutes ? "min" : undefined} label="Estimated time" />
-            <StatTile value={item.exercise_count} label={item.exercise_count === 1 ? "Exercise" : "Exercises"} />
-            <StatTile value={item.block_count} label={item.block_count === 1 ? "Block" : "Blocks"} />
-          </Row>
-          <ChipRow wrap label="Equipment">
-            {item.equipment_required.length ? (
-              item.equipment_required.map((name) => <Chip key={name} label={name} icon="barbell-outline" />)
-            ) : (
-              <Chip label="No equipment" icon="body-outline" />
-            )}
-            {item.equipment_optional.map((name) => (
-              <Chip key={`optional-${name}`} label={`${name} (optional)`} />
-            ))}
-          </ChipRow>
+          {!!item.equipment_optional.length && (
+            <Copy kind="small" tone="muted">Optional · {item.equipment_optional.join(", ")}</Copy>
+          )}
 
           {item.is_owner ? (
             <Card tone="accent">
@@ -303,7 +289,7 @@ export default function DiscoverWorkout() {
               <Copy kind="caption" tone="accent">
                 {[
                   block.label || `Block ${index + 1}`,
-                  blockSummary(block),
+                  blockSummary(block, block.label),
                   block.rest_between_rounds_seconds ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
                 ]
                   .filter(Boolean)

@@ -1,13 +1,16 @@
 import { SavedSourcePicker } from "@/components/saved-source-picker";
 import { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, type ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, Notice, Screen, Segmented, useReducedMotion } from "@/components/ui";
+import { CalendarDate } from "@/components/calendar-date";
 import { ProgramPreview } from "@/components/program-preview";
 import { useTraining } from "@/lib/context";
 import { dateInTimezone } from "@/lib/training";
 import { isISODate } from "@/lib/sharing";
 import { sourceChoiceErrors, type ProgramReceipt } from "@/lib/plans";
+import { planWeekOptions, planWeeks } from "@/lib/plan-presentation";
 interface Draft {
   generation: number;
   date: string;
@@ -48,6 +51,30 @@ export default function BuildPlan() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const guard = useRef(false);
+  const scroller = useRef<ScrollView>(null);
+  const reduceMotion = useReducedMotion();
+  const proposalY = useRef<number | null>(null);
+  const revealProposal = useRef(false);
+  const profileMissing = !!enrollment?.enrolled && q.isSuccess && !q.data?.profile;
+  const redirected = useRef(false);
+  useEffect(() => {
+    // No profile yet: go straight to the profile form, which returns here once saved.
+    if (!profileMissing || redirected.current) return;
+    redirected.current = true;
+    router.replace({ pathname: "/profile", params: { return_to: "build-plan", ...(include ? { include } : {}) } });
+  }, [profileMissing, include]);
+  // A new proposal renders below the button. Once its position is known (now, or
+  // when it first lays out), bring it into view and announce it.
+  function revealIfReady() {
+    if (!revealProposal.current || !draft.receipt || proposalY.current == null) return;
+    revealProposal.current = false;
+    scroller.current?.scrollTo({ y: Math.max(0, proposalY.current - 12), animated: !reduceMotion });
+    AccessibilityInfo.announceForAccessibility?.(`Proposed program ready with ${draft.receipt.proposal.sessions.length} sessions. Review it below.`);
+  }
+  useEffect(() => {
+    if (!draft.receipt) proposalY.current = null;
+    else revealIfReady();
+  });
   useEffect(() => {
     let active = true;
     void localDrafts
@@ -55,7 +82,7 @@ export default function BuildPlan() {
       .then((value) => {
         if (active) {
           const restored = value?.generation === generation ? value : null;
-          if (restored) setDraft(restored);
+          if (restored) setDraft({ ...restored, weeks: planWeeks(restored.weeks) });
           if (include && !(restored?.selected ?? []).includes(include))
             setDraft((current) => ({ ...current, selected: [...current.selected, include], receipt: null }));
           setLoaded(true);
@@ -124,6 +151,7 @@ export default function BuildPlan() {
       });
       setDraft({ ...draft, receipt });
       setReviewed(false);
+      revealProposal.current = true;
     });
   }
   async function accept() {
@@ -135,24 +163,30 @@ export default function BuildPlan() {
       router.replace("/(tabs)/plan");
     });
   }
-  if (enrollment?.enrolled && q.isPending) return <Screen back title="Make a plan from your workouts."><Copy>Loading your training preferences…</Copy></Screen>;
-  if (!enrollment?.enrolled || (q.isSuccess && !q.data?.profile)) return <Screen back title="Make a plan from your workouts." subtitle="A little context helps the plan fit your life.">
-    <Copy>Choose a goal, your equipment and the days you can train. Measurements and other personal details are optional.</Copy>
-    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
+  if ((enrollment?.enrolled && q.isPending) || profileMissing) return <Screen back title="Build a plan"><Copy tone="muted">Loading your training preferences…</Copy></Screen>;
+  if (!enrollment?.enrolled) return <Screen back title="Build a plan" subtitle="Plans use your goal, equipment and the days you can train.">
+    <Button title="Join Workouts" onPress={() => router.push({ pathname: "/onboarding", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
   </Screen>;
   return (
     <Screen
       back
-      title="Build a routine that fits."
-      subtitle="Your saved inspiration, current equipment and available days."
+      title="Build a plan"
+      subtitle="Uses your saved workouts, equipment and available days."
+      scrollRef={scroller}
     >
       {q.error && <Notice error>{q.error.message}</Notice>}
       {!q.data?.profile && (
         <Button title="Set up training profile" secondary onPress={() => router.push({ pathname: "/profile", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
       )}
       <Field label="Plan name" value={draft.title} onChange={(title) => update({ title })} />
-      <Field label="Start date · YYYY-MM-DD" value={draft.date} onChange={(date) => update({ date })} />
-      <Field label="Length · weeks" value={draft.weeks} numeric onChange={(weeks) => update({ weeks })} />
+      <CalendarDate label="Start date" value={draft.date} disabled={busy} onChange={(date) => update({ date: date ?? "" })} />
+      <Copy kind="label">Plan length · weeks</Copy>
+      <Segmented
+        label="Plan length in weeks"
+        value={draft.weeks}
+        options={planWeekOptions(draft.weeks).map((weeks) => ({ value: weeks, label: weeks }))}
+        onChange={(weeks) => update({ weeks })}
+      />
       <Card>
         <Copy kind="heading">What should your plan use?</Copy>
         <Choice
@@ -200,7 +234,7 @@ export default function BuildPlan() {
           }}
         />
       ))}
-      <Notice>This explicit current check-in expires. It is separate from your lasting profile.</Notice>
+      <Copy kind="small" tone="muted">This check-in applies to today only and doesn’t change your profile.</Copy>
       <Button
         title="Review a proposed program"
         busy={busy}
@@ -211,6 +245,7 @@ export default function BuildPlan() {
       />
       {draft.receipt && (
         <>
+          <View onLayout={(event) => { proposalY.current = event.nativeEvent.layout.y; revealIfReady(); }} />
           <ProgramPreview receipt={draft.receipt} />
           {draft.receipt.proposal.status === "ready" ? (
             <>

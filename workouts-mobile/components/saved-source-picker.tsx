@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice } from "./ui";
+import { View } from "react-native";
+import { Button, Card, Choice, Copy, Field, IconButton, Notice, Row } from "./ui";
 import { useTraining } from "@/lib/context";
 export function SavedSourcePicker({
   selected,
@@ -81,8 +82,19 @@ export function SavedSourcePicker({
           </Card>
         ))}
       {shown.map((workout) => (
-        <Card key={workout.id}>
-          <Choice label={workout.title} selected={selected.includes(workout.id)} onPress={() => toggle(workout.id)} />
+        <View key={workout.id} style={{ gap: 8 }}>
+          <Row gap={8}>
+            <View style={{ flex: 1 }}>
+              <Choice label={workout.title} selected={selected.includes(workout.id)} onPress={() => toggle(workout.id)} />
+            </View>
+            <IconButton
+              icon="open-outline"
+              label={`View ${workout.title}`}
+              variant="plain"
+              disabled={disabled}
+              onPress={() => router.push({ pathname: "/workout/[id]", params: { id: workout.id } })}
+            />
+          </Row>
           {selected.includes(workout.id) && (
             <Field
               label={`Reviewed approximate time for ${workout.title} · minutes`}
@@ -99,13 +111,7 @@ export function SavedSourcePicker({
               }
             />
           )}
-          <Button
-            title="Inspect original session"
-            secondary
-            disabled={disabled}
-            onPress={() => router.push({ pathname: "/workout/[id]", params: { id: workout.id } })}
-          />
-        </Card>
+        </View>
       ))}
       {q.error && <Notice error>{q.error.message}</Notice>}
       {q.hasNextPage && (

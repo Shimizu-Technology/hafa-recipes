@@ -1,6 +1,9 @@
-import { ActivityIndicator } from "react-native";
 import type { PropsWithChildren } from "react";
-import { Button, Notice, useColors } from "./ui";
+import { Button, Notice, SkeletonCard } from "./ui";
+/**
+ * Loading, error and retry for a screen's main query. While loading it shows a
+ * skeleton card rather than a bare spinner.
+ */
 export function QueryState({
   loading,
   error,
@@ -8,9 +11,14 @@ export function QueryState({
   loadingLabel = "Loading your training",
   errorMessage,
   children,
-}: PropsWithChildren<{ loading: boolean; error: Error | null; retry(): void; loadingLabel?: string; errorMessage?: string }>) {
-  const c = useColors();
-  if (loading) return <ActivityIndicator accessibilityLabel={loadingLabel} color={c.action} />;
+}: PropsWithChildren<{
+  loading: boolean;
+  error: Error | null;
+  retry(): void;
+  loadingLabel?: string;
+  errorMessage?: string;
+}>) {
+  if (loading) return <SkeletonCard lines={3} label={loadingLabel} />;
   if (error)
     return (
       <>
