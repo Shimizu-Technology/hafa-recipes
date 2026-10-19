@@ -178,7 +178,14 @@ export function BabyProvider({ children }: PropsWithChildren) {
       await clearReminders(ownerRef.current);
       await clearFiles(ownerRef.current);
     }
-    await commit((s) => ({ ...fencedState(s, bootstrap.generation), bootstrap }), lease);
+    await commit((s) => {
+      const next = fencedState(s, bootstrap.generation);
+      return {
+        ...next,
+        bootstrap,
+        selectedChild: bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
+      };
+    }, lease);
   }
   async function refresh() {
     try {

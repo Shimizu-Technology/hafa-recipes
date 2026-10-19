@@ -133,6 +133,26 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe("provider routine restore integration", () => {
+  it("clears a removed child's saved filter on cold restoration without discarding retained records", async () => {
+    const record = { ...row("retained"), kind: "journal" as const };
+    mock.saved = { ...emptyState(), bootstrap, selectedChild: "removed-child", records: [record] };
+    await mount();
+    expect(baby.state.selectedChild).toBeNull();
+    expect(mock.state?.selectedChild).toBeNull();
+    expect(baby.records).toContainEqual(record);
+  });
+  it("preserves a valid child filter and clears it after an authoritative child removal", async () => {
+    const child = { id: "child", name: "Child", birth_date: null, due_date: null, revision: 1 };
+    const withChild = { ...bootstrap, children: [child] };
+    mock.saved = { ...emptyState(), bootstrap: withChild, selectedChild: child.id };
+    mock.api.bootstrap.mockResolvedValue(withChild);
+    await mount();
+    expect(baby.state.selectedChild).toBe(child.id);
+    mock.api.bootstrap.mockResolvedValue(bootstrap);
+    await act(async () => { await baby.refresh(); });
+    expect(baby.state.selectedChild).toBeNull();
+    expect(mock.state?.selectedChild).toBeNull();
+  });
   it("restores an old routine on first open and refreshes remote edits/disables/deletes periodically and on foreground", async () => {
     let remote = [row("old-behind-history")];
     const mixed = Array.from({ length: 100 }, (_, i) => ({ ...row("source" + i), kind: "source" as const }));
