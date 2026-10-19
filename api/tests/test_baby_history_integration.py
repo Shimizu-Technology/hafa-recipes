@@ -25,7 +25,7 @@ def fixture_record(kind, index, *, owner="owner", generation=1, child_id=None):
         kind=kind,
         title=f"{kind} {index}",
         body="Old hospital note",
-        data={},
+        data={"feeding": {"method": "other"}, "diaper": {"type": "wet"}}.get(kind, {}),
         revision=1,
         creation_hash="a" * 64,
         child_id=child_id,
