@@ -117,3 +117,31 @@ it("mounted Clerk rejection stays strict and exposes no provider body or credent
   expect(fixture.signup).not.toHaveBeenCalled();
   expect(fixture.sso).not.toHaveBeenCalled();
 });
+
+const field = (label: string) => renderer!.root.findAllByType("Field" as never).find((node) => node.props.label === label)!;
+it("the keyboard moves from email to password and submits sign-in from the password field", async () => {
+  await act(async () => { renderer = create(createElement(SignIn)); });
+  const focus = vi.fn();
+  expect(field("Email").props.returnKeyType).toBe("next");
+  expect(field("Password").props.returnKeyType).toBe("go");
+  field("Password").props.inputRef.current = { focus };
+  await act(async () => field("Email").props.onSubmit());
+  expect(focus).toHaveBeenCalledOnce();
+  expect(fixture.create).not.toHaveBeenCalled();
+  await act(async () => field("Email").props.onChange("person@example.test"));
+  await act(async () => field("Password").props.onChange("correct horse"));
+  await act(async () => { field("Password").props.onSubmit(); });
+  expect(fixture.create).toHaveBeenCalledExactlyOnceWith({ identifier: "person@example.test", password: "correct horse" });
+  expect(fixture.setActive).toHaveBeenCalledExactlyOnceWith({ session: "synthetic-session" });
+});
+
+it("in recovery the email field's Go key sends the recovery code", async () => {
+  fixture.create.mockResolvedValue({});
+  await act(async () => { renderer = create(createElement(SignIn)); });
+  await act(async () => renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Recover my account")!.props.onPress());
+  expect(field("Email").props.returnKeyType).toBe("go");
+  expect(renderer!.root.findAllByType("Field" as never).some((node) => node.props.label === "Password")).toBe(false);
+  await act(async () => field("Email").props.onChange("person@example.test"));
+  await act(async () => { field("Email").props.onSubmit(); });
+  expect(fixture.create).toHaveBeenCalledExactlyOnceWith({ strategy: "reset_password_email_code", identifier: "person@example.test" });
+});

@@ -1,4 +1,4 @@
-import { Platform, Text, useColorScheme, View } from "react-native";
+import { Platform, Text, useColorScheme, useWindowDimensions, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import { markColors, typography } from "@/constants/theme";
 import { markShapes, type MarkRole } from "./brand-mark-shapes";
@@ -41,25 +41,31 @@ export function BrandMark({ height = 28, mono }: { height?: number; mono?: strin
 /** `fill` lets the lockup take the free width of a header row; iOS can under-measure the wordmark, which then ellipsizes. */
 export function BrandLockup({ height = 24, mono, fill }: { height?: number; mono?: string; fill?: boolean }) {
   const c = useColors();
+  // Header budget: screen − 40pt padding − 12pt gap − up to 104pt of actions. At 375pt the lockup
+  // (~194pt at 1.2×) fits; at 320pt (SE / mini with Display Zoom) only ~164pt is left, so the
+  // lockup steps down to a fixed 16pt size (~148pt) instead of ellipsizing "Workouts".
+  const compact = useWindowDimensions().width < 360;
+  const size = compact ? { fontSize: 16, lineHeight: 22 } : null;
+  const scale = compact ? 1 : 1.2;
   return (
     <View
       accessible
       accessibilityRole="header"
       accessibilityLabel="Håfa Workouts"
-      style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: compact ? 8 : 10, flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}
     >
-      <BrandMark height={height} mono={mono} />
+      <BrandMark height={compact ? Math.min(height, 20) : height} mono={mono} />
       {/* Two sibling texts, not nested ones: iOS measures a nested run with the outer font, so the
           lighter "Workouts" face was truncated. No adjustsFontSizeToFit (it clips on the new architecture);
           cap growth and let only the descriptor ellipsize on very narrow screens. */}
       <View style={{ flexDirection: "row", alignItems: "baseline", flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}>
-        <Text numberOfLines={1} maxFontSizeMultiplier={1.2} style={[typography.subheading, { color: mono ?? c.text, letterSpacing: 0 }]}>
+        <Text numberOfLines={1} maxFontSizeMultiplier={scale} style={[typography.subheading, size, { color: mono ?? c.text, letterSpacing: 0 }]}>
           Håfa{" "}
         </Text>
         <Text
           numberOfLines={1}
-          maxFontSizeMultiplier={1.2}
-          style={[typography.subheading, { fontFamily: typography.body.fontFamily, color: mono ?? c.muted, letterSpacing: 0, flexShrink: 1, flexGrow: fill ? 1 : 0 }]}
+          maxFontSizeMultiplier={scale}
+          style={[typography.subheading, size, { fontFamily: typography.body.fontFamily, color: mono ?? c.muted, letterSpacing: 0, flexShrink: 1, flexGrow: fill ? 1 : 0 }]}
         >
           Workouts
         </Text>

@@ -94,3 +94,29 @@ it("an older unconfirmed entry still shows the confirmation and cannot be adopte
   expect(f.saveActivity.mock.calls[0][0]).toBe(LEGACY_ID);
   expect(f.saveActivity.mock.calls[0][1]).toMatchObject({ expected_revision: 3, date: "2026-10-01" });
 });
+
+it("a new-entry draft saved before this change resumes confirmed, while a saved command keeps its original fields", async () => {
+  const { draftKey } = await import("./drafts");
+  const old = { owner: "owner", generation: 1, target_id: null, kind: "run", date: "2026-10-09", name: "", duration: "40",
+    distance: "", distance_unit: "km", notes: "", strenuous: null, confirm_completed: false };
+  f.map.set(draftKey("owner", "activity-command:1:new"), JSON.stringify({ input: old, operation: null, finished: false }));
+  await mount();
+  expect(confirmChoice()).toBeUndefined();
+  expect(nodes("Field").find((node) => node.props.label === "Duration · whole minutes")!.props.value).toBe("40");
+  await act(async () => { await button("Save activity").props.onPress(); });
+  await settle();
+  expect(errors()).toBe("");
+  expect(f.saveActivity.mock.calls[0][1]).toMatchObject({ date: "2026-10-09", duration_minutes: 40, kind: "run" });
+
+  await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); f.map.clear(); f.saveActivity.mockClear();
+  const operation = { owner: "owner", generation: 1, target_id: null, action: "save",
+    body: { request_id: "original-request", kind: "run", date: "2026-10-09", duration_minutes: 40, strenuous: null } };
+  f.map.set(draftKey("owner", "activity-command:1:new"),
+    JSON.stringify({ input: { ...old, operation }, operation, finished: false }));
+  await mount();
+  // The pending command is untouched: its draft is not rewritten and retry resends the exact original body.
+  expect(confirmChoice()!.props.selected).toBe(false);
+  await act(async () => { await button("Retry save").props.onPress(); });
+  await settle();
+  expect(f.saveActivity).toHaveBeenCalledWith(null, operation.body, 1);
+});

@@ -41,6 +41,7 @@ it("presses in to 0.97 in 120ms and releases in 160ms with the shared ease-out o
 it("does not move under Reduce Motion and dims while held instead", () => {
   f.reduced = true;
   const press = mount();
+  press.scale.setValue(0.97);
   press.onPressIn();
   expect(f.timing).not.toHaveBeenCalled();
   expect((press.opacity as unknown as { value: number }).value).toBe(0.8);

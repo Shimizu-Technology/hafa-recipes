@@ -2411,6 +2411,7 @@ it("restores caption recovery input after leaving an unfinished source", async (
   expect(nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.value).toBe("Squat 10 reps");
 });
 
+const recoveryNotice = () => nodes("Notice").map(node => [node.props.children].flat().join("")).find(text => text.includes("OpenAI")) ?? "";
 it("recovers a saved empty source privately without replacing the original workout or capture composer", async () => {
   fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue(serverCaps);
   fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source", blocks: [] });
@@ -2418,6 +2419,7 @@ it("recovers a saved empty source privately without replacing the original worko
   fixture.map.set(draftKey(fixture.owner, "capture:1"), originalCapture);
   fixture.startImport.mockResolvedValue({ id: "recovery-job", generation: 1, status: "queued" });
   await mount(RecoverWorkout);
+  expect(recoveryNotice()).toContain("A separate private copy is saved to your library automatically.");
   expect(nodes("Field").find(node => node.props.label === "Original source link")!.props.value).toBe("https://example.test/source");
   await act(async () => nodes("Field").find(node => node.props.label === "Creator caption or transcript")!.props.onChange("10 squats for 20 minutes"));
   await click("Recover as a private import");
@@ -2445,7 +2447,9 @@ it("freezes the selected workout revision for reviewed re-extraction and retries
   fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
   fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
   fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
-  await mount(RecoverWorkout); await click("Recover as a private import");
+  await mount(RecoverWorkout);
+  expect(recoveryNotice()).toContain("Your saved workout only changes after you review and save.");
+  await click("Recover as a private import");
   expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: false, is_public: false,
     replace_target: { workout_id: "workout", expected_revision: 4 } });
   const frozen = fixture.startImport.mock.calls[0]; await unmount();

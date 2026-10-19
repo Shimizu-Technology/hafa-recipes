@@ -91,7 +91,12 @@ export default function ActivityEditor() {
       .then((box) => {
         if (active) {
           if (box.input?.owner === owner && box.input.generation === generation && box.input.target_id === id)
-            setDraft({ ...box.input, operation: box.operation ?? undefined });
+            setDraft({
+              ...box.input,
+              // Drafts from before logging a date became the confirmation; a saved command keeps its fields.
+              ...(box.input.target_id === null && !box.operation ? { confirm_completed: true } : {}),
+              operation: box.operation ?? undefined,
+            });
           setFinished(box.finished);
           if (box.finished)
             setMessage("This previous draft was resolved. Inspect saved history or start a new record deliberately.");

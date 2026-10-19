@@ -89,7 +89,7 @@ export default function SharePrescription() {
   const website = process.env.EXPO_PUBLIC_WORKOUTS_WEBSITE_URL;
   const url = link ? sharingURL(link, website) : "";
   return (
-    <Screen back title="Share workout" subtitle="This is what people with the link will see.">
+    <Screen back title={kind === "program" ? "Share program" : "Share workout"} subtitle="This is what people with the link will see.">
       <Field
         label="Public title"
         optional
