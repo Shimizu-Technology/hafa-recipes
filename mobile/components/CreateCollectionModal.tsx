@@ -174,7 +174,7 @@ export default function CreateCollectionModal({
                   <Text style={[styles.previewLabel, { color: colors.textMuted }]}>Preview</Text>
                   <RNView style={[styles.previewCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
                     <RNView style={[styles.previewIcon, { backgroundColor: colors.tint + '15' }]}>
-                      <Ionicons name="folder-open-outline" size={22} color={colors.tint} />
+                      <Ionicons name="folder-open-outline" size={22} color={colors.actionText} />
                     </RNView>
                     <Text style={[styles.previewName, { color: colors.text }]} numberOfLines={1}>
                       {name || 'Collection Name'}

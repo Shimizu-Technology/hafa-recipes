@@ -14,7 +14,7 @@ import {
 } from '@expo-google-fonts/fraunces';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
@@ -33,6 +33,7 @@ import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
+import { ToastHost } from '@/components/Toast';
 import { AuthProtection } from '@/components/AuthProtection';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
 import { AccountAccessGate } from '@/components/AccountAccessGate';
@@ -266,10 +267,26 @@ function ShareIntentHandler({ children }: { children: React.ReactNode }) {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  // Screens without their own background show the navigation theme's, which is
+  // iOS grey by default. Use the Håfa surfaces so every screen sits on cream.
+  const navigationTheme = useMemo(() => {
+    const base = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: colors.tint,
+        background: colors.background,
+        card: colors.backgroundElevated,
+        text: colors.text,
+        border: colors.border,
+      },
+    };
+  }, [colorScheme, colors]);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <NavigationThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <NavigationThemeProvider value={navigationTheme}>
         <TimerProvider>
           <AuthTokenSync>
             <AccountAccessGate>
@@ -316,6 +333,8 @@ function RootLayoutNav() {
                       options={{ headerTitle: 'Paste Recipe Text' }}
                     />
                   </Stack>
+                  {/* Non-blocking confirmations; rendered after the stack so it floats above screens */}
+                  <ToastHost />
                   </ShareIntentHandler>
                 </AuthProtection>
               </ExtractionProvider>

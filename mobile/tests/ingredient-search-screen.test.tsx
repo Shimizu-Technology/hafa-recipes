@@ -2,6 +2,7 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getToast, runToastAction } from '@/lib/toast';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -332,10 +333,15 @@ describe('IngredientSearchScreen', () => {
           { name: 'green onions', quantity: null, unit: null, notes: null },
         ],
       }, expect.any(Object));
-      const alertButtons = mocks.alert.mock.calls[0][2] as Array<{ text: string; onPress?: () => void }>;
-      await act(async () => alertButtons.find(
-        (button) => button.text === 'View grocery list',
-      )!.onPress!());
+      // Success confirms with a toast, not a blocking alert.
+      expect(mocks.alert).not.toHaveBeenCalled();
+      const toast = getToast();
+      expect(toast).toMatchObject({
+        message: '2 missing ingredients added to your grocery list',
+        tone: 'success',
+        actionLabel: 'View list',
+      });
+      await act(async () => runToastAction(toast!.id));
       expect(mocks.routerPush).toHaveBeenCalledWith('/(tabs)/grocery');
     } finally {
       await act(async () => renderer.unmount());

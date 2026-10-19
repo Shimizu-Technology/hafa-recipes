@@ -16,6 +16,10 @@ type RecipeGridCardFrameProps = {
   footer: ReactNode;
   imageAdornment?: ReactNode;
   imagePriority?: 'normal' | 'high';
+  /** VoiceOver label for the whole card; defaults to the title. */
+  accessibilityLabel?: string;
+  /** Selection state while the surrounding list is in multi-select mode. */
+  selected?: boolean;
 };
 
 /** Keep the image, two-line title slot, and footer aligned across recipe grids. */
@@ -27,6 +31,8 @@ export function RecipeGridCardFrame({
   footer,
   imageAdornment,
   imagePriority = 'normal',
+  accessibilityLabel,
+  selected,
 }: RecipeGridCardFrameProps) {
   const { width, fontScale } = useWindowDimensions();
   const titleSlotHeight = Math.ceil(36 * fontScale);
@@ -37,6 +43,9 @@ export function RecipeGridCardFrame({
     <ScalePressable
       style={[styles.card, { width: cardWidth, backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityState={selected === undefined ? undefined : { selected }}
     >
       <RNView style={styles.imageContainer}>
         <RecipeThumbnail

@@ -558,7 +558,8 @@ export function createTrainingStore(
         return s;
       });
     },
-    finish(status: "completed" | "partial", now = clock(), unloggedInput: "keep" | "discard" = "keep") {
+    /** `activityFallback` is used only when no type was chosen; it is never stored on the draft. */
+    finish(status: "completed" | "partial", now = clock(), unloggedInput: "keep" | "discard" = "keep", activityFallback?: string) {
       return update((s) => {
         const d = s.active;
         if (!d) throw Error("No session is active.");
@@ -573,7 +574,8 @@ export function createTrainingStore(
             throw Error("Some sets were not completed. Save this as a partial session.");
           if (d.actuals.some((a) => !a.completed)) throw Error("Skipped work stays partial. Save this as a partial session.");
         }
-        if (!d.activity_type) throw Error("Choose the activity type before saving.");
+        const activity_type = d.activity_type ?? activityFallback;
+        if (!activity_type) throw Error("Choose the activity type before saving.");
         if (!d.actuals.length) throw Error("Log at least one set, or discard the session.");
         now = Math.max(now, d.checkpoint_at);
         closeActive(d, now);
@@ -584,7 +586,7 @@ export function createTrainingStore(
           started_at: d.started_at,
           finished_at: new Date(Math.max(now, new Date(d.started_at).getTime())).toISOString(),
           status,
-          activity_type: d.activity_type,
+          activity_type,
           active_seconds: Math.floor(
             Math.min(
               Math.max(0, now - new Date(d.started_at).getTime()),

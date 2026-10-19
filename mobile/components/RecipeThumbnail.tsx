@@ -48,7 +48,7 @@ export function RecipeThumbnail({
       <Ionicons
         name={placeholderIconName}
         size={placeholderIconSize}
-        color={colors.tint}
+        color={colors.actionText}
         importantForAccessibility="no-hide-descendants"
       />
       {shouldLoad && (

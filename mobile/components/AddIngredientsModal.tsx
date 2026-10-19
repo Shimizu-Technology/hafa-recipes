@@ -122,7 +122,7 @@ export default function AddIngredientsModal({
         {/* Header */}
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <Text style={[styles.headerButtonText, { color: colors.tint }]}>Cancel</Text>
+            <Text style={[styles.headerButtonText, { color: colors.actionText }]}>Cancel</Text>
           </TouchableOpacity>
           <RNView style={styles.headerTitleContainer}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Add Ingredients</Text>
@@ -137,7 +137,7 @@ export default function AddIngredientsModal({
           >
             <Text style={[
               styles.headerButtonText, 
-              { color: selectedCount === 0 ? colors.textMuted : colors.tint }
+              { color: selectedCount === 0 ? colors.textMuted : colors.actionText }
             ]}>
               {isLoading ? 'Adding...' : `Add (${selectedCount})`}
             </Text>
@@ -147,7 +147,7 @@ export default function AddIngredientsModal({
         {/* Select All / Deselect All */}
         <RNView style={[styles.selectAllRow, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={allSelected ? deselectAll : selectAll}>
-            <Text style={[styles.selectAllText, { color: colors.tint }]}>
+            <Text style={[styles.selectAllText, { color: colors.actionText }]}>
               {allSelected ? 'Deselect All' : 'Select All'}
             </Text>
           </TouchableOpacity>
@@ -183,12 +183,12 @@ export default function AddIngredientsModal({
                 <Ionicons
                   name={isSelected ? 'checkbox' : 'square-outline'}
                   size={24}
-                  color={isSelected ? colors.tint : colors.textMuted}
+                  color={isSelected ? colors.actionText : colors.textMuted}
                 />
                 <RNView style={styles.ingredientContent}>
                   <Text style={[styles.ingredientName, { color: colors.text }]}>
                     {hasAmount && (
-                      <Text style={isScaled ? { color: colors.tint, fontWeight: fontWeight.semibold } : {}}>
+                      <Text style={isScaled ? { color: colors.actionText, fontWeight: fontWeight.semibold } : {}}>
                         {scaleQuantity(amount.quantity!, scaleFactor)}{' '}
                       </Text>
                     )}
@@ -207,7 +207,7 @@ export default function AddIngredientsModal({
                   )}
                 </RNView>
                 {ingredient.estimatedCost != null && ingredient.estimatedCost > 0 && (
-                  <Text style={[styles.ingredientCost, { color: isScaled ? colors.tint : colors.textMuted }]}>
+                  <Text style={[styles.ingredientCost, { color: isScaled ? colors.actionText : colors.textMuted }]}>
                     ${(ingredient.estimatedCost * scaleFactor).toFixed(2)}
                   </Text>
                 )}

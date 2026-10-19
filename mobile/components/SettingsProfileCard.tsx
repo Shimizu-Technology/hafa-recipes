@@ -67,7 +67,7 @@ export function SettingsProfileCard({
               <Ionicons
                 name={isLoaded ? 'person' : 'time-outline'}
                 size={32}
-                color={isLoaded ? colors.tint : colors.textMuted}
+                color={isLoaded ? colors.actionText : colors.textMuted}
               />
             </RNView>
           )}
@@ -75,17 +75,17 @@ export function SettingsProfileCard({
             <Text style={[styles.userName, { color: colors.text }]}>
               {isLoaded ? profileName : 'Loading account…'}
             </Text>
-            <Text style={[styles.userEmail, { color: isLoaded && !isSignedIn ? colors.tint : colors.textMuted }]}>
+            <Text style={[styles.userEmail, { color: isLoaded && !isSignedIn ? colors.actionText : colors.textMuted }]}>
               {!isLoaded ? 'Checking your session…' : isSignedIn ? emailAddress : 'Tap to sign in →'}
             </Text>
             {isLoaded && isSignedIn && !user?.firstName && (
-              <Text style={[styles.userHint, { color: colors.tint }]}>
+              <Text style={[styles.userHint, { color: colors.actionText }]}>
                 Tap to add your name for recipe attribution
               </Text>
             )}
           </RNView>
           {isLoaded && (
-            <Ionicons name="chevron-forward" size={20} color={isSignedIn ? colors.textMuted : colors.tint} />
+            <Ionicons name="chevron-forward" size={20} color={isSignedIn ? colors.textMuted : colors.actionText} />
           )}
         </RNView>
       </Card>

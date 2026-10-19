@@ -602,14 +602,14 @@ export default function ExtractScreen() {
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
         <RNView style={styles.ocrProgressContainer}>
           <RNView style={[styles.ocrProgressCard, { backgroundColor: colors.backgroundSecondary }]}>
-            <Ionicons name="scan" size={48} color={colors.tint} />
+            <Ionicons name="scan" size={48} color={colors.actionText} />
             <Text style={[styles.ocrProgressTitle, { color: colors.text }]}>
               Scanning Recipe
             </Text>
             <Text style={[styles.ocrProgressMessage, { color: colors.textSecondary }]}>
               {ocrProgress}
             </Text>
-            <ActivityIndicator size="large" color={colors.tint} style={styles.ocrSpinner} />
+            <ActivityIndicator size="large" color={colors.actionText} style={styles.ocrSpinner} />
             <Text style={[styles.ocrProgressHint, { color: colors.textMuted }]}>
               {selectedImages.length > 1
                 ? `Processing ${selectedImages.length} images may take longer...`
@@ -663,7 +663,7 @@ export default function ExtractScreen() {
                 style={[styles.galleryAddButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
                 onPress={handleScanRecipe}
               >
-                <Ionicons name="add" size={32} color={colors.tint} />
+                <Ionicons name="add" size={32} color={colors.actionText} />
                 <Text style={[styles.galleryAddText, { color: colors.textMuted }]}>Add Page</Text>
               </TouchableOpacity>
             )}
@@ -713,7 +713,7 @@ export default function ExtractScreen() {
                 setIsOpeningNextShare(false);
               });
             }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
-              <Text style={{ color: colors.tint }}>Open next</Text>
+              <Text style={{ color: colors.actionText }}>Open next</Text>
             </TouchableOpacity>
           </RNView>}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
@@ -732,7 +732,7 @@ export default function ExtractScreen() {
                       Alert.alert('Could Not Paste', 'Try pasting directly into the recipe link field.');
                   });
                 }}>
-                <Ionicons name="clipboard-outline" size={16} color={colors.tint} />
+                <Ionicons name="clipboard-outline" size={16} color={colors.actionText} />
                 <Text style={[styles.smallActionText, { color: colors.text }]}>Paste</Text>
               </TouchableOpacity>
             </RNView>
@@ -749,7 +749,7 @@ export default function ExtractScreen() {
             <TouchableOpacity style={styles.settingsSummary} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
-              <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={20} color={colors.tint} />
+              <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={20} color={colors.actionText} />
               <RNView style={styles.settingsCopy}>
                 <Text style={[styles.settingsTitle, { color: colors.text }]}>{isPublic ? 'Public in Discover' : 'Private recipe'}</Text>
                 <Text style={[styles.hint, { color: colors.textMuted }]}>{isPublic ? 'Visible to everyone' : 'Only you'} · {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
@@ -765,8 +765,8 @@ export default function ExtractScreen() {
           {(extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
             <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
               <RNView style={styles.pendingShareCopy}>
-                {extraction.isExtracting ? <ActivityIndicator color={colors.tint} /> : <Ionicons
-                  name={extraction.isFailed ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={22} color={extraction.isFailed ? colors.error : colors.tint} />}
+                {extraction.isExtracting ? <ActivityIndicator color={colors.actionText} /> : <Ionicons
+                  name={extraction.isFailed ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={22} color={extraction.isFailed ? colors.error : colors.actionText} />}
                 <RNView style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }} accessibilityRole="header">
                     {importStatus.title}
@@ -776,7 +776,7 @@ export default function ExtractScreen() {
                   </Text>
                 </RNView>
                 <TouchableOpacity style={styles.detailsAction} onPress={() => setShowProgressDetails(!showProgressDetails)} accessibilityRole="button" accessibilityLabel="Import details" accessibilityState={{ expanded: showProgressDetails }}>
-                  <Ionicons name={showProgressDetails ? 'chevron-up' : 'chevron-down'} size={20} color={colors.tint} />
+                  <Ionicons name={showProgressDetails ? 'chevron-up' : 'chevron-down'} size={20} color={colors.actionText} />
                 </TouchableOpacity>
               </RNView>
               {extraction.isExtracting && <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
@@ -869,7 +869,7 @@ export default function ExtractScreen() {
               </RNView>
               {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting} onPress={() => {
                 void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
-              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.tint }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
+              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
               {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
             </RNView>)}
           </RNView>}
@@ -877,7 +877,7 @@ export default function ExtractScreen() {
           {isSignedIn && <ImportActivityCard jobs={(recentImports.data || []).filter((job) => !(job.id === extraction.jobId && (extraction.isExtracting || extraction.isComplete || extraction.isFailed)))}
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
             onRestore={extraction.restoreJob} onCancel={handleCancel} />}
-          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>OTHER WAYS TO ADD</Text>
+          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
           <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             {([
               { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
@@ -887,7 +887,7 @@ export default function ExtractScreen() {
               <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
                 onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
                 style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
-                <Ionicons name={method.icon} size={21} color={colors.tint} />
+                <Ionicons name={method.icon} size={21} color={colors.actionText} />
                 <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
                 <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
               </TouchableOpacity>
@@ -901,7 +901,7 @@ export default function ExtractScreen() {
             </TouchableOpacity>
             {isSignedIn && <TouchableOpacity style={styles.textAction} accessibilityRole="button" accessibilityLabel="Ask Håfa"
               onPress={() => { Keyboard.dismiss(); setHasOpenedChat(true); setShowChat(true); }}>
-              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.tint} />
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.actionText} />
               <Text style={[styles.smallActionText, { color: colors.text }]}>Ask Håfa</Text>
             </TouchableOpacity>}
           </RNView>
@@ -933,7 +933,7 @@ const styles = StyleSheet.create({
   settingsSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 56 },
   settingsCopy: { flex: 1 },
   settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium },
-  otherWaysLabel: { fontSize: fontSize.xs, fontFamily: fontFamily.semibold, letterSpacing: 1, marginBottom: spacing.sm },
+  otherWaysLabel: { fontSize: fontSize.sm, fontFamily: fontFamily.semibold, marginBottom: spacing.sm },
   alternateMethods: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', marginBottom: spacing.md },
   alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
   alternateTitle: { flex: 1, fontSize: fontSize.md },

@@ -1,12 +1,49 @@
 /**
- * Skeleton loading components with shimmer animation.
+ * Skeleton loading components with one shared pulse.
  * Shows placeholder shapes while content is loading.
  */
 
-import { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet, ViewStyle } from 'react-native';
+import { useEffect } from 'react';
+import { View, Animated, StyleSheet, ViewStyle, useWindowDimensions } from 'react-native';
 import { useColors } from '@/components/Themed';
 import { spacing, radius } from '@/constants/Colors';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
+
+// Every skeleton on screen reads one value so placeholders pulse together.
+const pulse = new Animated.Value(0);
+let pulseUsers = 0;
+let pulseLoop: Animated.CompositeAnimation | null = null;
+
+/** Shared pulse; `null` when Reduce Motion is on so skeletons stay still. */
+function useSharedPulse(): Animated.Value | null {
+  const reduceMotion = useReduceMotion();
+  useEffect(() => {
+    if (reduceMotion) return;
+    pulseUsers += 1;
+    if (!pulseLoop) {
+      pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1, duration: 1000, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 0, duration: 1000, useNativeDriver: true }),
+        ]),
+      );
+      pulseLoop.start();
+    }
+    return () => {
+      pulseUsers -= 1;
+      if (pulseUsers === 0) {
+        pulseLoop?.stop();
+        pulseLoop = null;
+        pulse.setValue(0);
+      }
+    };
+  }, [reduceMotion]);
+  return reduceMotion ? null : pulse;
+}
+
+function pulseOpacity(value: Animated.Value | null, low: number, high: number) {
+  return value ? value.interpolate({ inputRange: [0, 1], outputRange: [low, high] }) : (low + high) / 2;
+}
 
 interface SkeletonProps {
   width?: number | string;
@@ -25,31 +62,7 @@ export function Skeleton({
   style,
 }: SkeletonProps) {
   const colors = useColors();
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmerAnim, {
-          toValue: 0,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [shimmerAnim]);
-
-  const opacity = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.3, 0.7],
-  });
+  const opacity = pulseOpacity(useSharedPulse(), 0.3, 0.7);
 
   return (
     <Animated.View
@@ -75,8 +88,8 @@ export function SkeletonRecipeCard() {
 
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-      {/* Thumbnail skeleton */}
-      <Skeleton width={100} height={120} borderRadius={0} />
+      {/* Thumbnail skeleton: matches the 110x130 library and Discover card photo */}
+      <Skeleton width={110} height={130} borderRadius={0} />
       
       {/* Content skeleton */}
       <View style={styles.cardContent}>
@@ -126,11 +139,49 @@ export function SkeletonCollectionCard() {
 }
 
 /**
- * List of skeleton recipe cards
+ * Skeleton grid card matching RecipeGridCardFrame: square photo, two-line
+ * title slot and a footer line.
  */
-export function SkeletonRecipeList({ count = 4 }: { count?: number }) {
+export function SkeletonRecipeGridCard() {
+  const colors = useColors();
+  const { width, fontScale } = useWindowDimensions();
+  const cardWidth = (width - spacing.lg * 2 - GRID_GAP) / 2;
+  const titleSlotHeight = Math.ceil(36 * fontScale);
+  const footerHeight = Math.ceil(16 * fontScale);
+
   return (
-    <View style={styles.list}>
+    <View style={[styles.gridCard, { width: cardWidth, backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+      <Skeleton width={cardWidth} height={cardWidth} borderRadius={0} />
+      <View style={[styles.gridCardContent, { minHeight: spacing.sm * 2 + titleSlotHeight + footerHeight + 12 }]}>
+        <View style={{ height: titleSlotHeight, gap: spacing.xs }}>
+          <Skeleton width="90%" height={13} />
+          <Skeleton width="60%" height={13} />
+        </View>
+        <Skeleton width="45%" height={12} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * List of skeleton recipe cards in the active library layout.
+ */
+export function SkeletonRecipeList({ count = 4, layout = 'list' }: { count?: number; layout?: 'list' | 'grid' }) {
+  if (layout === 'grid') {
+    const rows = Math.ceil(count / 2);
+    return (
+      <View style={styles.list} accessibilityLabel="Loading recipes" accessibilityState={{ busy: true }}>
+        {Array.from({ length: rows }).map((_, row) => (
+          <View key={row} style={styles.gridRow}>
+            <SkeletonRecipeGridCard />
+            <SkeletonRecipeGridCard />
+          </View>
+        ))}
+      </View>
+    );
+  }
+  return (
+    <View style={styles.list} accessibilityLabel="Loading recipes" accessibilityState={{ busy: true }}>
       {Array.from({ length: count }).map((_, i) => (
         <SkeletonRecipeCard key={i} />
       ))}
@@ -147,31 +198,7 @@ function SimpleShimmer({
   borderRadius: br = radius.sm,
   style,
 }: SkeletonProps) {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmerAnim, {
-          toValue: 0,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [shimmerAnim]);
-
-  const opacity = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.15, 0.3],
-  });
+  const opacity = pulseOpacity(useSharedPulse(), 0.15, 0.3);
 
   return (
     <Animated.View
@@ -211,7 +238,7 @@ export function AppLoadingSkeleton() {
       <View style={styles.list}>
         {[1, 2, 3, 4].map((i) => (
           <View key={i} style={styles.simpleCard}>
-            <SimpleShimmer width={100} height={120} borderRadius={0} />
+            <SimpleShimmer width={110} height={130} borderRadius={0} />
             <View style={styles.cardContent}>
               <SimpleShimmer width="85%" height={18} style={{ marginBottom: spacing.xs }} />
               <SimpleShimmer width="60%" height={18} />
@@ -276,7 +303,25 @@ export function SkeletonSimilarRecipes({ count = 3 }: { count?: number }) {
   );
 }
 
+// Mirrors RECIPE_GRID_GAP in RecipeGridCardFrame (kept local to avoid importing the pressable frame).
+const GRID_GAP = spacing.sm;
+
 const styles = StyleSheet.create({
+  gridRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: GRID_GAP,
+  },
+  gridCard: {
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  gridCardContent: {
+    padding: spacing.sm,
+    justifyContent: 'space-between',
+  },
   card: {
     flexDirection: 'row',
     borderRadius: radius.lg,

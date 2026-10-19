@@ -28,6 +28,7 @@ import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
 /** Render a recipe row within a collection. */
 export function RecipeCard({
@@ -47,6 +48,19 @@ export function RecipeCard({
     <ScalePressable
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={recipeCardAccessibilityLabel({
+        title: recipe.title,
+        reviewState: recipe.review_state,
+        totalTime: recipe.total_time,
+        servings: recipe.servings,
+        sourceLabel,
+      })}
+      // The card groups its children for VoiceOver, so expose Remove as an action.
+      accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'remove') onRemove();
+      }}
     >
       {/* Thumbnail */}
       <RecipeThumbnail
@@ -99,6 +113,8 @@ export function RecipeCard({
               onRemove();
             }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${recipe.title} from collection`}
           >
             <Ionicons name="close" size={14} color={colors.error} />
           </TouchableOpacity>
@@ -205,7 +221,7 @@ export default function CollectionDetailScreen() {
       <View style={styles.container}>
         <Stack.Screen options={{ headerTitle: 'Collection' }} />
         <RNView style={styles.loadingContainer}>
-          {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.tint} /> : (
+          {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.actionText} /> : (
             <>
               <Text style={[styles.emptyTitle, { color: colors.text }]} accessibilityRole="alert">
                 {id && collectionsQuery.isError ? 'Couldn’t load this collection' : 'Collection unavailable'}
@@ -233,7 +249,7 @@ export default function CollectionDetailScreen() {
               onPress={() => setShowEditModal(true)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="ellipsis-horizontal" size={24} color={colors.tint} />
+              <Ionicons name="ellipsis-horizontal" size={24} color={colors.actionText} />
             </TouchableOpacity>
           ),
         }}
@@ -262,7 +278,7 @@ export default function CollectionDetailScreen() {
               onPress={() => { void collectionsQuery.refetch(); void refetch(); }} />
           </RNView>
         )}
-        {isLoading && !recipes && <ActivityIndicator size="large" color={colors.tint} />}
+        {isLoading && !recipes && <ActivityIndicator size="large" color={colors.actionText} />}
       </RNView>
 
       <FlatList
