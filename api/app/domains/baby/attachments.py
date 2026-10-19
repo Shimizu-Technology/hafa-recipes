@@ -252,6 +252,15 @@ async def read_bytes(row):
         raise HTTPException(503, "This private attachment is temporarily unavailable") from None
 
 
+@router.get("/attachments/{identifier}/metadata")
+async def get_attachment_metadata(identifier: UUID, user: User, db: Database):
+    member = await membership_for(db, user.id)
+    row = await owned(db, BabyAttachment, user.id, member.generation, identifier)
+    if row.state != "ready":
+        raise HTTPException(404, "Attachment unavailable")
+    return metadata(row)
+
+
 @router.get("/attachments/{identifier}")
 async def get_attachment(identifier: UUID, user: User, db: Database):
     member = await membership_for(db, user.id, write=True)

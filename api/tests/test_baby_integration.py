@@ -287,6 +287,10 @@ async def test_private_attachment_cleanup_and_owner_access(baby_api, monkeypatch
         files={"file": ("photo.png", raw.getvalue(), "image/png")},
     )
     assert replay.json()["id"] == identifier
+    meta = await c.get(f"/api/v1/baby/attachments/{identifier}/metadata")
+    assert meta.json() == uploaded.json()
+    assert meta.headers["cache-control"] == "private, no-store"
+    assert (await c.get(f"/api/v1/baby/attachments/{identifier}/metadata", headers={"X-Test-Owner": "other"})).status_code == 404
     assert (
         await c.get(f"/api/v1/baby/attachments/{identifier}", headers={"X-Test-Owner": "other"})
     ).status_code == 404
@@ -301,6 +305,7 @@ async def test_private_attachment_cleanup_and_owner_access(baby_api, monkeypatch
         await c.delete(f"/api/v1/baby/attachments/{identifier}", headers=GEN)
     ).status_code == 204
     assert (await c.get(f"/api/v1/baby/attachments/{identifier}")).status_code == 404
+    assert (await c.get(f"/api/v1/baby/attachments/{identifier}/metadata")).status_code == 404
     saved = (await c.get(f"/api/v1/baby/records/{entry['id']}")).json()
     assert saved["data"]["attachment_ids"] == []
     async with baby_api.sessions() as db:
