@@ -14,6 +14,26 @@ def _workouts_path(value):
         return False
 
 
+def _baby_path(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        path = urlsplit(value).path
+        return path == "/api/v1/baby" or path.startswith("/api/v1/baby/")
+    except ValueError:
+        return False
+
+
+def _private_product(event):
+    request = event.get("request") or {}
+    values = (request.get("url"), event.get("transaction"), current_ai_context().route)
+    if any(_baby_path(value) for value in values):
+        return "baby"
+    if any(_workouts_path(value) for value in values):
+        return "workouts"
+    return None
+
+
 def _monitor_event(event):
     request = event.get("request") or {}
     return (event.get("tags") or {}).get("monitor") == "import-health" or any(
@@ -43,36 +63,21 @@ def redact_workouts_event(event, hint=None):
             "tags": {"monitor": "import-health", "platform": platform, "stage": stage},
             "fingerprint": ["import-health", platform, stage],
         }
-    request = event.get("request") or {}
-    if not any(
-        _workouts_path(value)
-        for value in (
-            request.get("url"),
-            event.get("transaction"),
-            current_ai_context().route,
-        )
-    ):
+    product = _private_product(event)
+    if product is None:
         return event
     return {
         key: event[key]
         for key in ("event_id", "timestamp", "level", "platform", "release", "environment", "type")
         if key in event
-    } | {"message": "Workouts request failed", "tags": {"product": "workouts"}}
+    } | {"message": f"{'Baby' if product == 'baby' else 'Workouts'} request failed", "tags": {"product": product}}
 
 
 def redact_workouts_transaction(event, hint=None):
     """Do not capture traces whose spans can include health/source metadata."""
     if _monitor_event(event):
         return None
-    request = event.get("request") or {}
-    if any(
-        _workouts_path(value)
-        for value in (
-            request.get("url"),
-            event.get("transaction"),
-            current_ai_context().route,
-        )
-    ):
+    if _private_product(event):
         return None
     return event
 
@@ -83,5 +88,5 @@ class WorkoutsAccessLogFilter:
     def filter(self, record):
         values = record.args if isinstance(record.args, tuple) else (record.args,)
         return not any(isinstance(value, str) and any(
-            path in value for path in ("/api/v1/workouts", "/internal/import-health")
+            path in value for path in ("/api/v1/workouts", "/api/v1/baby", "/internal/import-health")
         ) for value in values)

@@ -36,7 +36,7 @@ settings = get_settings()
 def _media_log(message):
     # Private workout sources and fixed-canary monitoring must not expose
     # URLs, extracted values or provider errors in stdout.
-    if (current_ai_context().route or "").startswith(("/api/v1/workouts", "/internal/import-health")):
+    if (current_ai_context().route or "").startswith(("/api/v1/workouts", "/api/v1/baby", "/internal/import-health")):
         return
     print(message)
 

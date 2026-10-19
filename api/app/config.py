@@ -238,6 +238,12 @@ class Settings(BaseSettings):
     workout_extraction_fallback_model: str = "gpt-5.6-terra"
     workout_coach_model: str = "gpt-5.6-luna"
 
+    # Baby is independently activated after its additive schema is verified.
+    baby_api_enabled: bool = False
+    baby_worker_enabled: bool = False
+    baby_ai_enabled: bool = False
+    baby_ai_model: str = ""
+
     @field_validator("workouts_ai_budget_database_url", mode="before")
     @classmethod
     def normalize_empty_budget_authority(cls, value):

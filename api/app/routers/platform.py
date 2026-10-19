@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/v1/platform", tags=["platform"])
 
 
 class ProductInfo(BaseModel):
-    id: Literal["recipes", "workouts"]
+    id: Literal["recipes", "workouts", "baby"]
     name: str
     api_path: str
     available: bool
@@ -44,6 +44,12 @@ async def platform_info() -> PlatformInfo:
                 name="Håfa Workouts",
                 api_path="/api/v1/workouts",
                 available=settings.workouts_api_enabled and settings.workouts_public_access_enabled,
+            ),
+            ProductInfo(
+                id="baby",
+                name="Håfa Baby",
+                api_path="/api/v1/baby",
+                available=settings.baby_api_enabled,
             ),
         ]
     )
