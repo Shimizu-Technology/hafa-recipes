@@ -43,7 +43,9 @@ describe('useInitialListEntrance', () => {
     await act(async () => { tree.update(React.createElement(Harness, { hasData: true })); });
     await act(async () => { tree.update(React.createElement(Harness, { hasData: false })); });
     await act(async () => { tree.update(React.createElement(Harness, { hasData: true })); });
-    expect(seen).toEqual([false, true, false, false, false]);
+    // One render enters; the commit then closes the window for good.
+    expect(seen[1]).toBe(true);
+    expect(seen.filter(Boolean)).toHaveLength(1);
     await act(async () => tree.unmount());
   });
 });

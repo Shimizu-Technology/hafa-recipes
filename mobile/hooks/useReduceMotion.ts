@@ -9,6 +9,8 @@ let reduceMotion = false;
 let subscription: { remove: () => void } | null = null;
 const listeners = new Set<() => void>();
 
+let eventCount = 0;
+
 function update(value: boolean) {
   if (value === reduceMotion) return;
   reduceMotion = value;
@@ -18,8 +20,15 @@ function update(value: boolean) {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   if (!subscription) {
-    subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', update);
-    AccessibilityInfo.isReduceMotionEnabled().then(update).catch(() => {});
+    subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (value) => {
+      eventCount += 1;
+      update(value);
+    });
+    // A change event that lands first is newer than this initial query.
+    const eventsBeforeQuery = eventCount;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => { if (eventCount === eventsBeforeQuery) update(value); })
+      .catch(() => {});
   }
   return () => {
     listeners.delete(listener);
