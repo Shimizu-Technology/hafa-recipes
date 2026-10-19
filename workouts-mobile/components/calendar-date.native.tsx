@@ -5,6 +5,7 @@ import { Button, Copy } from "./ui";
 import type { CalendarDateProps } from "./calendar-date";
 import { isISODate } from "@/lib/sharing";
 import { formatPlanDate } from "@/lib/plan-presentation";
+import { useColors } from "./design/foundation";
 function localDate(value: string | null | undefined) {
   if (value && isISODate(value)) {
     const [year, month, day] = value.split("-").map(Number);
@@ -16,6 +17,7 @@ function localDate(value: string | null | undefined) {
 }
 export function CalendarDate({ label, value, onChange, optional, disabled, min }: CalendarDateProps) {
   const [open, setOpen] = useState(false);
+  const c = useColors();
   return (
     <>
       <Copy kind="label">
@@ -32,6 +34,7 @@ export function CalendarDate({ label, value, onChange, optional, disabled, min }
           <DateTimePicker
             value={localDate(value)}
             mode="date"
+            accentColor={c.action}
             minimumDate={min && isISODate(min) ? localDate(min) : undefined}
             display={Platform.OS === "ios" ? "inline" : "default"}
             onValueChange={(_event, date) => {

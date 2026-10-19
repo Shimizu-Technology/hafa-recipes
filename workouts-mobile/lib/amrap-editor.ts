@@ -18,10 +18,18 @@ export function amrapCap(block: Block | undefined) {
   return block?.grouping === "circuit" && block.execution?.mode === "amrap" && validTimeCap(block.execution.time_cap_seconds)
     ? block.execution.time_cap_seconds : null;
 }
-export function blockSummary(block: Block) {
+const groupingLabels: Record<Block["grouping"], string> = {
+  sequential: "Straight sets", superset: "Superset", circuit: "Circuit", interval: "Intervals",
+};
+/** Human block summary, e.g. "Superset · 4 rounds". With `label`, a grouping word the label already says is left out. */
+export function blockSummary(block: Block, label?: string) {
   const cap = amrapCap(block);
-  return cap != null ? `AMRAP · ${formatSeconds(cap)} time cap`
-    : `${block.grouping}${block.rounds != null ? ` · ${block.rounds} rounds` : ""}`;
+  if (cap != null) return `AMRAP · ${formatSeconds(cap)} time cap`;
+  const grouping = groupingLabels[block.grouping] ?? block.grouping;
+  const repeated = !!label && label.toLowerCase().includes(grouping.toLowerCase());
+  return [repeated ? null : grouping, block.rounds != null ? `${block.rounds} round${block.rounds === 1 ? "" : "s"}` : null]
+    .filter(Boolean)
+    .join(" · ");
 }
 export function changeGrouping(workout: AuthoredWorkout, index: number, grouping: Block["grouping"]) {
   return { ...workout, blocks: workout.blocks.map((block, i) => i === index

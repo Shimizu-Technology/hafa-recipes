@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { amrapCap, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "./amrap-editor";
-import type { AuthoredWorkout } from "./models";
+import { amrapCap, blockSummary, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "./amrap-editor";
+import type { AuthoredWorkout, Workout } from "./models";
 const workout: AuthoredWorkout = { title: "Flow", kind: "session", provenance: "source", estimated_minutes: 20,
   notes: ["Repeat for 20 minutes"], blocks: [{ id: "flow", label: "Flow", grouping: "circuit",
     execution: { mode: "amrap", time_cap_seconds: 1200 }, exercises: [{ name: "Row", sets: 2, reps_min: 10 }] }] };
@@ -32,4 +32,19 @@ it("supports exact source seconds, decimal minutes and API cap boundaries", () =
   expect(executionError(changeTimeCap(workout, 0, 86400).blocks[0])).toBeNull();
   expect(executionError({ ...workout.blocks[0], rounds: 3 })).toContain("not both");
   expect(executionError({ ...workout.blocks[0], grouping: "interval" })).toContain("requires a circuit");
+});
+
+type Block = Workout["blocks"][number];
+const block = (over: Partial<Block>): Block => ({ id: "b", label: "Main", grouping: "sequential", exercises: [], ...over }) as Block;
+it("summarises grouping in words, never the raw value", () => {
+  expect(blockSummary(block({ grouping: "superset", rounds: 4 }))).toBe("Superset · 4 rounds");
+  expect(blockSummary(block({ grouping: "interval" }))).toBe("Intervals");
+  expect(blockSummary(block({ grouping: "sequential", rounds: 1 }))).toBe("Straight sets · 1 round");
+});
+it("leaves out a grouping word the block label already says", () => {
+  expect(blockSummary(block({ grouping: "superset", rounds: 4 }), "Superset A")).toBe("4 rounds");
+  expect(blockSummary(block({ grouping: "circuit" }), "Finisher circuit")).toBe("");
+});
+it("keeps the AMRAP time-cap summary", () => {
+  expect(blockSummary(workout.blocks[0] as Block)).toMatch(/^AMRAP · /);
 });

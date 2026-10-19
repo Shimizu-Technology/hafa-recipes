@@ -232,7 +232,7 @@ export default function BuildPlan() {
           }}
         />
       ))}
-      <Notice>This explicit current check-in expires. It is separate from your lasting profile.</Notice>
+      <Copy kind="small" tone="muted">This check-in applies to today only and doesn’t change your profile.</Copy>
       <Button
         title="Review a proposed program"
         busy={busy}

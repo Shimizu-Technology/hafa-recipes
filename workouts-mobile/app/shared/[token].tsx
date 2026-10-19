@@ -17,7 +17,7 @@ export default function SharedPrescription() {
   const { isSignedIn } = useAuth();
   const q = useQuery({ queryKey: ["public-share", token], queryFn: () => read(token), retry: 1 });
   return (
-    <Screen title="A workout worth keeping." subtitle="An intentional snapshot, shared with you.">
+    <Screen title="Shared workout" subtitle="An intentional snapshot, shared with you.">
       <QueryState
         loading={q.isPending}
         error={q.error}

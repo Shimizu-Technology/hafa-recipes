@@ -237,10 +237,12 @@ export default function WorkoutDetail() {
             {workout.blocks.map((block, index) => (
               <Card key={index}>
                 <Copy kind="caption" tone="accent">
-                  {block.label ? `${block.label} · ` : ""}
-                  {blockSummary(block)}
-                  {block.rounds == null && block.grouping !== "sequential" && block.execution?.mode !== "amrap" ? " · Rounds not specified" : ""}
-                  {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
+                  {[
+                    block.label || null,
+                    blockSummary(block, block.label),
+                    block.rounds == null && block.grouping !== "sequential" && block.execution?.mode !== "amrap" ? "Rounds not specified" : null,
+                    block.rest_between_rounds_seconds != null ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
+                  ].filter(Boolean).join(" · ")}
                 </Copy>
                 {block.exercises.map((e, i) => (
                   <Row key={i} gap={14} align="flex-start">

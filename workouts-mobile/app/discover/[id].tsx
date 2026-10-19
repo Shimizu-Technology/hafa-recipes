@@ -289,7 +289,7 @@ export default function DiscoverWorkout() {
               <Copy kind="caption" tone="accent">
                 {[
                   block.label || `Block ${index + 1}`,
-                  blockSummary(block),
+                  blockSummary(block, block.label),
                   block.rest_between_rounds_seconds ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
                 ]
                   .filter(Boolean)

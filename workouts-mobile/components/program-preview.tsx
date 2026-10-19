@@ -71,12 +71,17 @@ export function ProgramPreview({ receipt }: { receipt: Pick<ProgramReceipt, "pro
         {{ ready: "Ready to add", needs_information: "Needs information", conflicts: "Has conflicts", unsupported: "Not supported" }[proposal.status] ?? proposal.status} · Proposal expires{" "}
         {new Date(receipt.expires_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
       </Copy>
-      {proposal.warnings.map((warning, index) => (
-        <Notice key={`w${index}`}>{warning.replace("qualified programming review is pending (D03).", "qualified programming review is pending.")}</Notice>
-      ))}
-      {proposal.questions.map((question, index) => (
-        <Notice key={`q${index}`}>{question}</Notice>
-      ))}
+      {proposal.questions.length + proposal.warnings.length > 0 && (
+        <Card>
+          <Copy kind="subheading">{proposal.status === "ready" ? "Good to know" : "Before this plan is ready"}</Copy>
+          {[
+            ...proposal.questions,
+            ...proposal.warnings.map((warning) => warning.replace("qualified programming review is pending (D03).", "qualified programming review is pending.")),
+          ].map((line, index) => (
+            <Copy key={index} kind="small">{`• ${line}`}</Copy>
+          ))}
+        </Card>
+      )}
       {proposal.assumptions.map((assumption, index) => (
         <Copy key={`a${index}`} kind="small">{assumption}</Copy>
       ))}
