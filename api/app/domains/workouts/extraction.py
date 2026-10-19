@@ -596,13 +596,21 @@ class ProductionExtractionProvider:
 class ProductionSourceAcquirer:
     """Shared bounded media pool and public HTTP transport with a streamed web cap."""
 
+    def __init__(self, *, video_service=None):
+        self.video_service = video_service
+
+    def _video_service(self):
+        from app.services.video import video_service
+
+        return self.video_service if self.video_service is not None else video_service
+
     async def acquire_text(self, url: str, provider: ExtractionProvider) -> SourceBundle:
         return await self.acquire(url, provider, include_media=False)
 
     async def acquire(
         self, url: str, provider: ExtractionProvider, *, include_media: bool = True
     ) -> SourceBundle:
-        from app.services.video import video_service
+        video_service = self._video_service()
 
         deadline = asyncio.get_running_loop().time() + MAX_ACQUISITION_SECONDS
         await self._within_deadline(assert_public_http_url(url), deadline)
@@ -653,7 +661,7 @@ class ProductionSourceAcquirer:
         return source
 
     async def acquire_media(self, source: SourceBundle, provider: ExtractionProvider, *, deadline=None):
-        from app.services.video import video_service
+        video_service = self._video_service()
 
         if source.metadata.platform == "web":
             return source

@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
+import httpcore
 import httpx
 from fastapi import HTTPException, status
 
@@ -65,7 +67,10 @@ def _parse_public_url(url: str):
         )
 
     hostname = parsed.hostname
-    if not hostname or _hostname_is_blocked(hostname):
+    if (
+        not hostname or _hostname_is_blocked(hostname) or "%" in hostname
+        or parsed.username is not None or parsed.password is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This URL is not supported",
@@ -74,14 +79,17 @@ def _parse_public_url(url: str):
     return parsed
 
 
-async def resolve_public_http_url(url: str) -> tuple[str, int, str]:
+def resolve_public_http_url_sync(url: str) -> tuple[str, int, str]:
     """Validate a URL and return a public IP pinned for the outbound request."""
     parsed = _parse_public_url(url)
     hostname = parsed.hostname or ""
-    port = parsed.port or _DEFAULT_PORTS[parsed.scheme.lower()]
+    try:
+        port = parsed.port or _DEFAULT_PORTS[parsed.scheme.lower()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="This URL is not supported") from None
 
     try:
-        addr_info = await asyncio.to_thread(socket.getaddrinfo, hostname, port)
+        addr_info = socket.getaddrinfo(hostname, port)
     except socket.gaierror:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -119,6 +127,10 @@ async def resolve_public_http_url(url: str) -> tuple[str, int, str]:
     return hostname, port, public_ips[0]
 
 
+async def resolve_public_http_url(url: str) -> tuple[str, int, str]:
+    return await asyncio.to_thread(resolve_public_http_url_sync, url)
+
+
 async def assert_public_http_url(url: str) -> None:
     """Raise HTTPException if a URL does not point to a public HTTP(S) host."""
     await resolve_public_http_url(url)
@@ -126,7 +138,105 @@ async def assert_public_http_url(url: str) -> None:
 
 def _host_header(hostname: str, port: int, scheme: str) -> str:
     default_port = _DEFAULT_PORTS[scheme]
-    return hostname if port == default_port else f"{hostname}:{port}"
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    return host if port == default_port else f"{host}:{port}"
+
+
+_proxy_tls_target: ContextVar[tuple[str, str] | None] = ContextVar("public_proxy_tls_target", default=None)
+
+
+class _PublicProxyStream(httpcore.NetworkStream):
+    """HTTPcore CONNECT uses its IP origin for TLS; restore the original name.
+
+    HTTPcore 1.0.9 ignores the sni_hostname extension in proxy tunnels. Keep its
+    CONNECT authority pinned, while retaining certificate verification and SNI.
+    The proxy's own HTTPS handshake, when present, must retain its own hostname.
+    """
+
+    def __init__(self, stream, target, *, proxy_hostname=None):
+        self.stream, self.target = stream, target
+        self.proxy_hostname = proxy_hostname
+
+    def read(self, max_bytes, timeout=None):
+        return self.stream.read(max_bytes, timeout)
+
+    def write(self, buffer, timeout=None):
+        return self.stream.write(buffer, timeout)
+
+    def close(self):
+        self.stream.close()
+
+    def get_extra_info(self, info):
+        return self.stream.get_extra_info(info)
+
+    def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+        if self.proxy_hostname is not None:
+            # HTTPcore forwards the target's sni_hostname extension to the
+            # proxy connection too; the first handshake belongs to the proxy.
+            server_hostname, self.proxy_hostname = self.proxy_hostname, None
+        else:
+            hostname, pinned_ip = self.target
+            if server_hostname != pinned_ip:
+                raise httpcore.ConnectError("Unexpected public proxy TLS destination")
+            server_hostname = hostname
+        self.stream = self.stream.start_tls(ssl_context, server_hostname, timeout)
+        return self
+
+
+class _PublicProxyBackend(httpcore.NetworkBackend):
+    def __init__(self, *, proxy_hostname=None, backend=None):
+        self.backend = backend or httpcore.SyncBackend()
+        self.proxy_hostname = proxy_hostname
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        target = _proxy_tls_target.get()
+        if target is None:
+            raise httpcore.ConnectError("Missing public proxy destination")
+        stream = self.backend.connect_tcp(host, port, timeout, local_address, socket_options)
+        return _PublicProxyStream(stream, target, proxy_hostname=self.proxy_hostname)
+
+
+class PublicSyncHTTPTransport(httpx.BaseTransport):
+    """Pinned HTTP(S) for the isolated downloader, optionally via a trusted proxy.
+
+    An HTTP(S) proxy receives a literal-IP CONNECT target. No target-side DNS is
+    delegated to it. Disable connection reuse: two domains may share a CDN IP,
+    but their TLS/cookie identities must never share an IP-keyed connection.
+    """
+
+    def __init__(self, *, proxy=None):
+        if proxy and httpx.URL(proxy).scheme not in {"http", "https"}:
+            raise ValueError("Public media requires an HTTP(S) proxy")
+        self._transport = httpx.HTTPTransport(
+            proxy=proxy, trust_env=False,
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=0),
+        )
+        if proxy:
+            # Pinned httpx/httpcore adapter, covered by real HTTPcore wire tests.
+            self._transport._pool._network_backend = _PublicProxyBackend(
+                proxy_hostname=httpx.URL(proxy).host if httpx.URL(proxy).scheme == "https" else None
+            )
+
+    def handle_request(self, request):
+        original = request.url
+        hostname, port, ip_text = resolve_public_http_url_sync(str(original))
+        headers = request.headers.copy()
+        headers["Host"] = _host_header(hostname, port, original.scheme)
+        extensions = dict(request.extensions)
+        if original.scheme == "https":
+            extensions["sni_hostname"] = hostname
+        pinned = httpx.Request(
+            request.method, original.copy_with(host=ip_text), headers=headers,
+            stream=request.stream, extensions=extensions,
+        )
+        token = _proxy_tls_target.set((hostname, ip_text))
+        try:
+            return self._transport.handle_request(pinned)
+        finally:
+            _proxy_tls_target.reset(token)
+
+    def close(self):
+        self._transport.close()
 
 
 class PublicHTTPTransport(httpx.AsyncBaseTransport):
