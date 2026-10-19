@@ -42,11 +42,16 @@ All data queries and attachments enforce owner plus active product generation.
 Responses are JSON. Errors use HTTP status plus safe `detail` text. No private
 content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
 
-- `GET /bootstrap`: `{profile, children, generation, ai_available}`. Profile:
-  `{display_name, timezone, ai_consent}`. Bootstrap may create active membership.
+- `GET /bootstrap`: read-only `{profile, children, generation, ai_available}`.
+  Profile: `{display_name, timezone, ai_consent}`. `POST /bootstrap` initializes
+  first use idempotently. A deleted space remains inactive until explicit
+  `POST /enroll` with its current generation; reading never reactivates it.
 - `PATCH /profile`: same profile fields; explicit AI consent.
 - `GET /children`: `{items}`; `POST /children`; `PATCH /children/{id}`;
   `DELETE /children/{id}`. Child fields: `id,name,birth_date?,due_date?,revision`.
+  Updates and deletion require the current revision; stale requests return 409.
+  Deletion removes the profile and detaches its records, queued imports and
+  conversations, preserving their content and attachment links without a child.
 - `GET /records?kind=&child_id=&q=&limit=30&offset=0`: `{items,total,has_more}`.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
@@ -59,7 +64,8 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   side?:left|right|both,duration_minutes?}`; sleep `{end_at?}`; diaper
   `{type:wet|dirty|both|dry}`; routine `{routine_type:checklist|schedule,
   items:[{id,label,done}],reminder_at?,timezone?,repeat?:none|daily|weekly,
-  enabled?:boolean}`; journal/question `{attachment_ids?:[]}`; collection
+  enabled?:boolean}`; journal/question `{attachment_ids?:[],
+  provenance?:caregiver_observation|clinician_instruction}`; collection
   `{record_ids:[]}`. Plain body is always editable and never silently discarded.
 - `GET /search?q=&kind=&child_id=&limit=30`: same record list envelope. Search
   covers source text, title, body, summaries and topics, not only recent records.
@@ -110,7 +116,8 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 - B10 Notification permission, scheduling, edits, completion/cancel and timezone.
 - B11 General/focused AI, history, correct citations, missing evidence and safe errors.
 - B12 Review/apply an AI proposal; no record mutation before explicit acceptance.
-- B13 Private attachment reads, export and product-only/account deletion boundaries.
+- B13 Private attachment reads, export and product-only/account deletion boundaries;
+  child deletion retains linked records/files and detaches imports/conversations.
 - B14 Keyboard, small phone, large text, VoiceOver, dark/reduced-motion, long content.
 - B15 Shared API/Recipes/Workouts regressions and operational restart/retry behavior.
 - B16 Signed release build matches merged source; TestFlight processing and group.

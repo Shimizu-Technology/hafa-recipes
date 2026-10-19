@@ -49,7 +49,9 @@ async def platform_info() -> PlatformInfo:
                 id="baby",
                 name="Håfa Baby",
                 api_path="/api/v1/baby",
-                available=settings.baby_api_enabled,
+                # The independently reviewed API slice enables discovery when
+                # its routes are installed. This foundation stays dormant.
+                available=False,
             ),
         ]
     )
