@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import read_bytes
 from app.domains.baby.schemas import SourceData
+from app.services.video import public_video_service
 from app.domains.workouts.extraction import (
     ProductionSourceAcquirer,
     SourceBundle,
@@ -80,7 +81,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     if request.get("url"):
         await gate()
         try:
-            acquired = await ProductionSourceAcquirer().acquire(
+            acquired = await ProductionSourceAcquirer(video_service=public_video_service).acquire(
                 request["url"], provider, include_media=may_use_ai
             )
             source.metadata = acquired.metadata
