@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   isSignedIn: false,
   imageUrl: null as string | null,
+  hasImage: true,
+  firstName: null as string | null,
   push: vi.fn(),
 }));
 
@@ -22,7 +24,9 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@clerk/expo', () => ({
   useUser: () => ({
     isSignedIn: mocks.isSignedIn,
-    user: mocks.isSignedIn ? { imageUrl: mocks.imageUrl } : null,
+    user: mocks.isSignedIn
+      ? { imageUrl: mocks.imageUrl, hasImage: mocks.hasImage, firstName: mocks.firstName }
+      : null,
   }),
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -30,6 +34,8 @@ vi.mock('@/components/BrandMark', () => ({ BrandMark: 'BrandMark' }));
 vi.mock('@/components/Themed', () => ({
   Text: 'Text',
   useColors: () => ({
+    accent: '#B65F3E',
+    accentSoft: '#F3D9CC',
     backgroundElevated: '#FFFCF7',
     backgroundSecondary: '#F8EFE3',
     border: '#E8D8C8',
@@ -39,9 +45,9 @@ vi.mock('@/components/Themed', () => ({
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
-  fontFamily: { display: 'Fraunces_700Bold' },
+  fontFamily: { display: 'Fraunces_700Bold', semibold: 'DMSans_600SemiBold' },
   fontSize: { lg: 18 },
-  radius: { full: 999 },
+  radius: { md: 14, full: 999 },
   spacing: { sm: 8 },
 }));
 
@@ -51,6 +57,8 @@ describe('TabChrome', () => {
   beforeEach(() => {
     mocks.isSignedIn = false;
     mocks.imageUrl = null;
+    mocks.hasImage = true;
+    mocks.firstName = null;
     mocks.push.mockReset();
   });
 
@@ -81,6 +89,24 @@ describe('TabChrome', () => {
       expect(image.props.source).toEqual({ uri: mocks.imageUrl });
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Open account and settings',
+      )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows branded initials instead of Clerk\'s generated default avatar', async () => {
+    mocks.isSignedIn = true;
+    mocks.imageUrl = 'https://img.clerk.com/default-avatar';
+    mocks.hasImage = false;
+    mocks.firstName = 'leon';
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(<AccountHeaderButton />));
+      expect(renderer.container.queryAll((instance) => instance.type === 'Image')).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'L',
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
