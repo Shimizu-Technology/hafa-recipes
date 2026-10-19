@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
+from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
-from app.domains.baby.attachments import upload_router
 from app.domains.baby.chat import router as chat_router
 from app.domains.baby.dependencies import Database, Generation, Limit, Offset, User
 from app.domains.baby.imports import router as imports_router
@@ -386,9 +386,14 @@ async def patch_record(
     except ValidationError:
         raise HTTPException(422, "Enter valid details for this entry") from None
     await validate_relations(db, user.id, generation, valid.child_id, valid.data, record_id=row.id)
+    removed_attachments = set(row.data.get("attachment_ids", [])) - set(
+        valid.data.get("attachment_ids", [])
+    )
     for key in ("title", "body", "child_id", "occurred_at", "data"):
         setattr(row, key, getattr(valid, key))
     row.revision, row.updated_at = row.revision + 1, now()
+    if removed_attachments:
+        await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
     await db.commit()
     return record_response(row)
 
@@ -428,8 +433,10 @@ async def delete_record(
                 ],
             }
             collection.revision, collection.updated_at = collection.revision + 1, now()
+    removed_attachments = row.data.get("attachment_ids", [])
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None
     row.revision, row.updated_at = row.revision + 1, now()
+    await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
     await db.commit()
     return Response(status_code=204)
 

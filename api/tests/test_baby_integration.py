@@ -19,6 +19,7 @@ from app.db import get_db
 from app.db.database import Base as SharedBase
 from app.domains.baby import attachments, security
 from app.domains.baby.models import (
+    BabyAttachment,
     BabyImport,
     BabyRecord,
 )
@@ -39,50 +40,61 @@ GEN = {"X-Baby-Generation": "1"}
 async def baby_api(monkeypatch):
     require_disposable_test_database(DATABASE_URL)
     engine = create_async_engine(DATABASE_URL)
-    async with engine.begin() as connection:
-        await connection.execute(text("DROP SCHEMA public CASCADE"))
-        await connection.execute(text("CREATE SCHEMA public"))
-        await connection.run_sync(SharedBase.metadata.create_all)
-        await connection.execute(
-            text("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT)")
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP SCHEMA public CASCADE"))
+            await connection.execute(text("CREATE SCHEMA public"))
+            await connection.run_sync(SharedBase.metadata.create_all)
+            await connection.execute(
+                text("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT)")
+            )
+            await connection.execute(
+                text("INSERT INTO schema_migrations VALUES (33,'test baseline')")
+            )
+        settings = SimpleNamespace(
+            baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20
         )
-        await connection.execute(text("INSERT INTO schema_migrations VALUES (33,'test baseline')"))
-    settings = SimpleNamespace(
-        baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20
-    )
-    await migration.run_migration(configured=settings, migration_engine=engine)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
-    async with sessions() as db:
-        db.add_all([AppUser(id="owner"), AppUser(id="other")])
-        await db.commit()
-    app = FastAPI()
-    app.include_router(router)
-
-    async def database():
+        await migration.run_migration(configured=settings, migration_engine=engine)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
         async with sessions() as db:
-            yield db
+            db.add_all([AppUser(id="owner"), AppUser(id="other")])
+            await db.commit()
+        app = FastAPI()
+        app.include_router(router)
 
-    async def identity(request: Request):
-        return ClerkUser(
-            id=request.headers.get("X-Test-Owner", "owner"),
-            clerk_user_id="different-subject",
-            clerk_issuer="https://example.test",
-            clerk_environment="test",
-        )
+        async def database():
+            async with sessions() as db:
+                yield db
 
-    app.dependency_overrides[get_db] = database
-    app.dependency_overrides[get_current_user] = identity
-    monkeypatch.setattr(security, "get_settings", lambda: settings)
-    # Provider gates use fresh independent sessions, just like production.
-    monkeypatch.setattr("app.db.database.AsyncSessionLocal", sessions)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        assert (await client.get("/api/v1/baby/bootstrap")).status_code == 409
-        await client.post("/api/v1/baby/bootstrap")
-        await client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "other"})
-        yield SimpleNamespace(client=client, sessions=sessions, engine=engine, settings=settings)
-    await engine.dispose()
+        async def identity(request: Request):
+            return ClerkUser(
+                id=request.headers.get("X-Test-Owner", "owner"),
+                clerk_user_id="different-subject",
+                clerk_issuer="https://example.test",
+                clerk_environment="test",
+            )
+
+        app.dependency_overrides[get_db] = database
+        app.dependency_overrides[get_current_user] = identity
+        monkeypatch.setattr(security, "get_settings", lambda: settings)
+        # Provider gates use fresh independent sessions, just like production.
+        monkeypatch.setattr("app.db.database.AsyncSessionLocal", sessions)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/api/v1/baby/bootstrap")).status_code == 409
+            await client.post("/api/v1/baby/bootstrap")
+            await client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "other"})
+            yield SimpleNamespace(
+                client=client, sessions=sessions, engine=engine, settings=settings
+            )
+    finally:
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(text("DROP SCHEMA public CASCADE"))
+                await connection.execute(text("CREATE SCHEMA public"))
+        finally:
+            await engine.dispose()
 
 
 def payload(kind="journal", **changes):
@@ -290,7 +302,11 @@ async def test_private_attachment_cleanup_and_owner_access(baby_api, monkeypatch
     meta = await c.get(f"/api/v1/baby/attachments/{identifier}/metadata")
     assert meta.json() == uploaded.json()
     assert meta.headers["cache-control"] == "private, no-store"
-    assert (await c.get(f"/api/v1/baby/attachments/{identifier}/metadata", headers={"X-Test-Owner": "other"})).status_code == 404
+    assert (
+        await c.get(
+            f"/api/v1/baby/attachments/{identifier}/metadata", headers={"X-Test-Owner": "other"}
+        )
+    ).status_code == 404
     assert (
         await c.get(f"/api/v1/baby/attachments/{identifier}", headers={"X-Test-Owner": "other"})
     ).status_code == 404
@@ -459,15 +475,27 @@ async def test_local_private_storage_and_durable_budget_fence(baby_api, monkeypa
         assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 1
 
 
-async def test_account_erasure_anonymizes_cost_without_releasing_global_budget(baby_api, monkeypatch):
+async def test_account_erasure_anonymizes_cost_without_releasing_global_budget(
+    baby_api, monkeypatch
+):
     from app.ai_governance import ai_request_context
     from app.domains.baby import budget
     from app.domains.baby.models import BabyAIAdmission
     from app.domains.workouts.budget import BudgetError
 
-    await baby_api.client.patch("/api/v1/baby/profile", headers={**GEN, "X-Test-Owner": "other"}, json={"ai_consent": True})
+    await baby_api.client.patch(
+        "/api/v1/baby/profile", headers={**GEN, "X-Test-Owner": "other"}, json={"ai_consent": True}
+    )
     async with baby_api.sessions() as db:
-        db.add(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_chat", reserved_microusd=budget.GLOBAL_DAILY_CAP, created_at=datetime.now(UTC)))
+        db.add(
+            BabyAIAdmission(
+                app_user_id="owner",
+                generation=1,
+                capability="baby_chat",
+                reserved_microusd=budget.GLOBAL_DAILY_CAP,
+                created_at=datetime.now(UTC),
+            )
+        )
         await db.commit()
         await db.execute(delete(AppUser).where(AppUser.id == "owner"))
         await db.commit()
@@ -483,7 +511,13 @@ async def test_account_erasure_anonymizes_cost_without_releasing_global_budget(b
 @pytest.mark.parametrize("reason,expected", [("exhausted", "failed"), ("consent", "cancelled")])
 async def test_terminal_queue_recovery_updates_saved_source(baby_api, reason, expected):
     c = baby_api.client
-    job = (await c.post("/api/v1/baby/imports", headers=GEN, json={"id": str(uuid4()), "text": "Original preserved"})).json()
+    job = (
+        await c.post(
+            "/api/v1/baby/imports",
+            headers=GEN,
+            json={"id": str(uuid4()), "text": "Original preserved"},
+        )
+    ).json()
     async with baby_api.sessions() as db:
         row = await db.get(BabyImport, UUID(job["id"]))
         if reason == "exhausted":
@@ -496,3 +530,315 @@ async def test_terminal_queue_recovery_updates_saved_source(baby_api, reason, ex
     assert source["data"]["status"] == expected
     assert source["revision"] == 2
     assert (await c.get("/api/v1/baby/imports/" + job["id"])).json()["status"] == expected
+
+
+async def media_fixture(
+    baby_api, *, state="ready", size=1024, age=timedelta(), cleanup_status="completed", attempts=1
+):
+    identifier = uuid4()
+    created = datetime.now(UTC) - age
+    intent = attachments.cleanup_job(
+        "owner", [attachments.attachment_prefix(identifier, "owner", 1)]
+    )
+    intent.id = uuid4()
+    intent.status = cleanup_status
+    intent.attempt_count = attempts
+    intent.completed_at = datetime.now(UTC) if cleanup_status in {"completed", "failed"} else None
+    intent.storage_prefixes = [] if cleanup_status == "completed" else intent.storage_prefixes
+    intent.last_error = "Unavailable" if cleanup_status == "failed" else None
+    intent.created_at = created
+    intent.updated_at = created
+    row = BabyAttachment(
+        id=identifier,
+        app_user_id="owner",
+        generation=1,
+        name="Private image",
+        mime_type="image/webp",
+        size=size,
+        object_key=attachments.attachment_prefix(identifier, "owner", 1) + "asset",
+        byte_hash="a" * 64,
+        state=state,
+        created_at=created,
+        cleanup_job_id=intent.id,
+    )
+    async with baby_api.sessions() as db:
+        db.add(intent)
+        await db.flush()
+        db.add(row)
+        await db.commit()
+    return identifier
+
+
+async def attachment_states(baby_api, *identifiers):
+    async with baby_api.sessions() as db:
+        return {
+            row.id: row.state
+            for row in await db.scalars(
+                select(BabyAttachment).where(BabyAttachment.id.in_(identifiers))
+            )
+        }
+
+
+async def test_media_retirement_preserves_shared_records_and_active_imports(baby_api):
+    c = baby_api.client
+    shared = await media_fixture(baby_api)
+    unique = await media_fixture(baby_api)
+    processing = await media_fixture(baby_api)
+    first = (
+        await c.post(
+            "/api/v1/baby/records",
+            headers=GEN,
+            json=payload(data={"attachment_ids": list(map(str, [shared, unique, processing]))}),
+        )
+    ).json()
+    second = (
+        await c.post(
+            "/api/v1/baby/records",
+            headers=GEN,
+            json=payload(data={"attachment_ids": [str(shared)]}),
+        )
+    ).json()
+    capture = (
+        await c.post(
+            "/api/v1/baby/imports",
+            headers=GEN,
+            json={"id": str(uuid4()), "attachment_ids": [str(processing)]},
+        )
+    ).json()
+    # Simulate removing the file from the source while its capture is active.
+    source = (await c.get(f"/api/v1/baby/records/{capture['record_id']}")).json()
+    assert (
+        await c.patch(
+            f"/api/v1/baby/records/{source['id']}",
+            headers=GEN,
+            json={"revision": source["revision"], "data": {"attachment_ids": []}},
+        )
+    ).status_code == 200
+    assert (
+        await c.patch(
+            f"/api/v1/baby/records/{first['id']}",
+            headers=GEN,
+            json={"revision": 1, "data": {"attachment_ids": []}},
+        )
+    ).status_code == 200
+    assert await attachment_states(baby_api, shared, unique, processing) == {
+        shared: "ready",
+        unique: "deleted",
+        processing: "ready",
+    }
+    assert (
+        await c.delete(f"/api/v1/baby/records/{second['id']}?revision=1", headers=GEN)
+    ).status_code == 204
+    assert (await attachment_states(baby_api, shared))[shared] == "deleted"
+    assert (
+        await c.post(f"/api/v1/baby/attachments/{processing}/release", headers=GEN)
+    ).status_code == 204
+    assert (await attachment_states(baby_api, processing))[processing] == "ready"
+    await c.post(f"/api/v1/baby/imports/{capture['id']}/cancel", headers=GEN)
+    assert (
+        await c.post(f"/api/v1/baby/attachments/{processing}/release", headers=GEN)
+    ).status_code == 204
+    assert (
+        await c.post(f"/api/v1/baby/attachments/{processing}/release", headers=GEN)
+    ).status_code == 204
+    assert (await attachment_states(baby_api, processing))[processing] == "deleted"
+    async with baby_api.sessions() as db:
+        queued = list(
+            await db.scalars(
+                select(DeletionCleanupJob).where(DeletionCleanupJob.status == "queued")
+            )
+        )
+        assert len(queued) == 3  # Exactly one durable cleanup per retired file.
+
+
+async def test_release_is_private_generation_fenced_and_never_unlinks(baby_api):
+    c = baby_api.client
+    identifier = await media_fixture(baby_api)
+    record = (
+        await c.post(
+            "/api/v1/baby/records",
+            headers=GEN,
+            json=payload(data={"attachment_ids": [str(identifier)]}),
+        )
+    ).json()
+    assert (
+        await c.post(
+            f"/api/v1/baby/attachments/{identifier}/release",
+            headers={**GEN, "X-Test-Owner": "other"},
+        )
+    ).status_code == 204
+    assert (
+        await c.post(f"/api/v1/baby/attachments/{identifier}/release", headers=GEN)
+    ).status_code == 204
+    assert (await attachment_states(baby_api, identifier))[identifier] == "ready"
+    saved = (await c.get(f"/api/v1/baby/records/{record['id']}")).json()
+    assert saved["revision"] == 1 and saved["data"]["attachment_ids"] == [str(identifier)]
+    assert (
+        await c.post(
+            f"/api/v1/baby/attachments/{identifier}/release", headers={"X-Baby-Generation": "2"}
+        )
+    ).status_code == 409
+    assert (
+        await c.post(f"/api/v1/baby/attachments/{uuid4()}/release", headers=GEN)
+    ).status_code == 204
+
+
+async def quota_upload(baby_api, monkeypatch, identifier=None):
+    from PIL import Image
+
+    raw = BytesIO()
+    Image.new("RGB", (10, 10), "white").save(raw, "PNG")
+
+    class S3:
+        def put_object(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(
+        attachments,
+        "storage_service",
+        SimpleNamespace(is_enabled=True, bucket_name="test", client=S3()),
+    )
+    return await baby_api.client.post(
+        "/api/v1/baby/attachments",
+        headers={**GEN, "Idempotency-Key": str(identifier or uuid4())},
+        files={"file": ("image.png", raw.getvalue(), "image/png")},
+    )
+
+
+@pytest.mark.parametrize(
+    "status,age,attempts,reclaimed",
+    [
+        ("completed", timedelta(hours=2), 1, True),
+        ("completed", timedelta(minutes=30), 1, False),
+        ("completed", timedelta(hours=2), 0, False),
+        ("failed", timedelta(hours=2), 1, False),
+        ("processing", timedelta(hours=2), 1, False),
+        ("queued", timedelta(hours=2), 1, False),
+    ],
+)
+async def test_pending_quota_reconciles_only_expired_verified_completed_cleanup(
+    baby_api,
+    monkeypatch,
+    status,
+    age,
+    attempts,
+    reclaimed,
+):
+    monkeypatch.setattr(attachments, "MAX_TOTAL_BYTES", 1024)
+    identifier = await media_fixture(
+        baby_api,
+        state="pending",
+        size=attachments.MAX_TOTAL_BYTES,
+        age=age,
+        cleanup_status=status,
+        attempts=attempts,
+    )
+    uploaded = await quota_upload(baby_api, monkeypatch)
+    assert uploaded.status_code == (200 if reclaimed else 429), uploaded.text
+    assert (await attachment_states(baby_api, identifier))[identifier] == (
+        "deleted" if reclaimed else "pending"
+    )
+
+
+@pytest.mark.parametrize("reference", ["none", "record", "import", "terminal"])
+async def test_quota_reclaims_abandoned_ready_uploads_but_preserves_live_references(
+    baby_api,
+    monkeypatch,
+    reference,
+):
+    monkeypatch.setattr(attachments, "MAX_TOTAL_BYTES", 1024)
+    c = baby_api.client
+    identifier = await media_fixture(
+        baby_api,
+        size=attachments.MAX_TOTAL_BYTES,
+        age=timedelta(days=8) if reference != "terminal" else timedelta(hours=1),
+    )
+    if reference == "record":
+        assert (
+            await c.post(
+                "/api/v1/baby/records",
+                headers=GEN,
+                json=payload(data={"attachment_ids": [str(identifier)]}),
+            )
+        ).status_code == 200
+    if reference in {"import", "terminal"}:
+        capture = (
+            await c.post(
+                "/api/v1/baby/imports",
+                headers=GEN,
+                json={"id": str(uuid4()), "attachment_ids": [str(identifier)]},
+            )
+        ).json()
+        # Remove the source reference while its import still protects the file.
+        assert (
+            await c.patch(
+                f"/api/v1/baby/records/{capture['record_id']}",
+                headers=GEN,
+                json={"revision": 1, "data": {"attachment_ids": []}},
+            )
+        ).status_code == 200
+        if reference == "terminal":
+            await c.post(f"/api/v1/baby/imports/{capture['id']}/cancel", headers=GEN)
+    uploaded = await quota_upload(baby_api, monkeypatch)
+    released = reference in {"none", "terminal"}
+    assert uploaded.status_code == (200 if released else 429), uploaded.text
+    assert (await attachment_states(baby_api, identifier))[identifier] == (
+        "deleted" if released else "ready"
+    )
+
+
+async def test_quota_reconciliation_commits_each_bounded_batch_even_if_still_full(
+    baby_api, monkeypatch
+):
+    monkeypatch.setattr(attachments, "MAX_TOTAL_BYTES", 1024)
+    identifiers = []
+    for index in range(101):
+        identifiers.append(
+            await media_fixture(
+                baby_api,
+                state="pending",
+                size=1 if index < 100 else attachments.MAX_TOTAL_BYTES,
+                age=timedelta(days=3) - timedelta(seconds=index),
+            )
+        )
+    first = await quota_upload(baby_api, monkeypatch)
+    assert first.status_code == 429
+    states = await attachment_states(baby_api, *identifiers)
+    assert list(states.values()).count("deleted") == 100
+    second = await quota_upload(baby_api, monkeypatch)
+    assert second.status_code == 200, second.text
+    assert (await attachment_states(baby_api, identifiers[-1]))[identifiers[-1]] == "deleted"
+
+
+async def test_current_upload_replay_retains_even_an_old_unreferenced_asset(baby_api, monkeypatch):
+    first = await quota_upload(baby_api, monkeypatch)
+    assert first.status_code == 200
+    identifier = UUID(first.json()["id"])
+    async with baby_api.sessions() as db:
+        row = await db.get(BabyAttachment, identifier)
+        row.created_at = datetime.now(UTC) - timedelta(days=8)
+        receipt = await db.get(DeletionCleanupJob, row.cleanup_job_id)
+        receipt.updated_at = row.created_at
+        await db.commit()
+    replay = await quota_upload(baby_api, monkeypatch, identifier)
+    assert replay.status_code == 200 and replay.json()["id"] == str(identifier)
+    assert (await attachment_states(baby_api, identifier))[identifier] == "ready"
+    another = await quota_upload(baby_api, monkeypatch)
+    assert another.status_code == 200
+    assert (await attachment_states(baby_api, identifier))[identifier] == "ready"
+
+
+async def test_release_and_record_save_serialize_without_dangling_media(baby_api):
+    c = baby_api.client
+    identifier = await media_fixture(baby_api)
+    save, released = await asyncio.gather(
+        c.post(
+            "/api/v1/baby/records",
+            headers=GEN,
+            json=payload(data={"attachment_ids": [str(identifier)]}),
+        ),
+        c.post(f"/api/v1/baby/attachments/{identifier}/release", headers=GEN),
+    )
+    assert released.status_code == 204
+    state = (await attachment_states(baby_api, identifier))[identifier]
+    assert (save.status_code, state) in {(200, "ready"), (409, "deleted")}
