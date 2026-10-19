@@ -59,11 +59,14 @@ export function RecipeCard({
   onPress,
   colors,
   isSavedRecipe,
+  selected,
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
+  /** Set only in selection mode so VoiceOver announces the selection. */
+  selected?: boolean;
 }) {
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
 
@@ -80,6 +83,7 @@ export function RecipeCard({
         sourceLabel,
         saved: isSavedRecipe,
       })}
+      accessibilityState={selected === undefined ? undefined : { selected }}
     >
       {/* Thumbnail with gradient overlay */}
       <RNView style={styles.thumbnailContainer}>
@@ -168,11 +172,14 @@ export function GridRecipeCard({
   onPress,
   colors,
   isSavedRecipe,
+  selected,
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
   colors: ReturnType<typeof useColors>;
   isSavedRecipe?: boolean;
+  /** Set only in selection mode so VoiceOver announces the selection. */
+  selected?: boolean;
 }) {
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
 
@@ -189,6 +196,7 @@ export function GridRecipeCard({
         sourceLabel,
         saved: isSavedRecipe,
       })}
+      selected={selected}
       imageAdornment={(
         <>
           {isSavedRecipe && (
@@ -604,12 +612,15 @@ export default function HistoryScreen() {
             delayLongPress={400}
             activeOpacity={0.9}
             style={styles.gridCardWrapper}
+            // VoiceOver focuses the labelled card inside, not this wrapper.
+            accessible={false}
           >
             <CardComponent
               recipe={item}
               colors={colors}
               onPress={handlePress}
               isSavedRecipe={showSavedBadge}
+              selected={isSelectionMode ? isSelected : undefined}
             />
             {isSelectionMode && (
               <RNView
@@ -642,6 +653,9 @@ export default function HistoryScreen() {
               ]}
               onPress={() => toggleRecipeSelection(item.id)}
               activeOpacity={0.7}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelected }}
+              accessibilityLabel={`Select ${item.title}`}
             >
               {isSelected && (
                 <Ionicons name="checkmark" size={16} color="#FFFFFF" />
@@ -654,12 +668,15 @@ export default function HistoryScreen() {
               onLongPress={handleLongPress}
               delayLongPress={400}
               activeOpacity={0.9}
+              // VoiceOver focuses the labelled card inside, not this wrapper.
+              accessible={false}
             >
               <CardComponent
                 recipe={item}
                 colors={colors}
                 onPress={handlePress}
                 isSavedRecipe={showSavedBadge}
+                selected={isSelectionMode ? isSelected : undefined}
               />
             </TouchableOpacity>
           </RNView>

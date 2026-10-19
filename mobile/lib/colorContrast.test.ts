@@ -20,6 +20,16 @@ function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/** Composite a translucent foreground (alpha 0-1) over an opaque background. */
+function composite(foreground: string, alpha: number, background: string): string {
+  const channels = (hex: string) => hex.slice(1).match(/../g)!.map((channel) => parseInt(channel, 16));
+  const top = channels(foreground);
+  const bottom = channels(background);
+  return `#${top.map((channel, index) => (
+    Math.round((channel * alpha) + (bottom[index] * (1 - alpha))).toString(16).padStart(2, '0')
+  )).join('')}`;
+}
+
 describe('mobile color contrast', () => {
   for (const themeName of ['light', 'dark'] as const) {
     const theme = Colors[themeName];
@@ -41,6 +51,16 @@ describe('mobile color contrast', () => {
     it(`${themeName} action text stays readable on screens and cards`, () => {
       for (const background of [theme.background, theme.backgroundSecondary, theme.backgroundElevated, theme.card]) {
         expect(contrastRatio(theme.actionText, background)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it(`${themeName} action text stays readable on translucent tint chips and notices`, () => {
+      // Screens layer `tint + '15'` up to `tint + '40'` (8-25% alpha) behind action text.
+      for (const alpha of [0x15 / 255, 0x20 / 255, 0x40 / 255]) {
+        for (const surface of [theme.background, theme.backgroundSecondary, theme.card]) {
+          const chip = composite(theme.tint, alpha, surface);
+          expect(contrastRatio(theme.actionText, chip), `${chip} at ${alpha.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+        }
       }
     });
 

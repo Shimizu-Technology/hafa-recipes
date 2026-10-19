@@ -167,12 +167,15 @@ export default function CookModeScreen() {
 
   useEffect(() => {
     let mounted = true;
+    // A change event is newer than the initial lookup; never let the lookup overwrite it.
+    let changedSinceLookup = false;
     AccessibilityInfo.isReduceMotionEnabled()
       .then((enabled) => {
-        if (mounted) reduceMotionRef.current = enabled;
+        if (mounted && !changedSinceLookup) reduceMotionRef.current = enabled;
       })
       .catch(() => {});
     const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
+      changedSinceLookup = true;
       reduceMotionRef.current = enabled;
     });
     return () => {
