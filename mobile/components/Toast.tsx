@@ -12,7 +12,15 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text } from '@/components/Themed';
 import Colors, { fontFamily, fontSize, radius, shadows, spacing } from '@/constants/Colors';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
-import { getToast, runToastAction, subscribeToast, type ToastState } from '@/lib/toast';
+import {
+  getToast,
+  hideToast,
+  runToastAction,
+  setToastScreenReaderEnabled,
+  subscribeToast,
+  toastAnnouncement,
+  type ToastState,
+} from '@/lib/toast';
 
 const ENTER_MS = 220;
 const EXIT_MS = 160;
@@ -33,17 +41,36 @@ export function ToastHost() {
   const insets = useSafeAreaInsets();
   const progress = useSharedValue(0);
 
+  // Action toasts wait for screen reader users instead of timing out.
+  useEffect(() => {
+    let active = true;
+    AccessibilityInfo.isScreenReaderEnabled()
+      .then((enabled) => { if (active) setToastScreenReaderEnabled(enabled); })
+      .catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', setToastScreenReaderEnabled);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
   useEffect(() => {
     if (toast) {
       setShown(toast);
       progress.value = withTiming(1, { duration: ENTER_MS, easing: EASE_OUT });
-      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(toast.message);
+      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(toastAnnouncement(toast));
       return;
     }
     progress.value = withTiming(0, { duration: EXIT_MS, easing: EASE_OUT }, (finished) => {
       if (finished) runOnJS(setShown)(null);
     });
-  }, [toast, progress]);
+    // Re-announce only for a new toast, not when its persistence changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast?.id, progress]);
+
+  useEffect(() => {
+    if (toast) setShown(toast);
+  }, [toast]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
@@ -69,7 +96,8 @@ export function ToastHost() {
         ]}
       >
         {icon && <Ionicons name={icon.name} size={20} color={icon.color} />}
-        <Text style={[styles.message, { color: surface.text }]} numberOfLines={3}>
+        {/* No line cap: callers keep copy short, and the text size cap bounds the height. */}
+        <Text style={[styles.message, { color: surface.text }]}>
           {shown.message}
         </Text>
         {shown.actionLabel && (
@@ -81,6 +109,16 @@ export function ToastHost() {
             hitSlop={{ top: 4, bottom: 4 }}
           >
             <Text style={[styles.actionText, { color: surface.actionText }]}>{shown.actionLabel}</Text>
+          </TouchableOpacity>
+        )}
+        {shown.persistent && (
+          <TouchableOpacity
+            style={styles.action}
+            onPress={() => hideToast(shown.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          >
+            <Ionicons name="close" size={20} color={surface.textSecondary} />
           </TouchableOpacity>
         )}
       </Animated.View>

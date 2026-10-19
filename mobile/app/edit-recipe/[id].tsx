@@ -408,11 +408,15 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       if (!alive.current) return;
       
-      const message = updatedRecipe.review_state === 'source_incomplete'
-        ? 'Saved as a private draft. Add the missing details whenever you’re ready.'
-        : 'Recipe updated';
+      if (updatedRecipe.review_state === 'source_incomplete') {
+        // Kept private as a draft: an outcome to read, not a passing confirmation.
+        Alert.alert('Saved', 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.', [
+          { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
+        ]);
+        return;
+      }
       router.back();
-      showToast({ message, tone: 'success' });
+      showToast({ message: 'Recipe updated', tone: 'success' });
     },
     onError: (error: unknown) => {
       if (!alive.current) return;

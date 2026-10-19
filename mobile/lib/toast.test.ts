@@ -4,8 +4,10 @@ import {
   getToast,
   hideToast,
   runToastAction,
+  setToastScreenReaderEnabled,
   showToast,
   subscribeToast,
+  toastAnnouncement,
   TOAST_ACTION_DURATION_MS,
   TOAST_DURATION_MS,
 } from './toast';
@@ -18,6 +20,7 @@ describe('toast state', () => {
 
   afterEach(() => {
     hideToast();
+    setToastScreenReaderEnabled(false);
     vi.useRealTimers();
   });
 
@@ -82,5 +85,48 @@ describe('toast state', () => {
     unsubscribe();
     showToast({ message: 'Hidden' });
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('keeps action toasts until dismissed while a screen reader is on', () => {
+    setToastScreenReaderEnabled(true);
+    const id = showToast({ message: '3 added to your pantry', actionLabel: 'Open pantry', onAction: vi.fn() });
+    expect(getToast()?.persistent).toBe(true);
+    vi.advanceTimersByTime(60_000);
+    expect(getToast()?.id).toBe(id);
+    hideToast(id);
+    expect(getToast()).toBeNull();
+  });
+
+  it('still auto-dismisses plain toasts while a screen reader is on', () => {
+    setToastScreenReaderEnabled(true);
+    showToast({ message: 'Recipe updated' });
+    expect(getToast()?.persistent).toBe(false);
+    vi.advanceTimersByTime(TOAST_DURATION_MS);
+    expect(getToast()).toBeNull();
+  });
+
+  it('lets a replacement end a persistent toast', () => {
+    setToastScreenReaderEnabled(true);
+    showToast({ message: 'First', actionLabel: 'View list', onAction: vi.fn() });
+    const second = showToast({ message: 'Second' });
+    expect(getToast()?.id).toBe(second);
+    vi.advanceTimersByTime(TOAST_DURATION_MS);
+    expect(getToast()).toBeNull();
+  });
+
+  it('follows screen reader changes for the visible action toast', () => {
+    const id = showToast({ message: '3 added', actionLabel: 'View list', onAction: vi.fn() });
+    setToastScreenReaderEnabled(true);
+    vi.advanceTimersByTime(TOAST_ACTION_DURATION_MS * 2);
+    expect(getToast()?.id).toBe(id);
+    setToastScreenReaderEnabled(false);
+    vi.advanceTimersByTime(TOAST_ACTION_DURATION_MS);
+    expect(getToast()).toBeNull();
+  });
+
+  it('announces the action alongside the message', () => {
+    expect(toastAnnouncement({ message: '3 added to your pantry', actionLabel: 'Open pantry' }))
+      .toBe('3 added to your pantry. Open pantry button available');
+    expect(toastAnnouncement({ message: 'Recipe updated.' })).toBe('Recipe updated.');
   });
 });
