@@ -3,7 +3,7 @@ import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
 import { useState, useMemo, useEffect } from 'react';
 import { useRecipeTabScroll } from '@/hooks/useRecipeTabScroll';
-import { recipeCost, recipeLoadError, canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
+import { recipeCost, recipeLoadError, recipeDetailView } from '@/lib/recipeDetailPresentation';
 import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
 import {
   StyleSheet,
@@ -31,6 +31,7 @@ import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeOrganizer } from '@/components/RecipeOrganizer';
 import { RecipeHero } from '@/components/RecipeHero';
+import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
@@ -143,7 +144,7 @@ export default function RecipeDetailScreen() {
   const [showRelated, setShowRelated] = useState(false);
   const [cookDockHeight, setCookDockHeight] = useState(0);
   
-  const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending } = useRecipe(id);
+  const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending, preview } = useRecipe(id);
   const handleDelete = useRecipeDeletion(id, () => router.back());
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
@@ -604,7 +605,12 @@ export default function RecipeDetailScreen() {
     ? getRecipeVisibilityPresentation(recipe.is_public, recipe.moderation_status)
     : null;
 
-  if (isLoading) {
+  const view = recipeDetailView({ isLoading, hasPreview: !!preview, hasRecipe: !!recipe, error });
+  if (view === 'preview' && preview) {
+    return <RecipeDetailPreview preview={preview} />;
+  }
+
+  if (view === 'loading') {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.actionText} />
@@ -615,7 +621,7 @@ export default function RecipeDetailScreen() {
     );
   }
 
-  if (!recipe || (error && !canRetainRecipeOnError(error))) {
+  if (view === 'unavailable' || !recipe) {
     const loadError = recipeLoadError(error);
     return (
       <View style={styles.centerContainer}>
