@@ -242,6 +242,16 @@ describe('SettingsScreen accessibility', () => {
     expect(mocks.refetchCount).toHaveBeenCalledOnce();
   });
 
+  it('shows the saved recipe total as a quiet account line', async () => {
+    const renderer = await renderSettings();
+    const all = renderer.root.findAll(() => true);
+
+    expect(all.filter((node) => node.type === ('ThemedText' as unknown) && textOf(node) === '7 recipes saved'))
+      .toHaveLength(1);
+    expect(all.filter((node) => node.type === ('SectionHeader' as unknown) && textOf(node) === 'Statistics'))
+      .toHaveLength(0);
+  });
+
   it('labels the profile save action', async () => {
     const renderer = await renderSettings();
 

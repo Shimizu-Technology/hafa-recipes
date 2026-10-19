@@ -1,4 +1,3 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/expo';
@@ -51,7 +50,7 @@ export {
 } from 'expo-router';
 
 export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
+  // Ensure that reloading on a stacked route keeps a back button present.
   initialRouteName: '(tabs)',
 };
 
@@ -60,8 +59,6 @@ SplashScreen.preventAutoHideAsync();
 
 function RootLayout() {
   const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-    ...FontAwesome.font,
     // Håfa Recipes brand typography
     DMSans_400Regular,
     DMSans_500Medium,
@@ -334,7 +331,6 @@ function RootLayoutNav() {
                       name="paste-recipe"
                       options={{ headerTitle: 'Paste Recipe Text' }}
                     />
-                    <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                   </Stack>
                   </ShareIntentHandler>
                 </AuthProtection>

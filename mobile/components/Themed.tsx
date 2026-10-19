@@ -390,11 +390,9 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
       <DefaultText
         maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         style={{
-          fontSize: fontSize.xs,
-          fontWeight: fontWeight.semibold,
-          color: colors.textMuted,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
+          fontSize: fontSize.sm,
+          fontFamily: fontFamily.semibold,
+          color: colors.textSecondary,
           marginBottom: subtitle ? spacing.xs : 0,
         }}
       >

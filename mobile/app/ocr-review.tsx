@@ -355,7 +355,7 @@ export default function OCRReviewScreen() {
         ]}
       >
         <RNView style={styles.bottomBarButtons}>
-          {failure?.kind === 'conflict' && <Button title="Open My Recipes" onPress={() => router.replace('/(tabs)/history')} />}
+          {failure?.kind === 'conflict' && <Button title="Open Library" onPress={() => router.replace('/(tabs)/history')} />}
           {/* Edit Button */}
           {canEdit && <TouchableOpacity
             style={[styles.editButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
