@@ -45,6 +45,7 @@ import {
   RECIPE_GRID_GAP,
 } from '@/components/RecipeGridCardFrame';
 
+import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
@@ -70,6 +71,11 @@ export function RecipeCard({
     <ScalePressable
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [
+        recipe.total_time,
+        isSavedRecipe && 'Saved',
+      ])}
     >
       {/* Thumbnail with gradient overlay */}
       <RNView style={styles.thumbnailContainer}>
@@ -172,6 +178,10 @@ export function GridRecipeCard({
       thumbnailUrl={recipe.thumbnail_url}
       onPress={onPress}
       colors={colors}
+      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [
+        recipe.total_time,
+        isSavedRecipe && 'Saved',
+      ])}
       imageAdornment={(
         <>
           {isSavedRecipe && (
@@ -264,7 +274,7 @@ function NewCollectionCard({
       activeOpacity={0.7}
     >
       <RNView style={[styles.newCollectionIcon, { backgroundColor: colors.tint + '15' }]}>
-        <Ionicons name="add" size={28} color={colors.tint} />
+        <Ionicons name="add" size={28} color={colors.actionText} />
       </RNView>
       <Text style={[styles.newCollectionText, { color: colors.textMuted }]}>
         New Collection
@@ -685,7 +695,7 @@ export default function HistoryScreen() {
         <RNView style={styles.titleRow}>
           <RNView style={styles.titleLeft}>
             <TouchableOpacity onPress={exitSelectionMode} style={styles.cancelButton}>
-              <Text style={[styles.cancelButtonText, { color: colors.tint }]}>Cancel</Text>
+              <Text style={[styles.cancelButtonText, { color: colors.actionText }]}>Cancel</Text>
             </TouchableOpacity>
             <Text style={[styles.selectionCount, { color: colors.text }]}>
               {selectedRecipeIds.size} selected
@@ -698,7 +708,7 @@ export default function HistoryScreen() {
               onPress={selectedRecipeIds.size === displayRecipes?.length ? clearSelection : selectAllRecipes}
               activeOpacity={0.7}
             >
-              <Text style={[styles.selectAllText, { color: colors.tint }]}>
+              <Text style={[styles.selectAllText, { color: colors.actionText }]}>
                 {selectedRecipeIds.size === displayRecipes?.length ? 'Deselect All' : 'Select All'}
               </Text>
             </TouchableOpacity>
@@ -732,8 +742,11 @@ export default function HistoryScreen() {
             style={[styles.headerMenuButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
             onPress={handleShowHeaderMenu}
             activeOpacity={0.7}
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel="Library options"
           >
-            <Ionicons name="ellipsis-horizontal" size={18} color={colors.tint} />
+            <Ionicons name="ellipsis-horizontal" size={18} color={colors.actionText} />
           </TouchableOpacity>
         </RNView>
 
@@ -746,8 +759,8 @@ export default function HistoryScreen() {
           }}
           activeOpacity={0.7}
         >
-          <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
-          <Text style={[styles.ingredientSearchText, { color: colors.tint }]}>
+          <Ionicons name="nutrition-outline" size={18} color={colors.actionText} />
+          <Text style={[styles.ingredientSearchText, { color: colors.actionText }]}>
             What can I make?
           </Text>
         </TouchableOpacity>
@@ -764,7 +777,7 @@ export default function HistoryScreen() {
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
-        <Ionicons name={hasPrimaryLoadError ? 'cloud-offline-outline' : 'restaurant-outline'} size={42} color={colors.tint} />
+        <Ionicons name={hasPrimaryLoadError ? 'cloud-offline-outline' : 'restaurant-outline'} size={42} color={colors.actionText} />
       </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         {hasPrimaryLoadError ? 'Couldn’t load your recipes' : filteredEmpty ? 'No recipes match' : 'No recipes yet'}
@@ -799,7 +812,7 @@ export default function HistoryScreen() {
           disabled={isFetchingMore}
         >
           {isFetchingMore ? (
-            <ActivityIndicator size="small" color={colors.tint} />
+            <ActivityIndicator size="small" color={colors.actionText} />
           ) : (
             <>
               <Text style={[styles.loadMoreText, { color: colors.text }]}>
@@ -885,7 +898,7 @@ export default function HistoryScreen() {
           <RNView style={styles.activeFiltersRow}>
             {sourceFilter !== 'all' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
                   {sourceFilter}
                 </Text>
               </RNView>
@@ -899,14 +912,14 @@ export default function HistoryScreen() {
             )}
             {selectedTags.length > 0 && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
                   {selectedTags.length} tag{selectedTags.length > 1 ? 's' : ''}
                 </Text>
               </RNView>
             )}
             {ownershipFilter === 'own' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
                   My Recipes
                 </Text>
               </RNView>
@@ -936,7 +949,7 @@ export default function HistoryScreen() {
         {/* Search loading indicator - shows when server is fetching more results */}
         {hasActiveFilters && (isSearchFetching || !isServerSearchCurrent) && (
           <RNView style={styles.searchLoadingRow}>
-            <ActivityIndicator size="small" color={colors.tint} />
+            <ActivityIndicator size="small" color={colors.actionText} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
               Finding more recipes...
             </Text>
@@ -970,7 +983,7 @@ export default function HistoryScreen() {
           <RNView style={styles.collectionsSection}>
             <RNView style={styles.collectionsSectionHeader}>
               <RNView style={styles.collectionsTitleRow}>
-                <Ionicons name="folder-open-outline" size={18} color={colors.tint} />
+                <Ionicons name="folder-open-outline" size={18} color={colors.actionText} />
                 <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>Collections</Text>
               </RNView>
             </RNView>
@@ -986,7 +999,7 @@ export default function HistoryScreen() {
           <RNView style={styles.collectionsSection}>
             <RNView style={styles.collectionsSectionHeader}>
               <RNView style={styles.collectionsTitleRow}>
-                <Ionicons name="folder-open-outline" size={18} color={colors.tint} />
+                <Ionicons name="folder-open-outline" size={18} color={colors.actionText} />
                 <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>Collections</Text>
               </RNView>
             </RNView>
@@ -1023,11 +1036,11 @@ export default function HistoryScreen() {
             style={[styles.createFirstCollection, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}
             onPress={() => setShowCreateCollectionModal(true)}
           >
-            <Ionicons name="folder-outline" size={20} color={colors.tint} />
-            <Text style={[styles.createFirstCollectionText, { color: colors.tint }]}>
+            <Ionicons name="folder-outline" size={20} color={colors.actionText} />
+            <Text style={[styles.createFirstCollectionText, { color: colors.actionText }]}>
               Create your first collection to organize recipes
             </Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.tint} />
+            <Ionicons name="chevron-forward" size={16} color={colors.actionText} />
           </TouchableOpacity>
         )}
       </RNView>
@@ -1167,14 +1180,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    width: 18,
+    minWidth: 18,
     height: 18,
+    paddingHorizontal: 4,
     borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
   },
   filterBadgeText: {
-    fontSize: 10,
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
   },
   activeFiltersRow: {

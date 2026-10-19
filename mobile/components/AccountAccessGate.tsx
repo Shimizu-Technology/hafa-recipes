@@ -265,7 +265,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
           <BrandMark size={70} style={{ backgroundColor: colors.backgroundSecondary }} />
           {loading && correctOnboardingOwner && !failure ? (
             <>
-              <ActivityIndicator color={colors.tint} size="large" style={styles.loader} />
+              <ActivityIndicator color={colors.actionText} size="large" style={styles.loader} />
               <Text style={styles.title}>Preparing your recipe library</Text>
               <Text style={[styles.description, { color: colors.textSecondary }]}>
                 We&apos;re checking your account before opening your private recipes.
@@ -366,7 +366,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
           ) : (
             <>
               <RNView style={[styles.icon, { backgroundColor: `${colors.tint}18` }]}>
-                <Ionicons name={recovery ? 'shield-checkmark-outline' : 'cloud-offline-outline'} size={30} color={colors.tint} />
+                <Ionicons name={recovery ? 'shield-checkmark-outline' : 'cloud-offline-outline'} size={30} color={colors.actionText} />
               </RNView>
               <Text style={styles.title}>
                 {recovery ? 'Your recipe library needs reconnecting' : 'We couldn’t reach your recipes'}

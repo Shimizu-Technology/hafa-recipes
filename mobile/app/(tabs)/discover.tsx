@@ -67,6 +67,7 @@ import {
   RECIPE_GRID_GAP,
 } from '@/components/RecipeGridCardFrame';
 import { Image as ExpoImage } from 'expo-image';
+import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -205,6 +206,8 @@ function RecipeCard({
     <ScalePressable
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [recipe.total_time])}
     >
       {/* Thumbnail with gradient overlay */}
       <RNView style={styles.thumbnailContainer}>
@@ -289,7 +292,7 @@ function RecipeCard({
                     }}
                     hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                   >
-                    <Text style={[styles.attributionText, { color: colors.tint, textDecorationLine: 'underline' }]}>
+                    <Text style={[styles.attributionText, { color: colors.actionText, textDecorationLine: 'underline' }]}>
                       {extractorName}
                     </Text>
                   </TouchableOpacity>
@@ -341,6 +344,7 @@ function GridRecipeCard({
       thumbnailUrl={recipe.thumbnail_url}
       onPress={onPress}
       colors={colors}
+      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [recipe.total_time])}
       imagePriority={imagePriority}
       imageAdornment={(
         <>
@@ -725,7 +729,7 @@ export default function DiscoverScreen() {
         <Ionicons
           name={isGrid ? 'list-outline' : 'grid-outline'}
           size={18}
-          color={colors.tint}
+          color={colors.actionText}
         />
       </TouchableOpacity>
     </RNView>
@@ -734,7 +738,7 @@ export default function DiscoverScreen() {
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
-        <Ionicons name="globe-outline" size={46} color={colors.tint} />
+        <Ionicons name="globe-outline" size={46} color={colors.actionText} />
       </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes found
@@ -785,7 +789,7 @@ export default function DiscoverScreen() {
           disabled={isFetchingMore}
         >
           {isFetchingMore ? (
-            <ActivityIndicator size="small" color={colors.tint} />
+            <ActivityIndicator size="small" color={colors.actionText} />
           ) : (
             <>
               <Text style={[styles.loadMoreText, { color: colors.text }]}>
@@ -855,7 +859,7 @@ export default function DiscoverScreen() {
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('breakfast')}
               >
-                <Ionicons name="sunny-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
+                <Ionicons name="sunny-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Breakfast
                 </Text>
@@ -865,7 +869,7 @@ export default function DiscoverScreen() {
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('lunch')}
               >
-                <Ionicons name="cafe-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
+                <Ionicons name="cafe-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Lunch
                 </Text>
@@ -875,7 +879,7 @@ export default function DiscoverScreen() {
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('dinner')}
               >
-                <Ionicons name="restaurant-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
+                <Ionicons name="restaurant-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Dinner
                 </Text>
@@ -885,7 +889,7 @@ export default function DiscoverScreen() {
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('snack')}
               >
-                <Ionicons name="nutrition-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
+                <Ionicons name="nutrition-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Snack
                 </Text>
@@ -895,7 +899,7 @@ export default function DiscoverScreen() {
                 style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
                 onPress={() => handleRandomRecipe('dessert')}
               >
-                <Ionicons name="ice-cream-outline" size={24} color={colors.tint} style={styles.surpriseOptionIcon} />
+                <Ionicons name="ice-cream-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
                 <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
                   Random Dessert
                 </Text>
@@ -992,8 +996,8 @@ export default function DiscoverScreen() {
             }}
             activeOpacity={0.7}
           >
-            <Ionicons name="nutrition-outline" size={18} color={colors.tint} />
-            <Text style={[styles.discoveryButtonText, { color: colors.tint }]}>
+            <Ionicons name="nutrition-outline" size={18} color={colors.actionText} />
+            <Text style={[styles.discoveryButtonText, { color: colors.actionText }]}>
               What Can I Make?
             </Text>
           </TouchableOpacity>
@@ -1016,7 +1020,7 @@ export default function DiscoverScreen() {
                   setDisplayCount(ITEMS_PER_PAGE);
                 }}
               >
-                <Ionicons name="person-circle-outline" size={20} color={colors.tint} />
+                <Ionicons name="person-circle-outline" size={20} color={colors.actionText} />
                 <RNView style={styles.usernameSuggestionInfo}>
                   <Text style={[styles.usernameSuggestionName, { color: colors.text }]}>
                     {contributor.display_name}
@@ -1048,7 +1052,7 @@ export default function DiscoverScreen() {
             )}
             {sourceFilter !== 'all' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
                   {sourceFilter}
                 </Text>
               </RNView>
@@ -1062,21 +1066,21 @@ export default function DiscoverScreen() {
             )}
             {selectedTags.length > 0 && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
                   {selectedTags.length} tag{selectedTags.length > 1 ? 's' : ''}
                 </Text>
               </RNView>
             )}
             {mealTypeFilter !== 'all' && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
                   {mealTypeFilter[0].toUpperCase() + mealTypeFilter.slice(1)}
                 </Text>
               </RNView>
             )}
             {hideMyRecipes && (
               <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.tint }]}>Mine hidden</Text>
+                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>Mine hidden</Text>
               </RNView>
             )}
             <TouchableOpacity
@@ -1100,7 +1104,7 @@ export default function DiscoverScreen() {
         {/* Search loading indicator - shows when server is fetching more results */}
         {hasTextSearch && isDiscoverSearchFetching && (
           <RNView style={styles.searchLoadingRow}>
-            <ActivityIndicator size="small" color={colors.tint} />
+            <ActivityIndicator size="small" color={colors.actionText} />
             <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
               Searching...
             </Text>
@@ -1182,7 +1186,7 @@ export default function DiscoverScreen() {
               })}
               </ScrollView>
               <TouchableOpacity onPress={() => setShowAllContributors(true)} accessibilityRole="button">
-                <Text style={[styles.seeAllText, { color: colors.tint }]}>See all contributors</Text>
+                <Text style={[styles.seeAllText, { color: colors.actionText }]}>See all contributors</Text>
               </TouchableOpacity>
             </>}
           </RNView>
@@ -1308,14 +1312,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    width: 18,
+    minWidth: 18,
     height: 18,
+    paddingHorizontal: 4,
     borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
   },
   filterBadgeText: {
-    fontSize: 10,
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
   },
   activeFiltersRow: {
@@ -1477,7 +1482,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   contributorCount: {
-    fontSize: 10,
+    fontSize: fontSize.xs,
   },
   card: {
     flexDirection: 'row',

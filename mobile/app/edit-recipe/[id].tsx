@@ -750,7 +750,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   if (isLoadingRecipe) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.tint} />
+        <ActivityIndicator size="large" color={colors.actionText} />
         <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading recipe...</Text>
       </View>
     );
@@ -775,9 +775,9 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
               style={styles.saveButton}
             >
               {editMutation.isPending || isCheckingDisclosure ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
                   Save
                 </Text>
               )}
@@ -809,7 +809,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                     if (alive.current) setDraftRecipe(loadedRecipe ?? null);
                   } },
                 ],
-              )}><Text style={{ color: colors.tint }}>Reload latest recipe</Text></TouchableOpacity>
+              )}><Text style={{ color: colors.actionText }}>Reload latest recipe</Text></TouchableOpacity>
             </RNView>}
             {/* Image Section */}
             <TouchableOpacity
@@ -913,14 +913,14 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                   <Text style={[styles.sectionHint, { color: colors.textMuted }]}>Keep sauces, fillings, and sides organized.</Text>
                 </RNView>
                 <TouchableOpacity onPress={addComponent} style={styles.compactAddButton} accessibilityRole="button">
-                  <Ionicons name="add" size={18} color={colors.tint} />
-                  <Text style={[styles.compactAddText, { color: colors.tint }]}>Add part</Text>
+                  <Ionicons name="add" size={18} color={colors.actionText} />
+                  <Text style={[styles.compactAddText, { color: colors.actionText }]}>Add part</Text>
                 </TouchableOpacity>
               </RNView>
               {recipeComponents.map((component, index) => (
                 <RNView key={component.id} style={[styles.componentEditor, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
                   <RNView style={styles.componentTitleRow}>
-                    <Text style={[styles.componentNumber, { color: colors.tint }]}>Part {index + 1}</Text>
+                    <Text style={[styles.componentNumber, { color: colors.actionText }]}>Part {index + 1}</Text>
                     {recipeComponents.length > 1 && (
                       <TouchableOpacity
                         onPress={() => removeComponent(component.id)}
@@ -965,7 +965,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                   <RNView style={styles.ingredientHeader}>
                     <RNView style={styles.ingredientIdentity}>
                       <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
-                        <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                        <Text style={[styles.ingredientBadgeText, { color: colors.actionText }]}>{index + 1}</Text>
                       </RNView>
                       <TouchableOpacity
                         style={[styles.componentPill, { backgroundColor: colors.background, borderColor: colors.border }]}
@@ -1065,8 +1065,8 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 style={[styles.addButton, { borderColor: colors.tint }]}
                 onPress={() => selectComponent('Add ingredient', addIngredient)}
               >
-                <Ionicons name="add" size={20} color={colors.tint} />
-                <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Ingredient</Text>
+                <Ionicons name="add" size={20} color={colors.actionText} />
+                <Text style={[styles.addButtonText, { color: colors.actionText }]}>Add Ingredient</Text>
               </TouchableOpacity>
             </RNView>
 
@@ -1080,7 +1080,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 <RNView key={step.id} style={styles.stepCard}>
                   <RNView style={styles.stepRow}>
                     <RNView style={styles.stepIdentity}>
-                      <Text style={[styles.stepNumber, { color: colors.tint }]}>{index + 1}.</Text>
+                      <Text style={[styles.stepNumber, { color: colors.actionText }]}>{index + 1}.</Text>
                       <TouchableOpacity
                         style={[styles.stepComponentButton, { borderColor: colors.border }]}
                         onPress={() => selectComponent('Move instruction', componentId => {
@@ -1122,8 +1122,8 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 style={[styles.addButton, { borderColor: colors.tint }]}
                 onPress={() => selectComponent('Add instruction', addStep)}
               >
-                <Ionicons name="add" size={20} color={colors.tint} />
-                <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Step</Text>
+                <Ionicons name="add" size={20} color={colors.actionText} />
+                <Text style={[styles.addButtonText, { color: colors.actionText }]}>Add Step</Text>
               </TouchableOpacity>
             </RNView>
 
@@ -1217,7 +1217,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 <Ionicons 
                   name={isPublic ? "globe-outline" : "lock-closed-outline"} 
                   size={24} 
-                  color={isPublic ? colors.tint : colors.textMuted} 
+                  color={isPublic ? colors.actionText : colors.textMuted} 
                 />
                 <RNView style={styles.toggleTextContainer}>
                   <Text style={[styles.toggleTitle, { color: colors.text }]}>
@@ -1231,7 +1231,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
               <Ionicons
                 name={isPublic ? "checkmark-circle" : "ellipse-outline"}
                 size={28}
-                color={isPublic ? colors.tint : colors.textMuted}
+                color={isPublic ? colors.actionText : colors.textMuted}
               />
             </TouchableOpacity>
 

@@ -84,7 +84,7 @@ export default function JoinGroceryListScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <RNView style={styles.content}>
-          <ActivityIndicator size="large" color={colors.tint} />
+          <ActivityIndicator size="large" color={colors.actionText} />
           <Text style={[styles.loadingText, { color: colors.textMuted }]}>
             Loading invite...
           </Text>
@@ -144,7 +144,7 @@ export default function JoinGroceryListScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <RNView style={styles.content}>
         <RNView style={[styles.iconCircle, { backgroundColor: colors.tint + '20' }]}>
-          <Ionicons name="cart-outline" size={48} color={colors.tint} />
+          <Ionicons name="cart-outline" size={48} color={colors.actionText} />
         </RNView>
         
         <Text style={[styles.title, { color: colors.text }]}>
@@ -163,7 +163,7 @@ export default function JoinGroceryListScreen() {
           {preview.members.map((name, index) => (
             <RNView key={index} style={styles.memberRow}>
               <RNView style={[styles.memberAvatar, { backgroundColor: colors.tint + '20' }]}>
-                <Ionicons name="person" size={16} color={colors.tint} />
+                <Ionicons name="person" size={16} color={colors.actionText} />
               </RNView>
               <Text style={[styles.memberName, { color: colors.text }]}>
                 {name}

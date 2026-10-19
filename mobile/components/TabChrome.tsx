@@ -39,7 +39,7 @@ export function AccountHeaderButton() {
       {isSignedIn && user?.imageUrl ? (
         <Image source={{ uri: user.imageUrl }} style={styles.accountImage} accessibilityIgnoresInvertColors />
       ) : (
-        <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={19} color={colors.tint} />
+        <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={19} color={colors.actionText} />
       )}
     </TouchableOpacity>
   );

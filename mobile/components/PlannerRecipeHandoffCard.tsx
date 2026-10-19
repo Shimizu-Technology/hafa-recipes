@@ -46,7 +46,7 @@ export function PlannerRecipeHandoffCard({
     >
       {isLoading ? (
         <RNView style={styles.statusRow}>
-          <ActivityIndicator size="small" color={colors.tint} />
+          <ActivityIndicator size="small" color={colors.actionText} />
           <Text style={[styles.statusText, { color: colors.textMuted }]}>
             Loading recipe to plan...
           </Text>
@@ -54,7 +54,7 @@ export function PlannerRecipeHandoffCard({
       ) : hasError || !title ? (
         <RNView style={styles.errorContent}>
           <RNView style={styles.statusRow}>
-            <Ionicons name="alert-circle-outline" size={20} color={colors.tint} />
+            <Ionicons name="alert-circle-outline" size={20} color={colors.actionText} />
             <Text style={[styles.statusText, { color: colors.text }]}>
               We couldn't load this recipe.
             </Text>
@@ -69,11 +69,11 @@ export function PlannerRecipeHandoffCard({
               accessibilityState={{ busy: isRetrying, disabled: isRetrying }}
             >
               {isRetrying ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Ionicons name="refresh" size={16} color={colors.tint} />
+                <Ionicons name="refresh" size={16} color={colors.actionText} />
               )}
-              <Text style={[styles.actionText, { color: colors.tint }]}>
+              <Text style={[styles.actionText, { color: colors.actionText }]}>
                 {isRetrying ? 'Retrying...' : 'Retry'}
               </Text>
             </TouchableOpacity>
@@ -98,7 +98,7 @@ export function PlannerRecipeHandoffCard({
             placeholderIconSize={22}
           />
           <RNView style={styles.recipeCopy}>
-            <Text style={[styles.eyebrow, { color: colors.tint }]}>Planning this recipe</Text>
+            <Text style={[styles.eyebrow, { color: colors.actionText }]}>Planning this recipe</Text>
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
               {title}
             </Text>

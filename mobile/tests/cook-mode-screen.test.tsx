@@ -31,10 +31,16 @@ vi.mock('react-native', async () => {
   class AnimatedValue {
     constructor(public value: number) {}
     setValue(value: number) { this.value = value; }
+    stopAnimation() {}
   }
   const instant = () => ({ start: (done?: () => void) => done?.() });
   return {
+    AccessibilityInfo: {
+      isReduceMotionEnabled: async () => false,
+      addEventListener: () => ({ remove: () => {} }),
+    },
     Animated: { View: host('AnimatedView'), Value: AnimatedValue, timing: instant, parallel: instant },
+    Easing: { bezier: () => (t: number) => t },
     AppState: {
       currentState: 'active',
       addEventListener: (_event: string, listener: (state: string) => void) => {
@@ -93,7 +99,19 @@ vi.mock('@/components/Themed', async () => {
   return { Text: host('ThemedText'), View: host('ThemedView'), useColors: () => ({ warning: '#f90' }) };
 });
 vi.mock('@/constants/Colors', () => ({
-  brand: { reefHighlight: '#0aa' },
+  default: {
+    dark: {
+      text: '#F8F0E7',
+      textSecondary: '#B8AEA2',
+      textMuted: '#A79D92',
+      background: '#101411',
+      backgroundSecondary: '#171D1A',
+      backgroundElevated: '#202820',
+      border: '#2D352F',
+      actionText: '#69C8BA',
+    },
+  },
+  brand: { reef: '#155C52', reefHighlight: '#0aa' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 20, xxl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },
   radius: { sm: 4, md: 14, lg: 20, xl: 28, full: 9999 },
@@ -277,6 +295,20 @@ describe('CookModeScreen', () => {
       expect(completionHaptics()).toBe(1);
       expect(mocks.vibrate).toHaveBeenCalledOnce();
       expect(mocks.play).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('step navigation', () => {
+    it('advances immediately on each tap so rapid taps are never dropped', async () => {
+      const renderer = await renderScreen();
+      expect(stepCounter(renderer)).toBe('Step 1 of 4');
+
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(stepCounter(renderer)).toBe('Step 3 of 4');
+
+      await act(async () => buttonByLabel(renderer, 'Previous step').props.onPress());
+      expect(stepCounter(renderer)).toBe('Step 2 of 4');
     });
   });
 

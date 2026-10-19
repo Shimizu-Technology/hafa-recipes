@@ -272,7 +272,7 @@ export function Button({
         return colors.text;
       case 'ghost':
       case 'outline':
-        return colors.tint;
+        return colors.actionText;
       default:
         return '#FFFFFF';
     }

@@ -7,6 +7,8 @@ import {
   StatusBar,
   ScrollView,
   Animated,
+  AccessibilityInfo,
+  Easing,
   Modal,
   Vibration,
   AppState,
@@ -30,7 +32,7 @@ import { useTextSize } from '@/hooks/useTextSize';
 import { useTimerContext } from '@/contexts/TimerContext';
 import { CookIngredientsList } from '@/components/CookIngredientsList';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
-import { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import Colors, { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent } from '@/types/recipe';
 import { COOK_MODE_STEP_KEY, useCookModeStepPersistence } from '@/hooks/useCookModeStepPersistence';
 import {
@@ -41,8 +43,14 @@ import {
   type CookTimerState,
 } from '@/lib/cookModeTimers';
 
+// Cook Mode is always a dark, immersive screen regardless of the app theme.
+const cook = Colors.dark;
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
+const STEP_TRANSITION_OFFSET = 24;
+const STEP_TRANSITION_DURATION = 180;
+const STEP_TRANSITION_EASING = Easing.bezier(0.23, 1, 0.32, 1);
 
 async function replayAudio(player: AudioPlayer | null): Promise<void> {
   if (!player) return;
@@ -155,6 +163,23 @@ export default function CookModeScreen() {
   
   const slideAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const reduceMotionRef = useRef(false);
+
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (mounted) reduceMotionRef.current = enabled;
+      })
+      .catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
+      reduceMotionRef.current = enabled;
+    });
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
   const soundRef = useRef<AudioPlayer | null>(null);
   
   // Timer sound preference
@@ -418,37 +443,30 @@ export default function CookModeScreen() {
     replayAudio(soundRef.current).catch(() => {});
   }, [activeTimers, hasScheduledNotification]);
 
+  // Step changes swap content immediately (so rapid taps never queue up),
+  // then settle in with a short offset + fade. Reduce Motion drops the offset.
   const animateTransition = (direction: 'next' | 'prev', callback: () => void) => {
-    const toValue = direction === 'next' ? -SCREEN_WIDTH : SCREEN_WIDTH;
-    
+    slideAnim.stopAnimation();
+    fadeAnim.stopAnimation();
+    callback();
+    slideAnim.setValue(
+      reduceMotionRef.current ? 0 : direction === 'next' ? STEP_TRANSITION_OFFSET : -STEP_TRANSITION_OFFSET,
+    );
+    fadeAnim.setValue(0);
     Animated.parallel([
       Animated.timing(slideAnim, {
-        toValue,
-        duration: 200,
+        toValue: 0,
+        duration: STEP_TRANSITION_DURATION,
+        easing: STEP_TRANSITION_EASING,
         useNativeDriver: true,
       }),
       Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 150,
+        toValue: 1,
+        duration: STEP_TRANSITION_DURATION,
+        easing: STEP_TRANSITION_EASING,
         useNativeDriver: true,
       }),
-    ]).start(() => {
-      callback();
-      slideAnim.setValue(direction === 'next' ? SCREEN_WIDTH : -SCREEN_WIDTH);
-      
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    });
+    ]).start();
   };
 
   const goToNextStep = useCallback(() => {
@@ -688,7 +706,7 @@ export default function CookModeScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <StatusBar barStyle="light-content" />
         <RNView style={styles.loadingContainer}>
-          <Ionicons name="restaurant-outline" size={48} color={brand.reefHighlight} />
+          <Ionicons name="restaurant-outline" size={48} color={cook.actionText} />
           <Text style={styles.loadingText}>Preparing your recipe...</Text>
         </RNView>
       </View>
@@ -701,7 +719,7 @@ export default function CookModeScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <StatusBar barStyle="light-content" />
         <RNView style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color={brand.reefHighlight} />
+          <Ionicons name="alert-circle-outline" size={64} color={cook.actionText} />
           <Text style={styles.errorText}>
             {steps.length === 0 ? 'No steps found for this recipe' : 'Failed to load recipe'}
           </Text>
@@ -728,7 +746,7 @@ export default function CookModeScreen() {
           accessibilityRole="button"
           accessibilityLabel="Exit cook mode"
         >
-          <Ionicons name="close" size={26} color="#ffffff" />
+          <Ionicons name="close" size={26} color={cook.text} />
         </TouchableOpacity>
         
         <RNView style={styles.headerCenter}>
@@ -743,7 +761,7 @@ export default function CookModeScreen() {
           accessibilityRole="button"
           accessibilityLabel="Show ingredients"
         >
-          <Ionicons name="list-outline" size={24} color="#ffffff" />
+          <Ionicons name="list-outline" size={24} color={cook.text} />
         </TouchableOpacity>
       </RNView>
 
@@ -796,7 +814,7 @@ export default function CookModeScreen() {
                   <Ionicons 
                     name={currentTimer.remaining === 0 ? "checkmark-circle" : (currentTimer.isPaused ? "pause-circle" : "time")} 
                     size={28} 
-                    color={brand.reefHighlight}
+                    color={cook.actionText}
                   />
                   <Text style={[
                     styles.timerText,
@@ -829,7 +847,7 @@ export default function CookModeScreen() {
                         <Ionicons 
                           name={currentTimer.isPaused ? "play" : "pause"} 
                           size={22} 
-                          color="#ffffff" 
+                          color={cook.text} 
                         />
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -838,7 +856,7 @@ export default function CookModeScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Restart timer"
                       >
-                        <Ionicons name="refresh" size={22} color="#ffffff" />
+                        <Ionicons name="refresh" size={22} color={cook.text} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={stopTimer}
@@ -846,12 +864,12 @@ export default function CookModeScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Stop timer"
                       >
-                        <Ionicons name="stop" size={22} color="#ffffff" />
+                        <Ionicons name="stop" size={22} color={cook.text} />
                       </TouchableOpacity>
                     </>
                   ) : (
                     <TouchableOpacity onPress={resetTimer} style={styles.timerRestartButton} accessibilityRole="button">
-                      <Ionicons name="refresh" size={20} color="#ffffff" />
+                      <Ionicons name="refresh" size={20} color={cook.text} />
                       <Text style={styles.timerRestartText}>Restart Timer</Text>
                     </TouchableOpacity>
                   )}
@@ -860,7 +878,7 @@ export default function CookModeScreen() {
           ) : detectedTime ? (
               <RNView style={styles.detectedTimerRow}>
                 <TouchableOpacity onPress={startTimer} style={styles.timerButton} accessibilityRole="button">
-                  <Ionicons name="timer-outline" size={22} color="#ffffff" />
+                  <Ionicons name="timer-outline" size={22} color={cook.text} />
                   <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -869,12 +887,12 @@ export default function CookModeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Edit timer duration"
                 >
-                  <Ionicons name="pencil" size={18} color="#ffffff" />
+                  <Ionicons name="pencil" size={18} color={cook.text} />
                 </TouchableOpacity>
               </RNView>
           ) : (
             <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton} accessibilityRole="button">
-              <Ionicons name="add-circle-outline" size={22} color="#888" />
+              <Ionicons name="add-circle-outline" size={22} color={cook.textSecondary} />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
             )}
@@ -891,7 +909,7 @@ export default function CookModeScreen() {
           accessibilityLabel="Previous step"
           accessibilityState={{ disabled: currentStepIndex === 0 }}
         >
-          <Ionicons name="chevron-back" size={28} color={currentStepIndex === 0 ? '#444' : '#ffffff'} />
+          <Ionicons name="chevron-back" size={28} color={currentStepIndex === 0 ? cook.textMuted : cook.text} />
           <Text style={[styles.navButtonText, currentStepIndex === 0 && styles.navButtonTextDisabled]}>
             Back
           </Text>
@@ -925,7 +943,7 @@ export default function CookModeScreen() {
           <Ionicons 
             name={isLastStep ? "checkmark" : "chevron-forward"} 
             size={28} 
-            color="#ffffff" 
+            color={cook.text} 
           />
         </TouchableOpacity>
       </RNView>
@@ -941,7 +959,7 @@ export default function CookModeScreen() {
             <Ionicons
               name="checkmark-circle"
               size={64}
-              color={brand.reefHighlight}
+              color={cook.actionText}
               style={styles.completeIcon}
             />
             <Text style={styles.completeTitle}>Recipe Complete!</Text>
@@ -987,7 +1005,7 @@ export default function CookModeScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Close ingredients"
               >
-                <Ionicons name="close" size={28} color="#ffffff" />
+                <Ionicons name="close" size={28} color={cook.text} />
               </TouchableOpacity>
             </RNView>
             <CookIngredientsList
@@ -1054,7 +1072,7 @@ export default function CookModeScreen() {
                     onChangeText={setCustomHours}
                     keyboardType="number-pad"
                     placeholder="0"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={cook.textMuted}
                     maxLength={2}
                   />
                   <Text style={styles.customInputLabel}>hrs</Text>
@@ -1067,7 +1085,7 @@ export default function CookModeScreen() {
                     onChangeText={setCustomMinutes}
                     keyboardType="number-pad"
                     placeholder="0"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={cook.textMuted}
                     maxLength={2}
                   />
                   <Text style={styles.customInputLabel}>min</Text>
@@ -1080,7 +1098,7 @@ export default function CookModeScreen() {
                     onChangeText={setCustomSeconds}
                     keyboardType="number-pad"
                     placeholder="0"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={cook.textMuted}
                     maxLength={2}
                   />
                   <Text style={styles.customInputLabel}>sec</Text>
@@ -1097,7 +1115,7 @@ export default function CookModeScreen() {
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !customHours && !customMinutes && !customSeconds }}
               >
-                <Ionicons name="play" size={18} color="#ffffff" />
+                <Ionicons name="play" size={18} color={cook.text} />
                 <Text style={styles.startCustomButtonText}>Start Timer</Text>
               </TouchableOpacity>
 
@@ -1149,7 +1167,7 @@ export default function CookModeScreen() {
                     onChangeText={setCustomHours}
                     keyboardType="number-pad"
                     placeholder="0"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={cook.textMuted}
                     maxLength={2}
                   />
                   <Text style={styles.customInputLabel}>hrs</Text>
@@ -1162,7 +1180,7 @@ export default function CookModeScreen() {
                     onChangeText={setCustomMinutes}
                     keyboardType="number-pad"
                     placeholder="0"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={cook.textMuted}
                     maxLength={2}
                   />
                   <Text style={styles.customInputLabel}>min</Text>
@@ -1175,7 +1193,7 @@ export default function CookModeScreen() {
                     onChangeText={setCustomSeconds}
                     keyboardType="number-pad"
                     placeholder="0"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={cook.textMuted}
                     maxLength={2}
                   />
                   <Text style={styles.customInputLabel}>sec</Text>
@@ -1192,7 +1210,7 @@ export default function CookModeScreen() {
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !customHours && !customMinutes && !customSeconds }}
               >
-                <Ionicons name="play" size={18} color="#ffffff" />
+                <Ionicons name="play" size={18} color={cook.text} />
                 <Text style={styles.startCustomButtonText}>Start Timer</Text>
               </TouchableOpacity>
 
@@ -1218,7 +1236,7 @@ export default function CookModeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f0f',
+    backgroundColor: cook.background,
   },
   loadingContainer: {
     flex: 1,
@@ -1227,7 +1245,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   loadingText: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.lg,
   },
   errorContainer: {
@@ -1238,7 +1256,7 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   errorText: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.lg,
     textAlign: 'center',
   },
@@ -1249,7 +1267,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   closeErrorText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
@@ -1272,7 +1290,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   recipeTitle: {
-    color: '#999',
+    color: cook.textSecondary,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
@@ -1281,25 +1299,25 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   stepCounter: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.sm,
     textAlign: 'center',
   },
   stepCounterMuted: {
-    color: '#666',
+    color: cook.textMuted,
     fontWeight: fontWeight.normal,
   },
   progressContainer: {
     height: 4,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: cook.border,
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
-    backgroundColor: brand.reefHighlight,
+    backgroundColor: cook.actionText,
     borderRadius: 2,
   },
   stepContainer: {
@@ -1308,16 +1326,16 @@ const styles = StyleSheet.create({
   },
   componentBadge: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(105, 200, 186, 0.12)',
+    backgroundColor: `${cook.actionText}1F`,
     borderWidth: 1,
-    borderColor: brand.reefHighlight,
+    borderColor: cook.actionText,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
     marginBottom: spacing.md,
   },
   componentName: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
@@ -1332,7 +1350,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   stepText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: 26,
     lineHeight: 40,
     fontWeight: fontWeight.normal,
@@ -1346,9 +1364,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1e1e1e',
+    backgroundColor: cook.backgroundElevated,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: cook.border,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     borderRadius: radius.lg,
@@ -1356,7 +1374,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   timerButtonText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
@@ -1369,18 +1387,18 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radius.lg,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: cook.backgroundElevated,
     borderWidth: 1,
-    borderColor: '#444',
+    borderColor: cook.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   timerCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: cook.backgroundSecondary,
     borderRadius: radius.lg,
     padding: spacing.lg,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    borderColor: cook.border,
   },
   timerDisplay: {
     flexDirection: 'row',
@@ -1390,25 +1408,25 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   timerText: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: 42,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
   timerComplete: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: 28,
   },
   timerProgress: {
     height: 4,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: cook.border,
     borderRadius: 2,
     overflow: 'hidden',
     marginBottom: spacing.md,
   },
   timerProgressFill: {
     height: '100%',
-    backgroundColor: brand.reefHighlight,
+    backgroundColor: cook.actionText,
   },
   timerControls: {
     flexDirection: 'row',
@@ -1419,7 +1437,9 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: cook.backgroundElevated,
+    borderWidth: 1,
+    borderColor: cook.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1434,7 +1454,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   timerRestartText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
   },
@@ -1444,7 +1464,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
-    backgroundColor: '#0f0f0f',
+    backgroundColor: cook.background,
   },
   navButton: {
     flexDirection: 'row',
@@ -1459,15 +1479,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   navButtonDisabled: {
-    opacity: 0.3,
+    opacity: 0.45,
   },
   navButtonText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
   navButtonTextDisabled: {
-    color: '#444',
+    color: cook.textMuted,
   },
   stepDots: {
     flexDirection: 'row',
@@ -1477,14 +1497,14 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#333',
+    backgroundColor: cook.border,
   },
   stepDotActive: {
-    backgroundColor: brand.reefHighlight,
+    backgroundColor: cook.actionText,
     width: 24,
   },
   stepDotCompleted: {
-    backgroundColor: '#666',
+    backgroundColor: cook.textMuted,
   },
   modalOverlay: {
     flex: 1,
@@ -1499,32 +1519,32 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   completeCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: cook.backgroundSecondary,
     borderRadius: radius.xl,
     padding: spacing.xl,
     alignItems: 'center',
     marginHorizontal: spacing.lg,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    borderColor: cook.border,
   },
   completeIcon: {
     marginBottom: spacing.md,
   },
   completeTitle: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: 28,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.xs,
   },
   completeSubtitle: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     marginBottom: spacing.md,
     textAlign: 'center',
   },
   completeMessage: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.md,
     textAlign: 'center',
     marginBottom: spacing.xl,
@@ -1536,7 +1556,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   completeButtonText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
   },
@@ -1545,13 +1565,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: cook.backgroundSecondary,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     maxHeight: '70%',
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: '#2a2a2a',
+    borderColor: cook.border,
   },
   ingredientsHeader: {
     flexDirection: 'row',
@@ -1559,15 +1579,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: '#2a2a2a',
+    borderBottomColor: cook.border,
   },
   ingredientsTitle: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
   },
   ingredientsSubtitle: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: fontSize.sm,
     marginTop: 2,
   },
@@ -1584,7 +1604,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: cook.border,
     borderStyle: 'dashed',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -1592,28 +1612,28 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   addTimerButtonText: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
   // Custom Timer Modal
   customTimerCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: cook.backgroundSecondary,
     borderRadius: radius.xl,
     padding: spacing.xl,
     marginHorizontal: spacing.lg,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    borderColor: cook.border,
     alignItems: 'center',
   },
   customTimerTitle: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.xs,
   },
   customTimerSubtitle: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.sm,
     marginBottom: spacing.lg,
   },
@@ -1628,19 +1648,19 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: radius.lg,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: cook.backgroundElevated,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: cook.border,
   },
   timerPresetValue: {
-    color: brand.reefHighlight,
+    color: cook.actionText,
     fontSize: 24,
     fontWeight: fontWeight.bold,
   },
   timerPresetUnit: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.xs,
     marginTop: 2,
   },
@@ -1649,7 +1669,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   customTimerCancelText: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
@@ -1666,22 +1686,22 @@ const styles = StyleSheet.create({
   customTimeInput: {
     width: 60,
     height: 50,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: cook.backgroundElevated,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#444',
-    color: '#ffffff',
+    borderColor: cook.border,
+    color: cook.text,
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     textAlign: 'center',
   },
   customInputLabel: {
-    color: '#888',
+    color: cook.textSecondary,
     fontSize: fontSize.xs,
     marginTop: spacing.xs,
   },
   customInputSeparator: {
-    color: '#666',
+    color: cook.textMuted,
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     marginBottom: spacing.lg,
@@ -1698,11 +1718,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   startCustomButtonDisabled: {
-    backgroundColor: '#444',
-    opacity: 0.5,
+    opacity: 0.45,
   },
   startCustomButtonText: {
-    color: '#ffffff',
+    color: cook.text,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

@@ -201,7 +201,7 @@ export default function RecoverAccountScreen() {
 
           <RNView style={styles.header}>
             <BrandMark size={80} style={{ backgroundColor: colors.backgroundSecondary }} />
-            <Text style={[styles.eyebrow, { color: colors.tint }]}>Your recipes are safe</Text>
+            <Text style={[styles.eyebrow, { color: colors.actionText }]}>Your recipes are safe</Text>
             <Text style={[styles.title, { color: colors.text }]}>Restore my library</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {step === 'email'
@@ -277,7 +277,7 @@ export default function RecoverAccountScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Change recovery email"
                   >
-                    <Text style={[styles.editEmailText, { color: colors.tint }]}>Change</Text>
+                    <Text style={[styles.editEmailText, { color: colors.actionText }]}>Change</Text>
                   </TouchableOpacity>
                 </RNView>
 
@@ -388,8 +388,8 @@ export default function RecoverAccountScreen() {
                 accessibilityRole="link"
                 accessibilityLabel="Contact Håfa Recipes support for account recovery"
               >
-                <Text style={[styles.supportText, { color: colors.tint }]}>I can’t access this email</Text>
-                <Ionicons name="open-outline" size={16} color={colors.tint} />
+                <Text style={[styles.supportText, { color: colors.actionText }]}>I can’t access this email</Text>
+                <Ionicons name="open-outline" size={16} color={colors.actionText} />
               </TouchableOpacity>
             </RNView>
           </RNView>

@@ -195,8 +195,8 @@ export default function PasteRecipeScreen() {
               accessibilityRole="button"
               accessibilityLabel="Paste recipe text from clipboard"
             >
-              <Ionicons name="clipboard-outline" size={16} color={colors.tint} />
-              <Text style={[styles.pasteButtonText, { color: colors.tint }]}>Paste</Text>
+              <Ionicons name="clipboard-outline" size={16} color={colors.actionText} />
+              <Text style={[styles.pasteButtonText, { color: colors.actionText }]}>Paste</Text>
             </TouchableOpacity>
           </RNView>
 
@@ -262,7 +262,7 @@ export default function PasteRecipeScreen() {
             size="lg"
           />
           <RNView style={styles.reviewPromise}>
-            {isExtracting ? <ActivityIndicator size="small" color={colors.tint} /> : <Ionicons name="eye-outline" size={16} color={colors.textMuted} />}
+            {isExtracting ? <ActivityIndicator size="small" color={colors.actionText} /> : <Ionicons name="eye-outline" size={16} color={colors.textMuted} />}
             <Text style={[styles.reviewPromiseText, { color: colors.textMuted }]}>Your recipe saves automatically. Any uncertain details will be highlighted.</Text>
           </RNView>
         </ScrollView>

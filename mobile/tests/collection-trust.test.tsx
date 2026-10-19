@@ -143,6 +143,32 @@ describe('collection recipe readiness', () => {
     }
   });
 
+  it('reads as one labelled button and exposes Remove to VoiceOver', async () => {
+    const onRemove = vi.fn();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    await act(async () => {
+      renderer.render(React.createElement(RecipeCard, {
+        recipe: { ...recipe('ready'), total_time: '30 min' },
+        colors,
+        onPress: vi.fn(),
+        onRemove,
+      }));
+    });
+    try {
+      const card = renderer.container.queryAll((instance) => instance.type === 'ScalePressable')[0];
+      expect(card.props.accessibilityRole).toBe('button');
+      expect(card.props.accessibilityLabel).toBe('Chicken Kelaguen, 30 min');
+      expect(card.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove from collection' }]);
+      card.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
+      expect(onRemove).toHaveBeenCalledOnce();
+      expect(renderer.container.queryAll(
+        (instance) => instance.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection',
+      ).length).toBeGreaterThan(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it.each(['ready', undefined] as const)('hides a badge for %s recipes', async (state) => {
     const renderer = await renderCard(state);
     try {

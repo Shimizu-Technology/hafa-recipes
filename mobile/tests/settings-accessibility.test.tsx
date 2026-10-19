@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   setTextSize: vi.fn(),
   refetchCount: vi.fn(),
   countError: false,
+  showDeveloperTools: true,
 }));
 
 vi.mock('react-native', async () => {
@@ -63,6 +64,7 @@ vi.mock('@/components/Themed', async () => {
       textMuted: '#666',
       textSecondary: '#555',
       tint: '#155c52',
+      actionText: '#155c52',
     }),
   };
 });
@@ -75,7 +77,13 @@ vi.mock('@/hooks/useRecipes', () => ({
     refetch: mocks.refetchCount,
   }),
 }));
-vi.mock('@/lib/api', () => ({ API_BASE_URL: 'https://api.example.test', api: {} }));
+vi.mock('@/lib/api', () => ({
+  API_BASE_URL: 'https://api.example.test',
+  get SHOW_DEVELOPER_TOOLS() {
+    return mocks.showDeveloperTools;
+  },
+  api: {},
+}));
 vi.mock('@/lib/sentry', () => ({ captureMessage: vi.fn(), captureError: vi.fn() }));
 vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: () => ({ themePreference: 'dark', setThemePreference: mocks.setThemePreference }),
@@ -156,6 +164,7 @@ describe('SettingsScreen accessibility', () => {
 
   beforeEach(() => {
     mocks.countError = false;
+    mocks.showDeveloperTools = true;
     mocks.setThemePreference.mockClear();
     mocks.setTextSize.mockClear();
     mocks.refetchCount.mockClear();
@@ -212,6 +221,15 @@ describe('SettingsScreen accessibility', () => {
     expect(toggle().props.accessibilityState).toEqual({ expanded: false });
     await act(async () => toggle().props.onPress());
     expect(toggle().props.accessibilityState).toEqual({ expanded: true });
+  });
+
+  it('hides the developer section from production builds', async () => {
+    mocks.showDeveloperTools = false;
+    const renderer = await renderSettings();
+
+    const headers = renderer.root.findAllByType('SectionHeader' as unknown as React.ComponentType);
+    expect(headers.map((header) => textOf(header))).not.toContain('Developer');
+    expect(touchables(renderer).some((node) => /Developer Tools$/.test(textOf(node)))).toBe(false);
   });
 
   it('labels the recipe count retry action when the count fails to load', async () => {

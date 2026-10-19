@@ -232,7 +232,7 @@ export default function OCRReviewScreen() {
         </RNView>
 
         <RNView style={[styles.reviewNotice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-          <Ionicons name="eye-outline" size={20} color={colors.tint} />
+          <Ionicons name="eye-outline" size={20} color={colors.actionText} />
           <RNView style={styles.reviewNoticeText}>
             <Text style={[styles.reviewNoticeTitle, { color: colors.text }]}>{failure?.kind === 'invalid' ? 'Edit recipe details' : failure ? 'Saving your recipe' : 'Ready when you are'}</Text>
             <Text style={[styles.reviewNoticeBody, { color: colors.textMuted }]}>
@@ -262,7 +262,7 @@ export default function OCRReviewScreen() {
         <RNView style={styles.quickInfo}>
           {recipe.servings && (
             <RNView style={[styles.quickInfoItem, { backgroundColor: colors.backgroundSecondary }]}>
-              <Ionicons name="people" size={16} color={colors.tint} />
+              <Ionicons name="people" size={16} color={colors.actionText} />
               <Text style={[styles.quickInfoText, { color: colors.text }]}>
                 {recipe.servings} servings
               </Text>
@@ -270,7 +270,7 @@ export default function OCRReviewScreen() {
           )}
           {recipe.times?.total && (
             <RNView style={[styles.quickInfoItem, { backgroundColor: colors.backgroundSecondary }]}>
-              <Ionicons name="time" size={16} color={colors.tint} />
+              <Ionicons name="time" size={16} color={colors.actionText} />
               <Text style={[styles.quickInfoText, { color: colors.text }]}>
                 {recipe.times.total}
               </Text>
@@ -278,7 +278,7 @@ export default function OCRReviewScreen() {
           )}
           {recipe.totalEstimatedCost && (
             <RNView style={[styles.quickInfoItem, { backgroundColor: colors.backgroundSecondary }]}>
-              <Ionicons name="cash" size={16} color={colors.tint} />
+              <Ionicons name="cash" size={16} color={colors.actionText} />
               <Text style={[styles.quickInfoText, { color: colors.text }]}>
                 ~${recipe.totalEstimatedCost.toFixed(2)}
               </Text>
@@ -293,7 +293,7 @@ export default function OCRReviewScreen() {
           </Text>
           {allIngredients.map((ing: any, idx: number) => (
             <RNView key={idx} style={styles.ingredientRow}>
-              <Text style={[styles.bullet, { color: colors.tint }]}>•</Text>
+              <Text style={[styles.bullet, { color: colors.actionText }]}>•</Text>
               <Text style={[styles.ingredientText, { color: colors.text }]}>
                 {ing.quantity && `${ing.quantity} `}
                 {ing.unit && `${ing.unit} `}

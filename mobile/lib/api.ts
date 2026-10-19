@@ -7,7 +7,7 @@ import type { PantryMutationRequest, PantrySnapshot, PantryTransferLine } from '
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { appendRecipeImage } from './imageMultipart';
 import { captureError, captureMessage, addBreadcrumb } from './sentry';
-import { API_BASE_URL } from './apiConfig';
+import { API_BASE_URL, SHOW_DEVELOPER_TOOLS } from './apiConfig';
 import {
   Recipe,
   RecipeListItem,
@@ -1613,7 +1613,7 @@ class ApiClient {
 export const api = new ApiClient();
 
 // Export base URL for debugging
-export { API_BASE_URL };
+export { API_BASE_URL, SHOW_DEVELOPER_TOOLS };
 
 // Backward-compatible default export for older components
 export default api;

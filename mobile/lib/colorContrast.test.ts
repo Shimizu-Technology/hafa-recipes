@@ -38,9 +38,19 @@ describe('mobile color contrast', () => {
       }
     });
 
+    it(`${themeName} action text stays readable on screens and cards`, () => {
+      for (const background of [theme.background, theme.backgroundSecondary, theme.backgroundElevated, theme.card]) {
+        expect(contrastRatio(theme.actionText, background)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
     it(`${themeName} tab and primary-button colors preserve control contrast`, () => {
       expect(contrastRatio(theme.tabIconDefault, theme.backgroundElevated)).toBeGreaterThanOrEqual(3);
       expect(contrastRatio('#FFFFFF', theme.tint)).toBeGreaterThanOrEqual(4.5);
     });
   }
+
+  it('keeps light-mode action text identical to the light tint', () => {
+    expect(Colors.light.actionText).toBe(Colors.light.tint);
+  });
 });

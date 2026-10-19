@@ -29,6 +29,11 @@ export function resolveAppEnvironment(
   throw new Error('EXPO_PUBLIC_APP_ENV must be development, preview, or production');
 }
 
+/** Developer tools (API docs, Sentry test events) never ship to production users. */
+export function showsDeveloperTools(appEnvironment: AppEnvironment): boolean {
+  return appEnvironment !== 'production';
+}
+
 export function isLocalDevelopmentHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return (

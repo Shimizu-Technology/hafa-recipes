@@ -436,6 +436,33 @@ describe('GroceryScreen shopping views', () => {
     }
   });
 
+  it('exposes each grocery row as a checkbox with labelled edit and remove controls', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice', quantity: '2', unit: 'cup' })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => {
+        renderer.render(React.createElement(GroceryScreen));
+      });
+
+      const row = renderer.container.queryAll((instance) => instance.type === 'ScalePressable')[0];
+      expect(row.props.accessibilityRole).toBe('checkbox');
+      expect(row.props.accessibilityState).toEqual({ checked: false });
+      expect(row.props.accessibilityLabel).toContain('Rice');
+      expect(row.props.accessibilityActions.map((action: { label: string }) => action.label))
+        .toEqual(['Edit Rice', 'Remove Rice']);
+      for (const label of ['Edit Rice', 'Remove Rice']) {
+        const button = renderer.container.queryAll(
+          (instance) => instance.props.accessibilityLabel === label && instance.props.accessibilityRole === 'button',
+        )[0];
+        expect(button, label).toBeDefined();
+      }
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('does not turn a quick manual grocery entry into a recipe warning', async () => {
     mocks.collapsedSections = '[]';
     mocks.groceryState.items = [item({

@@ -52,7 +52,7 @@ export function RecipeMealPlanCard({
     ]}>
       <RNView style={styles.header}>
         <RNView style={styles.titleRow}>
-          <Ionicons name="calendar-outline" size={19} color={colors.tint} />
+          <Ionicons name="calendar-outline" size={19} color={colors.actionText} />
           <Text style={[styles.title, { color: colors.text }]}>Meal plan</Text>
         </RNView>
         <TouchableOpacity
@@ -61,14 +61,14 @@ export function RecipeMealPlanCard({
           accessibilityRole="link"
           accessibilityLabel="Plan this recipe"
         >
-          <Ionicons name="calendar-outline" size={15} color={colors.tint} />
-          <Text style={[styles.openText, { color: colors.tint }]}>Plan</Text>
+          <Ionicons name="calendar-outline" size={15} color={colors.actionText} />
+          <Text style={[styles.openText, { color: colors.actionText }]}>Plan</Text>
         </TouchableOpacity>
       </RNView>
 
       {isLoading ? (
         <RNView style={styles.loadingRow}>
-          <ActivityIndicator size="small" color={colors.tint} />
+          <ActivityIndicator size="small" color={colors.actionText} />
           <Text style={[styles.supportingText, { color: colors.textMuted }]}>Checking your plan...</Text>
         </RNView>
       ) : hasError ? (
@@ -86,11 +86,11 @@ export function RecipeMealPlanCard({
               accessibilityState={{ busy: isRetrying, disabled: isRetrying }}
             >
               {isRetrying ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Ionicons name="refresh" size={15} color={colors.tint} />
+                <Ionicons name="refresh" size={15} color={colors.actionText} />
               )}
-              <Text style={[styles.retryText, { color: colors.tint }]}>
+              <Text style={[styles.retryText, { color: colors.actionText }]}>
                 {isRetrying ? 'Retrying...' : 'Retry'}
               </Text>
             </TouchableOpacity>
@@ -107,7 +107,7 @@ export function RecipeMealPlanCard({
               accessibilityLabel={`Open meal plan for ${formatMealPlanDate(entry.date)}`}
             >
               <RNView style={[styles.dateIcon, { backgroundColor: colors.tint + '12' }]}>
-                <Ionicons name="calendar-clear-outline" size={17} color={colors.tint} />
+                <Ionicons name="calendar-clear-outline" size={17} color={colors.actionText} />
               </RNView>
               <RNView style={styles.entryText}>
                 <Text style={[styles.dateText, { color: colors.text }]}>
