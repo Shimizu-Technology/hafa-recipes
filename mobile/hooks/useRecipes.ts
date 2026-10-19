@@ -23,6 +23,7 @@ import {
   normalizeDiscoverSearchQuery,
 } from '../lib/discoverResults';
 import { ExtractRequest, JobStatus, RecipeListItem, PaginatedRecipes, Recipe } from '../types/recipe';
+import { findRecipePreview, type RecipePreview } from '../lib/recipePreview';
 
 // Page size for infinite scroll
 const PAGE_SIZE = 20;
@@ -319,6 +320,15 @@ export function useRecipe(id: string, enabled = true) {
   });
   const deadline = pendingDeadline(query.data);
   const thumbnailPending = deadline > Date.now();
+  const hasData = query.data !== undefined;
+  // Title and photo from an already-cached card, shown while the full recipe loads.
+  const preview = useMemo<RecipePreview | null>(() => {
+    if (hasData) return null;
+    const cached = [recipeKeys.all, recipeKeys.saved(), recipeKeys.discover()].flatMap((queryKey) =>
+      queryClient.getQueriesData({ queryKey, predicate: (cachedQuery) => cachedQuery.queryKey[1] !== 'detail' })
+        .map(([, data]) => data));
+    return findRecipePreview(cached, id);
+  }, [hasData, id, queryClient, userId]);
 
   // Expire the visible status even if requests are paused, failed, or the last poll hangs.
   useEffect(() => {
@@ -348,6 +358,7 @@ export function useRecipe(id: string, enabled = true) {
     isLoading: query.isLoading || (query.isPending && enabled && foreground && !!id
       && (connected === null || (!isLoaded && connected !== false))),
     thumbnailPending,
+    preview,
   };
 }
 

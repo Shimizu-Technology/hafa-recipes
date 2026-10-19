@@ -31,6 +31,7 @@ import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeOrganizer } from '@/components/RecipeOrganizer';
 import { RecipeHero } from '@/components/RecipeHero';
+import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
 import { 
@@ -141,7 +142,7 @@ export default function RecipeDetailScreen() {
   const [showRelated, setShowRelated] = useState(false);
   const [cookDockHeight, setCookDockHeight] = useState(0);
   
-  const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending } = useRecipe(id);
+  const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending, preview } = useRecipe(id);
   const handleDelete = useRecipeDeletion(id, () => router.back());
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
@@ -602,6 +603,10 @@ export default function RecipeDetailScreen() {
   const visibilityPresentation = recipe
     ? getRecipeVisibilityPresentation(recipe.is_public, recipe.moderation_status)
     : null;
+
+  if (isLoading && preview) {
+    return <RecipeDetailPreview preview={preview} />;
+  }
 
   if (isLoading) {
     return (
