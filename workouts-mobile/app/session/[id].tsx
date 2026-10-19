@@ -54,8 +54,8 @@ export default function SessionDetail() {
   return (
     <Screen
       back
-      title={q.data?.title ?? "Your saved session."}
-      subtitle="Actual results and the prescription used at the time."
+      title={q.data?.title ?? "Session"}
+      subtitle="What you did, and the workout as it was then."
     >
       <QueryState
         loading={q.isPending}

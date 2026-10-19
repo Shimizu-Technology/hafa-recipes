@@ -167,8 +167,8 @@ export default function AccountData() {
   return (
     <Screen
       back
-      title="Your account. Your data."
-      subtitle="Choose the scope carefully. Workouts and Recipes share the same Håfa sign-in."
+      title="Account and data"
+      subtitle="Workouts and Recipes share one Håfa sign-in. Choose what to remove carefully."
     >
       <Card>
         <Copy kind="heading">Export saved Workouts records</Copy>

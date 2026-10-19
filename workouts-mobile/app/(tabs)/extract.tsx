@@ -560,15 +560,12 @@ export default function Capture() {
       ))}
       {capabilities.data?.server_auto_save && capabilities.data.discover && <Choice
         label="Share to Discover" icon="globe-outline" selected={draft.is_public ?? defaultShareToDiscover(draft.kind)}
-        detail="Complete workouts can be found and saved by others. Your training stays private. Missing-detail drafts stay private."
+        detail="Others can find and save complete workouts. Your training and incomplete drafts stay private."
         disabled={locked} onPress={() => { void visibility(!(draft.is_public ?? defaultShareToDiscover(draft.kind))); }} />}
       {duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
         <Card>
           <Copy kind="heading">You have saved this source before.</Copy>
-          <Copy>
-            These matches are suggestions, not automatic duplicates. You can open a saved workout or continue extracting
-            a separate version.
-          </Copy>
+          <Copy>Open one of these, or keep going to save a separate copy.</Copy>
           {duplicateHint.data.matches.map((item) => (
             <Button
               key={item.id}
@@ -635,10 +632,7 @@ export default function Capture() {
               <Copy>{file.name}</Copy>
             </Card>
           ))}
-          <Notice>
-            Choose clear images where exercise names and on-screen instructions are readable. You will review them
-            whenever you want to check the extracted workout.
-          </Notice>
+          <Notice>Pick clear images where exercise names are easy to read.</Notice>
         </>
       )}
       {draft.kind === "document" && (
@@ -656,37 +650,27 @@ export default function Capture() {
           {draft.files.map((file) => (
             <Copy key={file.uri}>{file.name}</Copy>
           ))}
-          <Notice>
-            Small text PDFs are supported. For scanned or larger documents, use screenshots or paste the workout text.
-          </Notice>
+          <Notice>Small text PDFs work best. For scans, use screenshots or paste the text.</Notice>
         </>
       )}
       {aiConsent.error && <Notice error>Could not check AI preferences. Try again before extracting.</Notice>}
       {!aiConsent.isPending && (!aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1) && <Notice>
-        Agree and extract sends this source to OpenAI to read the workout. Your training profile is not included.
-        Missing details stay marked. You can change AI preferences in Settings or write a workout manually.
+        Agree and extract sends this source to OpenAI to read the workout. Your training profile isn’t included.
       </Notice>}
       {capabilities.data?.limits && !capabilities.data.limits.imports_unlimited && (
         <Copy kind="small" tone="muted">
-          Up to {capabilities.data.limits.successful_or_pending_imports_per_rolling_day} successful or
-          pending imports in each rolling day.
+          Up to {capabilities.data.limits.successful_or_pending_imports_per_rolling_day} imports in any 24 hours.
         </Copy>
       )}
       {draft.pending_import && !draft.job_id && (
-        <Notice>
-          This source is saved on your device. Retry sends the same source to recover the earlier import. You can also
-          enter the workout manually.
-        </Notice>
+        <Notice>This source is saved on your device. Retry to pick up the earlier import.</Notice>
       )}
       {draft.pending_import && !draft.job_id && (
         <Button title="Start another source" secondary disabled={busy} onPress={() => setAbandon(true)} />
       )}
       {abandon && (
         <Card>
-          <Notice>
-            This source may already be processing. Retry first to recover it. Starting another source discards this
-            device draft and may create another import. An earlier import keeps processing.
-          </Notice>
+          <Notice>This source may still be processing. Starting over discards this draft and may create a second import.</Notice>
           <Button title="Keep this source" secondary disabled={busy} onPress={() => setAbandon(false)} />
           <Button
             title="Start a separate source and discard this draft"

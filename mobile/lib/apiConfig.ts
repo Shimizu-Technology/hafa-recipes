@@ -6,6 +6,7 @@ import {
   PRODUCTION_API_BASE_URL,
   resolveApiBaseUrl,
   resolveAppEnvironment,
+  showsDeveloperTools,
 } from '@/lib/environmentConfig';
 
 export { PRODUCTION_API_BASE_URL };
@@ -50,3 +51,4 @@ export const APP_ENVIRONMENT = resolveAppEnvironment(
 );
 export const API_BASE_URL = getApiBaseUrl();
 export const ENVIRONMENT_LABEL = environmentLabel(APP_ENVIRONMENT, API_BASE_URL);
+export const SHOW_DEVELOPER_TOOLS = showsDeveloperTools(APP_ENVIRONMENT);

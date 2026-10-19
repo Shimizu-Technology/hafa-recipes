@@ -199,7 +199,7 @@ export default function GroceryListSettingsModal({
                 keyboardShouldPersistTaps="handled"
               >
             {isLoadingInfo ? (
-              <ActivityIndicator size="large" color={colors.tint} style={styles.loader} />
+              <ActivityIndicator size="large" color={colors.actionText} style={styles.loader} />
             ) : (
               <>
                 {/* Share Section */}
@@ -235,9 +235,9 @@ export default function GroceryListSettingsModal({
                       <Ionicons 
                         name={copiedCode ? 'checkmark' : 'copy-outline'} 
                         size={20} 
-                        color={copiedCode ? colors.success : colors.tint} 
+                        color={copiedCode ? colors.success : colors.actionText} 
                       />
-                      <Text style={[styles.copyButtonText, { color: copiedCode ? colors.success : colors.tint }]}>
+                      <Text style={[styles.copyButtonText, { color: copiedCode ? colors.success : colors.actionText }]}>
                         {copiedCode ? 'Copied!' : 'Copy Code'}
                       </Text>
                     </TouchableOpacity>
@@ -302,7 +302,7 @@ export default function GroceryListSettingsModal({
                       style={[styles.memberRow, { backgroundColor: colors.backgroundSecondary }]}
                     >
                       <RNView style={[styles.memberAvatar, { backgroundColor: colors.tint + '20' }]}>
-                        <Ionicons name="person" size={20} color={colors.tint} />
+                        <Ionicons name="person" size={20} color={colors.actionText} />
                       </RNView>
                       <RNView style={styles.memberInfo}>
                         <Text style={[styles.memberName, { color: colors.text }]}>

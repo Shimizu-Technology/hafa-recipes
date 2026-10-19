@@ -115,7 +115,7 @@ export default function SafetyCenterScreen() {
               onPress={() => setShowAccountAppeal(true)}
               style={[styles.secondaryButton, { borderColor: colors.tint }]}
             >
-              <Text style={[styles.secondaryButtonText, { color: colors.tint }]}>Appeal account hold</Text>
+              <Text style={[styles.secondaryButtonText, { color: colors.actionText }]}>Appeal account hold</Text>
             </TouchableOpacity>
           </Card>
         )}
@@ -126,7 +126,7 @@ export default function SafetyCenterScreen() {
             <Text style={[styles.sectionCount, { color: colors.textMuted }]}>{blocksQuery.data?.length ?? 0}</Text>
           </RNView>
           {blocksQuery.isLoading ? (
-            <ActivityIndicator color={colors.tint} style={styles.loader} />
+            <ActivityIndicator color={colors.actionText} style={styles.loader} />
           ) : blocksQuery.isError ? (
             <ErrorCard message="Couldn’t load blocked contributors." onRetry={() => blocksQuery.refetch()} />
           ) : blocksQuery.data?.length ? (
@@ -136,7 +136,7 @@ export default function SafetyCenterScreen() {
                   {index > 0 && <RNView style={[styles.divider, { backgroundColor: colors.border }]} />}
                   <RNView style={styles.listRow}>
                     <RNView style={[styles.personIcon, { backgroundColor: `${colors.tint}14` }]}>
-                      <Ionicons name="person-outline" size={18} color={colors.tint} />
+                      <Ionicons name="person-outline" size={18} color={colors.actionText} />
                     </RNView>
                     <RNView style={styles.rowCopy}>
                       <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
@@ -168,7 +168,7 @@ export default function SafetyCenterScreen() {
             <Text style={[styles.sectionCount, { color: colors.textMuted }]}>{reportsQuery.data?.length ?? 0}</Text>
           </RNView>
           {reportsQuery.isLoading ? (
-            <ActivityIndicator color={colors.tint} style={styles.loader} />
+            <ActivityIndicator color={colors.actionText} style={styles.loader} />
           ) : reportsQuery.isError ? (
             <ErrorCard message="Couldn’t load your report history." onRetry={() => reportsQuery.refetch()} />
           ) : reportsQuery.data?.length ? (
@@ -240,7 +240,7 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
     <RNView style={[styles.emptyCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
       <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{message}</Text>
       <TouchableOpacity onPress={onRetry}>
-        <Text style={[styles.retryText, { color: colors.tint }]}>Try again</Text>
+        <Text style={[styles.retryText, { color: colors.actionText }]}>Try again</Text>
       </TouchableOpacity>
     </RNView>
   );

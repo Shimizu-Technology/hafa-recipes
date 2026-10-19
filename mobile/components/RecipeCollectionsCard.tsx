@@ -33,7 +33,7 @@ export function RecipeCollectionsCard({
     ]}>
       <RNView style={styles.header}>
         <RNView style={styles.titleRow}>
-          <Ionicons name="folder-outline" size={19} color={colors.tint} />
+          <Ionicons name="folder-outline" size={19} color={colors.actionText} />
           <Text style={[styles.title, { color: colors.text }]}>Collections</Text>
         </RNView>
         <TouchableOpacity
@@ -44,8 +44,8 @@ export function RecipeCollectionsCard({
             ? 'Manage recipe collections'
             : 'Add recipe to a collection'}
         >
-          <Ionicons name="add" size={16} color={colors.tint} />
-          <Text style={[styles.manageText, { color: colors.tint }]}>
+          <Ionicons name="add" size={16} color={colors.actionText} />
+          <Text style={[styles.manageText, { color: colors.actionText }]}>
             {collections.length > 0 ? 'Manage' : 'Add'}
           </Text>
         </TouchableOpacity>
@@ -53,7 +53,7 @@ export function RecipeCollectionsCard({
 
       {isLoading ? (
         <RNView style={styles.loadingRow}>
-          <ActivityIndicator size="small" color={colors.tint} />
+          <ActivityIndicator size="small" color={colors.actionText} />
           <Text style={[styles.supportingText, { color: colors.textMuted }]}>
             Loading collections...
           </Text>

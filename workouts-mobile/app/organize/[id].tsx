@@ -150,7 +150,7 @@ export default function Organize() {
     }
   }
   return (
-    <Screen back title="A place for this workout." subtitle={workout.data?.title ?? "Private library organization"}>
+    <Screen back title="Organize" subtitle={workout.data?.title}>
       <QueryState
         loading={!loaded || q.isPending}
         error={q.error}

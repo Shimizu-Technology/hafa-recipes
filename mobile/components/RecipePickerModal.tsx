@@ -466,7 +466,7 @@ export default function RecipePickerModal({
         {/* Recipe List */}
         {isLoading ? (
           <RNView style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.tint} />
+            <ActivityIndicator size="large" color={colors.actionText} />
           </RNView>
         ) : (
           <FlatList
@@ -486,7 +486,7 @@ export default function RecipePickerModal({
                 </Text>
                 {hasActiveFilters && (
                   <TouchableOpacity style={styles.clearFiltersButton} onPress={clearFilters}>
-                    <Text style={[styles.clearFiltersButtonText, { color: colors.tint }]}>
+                    <Text style={[styles.clearFiltersButtonText, { color: colors.actionText }]}>
                       Clear Filters
                     </Text>
                   </TouchableOpacity>
@@ -497,7 +497,7 @@ export default function RecipePickerModal({
             onEndReachedThreshold={0.5}
             ListFooterComponent={
               isFetchingMore ? (
-                <ActivityIndicator style={styles.footerLoader} color={colors.tint} />
+                <ActivityIndicator style={styles.footerLoader} color={colors.actionText} />
               ) : null
             }
           />

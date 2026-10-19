@@ -251,7 +251,7 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
         const today = day.state === "today";
         return (
           <View key={i} accessible accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
-            <Copy kind="caption" tone={today ? "accent" : "muted"} style={{ letterSpacing: 0.4 }}>
+            <Copy kind="caption" tone={today ? "accent" : "muted"}>
               {day.label}
             </Copy>
             <View

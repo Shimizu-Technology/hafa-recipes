@@ -13,6 +13,9 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("expo-apple-authentication", () => ({
   AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
+  AppleAuthenticationButton: "AppleAuthenticationButton",
+  AppleAuthenticationButtonType: { SIGN_IN: 0, CONTINUE: 1, SIGN_UP: 2 },
+  AppleAuthenticationButtonStyle: { WHITE: 0, WHITE_OUTLINE: 1, BLACK: 2 },
   signInAsync: fixture.authorize,
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: fixture.nonce }));
@@ -23,7 +26,7 @@ vi.mock("@clerk/expo/legacy", () => ({
 vi.mock("@clerk/expo", () => ({ useSSO: () => ({ startSSOFlow: fixture.sso }) }));
 vi.mock("expo-web-browser", () => ({ maybeCompleteAuthSession: vi.fn(), openAuthSessionAsync: vi.fn() }));
 vi.mock("react-native", () => ({
-  View: "View", Platform: { OS: "ios" },
+  View: "View", Platform: { OS: "ios" }, useColorScheme: () => "light",
   AppState: { addEventListener: () => ({ remove() {} }) },
 }));
 vi.mock("@/components/ui", () => ({
@@ -49,7 +52,10 @@ afterEach(async () => {
 });
 async function pressApple() {
   await act(async () => {
-    const button = renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Sign in with Apple")!;
+    // iOS renders Apple's native button; other platforms keep the themed Button.
+    const button = renderer!.root.findByType("AppleAuthenticationButton" as never);
+    expect(button.props.buttonType).toBe(0);
+    expect(button.props.buttonStyle).toBe(2);
     button.props.onPress();
   });
 }
@@ -110,4 +116,32 @@ it("mounted Clerk rejection stays strict and exposes no provider body or credent
   expect(fixture.setActive).not.toHaveBeenCalled();
   expect(fixture.signup).not.toHaveBeenCalled();
   expect(fixture.sso).not.toHaveBeenCalled();
+});
+
+const field = (label: string) => renderer!.root.findAllByType("Field" as never).find((node) => node.props.label === label)!;
+it("the keyboard moves from email to password and submits sign-in from the password field", async () => {
+  await act(async () => { renderer = create(createElement(SignIn)); });
+  const focus = vi.fn();
+  expect(field("Email").props.returnKeyType).toBe("next");
+  expect(field("Password").props.returnKeyType).toBe("go");
+  field("Password").props.inputRef.current = { focus };
+  await act(async () => field("Email").props.onSubmit());
+  expect(focus).toHaveBeenCalledOnce();
+  expect(fixture.create).not.toHaveBeenCalled();
+  await act(async () => field("Email").props.onChange("person@example.test"));
+  await act(async () => field("Password").props.onChange("correct horse"));
+  await act(async () => { field("Password").props.onSubmit(); });
+  expect(fixture.create).toHaveBeenCalledExactlyOnceWith({ identifier: "person@example.test", password: "correct horse" });
+  expect(fixture.setActive).toHaveBeenCalledExactlyOnceWith({ session: "synthetic-session" });
+});
+
+it("in recovery the email field's Go key sends the recovery code", async () => {
+  fixture.create.mockResolvedValue({});
+  await act(async () => { renderer = create(createElement(SignIn)); });
+  await act(async () => renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Recover my account")!.props.onPress());
+  expect(field("Email").props.returnKeyType).toBe("go");
+  expect(renderer!.root.findAllByType("Field" as never).some((node) => node.props.label === "Password")).toBe(false);
+  await act(async () => field("Email").props.onChange("person@example.test"));
+  await act(async () => { field("Email").props.onSubmit(); });
+  expect(fixture.create).toHaveBeenCalledExactlyOnceWith({ strategy: "reset_password_email_code", identifier: "person@example.test" });
 });

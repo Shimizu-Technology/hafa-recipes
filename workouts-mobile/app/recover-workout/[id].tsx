@@ -99,9 +99,9 @@ export default function RecoverWorkout() {
   }
   const locked = busy || readyEpoch !== epoch || !!command || !!savedImport;
   const needsConsent = !consent.data?.accepted || consent.data.disclosure_version !== 1;
-  if (!enabled) return <Screen back title="Recover this workout."><Copy>Set up your Workouts account before recovering a saved source.</Copy>
+  if (!enabled) return <Screen back title="Recover workout"><Copy>Set up your Workouts account before recovering a saved source.</Copy>
     <Button title="Set up Workouts" onPress={() => router.push("/onboarding")} /></Screen>;
-  return <Screen back title="Recover this workout." subtitle="Try the source again or paste its caption or transcript.">
+  return <Screen back title="Recover workout" subtitle="Try the source again or paste its caption or transcript.">
     <QueryState loading={workout.isPending} error={workout.error} retry={() => { void workout.refetch(); }}>
       {workout.data && <Card compact><Copy kind="subheading">{workout.data.title}</Copy>
         <Copy kind="small">Review the extraction before updating this workout. Its earlier versions and recorded sessions stay saved. You can also save a separate copy.</Copy></Card>}
@@ -113,8 +113,12 @@ export default function RecoverWorkout() {
           <Field label="Creator caption or transcript" multiline optional value={input.caption} onChange={caption => update({ caption })} disabled={locked} />
           {capabilities.data?.existing_workout_updates && <Choice label="Update this saved workout after review" selected={input.update_existing !== false} disabled={locked}
             detail="Turn off to create a separate private copy instead." onPress={() => update({ update_existing: input.update_existing === false })} />}
-          <Copy kind="small">Paste the creator’s actual instructions, including exercise names, reps, time and equipment. If the original upload is gone, the caption or transcript can be used on its own.</Copy>
-          <Notice>Recovery sends this source to OpenAI. Your saved workout stays unchanged until you review and save the result. New copies stay private.</Notice>
+          <Copy kind="small">Paste the creator’s exercise names, reps, time and equipment. The caption works on its own if the video is gone.</Copy>
+          <Notice>Recovery sends this source to OpenAI. {(command ? !!command.replace_target : input.update_existing !== false && capabilities.data?.existing_workout_updates === true)
+            ? "Your saved workout only changes after you review and save."
+            : (command ? command.auto_save : capabilities.data?.server_auto_save === true)
+              ? "A separate private copy is saved to your library automatically."
+              : "A separate private copy is saved after you review it."}</Notice>
           {command && <Notice>Your recovery request is saved on this device. Reconnect sends the same source and caption.</Notice>}
           <Button title={needsConsent ? "Agree and recover privately" : command ? "Reconnect recovery" : "Recover as a private import"} busy={busy}
             disabled={!capabilities.data?.imports || !workout.data || consent.isPending || !!consent.error}

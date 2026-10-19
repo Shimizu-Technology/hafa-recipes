@@ -78,7 +78,7 @@ export default function EditGroceryItemModal({
           {/* Header */}
           <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
             <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-              <Text style={[styles.headerButtonText, { color: colors.tint }]}>Cancel</Text>
+              <Text style={[styles.headerButtonText, { color: colors.actionText }]}>Cancel</Text>
             </TouchableOpacity>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Item</Text>
             <TouchableOpacity 
@@ -88,7 +88,7 @@ export default function EditGroceryItemModal({
             >
               <Text style={[
                 styles.headerButtonText, 
-                { color: canSave ? colors.tint : colors.textMuted }
+                { color: canSave ? colors.actionText : colors.textMuted }
               ]}>
                 {isLoading ? 'Saving...' : 'Save'}
               </Text>

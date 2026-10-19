@@ -175,8 +175,8 @@ export default function BulkAddToCollectionModal({
                 {/* Adding progress */}
                 {isAdding && (
                   <RNView style={[styles.progressContainer, { backgroundColor: colors.tint + '15' }]}>
-                    <ActivityIndicator size="small" color={colors.tint} />
-                    <Text style={[styles.progressText, { color: colors.tint }]}>
+                    <ActivityIndicator size="small" color={colors.actionText} />
+                    <Text style={[styles.progressText, { color: colors.actionText }]}>
                       Adding recipes... {addProgress}%
                     </Text>
                   </RNView>
@@ -185,7 +185,7 @@ export default function BulkAddToCollectionModal({
                 {/* Collections list */}
                 {isLoadingCollections ? (
                   <RNView style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={colors.tint} />
+                    <ActivityIndicator size="large" color={colors.actionText} />
                   </RNView>
                 ) : (
                   <ScrollView
@@ -212,7 +212,7 @@ export default function BulkAddToCollectionModal({
                             >
                               <RNView style={styles.collectionInfo}>
                                 <RNView style={[styles.collectionIcon, { backgroundColor: colors.tint + '15' }]}>
-                                  <Ionicons name="folder-open-outline" size={20} color={colors.tint} />
+                                  <Ionicons name="folder-open-outline" size={20} color={colors.actionText} />
                                 </RNView>
                                 <RNView style={styles.collectionText}>
                                   <Text style={[styles.collectionName, { color: colors.text }]}>
@@ -254,7 +254,7 @@ export default function BulkAddToCollectionModal({
                           <Ionicons
                             name="folder-outline"
                             size={20}
-                            color={colors.tint}
+                            color={colors.actionText}
                           />
                           <RNView style={styles.inputWrapper}>
                             <Input
@@ -274,9 +274,9 @@ export default function BulkAddToCollectionModal({
                               disabled={isCreating}
                             >
                               {isCreating ? (
-                                <ActivityIndicator size="small" color={colors.tint} />
+                                <ActivityIndicator size="small" color={colors.actionText} />
                               ) : (
-                                <Ionicons name="checkmark-circle" size={24} color={colors.tint} />
+                                <Ionicons name="checkmark-circle" size={24} color={colors.actionText} />
                               )}
                             </TouchableOpacity>
                           ) : (
@@ -299,8 +299,8 @@ export default function BulkAddToCollectionModal({
                         onPress={() => setShowCreateNew(true)}
                         disabled={isAdding}
                       >
-                        <Ionicons name="add-circle-outline" size={24} color={colors.tint} />
-                        <Text style={[styles.createNewText, { color: colors.tint }]}>
+                        <Ionicons name="add-circle-outline" size={24} color={colors.actionText} />
+                        <Text style={[styles.createNewText, { color: colors.actionText }]}>
                           Create New Collection
                         </Text>
                       </TouchableOpacity>

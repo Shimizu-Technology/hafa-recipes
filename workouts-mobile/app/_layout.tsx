@@ -34,7 +34,7 @@ function AccountLogoutRecovery() {
       binding: userId ? logoutBinding(configuration.clerkEnvironment, configuration.clerkKey, userId) : null }}
     signOut={(options) => clerk.signOut(options)}
     clearPrivate={(record) => clearLogoutQueries(cache, record)}
-    renderRecovery={({ checking, loading, busy, error, retry }) => <Screen title={checking ? "Check account recovery." : "Finish account sign-out."}>
+    renderRecovery={({ checking, loading, busy, error, retry }) => <Screen title={checking ? "Checking your account" : "Finish signing out"}>
       <Copy>{checking ? "Checking this device for account recovery before opening private training." :
         "Your server account was deleted. Private training stays closed while this device finishes cleanup and sign-out. Retrying does not delete the account again."}</Copy>
       {!!error && <Notice error>{error}</Notice>}
@@ -158,7 +158,7 @@ export default function Root() {
       <ToastProvider>
       <StatusBar style="auto" />
       {!cleanupReady ? (
-        <Screen title="Restore private device state.">
+        <Screen title="Restoring this device">
           {cleanupError ? (
             <>
               <Notice error>{cleanupError}</Notice>
@@ -178,7 +178,7 @@ export default function Root() {
           <ActivityIndicator accessibilityLabel="Loading Håfa Workouts" />
         </View>
       ) : error ? (
-        <Screen title="Your training starts here." subtitle="Håfa Workouts · free beta">
+        <Screen title="Håfa Workouts">
           <Notice>{error} Ask support for the configured build.</Notice>
           <Copy>Two apps. One Håfa account. Your recipe and training data stay separate unless you connect them.</Copy>
         </Screen>

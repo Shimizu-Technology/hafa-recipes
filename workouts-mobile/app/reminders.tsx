@@ -45,7 +45,7 @@ export default function Reminders() {
     }
   }
   return (
-    <Screen back title="A helpful nudge." subtitle="Optional device alerts, without changing your training records.">
+    <Screen back title="Reminders" subtitle="Optional alerts on this device.">
       {draft ? (
         <>
           <Card>

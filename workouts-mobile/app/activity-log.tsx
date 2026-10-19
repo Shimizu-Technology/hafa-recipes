@@ -44,8 +44,8 @@ export default function ActivityLog() {
   return (
     <Screen
       back
-      title="Activity you recorded."
-      subtitle="Completed activity, separate from future schedule declarations."
+      title="Activity"
+      subtitle="Runs, walks and other activity you logged."
     >
       <Button title="Log completed activity" icon="add" onPress={() => router.push("/activity")} />
       {!enrollment?.enrolled && <Button title="Set up Workouts" onPress={() => router.push("/onboarding")} />}

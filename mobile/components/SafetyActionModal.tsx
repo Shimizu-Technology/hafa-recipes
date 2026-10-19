@@ -132,7 +132,7 @@ export function SafetyActionModal({
                       <Ionicons
                         name={selected ? 'radio-button-on' : 'radio-button-off'}
                         size={22}
-                        color={selected ? colors.tint : colors.textMuted}
+                        color={selected ? colors.actionText : colors.textMuted}
                       />
                     </TouchableOpacity>
                   );

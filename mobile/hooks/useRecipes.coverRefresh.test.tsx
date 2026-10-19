@@ -247,3 +247,51 @@ describe('recipe cover refresh', () => {
     expect(result.error?.name).toBe('CaptureAccountChangedError');
   });
 });
+
+describe('recipe detail cold-load preview', () => {
+  it('shows the cached card summary until the full recipe arrives, then drops it', async () => {
+    let resolve!: (recipe: Recipe) => void;
+    mocks.getRecipe.mockReturnValue(new Promise<Recipe>((done) => { resolve = done; }));
+    client.setQueryData(recipeKeys.infinite(), {
+      pages: [{ items: [{ id: 'recipe-a', title: 'Chicken Kelaguen', thumbnail_url: 'https://images/k.webp', total_time: '20 min', servings: 4, is_owner: true }] }],
+      pageParams: [0],
+    });
+    await mount();
+    expect(result.data).toBeUndefined();
+    expect(result.preview).toEqual({
+      id: 'recipe-a', title: 'Chicken Kelaguen', thumbnailUrl: 'https://images/k.webp',
+      sourceUrl: null, totalTime: '20 min', servings: 4,
+    });
+    await act(async () => { resolve(base); });
+    await flush();
+    expect(result.data?.id).toBe('recipe-a');
+    expect(result.preview).toBeNull();
+  });
+
+  it('has no preview when no list has shown the recipe', async () => {
+    mocks.getRecipe.mockReturnValue(new Promise<Recipe>(() => {}));
+    client.setQueryData(recipeKeys.infinite(), { pages: [{ items: [{ id: 'other', title: 'Other' }] }], pageParams: [0] });
+    await mount();
+    expect(result.preview).toBeNull();
+  });
+
+  it('surfaces a load failure instead of masking it with the cached card', async () => {
+    mocks.getRecipe.mockRejectedValue(new Error('Server unavailable'));
+    client.setQueryData(recipeKeys.infinite(), { pages: [{ items: [{ id: 'recipe-a', title: 'Chicken Kelaguen' }] }], pageParams: [0] });
+    await mount();
+    await flush(100);
+    // The screen shows the preview only while loading, so a settled error reaches the error view.
+    expect(result.isLoading).toBe(false);
+    expect(result.data).toBeUndefined();
+    expect(result.error?.message).toBe('Server unavailable');
+  });
+
+  it('shows no preview until auth has loaded', async () => {
+    mocks.isLoaded = false;
+    mocks.getRecipe.mockReturnValue(new Promise<Recipe>(() => {}));
+    client.setQueryData(recipeKeys.infinite(), { pages: [{ items: [{ id: 'recipe-a', title: 'Chicken Kelaguen' }] }], pageParams: [0] });
+    await mount();
+    expect(result.preview).toBeNull();
+  });
+});
+

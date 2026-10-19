@@ -86,8 +86,8 @@ export default function CoachActionReview() {
   return (
     <Screen
       back
-      title="Review before changing anything."
-      subtitle="A suggestion becomes a change only when you accept it."
+      title="Review change"
+      subtitle="Nothing changes until you accept it."
     >
       {!current && (
         <Notice error>

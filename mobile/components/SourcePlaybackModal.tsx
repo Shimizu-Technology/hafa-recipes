@@ -137,7 +137,7 @@ export function SourcePlaybackModal({
               {isLoading && (
                 <ActivityIndicator
                   size="small"
-                  color={colors.tint}
+                  color={colors.actionText}
                   accessibilityLabel={`Loading ${playback.providerLabel} player`}
                 />
               )}
@@ -160,7 +160,7 @@ export function SourcePlaybackModal({
             >
               <RNView style={styles.errorMessage} accessible accessibilityRole="alert">
                 <RNView style={[styles.errorIcon, { backgroundColor: `${colors.tint}18` }]}>
-                  <Ionicons name="videocam-off-outline" size={30} color={colors.tint} />
+                  <Ionicons name="videocam-off-outline" size={30} color={colors.actionText} />
                 </RNView>
                 <Text style={[styles.errorTitle, { color: colors.text }]}>This player didn’t load</Text>
                 <Text style={[styles.errorText, { color: colors.textSecondary }]}>
@@ -232,8 +232,8 @@ export function SourcePlaybackModal({
             accessibilityRole="link"
             accessibilityLabel={`Open original on ${playback.providerLabel}`}
           >
-            <Text style={[styles.openButtonText, { color: colors.tint }]}>Open original</Text>
-            <Ionicons name="open-outline" size={17} color={colors.tint} />
+            <Text style={[styles.openButtonText, { color: colors.actionText }]}>Open original</Text>
+            <Ionicons name="open-outline" size={17} color={colors.actionText} />
           </TouchableOpacity>
         </RNView>
       </RNView>

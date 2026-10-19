@@ -57,14 +57,18 @@ describe('recipe-to-slot handoff', () => {
 
 describe('planner grocery handoff messaging', () => {
   it.each([
-    [0, 'Added 8 ingredients from your meal plan.'],
-    [undefined, 'Added 8 ingredients from your meal plan.'],
-    [1, 'Added 8 ingredients from your meal plan. 1 ingredient has no stated amount, so it is clearly marked in your list.'],
-    [3, 'Added 8 ingredients from your meal plan. 3 ingredients have no stated amount, so they are clearly marked in your list.'],
+    [0, 'Added 8 ingredients'],
+    [undefined, 'Added 8 ingredients'],
+    [1, 'Added 8 ingredients · 1 marked without amounts'],
+    [3, 'Added 8 ingredients · 3 marked without amounts'],
   ])('keeps the missing-amount count explicit for %i missing', (missing, expected) => {
     expect(plannerGrocerySuccessMessage({
       items_added: 8,
       items_missing_amount: missing,
     })).toBe(expected);
+  });
+
+  it('uses the singular for one added ingredient', () => {
+    expect(plannerGrocerySuccessMessage({ items_added: 1, items_missing_amount: 0 })).toBe('Added 1 ingredient');
   });
 });

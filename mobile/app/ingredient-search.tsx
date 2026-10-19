@@ -21,6 +21,7 @@ import { View, Text, useColors } from '@/components/Themed';
 import { useSearchByIngredients } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
+import { showToast } from '@/lib/toast';
 import {
   mergeIngredientSearchInput,
   parseIngredientSearchInput,
@@ -130,14 +131,12 @@ export default function IngredientSearchScreen() {
       onSuccess: () => {
         haptics.success();
         setAddedGroceryRecipeIds((current) => new Set(current).add(recipe.id));
-        Alert.alert(
-          'Added to Grocery List',
-          `${missingIngredients.length} missing ingredient${missingIngredients.length === 1 ? '' : 's'} from “${recipe.title}” ${missingIngredients.length === 1 ? 'was' : 'were'} added.`,
-          [
-            { text: 'Keep browsing', style: 'cancel' },
-            { text: 'View grocery list', onPress: () => router.push(appRoutes.grocery) },
-          ],
-        );
+        showToast({
+          message: `${missingIngredients.length} missing ingredient${missingIngredients.length === 1 ? '' : 's'} added to your grocery list`,
+          tone: 'success',
+          actionLabel: 'View list',
+          onAction: () => router.push(appRoutes.grocery),
+        });
       },
       onError: () => Alert.alert('Couldn’t Add Ingredients', 'Your grocery list was not changed. Please try again.'),
       onSettled: () => setPendingGroceryRecipeId(null),
@@ -169,7 +168,7 @@ export default function IngredientSearchScreen() {
     if (isLoading || isFetching) {
       return (
         <View style={styles.emptyContainer}>
-          <ActivityIndicator size="large" color={colors.tint} />
+          <ActivityIndicator size="large" color={colors.actionText} />
           <Text style={[styles.emptyText, { color: colors.textMuted }]}>
             Searching recipes...
           </Text>
@@ -224,24 +223,24 @@ export default function IngredientSearchScreen() {
       >
         {isSignedIn && <RNView style={[styles.pantrySource, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
           <RNView style={styles.pantrySourceText}>
-            <Ionicons name="basket-outline" size={20} color={colors.tint} />
+            <Ionicons name="basket-outline" size={20} color={colors.actionText} />
             <RNView style={{ flex: 1 }}>
               <Text style={[styles.pantrySourceTitle, { color: colors.text }]}>My Pantry</Text>
               <Text style={{ color: colors.textSecondary, fontSize: fontSize.sm }}>
                 {pantry.isLoading ? 'Loading what you have…' : `${pantryNames.length} usable item${pantryNames.length === 1 ? '' : 's'} · ${pantry.data?.scope === 'household' ? 'household' : 'personal'}`}
               </Text>
             </RNView>
-            <TouchableOpacity onPress={() => router.push(appRoutes.pantry)} style={styles.sourceAction} accessibilityLabel="Manage pantry"><Text style={{ color: colors.tint, fontWeight: fontWeight.semibold }}>Manage</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push(appRoutes.pantry)} style={styles.sourceAction} accessibilityLabel="Manage pantry"><Text style={{ color: colors.actionText, fontWeight: fontWeight.semibold }}>Manage</Text></TouchableOpacity>
           </RNView>
           {pantryNames.length > 0 && <TouchableOpacity onPress={() => { if (useSavedPantry && !searchIngredients.length) setShowEditor(true); setUseSavedPantry(!useSavedPantry); }} style={styles.usePantryRow} accessibilityRole="checkbox" accessibilityLabel="Use pantry ingredients in recipe search" accessibilityState={{ checked: useSavedPantry }}>
-            <Ionicons name={useSavedPantry ? 'checkbox' : 'square-outline'} size={21} color={colors.tint} />
+            <Ionicons name={useSavedPantry ? 'checkbox' : 'square-outline'} size={21} color={colors.actionText} />
             <Text style={{ color: colors.text }}>Search with pantry items</Text>
           </TouchableOpacity>}
           {pantry.isError && <Text style={{ color: colors.warning }}>Pantry couldn’t load. You can still search manually.</Text>}
           {pantryNames.length > MAX_SEARCH_INGREDIENTS && <Text style={{ color: colors.warning }}>Search uses the first {MAX_SEARCH_INGREDIENTS} items. Narrow your pantry list for different matches.</Text>}
         </RNView>}
         {!showEditor && <TouchableOpacity onPress={() => setShowEditor(true)} style={[styles.compactEditor, { borderColor: colors.cardBorder, backgroundColor: colors.card }]} accessibilityRole="button" accessibilityLabel="Add or change search ingredients">
-          <Ionicons name="add-circle-outline" size={21} color={colors.tint} />
+          <Ionicons name="add-circle-outline" size={21} color={colors.actionText} />
           <Text style={{ color: colors.text, flex: 1, fontWeight: fontWeight.semibold }}>{searchIngredients.length ? `${searchIngredients.length} extra ingredient${searchIngredients.length === 1 ? '' : 's'} added` : 'Add extra ingredients'}</Text>
           <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
         </TouchableOpacity>}
@@ -249,7 +248,7 @@ export default function IngredientSearchScreen() {
         <View style={[styles.searchCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
           <RNView style={styles.searchHeading}>
             <RNView style={[styles.searchIcon, { backgroundColor: colors.tint + '16' }]}>
-              <Ionicons name="nutrition-outline" size={22} color={colors.tint} />
+              <Ionicons name="nutrition-outline" size={22} color={colors.actionText} />
             </RNView>
             <RNView style={styles.searchHeadingText}>
               <Text style={[styles.searchTitle, { color: colors.text }]}>Cook with what you have</Text>
@@ -338,8 +337,8 @@ export default function IngredientSearchScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${ing} from ingredient search`}
                   >
-                    <Text style={[styles.chipText, { color: colors.tint }]}>{ing}</Text>
-                    <Ionicons name="close" size={14} color={colors.tint} />
+                    <Text style={[styles.chipText, { color: colors.actionText }]}>{ing}</Text>
+                    <Ionicons name="close" size={14} color={colors.actionText} />
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -375,15 +374,15 @@ export default function IngredientSearchScreen() {
                 <Ionicons
                   name={includePublic ? "globe" : "globe-outline"}
                   size={14}
-                  color={includePublic ? colors.tint : colors.textMuted}
+                  color={includePublic ? colors.actionText : colors.textMuted}
                 />
-                <Text style={[styles.toggleText, { color: includePublic ? colors.tint : colors.textMuted }]}>
+                <Text style={[styles.toggleText, { color: includePublic ? colors.actionText : colors.textMuted }]}>
                   Discover
                 </Text>
                 </TouchableOpacity>
               ) : (
                 <RNView style={[styles.guestScope, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Ionicons name="globe" size={14} color={colors.tint} />
+                  <Ionicons name="globe" size={14} color={colors.actionText} />
                   <Text style={[styles.toggleText, { color: colors.textSecondary }]}>Community recipes</Text>
                 </RNView>
               )}
@@ -408,9 +407,9 @@ export default function IngredientSearchScreen() {
                   <Ionicons
                     name={includeSaved ? "bookmark" : "bookmark-outline"}
                     size={14}
-                    color={includeSaved ? colors.tint : colors.textMuted}
+                    color={includeSaved ? colors.actionText : colors.textMuted}
                   />
-                  <Text style={[styles.toggleText, { color: includeSaved ? colors.tint : colors.textMuted }]}>
+                  <Text style={[styles.toggleText, { color: includeSaved ? colors.actionText : colors.textMuted }]}>
                     Saved
                   </Text>
                 </TouchableOpacity>
