@@ -415,10 +415,8 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', marginBottom: spacing.xl },
   eyebrow: {
     fontFamily: fontFamily.semibold,
-    fontSize: fontSize.xs,
-    letterSpacing: 1.1,
+    fontSize: fontSize.sm,
     marginTop: spacing.lg,
-    textTransform: 'uppercase',
   },
   title: {
     fontFamily: fontFamily.display,

@@ -184,10 +184,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   eyebrow: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
     marginBottom: 3,
   },
   title: {

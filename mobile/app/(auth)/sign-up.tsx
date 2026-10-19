@@ -285,7 +285,6 @@ export default function SignUpScreen() {
             <RNView style={[styles.logoContainer, { backgroundColor: colors.accentSoft }]}>
               <Ionicons name="mail-outline" size={38} color={colors.accent} />
             </RNView>
-            <Text style={[styles.eyebrow, { color: colors.actionText }]}>Almost there</Text>
             <Text style={[styles.title, { color: colors.text }]}>Check your email</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               We sent a verification code to {email}
@@ -357,7 +356,6 @@ export default function SignUpScreen() {
           {/* Logo / Header */}
           <RNView style={styles.header}>
             <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
-            <Text style={[styles.eyebrow, { color: colors.actionText }]}>Håfa Recipes</Text>
             <Text style={[styles.title, { color: colors.text }]}>Create account</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               Build a smarter recipe library from videos, websites, photos, and family favorites.
@@ -539,16 +537,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   eyebrow: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.semibold,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
     marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },
   title: {
     fontSize: fontSize.xxxl,
     fontFamily: fontFamily.display,
+    marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },
   subtitle: {

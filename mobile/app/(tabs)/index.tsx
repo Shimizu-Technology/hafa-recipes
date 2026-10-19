@@ -877,7 +877,7 @@ export default function ExtractScreen() {
           {isSignedIn && <ImportActivityCard jobs={(recentImports.data || []).filter((job) => !(job.id === extraction.jobId && (extraction.isExtracting || extraction.isComplete || extraction.isFailed)))}
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
             onRestore={extraction.restoreJob} onCancel={handleCancel} />}
-          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>OTHER WAYS TO ADD</Text>
+          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
           <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             {([
               { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
@@ -933,7 +933,7 @@ const styles = StyleSheet.create({
   settingsSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 56 },
   settingsCopy: { flex: 1 },
   settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium },
-  otherWaysLabel: { fontSize: fontSize.xs, fontFamily: fontFamily.semibold, letterSpacing: 1, marginBottom: spacing.sm },
+  otherWaysLabel: { fontSize: fontSize.sm, fontFamily: fontFamily.semibold, marginBottom: spacing.sm },
   alternateMethods: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', marginBottom: spacing.md },
   alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
   alternateTitle: { flex: 1, fontSize: fontSize.md },

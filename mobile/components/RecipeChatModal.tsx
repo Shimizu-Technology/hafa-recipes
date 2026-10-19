@@ -1460,10 +1460,8 @@ const styles = StyleSheet.create({
   },
   welcomeEyebrow: {
     fontFamily: fontFamily.bold,
-    fontSize: fontSize.xs,
-    letterSpacing: 0.8,
+    fontSize: fontSize.sm,
     marginTop: spacing.md,
-    textTransform: 'uppercase',
   },
   welcomeTitle: {
     fontSize: fontSize.xl,

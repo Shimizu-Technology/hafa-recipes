@@ -815,10 +815,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   signedOutEyebrow: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
     marginBottom: spacing.sm,
   },
   signedOutTitle: {
