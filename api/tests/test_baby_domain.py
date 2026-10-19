@@ -103,3 +103,29 @@ def test_asset_prefix_contains_no_account_id_and_provider_is_disabled_in_tests()
     assert "private-user" not in prefix
     assert "/2/" in prefix
     assert BabyProvider().enabled is False
+
+
+def test_development_provider_requires_deliberate_key_and_paid_flag(monkeypatch):
+    from pydantic import SecretStr
+
+    from app.domains.baby import provider
+
+    configured = SimpleNamespace(
+        environment="development",
+        allow_paid_ai_in_development=False,
+        baby_development_ai_api_key=None,
+        openai_api_key="production-key-placeholder",
+        baby_api_enabled=True,
+        baby_ai_enabled=True,
+        is_ai_capability_enabled=lambda capability: True,
+    )
+    monkeypatch.setattr(provider, "get_settings", lambda: configured)
+    adapter = BabyProvider()
+    assert adapter.enabled is False and adapter._key(configured) is None
+    configured.allow_paid_ai_in_development = True
+    assert adapter.enabled is False and adapter._key(configured) is None
+    configured.baby_development_ai_api_key = SecretStr("deliberate-qa-key-placeholder")
+    assert adapter.enabled is True
+    assert adapter._key(configured) == "deliberate-qa-key-placeholder"
+    configured.environment = "test"
+    assert adapter.enabled is False and adapter._key(configured) is None

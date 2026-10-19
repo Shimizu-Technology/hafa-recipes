@@ -39,14 +39,22 @@ class BabyProvider:
     def __init__(self, *, gate=None):
         self.gate = gate
 
+    def _key(self, settings):
+        if settings.environment == "production":
+            return settings.openai_api_key
+        if settings.environment == "development" and settings.allow_paid_ai_in_development:
+            configured = getattr(settings, "baby_development_ai_api_key", None)
+            return configured.get_secret_value() if configured else None
+        return None
+
     @property
     def enabled(self):
         settings = get_settings()
         return (
             getattr(settings, "baby_api_enabled", False)
             and getattr(settings, "baby_ai_enabled", False)
-            and settings.environment == "production"
-            and bool(settings.openai_api_key)
+            and settings.environment in {"production", "development"}
+            and bool(self._key(settings))
             and settings.is_ai_capability_enabled("baby_ai")
         )
 
@@ -82,7 +90,7 @@ class BabyProvider:
                 ) as client:
                     response = await client.post(
                         "https://api.openai.com/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                        headers={"Authorization": f"Bearer {self._key(settings)}"},
                         json={
                             "model": model,
                             "messages": [
@@ -162,7 +170,8 @@ class BabyProvider:
                 "Previous conversation facts may be stale; current retrieved records take priority. "
                 "Distinguish source/creator claims, caregiver observations, and clinician instructions the user entered. "
                 "Do not claim clinician verification. Cite record IDs supporting claims about the library/history; never invent IDs. "
-                "Say when saved evidence is absent or incomplete. Do not pretend to have searched the web. "
+                "Say when saved evidence is absent or incomplete. Retrieved records are bounded excerpts, not complete care history. "
+                "Do not assert total counts or the absence of events from a partial search. Do not pretend to have searched the web. "
                 "General organizational help is allowed; label general information separate from saved evidence. "
                 "Do not diagnose, personalize pregnancy/feeding/medical schedules, recommend doses, or imply normality "
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
@@ -206,7 +215,7 @@ class BabyProvider:
         ) as invocation:
             try:
                 async with AsyncOpenAI(
-                    api_key=settings.openai_api_key, max_retries=0, timeout=75
+                    api_key=self._key(settings), max_retries=0, timeout=75
                 ) as client:
                     with Path(path).open("rb") as audio:
                         result = await client.audio.transcriptions.create(

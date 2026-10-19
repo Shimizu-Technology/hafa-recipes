@@ -155,15 +155,14 @@ class BabyWorker:
         # replica can start a Baby media import during this execution lease.
         async with self.sessions() as guard:
             acquired = await guard.scalar(
-                text("SELECT pg_try_advisory_lock(:key)"), {"key": WORKER_LOCK}
+                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": WORKER_LOCK}
             )
             if not acquired:
                 return False
-            try:
-                return await self.claim_and_process()
-            finally:
-                await guard.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": WORKER_LOCK})
-                await guard.commit()
+            # Transaction-scoped ownership is released by the shielded session
+            # close even if shutdown is cancelled repeatedly; never leak a
+            # session advisory lock back into the pool.
+            return await self.claim_and_process()
 
     async def claim_and_process(self):
         async with self.sessions() as db:
