@@ -314,11 +314,10 @@ export default function Training() {
           )}
         </>
       )}
-      {timed && <Card tone="hero">
+      {timed && <Card compact tone="accent">
         <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} source time cap</Copy>
-        <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
-        <Copy>Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
-        <Copy kind="small" tone="muted">Repeat the circuit until the time cap. Log each exercise as you go; pause when you need to step away.</Copy>
+        <Copy kind="heading">{formatClock(capRemaining ?? 0)}</Copy>
+        <Copy kind="small">Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
         {capReached && <Notice>Time’s up. Log any final exercise, then save your session.</Notice>}
         {timed.limit_reached && <Notice tone="warning">This session reached its tracking limit. Save the recorded work as a partial session.</Notice>}
         {timedComplete && step && <Button title="Record final exercise before finishing" secondary disabled={busy}
@@ -572,25 +571,28 @@ export default function Training() {
         ))}
       </ChipRow>
       <Sheet visible={instructionsOpen} onClose={() => setInstructionsOpen(false)} title="Workout instructions">
+        {!!error && <Notice error>{error}</Notice>}
         {!!e && <Copy kind="heading">{e.name}</Copy>}
-            {!!e?.instructions && <Copy tone="muted">{e?.instructions}</Copy>}
-            {!!e?.notes && <Copy tone="muted">Private note · {e?.notes}</Copy>}
-            {!!d.workout.source_url && (
-              <ListRow
-                icon="play-circle-outline"
-                title="Open original instructions"
-                detail="Your place here is saved"
-                trailing="external"
-                onPress={() => {
-                  void Linking.openURL(d.workout.source_url!).catch(() =>
-                    setError("Could not open the source. Your session remains saved.")
-                  );
-                }}
-              />
-            )}
+        {!!e?.instructions && <Copy tone="muted">{e.instructions}</Copy>}
+        {!!e?.notes && <Copy tone="muted">Private note · {e.notes}</Copy>}
+        {!!d.workout.source_url && (
+          <ListRow
+            icon="play-circle-outline"
+            title="Open original instructions"
+            detail="Your place here is saved"
+            trailing="external"
+            onPress={() => {
+              void Linking.openURL(d.workout.source_url!).catch(() =>
+                { if (sameSession()) setError("Could not open the source. Your session remains saved."); }
+              );
+            }}
+          />
+        )}
         <WorkoutInstructions instructions={d.workout.instructions} />
+        {timed && <Copy kind="small" tone="muted">Repeat the circuit until the time cap. Log each exercise as you go; pause when you need to step away.</Copy>}
       </Sheet>
       <Sheet visible={more} onClose={() => setMore(false)} title="Session">
+        <ListRow title="Workout instructions" icon="document-text-outline" onPress={() => { setMore(false); setInstructionsOpen(true); }} />
         {step && e && (
           <>
             <ListRow
