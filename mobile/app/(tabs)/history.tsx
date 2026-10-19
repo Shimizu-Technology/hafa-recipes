@@ -49,6 +49,7 @@ import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 import { useViewPreference } from '@/hooks/useViewPreference';
+import { formatRecipeCount } from '@/lib/recipeCount';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -453,8 +454,9 @@ export default function HistoryScreen() {
   }, [recipes, searchResults, isServerSearchCurrent, isSearchSuccess, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
 
   // Calculate total count based on ownership filter
-  const totalCount = useMemo(() => {
-    if (hasActiveFilters && isServerSearchCurrent && isSearchSuccess) return searchTotal;
+  // The library total ignores search filters; matches are the server's total for
+  // the current filtered search, never the length of the pages loaded so far.
+  const libraryCount = useMemo(() => {
     if (ownershipFilter === 'saved') {
       return savedRecipes?.length ?? 0;
     } else if (ownershipFilter === 'own') {
@@ -462,7 +464,8 @@ export default function HistoryScreen() {
     } else {
       return recipesTotal + (savedRecipes?.length ?? 0);
     }
-  }, [ownershipFilter, recipesTotal, savedRecipes, hasActiveFilters, isServerSearchCurrent, isSearchSuccess, searchTotal]);
+  }, [ownershipFilter, recipesTotal, savedRecipes]);
+  const matchingCount = hasActiveFilters && isServerSearchCurrent && isSearchSuccess ? searchTotal : undefined;
 
   // For display, slice to current page
   const displayRecipes = combinedRecipes?.slice(0, displayCount);
@@ -712,18 +715,12 @@ export default function HistoryScreen() {
       <RNView>
         {/* Title row */}
         <RNView style={styles.titleRow}>
+          {/* The navigation header already says "Library"; keep the count as a quiet line. */}
           <RNView style={styles.titleLeft}>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>
-              My Recipes
-            </Text>
-            {totalCount !== undefined && (
-              <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-                <Text style={styles.countText}>
-                  {hasActiveFilters && combinedRecipes
-                    ? `${combinedRecipes.length} of ${totalCount}`
-                    : totalCount}
-                </Text>
-              </RNView>
+            {libraryCount !== undefined && (
+              <Text style={[styles.countText, { color: colors.textSecondary }]}>
+                {formatRecipeCount(libraryCount, matchingCount)}
+              </Text>
             )}
           </RNView>
 
@@ -753,7 +750,7 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </RNView>
     );
-  }, [colors, totalCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
+  }, [colors, libraryCount, matchingCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
 
   const filteredEmpty = hasActiveFilters || ownershipFilter !== 'all';
   const clearSearchAndFilters = () => {
@@ -1132,20 +1129,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
-  headerTitle: {
-    fontSize: fontSize.xxl,
-    fontFamily: fontFamily.bold,
-  },
-  countBadge: {
-    marginLeft: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
   countText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.medium,
   },
   searchRow: {
     flexDirection: 'row',
