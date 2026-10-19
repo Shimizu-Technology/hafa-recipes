@@ -273,8 +273,7 @@ export default function SignInScreen() {
           {/* Logo / Header */}
           <RNView style={styles.header}>
             <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
-            <Text style={[styles.eyebrow, { color: colors.tint }]}>Håfa Recipes</Text>
-            <Text style={[styles.title, { color: colors.text }]}>{verification ? 'Verify your sign-in' : 'Welcome back'}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{verification ? 'Check your email' : 'Welcome back'}</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {verification ? 'One more check to keep your recipe library secure.' : 'Sign in to save, plan, shop, and cook from your recipe library.'}
             </Text>
@@ -451,7 +450,7 @@ export default function SignInScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Restore my library"
               >
-                <Ionicons name="library-outline" size={19} color={colors.tint} />
+                <Ionicons name="library-outline" size={19} color={colors.actionText} />
                 <RNView style={styles.recoveryCopy}>
                   <Text style={[styles.recoveryTitle, { color: colors.text }]}>
                     Restore my library
@@ -472,7 +471,7 @@ export default function SignInScreen() {
             </Text>
             <Link href={'/(auth)/sign-up' as any} asChild>
               <TouchableOpacity disabled={isLoading}>
-                <Text style={[styles.footerLink, { color: colors.tint }]}>Sign Up</Text>
+                <Text style={[styles.footerLink, { color: colors.actionText }]}>Sign Up</Text>
               </TouchableOpacity>
             </Link>
           </RNView>
@@ -514,16 +513,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   eyebrow: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.semibold,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
     marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },
   title: {
     fontSize: fontSize.xxxl,
     fontFamily: fontFamily.display,
+    marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },
   subtitle: {

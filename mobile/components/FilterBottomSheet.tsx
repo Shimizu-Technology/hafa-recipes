@@ -399,7 +399,7 @@ export default function FilterBottomSheet({
                     <Ionicons 
                       name={hideMyRecipes ? "eye-off" : "eye-off-outline"}
                       size={20} 
-                      color={hideMyRecipes ? colors.tint : colors.textMuted} 
+                      color={hideMyRecipes ? colors.actionText : colors.textMuted} 
                     />
                     <Text style={[styles.toggleText, { color: colors.text }]}>
                       Hide My Recipes
@@ -408,7 +408,7 @@ export default function FilterBottomSheet({
                   <Ionicons 
                     name={hideMyRecipes ? "checkbox" : "square-outline"} 
                     size={24} 
-                    color={hideMyRecipes ? colors.tint : colors.textMuted} 
+                    color={hideMyRecipes ? colors.actionText : colors.textMuted} 
                   />
                 </TouchableOpacity>
               </RNView>

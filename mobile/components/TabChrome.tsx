@@ -45,7 +45,7 @@ export function AccountHeaderButton() {
           <Text maxFontSizeMultiplier={1} style={[styles.accountInitialText, { color: colors.accent }]}>{initial}</Text>
         </RNView>
       ) : (
-        <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={19} color={colors.tint} />
+        <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={19} color={colors.actionText} />
       )}
     </TouchableOpacity>
   );

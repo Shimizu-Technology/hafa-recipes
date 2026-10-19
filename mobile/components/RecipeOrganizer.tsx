@@ -186,7 +186,7 @@ export function RecipeOrganizer({
                 <RNView style={[styles.noteCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
                   <RNView style={styles.noteHeader}>
                     <RNView style={styles.noteTitleRow}>
-                      <Ionicons name="lock-closed-outline" size={18} color={colors.tint} />
+                      <Ionicons name="lock-closed-outline" size={18} color={colors.actionText} />
                       <Text style={[styles.noteTitle, { color: colors.text }]}>Only you can see this</Text>
                     </RNView>
                     {!isEditingNote && !isNoteLoading && (
@@ -196,7 +196,7 @@ export function RecipeOrganizer({
                         accessibilityRole="button"
                         accessibilityLabel={savedNote ? 'Edit private recipe note' : 'Add private recipe note'}
                       >
-                        <Text style={[styles.editButtonText, { color: colors.tint }]}>
+                        <Text style={[styles.editButtonText, { color: colors.actionText }]}>
                           {savedNote ? 'Edit' : 'Add note'}
                         </Text>
                       </TouchableOpacity>
@@ -205,7 +205,7 @@ export function RecipeOrganizer({
 
                   {isNoteLoading ? (
                     <RNView style={styles.loadingRow}>
-                      <ActivityIndicator size="small" color={colors.tint} />
+                      <ActivityIndicator size="small" color={colors.actionText} />
                       <Text style={[styles.supportingText, { color: colors.textMuted }]}>Loading your note…</Text>
                     </RNView>
                   ) : isEditingNote ? (

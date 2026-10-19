@@ -54,6 +54,7 @@ vi.mock('@/components/Skeleton', () => ({
 vi.mock('@/components/Animated', () => ({
   AnimatedListItem: 'AnimatedListItem',
   ScalePressable: 'ScalePressable',
+  useInitialListEntrance: () => () => false,
 }));
 const library = vi.hoisted(() => ({
   filters: {} as Record<string, unknown>,
@@ -64,6 +65,7 @@ const library = vi.hoisted(() => ({
   ownTotal: 0,
   searchTotal: undefined as number | undefined,
   signedIn: true,
+  isGrid: false,
   collections: {
     data: [] as Collection[] | undefined,
     isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
@@ -82,7 +84,9 @@ vi.mock('@/hooks/useRecipes', () => ({
   usePopularTags: () => ({ data: [] }),
 }));
 vi.mock('@/hooks/useCollections', () => ({ useCollections: () => library.collections }));
-vi.mock('@/hooks/useViewPreference', () => ({ useViewPreference: () => ({ viewMode: 'list', isGrid: false }) }));
+vi.mock('@/hooks/useViewPreference', () => ({
+  useViewPreference: () => ({ viewMode: library.isGrid ? 'grid' : 'list', isGrid: library.isGrid }),
+}));
 vi.mock('@/hooks/usePullToRefresh', () => ({ usePullToRefresh: (refresh: () => Promise<unknown>) => ({ isPullRefreshing: false, onPullRefresh: refresh }) }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (value: string) => value }));
 vi.mock('@/constants/Colors', () => ({
@@ -126,6 +130,7 @@ beforeEach(() => {
   library.ownTotal = 0; library.searchTotal = undefined;
   library.moreSearch.mockClear(); library.moreSaved.mockClear(); library.moreOwn.mockClear();
   library.signedIn = true;
+  library.isGrid = false;
   Object.assign(library.collections, { data: [], isLoading: false, isError: false, isFetching: false });
   library.collections.refetch.mockClear(); library.refetchRecipes.mockClear(); library.refetchSaved.mockClear();
 });
@@ -194,6 +199,32 @@ describe.each([
         (instance) => instance.props.accessibilityLabel?.startsWith('Recipe needs'),
       )).toHaveLength(0);
     } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+});
+
+describe('Library card VoiceOver focus', () => {
+  it.each([false, true])('focuses the labelled card, not its long-press wrapper (grid: %s)', async (isGrid) => {
+    library.isGrid = isGrid;
+    library.cached = [recipe('needs_review')];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const row = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(HistoryScreen)));
+      const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
+      await act(async () => row.render(list.props.renderItem({ item: library.cached[0], index: 0 })));
+
+      const wrapper = row.container.queryAll(instance => instance.type === 'TouchableOpacity' && !!instance.props.onLongPress)[0];
+      expect(wrapper.props.accessible).toBe(false);
+      const card = row.container.queryAll(instance => instance.type === 'ScalePressable')[0];
+      expect(card.props.accessibilityRole).toBe('button');
+      expect(card.props.accessibilityLabel).toBe(
+        'Chicken Kelaguen, Some recipe details are uncertain, Website, Saved',
+      );
+      expect(card.props.accessibilityState).toBeUndefined();
+    } finally {
+      await act(async () => row.unmount());
       await act(async () => renderer.unmount());
     }
   });

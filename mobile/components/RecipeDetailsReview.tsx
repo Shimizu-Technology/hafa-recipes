@@ -124,7 +124,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                             accessibilityState={{ selected: units[issue.path] === '' }}
                             accessibilityLabel={`No unit for ${ingredient.name}`}
                           >
-                            <Text style={{ color: colors.tint }}>{units[issue.path] === '' ? 'No unit selected' : 'No unit'}</Text>
+                            <Text style={{ color: colors.actionText }}>{units[issue.path] === '' ? 'No unit selected' : 'No unit'}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -139,7 +139,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                       accessibilityRole="checkbox" accessibilityState={{ checked: accepted.has(issue.path) }}
                       accessibilityLabel={amount?.isEstimate ? `Keep AI estimate for ${ingredient.name}` : `Confirm the source gives no amount for ${ingredient.name}`}
                     >
-                      <Ionicons name={accepted.has(issue.path) ? 'checkbox' : 'square-outline'} size={22} color={colors.tint} />
+                      <Ionicons name={accepted.has(issue.path) ? 'checkbox' : 'square-outline'} size={22} color={colors.actionText} />
                       <Text style={[styles.acceptText, { color: colors.text }]}>{amount?.isEstimate ? 'Keep AI estimate' : 'The source doesn’t give an amount'}</Text>
                     </TouchableOpacity>
                   </>
@@ -154,7 +154,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                     accessibilityRole="checkbox" accessibilityState={{ checked: resolvedIssues.has(issue.id) }}
                     accessibilityLabel={`Confirm you checked: ${issue.message}`}
                   >
-                    <Ionicons name={resolvedIssues.has(issue.id) ? 'checkbox' : 'square-outline'} size={22} color={colors.tint} />
+                    <Ionicons name={resolvedIssues.has(issue.id) ? 'checkbox' : 'square-outline'} size={22} color={colors.actionText} />
                     <Text style={[styles.acceptText, { color: colors.text }]}>I checked this detail</Text>
                   </TouchableOpacity>
                 )}

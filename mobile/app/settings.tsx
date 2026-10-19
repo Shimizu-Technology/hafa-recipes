@@ -11,7 +11,7 @@ import { View, Text, Card, SectionHeader, Divider, useColors } from '@/component
 import { BrandMark } from '@/components/BrandMark';
 import { SettingsProfileCard } from '@/components/SettingsProfileCard';
 import { useRecipeCount } from '@/hooks/useRecipes';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, SHOW_DEVELOPER_TOOLS } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { clearAllOfflineGroceryData } from '@/lib/offlineStorage';
@@ -53,7 +53,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
     >
       <RNView style={styles.menuItemLeft}>
         <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name={icon} size={18} color={colors.tint} />
+          <Ionicons name={icon} size={18} color={colors.actionText} />
         </RNView>
         <Text style={[styles.menuLabel, { color: colors.text }]}>{label}</Text>
       </RNView>
@@ -464,7 +464,7 @@ export default function SettingsScreen() {
               accessibilityRole="button"
             >
               <RNView style={styles.pickerLeft}>
-                <Ionicons name="notifications-outline" size={20} color={colors.tint} style={styles.pickerIcon} />
+                <Ionicons name="notifications-outline" size={20} color={colors.actionText} style={styles.pickerIcon} />
                 <RNView>
                   <Text style={[styles.pickerLabel, { color: colors.text }]}>Timer Sound</Text>
                   <Text style={[styles.pickerValue, { color: colors.textMuted }]}>
@@ -485,7 +485,7 @@ export default function SettingsScreen() {
               accessibilityRole="button"
             >
               <RNView style={styles.pickerLeft}>
-                <Ionicons name="mic-outline" size={20} color={colors.tint} style={styles.pickerIcon} />
+                <Ionicons name="mic-outline" size={20} color={colors.actionText} style={styles.pickerIcon} />
                 <RNView>
                   <Text style={[styles.pickerLabel, { color: colors.text }]}>AI Voice</Text>
                   <Text style={[styles.pickerValue, { color: colors.textMuted }]}>
@@ -535,7 +535,7 @@ export default function SettingsScreen() {
                     <Ionicons
                       name={sound.id === 'none' ? 'volume-mute-outline' : sound.id === 'alarm' ? 'alarm-outline' : 'notifications-outline'}
                       size={20}
-                      color={colors.tint}
+                      color={colors.actionText}
                       style={styles.pickerOptionIcon}
                     />
                     <RNView>
@@ -544,7 +544,7 @@ export default function SettingsScreen() {
                     </RNView>
                   </RNView>
                   {soundPreference === sound.id && (
-                    <Ionicons name="checkmark" size={20} color={colors.tint} />
+                    <Ionicons name="checkmark" size={20} color={colors.actionText} />
                   )}
                 </TouchableOpacity>
               ))}
@@ -584,14 +584,14 @@ export default function SettingsScreen() {
                     }}
                   >
                     <RNView style={styles.pickerOptionLeft}>
-                      <Ionicons name="mic-outline" size={20} color={colors.tint} style={styles.pickerOptionIcon} />
+                      <Ionicons name="mic-outline" size={20} color={colors.actionText} style={styles.pickerOptionIcon} />
                       <RNView>
                         <Text style={[styles.pickerOptionLabel, { color: colors.text }]}>{voiceOption.name}</Text>
                         <Text style={[styles.pickerOptionDesc, { color: colors.textMuted }]}>{voiceOption.description}</Text>
                       </RNView>
                     </RNView>
                     {ttsVoice === voiceOption.id && (
-                      <Ionicons name="checkmark" size={20} color={colors.tint} />
+                      <Ionicons name="checkmark" size={20} color={colors.actionText} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -600,64 +600,66 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </Modal>
 
-        {/* Developer Section - Collapsible in Card */}
-        <RNView style={styles.section}>
-          <SectionHeader title="Developer" />
-          <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
-            <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
-              onPress={() => setShowDeveloper(!showDeveloper)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: showDeveloper }}
-            >
-              <RNView style={styles.menuItemLeft}>
-                <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
-                  <Ionicons name="construct-outline" size={18} color={colors.tint} />
+        {/* Developer Section - development and preview builds only */}
+        {SHOW_DEVELOPER_TOOLS && (
+          <RNView style={styles.section}>
+            <SectionHeader title="Developer" />
+            <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
+              <TouchableOpacity
+                style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
+                onPress={() => setShowDeveloper(!showDeveloper)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showDeveloper }}
+              >
+                <RNView style={styles.menuItemLeft}>
+                  <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
+                    <Ionicons name="construct-outline" size={18} color={colors.actionText} />
+                  </RNView>
+                  <Text style={[styles.menuLabel, { color: colors.text }]}>
+                    {showDeveloper ? 'Hide Developer Tools' : 'Show Developer Tools'}
+                  </Text>
                 </RNView>
-                <Text style={[styles.menuLabel, { color: colors.text }]}>
-                  {showDeveloper ? 'Hide Developer Tools' : 'Show Developer Tools'}
-                </Text>
-              </RNView>
-              <Ionicons
-                name={showDeveloper ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
-            {showDeveloper && (
-              <>
-                <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                <MenuItem
-                  icon="library-outline"
-                  label="API Documentation"
-                  onPress={handleOpenAPI}
-                  colors={colors}
+                <Ionicons
+                  name={showDeveloper ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.textMuted}
                 />
-                <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                <MenuItem
-                  icon="link-outline"
-                  label="API URL"
-                  value={API_BASE_URL.replace('http://', '').replace('https://', '')}
-                  colors={colors}
-                />
-                <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-                <MenuItem
-                  icon="bug-outline"
-                  label="Test Sentry Error Reporting"
-                  onPress={() => {
-                    captureMessage('Test from Håfa Recipes Settings!', 'info', {
-                      tags: { screen: 'settings', test: 'true' },
-                      extra: { user: user?.primaryEmailAddress?.emailAddress || 'not signed in' },
-                    });
-                    Alert.alert('Sent!', 'Test event sent to Sentry. Check your dashboard!');
-                  }}
-                  colors={colors}
-                />
-              </>
-            )}
+              </TouchableOpacity>
+              {showDeveloper && (
+                <>
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                  <MenuItem
+                    icon="library-outline"
+                    label="API Documentation"
+                    onPress={handleOpenAPI}
+                    colors={colors}
+                  />
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                  <MenuItem
+                    icon="link-outline"
+                    label="API URL"
+                    value={API_BASE_URL.replace('http://', '').replace('https://', '')}
+                    colors={colors}
+                  />
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                  <MenuItem
+                    icon="bug-outline"
+                    label="Test Sentry Error Reporting"
+                    onPress={() => {
+                      captureMessage('Test from Håfa Recipes Settings!', 'info', {
+                        tags: { screen: 'settings', test: 'true' },
+                        extra: { signedIn: Boolean(user) },
+                      });
+                      Alert.alert('Sent!', 'Test event sent to Sentry. Check your dashboard!');
+                    }}
+                    colors={colors}
+                  />
+                </>
+              )}
+            </RNView>
           </RNView>
-        </RNView>
+        )}
 
         {/* About Section */}
         <RNView style={styles.section}>
@@ -803,7 +805,7 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.developerText, { color: colors.textMuted }]}>
             Made in Guam by{' '}
-            <Text style={[styles.developerLink, { color: colors.tint }]}>
+            <Text style={[styles.developerLink, { color: colors.actionText }]}>
               Shimizu Technology
             </Text>
           </Text>
@@ -824,7 +826,7 @@ export default function SettingsScreen() {
           {/* Modal Header */}
           <RNView style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
             <TouchableOpacity onPress={() => setShowProfileModal(false)} accessibilityRole="button">
-              <Text style={[styles.modalCancel, { color: colors.tint }]}>Cancel</Text>
+              <Text style={[styles.modalCancel, { color: colors.actionText }]}>Cancel</Text>
             </TouchableOpacity>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Profile</Text>
             <TouchableOpacity
@@ -835,9 +837,9 @@ export default function SettingsScreen() {
               accessibilityState={{ disabled: isSavingProfile, busy: isSavingProfile }}
             >
               {isSavingProfile ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Text style={[styles.modalSave, { color: colors.tint }]}>Save</Text>
+                <Text style={[styles.modalSave, { color: colors.actionText }]}>Save</Text>
               )}
             </TouchableOpacity>
           </RNView>

@@ -5,6 +5,7 @@ import {
   PRODUCTION_API_BASE_URL,
   resolveApiBaseUrl,
   resolveAppEnvironment,
+  showsDeveloperTools,
 } from './environmentConfig';
 
 describe('mobile environment configuration', () => {
@@ -101,5 +102,11 @@ describe('mobile environment configuration', () => {
       'DEVELOPMENT • localhost:8000',
     );
     expect(environmentLabel('production', PRODUCTION_API_BASE_URL)).toBeNull();
+  });
+
+  it('shows developer tools only outside production', () => {
+    expect(showsDeveloperTools('development')).toBe(true);
+    expect(showsDeveloperTools('preview')).toBe(true);
+    expect(showsDeveloperTools('production')).toBe(false);
   });
 });

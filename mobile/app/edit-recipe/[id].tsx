@@ -41,6 +41,7 @@ import {
 } from '@/lib/recipeFieldReview';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import { showToast } from '@/lib/toast';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
@@ -407,12 +408,15 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       if (!alive.current) return;
       
-      const message = updatedRecipe.review_state === 'source_incomplete'
-        ? 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.'
-        : 'Recipe updated.';
-      Alert.alert('Saved', message, [
-        { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
-      ]);
+      if (updatedRecipe.review_state === 'source_incomplete') {
+        // Kept private as a draft: an outcome to read, not a passing confirmation.
+        Alert.alert('Saved', 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.', [
+          { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
+        ]);
+        return;
+      }
+      router.back();
+      showToast({ message: 'Recipe updated', tone: 'success' });
     },
     onError: (error: unknown) => {
       if (!alive.current) return;
@@ -432,13 +436,12 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       if (!alive.current) return;
       
-      Alert.alert('Restored!', 'Recipe has been restored to the original version.', [
-        { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
-      ]);
+      router.back();
+      showToast({ message: 'Restored the original version', tone: 'success' });
     },
     onError: (error: Error) => {
       if (!alive.current) return;
-      Alert.alert('Error', error.message || 'Failed to restore recipe');
+      Alert.alert('Couldn’t restore the original', error.message || 'Your recipe wasn’t changed. Please try again.');
     },
   });
 
@@ -457,7 +460,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
     try {
       snapshot = createEditSnapshot();
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to prepare recipe');
+      Alert.alert('Check this recipe', error instanceof Error ? error.message : 'Some details couldn’t be prepared for saving.');
       return;
     }
 
@@ -513,7 +516,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       const response = await api.suggestTags(recipeTitle, ingredientNames);
       setTags(response.tags.join(', '));
     } catch (error) {
-      Alert.alert('Error', 'Failed to suggest tags. Please try again.');
+      Alert.alert('Couldn’t suggest tags', 'Please try again in a moment.');
     } finally {
       setIsGeneratingTags(false);
     }
@@ -548,7 +551,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       setNutritionModel(response.model);
       setEstimateInputsChanged(false);
     } catch (error) {
-      Alert.alert('Error', 'Failed to estimate nutrition. Please try again.');
+      Alert.alert('Couldn’t estimate nutrition', 'Please try again in a moment.');
     } finally {
       setIsEstimatingNutrition(false);
     }
@@ -750,7 +753,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   if (isLoadingRecipe) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.tint} />
+        <ActivityIndicator size="large" color={colors.actionText} />
         <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading recipe...</Text>
       </View>
     );
@@ -775,9 +778,9 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
               style={styles.saveButton}
             >
               {editMutation.isPending || isCheckingDisclosure ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
                   Save
                 </Text>
               )}
@@ -809,7 +812,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                     if (alive.current) setDraftRecipe(loadedRecipe ?? null);
                   } },
                 ],
-              )}><Text style={{ color: colors.tint }}>Reload latest recipe</Text></TouchableOpacity>
+              )}><Text style={{ color: colors.actionText }}>Reload latest recipe</Text></TouchableOpacity>
             </RNView>}
             {/* Image Section */}
             <TouchableOpacity
@@ -913,14 +916,14 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                   <Text style={[styles.sectionHint, { color: colors.textMuted }]}>Keep sauces, fillings, and sides organized.</Text>
                 </RNView>
                 <TouchableOpacity onPress={addComponent} style={styles.compactAddButton} accessibilityRole="button">
-                  <Ionicons name="add" size={18} color={colors.tint} />
-                  <Text style={[styles.compactAddText, { color: colors.tint }]}>Add part</Text>
+                  <Ionicons name="add" size={18} color={colors.actionText} />
+                  <Text style={[styles.compactAddText, { color: colors.actionText }]}>Add part</Text>
                 </TouchableOpacity>
               </RNView>
               {recipeComponents.map((component, index) => (
                 <RNView key={component.id} style={[styles.componentEditor, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
                   <RNView style={styles.componentTitleRow}>
-                    <Text style={[styles.componentNumber, { color: colors.tint }]}>Part {index + 1}</Text>
+                    <Text style={[styles.componentNumber, { color: colors.actionText }]}>Part {index + 1}</Text>
                     {recipeComponents.length > 1 && (
                       <TouchableOpacity
                         onPress={() => removeComponent(component.id)}
@@ -965,7 +968,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                   <RNView style={styles.ingredientHeader}>
                     <RNView style={styles.ingredientIdentity}>
                       <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
-                        <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                        <Text style={[styles.ingredientBadgeText, { color: colors.actionText }]}>{index + 1}</Text>
                       </RNView>
                       <TouchableOpacity
                         style={[styles.componentPill, { backgroundColor: colors.background, borderColor: colors.border }]}
@@ -1065,8 +1068,8 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 style={[styles.addButton, { borderColor: colors.tint }]}
                 onPress={() => selectComponent('Add ingredient', addIngredient)}
               >
-                <Ionicons name="add" size={20} color={colors.tint} />
-                <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Ingredient</Text>
+                <Ionicons name="add" size={20} color={colors.actionText} />
+                <Text style={[styles.addButtonText, { color: colors.actionText }]}>Add Ingredient</Text>
               </TouchableOpacity>
             </RNView>
 
@@ -1080,7 +1083,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 <RNView key={step.id} style={styles.stepCard}>
                   <RNView style={styles.stepRow}>
                     <RNView style={styles.stepIdentity}>
-                      <Text style={[styles.stepNumber, { color: colors.tint }]}>{index + 1}.</Text>
+                      <Text style={[styles.stepNumber, { color: colors.actionText }]}>{index + 1}.</Text>
                       <TouchableOpacity
                         style={[styles.stepComponentButton, { borderColor: colors.border }]}
                         onPress={() => selectComponent('Move instruction', componentId => {
@@ -1122,8 +1125,8 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 style={[styles.addButton, { borderColor: colors.tint }]}
                 onPress={() => selectComponent('Add instruction', addStep)}
               >
-                <Ionicons name="add" size={20} color={colors.tint} />
-                <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Step</Text>
+                <Ionicons name="add" size={20} color={colors.actionText} />
+                <Text style={[styles.addButtonText, { color: colors.actionText }]}>Add Step</Text>
               </TouchableOpacity>
             </RNView>
 
@@ -1217,7 +1220,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
                 <Ionicons 
                   name={isPublic ? "globe-outline" : "lock-closed-outline"} 
                   size={24} 
-                  color={isPublic ? colors.tint : colors.textMuted} 
+                  color={isPublic ? colors.actionText : colors.textMuted} 
                 />
                 <RNView style={styles.toggleTextContainer}>
                   <Text style={[styles.toggleTitle, { color: colors.text }]}>
@@ -1231,7 +1234,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
               <Ionicons
                 name={isPublic ? "checkmark-circle" : "ellipse-outline"}
                 size={28}
-                color={isPublic ? colors.tint : colors.textMuted}
+                color={isPublic ? colors.actionText : colors.textMuted}
               />
             </TouchableOpacity>
 
