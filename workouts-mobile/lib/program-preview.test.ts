@@ -68,3 +68,18 @@ it.each([["ready", "Good to know"], ["needs_information", "Before this plan is r
     expect(lines.slice(start + 1, start + 3)).toEqual(["• Which days suit you?", "• Load is not inferred; qualified programming review is pending."]);
     expect(lines.join(" ")).not.toContain("D03");
   });
+
+it("shows workout instructions, private notes and rest between rounds", async () => {
+  const base = workout("user", [{ name: "Row", sets: 3 }]);
+  const lines = await render([{
+    ...base,
+    instructions: ["Move quickly between stations."],
+    notes: ["Use the blue band."],
+    blocks: [{ ...base.blocks[0], grouping: "circuit", rounds: 3, rest_between_rounds_seconds: 90 }],
+  } as Workout]);
+  expect(lines).toContain("Workout instructions");
+  expect(lines).toContain("Move quickly between stations.");
+  expect(lines).toContain("Private notes · only you");
+  expect(lines).toContain("Use the blue band.");
+  expect(lines.some((line) => line.includes("90s between rounds"))).toBe(true);
+});
