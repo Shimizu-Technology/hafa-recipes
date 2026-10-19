@@ -535,6 +535,7 @@ export default function Training() {
           description={timed ? "Review your recorded work, then explicitly save. Skipped work and tracking limits stay partial." : "Nice work. Review your recorded work below, then save the session. Skipped sets stay visible as partial training."}
         />
       )}
+      {!step && <Button title="Workout instructions" variant="ghost" onPress={() => setInstructionsOpen(true)} />}
       {!!reminders.state.error && (
         <Notice>Optional rest alert could not be updated. The in-app timer still works. {reminders.state.error}</Notice>
       )}
@@ -592,7 +593,6 @@ export default function Training() {
         {timed && <Copy kind="small" tone="muted">Repeat the circuit until the time cap. Log each exercise as you go; pause when you need to step away.</Copy>}
       </Sheet>
       <Sheet visible={more} onClose={() => setMore(false)} title="Session">
-        <ListRow title="Workout instructions" icon="document-text-outline" onPress={() => { setMore(false); setInstructionsOpen(true); }} />
         {step && e && (
           <>
             <ListRow

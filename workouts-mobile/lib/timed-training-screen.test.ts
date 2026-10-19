@@ -133,6 +133,23 @@ it("offers deliberate partial-finish choices and keeps typed details when traini
   expect(field("Actual reps").props.value).toBe("8");
   expect(fixture.store!.snapshot().active!.input).toMatchObject({ reps: "8", notes: "Last effort" });
 });
+
+it("opens instructions directly after the final set without transitioning between native sheets", async () => {
+  const fixed: Workout = { ...workout, instructions: ["Rest between rounds"], blocks: [{
+    id: "main", label: "Session", grouping: "sequential", exercises: [{ name: "Squat", sets: 1, reps_min: 8 }],
+  }] };
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(fixed, { workout_id: "source", workout_revision: 1 }, "fixed-client");
+  }); await settle();
+  await act(async () => { field("Actual reps").props.onChange("8"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.cursor).toBe(1);
+  await act(async () => { action("Workout instructions").props.onPress(); }); await settle();
+  expect(renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Workout instructions")!.props.visible).toBe(true);
+  expect(renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Session")!.props.visible).toBe(false);
+  expect(text()).toContain("Rest between rounds");
+});
 it("logs the typed entry before finishing a partial session without duplicating after a failed finish", async () => {
   await recordedThenTyped();
   await act(async () => { partial().props.onPress(); }); await settle();
