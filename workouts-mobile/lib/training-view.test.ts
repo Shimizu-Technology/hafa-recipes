@@ -57,8 +57,9 @@ describe("exerciseSets", () => {
 
 describe("prefill", () => {
   const steps = stepsFor(workout([{ id: "a", label: "A", grouping: "sequential", exercises: [{ name: "Squat", sets: 3, reps_min: 8 }] }]));
-  it("uses the prescription top of range, else the previous set", () => {
-    expect(prefillFor({ name: "Squat", reps_min: 8, reps_max: 12 }, null, "metric")).toEqual({ reps: "12" });
+  it("uses the bottom of the prescribed range, else the previous set", () => {
+    expect(prefillFor({ name: "Squat", reps_min: 8, reps_max: 12 }, null, "metric")).toEqual({ reps: "8" });
+    expect(prefillFor({ name: "Squat", reps_max: 12 }, null, "metric")).toEqual({ reps: "12" });
     expect(prefillFor({ name: "Squat", reps_min: 8 }, done(steps[0], { reps: 6 }), "metric")).toEqual({ reps: "8" });
     expect(prefillFor({ name: "Squat" }, done(steps[0], { reps: 6 }), "metric")).toEqual({ reps: "6" });
     expect(prefillFor({ name: "Plank", duration_seconds: 45 }, null, "metric")).toEqual({ seconds: "45" });
@@ -106,11 +107,17 @@ it("shows rest done briefly after the timer reaches zero", () => {
 });
 
 describe("inferActivityType", () => {
+  const timed = (name: string) => workout([{ id: "a", label: "A", grouping: "sequential", exercises: [{ name, duration_seconds: 60 }] }]);
   it("defaults to strength and recognises distance or time cardio", () => {
     expect(inferActivityType(workout([{ id: "a", label: "A", grouping: "sequential", exercises: [{ name: "Squat", reps_min: 5 }] }])))
       .toBe("strength_training");
-    expect(inferActivityType(workout([{ id: "a", label: "A", grouping: "sequential", exercises: [{ name: "Plank", duration_seconds: 60 }] }])))
-      .toBe("strength_training");
+    expect(inferActivityType(timed("Plank"))).toBe("general_fitness");
+    expect(inferActivityType(timed("Plank walkout"))).toBe("general_fitness");
+    expect(inferActivityType(timed("Walk-out to push-up"))).toBe("general_fitness");
+    expect(inferActivityType(timed("Walk outs"))).toBe("general_fitness");
+    expect(inferActivityType(timed("Walking lunge hold"))).toBe("walking");
+    expect(inferActivityType(timed("Runway shuffle"))).toBe("general_fitness");
+    expect(inferActivityType(timed("Running intervals"))).toBe("running");
     expect(inferActivityType(workout([{ id: "a", label: "A", grouping: "interval", exercises: [{ name: "Easy jog", duration_seconds: 600 }] }])))
       .toBe("running");
     expect(inferActivityType(workout([{ id: "a", label: "A", grouping: "sequential", exercises: [{ name: "Repeats", distance_meters: 400 }] }])))

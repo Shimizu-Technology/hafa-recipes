@@ -62,7 +62,8 @@ const decimal = (value: number, places = 2) => String(Number(value.toFixed(place
 /** Starting values for a set: the prescription first, then the previous logged set. Strings match the input record. */
 export function prefillFor(exercise: ExercisePrescription, previous: ActualSet | null, units: UnitSystem) {
   const prefill: Record<string, string> = {};
-  const reps = exercise.reps_max ?? exercise.reps_min ?? previous?.reps;
+  // The bottom of a range: a one-tap log must never claim top-of-range reps the user did not confirm.
+  const reps = exercise.reps_min ?? exercise.reps_max ?? previous?.reps;
   if (reps != null) prefill.reps = String(reps);
   const seconds = exercise.duration_seconds ?? previous?.duration_seconds;
   if (seconds != null) prefill.seconds = String(seconds);
@@ -109,15 +110,21 @@ export const activityTypes = [
   { value: "basketball", label: "Basketball" },
 ] as const;
 
-/** Strength by default; running or walking when every exercise is distance or time cardio. */
+const running = /\b(run(s|ning)?|jog(s|ging)?|sprints?)\b/i;
+// "Walk", "walks", "walking", but not "walkout" or "walk-out".
+const walking = /\bwalk(s|ing)?\b(?![-\s]?outs?\b)/i;
+/**
+ * Strength by default. Sessions made only of timed or distance work are running or walking when named so
+ * (or measured by distance), otherwise general fitness.
+ */
 export function inferActivityType(workout: Workout) {
   const exercises = workout.blocks.flatMap((b) => b.exercises);
   const cardio = exercises.length > 0 && exercises.every((e) =>
     (e.distance_meters != null || e.duration_seconds != null) && e.reps_min == null && e.reps_max == null && e.load == null);
+  if (!cardio) return "strength_training";
   const names = exercises.map((e) => e.name).join(" ");
-  if (!cardio || !(exercises.some((e) => e.distance_meters != null) || /\b(run|jog|walk|sprint)/i.test(names)))
-    return "strength_training";
-  return /\bwalk/i.test(names) && !/\b(run|jog|sprint)/i.test(names) ? "walking" : "running";
+  if (walking.test(names) && !running.test(names)) return "walking";
+  return running.test(names) || exercises.some((e) => e.distance_meters != null) ? "running" : "general_fitness";
 }
 
 /** Totals for the post-session summary. */

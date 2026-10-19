@@ -33,7 +33,7 @@ import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStruc
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 import { NumberStepper } from "@/components/training/number-stepper";
-import { LastLogged, RestDone, SetProgress } from "@/components/training/session-parts";
+import { LastLogged, RestDone, SetProgress, announce } from "@/components/training/session-parts";
 import {
   activityTypes, blockLabel, entryValues, exerciseSets, inferActivityType, prefillFor, restPhase, sessionPrevious,
   sessionSummary, setPosition, type Metric,
@@ -50,6 +50,8 @@ function ActivityPicker({ value, onChange }: { value: string; onChange(type: str
     </>
   );
 }
+// Survives remounts, so returning to the screen within the "Rest done" window does not alert twice.
+let alertedRest = "";
 export default function Training() {
   const { api, units, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const { store, state, ready, error: restoreError, retry } = useOfflineTraining();
@@ -82,14 +84,15 @@ export default function Training() {
   const [moreInstructions, setMoreInstructions] = useState(false);
   const [summary, setSummary] = useState<(ReturnType<typeof sessionSummary> & { partial: boolean }) | null>(null);
   const finishing = useRef(false);
-  const restAlerted = useRef<number | null>(null);
   const phase = restPhase(d?.rest_until ?? null, now);
   useEffect(() => {
-    // One success haptic when a rest runs out on its own; "End rest" clears the timer instead.
-    if (phase === "done" && d?.rest_until != null && restAlerted.current !== d.rest_until && sameSession()) {
-      restAlerted.current = d.rest_until;
-      haptics.success();
-    }
+    // One alert when a rest runs out on its own; "End rest" clears the timer instead.
+    const key = `${d?.id}:${d?.rest_until}`;
+    if (phase !== "done" || d?.rest_until == null || alertedRest === key || !sameSession()) return;
+    alertedRest = key;
+    announce("Rest done");
+    // An enabled device rest alert already plays in the foreground; don't double it with a haptic.
+    if (!(reminders.state.settings.rest_enabled && reminders.state.permission === "granted")) haptics.success();
   }, [phase, d?.rest_until]);
   useLayoutEffect(() => { setSummary(null); finishing.current = false; }, [scope]);
   useEffect(() => {
@@ -245,6 +248,7 @@ export default function Training() {
     await store.log(actual);
     if (!sameSession()) return;
     Keyboard.dismiss(); // Never leave the keyboard over the rest timer.
+    announce(completed ? `Logged ${e?.name ?? "set"}. ${summaryOf(actual)}` : `Skipped ${e?.name ?? "set"}`);
     // Cursor hydration or a newer edit may already own these shared UI refs.
     // Ownership follows the input object, rather than depending on cursor movement.
     if (inputRef.current === submitted) {
@@ -255,10 +259,10 @@ export default function Training() {
   }
   async function finish(status: "completed" | "partial", discardUnlogged = false) {
     if (!current() || store!.snapshot().active?.id !== d!.id) throw Error("This session changed. Review the current session before finishing.");
-    if (!store!.snapshot().active?.activity_type) await store!.activityType(activity);
     finishing.current = true;
     try {
-      await store!.finish(status, undefined, discardUnlogged ? "discard" : "keep");
+      // The inferred type is passed through, not stored, so a failed finish leaves no "chosen" type behind.
+      await store!.finish(status, undefined, discardUnlogged ? "discard" : "keep", activity);
     } catch (failure) {
       finishing.current = false;
       throw failure;
@@ -440,6 +444,7 @@ export default function Training() {
         <LastLogged
           title={`${last.completed ? "Logged" : "Skipped"} · ${lastName ?? "Exercise"}${timed ? "" : `, set ${last.set_index}`}`}
           summary={last.completed ? summaryOf(last) : "No result recorded"}
+          skipped={!last.completed}
           disabled={busy}
           onUndo={canUndo ? () => { void run(() => store.undo()); } : undefined}
         />

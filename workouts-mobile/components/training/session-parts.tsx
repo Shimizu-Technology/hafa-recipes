@@ -1,8 +1,13 @@
-import { View } from "react-native";
+import { AccessibilityInfo, Platform, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { radii } from "@/constants/theme";
 import type { SetMark } from "@/lib/training-view";
 import { Button, Copy, Grow, Row, useColors } from "@/components/ui";
+
+/** iOS has no live regions; announce changes explicitly there. Android uses accessibilityLiveRegion. */
+export function announce(message: string) {
+  if (Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(message);
+}
 
 const stateWords = { done: "done", skipped: "skipped", current: "current", upcoming: "upcoming" } as const;
 
@@ -33,13 +38,13 @@ export function SetProgress({ sets }: { sets: SetMark[] }) {
 }
 
 /** Inline confirmation for the most recent logged set, with Undo. */
-export function LastLogged({ title, summary, onUndo, disabled }: {
-  title: string; summary: string; onUndo?: () => void; disabled?: boolean;
+export function LastLogged({ title, summary, skipped = false, onUndo, disabled }: {
+  title: string; summary: string; skipped?: boolean; onUndo?: () => void; disabled?: boolean;
 }) {
   const c = useColors();
   return (
     <Row gap={10} style={{ minHeight: 48 }}>
-      <Ionicons name="checkmark-circle" size={24} color={c.success} />
+      <Ionicons name={skipped ? "remove-circle-outline" : "checkmark-circle"} size={24} color={skipped ? c.muted : c.success} />
       <Grow>
         <View accessible accessibilityRole="text" accessibilityLiveRegion="polite" accessibilityLabel={`${title}. ${summary}`}>
           <Copy kind="label" numberOfLines={1}>{title}</Copy>
