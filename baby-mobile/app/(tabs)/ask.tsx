@@ -68,7 +68,7 @@ export default function Ask() {
       <Copy kind="small" tone="muted">
         {chat.context.child_id
           ? "For " + (b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id)?.name ?? "the conversation’s child profile")
-          : "General / personal context"}
+          : focused ? "General / personal entry" : "All your entries"}
       </Copy>
       {chat.resolving && !busy && (
         <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />
