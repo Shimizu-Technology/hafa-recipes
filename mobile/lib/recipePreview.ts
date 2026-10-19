@@ -47,8 +47,8 @@ function search(value: unknown, id: string, depth: number): RecipePreview | null
   if (record.id === id && typeof record.title === 'string' && record.title.trim()) {
     return toPreview(record);
   }
-  // Infinite pages, paginated responses, and ingredient-match results.
-  for (const key of ['pages', 'items', 'recipe'] as const) {
+  // Infinite pages, paginated responses, ingredient-search responses and their matches.
+  for (const key of ['pages', 'items', 'results', 'recipe'] as const) {
     if (key in record) {
       const found = search(record[key], id, depth + 1);
       if (found) return found;

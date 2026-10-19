@@ -3,7 +3,7 @@ import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
 import { useState, useMemo, useEffect } from 'react';
 import { useRecipeTabScroll } from '@/hooks/useRecipeTabScroll';
-import { recipeCost, recipeLoadError, canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
+import { recipeCost, recipeLoadError, recipeDetailView } from '@/lib/recipeDetailPresentation';
 import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
 import {
   StyleSheet,
@@ -604,11 +604,12 @@ export default function RecipeDetailScreen() {
     ? getRecipeVisibilityPresentation(recipe.is_public, recipe.moderation_status)
     : null;
 
-  if (isLoading && preview) {
+  const view = recipeDetailView({ isLoading, hasPreview: !!preview, hasRecipe: !!recipe, error });
+  if (view === 'preview' && preview) {
     return <RecipeDetailPreview preview={preview} />;
   }
 
-  if (isLoading) {
+  if (view === 'loading') {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.actionText} />
@@ -619,7 +620,7 @@ export default function RecipeDetailScreen() {
     );
   }
 
-  if (!recipe || (error && !canRetainRecipeOnError(error))) {
+  if (view === 'unavailable' || !recipe) {
     const loadError = recipeLoadError(error);
     return (
       <View style={styles.centerContainer}>

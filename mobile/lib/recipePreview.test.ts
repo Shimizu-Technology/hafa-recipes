@@ -35,6 +35,11 @@ describe('findRecipePreview', () => {
     expect(findRecipePreview([[{ recipe: card('d'), matched_ingredients: [] }]], 'd')?.title).toBe('Recipe d');
   });
 
+  it('finds cards in cached ingredient-search responses', () => {
+    const response = { results: [{ recipe: card('e'), matched_ingredients: ['lemon'], missing_ingredients: [] }], total: 1 };
+    expect(findRecipePreview([response], 'e')?.title).toBe('Recipe e');
+  });
+
   it('never carries ownership, visibility or editing fields', () => {
     const preview = findRecipePreview([[card('a')]], 'a');
     expect(Object.keys(preview ?? {}).sort()).toEqual(['id', 'servings', 'sourceUrl', 'thumbnailUrl', 'title', 'totalTime']);
