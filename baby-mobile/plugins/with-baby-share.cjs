@@ -10,6 +10,48 @@ const storeMarker = "// HAFA BABY SHARED STORE v1 SHA256 ";
 const helper = fs.readFileSync(path.join(__dirname, "BabySharePreprocessing.swift"), "utf8").trim();
 const helperStart = "// BEGIN HAFA BABY SAFARI DECODER v1";
 const helperEnd = "// END HAFA BABY SAFARI DECODER v1";
+const lifecycleStart = "  // BEGIN HAFA BABY PRESENTED SHARE v1";
+const lifecycleEnd = "  // END HAFA BABY PRESENTED SHARE v1";
+const upstreamLifecycle = `  override func viewDidLoad() {
+    super.viewDidLoad()
+    if hideView {
+      view.backgroundColor = .clear
+      view.isOpaque = false
+      handleViewLoad()
+    }
+  }
+
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    if !hideView {
+      handleViewLoad()
+    }
+  }
+
+`;
+const presentedLifecycle = `${lifecycleStart}
+  private var babyShareStarted = false
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    if hideView {
+      view.backgroundColor = .clear
+      view.isOpaque = false
+    }
+    // Acquire the privacy epoch before presentation or any provider work.
+    _ = prepareBabyShare()
+  }
+
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    // Completion must wait for the source app's share presentation to finish.
+    // A failed early preparation must never retry with a newer privacy epoch.
+    guard !babyShareStarted, babyProducer != nil else { return }
+    babyShareStarted = true
+    handleViewLoad()
+  }
+${lifecycleEnd}
+
+`;
 const handler = `  private func handlePrepocessing(content: NSExtensionItem, attachment: NSItemProvider, index: Int)
     async
   {
@@ -191,8 +233,20 @@ function patchShareController(text) {
       !parts[0].includes(storeSource)
     )
       throw Error("Håfa Baby shared store changed; refusing partial generation.");
+    if (!parts[0].includes(presentedLifecycle))
+      throw Error("Håfa Baby share lifecycle changed; run a clean prebuild before generating.");
     return text;
   }
+  const lifecycleFirst = text.indexOf("  override func viewDidLoad()"),
+    lifecycleLast = text.indexOf("  private func handleViewLoad()");
+  if (
+    text.split("  override func viewDidLoad()").length !== 2 ||
+    text.split("  override func viewDidAppear(").length !== 2 ||
+    lifecycleLast <= lifecycleFirst ||
+    normalizedMethod(text.slice(lifecycleFirst, lifecycleLast)) !== normalizedMethod(upstreamLifecycle)
+  )
+    throw Error("Håfa Baby share lifecycle changed; refusing unsafe generation.");
+  text = text.slice(0, lifecycleFirst) + presentedLifecycle + text.slice(lifecycleLast);
   const start = "  private func handlePrepocessing(";
   const end = "  private func handlePkPass(";
   if (text.split(start).length !== 2 || text.split(end).length !== 2)

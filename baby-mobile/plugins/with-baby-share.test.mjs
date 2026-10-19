@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -34,6 +35,32 @@ describe("generated Safari preprocessing", () => {
     const first = patchShareController(upstream);
     expect(patchShareController(first)).toBe(first);
     expect(first.match(/private let babyCaptureId/g)).toHaveLength(1);
+  });
+  it("defers provider work until presentation finishes and rejects stale generated lifecycles", () => {
+    const output = patchShareController(upstream);
+    const start = output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1");
+    const end = output.indexOf("  private func handleViewLoad()");
+    const lifecycle = output.slice(start, end);
+    expect(lifecycle).toContain("_ = prepareBabyShare()");
+    expect(lifecycle.slice(0, lifecycle.indexOf("override func viewDidAppear"))).not.toContain(
+      "handleViewLoad()"
+    );
+    expect(lifecycle).toContain("guard !babyShareStarted, babyProducer != nil else { return }");
+    expect(lifecycle.indexOf("babyShareStarted = true")).toBeLessThan(lifecycle.indexOf("    handleViewLoad()"));
+    expect(patchShareController(output)).toBe(output);
+    expect(() => patchShareController(upstream.replace("    if !hideView {", "    if hideView {"))).toThrow(
+      "lifecycle changed"
+    );
+    // Reconstruct the previous valid generated controller, including a valid
+    // body checksum and the identical store. It must request clean generation.
+    const upstreamLifecycle = upstream.slice(
+      upstream.indexOf("  override func viewDidLoad()"),
+      upstream.indexOf("  private func handleViewLoad()")
+    );
+    const marker = "// HAFA BABY SHARED STORE v1 SHA256 ";
+    const oldBody = output.split(marker)[0].replace(lifecycle, upstreamLifecycle);
+    const oldGenerated = oldBody + marker + createHash("sha256").update(oldBody).digest("hex") + "\n";
+    expect(() => patchShareController(oldGenerated)).toThrow("clean prebuild");
   });
   it("accepts the prior capture-receipt insertion in an otherwise unchanged upstream method", () => {
     const legacy = upstream.replaceAll(
@@ -197,6 +224,35 @@ describe("generated Safari preprocessing", () => {
         );
         expect(execFileSync(executable, { encoding: "utf8", timeout: 30_000 })).toContain(
           "native capture store cases passed"
+        );
+        const output = patchShareController(upstream);
+        const lifecycle = output.slice(
+          output.indexOf("  // BEGIN HAFA BABY PRESENTED SHARE v1"),
+          output.indexOf("  private func handleViewLoad()")
+        );
+        const preparation = output.slice(
+          output.indexOf("  private func prepareBabyShare()"),
+          output.indexOf("  private func abortBabyShare()")
+        );
+        const lifecycleTest = join(directory, "GeneratedLifecycleTests.swift");
+        writeFileSync(
+          lifecycleTest,
+          readFileSync(new URL("./__tests__/BabyShareLifecycleTests.swift", import.meta.url), "utf8")
+            .replace("/* GENERATED_PREPARATION */", preparation)
+            .replace("/* GENERATED_LIFECYCLE */", lifecycle)
+        );
+        execFileSync(
+          "swiftc",
+          [
+            fileURLToPath(new URL("../modules/hafa-baby-share/ios/BabyShareStore.swift", import.meta.url)),
+            lifecycleTest,
+            "-o",
+            executable,
+          ],
+          { timeout: 60_000 }
+        );
+        expect(execFileSync(executable, { encoding: "utf8", timeout: 10_000 })).toContain(
+          "24 native generated lifecycle cases passed"
         );
       } finally {
         rmSync(directory, { recursive: true, force: true });
