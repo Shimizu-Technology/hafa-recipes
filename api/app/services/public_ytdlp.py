@@ -110,7 +110,7 @@ class PublicRH(ImpersonateRequestHandler):
             client = httpx.Client(
                 transport=PublicSyncHTTPTransport(proxy=self.trusted_proxy),
                 cookies=self._get_cookiejar(request), trust_env=False,
-                follow_redirects=True, max_redirects=5,
+                follow_redirects=False, max_redirects=5,
                 timeout=min(self._calculate_timeout(request), 30),
             )
             headers = httpx.Headers(self._get_headers(request))
@@ -120,7 +120,19 @@ class PublicRH(ImpersonateRequestHandler):
             outgoing = client.build_request(
                 request.method, request.url, headers=headers, content=request.data,
             )
-            response = client.send(outgoing, stream=True)
+            # HTTPX eagerly reads intermediate bodies when following redirects.
+            # Keep its cookie/method/auth redirect rules, but discard each body
+            # before the next send revalidates its destination through transport.
+            for _ in range(6):  # Initial request plus at most five redirect hops.
+                response = client.send(outgoing, stream=True, follow_redirects=False)
+                if response.next_request is None:
+                    break
+                outgoing = response.next_request
+                response.close()
+            else:
+                raise httpx.TooManyRedirects(
+                    "Public media redirect limit reached", request=outgoing,
+                )
             headers = dict(response.headers)
             headers.pop("content-encoding", None)
             # Decoded bytes may differ from Content-Length on the wire.

@@ -194,14 +194,78 @@ def test_sole_handler_keeps_cookies_post_body_decoding_and_redirection(pinned_ha
     assert lookups == ["video.example", "video.example"]
 
 
+class UnreadRedirectBody(httpx.SyncByteStream):
+    """A redirect may advertise an unbounded body; only its headers are needed."""
+
+    def __init__(self):
+        self.reads, self.closed = 0, False
+
+    def __iter__(self):
+        self.reads += 1
+        raise AssertionError("An intermediate redirect body must not be read")
+        yield b""  # Make this a streaming iterator without allocating a body.
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.mark.parametrize("redirect_count", [1, 5, 6])
+def test_redirect_bodies_are_closed_unread_with_the_existing_five_hop_limit(
+    pinned_handler, redirect_count,
+):
+    responses, seen, lookups = pinned_handler
+    bodies = [UnreadRedirectBody() for _ in range(redirect_count)]
+    for index, body in enumerate(bodies):
+        responses[f"video.example/hop{index}"] = httpx.Response(
+            307, headers={"Location": f"/hop{index + 1}", "Content-Length": "999999999"},
+            stream=body,
+        )
+    responses[f"video.example/hop{redirect_count}"] = httpx.Response(200, content=b"final media")
+    with public.PublicYoutubeDL({"quiet": True}) as downloader:
+        if redirect_count <= 5:
+            with downloader.urlopen("https://video.example/hop0") as result:
+                assert result.url == f"https://video.example/hop{redirect_count}"
+                assert result.read() == b"final media"
+        else:
+            with pytest.raises(RequestError):
+                downloader.urlopen("https://video.example/hop0")
+    assert len(seen) == min(redirect_count + 1, 6)
+    assert lookups == ["video.example"] * len(seen)
+    assert all(body.closed and body.reads == 0 for body in bodies)
+
+
 def test_redirect_to_metadata_address_never_reaches_network(pinned_handler):
-    responses, seen, _ = pinned_handler
+    responses, seen, lookups = pinned_handler
+    body = UnreadRedirectBody()
     responses["video.example/start"] = httpx.Response(302, headers={
         "Location": "http://169.254.169.254/latest/meta-data",
-    })
+    }, stream=body)
     with public.PublicYoutubeDL({"quiet": True}) as downloader, pytest.raises(RequestError):
         downloader.urlopen("https://video.example/start")
     assert len(seen) == 1
+    assert lookups == ["video.example"] and body.closed and body.reads == 0
+
+
+def test_manual_redirect_keeps_httpx_cross_origin_auth_and_method_rules(pinned_handler):
+    responses, seen, lookups = pinned_handler
+    body = UnreadRedirectBody()
+    responses["video.example/start"] = httpx.Response(303, headers={
+        "Location": "https://alternate.example/final",
+        "Set-Cookie": "origin-session=synthetic; Path=/; Secure",
+    }, stream=body)
+    responses["alternate.example/final"] = httpx.Response(200, content=b"public media")
+    with public.PublicYoutubeDL({"quiet": True}) as downloader:
+        with downloader.urlopen(Request("https://video.example/start", data=b"post-body", headers={
+            "Authorization": "Bearer synthetic", "Cookie": "explicit-origin=synthetic",
+        })) as result:
+            assert result.read() == b"public media"
+    first, redirected = seen
+    assert first.method == "POST" and first.content == b"post-body"
+    assert redirected.method == "GET" and redirected.content == b""
+    assert "authorization" not in redirected.headers and "cookie" not in redirected.headers
+    assert redirected.headers["host"] == "alternate.example"
+    assert lookups == ["video.example", "alternate.example"]
+    assert body.closed and body.reads == 0
 
 
 def test_extractor_proxy_overrides_cannot_bypass_the_trusted_proxy(pinned_handler, monkeypatch):
