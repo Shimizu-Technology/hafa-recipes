@@ -2443,6 +2443,32 @@ it("reconnects the exact private recovery request after remount even when saving
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
 });
 
+it("describes a pending recovery command by its saved policy, not by capabilities that changed since", async () => {
+  fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
+  fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });
+  fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  expect(fixture.startImport.mock.calls[0][3]).toMatchObject({ auto_save: false, replace_target: { workout_id: "workout" } });
+  await unmount();
+  // Updates are now off and auto-save on, but the retry still resends the frozen in-place update.
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: false, server_auto_save: true });
+  await mount(RecoverWorkout);
+  expect(button("Reconnect recovery")).toBeDefined();
+  expect(recoveryNotice()).toContain("Your saved workout only changes after you review and save.");
+  await unmount();
+  // A frozen automatic private copy stays described as automatic after auto-save is switched off.
+  fixture.map.clear(); fixture.startImport.mockReset();
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  fixture.workout.mockResolvedValue({ ...workout, source_url: "https://example.test/source", blocks: [] });
+  fixture.startImport.mockRejectedValueOnce(Error("Lost acknowledgement"));
+  await mount(RecoverWorkout); await click("Recover as a private import");
+  expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: true, is_public: false });
+  await unmount();
+  fixture.capabilities.mockResolvedValue({ ...serverCaps, server_auto_save: false });
+  await mount(RecoverWorkout);
+  expect(recoveryNotice()).toContain("A separate private copy is saved to your library automatically.");
+});
+
 it("freezes the selected workout revision for reviewed re-extraction and retries it after remount", async () => {
   fixture.params = { id: "workout" }; fixture.capabilities.mockResolvedValue({ ...serverCaps, existing_workout_updates: true });
   fixture.workout.mockResolvedValue({ ...workout, revision: 4, source_url: "https://example.test/source" });

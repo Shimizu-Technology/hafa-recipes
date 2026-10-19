@@ -114,9 +114,9 @@ export default function RecoverWorkout() {
           {capabilities.data?.existing_workout_updates && <Choice label="Update this saved workout after review" selected={input.update_existing !== false} disabled={locked}
             detail="Turn off to create a separate private copy instead." onPress={() => update({ update_existing: input.update_existing === false })} />}
           <Copy kind="small">Paste the creator’s exercise names, reps, time and equipment. The caption works on its own if the video is gone.</Copy>
-          <Notice>Recovery sends this source to OpenAI. {input.update_existing !== false && capabilities.data?.existing_workout_updates === true
+          <Notice>Recovery sends this source to OpenAI. {(command ? !!command.replace_target : input.update_existing !== false && capabilities.data?.existing_workout_updates === true)
             ? "Your saved workout only changes after you review and save."
-            : capabilities.data?.server_auto_save === true
+            : (command ? command.auto_save : capabilities.data?.server_auto_save === true)
               ? "A separate private copy is saved to your library automatically."
               : "A separate private copy is saved after you review it."}</Notice>
           {command && <Notice>Your recovery request is saved on this device. Reconnect sends the same source and caption.</Notice>}
