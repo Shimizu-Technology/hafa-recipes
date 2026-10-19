@@ -7,7 +7,6 @@ from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import read_bytes
 from app.domains.baby.schemas import SourceData
-from app.services.video import public_video_service
 from app.domains.workouts.extraction import (
     ProductionSourceAcquirer,
     SourceBundle,
@@ -16,6 +15,7 @@ from app.domains.workouts.extraction import (
     SourcePart,
     _pdf_parts,
 )
+from app.services.video import public_video_service
 
 
 async def local_media(payload, mime, provider, *, may_use_ai, gate):

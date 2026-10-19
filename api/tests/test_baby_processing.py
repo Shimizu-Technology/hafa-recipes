@@ -18,6 +18,9 @@ async def test_import_keeps_text_and_only_accepts_actual_visual_locations(monkey
     )
 
     class Acquirer:
+        def __init__(self, *, video_service):
+            assert video_service is processing.public_video_service
+
         async def acquire(self, *args, **kwargs):
             return source
 
@@ -56,6 +59,9 @@ async def test_import_keeps_text_and_only_accepts_actual_visual_locations(monkey
 
 async def test_acquisition_failure_preserves_original_and_does_not_invent_content(monkeypatch):
     class Acquirer:
+        def __init__(self, *, video_service):
+            assert video_service is processing.public_video_service
+
         async def acquire(self, *args, **kwargs):
             raise ValueError("No public source available")
 
