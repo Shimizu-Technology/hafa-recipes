@@ -119,8 +119,10 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 - B11 General/focused AI, history, correct citations, missing evidence and safe errors.
 - B12 Review/apply an AI proposal; no record mutation before explicit acceptance.
 - B13 Private attachment reads, export, Baby product-only deletion, and shared
-  whole-account deletion. Product-only deletion clears Baby content and fences
-  older generations while retaining the shared account and other products.
+  whole-account deletion. Product-only deletion removes Baby records, profiles,
+  attachment metadata, imports and conversations, and queues private-media
+  deletion. Verify the private files are removed after cleanup completes. It
+  fences older generations while retaining the shared account and other products.
   Whole-account deletion removes Baby records, profiles, attachments, imports and
   conversations, queuing external identity/media cleanup; anonymous cost totals
   remain for the global spending window. Also verify that
@@ -131,6 +133,8 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 
 ## Current status
 
-Planning/base established. Implementation, tests, runtime acceptance and delivery
-are pending. Credentials are referenced by existing secure configuration, never
-stored here. Re-check main before each integration/release.
+The shared API domain is implemented behind default-off feature flags. Its
+engineering gate, final review and production migration/deployment verification
+remain release gates. Native frontend acceptance and TestFlight delivery are
+tracked separately; neither is implied by API implementation. Credentials stay
+in existing secure configuration. Re-check main before each integration/release.
