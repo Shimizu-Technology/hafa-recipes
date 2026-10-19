@@ -81,9 +81,21 @@ def revision_matches(row, revision):
 
 @router.get("/bootstrap")
 async def bootstrap(user: User, db: Database):
-    await lock_owner(db, user.id)
+    return await bootstrap_state(user, db, create=False)
+
+
+@router.post("/bootstrap")
+async def initialize(user: User, db: Database):
+    return await bootstrap_state(user, db, create=True)
+
+
+async def bootstrap_state(user, db, *, create):
+    if create:
+        await lock_owner(db, user.id)
     member = await db.get(BabyMembership, user.id, populate_existing=True)
     if member is None:
+        if not create:
+            raise HTTPException(409, "Open Baby to initialize your private space")
         member = BabyMembership(
             app_user_id=user.id,
             generation=1,

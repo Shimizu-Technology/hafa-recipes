@@ -81,11 +81,13 @@ async def schema_complete(connection):
             },
         ):
             return False
+        owner_delete_action = next(iter(table.c.app_user_id.foreign_keys)).ondelete
         if not await connection.scalar(
             text("""SELECT EXISTS(SELECT 1 FROM pg_constraint
             WHERE conrelid=to_regclass(:table) AND contype='f' AND convalidated
-            AND pg_get_constraintdef(oid)='FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE CASCADE')"""),
-            {"table": "public." + table.name},
+            AND pg_get_constraintdef(oid)=:definition)"""),
+            {"table": "public." + table.name,
+             "definition": "FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE " + owner_delete_action},
         ):
             return False
     return True
@@ -201,6 +203,7 @@ class BabyWorker:
                     "failed",
                     "Processing stopped after repeated interruptions. Your original is saved.",
                 )
+                await self.finish_source(db, row)
                 await db.commit()
                 return True
             if row.consent_epoch != member.consent_epoch:
@@ -208,6 +211,7 @@ class BabyWorker:
                     "cancelled",
                     "Your processing permission changed. Retry deliberately.",
                 )
+                await self.finish_source(db, row)
                 await db.commit()
                 return True
             token = uuid4()
@@ -314,6 +318,14 @@ class BabyWorker:
                 except HTTPException:
                     await db.rollback()
         return True
+
+    @staticmethod
+    async def finish_source(db, row):
+        """Keep the saved source consistent with terminal queue recovery."""
+        source = await owned(db, BabyRecord, row.app_user_id, row.generation, row.record_id)
+        source.data = {**source.data, "status": row.status}
+        source.revision, source.updated_at = source.revision + 1, now()
+        row.lease_token, row.lease_until, row.updated_at = None, None, now()
 
 
 baby_worker = BabyWorker()

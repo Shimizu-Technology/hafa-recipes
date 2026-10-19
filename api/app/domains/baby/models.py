@@ -182,7 +182,9 @@ class BabyAIAdmission(Base):
 
     __tablename__ = "baby_ai_admissions"
     id = identifier()
-    app_user_id = owner()
+    # Keep only anonymous cost accounting after account erasure. Deletion must
+    # not release money already spent or reserved in the global rolling window.
+    app_user_id = Column(String(64), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True)
     generation = Column(Integer, nullable=False)
     capability = Column(String(32), nullable=False)
     reserved_microusd = Column(Integer, nullable=False)

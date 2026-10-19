@@ -243,6 +243,8 @@ class Settings(BaseSettings):
     baby_worker_enabled: bool = False
     baby_ai_enabled: bool = False
     baby_ai_model: str = ""
+    baby_local_storage_dir: str | None = None
+    baby_development_ai_api_key: SecretStr | None = None
 
     @field_validator("workouts_ai_budget_database_url", mode="before")
     @classmethod

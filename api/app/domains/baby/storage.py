@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.config import get_settings
-from app.services.storage import storage_service
+from app.services.storage import StorageCleanupError, storage_service
 
 PREFIX = re.compile(
     r"^baby-private/[0-9a-f]{64}/[1-9][0-9]*/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$"
@@ -97,4 +97,6 @@ async def delete_private_prefix(prefix):
         if path.exists():
             await asyncio.to_thread(shutil.rmtree, path)
         return
+    if not storage_service.is_enabled:
+        raise StorageCleanupError("Private object storage is not configured")
     await storage_service.delete_prefix(prefix)

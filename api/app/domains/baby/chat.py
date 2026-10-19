@@ -136,7 +136,10 @@ async def retrieve(db, owner, generation, request):
                 "child_id": str(row.child_id) if row.child_id else None,
                 "excerpt": excerpt,
                 "source_url": row.data.get("url"),
-                "evidence_type": "source_claim" if row.kind == "source" else "caregiver_record",
+                "evidence_type": (
+                    "source_claim" if row.kind == "source"
+                    else row.data.get("provenance", "caregiver_observation")
+                ),
             }
         )
         available -= len(excerpt)
@@ -157,6 +160,8 @@ def reviewed_proposal(raw):
         raise ValueError("AI cannot activate reminders")
     if proposal.data.get("attachment_ids"):
         raise ValueError("AI cannot attach private files")
+    if proposal.data.get("provenance") == "clinician_instruction":
+        raise ValueError("Only the caregiver can identify clinician instructions")
     return {key: getattr(proposal, key) for key in ("kind", "title", "body", "data")}
 
 

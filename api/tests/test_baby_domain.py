@@ -49,6 +49,9 @@ def test_dates_consent_urls_and_finite_numbers_are_strict():
 
 
 def test_proposals_require_review_and_cannot_enable_reminders_or_attach_files():
+    assert record("journal", {"provenance": "clinician_instruction"}).data["provenance"] == "clinician_instruction"
+    with pytest.raises(ValueError):
+        reviewed_proposal({"kind": "journal", "title": "Advice", "data": {"provenance": "clinician_instruction"}})
     proposal = reviewed_proposal(
         {
             "kind": "routine",

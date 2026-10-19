@@ -154,6 +154,7 @@ class RoutineData(DomainModel):
 
 class JournalData(DomainModel):
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    provenance: Literal["caregiver_observation", "clinician_instruction"] = "caregiver_observation"
 
 
 class CollectionData(DomainModel):

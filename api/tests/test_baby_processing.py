@@ -122,3 +122,16 @@ async def test_repeated_cancellation_holds_write_until_sdk_thread_settles(monkey
     finish.set()
     with pytest.raises(asyncio.CancelledError):
         await write
+
+
+async def test_cleanup_fails_closed_if_production_object_storage_disappears(monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.domains.baby import storage
+    from app.services.storage import StorageCleanupError
+
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(environment="production", baby_local_storage_dir=None))
+    monkeypatch.setattr(storage, "storage_service", SimpleNamespace(is_enabled=False))
+    with pytest.raises(StorageCleanupError):
+        await storage.delete_private_prefix(attachments.attachment_prefix(uuid4(), "owner", 1))

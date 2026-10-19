@@ -6,12 +6,12 @@ import os
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from fastapi import FastAPI, Request
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth import ClerkUser, get_current_user
@@ -78,8 +78,9 @@ async def baby_api(monkeypatch):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        await client.get("/api/v1/baby/bootstrap")
-        await client.get("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "other"})
+        assert (await client.get("/api/v1/baby/bootstrap")).status_code == 409
+        await client.post("/api/v1/baby/bootstrap")
+        await client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "other"})
         yield SimpleNamespace(client=client, sessions=sessions, engine=engine, settings=settings)
     await engine.dispose()
 
@@ -451,3 +452,42 @@ async def test_local_private_storage_and_durable_budget_fence(baby_api, monkeypa
     await c.delete("/api/v1/baby/data?generation=1", headers=GEN)
     async with baby_api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 1
+
+
+async def test_account_erasure_anonymizes_cost_without_releasing_global_budget(baby_api, monkeypatch):
+    from app.ai_governance import ai_request_context
+    from app.domains.baby import budget
+    from app.domains.baby.models import BabyAIAdmission
+    from app.domains.workouts.budget import BudgetError
+
+    await baby_api.client.patch("/api/v1/baby/profile", headers={**GEN, "X-Test-Owner": "other"}, json={"ai_consent": True})
+    async with baby_api.sessions() as db:
+        db.add(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_chat", reserved_microusd=budget.GLOBAL_DAILY_CAP, created_at=datetime.now(UTC)))
+        await db.commit()
+        await db.execute(delete(AppUser).where(AppUser.id == "owner"))
+        await db.commit()
+        admission = await db.scalar(select(BabyAIAdmission))
+        assert admission.app_user_id is None
+        assert admission.reserved_microusd == budget.GLOBAL_DAILY_CAP
+    with ai_request_context(user_id="other", job_id=None):
+        with pytest.raises(BudgetError) as blocked:
+            await budget.reserve("baby_chat", "gpt-5.6-luna", sessions=baby_api.sessions)
+        assert blocked.value.code == "workouts_ai_budget_exceeded"
+
+
+@pytest.mark.parametrize("reason,expected", [("exhausted", "failed"), ("consent", "cancelled")])
+async def test_terminal_queue_recovery_updates_saved_source(baby_api, reason, expected):
+    c = baby_api.client
+    job = (await c.post("/api/v1/baby/imports", headers=GEN, json={"id": str(uuid4()), "text": "Original preserved"})).json()
+    async with baby_api.sessions() as db:
+        row = await db.get(BabyImport, UUID(job["id"]))
+        if reason == "exhausted":
+            row.attempts = 5
+        else:
+            row.consent_epoch += 1
+        await db.commit()
+    await BabyWorker(baby_api.sessions).tick()
+    source = (await c.get("/api/v1/baby/records/" + job["record_id"])).json()
+    assert source["data"]["status"] == expected
+    assert source["revision"] == 2
+    assert (await c.get("/api/v1/baby/imports/" + job["id"])).json()["status"] == expected
