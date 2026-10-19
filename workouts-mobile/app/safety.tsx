@@ -67,7 +67,7 @@ export default function SafetyCenter() {
   }
 
   return (
-    <Screen back title="Safety Center." subtitle="Control whose public content you see.">
+    <Screen back title="Safety Center" subtitle="Control whose public content you see.">
       <Copy tone="muted">Blocking applies across Håfa Workouts and Håfa Recipes. People aren’t told when you block or unblock them. Your saved copies stay in your library.</Copy>
       <SectionHeader title="Blocked contributors" />
       <QueryState loading={q.isPending && generation != null} loadingLabel="Loading blocked contributors"

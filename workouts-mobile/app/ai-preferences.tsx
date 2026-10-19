@@ -26,7 +26,7 @@ export default function AiPreferences() {
     }
   }
   return (
-    <Screen back title="AI sharing preferences." subtitle="Useful assistance, with an explicit choice.">
+    <Screen back title="AI preferences">
       <Copy>
         AI extraction and coaching use OpenAI. Extraction sends the source you choose. Coaching can send the relevant
         profile, workout, plan and recorded training context you permit. Imported health activity additionally requires

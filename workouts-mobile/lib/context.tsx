@@ -388,7 +388,7 @@ export function TrainingProvider({ children }: PropsWithChildren) {
   const awaitingOwnAcknowledgement = !!setupRef.current && !enrollment?.enrolled && !!live?.enrolled;
   const enrollmentDenied = [401, 403].includes((enrollmentQuery.error as { status?: number } | null)?.status ?? 0);
   if (recoveryBusy || enrollmentDenied || boot?.scope !== scope || boot.value.status === "pending" || boot.value.status === "blocked" || privateError || (changedAuthority && !awaitingOwnAcknowledgement))
-    return <Screen title="Open your saved training.">
+    return <Screen title="Opening your training">
       <Copy>{enrollmentDenied ? accountAccessMessage(enrollmentQuery.error) : boot?.scope === scope && boot.value.status === "blocked" ? boot.value.error : "Checking your account and saved training…"}</Copy>
       {(enrollmentDenied || boot?.value.status === "blocked" || privateError || recoveryBusy) ? <>
         {!!privateError && <Notice error>{privateError}</Notice>}

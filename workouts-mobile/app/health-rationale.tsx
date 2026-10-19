@@ -6,7 +6,7 @@ export default function HealthRationale() {
   const [error, setError] = useState("");
   const website = process.env.EXPO_PUBLIC_WORKOUTS_WEBSITE_URL;
   return (
-    <Screen back title="Your health. Your choices." subtitle="Why Håfa Workouts asks for exercise access.">
+    <Screen back title="Health access" subtitle="Why Håfa Workouts asks for exercise access.">
       <Card>
         <Copy kind="heading">Read exercise summaries</Copy>
         <Copy>

@@ -13,6 +13,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@
 import { Bubble, Button, Card, Chip, ChipRow, Copy, Field, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
+import { coachActionNoun } from "@/lib/labels";
 const HISTORY_POSITION_ERROR = "Could not keep your reading position. Try loading earlier messages again.";
 const COPY_ERROR = "Could not copy this reply. Try again or select the text to copy it.";
 const messageOrder = (a: CoachMessage, b: CoachMessage) =>
@@ -559,7 +560,7 @@ export default function Coach() {
         {!pending && <CoachPhotoControl state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />}
         {pending && (
           <Copy kind="small" tone="muted">
-            {pending.stop_requested ? "Stop was requested. Until the service confirms the outcome, this message will not be resent. You can leave and return to retry stopping it."
+            {pending.stop_requested ? "Stopping… This message won’t be resent. You can leave and come back."
               : busy ? "Sending your message…" : history.some(item => item.request_id === pending.request_id)
               ? "Preparing a reply. You can leave and return."
               : "Delivery unconfirmed. Retry uses this saved message."}
@@ -584,18 +585,18 @@ export default function Coach() {
         </View>
       </View>
   );
-  if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <Screen back title="Your coach starts with you."><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
-  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Your coach starts with you." subtitle="Set up your training preferences when you’re ready.">
+  if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <Screen back title="Coach"><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
+  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Coach" subtitle="Set up your training preferences when you’re ready.">
     {speechFeedback}
-    <Copy>Choose a goal, your equipment and a realistic schedule so the coach can use your saved workouts. Personal measurements are optional.</Copy>
+    <Copy>Add your goal, equipment and schedule so Coach can use your saved workouts.</Copy>
     <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
   </Screen>;
   return (
     <Screen
       key="conversation"
       back
-      title="Talk through your training."
-      subtitle="Your profile and recent work, with any change shown to you first."
+      title="Coach"
+      subtitle="Ask about your training. You approve any change first."
       footer={composer}
       scrollRef={scroll}
       disableBrowserScrollAnchoring
@@ -618,23 +619,19 @@ export default function Coach() {
     >
       {(params.workout_id || params.program_id || params.session_id) && (
         <Card tone="accent" compact>
-          <Copy kind="caption" tone="accent">This conversation has a specific focus</Copy>
           <Copy>
             {params.workout_id
-              ? "The selected workout and its saved revision"
+              ? "Talking about this workout"
               : params.program_id
-                ? "The selected plan and its saved revision"
-                : "The selected actual training session"}
+                ? "Talking about this plan"
+                : "Talking about this session"}
           </Copy>
           <Button title="Start a general conversation instead" variant="ghost" size="sm" inline onPress={() => router.replace("/coach")} />
         </Card>
       )}
       {!enrollment?.enrolled && <Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
       {capabilities.data && !capabilities.data.coach && (
-        <Notice>
-          Coach messages are unavailable for this build. Manual training, saved libraries and profile controls remain
-          usable.
-        </Notice>
+        <Notice>Coach isn’t available in this version. Everything else still works.</Notice>
       )}
       {(prerequisiteErrors.length > 0 || retryingCoach) && <>
         {prerequisiteErrors.length > 0 && <Notice error>{[...new Set([...prerequisiteErrors, ...(q.error ? [q.error.message] : [])])].join(" ")}</Notice>}
@@ -670,15 +667,15 @@ export default function Coach() {
         <ListGroup>
           <ListRow
             icon="pulse-outline"
-            title={showCheckIn ? "Hide today’s check-in" : "Check in before planning or returning"}
+            title={showCheckIn ? "Hide today’s check-in" : "Check in for today"}
             onPress={() => { if (currentConversation()) setShowCheckIn(!showCheckIn); }}
             trailing="none"
           />
-          <ListRow icon="shield-checkmark-outline" title="Inspect AI sharing preferences" onPress={() => router.push("/ai-preferences")} />
+          <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => router.push("/ai-preferences")} />
         </ListGroup>
       )}
       {!enrollment?.enrolled && (
-        <ListRow icon="shield-checkmark-outline" title="Inspect AI sharing preferences" onPress={() => router.push("/ai-preferences")} />
+        <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => router.push("/ai-preferences")} />
       )}
       {enrollment?.enrolled && showCheckIn && (
         <Card>
@@ -713,15 +710,10 @@ export default function Coach() {
           {checkIn.data?.expires_at && (
             <Copy kind="small" tone="muted">Valid until · {new Date(checkIn.data.expires_at).toLocaleString()}</Copy>
           )}
-          <Copy kind="small" tone="muted">
-            This check-in expires. Returning from a pause also requires reviewing your current comfortable baseline.
-          </Copy>
+          <Copy kind="small" tone="muted">Check-ins expire, so check in again when things change.</Copy>
         </Card>
       )}
-        <Copy kind="small" tone="muted">
-          AI coaching uses your chosen profile and bounded recent training context. Imported Health activity currently
-          stays excluded. Suggestions are reviewed separately before any change is applied.
-        </Copy>
+        <Copy kind="small" tone="muted">Coach uses your profile and recent training, not Health data.</Copy>
       <Button
         title="Clear saved coach conversation"
         variant="ghost"
@@ -731,10 +723,7 @@ export default function Coach() {
       />
       {clearConfirm && (
         <Card tone="sunken">
-          <Copy kind="small">
-            This removes retained conversation and related pending suggestions. Accepted workouts/plans remain saved.
-            Short content-free request/quota receipts stay temporarily to prevent replay and allowance resets.
-          </Copy>
+          <Copy kind="small">Clears messages and pending suggestions. Changes you accepted stay saved. Some content-free usage records stay briefly.</Copy>
           <Button
             title="Clear conversation and pending suggestions"
             variant="destructive"
@@ -801,7 +790,7 @@ export default function Coach() {
                 {action.state === "accepted" ? "Applied" : action.state === "undone" ? "Undone" : "Suggested change"}
               </Copy>
               <Button
-                title={`${action.state === "accepted" ? "Inspect or undo" : action.state === "undone" ? "Inspect undone" : "Review"} ${action.kind.replaceAll("_", " ")} suggestion`}
+                title={`${action.state === "accepted" ? "Inspect or undo" : action.state === "undone" ? "Inspect undone" : "Review"} ${coachActionNoun(action.kind)} suggestion`}
                 variant={action.state === "proposed" ? "primary" : "secondary"}
                 size="sm"
                 onPress={() =>

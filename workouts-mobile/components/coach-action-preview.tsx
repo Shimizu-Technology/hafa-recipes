@@ -2,6 +2,7 @@ import { Card, Copy, Notice } from "./ui";
 import { ProgramPreview, PrescriptionPreview } from "./program-preview";
 import { goalLabels } from "@/lib/models";
 import type { CoachAction } from "@/lib/coach";
+import { humanize, proposalStatusLabel } from "@/lib/labels";
 import type { ProgramReceipt } from "@/lib/plans";
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 export function CoachActionPreview({ action }: { action: CoachAction }) {
@@ -22,7 +23,7 @@ export function CoachActionPreview({ action }: { action: CoachAction }) {
               : "A proposed workout variation"}
       </Copy>
       <Copy>
-        {p.status.replaceAll("_", " ")} · Expires {new Date(action.expires_at).toLocaleString()}
+        {proposalStatusLabel(p.status)} · Expires {new Date(action.expires_at).toLocaleString()}
       </Copy>
       {!!p.review_notice && <Notice>{p.review_notice}</Notice>}
       {!receipt && p.warnings?.map((warning, index) => <Notice key={`w${index}`}>{warning}</Notice>)}
@@ -42,7 +43,7 @@ export function CoachActionPreview({ action }: { action: CoachAction }) {
                     ? "Usual training days"
                     : key === "running_baseline.accepted_stage"
                       ? "Running foundation stage"
-                      : key.replaceAll("_", " ")}{" "}
+                      : humanize(key)}{" "}
               ·{" "}
               {key === "primary_goal" && typeof value === "string"
                 ? (goalLabels[value as keyof typeof goalLabels] ?? value)

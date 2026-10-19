@@ -164,8 +164,8 @@ export default function EditWorkout() {
   return (
     <Screen
       back
-      title="Make the details clear."
-      subtitle="An edit creates a new workout version. Completed sessions keep their original prescription."
+      title="Edit workout"
+      subtitle="Saving creates a new version. Past sessions stay as they were."
     >
       <QueryState
         loading={!loaded || (q.isPending && !value)}

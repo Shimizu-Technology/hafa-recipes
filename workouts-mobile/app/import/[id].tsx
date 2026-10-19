@@ -377,7 +377,7 @@ export default function ImportReview() {
   }, [q.data?.accepted_workout_id, routeReady, restored, epoch, id]);
   const savedDraft = savedId && q.data?.status === "incomplete";
   return (
-    <Screen back title={savedDraft ? "Draft saved." : savedId ? "Workout saved." : "Your workout."}
+    <Screen back title={savedDraft ? "Draft saved" : savedId ? "Workout saved" : "Workout"}
       subtitle={savedDraft ? "Saved privately in your library. Review the workout before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : q.data && ["queued", "processing"].includes(q.data.status) ? "Reading your source. You can leave and check back in Extract." : "Check the result and choose your next step."}
       footer={!!error && <>
         <Notice error>{error}</Notice>

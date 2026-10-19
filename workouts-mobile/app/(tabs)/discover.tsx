@@ -85,8 +85,7 @@ export default function Discover() {
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
     <Screen
-      title="Discover workouts"
-      subtitle="Find a workout. Save it for later."
+      title="Discover"
       refreshing={pulling}
       onRefresh={() => {
         void refresh();

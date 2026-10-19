@@ -112,8 +112,8 @@ export default function Today() {
   ].filter((x): x is string => !!x);
   return (
     <Screen
-      title="Håfa adai."
-      eyebrow={new Intl.DateTimeFormat(undefined, {
+      title="Håfa adai"
+      subtitle={new Intl.DateTimeFormat(undefined, {
         weekday: "long",
         month: "long",
         day: "numeric",
