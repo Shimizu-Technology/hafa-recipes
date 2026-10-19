@@ -5,12 +5,20 @@ from sqlalchemy import String, cast, or_, select
 from app.domains.baby.models import BabyRecord
 
 
-def records_query(owner, generation, *, kind=None, child_id=None, q=None):
+def records_query(
+    owner, generation, *, kind=None, child_id=None, q=None, record_ids=None, topic=None
+):
     query = select(BabyRecord).where(
         BabyRecord.app_user_id == owner,
         BabyRecord.generation == generation,
         BabyRecord.deleted_at.is_(None),
     )
+    if record_ids is not None:
+        query = query.where(BabyRecord.id.in_(record_ids))
+    if topic is not None:
+        query = query.where(
+            BabyRecord.kind == "source", BabyRecord.data["topics"].contains([topic])
+        )
     if kind:
         query = query.where(BabyRecord.kind == kind)
     if child_id:

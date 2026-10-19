@@ -58,6 +58,13 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   Optional repeated `kinds=journal&kinds=question` filters up to eight valid kinds
   before pagination; do not combine `kind` and `kinds`. Child filters are exact
   by default; `include_general=true` explicitly includes unassigned records too.
+  Optional `collection_id=<UUID>` validates a live same-owner/generation collection
+  and returns only its live source members. Kind defaults to `source` for this
+  filter; explicit non-source kind/kinds are rejected. Optional `topic=<1..80 chars>`
+  matches an exact source topic. Collection/topic/search/child filters compose in
+  SQL before totals and pagination; no frontend cache or individual member reads
+  are required. Missing, foreign, deleted or wrong-kind collection IDs return 404.
+  These filters are also accepted by `/search`; omitted filters keep existing behavior.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
 - Record shape: `{id,kind,title,body,child_id,occurred_at,data,revision,created_at,

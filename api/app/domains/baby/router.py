@@ -35,6 +35,7 @@ from app.domains.baby.queries import records_query
 from app.domains.baby.schemas import (
     ChildCreate,
     ChildPatch,
+    CollectionData,
     Kind,
     Profile,
     ProfilePatch,
@@ -294,14 +295,46 @@ async def delete_child(
 
 
 async def record_list(
-    db, owner, generation, kind, child_id, q, limit, offset, *, kinds=None, include_general=False
+    db,
+    owner,
+    generation,
+    kind,
+    child_id,
+    q,
+    limit,
+    offset,
+    *,
+    kinds=None,
+    include_general=False,
+    collection_id=None,
+    topic=None,
 ):
     if kind is not None and kinds is not None:
         raise HTTPException(422, "Choose kind or kinds, not both")
+    record_ids = None
+    if collection_id is not None:
+        collection = await owned(db, BabyRecord, owner, generation, collection_id)
+        if collection.kind != "collection":
+            raise HTTPException(404, "Item unavailable")
+        if (kind is not None and kind != "source") or (
+            kinds and any(value != "source" for value in kinds)
+        ):
+            raise HTTPException(422, "Collections contain sources; choose source records")
+        try:
+            record_ids = CollectionData.model_validate(collection.data).record_ids
+        except ValidationError:
+            raise HTTPException(422, "This collection needs review before opening") from None
+        kind = "source"
     if child_id:
         await owned(db, BabyChild, owner, generation, child_id)
     query = records_query(
-        owner, generation, kind=kind, child_id=None if include_general else child_id, q=q
+        owner,
+        generation,
+        kind=kind,
+        child_id=None if include_general else child_id,
+        q=q,
+        record_ids=record_ids,
+        topic=topic,
     )
     if kinds:
         query = query.where(BabyRecord.kind.in_(kinds))
@@ -326,6 +359,8 @@ async def records(
     kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
     child_id: UUID | None = None,
     include_general: bool = False,
+    collection_id: UUID | None = None,
+    topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     q: Annotated[str | None, Query(max_length=300)] = None,
     limit: Limit = 30,
     offset: Offset = 0,
@@ -342,6 +377,8 @@ async def records(
         offset,
         kinds=kinds,
         include_general=include_general,
+        collection_id=collection_id,
+        topic=topic,
     )
 
 
@@ -354,6 +391,8 @@ async def search(
     kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
     child_id: UUID | None = None,
     include_general: bool = False,
+    collection_id: UUID | None = None,
+    topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
@@ -369,6 +408,8 @@ async def search(
         offset,
         kinds=kinds,
         include_general=include_general,
+        collection_id=collection_id,
+        topic=topic,
     )
 
 
