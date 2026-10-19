@@ -65,13 +65,13 @@ def test_cleanup_cannot_expand_beyond_one_baby_attachment(bad):
 
 
 @pytest.mark.parametrize('enabled', [False, True])
-async def test_foundation_discovery_stays_dormant_until_routes_are_installed(monkeypatch, enabled):
+async def test_baby_discovery_matches_installed_route_capability(monkeypatch, enabled):
     from app.routers import platform
 
     monkeypatch.setattr(platform, 'get_settings', lambda: Settings(database_url='postgresql://localhost/test', openai_api_key='test', environment='test', baby_api_enabled=enabled))
     product = next(item for item in (await platform.platform_info()).products if item.id == 'baby')
     assert product.api_path == '/api/v1/baby'
-    assert product.available is False
+    assert product.available is enabled
 
 
 async def test_baby_cleanup_locks_exact_attachment_before_deleting(monkeypatch):
@@ -104,6 +104,32 @@ async def test_baby_cleanup_locks_exact_attachment_before_deleting(monkeypatch):
 
     monkeypatch.setattr(cleanup, 'AsyncSessionLocal', session)
     monkeypatch.setattr(cleanup, 'acquire_recipe_media_lock', lock)
-    monkeypatch.setattr(cleanup, 'storage_service', SimpleNamespace(is_enabled=True, delete_prefix=erase))
+    from app.domains.baby import storage
+
+    monkeypatch.setattr(storage, 'delete_private_prefix', erase)
+    monkeypatch.setattr(cleanup, 'storage_service', SimpleNamespace(is_enabled=True))
     await cleanup.DurableDeletionCleanupWorker()._delete_storage_prefixes([prefix])
     assert events == ['lock', 'delete']
+
+
+async def test_disabled_baby_routes_do_not_authenticate_or_query_shared_database():
+    import httpx
+
+    from app.auth import get_current_user
+    from app.db import get_db
+    from app.main import app
+
+    def forbidden():
+        raise AssertionError('Disabled Baby reached a shared dependency')
+
+    previous = dict(app.dependency_overrides)
+    app.dependency_overrides[get_current_user] = forbidden
+    app.dependency_overrides[get_db] = forbidden
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://api.example') as client:
+            for path in ('bootstrap', 'records', 'children', 'conversations', 'export'):
+                assert (await client.get('/api/v1/baby/' + path)).status_code == 404
+            assert (await client.post('/api/v1/baby/bootstrap', content='invalid-json')).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous)
