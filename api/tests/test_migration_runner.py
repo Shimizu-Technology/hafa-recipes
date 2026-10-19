@@ -90,7 +90,7 @@ def test_runner_registers_every_active_numbered_migration_file():
         if int(path.name[:3]) >= first_active_version
     )
 
-    assert discovered_modules == migration_runner.ACTIVE_MIGRATIONS + migration_runner.OPTIONAL_MIGRATIONS
+    assert sorted(discovered_modules) == sorted(migration_runner.ACTIVE_MIGRATIONS + migration_runner.OPTIONAL_MIGRATIONS + migration_runner.BABY_MIGRATIONS)
     assert migration_runner.LATEST_MIGRATION == int(
         migration_runner.ACTIVE_MIGRATIONS[-1].removeprefix("migrations.")[:3]
     )
@@ -227,3 +227,23 @@ async def test_disabled_workouts_runner_does_not_import_optional_domain(monkeypa
                         lambda: SimpleNamespace(workouts_api_enabled=False))
     await migration_runner.run_migrations()
     assert calls == list(migration_runner.ACTIVE_MIGRATIONS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workouts_enabled", [False, True])
+@pytest.mark.parametrize("baby_enabled", [False, True])
+async def test_baby_migration_gate_is_independent_of_workouts(monkeypatch, workouts_enabled, baby_enabled):
+    calls = []
+    def load(module_name):
+        async def run_migration():
+            calls.append(module_name)
+        return SimpleNamespace(run_migration=run_migration)
+    monkeypatch.setattr(migration_runner, "import_module", load)
+    monkeypatch.setattr(migration_runner, "get_settings", lambda: SimpleNamespace(workouts_api_enabled=workouts_enabled, baby_api_enabled=baby_enabled))
+    await migration_runner.run_migrations()
+    expected = migration_runner.ACTIVE_MIGRATIONS
+    if workouts_enabled:
+        expected += migration_runner.OPTIONAL_MIGRATIONS
+    if baby_enabled:
+        expected += migration_runner.BABY_MIGRATIONS
+    assert calls == list(expected)

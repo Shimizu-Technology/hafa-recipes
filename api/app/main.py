@@ -11,6 +11,8 @@ from app.config import get_settings
 from app.cover_jobs import cover_job_worker
 from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
+from app.domains.baby.router import router as baby_router
+from app.domains.baby.runtime import start_baby_worker, stop_baby_worker, verify_baby_schema
 from app.domains.workouts.activity_log_router import router as workouts_activity_log_router
 from app.domains.workouts.automation_router import imports_router as workouts_imports_router
 from app.domains.workouts.automation_router import router as workouts_automation_router
@@ -121,6 +123,7 @@ app.add_middleware(RequestContextMiddleware)
 app.include_router(health_router)
 app.include_router(import_health_router)
 app.include_router(platform_router)
+app.include_router(baby_router)
 app.include_router(workouts_library_router)
 app.include_router(workouts_measurements_router)
 app.include_router(workouts_router)
@@ -191,15 +194,18 @@ async def startup():
     await verify_connections_schema()
     await verify_optional_workouts_schema()
     await verify_import_usage_schema()
+    await verify_baby_schema()
     await job_worker.start()
     await workout_import_worker.start()
     await cover_job_worker.start()
     await deletion_cleanup_worker.start()
+    await start_baby_worker()
 
 
 @app.on_event("shutdown")
 async def shutdown():
     """Run on application shutdown."""
+    await stop_baby_worker()
     await workout_import_worker.stop()
     await cover_job_worker.stop()
     await deletion_cleanup_worker.stop()

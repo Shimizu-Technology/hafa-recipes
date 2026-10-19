@@ -321,10 +321,12 @@ class DurableDeletionCleanupWorker:
     async def _delete_storage_prefixes(self, prefixes: list[str]) -> None:
         if any(not is_allowed_cleanup_prefix(prefix) for prefix in prefixes):
             raise ValueError("Invalid storage cleanup prefix")
-        if prefixes and not storage_service.is_enabled:
+        shared_prefixes = [prefix for prefix in prefixes if not prefix.startswith("baby-private/")]
+        if shared_prefixes and not storage_service.is_enabled:
             if settings.environment.lower() != "production":
-                return
-            raise StorageCleanupError("Object storage is not configured")
+                prefixes = [prefix for prefix in prefixes if prefix.startswith("baby-private/")]
+            else:
+                raise StorageCleanupError("Object storage is not configured")
         failures = 0
         for prefix in prefixes:
             try:
@@ -334,7 +336,12 @@ class DurableDeletionCleanupWorker:
                                   else UUID(prefix.removeprefix("thumbnails/workouts-").removeprefix("workout-coach-images/").removesuffix("/")))
                     async with AsyncSessionLocal() as db, db.begin():
                         await acquire_recipe_media_lock(db, identifier)
-                        deletion = asyncio.create_task(storage_service.delete_prefix(prefix))
+                        if prefix.startswith("baby-private/"):
+                            from app.domains.baby.storage import delete_private_prefix
+
+                            deletion = asyncio.create_task(delete_private_prefix(prefix))
+                        else:
+                            deletion = asyncio.create_task(storage_service.delete_prefix(prefix))
                         try:
                             await asyncio.shield(deletion)
                         except asyncio.CancelledError:

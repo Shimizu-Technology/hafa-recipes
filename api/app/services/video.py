@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -278,8 +279,11 @@ class VideoService:
         *,
         max_concurrency: int | None = None,
         queue_timeout_seconds: float | None = None,
+        public_egress: bool = False,
+        media_slots: asyncio.BoundedSemaphore | None = None,
     ) -> None:
-        self._media_slots = asyncio.BoundedSemaphore(
+        self.public_egress = public_egress
+        self._media_slots = media_slots if media_slots is not None else asyncio.BoundedSemaphore(
             max_concurrency or settings.video_max_concurrency
         )
         self._queue_timeout_seconds = (
@@ -287,6 +291,11 @@ class VideoService:
             if queue_timeout_seconds is not None
             else settings.video_queue_timeout_seconds
         )
+
+    def _downloader_command(self):
+        if self.public_egress:
+            return [sys.executable, "-m", "app.services.public_ytdlp"]
+        return ["yt-dlp"]
 
     @asynccontextmanager
     async def _media_slot(self):
@@ -405,7 +414,7 @@ class VideoService:
         try:
             # Use yt-dlp to dump JSON metadata - it can get image URLs even for photo posts
             command = [
-                "yt-dlp",
+                *self._downloader_command(),
                 "--dump-json",
                 "--no-download",
                 url
@@ -729,7 +738,7 @@ class VideoService:
     async def fetch_oembed(self, url: str, platform: str) -> VideoMetadata:
         """Fetch oEmbed metadata from platform."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, transport=PublicHTTPTransport()) as client:
                 if platform == "youtube":
                     response = await get_limited(
                         client,
@@ -874,7 +883,7 @@ class VideoService:
         try:
             # Build yt-dlp command
             command = [
-                "yt-dlp",
+                *self._downloader_command(),
                 "--extract-audio",
                 "--audio-format", "mp3",
                 "--audio-quality", "0",
@@ -1179,7 +1188,7 @@ class VideoService:
         output_template = os.path.join(temp_dir, "source.%(ext)s")
         try:
             command = [
-                "yt-dlp",
+                *self._downloader_command(),
                 "--format",
                 (
                     "bestvideo[height<=720]/bestvideo[width<=720]/"
@@ -1390,6 +1399,8 @@ class VideoService:
         try:
             process = await asyncio.create_subprocess_exec(
                 "ffmpeg",
+                "-protocol_whitelist",
+                "file,pipe",
                 "-loglevel",
                 "error",
                 "-filter_threads",
@@ -1443,6 +1454,8 @@ class VideoService:
         try:
             process = await asyncio.create_subprocess_exec(
                 "ffmpeg",
+                "-protocol_whitelist",
+                "file,pipe",
                 "-loglevel",
                 "info",
                 "-filter_threads",
@@ -1512,6 +1525,8 @@ class VideoService:
         try:
             process = await asyncio.create_subprocess_exec(
                 "ffprobe",
+                "-protocol_whitelist",
+                "file,pipe",
                 "-v",
                 "quiet",
                 "-show_entries",
@@ -1554,7 +1569,7 @@ class VideoService:
         
         try:
             command = [
-                "yt-dlp",
+                *self._downloader_command(),
                 "--dump-json",
                 "--no-download",
                 "--quiet",
@@ -1634,3 +1649,6 @@ class VideoService:
 
 # Singleton instance
 video_service = VideoService()
+# Baby opts into the protected downloader while retaining the same process-wide
+# acquisition capacity as Recipes/Workouts; do not create a second media pool.
+public_video_service = VideoService(public_egress=True, media_slots=video_service._media_slots)

@@ -55,6 +55,16 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   These records remain visible without a child filter and are excluded when
   filtering for a specific child.
 - `GET /records?kind=&child_id=&q=&limit=30&offset=0`: `{items,total,has_more}`.
+  Optional repeated `kinds=journal&kinds=question` filters up to eight valid kinds
+  before pagination; do not combine `kind` and `kinds`. Child filters are exact
+  by default; `include_general=true` explicitly includes unassigned records too.
+  Optional `collection_id=<UUID>` validates a live same-owner/generation collection
+  and returns only its live source members. Kind defaults to `source` for this
+  filter; explicit non-source kind/kinds are rejected. Optional `topic=<1..80 chars>`
+  matches an exact source topic. Collection/topic/search/child filters compose in
+  SQL before totals and pagination; no frontend cache or individual member reads
+  are required. Missing, foreign, deleted or wrong-kind collection IDs return 404.
+  These filters are also accepted by `/search`; omitted filters keep existing behavior.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
 - Record shape: `{id,kind,title,body,child_id,occurred_at,data,revision,created_at,
@@ -62,7 +72,12 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   Creation accepts caller-generated `id` for durable retry; conflicting replay
   must not overwrite. PATCH requires `revision`; stale edits return 409.
 - `data` is validated per kind: source `{url?,topics:[],source_text?,summary?,
-  evidence:[],status?}`; feeding `{method:breast|bottle|other,amount?,unit?:ml|oz,
+  evidence:[],status?,attachment_ids?:[]}`. Source status is
+  `saved|queued|processing|ready|incomplete|failed|cancelled` (or absent/null).
+  `saved` means the original is stored without processing; `ready` means
+  processing finished. Saving or editing a source never starts an import or AI
+  call; explicit `POST /imports` is separate. Feeding
+  `{method:breast|bottle|other,amount?,unit?:ml|oz,
   side?:left|right|both,duration_minutes?}`; sleep `{end_at?}`; diaper
   `{type:wet|dirty|both|dry}`; routine `{routine_type:checklist|schedule,
   items:[{id,label,done}],reminder_at?,timezone?,repeat?:none|daily|weekly,
@@ -119,8 +134,10 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 - B11 General/focused AI, history, correct citations, missing evidence and safe errors.
 - B12 Review/apply an AI proposal; no record mutation before explicit acceptance.
 - B13 Private attachment reads, export, Baby product-only deletion, and shared
-  whole-account deletion. Product-only deletion clears Baby content and fences
-  older generations while retaining the shared account and other products.
+  whole-account deletion. Product-only deletion removes Baby records, profiles,
+  attachment metadata, imports and conversations, and queues private-media
+  deletion. Verify the private files are removed after cleanup completes. It
+  fences older generations while retaining the shared account and other products.
   Whole-account deletion removes Baby records, profiles, attachments, imports and
   conversations, queuing external identity/media cleanup; anonymous cost totals
   remain for the global spending window. Also verify that
@@ -131,6 +148,8 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 
 ## Current status
 
-Planning/base established. Implementation, tests, runtime acceptance and delivery
-are pending. Credentials are referenced by existing secure configuration, never
-stored here. Re-check main before each integration/release.
+The shared API domain is implemented behind default-off feature flags. Its
+engineering gate, final review and production migration/deployment verification
+remain release gates. Native frontend acceptance and TestFlight delivery are
+tracked separately; neither is implied by API implementation. Credentials stay
+in existing secure configuration. Re-check main before each integration/release.
