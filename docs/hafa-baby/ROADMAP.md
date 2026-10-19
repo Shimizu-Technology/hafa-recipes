@@ -51,7 +51,9 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   `DELETE /children/{id}`. Child fields: `id,name,birth_date?,due_date?,revision`.
   Updates and deletion require the current revision; stale requests return 409.
   Deletion removes the profile and detaches its records, queued imports and
-  conversations, preserving their content and attachment links without a child.
+  conversations, preserving their content and attachment links with `child_id: null`.
+  These records remain visible without a child filter and are excluded when
+  filtering for a specific child.
 - `GET /records?kind=&child_id=&q=&limit=30&offset=0`: `{items,total,has_more}`.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
@@ -116,7 +118,12 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 - B10 Notification permission, scheduling, edits, completion/cancel and timezone.
 - B11 General/focused AI, history, correct citations, missing evidence and safe errors.
 - B12 Review/apply an AI proposal; no record mutation before explicit acceptance.
-- B13 Private attachment reads, export and product-only/account deletion boundaries;
+- B13 Private attachment reads, export, Baby product-only deletion, and shared
+  whole-account deletion. Product-only deletion clears Baby content and fences
+  older generations while retaining the shared account and other products.
+  Whole-account deletion removes Baby records, profiles, attachments, imports and
+  conversations, queuing external identity/media cleanup; anonymous cost totals
+  remain for the global spending window. Also verify that
   child deletion retains linked records/files and detaches imports/conversations.
 - B14 Keyboard, small phone, large text, VoiceOver, dark/reduced-motion, long content.
 - B15 Shared API/Recipes/Workouts regressions and operational restart/retry behavior.
