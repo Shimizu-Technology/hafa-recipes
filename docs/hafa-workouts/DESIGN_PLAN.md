@@ -8,6 +8,12 @@ feel modern and easy to use mid-workout, and have a logo that reads as
 
 Related: [ROADMAP.md](ROADMAP.md). Build the Discover tab in the new design.
 
+## Collection-first experience (2026-10-19)
+
+Leon confirmed that saving social workouts and browsing the shared Discover library are the core product. Planning, tracking and coaching are optional follow-through. Use Recipes as the reference for clear media identity, readable content and quiet secondary controls, keeping Workouts' existing brand tokens.
+
+Acceptance: recognize the same cover and creator from feed to saved detail; browse and save without a training profile; keep filtering, collections and recovery available with fewer controls above the content. Phone layouts favor readable cards; wider screens use two columns and large text returns to one. Image failures keep an understandable fallback. Existing press feedback stays immediate, with its reduced-motion alternative; layout changes introduce no entrance delays.
+
 ## Decisions (D1, 2026-10-13)
 
 Leon delegated the D1 choices ("whatever is clean and nice"). These are now in effect:

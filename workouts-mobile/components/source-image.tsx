@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Copy, useColors } from "./ui";
-export function SourceImage({ uri, label }: { uri: string; label: string }) {
+export function SourceImage({ uri, label, cover = false, fallback }: { uri: string; label: string; cover?: boolean; fallback?: ReactNode }) {
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -10,7 +10,7 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
   const size = useWindowDimensions();
   const c = useColors();
   useEffect(() => { setFailed(false); setOpen(false); setZoom(1); }, [uri]);
-  if (failed) return <Copy kind="small">This image is unavailable. You can still check the original source.</Copy>;
+  if (failed) return fallback ?? <Copy kind="small">This image is unavailable. You can still check the original source.</Copy>;
   return (
     <>
       <Pressable
@@ -32,11 +32,11 @@ export function SourceImage({ uri, label }: { uri: string; label: string }) {
               if (Number.isFinite(nextRatio) && nextRatio > 0) setRatio(nextRatio);
             }
           }}
-          style={{ width: "100%", height: 260, resizeMode: "contain" }}
+          style={{ width: "100%", height: cover ? 180 : 260, resizeMode: cover ? "cover" : "contain" }}
         />
-        <Copy kind="small">
+        {!cover && <Copy kind="small">
           Tap to inspect source image
-        </Copy>
+        </Copy>}
       </Pressable>
       <Modal visible={open} onRequestClose={() => setOpen(false)} presentationStyle="fullScreen">
         <SafeAreaView style={{ flex: 1, backgroundColor: c.background }}>
