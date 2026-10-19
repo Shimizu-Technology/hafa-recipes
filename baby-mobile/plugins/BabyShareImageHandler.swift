@@ -1,19 +1,27 @@
   private func handleImages(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async {
     // HAFA BABY JOINED IMAGE BATCH v1
+    let storage: BabyShareStore
+    let capture: BabyShareStore.Capture
+    do {
+      storage = try babyShareStore()
+      capture = try storage.begin(id: self.babyCaptureId)
+    } catch {
+      self.dismissWithError(message: "Could not prepare this share. Try sharing it again.")
+      return
+    }
+    var published = false
+    defer { if !published { try? storage.abort(capture) } }
     do {
       guard index == 0, let attachments = content.attachments,
         attachments.allSatisfy({ $0.hasItemConformingToTypeIdentifier(self.imageContentType) })
       else { throw BabyShareImageBatch.InvalidBatch.invalid }
       try await BabyShareImageBatch.process(
         attachments,
-        load: { provider in try await self.loadBabyImage(provider) },
+        load: { provider in try await self.loadBabyImage(provider, directory: capture.directory) },
         publish: { images in
-          guard let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
-          else { throw BabyShareImageBatch.InvalidBatch.invalid }
           let encoded = try JSONEncoder().encode(images)
-          userDefaults.set(encoded, forKey: self.sharedKey)
-          userDefaults.set(self.babyCaptureId, forKey: "babyCaptureId")
-          userDefaults.synchronize()
+          try storage.publish(encoded, capture: capture)
+          published = true
           self.redirectToHostApp(type: .media)
         },
         discard: { image in
@@ -27,10 +35,7 @@
     }
   }
 
-  private func loadBabyImage(_ attachment: NSItemProvider) async throws -> SharedMediaFile {
-    guard let container = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier)
-    else { throw BabyShareImageBatch.InvalidBatch.invalid }
+  private func loadBabyImage(_ attachment: NSItemProvider, directory: URL) async throws -> SharedMediaFile {
     let item = try await attachment.loadItem(forTypeIdentifier: self.imageContentType)
     let normalized: BabyShareImageNormalization.Image
     if let url = item as? URL, url.isFileURL {
@@ -59,7 +64,7 @@
       normalized = try BabyShareImageNormalization.normalize(image: pixels)
     } else { throw BabyShareImageNormalization.InvalidImage.invalid }
 
-    let destination = container.appendingPathComponent(UUID().uuidString + "." + normalized.fileExtension)
+    let destination = directory.appendingPathComponent(UUID().uuidString + "." + normalized.fileExtension)
     do {
       try normalized.bytes.write(to: destination, options: .atomic)
       try FileManager.default.setAttributes(

@@ -3,6 +3,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const plist = require("@expo/plist").default;
 const { createHash } = require("node:crypto");
+const storeSource = fs
+  .readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareStore.swift"), "utf8")
+  .trim();
+const storeMarker = "// HAFA BABY SHARED STORE v1 SHA256 ";
 const helper = fs.readFileSync(path.join(__dirname, "BabySharePreprocessing.swift"), "utf8").trim();
 const helperStart = "// BEGIN HAFA BABY SAFARI DECODER v1";
 const helperEnd = "// END HAFA BABY SAFARI DECODER v1";
@@ -17,12 +21,8 @@ const handler = `  private func handlePrepocessing(content: NSExtensionItem, att
       else { throw BabySharePreprocessing.InvalidPage.invalid }
       self.sharedWebUrl.append(WebUrl(url: page.url, meta: page.metadata))
       if index == attachments.count - 1 {
-        guard let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
-        else { throw BabySharePreprocessing.InvalidPage.invalid }
         let encoded = try JSONEncoder().encode(self.sharedWebUrl)
-        userDefaults.set(encoded, forKey: self.sharedKey)
-        userDefaults.set(self.babyCaptureId, forKey: "babyCaptureId")
-        userDefaults.synchronize()
+        try babyShareStore().publish(encoded, id: self.babyCaptureId)
         self.redirectToHostApp(type: .weburl)
       }
     } catch {
@@ -61,9 +61,11 @@ function replaceKnownMethod(text, start, end, expectedHash, replacement) {
   const original = text.slice(first, last);
   if (original === replacement) return text;
   if (
-    ![expectedHash, "789420d21f7eacd5f083ca79a291d8e75474ba2746c7f76854cacc252650c3ff"].includes(
-      createHash("sha256").update(normalizedMethod(original)).digest("hex")
-    )
+    ![
+      expectedHash,
+      "2f317a71ac29d14b5bba4c0b63f26f69c10021ffa0d290d4d61c983d76085a58",
+      "789420d21f7eacd5f083ca79a291d8e75474ba2746c7f76854cacc252650c3ff",
+    ].includes(createHash("sha256").update(normalizedMethod(original)).digest("hex"))
   )
     throw Error("Håfa Baby image share method changed; refusing unsafe generation.");
   return text.slice(0, first) + replacement + text.slice(last);
@@ -121,6 +123,16 @@ function patchImageSharing(text) {
 }
 
 function patchShareController(text) {
+  if (text.includes(storeMarker)) {
+    const parts = text.split(storeMarker);
+    if (
+      parts.length !== 2 ||
+      parts[1].trim() !== createHash("sha256").update(parts[0]).digest("hex") ||
+      !parts[0].includes(storeSource)
+    )
+      throw Error("Håfa Baby shared store changed; refusing partial generation.");
+    return text;
+  }
   const start = "  private func handlePrepocessing(";
   const end = "  private func handlePkPass(";
   if (text.split(start).length !== 2 || text.split(end).length !== 2)
@@ -132,12 +144,13 @@ function patchShareController(text) {
   if (original !== handler) {
     // Ignore our older capture-receipt insertion and whitespace, but pin all
     // actual upstream statements so an SDK change cannot silently skip this fix.
-    const normalized = original
-      .replace(/^[ \t]*userDefaults\?\.set\(self\.babyCaptureId, forKey: "babyCaptureId"\)\r?\n/gm, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    const hash = createHash("sha256").update(normalized).digest("hex");
-    if (hash !== "fedc89cfcec83c0ad18164e90bb89aa8f44db773721f32221fad88ebf9f1715e")
+    const hash = createHash("sha256").update(normalizedMethod(original)).digest("hex");
+    if (
+      ![
+        "fedc89cfcec83c0ad18164e90bb89aa8f44db773721f32221fad88ebf9f1715e",
+        "2aeac55424ac669475901370b9b35d560d233f1dc4c917c6a76299fa842e6e05",
+      ].includes(hash)
+    )
       throw Error("Håfa Baby Safari share handler changed; refusing unsafe generation.");
     text = text.slice(0, first) + handler + text.slice(last);
   }
@@ -165,7 +178,38 @@ function patchShareController(text) {
       "try FileManager.default.copyItem(at: srcURL, to: dstURL)",
       "try FileManager.default.copyItem(at: srcURL, to: dstURL)\n      " + protection
     );
-  return patchImageSharing(text);
+  text = patchImageSharing(text);
+  // Every remaining upstream publisher participates in the same transaction.
+  let publishers = 0;
+  text = text.replace(
+    /let userDefaults = UserDefaults\(suiteName: self\.hostAppGroupIdentifier\)\s+userDefaults\?\.set\(([^\n]+), forKey: self\.sharedKey\)\s+userDefaults\?\.set\(self\.babyCaptureId, forKey: "babyCaptureId"\)\s+userDefaults\?\.synchronize\(\)/g,
+    (_, payload) => {
+      publishers++;
+      return `guard self.publishBabyShare(${payload}) else { return }`;
+    }
+  );
+  if (publishers !== 4 || /userDefaults\??\.set\([^\n]+forKey: self\.sharedKey\)/.test(text))
+    throw Error("Håfa Baby share publication changed; refusing unsafe generation.");
+  const methods = `
+  private func babyShareStore() throws -> BabyShareStore {
+    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier),
+      let defaults = UserDefaults(suiteName: self.hostAppGroupIdentifier) else { throw BabyShareStore.Failure.unavailable }
+    return BabyShareStore(container: container, defaults: defaults, sharedKey: self.sharedKey)
+  }
+  private func publishBabyShare(_ raw: Any?) -> Bool {
+    do {
+      guard let raw else { throw BabyShareStore.Failure.invalid }
+      try babyShareStore().publish(raw, id: self.babyCaptureId)
+      return true
+    } catch {
+      self.dismissWithError(message: "Could not save this share. Try sharing it again.")
+      return false
+    }
+  }
+`;
+  text = text.replace(receipt, receipt + methods);
+  text = text.trimEnd() + "\n\n" + storeSource + "\n";
+  return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
 }
 module.exports = (config) => {
   for (const extension of config.extra?.eas?.build?.experimental?.ios?.appExtensions ?? [])

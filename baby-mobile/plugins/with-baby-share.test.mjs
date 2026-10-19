@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -56,7 +57,7 @@ describe("generated Safari preprocessing", () => {
     ).toThrow("partial generation");
     expect(() =>
       patchShareController(patched.replace("try BabySharePreprocessing.decode", "try Other.decode"))
-    ).toThrow("refusing unsafe generation");
+    ).toThrow("partial generation");
   });
   it("joins the image batch once, rejects mixed providers and removes unsafe image operations", () => {
     const output = patchShareController(upstream);
@@ -69,8 +70,10 @@ describe("generated Safari preprocessing", () => {
       output.indexOf("  private func handleVCard(")
     );
     expect(body).toContain("try await BabyShareImageBatch.process");
-    expect(body).toContain("try await self.loadBabyImage(provider)");
-    expect(body).toContain("guard let container = FileManager.default.containerURL");
+    expect(body).toContain("try await self.loadBabyImage(provider, directory: capture.directory)");
+    expect(body).toContain("storage.begin(id: self.babyCaptureId)");
+    expect(body).toContain("try storage.publish(encoded, capture: capture)");
+    expect(body).toContain("if !published { try? storage.abort(capture) }");
     expect(body).toContain("BabyShareImageNormalization.normalize(fileURL: url)");
     expect(body).toContain("BabyShareImageNormalization.normalize(bytes: bytes)");
     expect(body).toContain("BabyShareImageNormalization.normalize(image: pixels)");
@@ -99,10 +102,24 @@ describe("generated Safari preprocessing", () => {
     ).toThrow("image share entry changed");
     expect(() => patchShareController(output.replace("guard (1...4)", "guard (1...5)"))).toThrow("partial generation");
   });
+  it("coordinates every generated publisher through the same immutable capture store", () => {
+    const output = patchShareController(upstream);
+    const store = readFileSync(
+      new URL("../modules/hafa-baby-share/ios/BabyShareStore.swift", import.meta.url),
+      "utf8"
+    ).trim();
+    expect(output).toContain(store);
+    expect(output.match(/guard self.publishBabyShare\(/g)).toHaveLength(4);
+    expect(method(output)).toContain("try babyShareStore().publish(encoded, id: self.babyCaptureId)");
+    expect(output).not.toMatch(/userDefaults\??\.set\([^\n]+forKey: self\.sharedKey\)/);
+    expect(() =>
+      patchShareController(output.replace("publishBabyShare(self.sharedText)", "publishBabyShare([])"))
+    ).toThrow("partial generation");
+  });
   it.skipIf(process.platform !== "darwin")(
     "executes the exact embedded Foundation decoder against valid and malformed native values",
     () => {
-      const directory = mkdtempSync(join(tmpdir(), "baby-share-swift-")),
+      const directory = mkdtempSync(join(tmpdir(), "Håfa share swift ")),
         executable = join(directory, "decoder-tests");
       try {
         const generated = join(directory, "ShareViewController.swift");
@@ -111,8 +128,8 @@ describe("generated Safari preprocessing", () => {
         execFileSync(
           "swiftc",
           [
-            new URL("./BabySharePreprocessing.swift", import.meta.url).pathname,
-            new URL("./__tests__/BabySharePreprocessingTests.swift", import.meta.url).pathname,
+            fileURLToPath(new URL("./BabySharePreprocessing.swift", import.meta.url)),
+            fileURLToPath(new URL("./__tests__/BabySharePreprocessingTests.swift", import.meta.url)),
             "-o",
             executable,
           ],
@@ -124,8 +141,8 @@ describe("generated Safari preprocessing", () => {
         execFileSync(
           "swiftc",
           [
-            new URL("./BabyShareImageBatch.swift", import.meta.url).pathname,
-            new URL("./__tests__/BabyShareImageBatchTests.swift", import.meta.url).pathname,
+            fileURLToPath(new URL("./BabyShareImageBatch.swift", import.meta.url)),
+            fileURLToPath(new URL("./__tests__/BabyShareImageBatchTests.swift", import.meta.url)),
             "-o",
             executable,
           ],
@@ -137,8 +154,8 @@ describe("generated Safari preprocessing", () => {
         execFileSync(
           "swiftc",
           [
-            new URL("./BabyShareImageNormalization.swift", import.meta.url).pathname,
-            new URL("./__tests__/BabyShareImageNormalizationTests.swift", import.meta.url).pathname,
+            fileURLToPath(new URL("./BabyShareImageNormalization.swift", import.meta.url)),
+            fileURLToPath(new URL("./__tests__/BabyShareImageNormalizationTests.swift", import.meta.url)),
             "-o",
             executable,
           ],
@@ -146,6 +163,19 @@ describe("generated Safari preprocessing", () => {
         );
         expect(execFileSync(executable, { encoding: "utf8", timeout: 30_000 })).toContain(
           "native ImageIO cases passed"
+        );
+        execFileSync(
+          "swiftc",
+          [
+            fileURLToPath(new URL("../modules/hafa-baby-share/ios/BabyShareStore.swift", import.meta.url)),
+            fileURLToPath(new URL("./__tests__/BabyShareStoreTests.swift", import.meta.url)),
+            "-o",
+            executable,
+          ],
+          { timeout: 60_000 }
+        );
+        expect(execFileSync(executable, { encoding: "utf8", timeout: 30_000 })).toContain(
+          "native capture store cases passed"
         );
       } finally {
         rmSync(directory, { recursive: true, force: true });
