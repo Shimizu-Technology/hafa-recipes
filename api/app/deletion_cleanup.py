@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -53,6 +54,16 @@ def is_allowed_cleanup_prefix(prefix: str) -> bool:
     """Restrict durable cleanup to one recipe or one user's owned namespace."""
     if not isinstance(prefix, str) or not prefix or ".." in prefix:
         return False
+    if prefix.startswith("baby-private/"):
+        parts = prefix.split("/")
+        if len(parts) != 5 or parts[-1] or not re.fullmatch(r"[0-9a-f]{64}", parts[1]):
+            return False
+        if not re.fullmatch(r"[1-9][0-9]{0,9}", parts[2]) or int(parts[2]) > 2_147_483_647:
+            return False
+        try:
+            return parts[3] == str(UUID(parts[3]))
+        except ValueError:
+            return False
     if prefix.startswith("workout-coach-images/") and prefix.endswith("/"):
         try:
             return prefix == f"workout-coach-images/{UUID(prefix.split('/')[1])}/"
@@ -317,9 +328,10 @@ class DurableDeletionCleanupWorker:
         failures = 0
         for prefix in prefixes:
             try:
-                if prefix.startswith(("thumbnails/workouts-", "workout-coach-images/")):
+                if prefix.startswith(("thumbnails/workouts-", "workout-coach-images/", "baby-private/")):
                     # Fence the asset even after account/product rows have been erased.
-                    identifier = UUID(prefix.removeprefix("thumbnails/workouts-").removeprefix("workout-coach-images/").removesuffix("/"))
+                    identifier = (UUID(prefix.split("/")[3]) if prefix.startswith("baby-private/")
+                                  else UUID(prefix.removeprefix("thumbnails/workouts-").removeprefix("workout-coach-images/").removesuffix("/")))
                     async with AsyncSessionLocal() as db, db.begin():
                         await acquire_recipe_media_lock(db, identifier)
                         deletion = asyncio.create_task(storage_service.delete_prefix(prefix))
