@@ -16,6 +16,21 @@ from app.ai_governance import AIInvocationTracker
 from app.config import get_settings
 from app.domains.baby.budget import reserve
 from app.domains.baby.schemas import DomainModel, Evidence
+from app.domains.workouts.budget import BudgetError
+
+DAILY_LIMIT_CODE = "baby_ai_daily_limit"
+DAILY_LIMIT_MESSAGE = (
+    "Daily AI limit reached. Your originals and available text are saved. Try again later."
+)
+AI_UNAVAILABLE_MESSAGE = "AI processing is temporarily unavailable. Your originals and available text are saved. Try again later."
+
+
+def budget_failure_message(failure):
+    return (
+        DAILY_LIMIT_MESSAGE
+        if failure.code == "workouts_ai_budget_exceeded"
+        else AI_UNAVAILABLE_MESSAGE
+    )
 
 
 class ProviderUnavailable(Exception):
@@ -38,6 +53,7 @@ class AnswerOutput(DomainModel):
 class BabyProvider:
     def __init__(self, *, gate=None):
         self.gate = gate
+        self.budget_error: BudgetError | None = None
 
     def _key(self, settings):
         if settings.environment == "production":
@@ -64,11 +80,20 @@ class BabyProvider:
         if self.gate:
             await self.gate()
 
+    async def _reserve(self, capability, model, **kwargs):
+        try:
+            await reserve(capability, model, **kwargs)
+        except BudgetError as failure:
+            # Shared acquisition adapters may retain partial evidence and catch
+            # the exception. Preserve only its safe class, never provider data.
+            self.budget_error = failure
+            raise
+
     async def json_call(self, *, capability, instructions, content, output_model, max_tokens=2400):
         await self.admitted(capability)
         settings = get_settings()
         model = getattr(settings, "baby_ai_model", None) or settings.recipe_chat_model
-        await reserve(
+        await self._reserve(
             capability,
             model,
             images=any(item.get("type") == "image_url" for item in content)
@@ -202,7 +227,7 @@ class BabyProvider:
             raise ProviderUnavailable("Media exceeds processing limits")
         from openai import AsyncOpenAI
 
-        await reserve(
+        await self._reserve(
             "baby_transcription", settings.transcription_model, duration=math.ceil(duration)
         )
         await self.admitted("baby_transcription")

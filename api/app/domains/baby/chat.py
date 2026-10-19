@@ -12,7 +12,11 @@ from app.ai_governance import ai_request_context
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.lifecycle import digest, membership_for, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
-from app.domains.baby.provider import BabyProvider
+from app.domains.baby.provider import (
+    DAILY_LIMIT_CODE,
+    BabyProvider,
+    budget_failure_message,
+)
 from app.domains.baby.queries import records_query
 from app.domains.baby.schemas import ChatRequest, RecordCreate
 from app.domains.baby.security import BabyRoute
@@ -404,7 +408,9 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         if isinstance(failure, BudgetError):
             raise HTTPException(
                 failure.status_code,
-                "AI processing allowance reached; your saved information remains available",
+                {"code": DAILY_LIMIT_CODE, "message": budget_failure_message(failure)}
+                if failure.status_code == 429
+                else budget_failure_message(failure),
             ) from None
         raise HTTPException(
             503, "AI could not finish. Your question is saved; please retry."

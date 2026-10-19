@@ -6,7 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import read_bytes
+from app.domains.baby.provider import budget_failure_message
 from app.domains.baby.schemas import SourceData
+from app.domains.workouts.budget import BudgetError
 from app.domains.workouts.extraction import (
     ProductionSourceAcquirer,
     SourceBundle,
@@ -42,6 +44,8 @@ async def local_media(payload, mime, provider, *, may_use_ai, gate):
                 source.parts.append(SourcePart("uploaded_transcript", transcript))
             except asyncio.CancelledError:
                 raise
+            except BudgetError as failure:
+                source.metadata.coverage_notes.append(budget_failure_message(failure))
             except Exception:
                 source.metadata.coverage_notes.append(
                     "Audio could not be read; speech may be missing."
@@ -76,6 +80,7 @@ async def local_media(payload, mime, provider, *, may_use_ai, gate):
 async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     source = SourceBundle(SourceMetadata(url=request.get("url"), platform="text"))
     failures = []
+    budget_failure = None
     if request.get("text"):
         source.parts.append(SourcePart("pasted_text", request["text"]))
     if request.get("url"):
@@ -90,6 +95,9 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             source.metadata.coverage_notes.extend(acquired.warnings)
         except asyncio.CancelledError:
             raise
+        except BudgetError as failure:
+            budget_failure = failure
+            failures.append(budget_failure_message(failure))
         except Exception:
             failures.append("The linked source could not be read. The original link remains saved.")
     for index, attachment in enumerate(attachments):
@@ -123,6 +131,9 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
                 source.metadata.coverage_notes.extend(local.metadata.coverage_notes)
         except asyncio.CancelledError:
             raise
+        except BudgetError as failure:
+            budget_failure = failure
+            failures.append(budget_failure_message(failure))
         except Exception:
             failures.append(
                 "An attachment could not be read. The original attachment remains saved."
@@ -153,12 +164,18 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
                     source.parts.append(SourcePart(entry.location, entry.text))
         except asyncio.CancelledError:
             raise
+        except BudgetError as failure:
+            budget_failure = failure
+            failures.append(budget_failure_message(failure))
         except Exception:
             failures.append(
                 "AI could not organize this source. Available source text is still searchable."
             )
     elif source.images:
         failures.append("Enable AI processing to read text in images and sampled video frames.")
+    budget_failure = budget_failure or getattr(provider, "budget_error", None)
+    if budget_failure is not None:
+        failures.append(budget_failure_message(budget_failure))
     if not source.parts:
         failures.append("No readable source text was available; details may be missing.")
     evidence = [
@@ -183,5 +200,7 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         "title": title,
         "data": data,
         "status": status,
-        "error": "Some source details need review. Your original is saved." if failures else None,
+        "error": budget_failure_message(budget_failure)
+        if budget_failure
+        else ("Some source details need review. Your original is saved." if failures else None),
     }
