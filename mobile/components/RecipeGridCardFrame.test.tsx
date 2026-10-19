@@ -68,3 +68,31 @@ describe('recipe grid card alignment', () => {
     },
   );
 });
+
+describe('recipe grid card accessibility', () => {
+  it('reads as one button labelled with the recipe, or a caller-provided label', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    await act(async () => {
+      renderer.render(
+        <>
+          <RecipeGridCardFrame title="Red Rice" thumbnailUrl={null} onPress={vi.fn()} colors={colors} footer={null} />
+          <RecipeGridCardFrame
+            title="Kelaguen"
+            accessibilityLabel="Kelaguen, 20 min"
+            thumbnailUrl={null}
+            onPress={vi.fn()}
+            colors={colors}
+            footer={null}
+          />
+        </>,
+      );
+    });
+    try {
+      const cards = renderer.container.queryAll((node) => node.type === 'ScalePressable');
+      expect(cards.map((card) => card.props.accessibilityRole)).toEqual(['button', 'button']);
+      expect(cards.map((card) => card.props.accessibilityLabel)).toEqual(['Red Rice', 'Kelaguen, 20 min']);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+});

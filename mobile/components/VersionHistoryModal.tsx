@@ -124,7 +124,7 @@ export default function VersionHistoryModal({
         {/* Content */}
         {isLoading ? (
           <RNView style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.tint} />
+            <ActivityIndicator size="large" color={colors.actionText} />
             <Text style={[styles.loadingText, { color: colors.textMuted }]}>
               Loading versions...
             </Text>
@@ -151,8 +151,8 @@ export default function VersionHistoryModal({
           >
             {/* Current Version Notice */}
             <RNView style={[styles.currentNotice, { backgroundColor: colors.tint + '15' }]}>
-              <Ionicons name="checkmark-circle" size={20} color={colors.tint} />
-              <Text style={[styles.currentNoticeText, { color: colors.tint }]}>
+              <Ionicons name="checkmark-circle" size={20} color={colors.actionText} />
+              <Text style={[styles.currentNoticeText, { color: colors.actionText }]}>
                 You are viewing the current version
               </Text>
             </RNView>
@@ -174,9 +174,9 @@ export default function VersionHistoryModal({
                     <Ionicons 
                       name={getChangeTypeIcon(version.change_type) as any} 
                       size={14} 
-                      color={colors.tint} 
+                      color={colors.actionText} 
                     />
-                    <Text style={[styles.versionBadgeText, { color: colors.tint }]}>
+                    <Text style={[styles.versionBadgeText, { color: colors.actionText }]}>
                       {getChangeTypeLabel(version.change_type)}
                     </Text>
                   </RNView>
@@ -210,11 +210,11 @@ export default function VersionHistoryModal({
                     disabled={restoringId === version.id}
                   >
                     {restoringId === version.id ? (
-                      <ActivityIndicator size="small" color={colors.tint} />
+                      <ActivityIndicator size="small" color={colors.actionText} />
                     ) : (
                       <>
-                        <Ionicons name="refresh" size={16} color={colors.tint} />
-                        <Text style={[styles.restoreButtonText, { color: colors.tint }]}>
+                        <Ionicons name="refresh" size={16} color={colors.actionText} />
+                        <Text style={[styles.restoreButtonText, { color: colors.actionText }]}>
                           Restore
                         </Text>
                       </>

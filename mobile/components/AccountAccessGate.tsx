@@ -265,7 +265,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
           <BrandMark size={70} style={{ backgroundColor: colors.backgroundSecondary }} />
           {loading && correctOnboardingOwner && !failure ? (
             <>
-              <ActivityIndicator color={colors.tint} size="large" style={styles.loader} />
+              <ActivityIndicator color={colors.actionText} size="large" style={styles.loader} />
               <Text style={styles.title}>Preparing your recipe library</Text>
               <Text style={[styles.description, { color: colors.textSecondary }]}>
                 We&apos;re checking your account before opening your private recipes.
@@ -273,7 +273,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
             </>
           ) : needsConnection && correctOnboardingOwner ? (
             <>
-              <Text style={styles.eyebrow}>ONE QUICK SECURITY STEP</Text>
+              <Text style={styles.eyebrow}>One quick security step</Text>
               <Text style={styles.title}>Keep your recipes within reach</Text>
               <Text style={[styles.description, { color: colors.textSecondary }]}>
                 Your recipe library is safe. Create a password so you can always return, even if Apple or Google changes.
@@ -366,7 +366,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
           ) : (
             <>
               <RNView style={[styles.icon, { backgroundColor: `${colors.tint}18` }]}>
-                <Ionicons name={recovery ? 'shield-checkmark-outline' : 'cloud-offline-outline'} size={30} color={colors.tint} />
+                <Ionicons name={recovery ? 'shield-checkmark-outline' : 'cloud-offline-outline'} size={30} color={colors.actionText} />
               </RNView>
               <Text style={styles.title}>
                 {recovery ? 'Your recipe library needs reconnecting' : 'We couldn’t reach your recipes'}
@@ -407,7 +407,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   loader: { alignSelf: 'flex-start', marginTop: spacing.sm },
-  eyebrow: { fontFamily: fontFamily.bold, fontSize: fontSize.xs, letterSpacing: 1.3 },
+  eyebrow: { fontFamily: fontFamily.bold, fontSize: fontSize.sm },
   title: { fontFamily: fontFamily.display, fontSize: fontSize.xxl, lineHeight: 37 },
   description: { fontSize: fontSize.md, lineHeight: 23 },
   error: { fontSize: fontSize.sm, lineHeight: 19 },

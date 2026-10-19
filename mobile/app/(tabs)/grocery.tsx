@@ -86,9 +86,35 @@ function GroceryItemRow({
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
   const normalizedUnit = normalizeIngredientUnit(item.unit);
+  const hasNotes = Boolean(item.notes && item.notes !== 'null');
+  const itemName = [hasAmount && item.quantity, hasAmount && normalizedUnit, item.name]
+    .filter(Boolean)
+    .join(' ');
+  // The row groups its children, so read every visible detail in order.
+  const itemLabel = [
+    itemName,
+    isSharedList && item.added_by_name && `Added by ${item.added_by_name}`,
+    showMissingAmount && MISSING_AMOUNT_LABEL,
+    showRecipeLabel && item.recipe_title && `from ${item.recipe_title}`,
+    hasNotes && item.notes,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   return (
     <ScalePressable 
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: item.checked }}
+      accessibilityLabel={itemLabel}
+      // The row groups its children for VoiceOver, so expose Edit and Remove as actions.
+      accessibilityActions={[
+        { name: 'edit', label: `Edit ${item.name}` },
+        { name: 'remove', label: `Remove ${item.name}` },
+      ]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'edit') onEdit();
+        if (event.nativeEvent.actionName === 'remove') onDelete();
+      }}
       style={[
         styles.itemRow, 
         { 
@@ -146,7 +172,7 @@ function GroceryItemRow({
             from {item.recipe_title}
           </Text>
         )}
-        {item.notes && item.notes !== 'null' && (
+        {hasNotes && (
           <Text style={[styles.itemNotes, { color: colors.textMuted }]} numberOfLines={1}>
             {item.notes}
           </Text>
@@ -160,7 +186,8 @@ function GroceryItemRow({
           onEdit();
         }} 
         style={styles.editButton}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit ${item.name}`}
       >
         <Ionicons name="pencil-outline" size={18} color={colors.textMuted} />
       </TouchableOpacity>
@@ -172,7 +199,8 @@ function GroceryItemRow({
           onDelete();
         }} 
         style={styles.deleteButton}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${item.name}`}
       >
         <Ionicons name="trash-outline" size={20} color={colors.error} />
       </TouchableOpacity>
@@ -609,7 +637,7 @@ export default function GroceryScreen() {
     if (!isLoaded) {
       return (
         <RNView style={styles.emptyContainer}>
-          <ActivityIndicator size="large" color={colors.tint} />
+          <ActivityIndicator size="large" color={colors.actionText} />
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
             Checking your account…
           </Text>
@@ -621,7 +649,7 @@ export default function GroceryScreen() {
       return (
         <RNView style={styles.emptyContainer}>
           <RNView style={[styles.guestIconContainer, { backgroundColor: colors.tint + '15' }]}>
-            <Ionicons name="basket-outline" size={42} color={colors.tint} />
+            <Ionicons name="basket-outline" size={42} color={colors.actionText} />
           </RNView>
           <Text style={[styles.emptyTitle, { color: colors.text }]}>One list for the whole meal</Text>
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
@@ -641,7 +669,7 @@ export default function GroceryScreen() {
     if (isLoading) {
       return (
         <RNView style={styles.emptyContainer}>
-          <ActivityIndicator size="large" color={colors.tint} />
+          <ActivityIndicator size="large" color={colors.actionText} />
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary, marginTop: spacing.md }]}>
             Loading your grocery list...
           </Text>
@@ -787,14 +815,14 @@ export default function GroceryScreen() {
               <Ionicons 
                 name="refresh-outline" 
                 size={22} 
-                color={isRefetching ? colors.textMuted : colors.tint} 
+                color={isRefetching ? colors.textMuted : colors.actionText} 
               />
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => setShowSettings(true)} 
               style={styles.headerIconButton}
             >
-              <Ionicons name="settings-outline" size={22} color={colors.tint} />
+              <Ionicons name="settings-outline" size={22} color={colors.actionText} />
             </TouchableOpacity>
           </RNView>}
         </RNView>
@@ -816,7 +844,7 @@ export default function GroceryScreen() {
                 : 'Getting your list ready…'}
           </Text>
           {isRefetching && (
-            <ActivityIndicator size="small" color={colors.tint} style={styles.subtitleSpinner} />
+            <ActivityIndicator size="small" color={colors.actionText} style={styles.subtitleSpinner} />
           )}
         </TouchableOpacity>
 
@@ -829,9 +857,9 @@ export default function GroceryScreen() {
           accessibilityRole="button"
           accessibilityLabel="Open my pantry"
         >
-          <Ionicons name="basket-outline" size={19} color={colors.tint} />
-          <Text style={{ color: colors.tint, fontWeight: fontWeight.semibold, flex: 1 }}>My Pantry</Text>
-          <Ionicons name="chevron-forward" size={17} color={colors.tint} />
+          <Ionicons name="basket-outline" size={19} color={colors.actionText} />
+          <Text style={{ color: colors.actionText, fontWeight: fontWeight.semibold, flex: 1 }}>My Pantry</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.actionText} />
         </TouchableOpacity>
         {readyForPantry.length > 0 && <TouchableOpacity
           onPress={handleAddCheckedToPantry}
@@ -1169,10 +1197,20 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   editButton: {
-    padding: spacing.sm,
+    minWidth: 44,
+    minHeight: 44,
+    // 44pt target without making single-line rows taller.
+    marginVertical: -5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   deleteButton: {
-    padding: spacing.sm,
+    minWidth: 44,
+    minHeight: 44,
+    // 44pt target without making single-line rows taller.
+    marginVertical: -5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyContainer: {
     alignItems: 'center',

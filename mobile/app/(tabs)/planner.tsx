@@ -176,7 +176,7 @@ export function MealSlot({
     <RNView style={styles.mealSlot}>
       <RNView style={styles.mealSlotHeader}>
         <RNView style={[styles.mealIcon, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name={mealType.icon} size={18} color={colors.tint} />
+          <Ionicons name={mealType.icon} size={18} color={colors.actionText} />
         </RNView>
         <Text style={[styles.mealLabel, { color: colors.text }]}>
           {mealType.label}
@@ -200,13 +200,13 @@ export function MealSlot({
         >
           {isAdding ? (
             <>
-              <ActivityIndicator size="small" color={colors.tint} />
-              <Text style={[styles.addMealText, { color: colors.tint }]}>Adding...</Text>
+              <ActivityIndicator size="small" color={colors.actionText} />
+              <Text style={[styles.addMealText, { color: colors.actionText }]}>Adding...</Text>
             </>
           ) : (
             <>
-              <Ionicons name={pendingRecipeTitle ? 'calendar-outline' : 'add'} size={20} color={colors.tint} />
-              <Text style={[styles.addMealText, { color: colors.tint }]}>
+              <Ionicons name={pendingRecipeTitle ? 'calendar-outline' : 'add'} size={20} color={colors.actionText} />
+              <Text style={[styles.addMealText, { color: colors.actionText }]}>
                 {pendingRecipeTitle ? 'Plan here' : `Add ${mealType.label.toLowerCase()}`}
               </Text>
             </>
@@ -266,11 +266,11 @@ export function MealSlot({
               accessibilityState={{ busy: isAdding, disabled: isAddDisabled }}
             >
               {isAdding ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Ionicons name="calendar-outline" size={16} color={colors.tint} />
+                <Ionicons name="calendar-outline" size={16} color={colors.actionText} />
               )}
-              <Text style={[styles.planHereText, { color: colors.tint }]}>
+              <Text style={[styles.planHereText, { color: colors.actionText }]}>
                 {isAdding ? 'Adding...' : 'Plan here'}
               </Text>
             </TouchableOpacity>
@@ -284,7 +284,7 @@ export function MealSlot({
               accessibilityLabel={`Add another ${mealType.label}`}
               accessibilityState={{ disabled: isAddDisabled }}
             >
-              <Ionicons name="add" size={16} color={colors.tint} />
+              <Ionicons name="add" size={16} color={colors.actionText} />
             </TouchableOpacity>
           )}
         </RNView>
@@ -559,9 +559,9 @@ export default function PlannerScreen() {
             ]}
           >
             <RNView style={[styles.signedOutHeroIcon, { backgroundColor: colors.tint + '15' }]}>
-              <Ionicons name="calendar-outline" size={30} color={colors.tint} />
+              <Ionicons name="calendar-outline" size={30} color={colors.actionText} />
             </RNView>
-            <Text style={[styles.signedOutEyebrow, { color: colors.tint }]}>Meal planning preview</Text>
+            <Text style={[styles.signedOutEyebrow, { color: colors.actionText }]}>Meal planning preview</Text>
             <Text style={[styles.signedOutTitle, { color: colors.text }]}>Plan the week before dinner feels urgent.</Text>
             <Text style={[styles.signedOutSubtitle, { color: colors.textSecondary }]}>
               Sign in to map recipes across breakfast, lunch, dinner, and snacks — then send the whole week to your grocery list.
@@ -580,7 +580,7 @@ export default function PlannerScreen() {
                 <Text style={[styles.previewPlannerTitle, { color: colors.text }]}>A calmer meal board</Text>
               </RNView>
               <RNView style={[styles.previewTodayBadge, { backgroundColor: colors.tint + '15' }]}>
-                <Text style={[styles.previewTodayText, { color: colors.tint }]}>Today</Text>
+                <Text style={[styles.previewTodayText, { color: colors.actionText }]}>Today</Text>
               </RNView>
             </RNView>
 
@@ -620,7 +620,7 @@ export default function PlannerScreen() {
                   ]}
                 >
                   <RNView style={[styles.previewMealIcon, { backgroundColor: colors.tint + '15' }]}>
-                    <Ionicons name={meal.icon} size={18} color={colors.tint} />
+                    <Ionicons name={meal.icon} size={18} color={colors.actionText} />
                   </RNView>
                   <RNView style={styles.previewMealCopy}>
                     <Text style={[styles.previewMealLabel, { color: colors.textMuted }]}>{meal.label}</Text>
@@ -657,7 +657,7 @@ export default function PlannerScreen() {
             {weekRangeLabel}
           </Text>
           <RNView style={[styles.todayButton, { backgroundColor: colors.tint + '15' }]}>
-            <Text style={[styles.todayButtonText, { color: colors.tint }]}>Today</Text>
+            <Text style={[styles.todayButtonText, { color: colors.actionText }]}>Today</Text>
           </RNView>
         </TouchableOpacity>
 
@@ -727,7 +727,7 @@ export default function PlannerScreen() {
         )}
         {(isLoading || !isLoaded) && !weekPlan ? (
           <RNView style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.tint} />
+            <ActivityIndicator size="large" color={colors.actionText} />
             <Text style={[styles.loadingText, { color: colors.textMuted }]}>
               Loading meal plan...
             </Text>
@@ -815,10 +815,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   signedOutEyebrow: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
     marginBottom: spacing.sm,
   },
   signedOutTitle: {

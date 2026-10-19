@@ -522,9 +522,9 @@ export default function AddRecipeScreen() {
               accessibilityState={{ disabled: createMutation.isPending, busy: createMutation.isPending }}
             >
               {createMutation.isPending ? (
-                <ActivityIndicator size="small" color={colors.tint} />
+                <ActivityIndicator size="small" color={colors.actionText} />
               ) : (
-                <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
                   {isRecoveredIncompleteDraft ? 'Save draft' : (isPublic ? 'Publish' : 'Save private')}
                 </Text>
               )}
@@ -635,7 +635,7 @@ export default function AddRecipeScreen() {
                   {/* Header row with number and delete */}
                   <RNView style={styles.ingredientHeader}>
                     <RNView style={[styles.ingredientBadge, { backgroundColor: colors.tint + '20' }]}>
-                      <Text style={[styles.ingredientBadgeText, { color: colors.tint }]}>{index + 1}</Text>
+                      <Text style={[styles.ingredientBadgeText, { color: colors.actionText }]}>{index + 1}</Text>
                     </RNView>
                     {ingredients.length > 1 && (
                       <TouchableOpacity
@@ -716,8 +716,8 @@ export default function AddRecipeScreen() {
                 style={[styles.addButtonBottom, { borderColor: colors.tint }]}
                 accessibilityRole="button"
               >
-                <Ionicons name="add-circle-outline" size={20} color={colors.tint} />
-                <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Ingredient</Text>
+                <Ionicons name="add-circle-outline" size={20} color={colors.actionText} />
+                <Text style={[styles.addButtonText, { color: colors.actionText }]}>Add Ingredient</Text>
               </TouchableOpacity>
             </RNView>
 
@@ -761,8 +761,8 @@ export default function AddRecipeScreen() {
                 style={[styles.addButtonBottom, { borderColor: colors.border }]}
                 accessibilityRole="button"
               >
-                <Ionicons name="add-circle-outline" size={20} color={colors.tint} />
-                <Text style={[styles.addButtonText, { color: colors.tint }]}>Add Step</Text>
+                <Ionicons name="add-circle-outline" size={20} color={colors.actionText} />
+                <Text style={[styles.addButtonText, { color: colors.actionText }]}>Add Step</Text>
               </TouchableOpacity>
             </RNView>
 

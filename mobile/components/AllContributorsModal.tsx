@@ -79,7 +79,7 @@ export default function AllContributorsModal({
         activeOpacity={0.7}
       >
         <RNView style={[styles.avatar, { backgroundColor: colors.tint + '20' }]}>
-          <Ionicons name="person" size={20} color={colors.tint} />
+          <Ionicons name="person" size={20} color={colors.actionText} />
         </RNView>
         <RNView style={styles.contributorInfo}>
           <Text style={[styles.contributorName, { color: colors.text }]}>
@@ -90,7 +90,7 @@ export default function AllContributorsModal({
           </Text>
         </RNView>
         {isSelected && (
-          <Ionicons name="checkmark-circle" size={22} color={colors.tint} />
+          <Ionicons name="checkmark-circle" size={22} color={colors.actionText} />
         )}
       </TouchableOpacity>
     );
@@ -149,7 +149,7 @@ export default function AllContributorsModal({
           {/* Contributors List */}
           {isLoading ? (
             <RNView style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={colors.tint} />
+              <ActivityIndicator size="large" color={colors.actionText} />
               <Text style={[styles.loadingText, { color: colors.textMuted }]}>
                 Loading contributors...
               </Text>

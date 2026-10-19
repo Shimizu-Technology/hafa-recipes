@@ -201,7 +201,7 @@ describe('SignInScreen', () => {
   it.each(['needs_second_factor', 'needs_client_trust'])('completes %s email verification on the same sign-in', async (status) => {
     const renderer = await renderPasswordSignIn({ status, supportedSecondFactors: [emailFactor] });
     try {
-      expect(renderedText(renderer)).toContain('Verify your sign-in');
+      expect(renderedText(renderer)).toContain('Check your email');
       expect(renderedText(renderer)).not.toContain('disable 2FA');
       expect(clerkMocks.prepareSecondFactor).toHaveBeenCalledWith({ strategy: 'email_code', emailAddressId: 'email_existing' });
       expect(clerkMocks.setActive).not.toHaveBeenCalled();
