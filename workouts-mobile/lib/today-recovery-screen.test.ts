@@ -33,15 +33,17 @@ vi.mock("@/lib/context", async () => {
     },
   };
 });
-vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View" }));
+vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View", Pressable: "Pressable",
+  AppState: { addEventListener: () => ({ remove() {} }) } }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 } }));
-vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }) }));
+vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
 vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
 vi.mock("@/components/ui", () => ({
   Screen: "Screen", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Button: "Button", AccountButton: "AccountButton",
   Chip: "Chip", ChipRow: "ChipRow", ListGroup: "ListGroup", ListRow: "ListRow", SectionHeader: "SectionHeader", WeekStrip: "WeekStrip",
-  Choice: "Choice", Grow: "Grow", IconButton: "IconButton", Row: "Row", Sheet: "Sheet", Field: "Field",
+  Choice: "Choice", Grow: "Grow", IconButton: "IconButton", Row: "Row", Sheet: "Sheet", Field: "Field", SkeletonCard: "SkeletonCard",
   useColors: () => ({ action: "green", muted: "gray" }),
 }));
 import Today from "../app/(tabs)/index";
@@ -62,6 +64,11 @@ const notices = () => renderer!.root.findAllByType("Notice" as never).filter((no
 const text = () => renderer!.root.findAll((node) => String(node.type) === "Copy" || String(node.type) === "Notice")
   .map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 async function mount() { await act(async () => { renderer = create(tree()); }); await settle(); }
+/** Plan sessions are compact rows; tapping one opens its actions. */
+async function openSession(id: string) {
+  const row = renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.testID === `plan-session-${id}`)[0];
+  await act(async () => row.props.onPress());
+}
 async function retry() { await act(async () => { buttons("Try again")[0].props.onPress(); }); await settle(); }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,10 +98,14 @@ it("Plan distinguishes partial work and permits inspecting recorded work and exp
       started_at: "2020-01-01T00:00:00Z", actuals: [{ completed: true }], prescription_snapshot: workout } }]);
   fixture.updateProgram.mockImplementation(async (updated) => ({ ...updated, revision: 2 }));
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  expect(buttons("Start session")).toHaveLength(1); // Only the next session (in the other plan) gets Start in the list.
+  await openSession("recorded");
   expect(text()).toContain("Partially recorded"); expect(text()).not.toContain("Done. Nice work.");
   await act(async () => buttons("Inspect session instructions")[0].props.onPress());
   expect(text()).toContain("Keep your back steady"); expect(text()).toContain("30s rest");
   expect(fixture.start).not.toHaveBeenCalled();
+  expect(buttons("Choose a new date")).toHaveLength(0);
+  await openSession("missed");
   expect(buttons("Choose a new date")).toHaveLength(1);
   await act(async () => buttons("Choose a new date")[0].props.onPress());
   const field = renderer!.root.findAllByType("Field" as never).find((n) => n.props.label === "New date · YYYY-MM-DD")!;
@@ -302,6 +313,7 @@ it.each(["partial", "completed"])("Plan keeps recorded %s sessions with no compl
     content: { client_session_id: "client", program_id: "plan", program_session_id: "recorded", status,
       started_at: "2020-01-01T00:00:00Z", actuals: [], prescription_snapshot: { blocks: [] } } }]);
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await openSession("recorded");
   expect(buttons("Choose a new date")).toHaveLength(0);
   expect(buttons("Move this session")).toHaveLength(0);
   expect(text()).toContain("Its original date stays in history");
@@ -318,6 +330,7 @@ it.each(["newer_revision", "retired_account"])("date recovery shares repeated ta
   let finish!: (p: Program) => void;
   fixture.updateProgram.mockImplementation(() => new Promise<Program>(done => { finish = done; }));
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await openSession("missed");
   await act(async () => buttons("Choose a new date")[0].props.onPress());
   const press = buttons("Save new date")[0].props.onPress;
   await act(async () => { press(); press(); });
@@ -341,6 +354,7 @@ it("Plan explains a recovery-spacing rejection and retains the date edit for cor
     status: 409, detail: "Keep session spacing and avoid stacking training",
   }));
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await openSession("missed");
   await act(async () => buttons("Choose a new date")[0].props.onPress());
   await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
   expect(text()).toContain("Choose a date with a recovery day between demanding sessions.");
@@ -436,6 +450,7 @@ it.each(["move", "archive"])("a held %s prevents an overlapping plan mutation fr
   fixture.updateProgram.mockImplementation(held);
   fixture.archiveProgram.mockImplementation(held);
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  await openSession("missed");
   await act(async () => buttons("Choose a new date")[0].props.onPress());
   const move = buttons("Save new date")[0].props.onPress;
   await act(async () => renderer!.root.findAllByType("IconButton" as never).find(n => n.props.label === "More actions for Strength")!.props.onPress());
@@ -478,7 +493,8 @@ it("renames a plan without changing its dates, workout instructions or recorded 
   expect(original.title).toBe("My plan"); expect(fixture.start).not.toHaveBeenCalled();
 });
 it("removes only a confirmed future unrecorded day while preserving the other plan entries", async () => {
-  const original = await mountPlan(); expect(buttons("Remove from plan")).toHaveLength(1);
+  const original = await mountPlan(); expect(buttons("Remove from plan")).toHaveLength(0);
+  await openSession("future"); expect(buttons("Remove from plan")).toHaveLength(1);
   await act(async () => buttons("Remove from plan")[0].props.onPress());
   expect(fixture.updateProgram).not.toHaveBeenCalled();
   await act(async () => buttons("Keep planned session")[0].props.onPress());
@@ -501,10 +517,12 @@ it.each(["recorded", "active", "pending", "paused", "archived"])("does not offer
   if (kind === "archived") program.schedule_state = { status: "paused", archived_at: "2026-10-15" };
   await mountPlan(program);
   if (kind === "archived") { await act(async () => buttons("Archived plans")[0].props.onPress()); }
+  await openSession("future");
+  expect(buttons("Inspect session instructions")).toHaveLength(1);
   expect(buttons("Remove from plan")).toHaveLength(0);
 });
 it("rechecks live active training before confirming removal", async () => {
-  const program = await mountPlan();
+  const program = await mountPlan(); await openSession("future");
   await act(async () => buttons("Remove from plan")[0].props.onPress());
   fixture.active = { workout: { title: "Started on this device" }, actuals: [], source: { program_id: program.id, program_session_id: "future" } };
   await act(async () => buttons("Remove planned session")[0].props.onPress()); await settle();
@@ -515,7 +533,7 @@ it.each(["rename", "remove"])("a held %s fences duplicate taps and late acknowle
   let resolve!: (program: Program) => void;
   fixture.updateProgram.mockImplementationOnce(() => new Promise<Program>(done => { resolve = done; }));
   if (kind === "rename") await openRename();
-  else await act(async () => buttons("Remove from plan")[0].props.onPress());
+  else { await openSession("future"); await act(async () => buttons("Remove from plan")[0].props.onPress()); }
   const press = buttons(kind === "rename" ? "Save plan name" : "Remove planned session")[0].props.onPress;
   await act(async () => { press(); press(); }); expect(fixture.updateProgram).toHaveBeenCalledTimes(1);
   fixture.owner = "owner-B"; fixture.epoch++;
@@ -581,26 +599,30 @@ it("an old generation acknowledgment cannot unlock an in-flight maintenance comm
 });
 
 it.each(["owner", "storage", "generation"] as const)("a retired native date callback cannot overwrite the %s scope's new editor", async kind => {
-  await mountPlan();
-  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  await mountPlan(); await openSession("future");
+  await act(async () => buttons("Move this session")[0].props.onPress());
   const old = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.onChange;
   if (kind === "owner") fixture.owner = "owner-B";
   else if (kind === "storage") fixture.epoch += 1;
   else fixture.generation += 1;
   await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Plan)))); await settle();
-  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  expect(buttons("Move this session")).toHaveLength(0); // A new scope closes the old session sheet.
+  await openSession("future");
+  await act(async () => buttons("Move this session")[0].props.onPress());
   await act(async () => old("2099-08-20"));
   const field = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!;
   expect(field.props.value).toBe("2099-01-02"); expect(fixture.updateProgram).not.toHaveBeenCalled();
 });
 it("a native date callback for the previous editor cannot overwrite a different session or a reopened editor", async () => {
-  await mountPlan();
-  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  await mountPlan(); await openSession("future");
+  await act(async () => buttons("Move this session")[0].props.onPress());
   const old = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.onChange;
+  await openSession("today");
   await act(async () => buttons("Move this session")[0].props.onPress());
   await act(async () => old("2099-08-20"));
   expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe(dateInTimezone(new Date(), "UTC"));
-  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  await openSession("future");
+  await act(async () => buttons("Move this session")[0].props.onPress());
   await act(async () => old("2099-08-21"));
   expect(renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!.props.value).toBe("2099-01-02");
 });
@@ -611,7 +633,8 @@ const readinessRejection = () => Object.assign(new Error("Refresh the saved prog
 async function requirePlanReadiness() {
   await mountPlan();
   fixture.updateProgram.mockRejectedValueOnce(readinessRejection());
-  await act(async () => buttons("Move this session").at(-1)!.props.onPress());
+  await openSession("future");
+  await act(async () => buttons("Move this session")[0].props.onPress());
   const date = renderer!.root.findAllByType("Field" as never).find(node => node.props.label === "New date · YYYY-MM-DD")!;
   await act(async () => date.props.onChange("2099-02-10"));
   await act(async () => buttons("Save new date")[0].props.onPress()); await settle();
@@ -635,7 +658,7 @@ it("confirms expired daily readiness in the date editor and preserves the entere
 it.each(["owner", "storage", "editor"] as const)("a readiness confirmation callback cannot borrow a replacement %s", async kind => {
   await requirePlanReadiness();
   const oldConfirm = buttons("I’m ready to train today")[0].props.onPress;
-  if (kind === "editor") await act(async () => buttons("Move this session")[0].props.onPress());
+  if (kind === "editor") { await openSession("today"); await act(async () => buttons("Move this session")[0].props.onPress()); }
   else {
     if (kind === "owner") fixture.owner = "owner-B"; else fixture.epoch += 1;
     await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Plan)))); await settle();
@@ -648,7 +671,8 @@ it("a held readiness acknowledgment preserves a newly opened date editor", async
   let finish!: () => void;
   fixture.setReadiness.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
   await act(async () => { buttons("I’m ready to train today")[0].props.onPress(); });
-  // Capture and invoke the old move affordance to model an already queued native interaction.
+  // Open another session's date editor while the confirmation is held.
+  await openSession("today");
   await act(async () => buttons("Move this session")[0].props.onPress());
   await act(async () => finish()); await settle();
   expect(buttons("Save new date")).toHaveLength(1);

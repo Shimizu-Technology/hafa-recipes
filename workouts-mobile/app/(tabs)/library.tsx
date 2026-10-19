@@ -27,6 +27,7 @@ import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/li
 import type { Workout } from "@/lib/models";
 import { workoutOriginLabel } from "@/lib/workout-presentation";
 import { WorkoutGallery, useWorkoutGalleryColumns } from "@/components/workout-gallery";
+import { useFocusRefresh } from "@/lib/use-focus-refresh";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
@@ -115,6 +116,9 @@ export default function Library() {
     getNextPageParam: (page) => (page.has_more ? (page.next_cursor ?? undefined) : undefined),
     enabled: !!enrollment?.enrolled,
   });
+  // Workouts saved on another device or from a share appear without relaunching.
+  const freshness = useFocusRefresh(() => Promise.all([q.refetch(), collections.refetch()]),
+    { enabled: !!enrollment?.enrolled, updatedAt: q.dataUpdatedAt });
   const visible = [
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
@@ -133,6 +137,8 @@ export default function Library() {
     <Screen
       title="Your library"
       subtitle="All your workouts, in one place."
+      refreshing={freshness.refreshing}
+      onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
       action={
         <Row gap={8}>
           <IconButton

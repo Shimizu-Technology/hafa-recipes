@@ -7,7 +7,7 @@ import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { isISODate } from "@/lib/sharing";
 import type { DietaryRecipe, RecipeContext, RecipeGrants } from "@/lib/connections";
-import { Field } from "@/components/ui";
+import { CalendarDate } from "@/components/calendar-date";
 function RecipeSummary({ recipe }: { recipe: DietaryRecipe }) {
   return (
     <Card>
@@ -90,7 +90,7 @@ export default function RecipesConnection() {
   async function read() {
     if (lock.current) return;
     if ((start && !isISODate(start)) || (end && !isISODate(end))) {
-      setError("Choose valid dates in YYYY-MM-DD format, or leave both blank for this week.");
+      setError("Choose valid start and end dates, or clear both for this week.");
       return;
     }
     lock.current = true;
@@ -176,8 +176,8 @@ export default function RecipesConnection() {
       {(q.data?.library_context || q.data?.meal_plan_context) && (
         <Card>
           <Copy kind="heading">Inspect what is available</Copy>
-          <Field label="Meal-plan start date · YYYY-MM-DD" value={start} onChange={setStart} optional />
-          <Field label="Meal-plan end date · YYYY-MM-DD" value={end} onChange={setEnd} optional />
+          <CalendarDate label="Meal-plan start date" value={start} onChange={(value) => setStart(value ?? "")} optional />
+          <CalendarDate label="Meal-plan end date" value={end} onChange={(value) => setEnd(value ?? "")} optional />
           <Button
             title="Read permitted summaries"
             secondary

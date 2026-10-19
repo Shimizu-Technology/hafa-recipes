@@ -5,6 +5,8 @@ export interface CalendarDateProps {
   onChange(value: string | null): void;
   optional?: boolean;
   disabled?: boolean;
+  /** Earliest selectable day (YYYY-MM-DD). Screens still validate the value. */
+  min?: string;
 }
 export function CalendarDate({ label, value, onChange, optional, disabled }: CalendarDateProps) {
   return (

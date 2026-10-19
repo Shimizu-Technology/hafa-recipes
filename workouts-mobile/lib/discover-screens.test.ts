@@ -18,6 +18,8 @@ const fixture = vi.hoisted(() => ({
   blockDiscoverContributor: vi.fn(),
   workout: vi.fn(),
   deleteWorkout: vi.fn(),
+  unpublishWorkout: vi.fn(),
+  announce: vi.fn(),
   importJob: vi.fn(),
   importJobs: vi.fn(),
   searchLibrary: vi.fn(), collections: vi.fn(), createCollection: vi.fn(), renameCollection: vi.fn(), removeCollection: vi.fn(), organization: vi.fn(), saveOrganization: vi.fn(),
@@ -55,6 +57,7 @@ vi.mock("@/lib/context", () => {
     blockDiscoverContributor: fixture.blockDiscoverContributor,
     workout: fixture.workout,
     deleteWorkout: fixture.deleteWorkout,
+    unpublishWorkout: fixture.unpublishWorkout,
     importJob: fixture.importJob,
     importJobs: fixture.importJobs,
     searchLibrary: fixture.searchLibrary, collections: fixture.collections, createCollection: fixture.createCollection, renameCollection: fixture.renameCollection, removeCollection: fixture.removeCollection, organization: fixture.organization, saveOrganization: fixture.saveOrganization,
@@ -104,6 +107,7 @@ vi.mock("react-native", () => ({
     fixture.appStateListeners.add(listener); return { remove() { fixture.appStateListeners.delete(listener); } };
   } },
   Linking: { openURL: vi.fn(async () => undefined) },
+  AccessibilityInfo: { announceForAccessibility: (text: string) => fixture.announce(text) },
 }));
 vi.mock("expo-router", async () => {
   const { useEffect } = await import("react");
@@ -191,7 +195,8 @@ beforeEach(() => {
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
-    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor]) mock.mockReset();
+    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
+    fixture.unpublishWorkout, fixture.announce]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
   fixture.appState = "active"; fixture.appStateListeners.clear();
@@ -306,6 +311,25 @@ it("refreshes the Workouts Safety Center after blocking from Discover", async ()
   expect(cache.getQueryState(["owner", "blocked-contributors", 1])?.isInvalidated).toBe(true);
   expect(cache.getQueryState(["other", "blocked-contributors", 1])?.isInvalidated).toBe(false);
   expect(fixture.toast).toHaveBeenCalledWith("Blocked Leon");
+});
+
+it("workout detail reads at a glance, keeps each action in one place and confirms leaving Discover", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(true));
+  const publication = { is_public: true, discover_visible: true, moderation_status: "active" as const, published_at: "2026-10-13T02:00:00Z" };
+  fixture.workout.mockResolvedValue({ ...saved, estimated_minutes: 30, equipment_required: ["Dumbbells", "Bench"], publication });
+  fixture.unpublishWorkout.mockResolvedValue({ ...publication, is_public: false, discover_visible: false });
+  await mount(WorkoutDetail);
+  expect(nodes("Screen")[0].props.subtitle).toBe("30 min · 1 exercise · Dumbbells, Bench");
+  expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
+  expect(nodes("StatTile")).toHaveLength(0);
+  for (const title of ["Chat about this workout", "Edit workout details", "Remove from Discover"])
+    expect(nodes("ListRow").filter((n) => n.props.title === title)).toHaveLength(1);
+  await act(async () => nodes("ListRow").find((n) => n.props.title === "Remove from Discover")!.props.onPress()); await settle();
+  expect(fixture.unpublishWorkout).toHaveBeenCalledWith(saved.id, saved.generation);
+  const notice = nodes("Notice").find((n) => n.props.tone === "success")!;
+  expect(notice.props.children).toBe("Removed from Discover. People who already saved it keep their copy.");
+  expect(fixture.announce).toHaveBeenCalledWith(notice.props.children);
+  expect(nodes("ListRow").find((n) => n.props.title === "Share to Discover")).toBeDefined();
 });
 
 it("shows owners their own workout with unpublish and no save, report or block", async () => {
@@ -456,6 +480,22 @@ it("a server-saved incomplete workout exposes credit, cover, timing and optional
   expect(fixture.acceptImport).not.toHaveBeenCalled();
   await act(async () => button("Check details")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
+});
+it("Library refreshes stale results on return and by pulling down, without refetching fresh data", async () => {
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  await mount(Library);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(1);
+  const foreground = async () => { await act(async () => { for (const listener of [...fixture.appStateListeners]) listener("active"); }); await settle(); };
+  await foreground();
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(1); // Loaded moments ago.
+  const now = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(now + 11_000);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await foreground();
+  clock.mockRestore();
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2); expect(nodes("MediaCard")).toHaveLength(1);
+  await act(async () => nodes("Screen")[0].props.onRefresh()); await settle();
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(3); expect(nodes("Screen")[0].props.refreshing).toBe(false);
 });
 it("Library cards retain the source cover and creator while marking unresolved source details", async () => {
   fixture.capabilities.mockResolvedValue(caps(false));
@@ -780,9 +820,10 @@ it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a sep
   fixture.workout.mockResolvedValue({ ...saved, estimated_minutes: 25, blocks: [{ id: "flow", label: "Flow", grouping: "circuit",
     execution: { mode: "amrap", time_cap_seconds: seconds }, exercises: [{ name: "Curls", reps_min: 10 }] }] });
   await mount(WorkoutDetail);
-  expect(nodes("StatTile").find(n => n.props.label === "Estimated time")).toBeUndefined();
+  expect(nodes("StatTile")).toHaveLength(0);
+  const meta = nodes("Screen")[0].props.subtitle as string;
+  expect(meta).toBe(`${seconds === 1200 ? "20 min" : "2m 5s"} AMRAP · 1 exercise`); expect(meta).not.toContain("25 min");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
-  expect(text).toContain(seconds === 1200 ? "20 min" : "2m 5s"); expect(text).toContain("AMRAP time cap");
   expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
 });
 it("gives an empty manual workout a usable add-exercises action", async () => {

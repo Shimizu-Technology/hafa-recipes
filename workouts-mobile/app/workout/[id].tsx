@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Linking } from "react-native";
+import { AccessibilityInfo, Linking } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,8 +7,6 @@ import { useLocalSearchParams } from "expo-router";
 import {
   Button,
   Card,
-  Chip,
-  ChipRow,
   Copy,
   Empty,
   IconButton,
@@ -18,7 +16,6 @@ import {
   Screen,
   SectionHeader,
   Sheet,
-  StatTile,
   Row,
   useToast,
 } from "@/components/ui";
@@ -32,6 +29,7 @@ import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
 import { WorkoutSource, WorkoutSourceHeader } from "@/components/workout-source";
 import { workoutOriginDescription } from "@/lib/workout-presentation";
+import { workoutMeta } from "@/lib/plan-presentation";
 import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 import { workoutDeletionBlock } from "@/lib/organization";
 export default function WorkoutDetail() {
@@ -56,6 +54,7 @@ export default function WorkoutDetail() {
   const [deleting, setDeleting] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState<{ scope: string; text: string } | null>(null);
   const [diagnosticScope, setDiagnosticScope] = useState<string | null>(null);
   const cache = useQueryClient();
   const toast = useToast();
@@ -97,6 +96,7 @@ export default function WorkoutDetail() {
     if (!workout || publishing) return;
     setPublishing(true);
     setError("");
+    setPublished(null);
     try {
       const result = share
         ? await disclosure.run(() => api.publishWorkout(workout.id, workout.generation))
@@ -110,7 +110,11 @@ export default function WorkoutDetail() {
       );
       void cache.invalidateQueries({ queryKey: discoverKeys.all(owner) });
       void cache.invalidateQueries({ queryKey: [owner, "library"] });
-      toast(share ? "Shared to Discover" : "Removed from Discover");
+      // Confirm next to the row that changed, so the swap is never silent (a toast can hide behind the disclosure sheet).
+      const text = share ? "Shared to Discover. Anyone using Håfa Workouts can find and save it."
+        : "Removed from Discover. People who already saved it keep their copy.";
+      setPublished({ scope, text });
+      AccessibilityInfo.announceForAccessibility?.(text);
     } catch (e) {
       setError(
         share && isIncomplete(e) && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
@@ -143,6 +147,9 @@ export default function WorkoutDetail() {
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
+  const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null,
+    exercises, equipment: workout.equipment_required }) : undefined;
+  const startable = !!workout && (exercises > 0 || !!offline.state.active);
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
     router.push(to);
@@ -150,40 +157,30 @@ export default function WorkoutDetail() {
   return (
     <Screen
       back
-      eyebrow={workout ? `${workout.kind} · ${publication?.discover_visible ? "shared to Discover" : "private library"}` : "Private library"}
       title={workout?.title ?? "Your workout."}
+      subtitle={meta}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
+      footer={startable ? (
+        <Button
+          title={offline.state.active ? "Resume current session" : "Start this workout"}
+          icon="play"
+          size="lg"
+          busy={busy}
+          disabled={!offline.ready || workout!.kind === "program" || (!offline.state.active && (exercises === 0 || !!trackingWarning))}
+          onPress={() => {
+            if (offline.state.active) router.push("/training");
+            else void start();
+          }}
+        />
+      ) : undefined}
     >
       {workout && <WorkoutSourceHeader source={workout} />}
-      {workout && (
-        <Row gap={10}>
-          {timeCap != null ? <Card compact style={{ flex: 1, minWidth: 96, gap: 4 }}>
-            <Copy kind="numericSmall">{formatSeconds(timeCap)}</Copy>
-            <Copy kind="small" tone="muted">AMRAP time cap</Copy>
-          </Card> : <StatTile value={workout.estimated_minutes ?? "–"} unit={workout.estimated_minutes ? "min" : undefined} label="Estimated time" />}
-          <StatTile value={exercises} label={exercises === 1 ? "Exercise" : "Exercises"} />
-          <StatTile value={workout.blocks.length} label={workout.blocks.length === 1 ? "Block" : "Blocks"} />
-        </Row>
-      )}
       {workout && exercises === 0 && <Button
         title={workout.provenance === "source" || workout.source_url || workout.capture_kind ? "Recover workout instructions" : "Add workout exercises"}
         icon="create-outline" size="lg" onPress={() => router.push({
           pathname: workout.provenance === "source" || workout.source_url || workout.capture_kind ? "/recover-workout/[id]" : "/edit-workout/[id]",
           params: { id: workout.id },
         })} />}
-      {workout && (exercises > 0 || offline.state.active) && (
-        <Button
-          title={offline.state.active ? "Resume current session" : "Start this workout"}
-          icon="play"
-          size="lg"
-          busy={busy}
-          disabled={!offline.ready || workout.kind === "program" || (!offline.state.active && (exercises === 0 || !!trackingWarning))}
-          onPress={() => {
-            if (offline.state.active) router.push("/training");
-            else void start();
-          }}
-        />
-      )}
       {trackingWarning && exercises > 0 && <Card compact>
         <Copy kind="subheading">Review before tracking</Copy>
         <Copy kind="small">{trackingWarning}</Copy>
@@ -234,13 +231,6 @@ export default function WorkoutDetail() {
         ) : (
           <>
             <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
-            {!!workout.equipment_required?.length && (
-              <ChipRow wrap label="Equipment">
-                {workout.equipment_required.map((item) => (
-                  <Chip key={item} label={item} icon="barbell-outline" />
-                ))}
-              </ChipRow>
-            )}
             <Copy kind="small" tone="muted">
               {workoutOriginDescription(workout)}
             </Copy>
@@ -330,6 +320,7 @@ export default function WorkoutDetail() {
                 />
               )}
             </ListGroup>
+            {published?.scope === scope && <Notice tone="success">{published.text}</Notice>}
           </>
         )}
       </QueryState>
@@ -345,42 +336,15 @@ export default function WorkoutDetail() {
             <Button title="Archive instead" variant="ghost" disabled={deleteBusy} onPress={() => { setDeleting(false); go({ pathname: "/organize/[id]", params: { id: workout.id } }); }} />
           </> : <>
           <ListRow
-            icon="chatbubble-ellipses-outline"
-            title="Chat about this workout"
-            onPress={() => go({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })}
-          />
-          <ListRow
             icon="share-outline"
             title="Share selected workout"
             detail={workout.kind === "program" ? "Programs can’t be shared as one workout" : undefined}
             disabled={workout.kind === "program"}
             onPress={() => go({ pathname: "/share", params: { id: workout.id, kind: "workout" } })}
           />
-          {discoverOn && (
-            <ListRow
-              icon={isPublic ? "eye-off-outline" : "globe-outline"}
-              title={isPublic ? "Remove from Discover" : "Share to Discover"}
-              disabled={publishing}
-              onPress={() => {
-                // Let this sheet finish dismissing before a disclosure sheet may open (iOS can't stack modals mid-dismiss).
-                setMore(false);
-                setTimeout(() => void setShared(!isPublic), 400);
-              }}
-            />
-          )}
-          <ListRow
-            icon="folder-open-outline"
-            title="Organize or duplicate workout"
-            onPress={() => go({ pathname: "/organize/[id]", params: { id: workout.id } })}
-          />
           <ListRow icon="time-outline" title="Version history" onPress={() => go({ pathname: "/workout-history/[id]", params: { id: workout.id } })} />
           <ListRow icon="refresh-outline" title="Update from caption or link"
             onPress={() => go({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />
-          <ListRow
-            icon="create-outline"
-            title="Edit workout details"
-            onPress={() => go({ pathname: "/edit-workout/[id]", params: { id: workout.id } })}
-          />
           <ListRow icon="trash-outline" title="Delete workout" detail="Remove from your library" onPress={() => { setError(""); setDeleting(true); }} />
           </>}
         </Sheet>

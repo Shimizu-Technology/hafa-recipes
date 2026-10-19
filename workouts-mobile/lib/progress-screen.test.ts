@@ -16,7 +16,7 @@ vi.mock("@/lib/context", () => {
   return { useTraining: () => ({ api, storage, isCurrentAccount: () => fixture.current, owner: fixture.owner, enrollment: { enrolled: true, generation: fixture.generation } }),
     useOfflineTraining: () => ({ state: { history: fixture.history, recovery_receipts: fixture.receipts }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
-vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
+vi.mock("react-native", () => ({ View: "View", AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
   useLocalSearchParams: () => fixture.params, useFocusEffect() {} }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "recovery-uuid" }));

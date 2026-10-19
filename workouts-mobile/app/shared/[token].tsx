@@ -3,7 +3,8 @@ import { useAuth } from "@clerk/expo";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
-import { Button, Choice, Field, Notice, Screen } from "@/components/ui";
+import { Button, Choice, Notice, Screen } from "@/components/ui";
+import { CalendarDate } from "@/components/calendar-date";
 import { SharedSnapshot } from "@/components/shared-snapshot";
 import { QueryState } from "@/components/query-state";
 import { configuration } from "@/lib/config";
@@ -55,7 +56,7 @@ function CopyControls({ token, share }: { token: string; share: PublicShare }) {
   async function copy() {
     if (!enrollment?.enrolled || !enrollment.generation || !confirmed) return;
     if (share.kind === "program" && !isISODate(date)) {
-      setError("Choose a valid start date in YYYY-MM-DD format.");
+      setError("Choose a start date for your copy.");
       return;
     }
     setBusy(true);
@@ -101,7 +102,7 @@ function CopyControls({ token, share }: { token: string; share: PublicShare }) {
       </Notice>
       {share.kind === "program" && (
         <>
-          <Field label="Your start date · YYYY-MM-DD" value={date} onChange={setDate} />
+          <CalendarDate label="Your start date" value={date} onChange={(value) => setDate(value ?? "")} />
           <Notice>A copied program starts in review status. It will not activate or progress automatically.</Notice>
         </>
       )}

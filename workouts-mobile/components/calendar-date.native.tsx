@@ -4,6 +4,7 @@ import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import { Button, Copy } from "./ui";
 import type { CalendarDateProps } from "./calendar-date";
 import { isISODate } from "@/lib/sharing";
+import { formatPlanDate } from "@/lib/plan-presentation";
 function localDate(value: string | null | undefined) {
   if (value && isISODate(value)) {
     const [year, month, day] = value.split("-").map(Number);
@@ -13,7 +14,7 @@ function localDate(value: string | null | undefined) {
   date.setHours(12, 0, 0, 0);
   return date;
 }
-export function CalendarDate({ label, value, onChange, optional, disabled }: CalendarDateProps) {
+export function CalendarDate({ label, value, onChange, optional, disabled, min }: CalendarDateProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -21,7 +22,7 @@ export function CalendarDate({ label, value, onChange, optional, disabled }: Cal
         {label}
         {optional ? " · optional" : ""}
       </Copy>
-      <Copy>{value || "Not specified"}</Copy>
+      <Copy>{value ? formatPlanDate(value) : "Not specified"}</Copy>
       <Button secondary disabled={disabled} title={`Choose ${label.toLowerCase()}`} onPress={() => setOpen(true)} />
       {optional && !!value && (
         <Button secondary disabled={disabled} title={`Clear ${label.toLowerCase()}`} onPress={() => onChange(null)} />
@@ -31,6 +32,7 @@ export function CalendarDate({ label, value, onChange, optional, disabled }: Cal
           <DateTimePicker
             value={localDate(value)}
             mode="date"
+            minimumDate={min && isISODate(min) ? localDate(min) : undefined}
             display={Platform.OS === "ios" ? "inline" : "default"}
             onValueChange={(_event, date) => {
               if (date) {
