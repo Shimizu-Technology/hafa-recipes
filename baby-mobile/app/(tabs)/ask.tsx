@@ -1,17 +1,9 @@
-import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { readableCitations } from "@/lib/chat-citations";
-import {
-  messageFor,
-  type ChatMessage,
-  type Conversation,
-  type EditorDraft,
-  type Proposal,
-  type Scope,
-} from "@/lib/models";
+import { useAskSession } from "@/lib/use-ask-session";
+import type { Proposal, Scope } from "@/lib/models";
 import {
   Button,
   Card,
@@ -24,158 +16,23 @@ import {
   Row,
   Screen,
   Section,
-  useColors,
 } from "@/components/ui";
 export default function Ask() {
   const b = useBaby(),
     params = useLocalSearchParams<{ record_id?: string }>(),
-    c = useColors(),
-    [scope, setScope] = useState<Scope>("all"),
-    [question, setQuestion] = useState(""),
-    [messages, setMessages] = useState<ChatMessage[]>([]),
-    [conversation, setConversation] = useState<string>(),
-    [history, setHistory] = useState<Conversation[]>([]),
-    [showHistory, setShowHistory] = useState(false),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    request = useRef<string | undefined>(undefined),
-    sequence = useRef(0),
-    consent = useRef(b.state.bootstrap!.profile.ai_consent);
-  consent.current = b.state.bootstrap!.profile.ai_consent;
-  const focused = b.records.find((r) => r.id === params.record_id),
-    slot = "chat:" + String(params.record_id ?? conversation ?? scope);
-  useEffect(() => {
-    const draft = b.state.drafts[slot];
-    setQuestion(draft?.body ?? "");
-    request.current = typeof draft?.data.request_id === "string" ? draft.data.request_id : undefined;
-  }, [slot]);
-  useEffect(() => {
-    if (!b.state.bootstrap!.profile.ai_consent) {
-      sequence.current++;
-      setMessages([]);
-      setHistory([]);
-    }
-  }, [b.state.bootstrap!.profile.ai_consent]);
-  useEffect(() => {
-    if (!question.trim()) return;
-    const timer = setTimeout(() => {
-      const d: EditorDraft = {
-        id: Crypto.randomUUID(),
-        kind: "journal",
-        title: "Unsent question",
-        body: question,
-        child_id: b.state.selectedChild,
-        occurred_at: new Date().toISOString(),
-        data: { request_id: request.current, scope },
-        files: [],
-      };
-      void b
-        .saveDraft(slot, d)
-        .catch(() => setError("Your question has not been saved on this device. Keep this screen open and try again."));
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [question, slot]);
-  async function send() {
-    if (busy || !question.trim()) return;
-    if (!consent.current) {
-      setError("Enable optional AI processing in Settings first.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    const text = question.trim(),
-      nonce = ++sequence.current,
-      id = request.current ?? Crypto.randomUUID();
-    request.current = id;
-    try {
-      await b.saveDraft(slot, {
-        id: Crypto.randomUUID(),
-        kind: "journal",
-        title: "Unsent question",
-        body: text,
-        child_id: b.state.selectedChild,
-        occurred_at: new Date().toISOString(),
-        data: { request_id: id, scope },
-        files: [],
-      });
-      const result = await b.api.chat(
-        {
-          request_id: id,
-          conversation_id: conversation,
-          message: text,
-          scope,
-          record_id: params.record_id,
-          child_id: b.state.selectedChild,
-        },
-        b.state.bootstrap!.generation
-      );
-      if (!b.current() || nonce !== sequence.current || !consent.current) return;
-      setMessages((prior) => [
-        ...prior,
-        { role: "user", content: text },
-        { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal },
-      ]);
-      setConversation(result.conversation_id);
-      await b.saveDraft(slot, null);
-      setQuestion("");
-      request.current = undefined;
-    } catch (e) {
-      if (nonce === sequence.current) setError(messageFor(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function openHistory() {
-    setShowHistory(!showHistory);
-    if (showHistory) return;
-    try {
-      const list = await b.api.conversations();
-      setHistory(list.items);
-    } catch (e) {
-      setError(messageFor(e));
-    }
-  }
-  async function load(id: string) {
-    setBusy(true);
-    try {
-      const result = await b.api.conversation(id);
-      setConversation(id);
-      setMessages(result.messages ?? []);
-      setShowHistory(false);
-      setQuestion("");
-      request.current = undefined;
-    } catch (e) {
-      setError(messageFor(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+    chat = useAskSession(params.record_id),
+    { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
+  const focused = !!chat.context.record_id;
   async function review(proposal: Proposal) {
-    const id = Crypto.randomUUID(),
-      key = "proposal:" + id,
-      draft: EditorDraft = {
-        id,
-        kind: proposal.kind,
-        title: proposal.title,
-        body: proposal.body,
-        child_id: b.state.selectedChild,
-        occurred_at: new Date().toISOString(),
-        data: { ...proposal.data, ...(proposal.kind === "routine" ? { enabled: false } : {}) },
-        files: [],
-      };
-    try {
-      await b.saveDraft(key, draft);
-      router.push({ pathname: "/edit", params: { draft: key, kind: proposal.kind } });
-    } catch (e) {
-      setError(messageFor(e));
-    }
+    const result = await chat.review(proposal);
+    if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
   }
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent;
   return (
     <Screen
       title={focused ? "Ask about this" : "A little help thinking it through."}
-      subtitle={focused ? focused.title : "Find what you saved. Make sense of your own notes."}
-      action={<Button secondary title="History" icon="time-outline" onPress={() => void openHistory()} />}
+      subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved. Make sense of your own notes."}
+      action={<Button secondary title="History" icon="time-outline" disabled={chat.resolving} onPress={() => void openHistory()} />}
     >
       {!available && (
         <Card tone="soft">
@@ -192,25 +49,29 @@ export default function Ask() {
       )}
       {!focused && (
         <Chips
-          value={scope}
+          value={chat.context.scope}
           options={[
             { label: "Everything", value: "all" },
             { label: "Library", value: "library" },
             { label: "Journal", value: "journal" },
             { label: "Care", value: "care" },
           ]}
-          onChange={(v) => {
-            sequence.current++;
-            setScope(v as Scope);
-            setConversation(undefined);
-            setMessages([]);
-          }}
+          onChange={(v) => chat.selectScope(v as Scope)}
         />
       )}
-      {params.record_id && !focused && (
-        <Notice>
-          Questions are focused on the selected saved record. Open its entry to review the original source.
-        </Notice>
+      {focused && (
+        <>
+          <Notice>Questions use this saved entry and its own child profile, including general entries.</Notice>
+          <Button secondary title="Ask without a specific entry" onPress={() => chat.selectScope("all")} />
+        </>
+      )}
+      <Copy kind="small" tone="muted">
+        {chat.context.child_id
+          ? "For " + (b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id)?.name ?? "the conversation’s child profile")
+          : "General / personal context"}
+      </Copy>
+      {chat.resolving && !busy && (
+        <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />
       )}
       {showHistory && (
         <Section title="Your conversations">
@@ -274,18 +135,15 @@ export default function Ask() {
         label={focused ? "Ask about this source or entry" : "Your question"}
         multiline
         value={question}
-        onChange={(text) => {
-          request.current = undefined;
-          setQuestion(text);
-        }}
+        onChange={chat.setQuestion}
         placeholder="What would you like to find or understand?"
-        disabled={busy}
+        disabled={busy || chat.resolving}
       />
       <Button
-        title={error && request.current ? "Retry this question" : "Ask"}
+        title={error && chat.requestId ? "Retry this question" : "Ask"}
         icon="arrow-up"
         busy={busy}
-        disabled={!available || !question.trim()}
+        disabled={!available || chat.resolving || !question.trim()}
         onPress={() => void send()}
       />
       <Copy kind="small" tone="muted">
@@ -296,14 +154,7 @@ export default function Ask() {
         <Button
           variant="ghost"
           title="Start a new conversation"
-          onPress={() => {
-            sequence.current++;
-            setMessages([]);
-            setConversation(undefined);
-            setQuestion("");
-            request.current = undefined;
-            void b.saveDraft(slot, null);
-          }}
+          onPress={chat.startNew}
         />
       )}
       <View style={{ height: 65 }} />

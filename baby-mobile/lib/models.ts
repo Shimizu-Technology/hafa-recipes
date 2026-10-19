@@ -119,6 +119,9 @@ export interface ChatMessage {
 }
 export interface Conversation {
   id: string;
+  scope: Scope;
+  record_id: string | null;
+  child_id: string | null;
   title?: string;
   updated_at?: string;
   messages?: ChatMessage[];
