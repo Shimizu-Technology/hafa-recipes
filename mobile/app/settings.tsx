@@ -26,6 +26,7 @@ import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSi
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { resolveAppVersion } from '@/lib/appVersion';
 import { resolveSettingsProfileName } from '@/lib/settingsProfile';
+import { formatSavedRecipeCount } from '@/lib/recipeCount';
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896';
 const WEBSITE_URL = 'https://hafa-recipes.com';
@@ -332,29 +333,28 @@ export default function SettingsScreen() {
             user={user}
             onPress={isSignedIn ? handleOpenProfileModal : () => router.push('/(auth)/sign-in')}
           />
+          {isSignedIn && (
+            isCountError ? (
+              <TouchableOpacity
+                style={styles.recipeCountRow}
+                onPress={() => void refetchCount()}
+                accessibilityRole="button"
+                accessibilityLabel="Try loading your recipe count again"
+              >
+                <Text style={[styles.recipeCountText, { color: colors.textSecondary }]}>
+                  Couldn’t load your recipe count.{' '}
+                  <Text style={[styles.recipeCountText, { color: colors.actionText }]}>Try again</Text>
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <RNView style={styles.recipeCountRow}>
+                <Text style={[styles.recipeCountText, { color: colors.textSecondary }]}>
+                  {countData?.count !== undefined ? formatSavedRecipeCount(countData.count) : 'Counting your recipes…'}
+                </Text>
+              </RNView>
+            )
+          )}
         </RNView>
-
-        {/* Stats Card - only for signed in users */}
-        {isSignedIn && (
-          <RNView style={styles.section}>
-            <SectionHeader title="Statistics" />
-            <RNView style={[styles.statCard, { backgroundColor: colors.tint }]}>
-              <Text style={styles.statValue}>{isCountError ? '—' : countData?.count ?? '...'}</Text>
-              <Text style={styles.statLabel}>
-                {isCountError ? 'Couldn’t load recipe count' : 'Recipes Saved'}
-              </Text>
-              {isCountError && (
-                <TouchableOpacity
-                  onPress={() => void refetchCount()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Try loading your recipe count again"
-                >
-                  <Text style={styles.statLabel}>Tap to try again</Text>
-                </TouchableOpacity>
-              )}
-            </RNView>
-          </RNView>
-        )}
 
         {/* Data Section */}
         <RNView style={styles.section}>
@@ -454,7 +454,7 @@ export default function SettingsScreen() {
 
         {/* Sound & Voice Section - Compact Pickers */}
         <RNView style={styles.section}>
-          <SectionHeader title="Sound & Voice" />
+          <SectionHeader title="Sound & voice" />
           <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
             {/* Timer Sound Picker */}
             <TouchableOpacity
@@ -746,7 +746,7 @@ export default function SettingsScreen() {
         {/* Account Actions - only for signed in users */}
         {isSignedIn && (
           <RNView style={styles.section}>
-            <SectionHeader title="Account Actions" />
+            <SectionHeader title="Account actions" />
             <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundSecondary }]}>
               <TouchableOpacity
                 style={styles.accountActionRow}
@@ -898,21 +898,13 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: spacing.xl,
   },
-  statCard: {
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    alignItems: 'center',
+  recipeCountRow: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
   },
-  statValue: {
-    fontSize: 56,
-    fontWeight: fontWeight.bold,
-    color: '#FFFFFF',
-  },
-  statLabel: {
-    fontSize: fontSize.md,
-    color: '#FFFFFF',
-    opacity: 0.9,
-    marginTop: spacing.xs,
+  recipeCountText: {
+    fontSize: fontSize.sm,
   },
   menuGroup: {
     borderRadius: radius.lg,
