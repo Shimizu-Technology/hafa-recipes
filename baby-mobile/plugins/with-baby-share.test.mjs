@@ -71,7 +71,7 @@ describe("generated Safari preprocessing", () => {
     );
     expect(body).toContain("try await BabyShareImageBatch.process");
     expect(body).toContain("try await self.loadBabyImage(provider, directory: capture.directory)");
-    expect(body).toContain("storage.begin(id: self.babyCaptureId)");
+    expect(body).toContain("guard let producer = self.babyProducer");
     expect(body).toContain("try storage.publish(encoded, capture: capture)");
     expect(body).toContain("if !published { try? storage.abort(capture) }");
     expect(body).toContain("BabyShareImageNormalization.normalize(fileURL: url)");
@@ -110,7 +110,28 @@ describe("generated Safari preprocessing", () => {
     ).trim();
     expect(output).toContain(store);
     expect(output.match(/guard self.publishBabyShare\(/g)).toHaveLength(4);
-    expect(method(output)).toContain("try babyShareStore().publish(encoded, id: self.babyCaptureId)");
+    expect(method(output)).toContain("try publishBabyPayload(encoded)");
+    const entry = output.slice(
+      output.indexOf("  private func handleViewLoad()"),
+      output.indexOf("  private func handleVCard(")
+    );
+    expect(entry).toContain("guard prepareBabyShare() else { return }");
+    expect(entry.indexOf("guard prepareBabyShare()")).toBeLessThan(entry.indexOf("Task {"));
+    expect(output.match(/storage.begin\(id: self.babyCaptureId\)/g)).toHaveLength(1);
+    expect(output).toContain("try producer.storage.publish(raw, capture: producer.capture)");
+    expect(output).not.toContain("publish(raw, id: self.babyCaptureId)");
+    expect(output).not.toContain("publish(encoded, id: self.babyCaptureId)");
+    // Retained SDK video, file and screenshot writes use the pre-await namespace;
+    // thumbnails stay alongside their staged video, including metadata failures.
+    expect(output.match(/let newPath = directory.appendingPathComponent\(newName\)/g)).toHaveLength(2);
+    expect(output).toContain('let path = url.deletingLastPathComponent().appendingPathComponent("\\(fileName).jpg")');
+    expect(output).toContain("guard let containerURL = self.babyProducer?.capture.directory");
+    expect(output.match(/guard copied else/g)).toHaveLength(2);
+    expect(output).not.toContain('NSLog("Cannot copy item at');
+    expect(output.match(/forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier/g)).toHaveLength(1);
+    expect(() =>
+      patchShareController(upstream.replace("let path = FileManager.default", "let changedPath = FileManager.default"))
+    ).toThrow("thumbnail staging changed");
     expect(output).not.toMatch(/userDefaults\??\.set\([^\n]+forKey: self\.sharedKey\)/);
     expect(() =>
       patchShareController(output.replace("publishBabyShare(self.sharedText)", "publishBabyShare([])"))

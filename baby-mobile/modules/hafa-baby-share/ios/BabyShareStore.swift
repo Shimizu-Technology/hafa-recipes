@@ -117,6 +117,9 @@ final class BabyShareStore {
     // Keep the stock share-intent reader compatible. The native bridge uses the
     // immutable manifest, so these two legacy keys are never a token transaction.
     defaults.set(raw, forKey: sharedKey); defaults.set(capture.id, forKey: receiptKey); defaults.synchronize()
+    // Publication is immutable. Retire the producer lease before the host can
+    // acknowledge; only host read leases may now protect this capture.
+    capture.lease = nil
   }
   func publish(_ raw: Any, capture: Capture) throws { try locked { try publishLocked(raw, capture: capture) } }
   func publish(_ raw: Any, id: String) throws {
@@ -126,7 +129,7 @@ final class BabyShareStore {
   }
   func abort(_ capture: Capture) throws {
     try locked {
-      guard currentID() != capture.id else { return }
+      guard capture.lease != nil, currentID() != capture.id else { return }
       try? FileManager.default.removeItem(at: capture.directory)
       capture.lease = nil
     }

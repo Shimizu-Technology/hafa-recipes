@@ -22,11 +22,12 @@ const handler = `  private func handlePrepocessing(content: NSExtensionItem, att
       self.sharedWebUrl.append(WebUrl(url: page.url, meta: page.metadata))
       if index == attachments.count - 1 {
         let encoded = try JSONEncoder().encode(self.sharedWebUrl)
-        try babyShareStore().publish(encoded, id: self.babyCaptureId)
+        try publishBabyPayload(encoded)
         self.redirectToHostApp(type: .weburl)
       }
     } catch {
       // Provider failures and malformed input must never log private page data.
+      self.abortBabyShare()
       self.dismissWithError(message: "Could not read this shared page. Try sharing its link again.")
     }
   }
@@ -122,6 +123,65 @@ function patchImageSharing(text) {
   return text;
 }
 
+function patchNonImageStaging(text) {
+  let destinations = 0;
+  text = text.replace(
+    /let newPath = FileManager\.default\s+\.containerURL\(\s+forSecurityApplicationGroupIdentifier: self\.hostAppGroupIdentifier\)!\s+\.appendingPathComponent\(newName\)/g,
+    () => {
+      destinations++;
+      return `guard let directory = self.babyProducer?.capture.directory else {
+      self.dismissWithError(message: "Could not prepare this share. Try sharing it again.")
+      return
+    }
+    let newPath = directory.appendingPathComponent(newName)`;
+    }
+  );
+  if (destinations !== 2) throw Error("Håfa Baby nonimage staging changed; refusing unsafe generation.");
+  const thumbnail = `let path = FileManager.default
+      .containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier)!
+      .appendingPathComponent("\\(fileName).jpg")`;
+  if (text.split(thumbnail).length !== 2)
+    throw Error("Håfa Baby thumbnail staging changed; refusing unsafe generation.");
+  text = text.replace(
+    thumbnail,
+    `let path = url.deletingLastPathComponent().appendingPathComponent("\\(fileName).jpg")`
+  );
+  const screenshot =
+    "guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier) else {";
+  if (text.split(screenshot).length !== 2)
+    throw Error("Håfa Baby screenshot staging changed; refusing unsafe generation.");
+  text = text.replace(screenshot, "guard let containerURL = self.babyProducer?.capture.directory else {");
+  const copy = "let copied = Self.copyFile(at: url, to: newPath)";
+  if (text.split(copy).length !== 3) throw Error("Håfa Baby nonimage copy changed; refusing unsafe generation.");
+  text = text.replaceAll(
+    copy,
+    copy +
+      `
+    guard copied else {
+      self.abortBabyShare()
+      self.dismissWithError(message: "Could not read this shared file. Try sharing it again.")
+      return
+    }`
+  );
+  const metadata = `            else {
+              return
+            }
+            self.sharedMedia.append(sharedFile)`;
+  if (text.split(metadata).length !== 2) throw Error("Håfa Baby video metadata changed; refusing unsafe generation.");
+  text = text.replace(
+    metadata,
+    `            else {
+              self.abortBabyShare()
+              self.dismissWithError(message: "Could not read this shared video. Try sharing it again.")
+              return
+            }
+            self.sharedMedia.append(sharedFile)`
+  );
+  const privateLog = '      NSLog("Cannot copy item at \\(srcURL) to \\(dstURL): \\(error)")';
+  if (text.split(privateLog).length !== 2) throw Error("Håfa Baby copy failure changed; refusing unsafe generation.");
+  return text.replace(privateLog, "      // Failed and cancelled shares must not log private provider paths.");
+}
+
 function patchShareController(text) {
   if (text.includes(storeMarker)) {
     const parts = text.split(storeMarker);
@@ -191,6 +251,25 @@ function patchShareController(text) {
   if (publishers !== 4 || /userDefaults\??\.set\([^\n]+forKey: self\.sharedKey\)/.test(text))
     throw Error("Håfa Baby share publication changed; refusing unsafe generation.");
   const methods = `
+  private var babyProducer: (storage: BabyShareStore, capture: BabyShareStore.Capture)?
+  private func prepareBabyShare() -> Bool {
+    if babyProducer != nil { return true }
+    do {
+      let storage = try babyShareStore()
+      babyProducer = (storage, try storage.begin(id: self.babyCaptureId))
+      return true
+    } catch {
+      self.dismissWithError(message: "Could not prepare this share. Try sharing it again.")
+      return false
+    }
+  }
+  private func abortBabyShare() {
+    if let producer = babyProducer { try? producer.storage.abort(producer.capture) }
+  }
+  private func publishBabyPayload(_ raw: Any) throws {
+    guard let producer = babyProducer else { throw BabyShareStore.Failure.stale }
+    try producer.storage.publish(raw, capture: producer.capture)
+  }
   private func babyShareStore() throws -> BabyShareStore {
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier),
       let defaults = UserDefaults(suiteName: self.hostAppGroupIdentifier) else { throw BabyShareStore.Failure.unavailable }
@@ -199,15 +278,20 @@ function patchShareController(text) {
   private func publishBabyShare(_ raw: Any?) -> Bool {
     do {
       guard let raw else { throw BabyShareStore.Failure.invalid }
-      try babyShareStore().publish(raw, id: self.babyCaptureId)
+      try publishBabyPayload(raw)
       return true
     } catch {
+      self.abortBabyShare()
       self.dismissWithError(message: "Could not save this share. Try sharing it again.")
       return false
     }
   }
 `;
   text = text.replace(receipt, receipt + methods);
+  const entry = "  private func handleViewLoad() {\n";
+  if (text.split(entry).length !== 2) throw Error("Håfa Baby producer entry changed; refusing unsafe generation.");
+  text = text.replace(entry, entry + "    guard prepareBabyShare() else { return }\n");
+  text = patchNonImageStaging(text);
   text = text.trimEnd() + "\n\n" + storeSource + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
 }

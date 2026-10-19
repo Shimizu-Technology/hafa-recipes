@@ -1,9 +1,21 @@
 import Foundation
 import Darwin
 
+@MainActor
+private final class DelayedProvider {
+  private var continuation: CheckedContinuation<Void, Never>?
+  private(set) var started = false
+  func load() async {
+    started = true
+    await withCheckedContinuation { continuation = $0 }
+  }
+  func deliver() { continuation?.resume(); continuation = nil }
+}
+
 @main
 struct BabyShareStoreTests {
-  static func main() throws {
+  @MainActor
+  static func main() async throws {
     let args = CommandLine.arguments
     if args.count > 1 {
       let root = URL(fileURLWithPath: args[2]), defaults = UserDefaults(suiteName: args[3])!
@@ -15,7 +27,9 @@ struct BabyShareStoreTests {
       }
       else if args[1] == "stage" {
         let capture = try store.begin(id: args[4])
-        try Data("interrupted private photo".utf8).write(to: capture.directory.appendingPathComponent("image.jpg"))
+        for name in ["image.jpg", "document.pdf", "video.mov", "thumbnail.jpg"] {
+          try Data("interrupted private source".utf8).write(to: capture.directory.appendingPathComponent(name))
+        }
         // Exit without rollback, exactly as an extension killed before publication.
         withExtendedLifetime(capture) { exit(0) }
       }
@@ -79,6 +93,12 @@ struct BabyShareStoreTests {
       try check(store.ownedFile(symlink.absoluteString) == nil, "symlink cannot escape capture ownership")
       try check(try store.acknowledge(saved.token), "copied batch can acknowledge")
       try check(!FileManager.default.fileExists(atPath: image.path), "acknowledgement removes complete batch namespace")
+      let failedMetadata = try store.begin()
+      for name in ["document.pdf", "video.mov", "thumbnail.jpg"] {
+        try Data("unpublished bytes".utf8).write(to: failedMetadata.directory.appendingPathComponent(name))
+      }
+      try store.abort(failedMetadata)
+      try check(!FileManager.default.fileExists(atPath: failedMetadata.directory.path), "file or video metadata failure rolls back every staged asset")
     }
     do {
       let (root, defaults, store, suite) = try fixture("cross-process")
@@ -90,9 +110,9 @@ struct BabyShareStoreTests {
       let child = try spawn("publish", root: root, suite: suite, id: newID)
       let signal = root.appendingPathComponent("child-started-publish")
       let deadline = Date().addingTimeInterval(5)
-      while !FileManager.default.fileExists(atPath: signal.path) && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+      while !FileManager.default.fileExists(atPath: signal.path) && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
       try check(FileManager.default.fileExists(atPath: signal.path), "child reached mutation boundary")
-      Thread.sleep(forTimeInterval: 0.05)
+      try await Task.sleep(nanoseconds: 50_000_000)
       try check(child.isRunning && !FileManager.default.fileExists(atPath: path(root, newID).path), "publisher waits for the interprocess transaction lock")
       flock(lock, LOCK_UN); Darwin.close(lock); child.waitUntilExit()
       try check(child.terminationStatus == 0, "child publication finished")
@@ -115,7 +135,7 @@ struct BabyShareStoreTests {
       let children = try modes.map { mode in try spawn(mode, root: root, suite: suite, id: mode == "ack" ? oldToken : newID) }
       let deadline = Date().addingTimeInterval(5)
       while modes.contains(where: { !FileManager.default.fileExists(atPath: root.appendingPathComponent("child-started-" + $0).path) }) && Date() < deadline {
-        Thread.sleep(forTimeInterval: 0.01)
+        try await Task.sleep(nanoseconds: 10_000_000)
       }
       try check(children.allSatisfy { $0.isRunning }, "both cross-process mutations wait for transaction lock")
       flock(descriptor, LOCK_UN); Darwin.close(descriptor)
@@ -153,6 +173,50 @@ struct BabyShareStoreTests {
       _ = try later.pending()
       try check(!FileManager.default.fileExists(atPath: path(root, id).path), "OS-released producer lease permits orphan recovery")
     }
+    // The controller captures this producer before any provider await. Deliver
+    // actual asynchronous Safari/text/PDF/video results only after privacy clear.
+    for kind in ["Safari", "text", "PDF", "video"] {
+      let (_, defaults, store, suite) = try fixture("delayed-" + kind)
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let capture = try store.begin(), provider = DelayedProvider()
+      let source = folder.appendingPathComponent(UUID().uuidString)
+      try Data("private provider bytes".utf8).write(to: source)
+      let late = Task { @MainActor in
+        await provider.load()
+        var rejectedCopy = false
+        if kind == "PDF" || kind == "video" {
+          do { try FileManager.default.copyItem(at: source, to: capture.directory.appendingPathComponent("input")) }
+          catch { rejectedCopy = true }
+          do { try Data("thumbnail".utf8).write(to: capture.directory.appendingPathComponent("thumbnail.jpg")) }
+          catch { /* The same removed namespace rejects delayed thumbnail writes. */ }
+        }
+        let payload: Any = kind == "text" ? ["private text"] : try JSONSerialization.data(withJSONObject: [["url": "https://example.com/private", "type": kind]])
+        do { try store.publish(payload, capture: capture); return (false, rejectedCopy) }
+        catch BabyShareStore.Failure.stale { return (true, rejectedCopy) }
+      }
+      while !provider.started { await Task.yield() }
+      try store.clear()
+      provider.deliver()
+      let result = try await late.value
+      try check(result.0, "delayed " + kind + " cannot acquire a new publication epoch")
+      if kind == "PDF" || kind == "video" { try check(result.1, "delayed file copy cannot recreate a cleared namespace") }
+      try check(try store.pending() == nil, "delayed " + kind + " leaves no receipt after clear")
+      try check(!FileManager.default.fileExists(atPath: capture.directory.path), "delayed " + kind + " leaves no staged bytes")
+    }
+    do {
+      let (_, defaults, store, suite) = try fixture("immutable-publication")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let capture = try store.begin()
+      try store.publish(["first immutable payload"], capture: capture)
+      let saved = try store.pending()!
+      do { try store.publish(["replacement"], capture: capture); fatalError("same capture published twice") }
+      catch BabyShareStore.Failure.stale { count += 1 }
+      let newerID = UUID().uuidString
+      try store.publish(["newer receipt"], id: newerID)
+      try store.abort(capture)
+      try check(try store.pending()!.token.hasPrefix(newerID + ":"), "retired producer cannot abort a newer publication")
+      try check(try store.acknowledge(saved.token), "superseded immutable publication releases producer lease and survives abort")
+    }
     do {
       let (root, defaults, store, suite) = try fixture("privacy")
       defer { defaults.removePersistentDomain(forName: suite) }
@@ -166,7 +230,9 @@ struct BabyShareStoreTests {
       try check(migrated.token.contains(":"), "legacy payload migrates with digest binding")
       try store.publish(["newer share"], id: UUID().uuidString)
       let active = try store.begin()
-      try Data("staged private image".utf8).write(to: active.directory.appendingPathComponent("image.jpg"))
+      for name in ["image.jpg", "document.pdf", "video.mov", "thumbnail.jpg"] {
+        try Data("staged private source".utf8).write(to: active.directory.appendingPathComponent(name))
+      }
       try store.clear()
       try check(!FileManager.default.fileExists(atPath: legacy.path), "privacy clear removes superseded declared legacy files")
       try check(!FileManager.default.fileExists(atPath: active.directory.path), "privacy clear removes active and superseded namespaces")

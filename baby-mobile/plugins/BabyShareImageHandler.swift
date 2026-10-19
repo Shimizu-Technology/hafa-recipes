@@ -1,14 +1,10 @@
   private func handleImages(content: NSExtensionItem, attachment: NSItemProvider, index: Int) async {
     // HAFA BABY JOINED IMAGE BATCH v1
-    let storage: BabyShareStore
-    let capture: BabyShareStore.Capture
-    do {
-      storage = try babyShareStore()
-      capture = try storage.begin(id: self.babyCaptureId)
-    } catch {
+    guard let producer = self.babyProducer else {
       self.dismissWithError(message: "Could not prepare this share. Try sharing it again.")
       return
     }
+    let storage = producer.storage, capture = producer.capture
     var published = false
     defer { if !published { try? storage.abort(capture) } }
     do {
