@@ -1022,8 +1022,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                   accessibilityRole="button"
                   accessibilityLabel={`Back to recipe: ${recipe.extracted.title}`}
                 >
-                  <Ionicons name="chevron-back" size={13} color={colors.tint} />
-                  <Text style={[styles.recipeBackText, { color: colors.tint }]} numberOfLines={1}>
+                  <Ionicons name="chevron-back" size={13} color={colors.actionText} />
+                  <Text style={[styles.recipeBackText, { color: colors.actionText }]} numberOfLines={1}>
                     {recipe.extracted.title}
                   </Text>
                 </TouchableOpacity>
@@ -1072,7 +1072,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {/* Loading history */}
           {isLoadingHistory && (
             <RNView style={styles.welcomeContainer}>
-              <ActivityIndicator size="large" color={colors.tint} />
+              <ActivityIndicator size="large" color={colors.actionText} />
               <Text style={[styles.loadingHistoryText, { color: colors.textSecondary }]}>
                 Loading conversation...
               </Text>
@@ -1092,9 +1092,9 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {!isLoadingHistory && !historyError && messages.length === 0 && (
             <RNView style={[styles.welcomeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <RNView style={[styles.welcomeIcon, { backgroundColor: colors.backgroundSecondary }]}>
-                <Ionicons name="sparkles" size={28} color={colors.tint} />
+                <Ionicons name="sparkles" size={28} color={colors.actionText} />
               </RNView>
-              <Text style={[styles.welcomeEyebrow, { color: colors.tint }]}>
+              <Text style={[styles.welcomeEyebrow, { color: colors.actionText }]}>
                 Håfa cooking assistant
               </Text>
               <Text style={[styles.welcomeTitle, { color: colors.text }]}>
@@ -1128,7 +1128,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     accessibilityRole="button"
                     accessibilityLabel={suggestion}
                   >
-                    <Text style={[styles.suggestionText, { color: colors.tint }]}>
+                    <Text style={[styles.suggestionText, { color: colors.actionText }]}>
                       {suggestion}
                     </Text>
                   </TouchableOpacity>
@@ -1159,7 +1159,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
               {msg.role === 'assistant' && (
                 <RNView style={styles.assistantIdentity}>
                   <RNView style={[styles.assistantIdentityIcon, { backgroundColor: colors.backgroundSecondary }]}>
-                    <Ionicons name="sparkles" size={12} color={colors.tint} />
+                    <Ionicons name="sparkles" size={12} color={colors.actionText} />
                   </RNView>
                   <Text style={[styles.assistantIdentityText, { color: colors.textMuted }]}>Håfa</Text>
                 </RNView>
@@ -1207,8 +1207,8 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                       bullet_list: { marginVertical: 4 },
                       ordered_list: { marginVertical: 4 },
                       list_item: { marginVertical: 2, flexShrink: 1, flexWrap: 'wrap' },
-                      bullet_list_icon: { color: colors.tint, fontSize: 8, marginRight: 8 },
-                      ordered_list_icon: { color: colors.tint, fontWeight: '600', marginRight: 8 },
+                      bullet_list_icon: { color: colors.actionText, fontSize: 8, marginRight: 8 },
+                      ordered_list_icon: { color: colors.actionText, fontWeight: '600', marginRight: 8 },
                       bullet_list_content: { flexShrink: 1 },
                       ordered_list_content: { flexShrink: 1 },
                       heading1: { fontFamily: fontFamily.display, fontSize: fontSize.xl, color: colors.text, marginVertical: 8 },
@@ -1216,7 +1216,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                       heading3: { fontFamily: fontFamily.semibold, fontSize: fontSize.md, color: colors.text, marginVertical: 4 },
                       code_inline: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
                       fence: { backgroundColor: colors.backgroundSecondary, padding: 8, borderRadius: 8, marginVertical: 4 },
-                      link: { color: colors.tint },
+                      link: { color: colors.actionText },
                     }}
                   >
                     {msg.content}
@@ -1258,7 +1258,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                       accessibilityLabel="Retry message"
                       accessibilityState={{ disabled: isComposerUnavailable }}
                     >
-                      <Text style={[styles.retryText, { color: colors.tint }]}>Retry</Text>
+                      <Text style={[styles.retryText, { color: colors.actionText }]}>Retry</Text>
                     </TouchableOpacity>
                   </RNView>
                 )}
@@ -1274,7 +1274,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     <Ionicons
                       name={copiedId === msg.id ? "checkmark" : "copy-outline"}
                       size={14}
-                      color={copiedId === msg.id ? colors.tint : colors.textMuted}
+                      color={copiedId === msg.id ? colors.actionText : colors.textMuted}
                     />
                   </TouchableOpacity>
                 )}
@@ -1293,7 +1293,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
                     accessibilityState={{ disabled: ttsLoading && speakingId === msg.id }}
                   >
                     {ttsLoading && speakingId === msg.id ? (
-                      <ActivityIndicator size={12} color={colors.tint} />
+                      <ActivityIndicator size={12} color={colors.actionText} />
                     ) : (
                       <Ionicons
                         name={speakingId === msg.id && isPlaying ? 'stop' : 'volume-high'}
@@ -1310,7 +1310,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           {/* Loading indicator */}
           {isDelivering && !hasStreamingResponse && (
             <RNView style={[styles.loadingContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <ActivityIndicator size="small" color={colors.tint} />
+              <ActivityIndicator size="small" color={colors.actionText} />
               <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
                 Thinking...
               </Text>
@@ -1460,10 +1460,8 @@ const styles = StyleSheet.create({
   },
   welcomeEyebrow: {
     fontFamily: fontFamily.bold,
-    fontSize: fontSize.xs,
-    letterSpacing: 0.8,
+    fontSize: fontSize.sm,
     marginTop: spacing.md,
-    textTransform: 'uppercase',
   },
   welcomeTitle: {
     fontSize: fontSize.xl,

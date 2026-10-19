@@ -38,7 +38,7 @@ export default function SharingLinks() {
     return sharingURL(share, website);
   }
   return (
-    <Screen back title="Your sharing links." subtitle="Control future access to the snapshots you chose to share.">
+    <Screen back title="Sharing links" subtitle="Turn off a link to stop new visits.">
       <QueryState
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}

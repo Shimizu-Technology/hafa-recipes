@@ -60,19 +60,19 @@ it("mounted Progress shows one session immediately after a local correction and 
   const original = saved("A"), correction = saved("B", "A");
   fixture.history = [local(original, "synced")]; fixture.remote = [original];
   await act(async () => { renderer = create(tree()); }); await settle();
-  expect(text()).toContain("1 workout session with recorded actuals");
-  expect(text()).toContain("1 day with recorded training");
+  expect(text()).toContain("1 session ·");
+  expect(text()).toContain("1 day with training");
   fixture.history = [local(correction, "queued"), ...fixture.history];
   await act(async () => { renderer!.update(tree()); });
-  expect(text()).toContain("1 workout session with recorded actuals");
-  expect(text()).toContain("correction to the same workout session");
+  expect(text()).toContain("1 session ·");
+  expect(text()).toContain("This edit is saved on this device");
   expect(text()).toContain("6 reps"); expect(text()).not.toContain("7 reps");
   expect(renderer!.root.findAll((node) => String(node.type) === "Button").some((node) => node.props.title === "Retry sync")).toBe(true);
   fixture.history = [local(correction, "synced"), local(original, "synced")];
   await act(async () => { renderer!.update(tree()); });
-  expect(text()).toContain("1 workout session with recorded actuals"); expect(text()).not.toContain("7 reps");
+  expect(text()).toContain("1 session ·"); expect(text()).not.toContain("7 reps");
   await act(async () => { cache.setQueryData(["owner", "sessions", 1], [correction]); }); await settle();
-  expect(text()).toContain("1 workout session with recorded actuals");
+  expect(text()).toContain("1 session ·");
   expect(fixture.session).not.toHaveBeenCalled();
 });
 
@@ -80,10 +80,10 @@ it("mounted blocked correction stays visible with its conflict and original actu
   const original = saved("A"); fixture.remote = [original];
   fixture.history = [local(saved("B", "A"), "blocked"), local(original, "synced")];
   await act(async () => { renderer = create(tree()); }); await settle();
-  expect(text()).toContain("1 workout session with recorded actuals");
+  expect(text()).toContain("1 session ·");
   expect(text()).toContain("7 reps"); expect(text()).toContain("6 reps");
   expect(text()).toContain("Correction conflict requires review");
-  expect(text()).toContain("does not replace the saved actuals");
+  expect(text()).toContain("This edit needs review and isn’t counted yet");
   expect(renderer!.root.findAll((node) => String(node.type) === "Button").some((node) => node.props.title === "View original saved session")).toBe(true);
 });
 
@@ -91,16 +91,16 @@ it("mounted incomplete ancestry pauses totals, keeps original records, and offer
   fixture.history = [local(saved("A"), "synced")]; fixture.remote = [saved("C", "B")];
   fixture.session.mockRejectedValue(Error("PRIVATE transport body"));
   await act(async () => { renderer = create(tree()); }); await settle();
-  expect(text()).toContain("Session totals stay paused"); expect(text()).not.toContain("PRIVATE transport body");
-  expect(text()).not.toContain("workout sessions with recorded actuals");
-  expect(renderer!.root.findAll((node) => String(node.type) === "Button").some((node) => node.props.title === "Retry correction history")).toBe(true);
+  expect(text()).toContain("Totals are paused so no workout is counted twice"); expect(text()).not.toContain("PRIVATE transport body");
+  expect(text()).not.toContain("sessions ·");
+  expect(renderer!.root.findAll((node) => String(node.type) === "Button").some((node) => node.props.title === "Try again")).toBe(true);
 });
 
 it("one device-only queued correction still counts while offline without unnecessary ancestor reads", async () => {
   fixture.history = [local(saved("B", "A"), "queued")];
   fixture.session.mockRejectedValue(Error("offline"));
   await act(async () => { renderer = create(tree()); }); await settle();
-  expect(text()).toContain("1 workout session with recorded actuals");
+  expect(text()).toContain("1 session ·");
   expect(fixture.session).not.toHaveBeenCalled();
   expect(renderer!.root.findAll((node) => String(node.type) === "Button").some((node) => node.props.title === "Retry sync")).toBe(true);
 });
@@ -109,8 +109,8 @@ it("S05 queued 8/6 correction of synced 8/7 is one workout immediately on openin
   const original = saved("A"); fixture.remote = [original];
   fixture.history = [local(saved("B", "A"), "queued"), local(original, "synced")];
   await act(async () => { renderer = create(tree()); }); await settle();
-  expect(text()).not.toContain("2 workout sessions with recorded actuals");
-  expect(text()).toMatch(/1 workout sessions? with recorded actuals/);
+  expect(text()).not.toContain("2 sessions ·");
+  expect(text()).toMatch(/1 sessions? ·/);
   expect(text()).toContain("6 reps"); expect(text()).not.toContain("7 reps");
 });
 
@@ -136,11 +136,11 @@ it("shows initial history loading instead of a false empty library or zero-sessi
   let resolve!: (records: TrainingSession[]) => void;
   fixture.sessions.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
   await act(async () => { renderer = create(tree()); }); await settle();
-  expect(text()).toContain("Loading your saved training history");
+  expect(text()).toContain("Loading your training history");
   expect(renderer!.root.findAllByType("Empty" as never)).toHaveLength(0);
-  expect(text()).not.toContain("workout sessions with recorded actuals");
+  expect(text()).not.toContain("sessions ·");
   await act(async () => { resolve([saved("A")]); }); await settle();
-  expect(text()).toContain("1 workout session with recorded actuals");
+  expect(text()).toContain("1 session ·");
 });
 it("a failed initial history read has an actionable retry instead of an empty-library claim", async () => {
   fixture.sessions.mockRejectedValueOnce(Error("Training history unavailable"));
@@ -156,7 +156,7 @@ it("renders twenty history rows at a time without truncating authoritative count
   await act(async () => { renderer = create(tree()); }); await settle();
   const views = () => renderer!.root.findAllByType("Button" as never).filter((node) => node.props.title === "View saved session");
   const more = () => renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Show more sessions");
-  expect(views()).toHaveLength(20); expect(text()).toContain("45 workout sessions with recorded actuals");
+  expect(views()).toHaveLength(20); expect(text()).toContain("45 sessions ·");
   await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(40);
   await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(45);
   expect(more()).toBeUndefined(); expect(fixture.remote).toHaveLength(45);

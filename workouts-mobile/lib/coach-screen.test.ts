@@ -452,7 +452,7 @@ async function replaceScope(change: "owner" | "generation" | "focus" | "storage"
   else f.storageVersion++;
   await refresh();
 }
-const showCheckIn = async () => { await act(async () => { nodes("ListRow").find(node => node.props.title === "Check in before planning or returning")!.props.onPress(); }); await settle(); };
+const showCheckIn = async () => { await act(async () => { nodes("ListRow").find(node => node.props.title === "Check in for today")!.props.onPress(); }); await settle(); };
 async function clearHandler() { await click("Clear saved coach conversation"); return button("Clear conversation and pending suggestions").props.onPress as () => void; }
 it.each(["owner", "generation", "focus", "storage"] as const)("rejects a retained check-in command before changing busy state or calling the prior API after %s replacement", async change => {
   await mount(); await showCheckIn(); const retained = button("Save today’s check-in").props.onPress;

@@ -39,7 +39,7 @@ export default function Measurements() {
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((item) => [item.id, item]) ?? []).values(),
   ];
   return (
-    <Screen back title="Measurements, over time." subtitle="Values you record, with the original date and unit.">
+    <Screen back title="Measurements">
       <Choice label="Weight history" selected={kind === "weight"} onPress={() => setKind("weight")} />
       <Choice label="Height history" selected={kind === "height"} onPress={() => setKind("height")} />
       <Button

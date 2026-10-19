@@ -52,7 +52,7 @@ export function ImportSettingsPanel({ visible, onClose, isPublic, onVisibilityCh
           accessibilityRole="button" accessibilityLabel={`Cost estimate location, ${location}`}
           accessibilityState={{ expanded: showLocations, disabled }}
           style={[styles.choice, styles.choices, { borderColor: colors.border }]}>
-          <Ionicons name="location-outline" size={20} color={colors.tint} />
+          <Ionicons name="location-outline" size={20} color={colors.actionText} />
           <Text style={styles.choiceText}>{location}</Text>
           <Ionicons name={showLocations ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
         </TouchableOpacity>
@@ -64,7 +64,7 @@ export function ImportSettingsPanel({ visible, onClose, isPublic, onVisibilityCh
               style={[styles.choice, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
               <Text style={styles.choiceText}>{choice.name}</Text>
               <Ionicons name={choice.name === location ? 'checkmark-circle' : 'ellipse-outline'} size={22}
-                color={choice.name === location ? colors.tint : colors.textMuted} />
+                color={choice.name === location ? colors.actionText : colors.textMuted} />
             </TouchableOpacity>
           ))}
         </View>}
@@ -98,9 +98,9 @@ export function ImportHelpPanel({ visible, onClose, onWebsiteSupport }: {
         </View>
       ))}
       <TouchableOpacity style={styles.support} onPress={onWebsiteSupport} accessibilityRole="button">
-        <Ionicons name="mail-outline" size={20} color={colors.tint} />
+        <Ionicons name="mail-outline" size={20} color={colors.actionText} />
         <Text style={[styles.choiceText, { color: colors.text }]}>Help with a recipe website</Text>
-        <Ionicons name="open-outline" size={18} color={colors.tint} />
+        <Ionicons name="open-outline" size={18} color={colors.actionText} />
       </TouchableOpacity>
     </ImportPanel>
   );

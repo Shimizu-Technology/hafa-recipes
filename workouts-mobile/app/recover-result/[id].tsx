@@ -64,7 +64,7 @@ function RecoveryScreen({ id }: { id: string }) {
     } catch (failure) { if (current()) setError((failure as Error).message); }
     finally { lock.current = false; if (current()) setBusy(false); }
   }
-  return <Screen back title="Recover this result." subtitle="Keep the work you recorded, even when its workout was removed.">
+  return <Screen back title="Recover result" subtitle="Keep what you recorded, even if the workout was removed.">
     {!offline.ready || !loaded ? <Copy>Loading the result saved on this device…</Copy> : !item || !original ?
       resultId ? <Button title="View saved result" onPress={() => openResult(resultId)} /> :
       <Notice>This local result is no longer available. Check Progress for its saved record.</Notice> : <>

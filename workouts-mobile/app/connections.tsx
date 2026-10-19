@@ -127,8 +127,8 @@ export default function Connections() {
   return (
     <Screen
       back
-      title="Connect on your terms."
-      subtitle="Health data stays separate from Recipes, and every use has its own choice."
+      title="Connections"
+      subtitle="Health data stays separate from Recipes. Each use has its own switch."
     >
       <Button title="Read health access explanation" secondary onPress={() => router.push("/health-rationale")} />
       <Button title="AI sharing preferences" secondary onPress={() => router.push("/ai-preferences")} />

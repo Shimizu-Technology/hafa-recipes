@@ -14,6 +14,23 @@ export function recipeLoadError(error: unknown) {
   return { title: 'Couldn’t load this recipe', message: 'Check your connection and try again.', canRetry: true };
 }
 
+export type RecipeDetailView = 'preview' | 'loading' | 'unavailable' | 'recipe';
+
+/**
+ * Which recipe detail state to render. The cached card preview appears only
+ * while loading; a settled error or the full recipe always replaces it.
+ */
+export function recipeDetailView({ isLoading, hasPreview, hasRecipe, error }: {
+  isLoading: boolean;
+  hasPreview: boolean;
+  hasRecipe: boolean;
+  error: unknown;
+}): RecipeDetailView {
+  if (isLoading) return hasPreview ? 'preview' : 'loading';
+  if (!hasRecipe || (error && !canRetainRecipeOnError(error))) return 'unavailable';
+  return 'recipe';
+}
+
 /** Cached recipe content is usable only when the server has not revoked access. */
 export function canRetainRecipeOnError(error: unknown) {
   const status = (error as { response?: { status?: number } } | null)?.response?.status;

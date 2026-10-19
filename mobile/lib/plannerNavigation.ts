@@ -51,11 +51,9 @@ export function buildMealPlanEntry(
 
 /** Explain planner-to-grocery results without hiding unstated source amounts. */
 export function plannerGrocerySuccessMessage(result: PlannerGroceryResult): string {
-  const added = `Added ${result.items_added} ingredients from your meal plan.`;
+  const added = `Added ${result.items_added} ingredient${result.items_added === 1 ? '' : 's'}`;
   const missing = result.items_missing_amount ?? 0;
   if (missing <= 0) return added;
-
-  const subject = missing === 1 ? 'ingredient has' : 'ingredients have';
-  const pronoun = missing === 1 ? 'it is' : 'they are';
-  return `${added} ${missing} ${subject} no stated amount, so ${pronoun} clearly marked in your list.`;
+  // Missing amounts are flagged in the list; say so in a toast-length line.
+  return `${added} · ${missing} marked without amounts`;
 }

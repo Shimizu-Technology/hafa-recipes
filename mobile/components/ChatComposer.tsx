@@ -152,7 +152,7 @@ export default function ChatComposer({
           accessibilityLiveRegion="polite"
         >
           <RNView style={[styles.listeningDot, { backgroundColor: colors.tint }]} />
-          <Text style={[styles.listeningText, { color: colors.tint }]}>Listening…</Text>
+          <Text style={[styles.listeningText, { color: colors.actionText }]}>Listening…</Text>
           <Text style={[styles.listeningHint, { color: colors.textSecondary }]}>Tap the mic when done</Text>
         </RNView>
       )}
@@ -327,7 +327,7 @@ function AttachmentAction({
       style={[styles.attachmentAction, { opacity: disabled ? 0.45 : 1 }]}
     >
       <RNView style={[styles.attachmentActionIcon, { backgroundColor: colors.backgroundSecondary }]}>
-        <Ionicons name={icon} size={22} color={colors.tint} />
+        <Ionicons name={icon} size={22} color={colors.actionText} />
       </RNView>
       <Text style={[styles.attachmentActionLabel, { color: colors.textSecondary }]}>{label}</Text>
     </TouchableOpacity>

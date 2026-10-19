@@ -17,7 +17,7 @@ export function SignInRequiredView({ icon, title, message }: SignInRequiredViewP
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.iconContainer, { backgroundColor: colors.card }]}>
-        <Ionicons name={icon} size={48} color={colors.tint} />
+        <Ionicons name={icon} size={48} color={colors.actionText} />
       </View>
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
       <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text>
@@ -33,7 +33,7 @@ export function SignInRequiredView({ icon, title, message }: SignInRequiredViewP
         onPress={() => router.push('/(auth)/sign-up')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.createAccountText, { color: colors.tint }]}>
+        <Text style={[styles.createAccountText, { color: colors.actionText }]}>
           Don't have an account? <Text style={styles.createAccountBold}>Create one</Text>
         </Text>
       </TouchableOpacity>

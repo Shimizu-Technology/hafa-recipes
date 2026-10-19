@@ -273,7 +273,7 @@ export default function AddToCollectionModal({
               )}
               {isLoading ? (
                 <RNView style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color={colors.tint} />
+                  <ActivityIndicator size="large" color={colors.actionText} />
                 </RNView>
               ) : (
                 <ScrollView
@@ -303,7 +303,7 @@ export default function AddToCollectionModal({
                           >
                             <RNView style={styles.collectionInfo}>
                               <RNView style={[styles.collectionIcon, { backgroundColor: colors.tint + '15' }]}>
-                                <Ionicons name="folder-open-outline" size={20} color={colors.tint} />
+                                <Ionicons name="folder-open-outline" size={20} color={colors.actionText} />
                               </RNView>
                               <RNView style={styles.collectionText}>
                                 <Text style={[styles.collectionName, { color: colors.text }]}>
@@ -345,7 +345,7 @@ export default function AddToCollectionModal({
                         <Ionicons
                           name={justCreated ? "checkmark-circle" : "folder-outline"}
                           size={20}
-                          color={justCreated ? colors.success : colors.tint}
+                          color={justCreated ? colors.success : colors.actionText}
                         />
                         <RNView style={styles.inputWrapper}>
                           <Input
@@ -383,8 +383,8 @@ export default function AddToCollectionModal({
                       accessibilityLabel="Create new collection"
                       disabled={isSaving || !hasData}
                     >
-                      <Ionicons name="add-circle-outline" size={24} color={colors.tint} />
-                      <Text style={[styles.createNewText, { color: colors.tint }]}>
+                      <Ionicons name="add-circle-outline" size={24} color={colors.actionText} />
+                      <Text style={[styles.createNewText, { color: colors.actionText }]}>
                         Create New Collection
                       </Text>
                     </TouchableOpacity>

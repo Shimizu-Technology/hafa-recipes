@@ -169,7 +169,7 @@ export const typography = {
   body: { fontFamily: fonts.regular, fontSize: 17, lineHeight: 25 },
   label: { fontFamily: fonts.semibold, fontSize: 16, lineHeight: 22 },
   small: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
-  caption: { fontFamily: fonts.semibold, fontSize: 12, lineHeight: 16, letterSpacing: 0.8, textTransform: "uppercase" },
+  caption: { fontFamily: fonts.semibold, fontSize: 13, lineHeight: 18 },
   /** Big numbers: reps, weight, timers. Tabular so digits don't jump. */
   numeric: { fontFamily: fonts.bold, fontSize: 34, lineHeight: 40, letterSpacing: -0.6, fontVariant: tabular },
   numericSmall: { fontFamily: fonts.semibold, fontSize: 20, lineHeight: 26, fontVariant: tabular },
@@ -184,8 +184,9 @@ export const elevation = {
 } satisfies Record<string, ViewStyle>;
 
 export const motion = {
-  /** Press feedback. */
+  /** Press feedback: press in fast, release a little slower. */
   fast: 120,
+  pressOut: 160,
   base: 200,
   slow: 320,
   pressScale: 0.97,

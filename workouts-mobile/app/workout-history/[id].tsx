@@ -73,7 +73,7 @@ export default function WorkoutHistory() {
     finally { if (working.current === operation) working.current = null; if (current()) setBusy(false); }
   }
   const workout = selected?.workout;
-  return <Screen back title="Version history." subtitle="Restore an earlier prescription as a new version. Recorded sessions and plans keep their original workout."
+  return <Screen back title="Version history" subtitle="Restore an earlier version. Past sessions and plans stay as they were."
     footer={selected && <>
       {!!error && <Notice error>{error}</Notice>}
       {conflict ? <Button title="Reload latest workout" busy={busy} onPress={() => { void reload(); }} /> :

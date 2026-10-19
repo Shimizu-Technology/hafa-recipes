@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   hasScheduledNotification: vi.fn((_stepIndex: number) => false),
   scheduleTimerNotification: vi.fn(async () => undefined),
   back: vi.fn(),
+  reduceMotionEnabled: false,
+  reduceMotionLookup: null as Promise<boolean> | null,
+  reduceMotionListeners: [] as ((enabled: boolean) => void)[],
+  reduceMotionRemove: vi.fn(),
+  slideValues: [] as number[],
   recipeQuery: {
     data: undefined as unknown,
     isLoading: false,
@@ -30,11 +35,26 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   class AnimatedValue {
     constructor(public value: number) {}
-    setValue(value: number) { this.value = value; }
+    setValue(value: number) {
+      this.value = value;
+      mocks.slideValues.push(value);
+    }
+    stopAnimation() {}
   }
   const instant = () => ({ start: (done?: () => void) => done?.() });
   return {
+    AccessibilityInfo: {
+      isReduceMotionEnabled: () => mocks.reduceMotionLookup ?? Promise.resolve(mocks.reduceMotionEnabled),
+      addEventListener: (_event: string, listener: (enabled: boolean) => void) => {
+        mocks.reduceMotionListeners.push(listener);
+        return { remove: () => {
+          mocks.reduceMotionRemove();
+          mocks.reduceMotionListeners = mocks.reduceMotionListeners.filter((l) => l !== listener);
+        } };
+      },
+    },
     Animated: { View: host('AnimatedView'), Value: AnimatedValue, timing: instant, parallel: instant },
+    Easing: { bezier: () => (t: number) => t },
     AppState: {
       currentState: 'active',
       addEventListener: (_event: string, listener: (state: string) => void) => {
@@ -93,7 +113,19 @@ vi.mock('@/components/Themed', async () => {
   return { Text: host('ThemedText'), View: host('ThemedView'), useColors: () => ({ warning: '#f90' }) };
 });
 vi.mock('@/constants/Colors', () => ({
-  brand: { reefHighlight: '#0aa' },
+  default: {
+    dark: {
+      text: '#F8F0E7',
+      textSecondary: '#B8AEA2',
+      textMuted: '#A79D92',
+      background: '#101411',
+      backgroundSecondary: '#171D1A',
+      backgroundElevated: '#202820',
+      border: '#2D352F',
+      actionText: '#69C8BA',
+    },
+  },
+  brand: { reef: '#155C52', reefHighlight: '#0aa' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 20, xxl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },
   radius: { sm: 4, md: 14, lg: 20, xl: 28, full: 9999 },
@@ -218,6 +250,11 @@ describe('CookModeScreen', () => {
     mocks.seekTo.mockClear();
     mocks.scheduleTimerNotification.mockClear();
     mocks.back.mockClear();
+    mocks.reduceMotionEnabled = false;
+    mocks.reduceMotionLookup = null;
+    mocks.reduceMotionListeners = [];
+    mocks.reduceMotionRemove.mockClear();
+    mocks.slideValues = [];
   });
 
   afterEach(() => {
@@ -277,6 +314,61 @@ describe('CookModeScreen', () => {
       expect(completionHaptics()).toBe(1);
       expect(mocks.vibrate).toHaveBeenCalledOnce();
       expect(mocks.play).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('step navigation', () => {
+    it('advances immediately on each tap so rapid taps are never dropped', async () => {
+      const renderer = await renderScreen();
+      expect(stepCounter(renderer)).toBe('Step 1 of 4');
+
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(stepCounter(renderer)).toBe('Step 3 of 4');
+
+      await act(async () => buttonByLabel(renderer, 'Previous step').props.onPress());
+      expect(stepCounter(renderer)).toBe('Step 2 of 4');
+    });
+
+    // Both Animated values record setValue: the slide offset first, then opacity 0.
+    const lastOffset = () => mocks.slideValues[mocks.slideValues.length - 2];
+
+    it('slides in from a short offset, and fades only when Reduce Motion is on', async () => {
+      const renderer = await renderScreen();
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(lastOffset()).toBe(24);
+      await act(async () => buttonByLabel(renderer, 'Previous step').props.onPress());
+      expect(lastOffset()).toBe(-24);
+
+      await act(async () => mocks.reduceMotionListeners.forEach((listener) => listener(true)));
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(lastOffset()).toBe(0);
+
+      await act(async () => mocks.reduceMotionListeners.forEach((listener) => listener(false)));
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(lastOffset()).toBe(24);
+    });
+
+    it('keeps a Reduce Motion change that arrives before the initial lookup resolves', async () => {
+      let resolveLookup!: (enabled: boolean) => void;
+      mocks.reduceMotionLookup = new Promise((resolve) => { resolveLookup = resolve; });
+      const renderer = await renderScreen();
+
+      await act(async () => mocks.reduceMotionListeners.forEach((listener) => listener(true)));
+      await act(async () => resolveLookup(false));
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(lastOffset()).toBe(0);
+    });
+
+    it('honours Reduce Motion from the initial lookup and removes its listener on unmount', async () => {
+      mocks.reduceMotionEnabled = true;
+      const renderer = await renderScreen();
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(lastOffset()).toBe(0);
+
+      await act(async () => renderer.unmount());
+      expect(mocks.reduceMotionRemove).toHaveBeenCalledOnce();
+      expect(mocks.reduceMotionListeners).toHaveLength(0);
     });
   });
 

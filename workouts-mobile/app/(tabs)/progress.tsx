@@ -7,6 +7,7 @@ import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRo
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { canRecoverResult } from "@/lib/result-recovery";
 import { summaryOf } from "@/lib/training";
+import { sessionStatusLabel } from "@/lib/labels";
 import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
 export default function Progress() {
@@ -58,8 +59,7 @@ export default function Progress() {
   }
   return (
     <Screen
-      title="See your work add up."
-      subtitle="Recorded sessions, at your own pace. Rest days count too."
+      title="Progress"
       action={
         <Row gap={8}>
           <IconButton icon="add" label="Log completed activity" variant="primary" onPress={() => router.push("/activity")} />
@@ -67,11 +67,11 @@ export default function Progress() {
         </Row>
       }
     >
-      {historyLoading ? <Card><Skeleton height={24} width="70%" /><Skeleton height={18} width="50%" /><Copy>Loading your saved training history…</Copy></Card> : q.error && !q.data ?
-        <Card><Copy>Your training totals will return when history loads. Saved results on this device remain below.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={selected.sessions} /> : <Card>
-        <Copy>{ancestry.isPending ? "Checking session corrections before counting your progress…" :
-          "Correction history could not be fully verified. Session totals stay paused to avoid counting one workout twice. Your saved results remain below."}</Copy>
-        {!ancestry.isPending && <Button title="Retry correction history" secondary onPress={() => { void ancestry.refetch(); }} />}
+      {historyLoading ? <Card><Skeleton height={24} width="70%" /><Skeleton height={18} width="50%" /><Copy>Loading your training history…</Copy></Card> : q.error && !q.data ?
+        <Card><Copy>Totals will show once your history loads.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={selected.sessions} /> : <Card>
+        <Copy>{ancestry.isPending ? "Checking your edited sessions…" :
+          "Totals are paused so no workout is counted twice."}</Copy>
+        {!ancestry.isPending && <Button title="Try again" secondary onPress={() => { void ancestry.refetch(); }} />}
       </Card>}
       <ListGroup>
         <ListRow icon="add-circle-outline" title="Log completed activity" onPress={() => router.push("/activity")} />
@@ -98,7 +98,7 @@ export default function Progress() {
         <Empty
           icon="stats-chart-outline"
           title="Your progress starts with a session"
-          description="Actual completed and partial sessions appear here. A plan or elapsed time alone never counts as completed training."
+          description="Finished and partly finished workouts show up here."
           action={<Button title="Choose a workout" onPress={() => router.push("/(tabs)/library")} />}
         />
       ) : null}
@@ -107,7 +107,7 @@ export default function Progress() {
         .map((h) => (
           <Card key={h.request.client_session_id}>
             <Copy kind="caption" tone="muted">
-              {new Date(h.request.started_at).toLocaleDateString()} · {h.request.status} ·{" "}
+              {new Date(h.request.started_at).toLocaleDateString()} · {sessionStatusLabel(h.request.status)} ·{" "}
               {h.state === "synced" ? "Synced" : h.state === "blocked" ? "Needs review" : "Saved on device"}
             </Copy>
             <Copy kind="heading">{h.workout.title}</Copy>
@@ -126,10 +126,10 @@ export default function Progress() {
             {!!h.problem && <Notice error>{h.problem}</Notice>}
             {!!h.request.supersedes_session_id && <Notice>
               {selected.conflictingQueued.includes(h.request.client_session_id) ?
-                "A newer saved result already exists. This device correction stays available for conflict review and does not replace the saved actuals. Retry sync to confirm its status." :
-                h.state === "blocked" ? "This correction needs review and does not replace the saved actuals in your progress count." :
-                h.state === "queued" ? "This is a correction to the same workout session, saved on this device while sync finishes." :
-                  "This saved correction replaces an earlier result for the same workout session."}
+                "A newer result is already saved, so this edit isn’t used. Retry sync to check again." :
+                h.state === "blocked" ? "This edit needs review and isn’t counted yet." :
+                h.state === "queued" ? "This edit is saved on this device and will sync soon." :
+                  "This edit replaces an earlier result for the same session."}
             </Notice>}
             {h.state === "queued" && (
               <Button
@@ -195,7 +195,7 @@ export default function Progress() {
       {visibleRemote.map((s) => (
         <Card key={s.id}>
           <Copy kind="caption" tone="muted">
-            {new Date(s.started_at).toLocaleDateString()} · {s.status}
+            {new Date(s.started_at).toLocaleDateString()} · {sessionStatusLabel(s.status)}
           </Copy>
           <Copy kind="heading">{s.title}</Copy>
           <Copy kind="numericSmall">{s.content.actuals.filter((a) => a.completed).length} completed sets</Copy>

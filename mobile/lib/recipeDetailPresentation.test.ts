@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recipeCost, recipeLoadError, canRetainRecipeOnError } from './recipeDetailPresentation';
+import { recipeCost, recipeLoadError, canRetainRecipeOnError, recipeDetailView } from './recipeDetailPresentation';
 
 describe('recipe detail cost and unavailable states', () => {
   it('scales the batch total while keeping the cost of one portion stable', () => {
@@ -23,5 +23,26 @@ describe('recipe detail cost and unavailable states', () => {
     expect(canRetainRecipeOnError(new Error('offline'))).toBe(true);
     for (const status of [503, 408, 429]) expect(canRetainRecipeOnError({ response: { status } })).toBe(true);
     for (const status of [401, 403, 404, 410]) expect(canRetainRecipeOnError({ response: { status } })).toBe(false);
+  });
+});
+
+describe('recipe detail loading transition', () => {
+  const view = (state: Partial<Parameters<typeof recipeDetailView>[0]>) => recipeDetailView({
+    isLoading: false, hasPreview: false, hasRecipe: false, error: null, ...state,
+  });
+
+  it('shows the cached preview while loading, then the full recipe once it arrives', () => {
+    expect(view({ isLoading: true, hasPreview: true })).toBe('preview');
+    expect(view({ isLoading: false, hasPreview: false, hasRecipe: true })).toBe('recipe');
+  });
+
+  it('falls back to the spinner when no list has shown the recipe', () => {
+    expect(view({ isLoading: true })).toBe('loading');
+  });
+
+  it('never lets the preview mask a failed load', () => {
+    expect(view({ hasPreview: true, error: new Error('offline') })).toBe('unavailable');
+    expect(view({ hasPreview: true, hasRecipe: true, error: { response: { status: 403 } } })).toBe('unavailable');
+    expect(view({ hasRecipe: true, error: new Error('offline') })).toBe('recipe');
   });
 });

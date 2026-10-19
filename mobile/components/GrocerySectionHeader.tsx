@@ -42,7 +42,7 @@ export function GrocerySectionHeader({
         <Ionicons
           name={isOther ? 'list-outline' : 'restaurant-outline'}
           size={18}
-          color={colors.tint}
+          color={colors.actionText}
           style={styles.icon}
         />
         {canOpenRecipe ? (
@@ -56,7 +56,7 @@ export function GrocerySectionHeader({
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
               {section.title}
             </Text>
-            <Ionicons name="arrow-forward-circle-outline" size={18} color={colors.tint} />
+            <Ionicons name="arrow-forward-circle-outline" size={18} color={colors.actionText} />
           </TouchableOpacity>
         ) : (
           <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
@@ -64,7 +64,7 @@ export function GrocerySectionHeader({
           </Text>
         )}
         <RNView style={[styles.badge, { backgroundColor: colors.tint + '20' }]}>
-          <Text style={[styles.badgeText, { color: colors.tint }]}>
+          <Text style={[styles.badgeText, { color: colors.actionText }]}>
             {section.checkedCount}/{section.totalCount}
           </Text>
         </RNView>

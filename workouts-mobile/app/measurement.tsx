@@ -388,8 +388,7 @@ export default function MeasurementEditor() {
   return (
     <Screen
       back
-      title={id ? "Review your measurement." : `Record your ${kind}.`}
-      subtitle="Original units, exact dates and deliberate profile updates."
+      title={id ? "Measurement" : `Record ${kind}`}
     >
       {!!message && <Notice>{message}</Notice>}
       {pendingRemoval && (

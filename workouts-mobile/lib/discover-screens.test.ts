@@ -530,7 +530,7 @@ it("a saved source copy stays recognizable as a source in Library and detail wit
   const copy = { ...saved, provenance: "user" as const, source_url: "https://example.test/video", source_creator: "Original creator" };
   fixture.searchLibrary.mockResolvedValue({ items: [copy], total: 1, has_more: false });
   await mount(Library);
-  expect(nodes("MediaCard")[0].props.meta).toContain("Saved from a source");
+  expect(nodes("MediaCard")[0].props.meta).toContain("Saved from the web");
   await act(async () => renderer!.unmount()); cache.clear(); fixture.params = { id: copy.id }; fixture.workout.mockResolvedValue(copy);
   await mount(WorkoutDetail);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");

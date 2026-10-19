@@ -62,6 +62,7 @@ export function IngredientMatchCard({
     : presentation.tone === 'warning'
       ? colors.warning
       : colors.tint;
+  const toneTextColor = toneColor === colors.tint ? colors.actionText : toneColor;
 
   return (
     <RNView style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
@@ -92,9 +93,9 @@ export function IngredientMatchCard({
               <Ionicons
                 name={missingCount === 0 ? 'checkmark-circle' : 'nutrition-outline'}
                 size={14}
-                color={toneColor}
+                color={toneTextColor}
               />
-              <Text style={[styles.statusLabel, { color: toneColor }]}>{presentation.label}</Text>
+              <Text style={[styles.statusLabel, { color: toneTextColor }]}>{presentation.label}</Text>
             </RNView>
             <Text style={[styles.statusDetail, { color: colors.textMuted }]}>
               {presentation.detail}
@@ -107,8 +108,8 @@ export function IngredientMatchCard({
             />
           </RNView>
           <RNView style={styles.openRow}>
-            <Text style={[styles.openLabel, { color: colors.tint }]}>View recipe</Text>
-            <Ionicons name="arrow-forward" size={16} color={colors.tint} />
+            <Text style={[styles.openLabel, { color: colors.actionText }]}>View recipe</Text>
+            <Ionicons name="arrow-forward" size={16} color={colors.actionText} />
           </RNView>
         </RNView>
       </TouchableOpacity>
@@ -147,15 +148,15 @@ export function IngredientMatchCard({
           }}
         >
           {isAdding ? (
-            <ActivityIndicator size="small" color={colors.tint} />
+            <ActivityIndicator size="small" color={colors.actionText} />
           ) : (
             <Ionicons
               name={isAdded ? 'checkmark-circle' : 'cart-outline'}
               size={18}
-              color={isAdded ? colors.success : colors.tint}
+              color={isAdded ? colors.success : colors.actionText}
             />
           )}
-          <Text style={[styles.groceryButtonText, { color: isAdded ? colors.success : colors.tint }]}>
+          <Text style={[styles.groceryButtonText, { color: isAdded ? colors.success : colors.actionText }]}>
             {isAdding
               ? 'Adding…'
               : isAdded

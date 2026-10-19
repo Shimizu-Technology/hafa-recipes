@@ -112,8 +112,8 @@ export default function RecipesConnection() {
   return (
     <Screen
       back
-      title="Recipes, when you choose."
-      subtitle="One Håfa account, with separate permissions for the useful connections."
+      title="Håfa Recipes"
+      subtitle="One Håfa account. Each connection is your choice."
     >
       <Notice>
         These choices allow bounded recipe/meal summaries to be viewed in Workouts. They do not share your training
