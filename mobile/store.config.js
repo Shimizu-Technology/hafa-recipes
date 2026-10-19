@@ -47,9 +47,9 @@ AI can make mistakes. Review extracted ingredients, directions, allergens, tempe
 Made in Guam by Shimizu Technology.`;
 const RELEASE_NOTES = `A calmer, clearer Håfa Recipes.
 
-• Every screen now shows where you are, with the Shop tab renamed Grocery and My Recipes now Library.
+• Tab headers name the screen you're on. The Shop tab is now Grocery, and My Recipes is now Library.
 • Adding ingredients, saving edits and other actions confirm with a quick message instead of a pop-up you have to dismiss.
-• Recipes open instantly with their photo and title while the rest loads.
+• Recipes opened from your lists show their photo and title right away while the rest loads.
 • Dark mode is easier to read, and Cook Mode uses gentler step changes and clearer colours.
 • Better VoiceOver labels for recipe cards and grocery items.
 
