@@ -55,6 +55,9 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   These records remain visible without a child filter and are excluded when
   filtering for a specific child.
 - `GET /records?kind=&child_id=&q=&limit=30&offset=0`: `{items,total,has_more}`.
+  Optional repeated `kinds=journal&kinds=question` filters up to eight valid kinds
+  before pagination; do not combine `kind` and `kinds`. Child filters are exact
+  by default; `include_general=true` explicitly includes unassigned records too.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
 - Record shape: `{id,kind,title,body,child_id,occurred_at,data,revision,created_at,

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
@@ -293,10 +293,20 @@ async def delete_child(
     return Response(status_code=204)
 
 
-async def record_list(db, owner, generation, kind, child_id, q, limit, offset):
+async def record_list(
+    db, owner, generation, kind, child_id, q, limit, offset, *, kinds=None, include_general=False
+):
+    if kind is not None and kinds is not None:
+        raise HTTPException(422, "Choose kind or kinds, not both")
     if child_id:
         await owned(db, BabyChild, owner, generation, child_id)
-    query = records_query(owner, generation, kind=kind, child_id=child_id, q=q)
+    query = records_query(
+        owner, generation, kind=kind, child_id=None if include_general else child_id, q=q
+    )
+    if kinds:
+        query = query.where(BabyRecord.kind.in_(kinds))
+    if child_id and include_general:
+        query = query.where(or_(BabyRecord.child_id == child_id, BabyRecord.child_id.is_(None)))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = await db.scalars(
         query.order_by(BabyRecord.occurred_at.desc(), BabyRecord.id).limit(limit).offset(offset)
@@ -313,13 +323,26 @@ async def records(
     user: User,
     db: Database,
     kind: Kind | None = None,
+    kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
     child_id: UUID | None = None,
+    include_general: bool = False,
     q: Annotated[str | None, Query(max_length=300)] = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
-    return await record_list(db, user.id, member.generation, kind, child_id, q, limit, offset)
+    return await record_list(
+        db,
+        user.id,
+        member.generation,
+        kind,
+        child_id,
+        q,
+        limit,
+        offset,
+        kinds=kinds,
+        include_general=include_general,
+    )
 
 
 @router.get("/search")
@@ -328,12 +351,25 @@ async def search(
     db: Database,
     q: Annotated[str, Query(min_length=1, max_length=300)],
     kind: Kind | None = None,
+    kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
     child_id: UUID | None = None,
+    include_general: bool = False,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
-    return await record_list(db, user.id, member.generation, kind, child_id, q, limit, offset)
+    return await record_list(
+        db,
+        user.id,
+        member.generation,
+        kind,
+        child_id,
+        q,
+        limit,
+        offset,
+        kinds=kinds,
+        include_general=include_general,
+    )
 
 
 @router.get("/records/{identifier}")
