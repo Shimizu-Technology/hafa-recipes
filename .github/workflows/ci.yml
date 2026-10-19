@@ -179,3 +179,26 @@ jobs:
       - run: npm run audit:runtime
       - run: npm run export:all
       - run: npm run check:native-bundles
+
+  baby-mobile:
+    name: Baby Expo mobile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: baby-mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22.22.2"
+          cache: npm
+          cache-dependency-path: baby-mobile/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run doctor
+      - run: npm run audit:runtime
+      - run: npm run export:all
+      - run: npm run check:native-bundles

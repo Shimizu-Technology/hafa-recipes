@@ -17,6 +17,7 @@ hard to find again.
 ├── api/              # Shared Håfa API: FastAPI, models, extraction, migrations
 ├── mobile/           # Håfa Recipes Expo / React Native app
 ├── workouts-mobile/  # Håfa Workouts Expo / React Native app (TestFlight beta)
+├── baby-mobile/      # Håfa Baby: private sources, journal, care logs and routines
 ├── web/              # Håfa Recipes marketing, privacy, and support website
 ├── workouts-web/     # Håfa Workouts website and shared-workout pages
 ├── admin/            # Moderation dashboard
