@@ -358,7 +358,7 @@ export default function SignIn() {
         </>
       )}
       <Copy kind="small" tone="muted" align="center">
-        Data stays separate unless you connect the apps. Deleting your Håfa account deletes both.
+        Data stays separate unless you connect the apps. Deleting your Håfa account, including from older Recipes versions, deletes both apps’ data.
       </Copy>
     </Screen>
   );

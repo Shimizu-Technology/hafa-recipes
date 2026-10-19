@@ -54,7 +54,7 @@ export default function Onboarding() {
   return <Screen back title="Join Håfa Workouts">
     <Copy>Save workouts from links, photos or your own notes. Add goals and a plan whenever you like.</Copy>
     <Choice label="I am 18 or older" selected={adult} disabled={busy} onPress={() => setAdult(!adult)} />
-    <Notice>Recipes and Workouts share one Håfa account, and each app’s data stays separate unless you connect them. Deleting the whole account from either app deletes both apps’ data.</Notice>
+    <Notice>Recipes and Workouts share one Håfa account, and each app’s data stays separate unless you connect them. Deleting the whole account from either app, including older Recipes versions, deletes both apps’ data; you can instead remove one app’s data and keep your account.</Notice>
     <Choice label="I understand how my shared account works" selected={acknowledged} disabled={busy} onPress={() => setAcknowledged(!acknowledged)} />
     {enrollmentQuery.error && <Notice error>{enrollmentQuery.error.message}</Notice>}
     {!!error && <><Notice error>{error}</Notice><Button title="Refresh account setup" secondary disabled={busy} onPress={() => { void enrollmentQuery.refetch(); }} /></>}

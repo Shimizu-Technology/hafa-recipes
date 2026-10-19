@@ -428,7 +428,7 @@ export default function ActivityEditor() {
                 />
                 {removeConfirm && (
                   <Card>
-                    <Notice>Removes this entry and its notes. Your workouts and Health data stay unchanged.</Notice>
+                    <Notice>Removes this entry and its notes, and refreshes your plan context and pending coach suggestions. Your workouts and Health data stay unchanged.</Notice>
                     <Choice
                       label="I want to remove this activity entry"
                       selected={removeConfirm}

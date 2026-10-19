@@ -21,6 +21,7 @@ export function usePressScale(disabled = false) {
   const animate = useCallback(
     (toValue: number, duration: number) => {
       if (reduced) {
+        scale.setValue(1);
         opacity.setValue(toValue === 1 ? 1 : 0.8);
         return;
       }

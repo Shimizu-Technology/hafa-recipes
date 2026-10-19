@@ -44,6 +44,7 @@ it("does not move under Reduce Motion and dims while held instead", () => {
   press.onPressIn();
   expect(f.timing).not.toHaveBeenCalled();
   expect((press.opacity as unknown as { value: number }).value).toBe(0.8);
+  expect((press.scale as unknown as { value: number }).value).toBe(1);
   press.onPressOut();
   expect((press.opacity as unknown as { value: number }).value).toBe(1);
 });

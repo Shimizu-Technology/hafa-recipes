@@ -723,7 +723,7 @@ export default function Coach() {
       />
       {clearConfirm && (
         <Card tone="sunken">
-          <Copy kind="small">Clears messages and pending suggestions. Changes you accepted stay saved.</Copy>
+          <Copy kind="small">Clears messages and pending suggestions. Changes you accepted stay saved. Some content-free usage records stay briefly.</Copy>
           <Button
             title="Clear conversation and pending suggestions"
             variant="destructive"
