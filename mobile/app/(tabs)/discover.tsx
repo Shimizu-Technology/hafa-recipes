@@ -207,7 +207,13 @@ function RecipeCard({
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [recipe.total_time])}
+      accessibilityLabel={recipeCardAccessibilityLabel({
+        title: recipe.title,
+        totalTime: recipe.total_time,
+        servings: recipe.servings,
+        sourceLabel,
+        author: extractorName,
+      })}
     >
       {/* Thumbnail with gradient overlay */}
       <RNView style={styles.thumbnailContainer}>
@@ -344,7 +350,12 @@ function GridRecipeCard({
       thumbnailUrl={recipe.thumbnail_url}
       onPress={onPress}
       colors={colors}
-      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [recipe.total_time])}
+      accessibilityLabel={recipeCardAccessibilityLabel({
+        title: recipe.title,
+        totalTime: recipe.total_time,
+        sourceLabel: recipe.extractor_display_name ? null : getRecipeSourcePresentation(recipe.source_type).label,
+        author: recipe.extractor_display_name,
+      })}
       imagePriority={imagePriority}
       imageAdornment={(
         <>

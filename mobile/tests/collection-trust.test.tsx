@@ -148,7 +148,7 @@ describe('collection recipe readiness', () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     await act(async () => {
       renderer.render(React.createElement(RecipeCard, {
-        recipe: { ...recipe('ready'), total_time: '30 min' },
+        recipe: { ...recipe('needs_review'), total_time: '30 min', servings: 4 },
         colors,
         onPress: vi.fn(),
         onRemove,
@@ -157,7 +157,9 @@ describe('collection recipe readiness', () => {
     try {
       const card = renderer.container.queryAll((instance) => instance.type === 'ScalePressable')[0];
       expect(card.props.accessibilityRole).toBe('button');
-      expect(card.props.accessibilityLabel).toBe('Chicken Kelaguen, 30 min');
+      expect(card.props.accessibilityLabel).toBe(
+        'Chicken Kelaguen, Some recipe details are uncertain, 30 min, 4 servings, Website',
+      );
       expect(card.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove from collection' }]);
       card.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
       expect(onRemove).toHaveBeenCalledOnce();

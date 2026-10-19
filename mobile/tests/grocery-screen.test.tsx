@@ -438,7 +438,11 @@ describe('GroceryScreen shopping views', () => {
 
   it('exposes each grocery row as a checkbox with labelled edit and remove controls', async () => {
     mocks.collapsedSections = '[]';
-    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice', quantity: '2', unit: 'cup' })];
+    mocks.listInfoState.is_shared = true;
+    mocks.groceryState.items = [
+      item({ id: 'rice', name: 'Rice', notes: 'Jasmine', added_by_name: 'Ana' }),
+      item({ id: 'lime', name: 'Lime', quantity: '2', unit: 'piece', recipe_id: null }),
+    ];
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
@@ -446,10 +450,13 @@ describe('GroceryScreen shopping views', () => {
         renderer.render(React.createElement(GroceryScreen));
       });
 
-      const row = renderer.container.queryAll((instance) => instance.type === 'ScalePressable')[0];
+      const rows = renderer.container.queryAll((instance) => instance.type === 'ScalePressable');
+      const row = rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('Rice'))!;
       expect(row.props.accessibilityRole).toBe('checkbox');
       expect(row.props.accessibilityState).toEqual({ checked: false });
-      expect(row.props.accessibilityLabel).toContain('Rice');
+      expect(row.props.accessibilityLabel).toBe('Rice, Added by Ana, Amount not stated, Jasmine');
+      expect(rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('2'))!.props.accessibilityLabel)
+        .toBe('2 piece Lime');
       expect(row.props.accessibilityActions.map((action: { label: string }) => action.label))
         .toEqual(['Edit Rice', 'Remove Rice']);
       for (const label of ['Edit Rice', 'Remove Rice']) {

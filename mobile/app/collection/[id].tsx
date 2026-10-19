@@ -49,7 +49,13 @@ export function RecipeCard({
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={recipeCardAccessibilityLabel(recipe.title, [recipe.total_time])}
+      accessibilityLabel={recipeCardAccessibilityLabel({
+        title: recipe.title,
+        reviewState: recipe.review_state,
+        totalTime: recipe.total_time,
+        servings: recipe.servings,
+        sourceLabel,
+      })}
       // The card groups its children for VoiceOver, so expose Remove as an action.
       accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
       onAccessibilityAction={(event) => {

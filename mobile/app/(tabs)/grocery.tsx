@@ -86,9 +86,20 @@ function GroceryItemRow({
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
   const normalizedUnit = normalizeIngredientUnit(item.unit);
-  const itemLabel = [hasAmount && item.quantity, hasAmount && normalizedUnit, item.name]
+  const hasNotes = Boolean(item.notes && item.notes !== 'null');
+  const itemName = [hasAmount && item.quantity, hasAmount && normalizedUnit, item.name]
     .filter(Boolean)
     .join(' ');
+  // The row groups its children, so read every visible detail in order.
+  const itemLabel = [
+    itemName,
+    isSharedList && item.added_by_name && `Added by ${item.added_by_name}`,
+    showMissingAmount && MISSING_AMOUNT_LABEL,
+    showRecipeLabel && item.recipe_title && `from ${item.recipe_title}`,
+    hasNotes && item.notes,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   return (
     <ScalePressable 
@@ -161,7 +172,7 @@ function GroceryItemRow({
             from {item.recipe_title}
           </Text>
         )}
-        {item.notes && item.notes !== 'null' && (
+        {hasNotes && (
           <Text style={[styles.itemNotes, { color: colors.textMuted }]} numberOfLines={1}>
             {item.notes}
           </Text>
