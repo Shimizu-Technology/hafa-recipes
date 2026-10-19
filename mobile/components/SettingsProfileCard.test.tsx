@@ -16,9 +16,16 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
   Card: 'Card',
   Text: 'Text',
-  useColors: () => ({ text: '#17120E', textMuted: '#78695C', tint: '#155C52' }),
+  useColors: () => ({
+    accent: '#B65F3E',
+    accentSoft: '#F3D9CC',
+    text: '#17120E',
+    textMuted: '#78695C',
+    tint: '#155C52',
+  }),
 }));
 vi.mock('@/constants/Colors', () => ({
+  fontFamily: { semibold: 'DMSans_600SemiBold' },
   fontSize: { xs: 11, sm: 13, lg: 17 },
   fontWeight: { semibold: '600' },
   spacing: { xs: 4, md: 16 },
@@ -85,6 +92,34 @@ describe('SettingsProfileCard', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'Text' && instance.props.children === 'Tap to sign in →',
       )).toHaveLength(0);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('shows an initial instead of Clerk\'s generated default avatar', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+
+    try {
+      await act(async () => renderer.render(
+        <SettingsProfileCard
+          isLoaded
+          isSignedIn
+          profileName="cook"
+          user={{
+            imageUrl: 'https://img.clerk.com/default-avatar',
+            hasImage: false,
+            firstName: null,
+            primaryEmailAddress: { emailAddress: 'cook@example.com' },
+          }}
+          onPress={vi.fn()}
+        />,
+      ));
+
+      expect(renderer.container.queryAll((instance) => instance.type === 'Image')).toHaveLength(0);
+      expect(renderer.container.queryAll(
+        (instance) => instance.type === 'Text' && instance.props.children === 'C',
+      )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
     }

@@ -23,7 +23,7 @@ export function captureSaveFailure(error: unknown) {
     : status === 409 ? 'conflict' : 'retry';
   const message = kind === 'auth' ? 'Sign in again before retrying this save.'
     : kind === 'invalid' ? getApiErrorMessage(error, 'Some recipe details could not be saved. Edit the recipe to correct them.')
-    : kind === 'conflict' ? 'This import was already saved with different details. Check My Recipes for the saved recipe.'
+    : kind === 'conflict' ? 'This import was already saved with different details. Check your Library for the saved recipe.'
     : getApiErrorMessage(error, 'The connection was interrupted. Your extracted recipe is still here.');
   return { kind, message };
 }

@@ -49,6 +49,7 @@ import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 import { useViewPreference } from '@/hooks/useViewPreference';
+import { formatRecipeCount } from '@/lib/recipeCount';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -712,18 +713,12 @@ export default function HistoryScreen() {
       <RNView>
         {/* Title row */}
         <RNView style={styles.titleRow}>
+          {/* The navigation header already says "Library"; keep the count as a quiet line. */}
           <RNView style={styles.titleLeft}>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>
-              My Recipes
-            </Text>
             {totalCount !== undefined && (
-              <RNView style={[styles.countBadge, { backgroundColor: colors.tint }]}>
-                <Text style={styles.countText}>
-                  {hasActiveFilters && combinedRecipes
-                    ? `${combinedRecipes.length} of ${totalCount}`
-                    : totalCount}
-                </Text>
-              </RNView>
+              <Text style={[styles.countText, { color: colors.textSecondary }]}>
+                {formatRecipeCount(totalCount, hasActiveFilters && combinedRecipes ? combinedRecipes.length : undefined)}
+              </Text>
             )}
           </RNView>
 
@@ -1132,20 +1127,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
-  headerTitle: {
-    fontSize: fontSize.xxl,
-    fontFamily: fontFamily.bold,
-  },
-  countBadge: {
-    marginLeft: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
   countText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.medium,
   },
   searchRow: {
     flexDirection: 'row',
