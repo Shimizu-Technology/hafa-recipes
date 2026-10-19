@@ -38,25 +38,32 @@ export function BrandMark({ height = 28, mono }: { height?: number; mono?: strin
 }
 
 /** Mark + wordmark, for root-tab headers and sign-in. */
-export function BrandLockup({ height = 24, mono }: { height?: number; mono?: string }) {
+/** `fill` lets the lockup take the free width of a header row; iOS can under-measure the wordmark, which then ellipsizes. */
+export function BrandLockup({ height = 24, mono, fill }: { height?: number; mono?: string; fill?: boolean }) {
   const c = useColors();
   return (
     <View
       accessible
       accessibilityRole="header"
       accessibilityLabel="Håfa Workouts"
-      style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1, minWidth: 0 }}
+      style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}
     >
       <BrandMark height={height} mono={mono} />
-      {/* No adjustsFontSizeToFit: on the new architecture it measures the shrunk size and clips the
-          wordmark. The lockup is a logo, so cap its growth and let it ellipsize only on very narrow screens. */}
-      <Text
-        numberOfLines={1}
-        maxFontSizeMultiplier={1.2}
-        style={[typography.subheading, { color: mono ?? c.text, letterSpacing: 0, flexShrink: 1 }]}
-      >
-        Håfa <Text style={{ fontFamily: typography.body.fontFamily, color: mono ?? c.muted }}>Workouts</Text>
-      </Text>
+      {/* Two sibling texts, not nested ones: iOS measures a nested run with the outer font, so the
+          lighter "Workouts" face was truncated. No adjustsFontSizeToFit (it clips on the new architecture);
+          cap growth and let only the descriptor ellipsize on very narrow screens. */}
+      <View style={{ flexDirection: "row", alignItems: "baseline", flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}>
+        <Text numberOfLines={1} maxFontSizeMultiplier={1.2} style={[typography.subheading, { color: mono ?? c.text, letterSpacing: 0 }]}>
+          Håfa{" "}
+        </Text>
+        <Text
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
+          style={[typography.subheading, { fontFamily: typography.body.fontFamily, color: mono ?? c.muted, letterSpacing: 0, flexShrink: 1, flexGrow: fill ? 1 : 0 }]}
+        >
+          Workouts
+        </Text>
+      </View>
     </View>
   );
 }

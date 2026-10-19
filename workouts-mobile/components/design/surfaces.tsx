@@ -77,7 +77,7 @@ export function Screen({
             <IconButton icon="chevron-back" label="Go back" variant="plain"
               onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
           ) : (
-            <BrandLockup />
+            <BrandLockup fill />
           )}
           {!!action && <View style={{ flexShrink: 0 }}>{action}</View>}
         </View>
