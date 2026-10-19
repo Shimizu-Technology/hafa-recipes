@@ -61,6 +61,8 @@ const library = vi.hoisted(() => ({
   cached: [] as RecipeListItem[],
   moreSearch: vi.fn(), moreSaved: vi.fn(), moreOwn: vi.fn(),
   hasMoreSearch: false,
+  ownTotal: 0,
+  searchTotal: undefined as number | undefined,
   signedIn: true,
   collections: {
     data: [] as Collection[] | undefined,
@@ -69,11 +71,11 @@ const library = vi.hoisted(() => ({
   refetchRecipes: vi.fn(), refetchSaved: vi.fn(),
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useRecipes: () => ({ recipes: [], total: 0, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
+  useRecipes: () => ({ recipes: [], total: library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
   useSavedRecipes: () => ({ recipes: library.cached, fetchNextPage: library.moreSaved, hasNextPage: true, refetch: library.refetchSaved }),
   useSearchRecipes: (filters: Record<string, unknown>) => {
     library.filters = filters;
-    return { recipes: library.search, total: library.search.length, isSuccess: true,
+    return { recipes: library.search, total: library.searchTotal ?? library.search.length, isSuccess: true,
       hasNextPage: library.hasMoreSearch, fetchNextPage: library.moreSearch };
   },
   useRecipeCount: () => ({ data: { count: 0 } }),
@@ -121,6 +123,7 @@ const colors = {
 
 beforeEach(() => {
   library.filters = {}; library.search = []; library.cached = []; library.hasMoreSearch = false;
+  library.ownTotal = 0; library.searchTotal = undefined;
   library.moreSearch.mockClear(); library.moreSaved.mockClear(); library.moreOwn.mockClear();
   library.signedIn = true;
   Object.assign(library.collections, { data: [], isLoading: false, isError: false, isFetching: false });
@@ -235,6 +238,29 @@ describe('Saved library search', () => {
         expect(library.moreSaved).not.toHaveBeenCalled();
         expect(library.moreOwn).not.toHaveBeenCalled();
       }
+    } finally { await act(async () => renderer.unmount()); }
+  });
+});
+
+describe('Library recipe count', () => {
+  const countText = (renderer: ReturnType<typeof createRoot>) =>
+    renderer.container.queryAll(instance => instance.type === 'Text' && /^\d+( of \d+)? recipes?$/.test(String(instance.props.children)))
+      .map(instance => instance.props.children);
+
+  it('shows the library total, then the server match total against it while filtered', async () => {
+    library.ownTotal = 100;
+    library.searchTotal = 37;
+    // Only the first page of matches is loaded; the count must not use its length.
+    library.search = Array.from({ length: 20 }, (_, index) => ({ ...recipe('ready'), id: `match-${index}` }));
+    library.hasMoreSearch = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(HistoryScreen)));
+      expect(countText(renderer)).toEqual(['100 recipes']);
+      await act(async () => {
+        renderer.container.queryAll(instance => instance.type === 'Input')[0].props.onChangeText('Rice');
+      });
+      expect(countText(renderer)).toEqual(['37 of 100 recipes']);
     } finally { await act(async () => renderer.unmount()); }
   });
 });
