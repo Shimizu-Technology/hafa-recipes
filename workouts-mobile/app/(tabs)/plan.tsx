@@ -32,7 +32,7 @@ import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import type { Program, ScheduledSession } from "@/lib/models";
 import { programMoveError } from "@/lib/plans";
-import { formatPlanDate } from "@/lib/plan-presentation";
+import { formatPlanDate, nextPlannedSession } from "@/lib/plan-presentation";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
@@ -123,9 +123,7 @@ export default function Plan() {
   const freshness = useFocusRefresh(() => Promise.all([q.refetch(), actuals.refetch(), profile.refetch()]),
     { enabled: !!enrollment?.enrolled, updatedAt: q.dataUpdatedAt });
   // Only the next session still to train gets the filled Start button.
-  const next = q.data?.filter((p) => p.status === "ready" && !p.schedule_state?.archived_at && p.schedule_state?.status !== "paused")
-    .flatMap((p) => p.sessions.filter((s) => s.date >= today && !statuses.has(programSessionKey(p.id, s.id)!)).map((s) => ({ p, s })))
-    .sort((a, b) => a.s.date.localeCompare(b.s.date))[0];
+  const next = nextPlannedSession(q.data, today, (p, s) => statuses.has(programSessionKey(p.id, s.id)!));
   const openProgram = opened ? q.data?.find((p) => p.id === opened.programId) : undefined;
   const openSession = openProgram?.sessions.find((s) => s.id === opened?.sessionId);
   function sessionState(p: Program, s: ScheduledSession) {

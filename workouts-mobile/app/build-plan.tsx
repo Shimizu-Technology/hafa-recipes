@@ -10,7 +10,7 @@ import { useTraining } from "@/lib/context";
 import { dateInTimezone } from "@/lib/training";
 import { isISODate } from "@/lib/sharing";
 import { sourceChoiceErrors, type ProgramReceipt } from "@/lib/plans";
-import { PLAN_WEEK_OPTIONS } from "@/lib/plan-presentation";
+import { planWeekOptions, planWeeks } from "@/lib/plan-presentation";
 interface Draft {
   generation: number;
   date: string;
@@ -80,7 +80,7 @@ export default function BuildPlan() {
       .then((value) => {
         if (active) {
           const restored = value?.generation === generation ? value : null;
-          if (restored) setDraft(restored);
+          if (restored) setDraft({ ...restored, weeks: planWeeks(restored.weeks) });
           if (include && !(restored?.selected ?? []).includes(include))
             setDraft((current) => ({ ...current, selected: [...current.selected, include], receipt: null }));
           setLoaded(true);
@@ -182,7 +182,7 @@ export default function BuildPlan() {
       <Segmented
         label="Plan length in weeks"
         value={draft.weeks}
-        options={PLAN_WEEK_OPTIONS.map((weeks) => ({ value: weeks, label: weeks }))}
+        options={planWeekOptions(draft.weeks).map((weeks) => ({ value: weeks, label: weeks }))}
         onChange={(weeks) => update({ weeks })}
       />
       <Card>

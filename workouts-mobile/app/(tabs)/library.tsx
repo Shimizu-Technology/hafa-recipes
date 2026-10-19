@@ -117,7 +117,8 @@ export default function Library() {
     enabled: !!enrollment?.enrolled,
   });
   // Workouts saved on another device or from a share appear without relaunching.
-  const freshness = useFocusRefresh(() => Promise.all([q.refetch(), collections.refetch()]),
+  // Every loaded page refetches together so the list stays consistent, so this waits until the data is stale.
+  const freshness = useFocusRefresh(() => Promise.all([q.refetch(), collections.isStale ? collections.refetch() : null]),
     { enabled: !!enrollment?.enrolled, updatedAt: q.dataUpdatedAt });
   const visible = [
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),

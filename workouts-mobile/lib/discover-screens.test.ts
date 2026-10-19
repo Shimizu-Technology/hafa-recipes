@@ -488,8 +488,8 @@ it("Library refreshes stale results on return and by pulling down, without refet
   expect(fixture.searchLibrary).toHaveBeenCalledTimes(1);
   const foreground = async () => { await act(async () => { for (const listener of [...fixture.appStateListeners]) listener("active"); }); await settle(); };
   await foreground();
-  expect(fixture.searchLibrary).toHaveBeenCalledTimes(1); // Loaded moments ago.
-  const now = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(now + 11_000);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(1); // Still fresh: loaded pages are not refetched.
+  const now = Date.now(), clock = vi.spyOn(Date, "now").mockReturnValue(now + 31_000);
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await foreground();
   clock.mockRestore();

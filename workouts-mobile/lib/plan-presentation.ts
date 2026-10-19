@@ -1,7 +1,34 @@
-import type { ExercisePrescription } from "./models";
+import type { ExercisePrescription, Program, ScheduledSession, Workout } from "./models";
 
 /** Plan lengths offered when building a plan. The API accepts 1–12 weeks. */
 export const PLAN_WEEK_OPTIONS = ["2", "4", "6", "8", "12"] as const;
+
+/** A plan length to show and send: legacy free-text lengths keep any valid 1–12 value, otherwise 4 weeks. */
+export function planWeeks(value: string | null | undefined) {
+  const weeks = Number(value);
+  return Number.isInteger(weeks) && weeks >= 1 && weeks <= 12 ? String(weeks) : "4";
+}
+/** Segments for the plan length, including a restored length that isn't one of the standard choices. */
+export function planWeekOptions(current: string) {
+  return [...new Set([...PLAN_WEEK_OPTIONS, planWeeks(current)])].sort((a, b) => Number(a) - Number(b));
+}
+
+/** Where a planned session's prescription came from, shown once per session. */
+export const provenanceLabels: Record<Workout["provenance"], string> = {
+  suggestion: "Suggested by Håfa",
+  user: "From your saved workout",
+  source: "From the original source",
+};
+
+/**
+ * The next session still to train: the earliest scheduled today or later in a
+ * ready plan that isn't paused or archived and hasn't been recorded.
+ */
+export function nextPlannedSession(programs: Program[] | undefined, today: string, recorded: (p: Program, s: ScheduledSession) => boolean) {
+  return programs?.filter((p) => p.status === "ready" && !p.schedule_state?.archived_at && p.schedule_state?.status !== "paused")
+    .flatMap((p) => p.sessions.filter((s) => s.date >= today && !recorded(p, s)).map((s) => ({ p, s })))
+    .sort((a, b) => a.s.date.localeCompare(b.s.date))[0];
+}
 
 /** "2026-11-13" → "Fri, Nov 13" (the year is added when it isn't the current one). */
 export function formatPlanDate(iso: string, now = new Date(), locale?: string) {
@@ -59,12 +86,13 @@ export function exerciseTargets(e: ExercisePrescription, omitSets = false) {
     .join(" · ");
 }
 
-/** The effort note most exercises in a proposal share, shown once instead of on every exercise. */
+/**
+ * Effort guidance every exercise in a proposal shares, shown once instead of on
+ * each exercise. Null when any exercise has no effort or a different one, so an
+ * exercise without guidance never appears to carry it.
+ */
 export function sharedEffort(workouts: { blocks: { exercises: { effort?: string | null }[] }[] }[]) {
-  const counts = new Map<string, number>();
-  for (const w of workouts)
-    for (const b of w.blocks) for (const e of b.exercises) if (e.effort) counts.set(e.effort, (counts.get(e.effort) ?? 0) + 1);
-  let best: string | null = null;
-  for (const [effort, count] of counts) if (count > 1 && (!best || count > counts.get(best)!)) best = effort;
-  return best;
+  const efforts = workouts.flatMap((w) => w.blocks.flatMap((b) => b.exercises.map((e) => e.effort ?? null)));
+  const first = efforts[0];
+  return efforts.length > 1 && first && efforts.every((effort) => effort === first) ? first : null;
 }

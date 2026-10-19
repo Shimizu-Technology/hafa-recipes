@@ -1,8 +1,8 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import type { PropsWithChildren } from "react";
 import { Button, Notice, SkeletonCard } from "./ui";
 /**
- * Loading, error and retry for a screen's main query. While loading it shows
- * `placeholder` (shaped like the final layout) or a generic skeleton card.
+ * Loading, error and retry for a screen's main query. While loading it shows a
+ * skeleton card rather than a bare spinner.
  */
 export function QueryState({
   loading,
@@ -10,7 +10,6 @@ export function QueryState({
   retry,
   loadingLabel = "Loading your training",
   errorMessage,
-  placeholder,
   children,
 }: PropsWithChildren<{
   loading: boolean;
@@ -18,9 +17,8 @@ export function QueryState({
   retry(): void;
   loadingLabel?: string;
   errorMessage?: string;
-  placeholder?: ReactNode;
 }>) {
-  if (loading) return placeholder ?? <SkeletonCard lines={3} label={loadingLabel} />;
+  if (loading) return <SkeletonCard lines={3} label={loadingLabel} />;
   if (error)
     return (
       <>

@@ -2,15 +2,9 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { Card, Copy, Notice } from "./ui";
 import type { ProgramReceipt } from "@/lib/plans";
-import type { ExercisePrescription, Workout } from "@/lib/models";
+import type { Workout } from "@/lib/models";
 import { amrapCap, blockSummary } from "@/lib/amrap-editor";
-import { exerciseTargets, formatPlanDate, sharedEffort } from "@/lib/plan-presentation";
-
-const provenanceLabels: Record<NonNullable<ExercisePrescription["provenance"]>, string> = {
-  source: "From the original source",
-  user: "Your edit",
-  suggestion: "Suggested to fit your plan",
-};
+import { exerciseTargets, formatPlanDate, provenanceLabels, sharedEffort } from "@/lib/plan-presentation";
 
 /** A movement cue that starts as one line in long proposals; tap to read all of it. */
 function Cue({ text }: { text: string }) {
@@ -86,7 +80,7 @@ export function ProgramPreview({ receipt }: { receipt: Pick<ProgramReceipt, "pro
       {proposal.assumptions.map((assumption, index) => (
         <Copy key={`a${index}`} kind="small">{assumption}</Copy>
       ))}
-      {!!effort && <Notice>Effort for every exercise unless noted · {effort}</Notice>}
+      {!!effort && <Notice>Effort for every exercise · {effort}</Notice>}
       {proposal.sessions.map((session) => (
         <Card key={session.id}>
           <View style={{ gap: 2 }}>
@@ -94,6 +88,7 @@ export function ProgramPreview({ receipt }: { receipt: Pick<ProgramReceipt, "pro
               {formatPlanDate(session.date)} · {session.workout.title}
             </Copy>
             <Copy kind="small" tone="muted">{session.purpose}</Copy>
+            <Copy kind="small" tone="muted">{provenanceLabels[session.workout.provenance] ?? "Source not specified"}</Copy>
           </View>
           <PrescriptionPreview workout={session.workout} effort={effort} compact />
         </Card>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { exerciseTargets, formatPlanDate, sharedEffort, workoutMeta, PLAN_WEEK_OPTIONS } from "./plan-presentation";
+import { exerciseTargets, formatPlanDate, nextPlannedSession, planWeekOptions, planWeeks, sharedEffort, workoutMeta, PLAN_WEEK_OPTIONS } from "./plan-presentation";
+import type { Program, ScheduledSession } from "./models";
 
 describe("plan presentation", () => {
   it("formats plan dates as a weekday and day, adding the year only when it differs", () => {
@@ -19,11 +20,35 @@ describe("plan presentation", () => {
     expect(exerciseTargets({ name: "Swing", reps_min: 10 }, true)).toBe("10 reps");
     expect(exerciseTargets({ name: "Squat" })).toBe("Sets not specified · Reps not specified");
   });
-  it("finds effort guidance shared across a proposal so it is shown once", () => {
+  it("shows effort once only when every exercise in the proposal shares it", () => {
     const steady = "Controlled, manageable repetitions; stop before form breaks down. Load is not inferred.";
     const workout = (efforts: (string | null)[]) => ({ blocks: [{ exercises: efforts.map((effort) => ({ effort })) }] });
-    expect(sharedEffort([workout([steady, steady]), workout([steady, "Easy pace"])])).toBe(steady);
-    expect(sharedEffort([workout(["Easy pace", null])])).toBeNull();
+    expect(sharedEffort([workout([steady, steady]), workout([steady])])).toBe(steady);
+    // A saved exercise without guidance must not look like it carries the shared note.
+    expect(sharedEffort([workout([steady, steady]), workout([null])])).toBeNull();
+    expect(sharedEffort([workout([steady, "Easy pace"])])).toBeNull();
+    expect(sharedEffort([workout([steady])])).toBeNull();
+  });
+  it("picks the earliest unrecorded session from today on, across ready, active plans", () => {
+    const session = (id: string, date: string) => ({ id, date, purpose: id, workout: { title: id } }) as ScheduledSession;
+    const plan = (id: string, sessions: ScheduledSession[], extra: Partial<Program> = {}) =>
+      ({ id, status: "ready", sessions, ...extra }) as Program;
+    const programs = [
+      plan("past-and-recorded", [session("past", "2026-10-18"), session("recorded", "2026-10-19"), session("later", "2026-10-25")]),
+      plan("paused", [session("paused", "2026-10-19")], { schedule_state: { status: "paused" } }),
+      plan("archived", [session("archived", "2026-10-19")], { schedule_state: { status: "active", archived_at: "2026-10-01" } }),
+      plan("review", [session("review", "2026-10-19")], { status: "needs_information" }),
+      plan("other", [session("other", "2026-10-21")]),
+    ];
+    const recorded = (_p: Program, s: ScheduledSession) => s.id === "recorded";
+    expect(nextPlannedSession(programs, "2026-10-19", recorded)?.s.id).toBe("other");
+    expect(nextPlannedSession(programs, "2026-10-22", recorded)?.s.id).toBe("later");
+    expect(nextPlannedSession(programs, "2026-10-26", recorded)).toBeUndefined();
+    expect(nextPlannedSession(undefined, "2026-10-19", recorded)).toBeUndefined();
+  });
+  it("keeps a restored legacy plan length selectable and replaces invalid ones", () => {
+    expect(planWeeks("3")).toBe("3"); expect(planWeekOptions("3")).toEqual(["2", "3", "4", "6", "8", "12"]);
+    expect(planWeeks("20")).toBe("4"); expect(planWeeks("")).toBe("4"); expect(planWeekOptions("4")).toEqual([...PLAN_WEEK_OPTIONS]);
   });
   it("only offers plan lengths the API accepts", () => {
     expect(PLAN_WEEK_OPTIONS.every((weeks) => Number(weeks) >= 1 && Number(weeks) <= 12)).toBe(true);

@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 
-/** Data older than this is refetched when its tab regains focus or the app returns to the foreground. */
-export const FOCUS_REFRESH_AFTER_MS = 10_000;
+/** Matches the app-wide query staleTime: only stale data is refetched on focus or foreground. */
+export const FOCUS_REFRESH_AFTER_MS = 30_000;
 
 /**
  * Keeps a tab's data fresh: refetches when the screen regains focus or the app
- * comes back to the foreground (skipping data loaded in the last few seconds),
+ * comes back to the foreground (only once its data is stale),
  * and drives pull-to-refresh.
  */
 export function useFocusRefresh(
