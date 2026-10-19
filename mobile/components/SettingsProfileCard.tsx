@@ -7,11 +7,12 @@ import {
 } from 'react-native';
 
 import { Card, Text, useColors } from '@/components/Themed';
-import { fontSize, fontWeight, spacing } from '@/constants/Colors';
-import { resolveSettingsProfileEmail } from '../lib/settingsProfile';
+import { fontFamily, fontSize, fontWeight, spacing } from '@/constants/Colors';
+import { hasProfilePhoto, resolveProfileInitial, resolveSettingsProfileEmail } from '../lib/settingsProfile';
 
 interface SettingsProfileCardUser {
   imageUrl?: string | null;
+  hasImage?: boolean;
   firstName?: string | null;
   primaryEmailAddress?: { emailAddress?: string | null } | null;
   emailAddresses?: readonly { emailAddress?: string | null }[];
@@ -35,6 +36,7 @@ export function SettingsProfileCard({
 }: SettingsProfileCardProps) {
   const colors = useColors();
   const emailAddress = resolveSettingsProfileEmail(user);
+  const initial = resolveProfileInitial(user);
   const accountLabel = !isLoaded
     ? 'Account loading'
     : isSignedIn
@@ -54,8 +56,12 @@ export function SettingsProfileCard({
     >
       <Card>
         <RNView style={styles.userCard}>
-          {isLoaded && isSignedIn && user?.imageUrl ? (
+          {isLoaded && isSignedIn && hasProfilePhoto(user) ? (
             <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
+          ) : isLoaded && isSignedIn && initial ? (
+            <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.accentSoft }]}>
+              <Text maxFontSizeMultiplier={1} style={[styles.userInitial, { color: colors.accent }]}>{initial}</Text>
+            </RNView>
           ) : (
             <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
               <Ionicons
@@ -104,6 +110,10 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  userInitial: {
+    fontFamily: fontFamily.semibold,
+    fontSize: 24,
   },
   userInfo: {
     flex: 1,

@@ -19,7 +19,10 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   const [showChat, setShowChat] = useState(false);
   const [hasOpenedChat, setHasOpenedChat] = useState(false);
-  const isImportTab = tabBarProps.state.routes?.[tabBarProps.state.index]?.name === 'index';
+  const activeRoute = tabBarProps.state.routes?.[tabBarProps.state.index]?.name;
+  // Import has its own capture flow, and on Grocery the button would sit over
+  // each row's trailing edit and delete controls while the list scrolls.
+  const showAssistant = activeRoute !== 'index' && activeRoute !== 'grocery';
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -40,7 +43,7 @@ export function AssistantTabBar({ isSignedIn, ...tabBarProps }: Props) {
   return (
     <View style={{ backgroundColor: colors.backgroundElevated, overflow: 'visible' }}>
       <BottomTabBar {...tabBarProps} />
-      {isSignedIn && !keyboardVisible && !isImportTab && (
+      {isSignedIn && !keyboardVisible && showAssistant && (
         <View style={styles.floatingAction}>
           <AssistantFloatingButton onPress={() => {
             setHasOpenedChat(true);

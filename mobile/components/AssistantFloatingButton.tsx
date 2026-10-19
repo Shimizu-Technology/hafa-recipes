@@ -5,16 +5,15 @@ import { useColors } from '@/components/Themed';
 import { radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 
-/** Compact chat entry point above the tabs without reserving a full-width row. */
+/** Quiet chat entry point above the tabs without reserving a full-width row. */
 export function AssistantFloatingButton({ onPress }: { onPress: () => void }) {
   const colors = useColors();
 
   return (
     <TouchableOpacity
       style={[styles.button, {
-        backgroundColor: colors.tint,
-        borderColor: colors.backgroundElevated,
-        shadowColor: colors.shadowColor,
+        backgroundColor: colors.backgroundElevated,
+        borderColor: colors.border,
       }]}
       onPress={() => {
         haptics.medium();
@@ -25,22 +24,25 @@ export function AssistantFloatingButton({ onPress }: { onPress: () => void }) {
       accessibilityLabel="Ask Håfa"
       accessibilityHint="Opens the cooking assistant chat"
     >
-      <Ionicons name="chatbubble-ellipses" size={26} color="#FFFFFF" />
+      <Ionicons name="chatbubble-ellipses" size={22} color={colors.actionText} />
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
+  // A quiet surface button: it should be findable without competing with the
+  // filled Import tab. The light shadow only lifts it off scrolling content.
   button: {
-    width: 54,
-    height: 54,
+    width: 48,
+    height: 48,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.24,
-    shadowRadius: 8,
-    elevation: 6,
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
 });
