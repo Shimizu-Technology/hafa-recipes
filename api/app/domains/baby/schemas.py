@@ -81,9 +81,10 @@ class SourceData(DomainModel):
     source_text: str | None = Field(default=None, max_length=100000)
     summary: str | None = Field(default=None, max_length=12000)
     evidence: list[Evidence] = Field(default_factory=list, max_length=100)
-    status: Literal["queued", "processing", "ready", "incomplete", "failed", "cancelled"] | None = (
-        None
-    )
+    status: (
+        Literal["saved", "queued", "processing", "ready", "incomplete", "failed", "cancelled"]
+        | None
+    ) = None
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=8)
     coverage_notes: list[Annotated[str, Field(max_length=300)]] = Field(
         default_factory=list, max_length=30

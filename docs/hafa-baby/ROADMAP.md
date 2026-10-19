@@ -65,7 +65,12 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   Creation accepts caller-generated `id` for durable retry; conflicting replay
   must not overwrite. PATCH requires `revision`; stale edits return 409.
 - `data` is validated per kind: source `{url?,topics:[],source_text?,summary?,
-  evidence:[],status?}`; feeding `{method:breast|bottle|other,amount?,unit?:ml|oz,
+  evidence:[],status?,attachment_ids?:[]}`. Source status is
+  `saved|queued|processing|ready|incomplete|failed|cancelled` (or absent/null).
+  `saved` means the original is stored without processing; `ready` means
+  processing finished. Saving or editing a source never starts an import or AI
+  call; explicit `POST /imports` is separate. Feeding
+  `{method:breast|bottle|other,amount?,unit?:ml|oz,
   side?:left|right|both,duration_minutes?}`; sleep `{end_at?}`; diaper
   `{type:wet|dirty|both|dry}`; routine `{routine_type:checklist|schedule,
   items:[{id,label,done}],reminder_at?,timezone?,repeat?:none|daily|weekly,
