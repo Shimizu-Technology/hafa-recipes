@@ -13,8 +13,11 @@ import socket
 from contextvars import ContextVar
 from urllib.parse import urlparse
 
+import certifi
 import httpcore
 import httpx
+from curl_cffi import CurlOpt, ffi, lib
+from curl_cffi import requests as curl_requests
 from fastapi import HTTPException, status
 
 _ALLOWED_SCHEMES = {"http", "https"}
@@ -84,7 +87,9 @@ def resolve_public_http_url_sync(url: str) -> tuple[str, int, str]:
     parsed = _parse_public_url(url)
     hostname = parsed.hostname or ""
     try:
-        port = parsed.port or _DEFAULT_PORTS[parsed.scheme.lower()]
+        port = parsed.port if parsed.port is not None else _DEFAULT_PORTS[parsed.scheme.lower()]
+        if not 1 <= port <= 65535:
+            raise ValueError("Invalid port")
     except ValueError:
         raise HTTPException(status_code=400, detail="This URL is not supported") from None
 
@@ -237,6 +242,77 @@ class PublicSyncHTTPTransport(httpx.BaseTransport):
 
     def close(self):
         self._transport.close()
+
+
+class PublicCurlSession:
+    """One pinned, impersonating HTTP(S) hop; callers handle redirects.
+
+    CONNECT_TO preserves the URL's TLS/Host identity but changes the connection
+    and proxy CONNECT authority to a literal validated IP. RESOLVE alone would
+    leave an HTTP proxy resolving the original authority. curl_cffi 0.15 does
+    not build CONNECT_TO slists, so own the native list through stream closure.
+    """
+
+    def __init__(self, url, *, proxy=None, cookies=None):
+        # Match the exact ASCII hostname given to libcurl's CONNECT_TO matcher.
+        # A Unicode/trailing-dot parser difference must not let curl fall back
+        # to a second hostname lookup outside the validated destination.
+        try:
+            normalized = httpx.URL(url)
+            url = str(normalized.copy_with(host=normalized.host.rstrip("."), fragment=""))
+        except httpx.InvalidURL:
+            raise HTTPException(status_code=400, detail="This URL is not supported") from None
+        hostname, port, ip_text = resolve_public_http_url_sync(url)
+        if proxy and httpx.URL(proxy).scheme not in {"http", "https"}:
+            raise ValueError("Public media requires an HTTP(S) proxy")
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        address = f"[{ip_text}]" if ":" in ip_text else ip_text
+        self.url, self.response, self.session = url, None, None
+        self._closed = False
+        self._connect_to = lib.curl_slist_append(ffi.NULL, f"{host}:{port}:{address}:{port}".encode())
+        if self._connect_to == ffi.NULL:
+            raise MemoryError("Unable to allocate public media connection policy")
+        options = {
+            CurlOpt.CONNECT_TO: self._connect_to,
+            CurlOpt.PROXY: proxy or "", CurlOpt.NOPROXY: "",
+            # Tunnel plain HTTP too: a forward proxy could otherwise resolve the
+            # hostname in an absolute request URI instead of our validated IP.
+            CurlOpt.HTTPPROXYTUNNEL: 1 if proxy else 0,
+            CurlOpt.FOLLOWLOCATION: 0, CurlOpt.MAXREDIRS: 0,
+            CurlOpt.PROTOCOLS_STR: "http,https", CurlOpt.REDIR_PROTOCOLS_STR: "http,https",
+            CurlOpt.FRESH_CONNECT: 1, CurlOpt.FORBID_REUSE: 1,
+            CurlOpt.SSL_VERIFYPEER: 1, CurlOpt.SSL_VERIFYHOST: 2,
+            CurlOpt.PROXY_SSL_VERIFYPEER: 1, CurlOpt.PROXY_SSL_VERIFYHOST: 2,
+            CurlOpt.PROXY_CAINFO: certifi.where(),
+        }
+        try:
+            self.session = curl_requests.Session(cookies=cookies, trust_env=False, curl_options=options)
+        except BaseException:
+            self.close()
+            raise
+
+    def request(self, method, *, headers, data, timeout, impersonate):
+        self.response = self.session.request(
+            method, self.url, headers=headers, data=data, verify=True,
+            allow_redirects=False, timeout=(timeout, timeout),
+            impersonate=impersonate, stream=True,
+        )
+        return self.response
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self.response is not None:
+                self.response.close()  # joins the streaming thread and closes its curl handle
+        finally:
+            try:
+                if self.session is not None:
+                    self.session.close()
+            finally:
+                lib.curl_slist_free_all(self._connect_to)
+                self._connect_to = ffi.NULL
 
 
 class PublicHTTPTransport(httpx.AsyncBaseTransport):

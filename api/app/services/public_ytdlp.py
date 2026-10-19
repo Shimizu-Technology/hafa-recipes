@@ -13,9 +13,11 @@ import sys
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 import yt_dlp
+from curl_cffi.requests.exceptions import RequestException as CurlRequestError
 from fastapi import HTTPException
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.dash import DashSegmentsFD
@@ -23,11 +25,13 @@ from yt_dlp.downloader.external import FFmpegFD
 from yt_dlp.downloader.hls import HlsFD
 from yt_dlp.downloader.http import HttpFD
 from yt_dlp.globals import all_plugins_loaded, plugin_dirs
-from yt_dlp.networking.common import RequestHandler, Response
+from yt_dlp.networking._curlcffi import CurlCFFIResponseAdapter, CurlCFFIRH
+from yt_dlp.networking.common import Response
 from yt_dlp.networking.exceptions import HTTPError, RequestError, TransportError
+from yt_dlp.networking.impersonate import ImpersonateRequestHandler
 from yt_dlp.utils import DownloadError
 
-from app.security import PublicSyncHTTPTransport
+from app.security import PublicCurlSession, PublicSyncHTTPTransport
 
 
 class _ResponseReader(io.RawIOBase):
@@ -58,8 +62,32 @@ class _ResponseReader(io.RawIOBase):
             super().close()
 
 
-class PublicRH(RequestHandler):
+class _PublicCurlResponse(CurlCFFIResponseAdapter):
+    def __init__(self, response, owner):
+        super().__init__(response)
+        self.owner = owner
+
+    def read(self, amt=None):
+        try:
+            return super().read(amt)
+        finally:
+            # The SDK reader closes its raw response on a streaming error,
+            # before the adapter can call close(). Release our native list too.
+            if self.fp.closed:
+                self.owner.close()
+
+    def close(self):
+        try:
+            super().close()
+        finally:
+            self.owner.close()
+
+
+class PublicRH(ImpersonateRequestHandler):
     _SUPPORTED_URL_SCHEMES = ("http", "https")
+    # Reuse the locked SDK's installed-target catalogue, never its unpinned
+    # networking implementation. TikTok explicitly requests browser TLS identity.
+    _SUPPORTED_IMPERSONATE_TARGET_MAP = CurlCFFIRH._SUPPORTED_IMPERSONATE_TARGET_MAP
     # Request-specified proxy maps are ignored; only the server's trusted proxy
     # is used. Environment NO_PROXY or extractor geo proxies cannot bypass it.
     _SUPPORTED_PROXY_SCHEMES = None
@@ -71,10 +99,12 @@ class PublicRH(RequestHandler):
 
     def _check_extensions(self, extensions):
         super()._check_extensions(extensions)
-        for key in ("cookiejar", "timeout", "legacy_ssl", "keep_header_casing"):
+        for key in ("cookiejar", "timeout", "legacy_ssl", "keep_header_casing", "impersonate"):
             extensions.pop(key, None)
 
     def _send(self, request):
+        if target := self._get_request_target(request):
+            return self._send_impersonated(request, target)
         client = None
         try:
             client = httpx.Client(
@@ -108,6 +138,52 @@ class PublicRH(RequestHandler):
         if response.status_code >= 400:
             raise HTTPError(result)
         return result
+
+    def _send_impersonated(self, request, target):
+        url, method, data = request.url, request.method, request.data
+        headers = httpx.Headers(self._get_impersonate_headers(request))
+        headers.pop("Host", None)
+        headers.pop("Proxy-Authorization", None)
+        for hop in range(6):
+            owner = None
+            try:
+                owner = PublicCurlSession(
+                    url, proxy=self.trusted_proxy, cookies=self._get_cookiejar(request),
+                )
+                response = owner.request(
+                    method, headers=dict(headers), data=data,
+                    timeout=min(self._calculate_timeout(request), 30),
+                    impersonate=self._SUPPORTED_IMPERSONATE_TARGET_MAP[target],
+                )
+                if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
+                    next_url = urljoin(url, response.headers["Location"])
+                    if hop == 5:
+                        raise RequestError("Public media redirect limit reached")
+                    # Cookies are selected from the jar for the new URL. Never
+                    # copy an explicit cookie/auth header across an origin hop.
+                    headers.pop("Cookie", None)
+                    if urlsplit(next_url).netloc != urlsplit(url).netloc or urlsplit(next_url).scheme != urlsplit(url).scheme:
+                        headers.pop("Authorization", None)
+                    if (response.status_code == 303 and method != "HEAD") or (response.status_code in {301, 302} and method == "POST"):
+                        method, data = "GET", None
+                        for key in ("Content-Length", "Content-Type", "Transfer-Encoding"):
+                            headers.pop(key, None)
+                    owner.close()
+                    url = next_url  # the next iteration validates before any connection
+                    continue
+                result = _PublicCurlResponse(response, owner)
+                result.extensions["impersonate"] = target
+            except (CurlRequestError, HTTPException, ValueError):
+                if owner is not None:
+                    owner.close()
+                raise RequestError("Public media destination unavailable") from None
+            except BaseException:
+                if owner is not None:
+                    owner.close()
+                raise
+            if response.status_code >= 400:
+                raise HTTPError(result)
+            return result
 
 
 class PublicYoutubeDL(yt_dlp.YoutubeDL):
