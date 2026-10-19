@@ -16,6 +16,7 @@ import {
   Stack,
 } from "@/components/ui";
 import { DiscoverCardSkeleton, DiscoverCardView } from "@/components/discover-card";
+import { WorkoutGallery } from "@/components/workout-gallery";
 import { useTraining } from "@/lib/context";
 import {
   DISCOVER_STALE_MS,
@@ -84,8 +85,8 @@ export default function Discover() {
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
     <Screen
-      title="Discover."
-      subtitle="Workouts the Håfa community shared. Save one to make it yours."
+      title="Discover workouts"
+      subtitle="Find a workout. Save it for later."
       refreshing={pulling}
       onRefresh={() => {
         void refresh();
@@ -205,13 +206,13 @@ export default function Discover() {
                 </Copy>
                 {narrowed && <Button title="Clear filters" variant="ghost" size="sm" inline onPress={clear} />}
               </Row>
-              {cards.map((card) => (
+              <WorkoutGallery>{cards.map((card) => (
                 <DiscoverCardView
                   key={card.id}
                   card={card}
                   onPress={() => router.push({ pathname: "/discover/[id]", params: { id: card.id } })}
                 />
-              ))}
+              ))}</WorkoutGallery>
               {feed.isFetchingNextPage && <DiscoverCardSkeleton />}
               {feed.isFetchNextPageError && <Notice>{feed.error?.message}</Notice>}
               {feed.hasNextPage && !feed.isFetchingNextPage && (

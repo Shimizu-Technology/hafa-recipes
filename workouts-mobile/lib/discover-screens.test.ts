@@ -1,4 +1,5 @@
 import WorkoutDetail from "../app/workout/[id]";
+import { WorkoutSource } from "../components/workout-source";
 import { createElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -98,6 +99,7 @@ vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",
+  useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
   AppState: { get currentState() { return fixture.appState; }, addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.appStateListeners.add(listener); return { remove() { fixture.appStateListeners.delete(listener); } };
   } },
@@ -141,6 +143,12 @@ import type { ShareSnapshot } from "./sharing";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
+it("omits an empty reference card when source identity is already in the header", async () => {
+  await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
+    source_thumbnail_url: "https://example.test/cover.jpg", source_url: "https://example.test/source",
+  }, showIdentity: false, showOriginal: false })); });
+  expect(nodes("Card")).toHaveLength(0);
+});
 it("a saved workout enters planning with that workout selected", async () => {
   fixture.params = { id: "saved-1" };
   fixture.workout.mockResolvedValue({ id: "saved-1", revision: 1, generation: 1, title: "Saved session",
@@ -456,6 +464,27 @@ it("Library cards retain the source cover and creator while marking unresolved s
   await mount(Library);
   expect(nodes("MediaCard")[0].props).toMatchObject({ image: "https://example.test/cover.jpg", badge: "Check details" });
   expect(nodes("MediaCard")[0].props.footer.props.children).toContain("Creator");
+});
+it("Discover detail keeps the real cover instead of replacing it with generic artwork", async () => {
+  fixture.params = { id: card.id };
+  fixture.discoverWorkout.mockResolvedValue({ ...detail, thumbnail_url: "https://example.test/source-cover.jpg" });
+  await mount(DiscoverWorkout);
+  expect(nodes("SourceImage")[0].props).toMatchObject({ uri: "https://example.test/source-cover.jpg", cover: true, label: card.title });
+  expect(nodes("SourceImage")[0].props.fallback).toBeDefined();
+  expect(button("Save to my library")).toBeDefined();
+});
+it("a saved source copy stays recognizable as a source in Library and detail without changing provenance", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  const copy = { ...saved, provenance: "user" as const, source_url: "https://example.test/video", source_creator: "Original creator" };
+  fixture.searchLibrary.mockResolvedValue({ items: [copy], total: 1, has_more: false });
+  await mount(Library);
+  expect(nodes("MediaCard")[0].props.meta).toContain("Saved from a source");
+  await act(async () => renderer!.unmount()); cache.clear(); fixture.params = { id: copy.id }; fixture.workout.mockResolvedValue(copy);
+  await mount(WorkoutDetail);
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).toContain("Your edits stay in this copy");
+  expect(text).not.toContain("Your manually entered workout");
+  expect(copy.provenance).toBe("user");
 });
 it("saved detail retains source metadata and prevents starting a source-only draft with no exercises", async () => {
   fixture.params = { id: "source-only" }; fixture.capabilities.mockResolvedValue(caps(false));

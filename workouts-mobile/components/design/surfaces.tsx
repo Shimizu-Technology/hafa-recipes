@@ -215,6 +215,8 @@ export function MediaCard({
   const c = useColors();
   const reduced = useReducedMotion();
   const stacked = layout === "stacked";
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const showImage = !!image && image !== failedImage;
   const thumb = (
     <View
       style={{
@@ -222,14 +224,15 @@ export function MediaCard({
         height: stacked ? 168 : 92,
         borderRadius: radii.lg - 4,
         overflow: "hidden",
-        backgroundColor: image ? c.sunken : c.actionSoft,
+        backgroundColor: showImage ? c.sunken : c.actionSoft,
         alignItems: "center",
         justifyContent: "center",
       }}
     >
-      {image ? (
+      {showImage ? (
         <Image
           source={{ uri: image }}
+          onError={() => setFailedImage(image ?? null)}
           contentFit="cover"
           transition={reduced ? 0 : motion.base}
           style={{ width: "100%", height: "100%" }}

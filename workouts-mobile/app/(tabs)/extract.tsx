@@ -502,9 +502,7 @@ export default function Capture() {
     finally { guard.current = false; if (mounted.current) setBusy(false); }
   }
   return (
-    <Screen title="Extract a workout." subtitle="Paste a link, add a source, or pick up an unfinished import." action={<AccountButton />}>
-      <Button title={showImports ? "Hide unfinished imports" : "View processing and unfinished imports"} secondary icon="time-outline" onPress={() => setShowImports(value => !value)} />
-      {showImports && <ImportList showEmpty />}
+    <Screen title="Save a workout" subtitle="Turn a saved link into a workout you can use." action={<AccountButton />}>
       {(draft.job_id || submittedId) && <Card>
         <Copy kind="heading">Your previous import is saved.</Copy>
         <Copy>{draft.job_id ? "Start another source to unlock this form. Your original source stays saved for this import." : "Add another workout below, or open your previous import."}</Copy>
@@ -523,11 +521,22 @@ export default function Capture() {
           }}
         />
       )}
-      {!enrollment?.enrolled && <Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
+      {!enrollment?.enrolled && <Button title="Start saving workouts" onPress={() => router.push("/onboarding")} />}
       {capabilities.error && <Notice error>{capabilities.error.message}</Notice>}
       {capabilities.data && !capabilities.data.imports && (
         <Notice>Automatic extraction is not enabled for this build. You can write a workout manually.</Notice>
       )}
+      {draft.kind === "url" && (
+        <Field
+          disabled={locked}
+          label="Source link"
+          value={draft.source_url}
+          onChange={(source_url) => update({ source_url })}
+          placeholder="https://…"
+          purpose="url"
+        />
+      )}
+      {draft.kind === "url" && <Copy kind="small" tone="muted">Instagram, TikTok, YouTube and workout websites</Copy>}
       <Button title={otherSources ? "Hide other ways to add" : "Other ways to add a workout"} variant="ghost"
         disabled={locked} onPress={() => setOtherSources(!otherSources)} />
       {(otherSources || draft.kind !== "url") && (["url", "text", "images", "document"] as const).map((kind) => (
@@ -549,17 +558,6 @@ export default function Capture() {
           }}
         />
       ))}
-      {draft.kind === "url" && (
-        <Field
-          disabled={locked}
-          label="Source link"
-          value={draft.source_url}
-          onChange={(source_url) => update({ source_url })}
-          placeholder="https://…"
-          purpose="url"
-        />
-      )}
-      {draft.kind === "url" && <Copy kind="small" tone="muted">Instagram, TikTok, YouTube and workout websites</Copy>}
       {capabilities.data?.server_auto_save && capabilities.data.discover && <Choice
         label="Share to Discover" icon="globe-outline" selected={draft.is_public ?? defaultShareToDiscover(draft.kind)}
         detail="Complete workouts can be found and saved by others. Your training stays private. Missing-detail drafts stay private."
@@ -741,6 +739,8 @@ export default function Capture() {
         icon="create-outline"
         onPress={() => router.push("/add-workout")}
       />
+      <Button title={showImports ? "Hide unfinished imports" : "View processing and unfinished imports"} secondary icon="time-outline" onPress={() => setShowImports(value => !value)} />
+      {showImports && <ImportList showEmpty />}
       {disclosure.sheet}
     </Screen>
   );

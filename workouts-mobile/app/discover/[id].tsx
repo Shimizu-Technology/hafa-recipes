@@ -26,6 +26,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { CreditLine, SourceArtwork } from "@/components/discover-card";
+import { SourceImage } from "@/components/source-image";
 import { radii } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
 import {
@@ -205,7 +206,9 @@ export default function DiscoverWorkout() {
       ) : (
         <>
           <View style={{ borderRadius: radii.xl - 4, overflow: "hidden" }}>
-            <SourceArtwork platform={item.source_platform} height={180} />
+            {item.thumbnail_url ? <SourceImage uri={item.thumbnail_url} label={item.title} cover
+              fallback={<SourceArtwork platform={item.source_platform} height={180} />} />
+              : <SourceArtwork platform={item.source_platform} height={180} />}
           </View>
           {(credit || item.contributor) && (
             <View style={{ gap: 6 }}>

@@ -5,6 +5,11 @@ import { Button, Copy, Notice } from "@/components/ui";
 import { embeddedSourcesEnabled, sourcePlayer, sourceURL } from "@/lib/source-playback";
 import { SourcePlayerModal } from "./source-player";
 
+export function hasSourcePlayback(url: string | null | undefined, showOriginal: boolean) {
+  const source = sourceURL(url);
+  return !!source && (showOriginal || (Platform.OS !== "web" && embeddedSourcesEnabled() && !!sourcePlayer(source.href)));
+}
+
 export function SourcePlayback({ url, title, showOriginal = true }: { url?: string | null; title: string; showOriginal?: boolean }) {
   const [requested, setRequested] = useState<string | null>(null), [error, setError] = useState("");
   const close = useCallback(() => setRequested(null), []);

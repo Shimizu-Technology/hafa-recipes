@@ -30,7 +30,8 @@ import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning } from "@/lib/training";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
-import { WorkoutSource } from "@/components/workout-source";
+import { WorkoutSource, WorkoutSourceHeader } from "@/components/workout-source";
+import { workoutOriginDescription } from "@/lib/workout-presentation";
 import { amrapCap, blockSummary } from "@/lib/amrap-editor";
 import { workoutDeletionBlock } from "@/lib/organization";
 export default function WorkoutDetail() {
@@ -153,6 +154,7 @@ export default function WorkoutDetail() {
       title={workout?.title ?? "Your workout."}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
     >
+      {workout && <WorkoutSourceHeader source={workout} />}
       {workout && (
         <Row gap={10}>
           {timeCap != null ? <Card compact style={{ flex: 1, minWidth: 96, gap: 4 }}>
@@ -240,13 +242,7 @@ export default function WorkoutDetail() {
               </ChipRow>
             )}
             <Copy kind="small" tone="muted">
-              {workout.provenance === "source"
-                ? workout.revision > 1 || workout.blocks.some((block) => block.exercises.some((exercise) => exercise.provenance === "user"))
-                  ? "Saved source prescription with your corrections."
-                  : "Original source prescription. Missing details stay missing."
-                : workout.provenance === "suggestion"
-                  ? "Suggested prescription. Review it before training."
-                  : "Your manually entered workout."}
+              {workoutOriginDescription(workout)}
             </Copy>
             {workout.blocks.map((block, index) => (
               <Card key={index}>
@@ -283,7 +279,7 @@ export default function WorkoutDetail() {
                 onPress={() => setDiagnosticScope(diagnosticScope === scope ? null : scope)} />
               {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
             </Card>}
-            <WorkoutSource source={workout} showOriginal={false} />
+            <WorkoutSource source={workout} showOriginal={false} showIdentity={false} />
             {capabilities.data?.cover_upload === true && <Button
               title={workout.source_thumbnail_url ? "Change cover photo" : "Choose cover photo"} secondary icon="image-outline"
               disabled={busy || deleteBusy || publishing} onPress={() => { if (!action.current && isCurrentAccount()) router.push({ pathname: "/workout-cover/[id]", params: { id: workout.id } }); }} /> }

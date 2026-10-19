@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import {
   AccountButton,
   Button,
+  Card,
   Chip,
   ChipRow,
   Choice,
@@ -16,17 +17,22 @@ import {
   Notice,
   Row,
   Screen,
+  SectionHeader,
   Sheet,
   SkeletonCard,
 } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
-import { useTraining } from "@/lib/context";
+import { useTraining, useOfflineTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
+import { workoutOriginLabel } from "@/lib/workout-presentation";
+import { WorkoutGallery, useWorkoutGalleryColumns } from "@/components/workout-gallery";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
+  const columns = useWorkoutGalleryColumns();
+  const { state: training, ready: trainingReady } = useOfflineTraining();
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const [search, setSearch] = useState("");
@@ -125,8 +131,8 @@ export default function Library() {
   }
   return (
     <Screen
-      title="Your library."
-      subtitle="Workouts you’ve saved, ready when you are."
+      title="Your library"
+      subtitle="All your workouts, in one place."
       action={
         <Row gap={8}>
           <IconButton
@@ -139,12 +145,19 @@ export default function Library() {
         </Row>
       }
     >
+      {trainingReady && training.active && <Card compact>
+        <Copy kind="caption" tone="accent">Session in progress</Copy>
+        <Copy kind="subheading">{training.active.workout.title}</Copy>
+        <Button title="Resume session" secondary icon="play-outline" onPress={() => router.push("/training")} />
+      </Card>}
       <Field label="Search workouts" value={search} onChange={setSearch} placeholder="Title or training focus" />
-      <Row gap={10} wrap>
-        <Button title="Manage collections" icon="folder-open-outline" secondary size="sm" inline onPress={() => router.push("/collections")} />
-        <Button title={selecting ? "Done selecting" : "Select workouts"} variant="ghost" size="sm" inline disabled={bulkBusy || !enrollment?.enrolled}
-          onPress={() => interact(() => { setSelecting(!selecting); setSelectedIds([]); setBulkMessage(""); setBulkError(""); })} />
-      </Row>
+      <ChipRow label="Quick filters">
+        <Chip label="Favorites" icon="heart-outline" selected={favorite} onPress={() => setFavorite(!favorite)} />
+        {!!kind && <Chip label={kindLabels[kind]} selected onPress={() => setKind(undefined)} />}
+        {archived && <Chip label="Archived" selected onPress={() => setArchived(false)} />}
+        <Chip label={advanced || kind || archived ? "Filters · active" : "Filters"} icon="options-outline"
+          selected={!!(advanced || kind || archived)} onPress={() => setFilters(true)} />
+      </ChipRow>
       {!!collections.data?.length && <ChipRow label="Collections">
         <Chip label="All workouts" selected={!collection} onPress={() => setCollection(undefined)} />
         {collections.data.map(item => <Chip key={item.id} label={item.title} selected={collection === item.id} onPress={() => setCollection(item.id)} />)}
@@ -156,20 +169,11 @@ export default function Library() {
           onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} />
       </>}
       {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
-      <ChipRow label="Quick filters">
-        <Chip label="Favorites" icon="heart-outline" selected={favorite} onPress={() => setFavorite(!favorite)} />
-        {(["session", "exercise", "program", "accessory"] as const).map((value) => (
-          <Chip key={value} label={kindLabels[value]} selected={kind === value} onPress={() => setKind(kind === value ? undefined : value)} />
-        ))}
-        <Chip label="Archived" icon="archive-outline" selected={archived} onPress={() => setArchived(!archived)} />
-        <Chip
-          label={advanced ? `More filters · ${advanced}` : "More filters"}
-          icon="options-outline"
-          selected={!!advanced}
-          onPress={() => setFilters(true)}
-        />
-      </ChipRow>
-      <ListRow icon="sparkles-outline" title="Extract a workout" detail="Add a source or check unfinished imports" onPress={() => router.push("/(tabs)/extract")} />
+      <Row gap={10} wrap>
+        <Button title="Manage collections" icon="folder-open-outline" variant="ghost" size="sm" inline onPress={() => router.push("/collections")} />
+        <Button title={selecting ? "Done selecting" : "Select workouts"} variant="ghost" size="sm" inline disabled={bulkBusy || !enrollment?.enrolled}
+          onPress={() => interact(() => { setSelecting(!selecting); setSelectedIds([]); setBulkMessage(""); setBulkError(""); })} />
+      </Row>
       <QueryState
         loading={false}
         error={q.error}
@@ -189,7 +193,7 @@ export default function Library() {
             description={
               narrowed
                 ? "Try a shorter search or clear the filters."
-                : "Save a favorite session to get started. Workouts are private until you choose to share them."
+                : "Save a workout from a link, photo or your own notes. Choose what to share as you save."
             }
             action={
               narrowed ? (
@@ -202,13 +206,13 @@ export default function Library() {
           />
         ) : (
           <>
-            <Copy kind="small" tone="muted">
-              {q.data?.pages[0].total} {archived ? "archived " : ""}{q.data?.pages[0].total === 1 ? "workout" : "workouts"} · {visible.length} shown
-            </Copy>
+            <SectionHeader title={`${q.data?.pages[0].total ?? visible.length} ${archived ? "archived " : ""}${q.data?.pages[0].total === 1 ? "workout" : "workouts"}`} />
+            <WorkoutGallery>
             {visible.map((w) => selecting ? <Choice key={w.id} label={w.title} detail={w.source_creator ? `By ${w.source_creator}` : w.kind}
               selected={selectedIds.includes(w.id)} disabled={bulkBusy} onPress={() => select(w.id)} /> : (
               <MediaCard
                 key={w.id}
+                layout={columns === 2 ? "stacked" : "row"}
                 title={w.title}
                 image={w.source_thumbnail_url}
                 icon={kindIcons[w.kind]}
@@ -216,7 +220,7 @@ export default function Library() {
                 footer={w.source_creator ? <Copy kind="small" tone="muted">By {w.source_creator}</Copy> : undefined}
                 meta={[
                   w.kind,
-                  w.provenance === "suggestion" ? "suggested" : w.provenance === "source" ? "from a source" : "your workout",
+                  workoutOriginLabel(w),
                   ...(w.organization?.tags ?? []),
                 ].join(" · ")}
                 chips={w.equipment_required ?? []}
@@ -224,6 +228,7 @@ export default function Library() {
                 onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })}
               />
             ))}
+            </WorkoutGallery>
             {q.hasNextPage && (
               <Button
                 title="Load more workouts"
@@ -238,6 +243,12 @@ export default function Library() {
         )}
       </QueryState>
       <Sheet visible={filters} onClose={() => setFilters(false)} title="Find your next session">
+        <Copy kind="label">Workout type</Copy>
+        <ChipRow wrap>
+          {(["session", "exercise", "program", "accessory"] as const).map(value => <Chip key={value}
+            label={kindLabels[value]} selected={kind === value} onPress={() => setKind(kind === value ? undefined : value)} />)}
+        </ChipRow>
+        <Choice label="Archived workouts" selected={archived} onPress={() => setArchived(!archived)} />
         <Field
           label="Equipment filter"
           value={equipment}
