@@ -54,6 +54,7 @@ vi.mock('@/components/Skeleton', () => ({
 vi.mock('@/components/Animated', () => ({
   AnimatedListItem: 'AnimatedListItem',
   ScalePressable: 'ScalePressable',
+  useInitialListEntrance: () => () => false,
 }));
 const library = vi.hoisted(() => ({
   filters: {} as Record<string, unknown>,

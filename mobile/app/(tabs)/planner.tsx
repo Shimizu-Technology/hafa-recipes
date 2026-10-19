@@ -46,6 +46,7 @@ import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { useRecipe } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
+import { showToast } from '@/lib/toast';
 import {
   buildMealPlanEntry,
   parsePlannerDateParam,
@@ -430,7 +431,7 @@ export default function PlannerScreen() {
         }
       } catch {
         // User-facing alert is sufficient
-        Alert.alert('Error', 'Failed to add recipe to meal plan');
+        Alert.alert('Couldn’t add to meal plan', 'This recipe wasn’t added. Please try again.');
       } finally {
         setAddingMealType(null);
       }
@@ -499,20 +500,15 @@ export default function PlannerScreen() {
         ),
       });
       successHaptic();
-      Alert.alert(
-        'Added to Grocery List',
-        plannerGrocerySuccessMessage(result),
-        [
-          { text: 'OK' },
-          {
-            text: 'View List',
-            onPress: () => router.push('/(tabs)/grocery'),
-          },
-        ]
-      );
+      showToast({
+        message: plannerGrocerySuccessMessage(result),
+        tone: 'success',
+        actionLabel: 'View list',
+        onAction: () => router.push('/(tabs)/grocery'),
+      });
     } catch {
       // User-facing alert is sufficient
-      Alert.alert('Error', 'Failed to add ingredients to grocery list');
+      Alert.alert('Couldn’t add to grocery list', 'Your grocery list wasn’t changed. Please try again.');
     }
   }, [addToGrocery, currentWeekStart, router]);
 

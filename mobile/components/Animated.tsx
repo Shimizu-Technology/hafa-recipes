@@ -3,17 +3,22 @@
  * Provides smooth, performant animations throughout the app.
  */
 
-import { ReactNode } from 'react';
-import { Pressable, PressableProps, ViewStyle, StyleProp } from 'react-native';
+import { ReactNode, useEffect, useState } from 'react';
+import { Pressable, PressableProps, View, ViewStyle, StyleProp } from 'react-native';
 import { MotiView } from 'moti';
 import Animated, {
+  Easing,
   useSharedValue,
   useAnimatedStyle,
+  withDelay,
   withSpring,
   withSequence,
-  runOnJS,
+  withTiming,
 } from 'react-native-reanimated';
-import { listEntranceDelay } from '@/lib/listAnimation';
+import { listEntranceDelay, MAX_LIST_ENTRANCE_ITEMS } from '@/lib/listAnimation';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
+
+export { useInitialListEntrance } from '@/lib/listAnimation';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -21,37 +26,54 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 // Staggered List Animation
 // ============================================================
 
+const LIST_ENTRANCE_MS = 200;
+const LIST_ENTRANCE_OFFSET = 8;
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+
 interface AnimatedListItemProps {
   children: ReactNode;
   index: number;
   delay?: number; // ms delay per item
   style?: StyleProp<ViewStyle>;
+  /** Whether this row may play the entrance; decided once when the row mounts. */
+  enter?: boolean;
 }
 
 /**
- * Wraps a list item with staggered fade-in animation.
- * Items fade in and slide up with a delay based on their index.
+ * Wraps a list row with a short staggered fade-up for the first visible rows.
+ * Reduce Motion keeps the fade without the slide.
  */
-export function AnimatedListItem({ 
-  children, 
-  index, 
-  delay = 50,
+export function AnimatedListItem({
+  children,
+  index,
+  delay = 40,
   style,
+  enter = true,
 }: AnimatedListItemProps) {
-  return (
-    <MotiView
-      from={{ opacity: 0, translateY: 15 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{
-        type: 'timing',
-        duration: 350,
-        delay: listEntranceDelay(index, delay),
-      }}
-      style={style}
-    >
-      {children}
-    </MotiView>
-  );
+  const [shouldEnter] = useState(() => enter && index < MAX_LIST_ENTRANCE_ITEMS);
+  if (!shouldEnter) return <View style={style}>{children}</View>;
+  return <EnteringListItem index={index} delay={delay} style={style}>{children}</EnteringListItem>;
+}
+
+function EnteringListItem({ children, index, delay, style }: Required<Pick<AnimatedListItemProps, 'index' | 'delay'>> & Pick<AnimatedListItemProps, 'children' | 'style'>) {
+  const reduceMotion = useReduceMotion();
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withDelay(
+      listEntranceDelay(index, delay),
+      withTiming(1, { duration: LIST_ENTRANCE_MS, easing: EASE_OUT }),
+    );
+    // Play once per mounted row.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateY: reduceMotion ? 0 : (1 - progress.value) * LIST_ENTRANCE_OFFSET }],
+  }), [reduceMotion]);
+
+  return <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>;
 }
 
 // ============================================================

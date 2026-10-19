@@ -34,6 +34,7 @@ import { AppLoadingSkeleton } from '@/components/Skeleton';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { EnvironmentBanner } from '@/components/EnvironmentBanner';
 import { FloatingTimerOverlay } from '@/components/FloatingTimerOverlay';
+import { ToastHost } from '@/components/Toast';
 import { AuthProtection } from '@/components/AuthProtection';
 import { ClerkMigrationBridge } from '@/components/ClerkMigrationBridge';
 import { AccountAccessGate } from '@/components/AccountAccessGate';
@@ -320,6 +321,8 @@ function RootLayoutNav() {
                     />
                     <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                   </Stack>
+                  {/* Non-blocking confirmations; rendered after the stack so it floats above screens */}
+                  <ToastHost />
                   </ShareIntentHandler>
                 </AuthProtection>
               </ExtractionProvider>

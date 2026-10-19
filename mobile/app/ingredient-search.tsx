@@ -21,6 +21,7 @@ import { View, Text, useColors } from '@/components/Themed';
 import { useSearchByIngredients } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
+import { showToast } from '@/lib/toast';
 import {
   mergeIngredientSearchInput,
   parseIngredientSearchInput,
@@ -130,14 +131,12 @@ export default function IngredientSearchScreen() {
       onSuccess: () => {
         haptics.success();
         setAddedGroceryRecipeIds((current) => new Set(current).add(recipe.id));
-        Alert.alert(
-          'Added to Grocery List',
-          `${missingIngredients.length} missing ingredient${missingIngredients.length === 1 ? '' : 's'} from “${recipe.title}” ${missingIngredients.length === 1 ? 'was' : 'were'} added.`,
-          [
-            { text: 'Keep browsing', style: 'cancel' },
-            { text: 'View grocery list', onPress: () => router.push(appRoutes.grocery) },
-          ],
-        );
+        showToast({
+          message: `${missingIngredients.length} missing ingredient${missingIngredients.length === 1 ? '' : 's'} added to your grocery list`,
+          tone: 'success',
+          actionLabel: 'View list',
+          onAction: () => router.push(appRoutes.grocery),
+        });
       },
       onError: () => Alert.alert('Couldn’t Add Ingredients', 'Your grocery list was not changed. Please try again.'),
       onSettled: () => setPendingGroceryRecipeId(null),

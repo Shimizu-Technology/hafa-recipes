@@ -41,6 +41,7 @@ import {
 } from '@/lib/recipeFieldReview';
 import { formatPublishDisclosure, getPublishDisclosure } from '@/lib/recipePublishing';
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
+import { showToast } from '@/lib/toast';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 interface IngredientInput {
@@ -408,11 +409,10 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       if (!alive.current) return;
       
       const message = updatedRecipe.review_state === 'source_incomplete'
-        ? 'Saved as a private draft. Add the missing ingredients or instructions whenever you’re ready.'
-        : 'Recipe updated.';
-      Alert.alert('Saved', message, [
-        { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
-      ]);
+        ? 'Saved as a private draft. Add the missing details whenever you’re ready.'
+        : 'Recipe updated';
+      router.back();
+      showToast({ message, tone: 'success' });
     },
     onError: (error: unknown) => {
       if (!alive.current) return;
@@ -432,13 +432,12 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       queryClient.invalidateQueries({ queryKey: ['recipeVersions', 'count', id] });
       if (!alive.current) return;
       
-      Alert.alert('Restored!', 'Recipe has been restored to the original version.', [
-        { text: 'OK', onPress: () => { if (alive.current) router.back(); } },
-      ]);
+      router.back();
+      showToast({ message: 'Restored the original version', tone: 'success' });
     },
     onError: (error: Error) => {
       if (!alive.current) return;
-      Alert.alert('Error', error.message || 'Failed to restore recipe');
+      Alert.alert('Couldn’t restore the original', error.message || 'Your recipe wasn’t changed. Please try again.');
     },
   });
 
@@ -457,7 +456,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
     try {
       snapshot = createEditSnapshot();
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to prepare recipe');
+      Alert.alert('Check this recipe', error instanceof Error ? error.message : 'Some details couldn’t be prepared for saving.');
       return;
     }
 
@@ -513,7 +512,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       const response = await api.suggestTags(recipeTitle, ingredientNames);
       setTags(response.tags.join(', '));
     } catch (error) {
-      Alert.alert('Error', 'Failed to suggest tags. Please try again.');
+      Alert.alert('Couldn’t suggest tags', 'Please try again in a moment.');
     } finally {
       setIsGeneratingTags(false);
     }
@@ -548,7 +547,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       setNutritionModel(response.model);
       setEstimateInputsChanged(false);
     } catch (error) {
-      Alert.alert('Error', 'Failed to estimate nutrition. Please try again.');
+      Alert.alert('Couldn’t estimate nutrition', 'Please try again in a moment.');
     } finally {
       setIsEstimatingNutrition(false);
     }
