@@ -45,13 +45,15 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = `Better photos for imported recipes.
+const RELEASE_NOTES = `A calmer, clearer Håfa Recipes.
 
-• Håfa compares available images and video frames to choose a clearer photo of your recipe.
-• Recipe photos refresh as selection finishes, with a small status message when a photo is still being chosen.
-• Keep using the original source while your photo is prepared, and replace the photo yourself whenever you prefer.
+• Every screen now shows where you are, with the Shop tab renamed Grocery and My Recipes now Library.
+• Adding ingredients, saving edits and other actions confirm with a quick message instead of a pop-up you have to dismiss.
+• Recipes open instantly with their photo and title while the rest loads.
+• Dark mode is easier to read, and Cook Mode uses gentler step changes and clearer colours.
+• Better VoiceOver labels for recipe cards and grocery items.
 
-Includes improvements to recipe-photo recovery and reliability.`;
+Includes accessibility and reliability improvements.`;
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
