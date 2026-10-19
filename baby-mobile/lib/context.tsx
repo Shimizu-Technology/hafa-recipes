@@ -172,9 +172,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
   async function mergeBootstrap(bootstrap: Bootstrap) {
     const lease = api.lease();
     if (
+      bootstrap.active === false ||
       (ref.current.bootstrap && ref.current.bootstrap.generation !== bootstrap.generation) ||
       (ref.current.routine_sync && ref.current.routine_sync.generation !== bootstrap.generation)
     ) {
+      setReady(false);
+      clearPendingShares();
       await clearReminders(ownerRef.current);
       await clearFiles(ownerRef.current);
     }
@@ -186,6 +189,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         selectedChild: bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
       };
     }, lease);
+    setReady(true);
   }
   async function refresh() {
     try {
@@ -208,6 +212,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (!alive.current) return;
       const old = ref.current.bootstrap?.generation;
       await mergeBootstrap(fresh);
+      setError("");
       if (old !== undefined && old !== fresh.generation) await clearReminders(ownerRef.current);
       if (fresh.active === false) return;
       const lease = api.lease();
@@ -380,6 +385,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         const cleanupKey = storageKey(binding) + ".cleanup";
         const cleaning = await secret.getItemAsync(cleanupKey);
         if (cleaning) {
+          clearPendingShares();
           await clearReminders(cleaning);
           await clearFiles(cleaning);
           await createDeviceVault(secret, "data:" + cleaning + ":" + binding, Crypto.randomUUID).clear();
@@ -534,14 +540,23 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (g === undefined) return;
           deleting.current = true;
           setReady(false);
+          let removed = false,
+            cleaned = false;
           try {
             await api.erase(g);
+            removed = true;
+            clearPendingShares();
             await clearReminders(ownerRef.current);
             await clearFiles(ownerRef.current);
             await commit(() => emptyState());
+            cleaned = true;
+          } catch (e) {
+            if (removed)
+              setError("Your Baby data was erased. Device cleanup needs another attempt. Choose Try again.");
+            throw e;
           } finally {
             deleting.current = false;
-            setReady(true);
+            setReady(!removed || cleaned);
           }
           await funcs.current.refresh();
         },
