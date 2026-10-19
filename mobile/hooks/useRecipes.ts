@@ -323,12 +323,13 @@ export function useRecipe(id: string, enabled = true) {
   const hasData = query.data !== undefined;
   // Title and photo from an already-cached card, shown while the full recipe loads.
   const preview = useMemo<RecipePreview | null>(() => {
-    if (hasData) return null;
+    // Skip until auth settles so a previous account's cache never fills the screen.
+    if (hasData || !enabled || !id || !isLoaded) return null;
     const cached = [recipeKeys.all, recipeKeys.saved(), recipeKeys.discover()].flatMap((queryKey) =>
       queryClient.getQueriesData({ queryKey, predicate: (cachedQuery) => cachedQuery.queryKey[1] !== 'detail' })
         .map(([, data]) => data));
     return findRecipePreview(cached, id);
-  }, [hasData, id, queryClient, userId]);
+  }, [hasData, enabled, id, isLoaded, queryClient, userId]);
 
   // Expire the visible status even if requests are paused, failed, or the last poll hangs.
   useEffect(() => {

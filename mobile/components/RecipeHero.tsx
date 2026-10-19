@@ -14,6 +14,8 @@ type RecipeHeroProps = {
   thumbnailUrl?: string | null;
   thumbnailPending?: boolean;
   onOpenSource: () => void;
+  /** False renders the same layout with no taps or player, e.g. while the full recipe loads. */
+  interactive?: boolean;
 };
 
 /** A new source closes its player; photo updates preserve the current playback. */
@@ -24,7 +26,7 @@ export function RecipeHero(props: RecipeHeroProps) {
 }
 
 /** Give the food the lead; keep source access when a photo is missing or fails. */
-function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPending = false, onOpenSource }: RecipeHeroProps) {
+function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPending = false, onOpenSource, interactive = true }: RecipeHeroProps) {
   const currentImage = useRef({ uri: thumbnailUrl });
   if (currentImage.current.uri !== thumbnailUrl) currentImage.current = { uri: thumbnailUrl };
   const imageIdentity = currentImage.current;
@@ -40,7 +42,12 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
   if (!playback && !usableThumbnailUrl && !thumbnailPending) return null;
 
   return (
-    <RNView style={styles.container}>
+    <RNView
+      style={styles.container}
+      pointerEvents={interactive ? 'auto' : 'none'}
+      accessibilityElementsHidden={!interactive}
+      importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
+    >
       {!usableThumbnailUrl && thumbnailPending && <Text
         accessibilityLiveRegion="polite"
         style={[styles.pendingText, { color: colors.textSecondary }]}

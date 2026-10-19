@@ -6,8 +6,6 @@ import { Skeleton } from '@/components/Skeleton';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
-import { openRecipeSource } from '@/lib/openRecipeSource';
-import { canOpenRecipeOriginal } from '@/lib/recipeReviewPresentation';
 import type { RecipePreview } from '@/lib/recipePreview';
 
 /**
@@ -29,7 +27,8 @@ export function RecipeDetailPreview({ preview }: { preview: RecipePreview }) {
         recipeTitle={preview.title}
         sourceUrl={sourceUrl}
         thumbnailUrl={preview.thumbnailUrl}
-        onOpenSource={() => { if (canOpenRecipeOriginal(sourceUrl)) void openRecipeSource(sourceUrl); }}
+        onOpenSource={() => {}}
+        interactive={false}
       />
       <RNView style={styles.content}>
         <Text
