@@ -21,3 +21,23 @@ export function resolveSettingsProfileEmail(
     ?? user?.emailAddresses?.[0]?.emailAddress
     ?? undefined;
 }
+
+interface ProfilePhotoUser {
+  imageUrl?: string | null;
+  /** Clerk sets this to false when `imageUrl` is only its generated default avatar. */
+  hasImage?: boolean;
+}
+
+/** True when the account has a photo the person chose, not Clerk's generated placeholder. */
+export function hasProfilePhoto<T extends ProfilePhotoUser>(
+  user: T | null | undefined,
+): user is T & { imageUrl: string } {
+  return Boolean(user?.imageUrl) && user?.hasImage !== false;
+}
+
+/** First letter of the first name, falling back to the email, for an initials avatar. */
+export function resolveProfileInitial(user: SettingsProfileUser | null | undefined): string | undefined {
+  const source = user?.firstName?.trim() || resolveSettingsProfileEmail(user)?.trim();
+  const first = source ? Array.from(source)[0] : undefined;
+  return first ? first.toLocaleUpperCase() : undefined;
+}

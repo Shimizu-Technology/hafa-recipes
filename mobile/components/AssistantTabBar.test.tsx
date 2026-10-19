@@ -87,6 +87,25 @@ describe('AssistantTabBar', () => {
     }
   });
 
+  it('keeps Grocery row controls clear of the floating assistant', async () => {
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(
+        <AssistantTabBar isSignedIn={true} state={{ index: 1, routes: [{ name: 'history' }, { name: 'grocery' }] } as never}
+          navigation={{} as never} descriptors={{} as never} insets={{} as never} />,
+      ));
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')).toHaveLength(0);
+
+      await act(async () => renderer.render(
+        <AssistantTabBar isSignedIn={true} state={{ index: 0, routes: [{ name: 'history' }, { name: 'grocery' }] } as never}
+          navigation={{} as never} descriptors={{} as never} insets={{} as never} />,
+      ));
+      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantFloatingButton')).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
   it('does not show a chat entry for signed-out users', async () => {
     const renderer = createRoot();
     try {

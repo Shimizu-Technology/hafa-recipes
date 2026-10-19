@@ -4,7 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/expo';
 
-import Colors from '@/constants/Colors';
+import Colors, { fontFamily, fontSize } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
 import { AssistantTabBar } from '@/components/AssistantTabBar';
@@ -53,7 +53,13 @@ export default function TabLayout() {
           borderBottomWidth: 1,
           borderBottomColor: colors.border,
         },
-        headerTitle: () => <TabHeaderBrand />,
+        // Discover carries the brand; the other tabs name the screen you are on.
+        headerTitleStyle: {
+          fontFamily: fontFamily.semibold,
+          fontSize: fontSize.lg,
+          fontWeight: '600',
+          color: colors.text,
+        },
         headerRight: () => <AccountHeaderButton />,
         headerRightContainerStyle: { paddingRight: 16 },
       }}>
@@ -61,6 +67,7 @@ export default function TabLayout() {
         name="discover"
         options={{
           title: 'Discover',
+          headerTitle: () => <TabHeaderBrand />,
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? 'globe' : 'globe-outline'}
@@ -107,7 +114,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="grocery"
         options={{
-          title: 'Shop',
+          title: 'Grocery',
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? 'cart' : 'cart-outline'}
