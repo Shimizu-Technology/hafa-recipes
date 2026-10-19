@@ -20,7 +20,7 @@ export default function Onboarding() {
   const guard = useRef(false);
   async function join() {
     if (guard.current) return;
-    if (!adult || !acknowledged) { setError("Confirm both choices to start saving workouts."); return; }
+    if (!adult || !acknowledged) { setError("Confirm both choices to continue."); return; }
     guard.current = true;
     setBusy(true);
     setError("");
@@ -51,13 +51,13 @@ export default function Onboarding() {
       if (alive.current) setBusy(false);
     }
   }
-  return <Screen back title="Start saving workouts." subtitle="Two apps. One Håfa account.">
-    <Copy>Save a workout from a link, photo or your own notes. You can set up goals and a training plan whenever you want.</Copy>
+  return <Screen back title="Join Håfa Workouts">
+    <Copy>Save workouts from links, photos or your own notes. Add goals and a plan whenever you like.</Copy>
     <Choice label="I am 18 or older" selected={adult} disabled={busy} onPress={() => setAdult(!adult)} />
-    <Notice>Recipes and Workouts use one account. Your data stays separate unless you connect it. Deleting your whole Håfa account from either app, including older Recipes versions, deletes both products’ data. You can remove one product’s data separately and keep your account.</Notice>
+    <Notice>Recipes and Workouts share one Håfa account, and each app’s data stays separate unless you connect them. Deleting the whole account from either app deletes both apps’ data.</Notice>
     <Choice label="I understand how my shared account works" selected={acknowledged} disabled={busy} onPress={() => setAcknowledged(!acknowledged)} />
     {enrollmentQuery.error && <Notice error>{enrollmentQuery.error.message}</Notice>}
     {!!error && <><Notice error>{error}</Notice><Button title="Refresh account setup" secondary disabled={busy} onPress={() => { void enrollmentQuery.refetch(); }} /></>}
-    <Button title="Start saving workouts" icon="checkmark" busy={busy} disabled={!adult || !acknowledged || enrollmentQuery.isPending || !enrollmentQuery.data} onPress={() => { void join(); }} />
+    <Button title="Get started" icon="checkmark" busy={busy} disabled={!adult || !acknowledged || enrollmentQuery.isPending || !enrollmentQuery.data} onPress={() => { void join(); }} />
   </Screen>;
 }

@@ -148,7 +148,7 @@ export default function AddWorkout() {
     }
   }
   return (
-    <Screen back title="Keep a good workout." subtitle="Write your session once. Make it easy to use again.">
+    <Screen back title="New workout" subtitle="Write it once and use it again.">
       <Notice>
         Your draft is private and saved on this device. Sets and reps can stay blank when you do not know them.
       </Notice>

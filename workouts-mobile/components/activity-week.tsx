@@ -5,6 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Copy, ListRow, Notice, Skeleton } from "./ui";
 import { useTraining } from "@/lib/context";
 import { activityFrequency, weekActivity } from "@/lib/activity-log";
+function shortDate(iso?: string) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso ?? "";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${iso}T00:00:00Z`));
+}
 export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: string; recorded: boolean }> }) {
   const { api, owner, enrollment } = useTraining();
   const generation = enrollment?.generation ?? 0;
@@ -28,7 +32,6 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
   const summary = q.data ? activityFrequency(q.data.items, sessions, q.data.timezone, q.data.from, q.data.to) : null;
   return (
     <Card>
-      <Copy kind="caption" tone="accent">Your last seven days</Copy>
       {q.isPending ? (
         <>
           <Skeleton height={26} width="70%" />
@@ -48,27 +51,22 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
       ) : (
         summary && (
           <>
-            <Copy kind="title">
+            <Copy kind="heading">
               {summary.days}
-              {q.data?.complete ? "" : "+"} {summary.days === 1 && q.data?.complete ? "day" : "days"} with recorded training
+              {q.data?.complete ? "" : "+"} {summary.days === 1 && q.data?.complete ? "day" : "days"} with training
             </Copy>
             <Copy tone="muted">
-              {summary.sessions} workout {summary.sessions === 1 ? "session" : "sessions"} with recorded actuals · {summary.activities}
-              {q.data?.complete ? "" : "+"} confirmed activity {summary.activities === 1 && q.data?.complete ? "entry" : "entries"}
+              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {summary.activities}
+              {q.data?.complete ? "" : "+"} {summary.activities === 1 && q.data?.complete ? "activity" : "activities"}
             </Copy>
             <Copy kind="small" tone="muted">
-              {q.data?.from} – {q.data?.to} · {q.data?.timezone}. Partial sessions with recorded sets count as activity;
-              elapsed time alone does not.
+              Last 7 days · {shortDate(q.data?.from)} – {shortDate(q.data?.to)}
             </Copy>
-            {!q.data?.complete && <Notice>This is a lower bound because the activity paging limit was reached.</Notice>}
+            {!q.data?.complete && <Notice>Showing the first page of activity, so the real count may be higher.</Notice>}
           </>
         )
       )}
-      <Copy kind="small" tone="muted">
-        Imported/legacy observations awaiting review stay separate from manual counts. Two genuine same-day activities
-        stay two records; days are counted once.
-      </Copy>
-      <ListRow icon="list-outline" title="Inspect completed activity" onPress={() => router.push("/activity-log")} />
+      <ListRow icon="list-outline" title="See all activity" onPress={() => router.push("/activity-log")} />
     </Card>
   );
 }

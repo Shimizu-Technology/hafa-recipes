@@ -48,7 +48,13 @@ export function BrandLockup({ height = 24, mono }: { height?: number; mono?: str
       style={{ flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1, minWidth: 0 }}
     >
       <BrandMark height={height} mono={mono} />
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[typography.subheading, { color: mono ?? c.text, flexShrink: 1 }]}>
+      {/* No adjustsFontSizeToFit: on the new architecture it measures the shrunk size and clips the
+          wordmark. The lockup is a logo, so cap its growth and let it ellipsize only on very narrow screens. */}
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={1.2}
+        style={[typography.subheading, { color: mono ?? c.text, letterSpacing: 0, flexShrink: 1 }]}
+      >
         Håfa <Text style={{ fontFamily: typography.body.fontFamily, color: mono ?? c.muted }}>Workouts</Text>
       </Text>
     </View>

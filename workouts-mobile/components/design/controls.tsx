@@ -1,10 +1,11 @@
-import { useState, type PropsWithChildren } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { useState, type PropsWithChildren, type Ref } from "react";
+import { ActivityIndicator, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
-import { motion, radii, touch, typography, type ColorTokens } from "@/constants/theme";
+import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
 import { Copy, haptics, useColors, useReducedMotion, useSurface, type Surface } from "./foundation";
+import { animatedPressableComponent, usePressScale } from "./press";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive" | "accent";
@@ -63,12 +64,13 @@ export function Button({
 }) {
   const c = useColors();
   const surface = useSurface();
-  const reduced = useReducedMotion();
   const kind = variant ?? (secondary ? "secondary" : "primary");
   const { bg, fg } = buttonColors(c, kind, surface);
   const inactive = disabled || busy;
+  const press = usePressScale(inactive);
+  const AnimatedPressable = animatedPressableComponent();
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityHint={accessibilityHint}
@@ -77,24 +79,26 @@ export function Button({
       aria-busy={busy}
       disabled={inactive}
       hitSlop={size === "sm" ? 4 : 0}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
       onPress={() => {
         if (haptic) haptics[haptic]();
         onPress();
       }}
-      style={({ pressed }) => ({
+      style={{
         minHeight: heights[size],
         paddingVertical: size === "sm" ? 8 : 12,
         paddingHorizontal: size === "sm" ? 16 : 22,
         borderRadius: radii.full,
         backgroundColor: bg,
-        opacity: inactive ? 0.55 : pressed && reduced ? 0.8 : 1,
-        transform: [{ scale: pressed && !reduced ? motion.pressScale : 1 }],
+        opacity: inactive ? 0.55 : press.opacity,
+        transform: [{ scale: press.scale }],
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         alignSelf: inline ? "flex-start" : "stretch",
         gap: 8,
-      })}
+      }}
     >
       {busy ? (
         <ActivityIndicator color={fg} />
@@ -108,7 +112,7 @@ export function Button({
       >
         {title}
       </Copy>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -130,7 +134,8 @@ export function IconButton({
 }) {
   const c = useColors();
   const surface = useSurface();
-  const reduced = useReducedMotion();
+  const press = usePressScale(disabled);
+  const AnimatedPressable = animatedPressableComponent();
   const bg =
     variant === "primary"
       ? c.action
@@ -141,26 +146,28 @@ export function IconButton({
           : c.sunken;
   const fg = variant === "primary" ? c.onAction : surface === "hero" ? c.onHero : c.text;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
       hitSlop={Math.max(0, (touch.min - size) / 2)}
-      style={({ pressed }) => ({
+      style={{
         width: size,
         height: size,
         borderRadius: radii.full,
         backgroundColor: bg,
         alignItems: "center",
         justifyContent: "center",
-        opacity: disabled ? 0.5 : pressed && reduced ? 0.75 : 1,
-        transform: [{ scale: pressed && !reduced ? 0.92 : 1 }],
-      })}
+        opacity: disabled ? 0.5 : press.opacity,
+        transform: [{ scale: press.scale }],
+      }}
     >
       <Ionicons name={icon} size={Math.round(size * 0.48)} color={fg} />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -190,7 +197,7 @@ export function Chip({
 }) {
   const c = useColors();
   const surface = useSurface();
-  const reduced = useReducedMotion();
+  const press = usePressScale(disabled);
   const onHero = surface === "hero";
   const bg = selected
     ? onHero
@@ -233,25 +240,25 @@ export function Chip({
         {body}
       </View>
     );
+  const AnimatedPressable = animatedPressableComponent();
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="togglebutton"
       accessibilityLabel={label}
       accessibilityState={{ checked: selected, disabled }}
       aria-pressed={selected}
       disabled={disabled}
       hitSlop={4}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
       onPress={() => {
         haptics.tick();
         onPress();
       }}
-      style={({ pressed }) => [
-        style,
-        { opacity: disabled ? 0.5 : 1, transform: [{ scale: pressed && !reduced ? motion.pressScale : 1 }] },
-      ]}
+      style={[style, { opacity: disabled ? 0.5 : press.opacity, transform: [{ scale: press.scale }] }]}
     >
       {body}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -342,6 +349,9 @@ export function Field({
   purpose,
   large = false,
   compact = false,
+  returnKeyType,
+  onSubmit,
+  inputRef,
 }: {
   label: string;
   value: string;
@@ -357,6 +367,10 @@ export function Field({
   large?: boolean;
   /** Keep a multiline composer usable above the keyboard; its text scrolls. */
   compact?: boolean;
+  returnKeyType?: TextInputProps["returnKeyType"];
+  /** Called from the keyboard's return key. "next" keeps the keyboard up so focus can move on. */
+  onSubmit?: () => void;
+  inputRef?: Ref<TextInput>;
 }) {
   const c = useColors();
   const [focused, setFocused] = useState(false);
@@ -368,7 +382,11 @@ export function Field({
       </Copy>
       <TextInput
         key={purpose ?? "general"}
+        ref={inputRef}
         {...inputTraits(purpose, Platform.OS, numeric)}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
+        submitBehavior={onSubmit && returnKeyType === "next" ? "submit" : undefined}
         accessibilityLabel={label}
         accessibilityState={{ disabled }}
         aria-disabled={disabled}

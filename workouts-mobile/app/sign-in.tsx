@@ -8,7 +8,8 @@ import {
   type Verification,
 } from "@/lib/auth-recovery";
 import { useEffect, useRef, useState } from "react";
-import { AppState, View, Platform } from "react-native";
+import { AppState, View, Platform, useColorScheme, type TextInput } from "react-native";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useSSO } from "@clerk/expo";
 import * as WebBrowser from "expo-web-browser";
@@ -22,6 +23,8 @@ export default function SignIn() {
   const { signUp, isLoaded: signupLoaded } = useSignUp();
   const { startSSOFlow } = useSSO();
   const guard = useRef(false);
+  const passwordRef = useRef<TextInput>(null);
+  const dark = useColorScheme() === "dark";
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -194,23 +197,12 @@ export default function SignIn() {
   }
   return (
     <Screen
-      title={
-        mode === "signup"
-          ? "Make space for training."
-          : mode === "recover"
-            ? "Back to your account."
-            : "Your training starts here."
-      }
-      subtitle="Two apps. One Håfa account."
+      title={mode === "signup" ? "Create your account" : mode === "recover" ? "Recover your account" : "Sign in"}
     >
       <Card tone="hero">
-        <Copy kind="caption" tone="accent">
-          Håfa adai · free beta
-        </Copy>
-        <Copy kind="heading">
-          From saved inspiration to a routine that fits.
-        </Copy>
-        <Copy tone="muted">Already use Håfa Recipes? Use the same account and sign-in method.</Copy>
+        <Copy kind="heading">Håfa adai</Copy>
+        <Copy tone="muted">Save workouts from anywhere and train your way. Free while in beta.</Copy>
+        <Copy tone="muted">Use Håfa Recipes? Sign in the same way.</Copy>
       </Card>
       {mode === "signup" && (
         <Choice
@@ -223,15 +215,34 @@ export default function SignIn() {
       )}
       {!verification && mode !== "recover" && (
         <View style={{ gap: 12 }}>
-          <Button
-            title={`${mode === "signup" ? "Join" : "Sign in"} with Apple`}
-            secondary
-            icon="logo-apple"
-            onPress={() => {
-              void provider("oauth_apple");
-            }}
-            busy={busy}
-          />
+          {/* Existing-account sign-in on iOS is native, so it gets Apple's own button. Joining still uses the browser flow. */}
+          {Platform.OS === "ios" && mode !== "signup" ? (
+            <View style={{ opacity: busy ? 0.55 : 1, pointerEvents: busy ? "none" : "auto" }}>
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={
+                  dark
+                    ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                    : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                }
+                cornerRadius={26}
+                style={{ height: 52, width: "100%" }}
+                onPress={() => {
+                  void provider("oauth_apple");
+                }}
+              />
+            </View>
+          ) : (
+            <Button
+              title={`${mode === "signup" ? "Join" : "Sign in"} with Apple`}
+              secondary
+              icon="logo-apple"
+              onPress={() => {
+                void provider("oauth_apple");
+              }}
+              busy={busy}
+            />
+          )}
           <Button
             title={`${mode === "signup" ? "Join" : "Sign in"} with Google`}
             secondary
@@ -255,6 +266,8 @@ export default function SignIn() {
           onChange={setEmail}
           placeholder="you@example.com"
           disabled={busy}
+          returnKeyType={mode === "recover" ? "go" : "next"}
+          onSubmit={() => (mode === "recover" ? void submit() : passwordRef.current?.focus())}
         />
       )}
       {(!verification && mode !== "recover") || verification === "reset" ? (
@@ -272,6 +285,9 @@ export default function SignIn() {
           value={password}
           onChange={setPassword}
           secret
+          inputRef={passwordRef}
+          returnKeyType="go"
+          onSubmit={() => void submit()}
         />
       ) : null}
       {!!verification && (
@@ -299,13 +315,10 @@ export default function SignIn() {
                   void resend();
                 }}
               />
-              <Copy kind="small" tone="muted">
-                Request only when needed. A resend clears this code; use the newest email. If no email arrives, return
-                to sign-in to review your address.
-              </Copy>
+              <Copy kind="small" tone="muted">Use the newest code. No email? Go back and check your address.</Copy>
             </>
           ) : (
-            <Copy kind="small" tone="muted">Authenticator codes are generated by your app; they cannot be resent by email.</Copy>
+            <Copy kind="small" tone="muted">Use the current code from your authenticator app.</Copy>
           )}
           <Button title="Back to sign-in" variant="ghost" disabled={busy} onPress={() => switchMode("signin")} />
         </>
@@ -345,8 +358,7 @@ export default function SignIn() {
         </>
       )}
       <Copy kind="small" tone="muted" align="center">
-        Recipes and training data stay separate unless you connect them. Deleting your whole Håfa account—including from
-        an older Recipes app—deletes both apps’ data.
+        Data stays separate unless you connect the apps. Deleting your Håfa account deletes both.
       </Copy>
     </Screen>
   );

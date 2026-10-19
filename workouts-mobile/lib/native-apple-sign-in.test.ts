@@ -13,6 +13,9 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("expo-apple-authentication", () => ({
   AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
+  AppleAuthenticationButton: "AppleAuthenticationButton",
+  AppleAuthenticationButtonType: { SIGN_IN: 0, CONTINUE: 1, SIGN_UP: 2 },
+  AppleAuthenticationButtonStyle: { WHITE: 0, WHITE_OUTLINE: 1, BLACK: 2 },
   signInAsync: fixture.authorize,
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: fixture.nonce }));
@@ -23,7 +26,7 @@ vi.mock("@clerk/expo/legacy", () => ({
 vi.mock("@clerk/expo", () => ({ useSSO: () => ({ startSSOFlow: fixture.sso }) }));
 vi.mock("expo-web-browser", () => ({ maybeCompleteAuthSession: vi.fn(), openAuthSessionAsync: vi.fn() }));
 vi.mock("react-native", () => ({
-  View: "View", Platform: { OS: "ios" },
+  View: "View", Platform: { OS: "ios" }, useColorScheme: () => "light",
   AppState: { addEventListener: () => ({ remove() {} }) },
 }));
 vi.mock("@/components/ui", () => ({
@@ -49,7 +52,10 @@ afterEach(async () => {
 });
 async function pressApple() {
   await act(async () => {
-    const button = renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Sign in with Apple")!;
+    // iOS renders Apple's native button; other platforms keep the themed Button.
+    const button = renderer!.root.findByType("AppleAuthenticationButton" as never);
+    expect(button.props.buttonType).toBe(0);
+    expect(button.props.buttonStyle).toBe(2);
     button.props.onPress();
   });
 }

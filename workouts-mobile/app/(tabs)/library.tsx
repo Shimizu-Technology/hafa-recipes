@@ -25,7 +25,7 @@ import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
-import { workoutOriginLabel } from "@/lib/workout-presentation";
+import { workoutKindLabel, workoutOrigin } from "@/lib/labels";
 import { WorkoutGallery, useWorkoutGalleryColumns } from "@/components/workout-gallery";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
@@ -131,8 +131,7 @@ export default function Library() {
   }
   return (
     <Screen
-      title="Your library"
-      subtitle="All your workouts, in one place."
+      title="Library"
       action={
         <Row gap={8}>
           <IconButton
@@ -208,7 +207,7 @@ export default function Library() {
           <>
             <SectionHeader title={`${q.data?.pages[0].total ?? visible.length} ${archived ? "archived " : ""}${q.data?.pages[0].total === 1 ? "workout" : "workouts"}`} />
             <WorkoutGallery>
-            {visible.map((w) => selecting ? <Choice key={w.id} label={w.title} detail={w.source_creator ? `By ${w.source_creator}` : w.kind}
+            {visible.map((w) => selecting ? <Choice key={w.id} label={w.title} detail={w.source_creator ? `By ${w.source_creator}` : workoutKindLabel(w.kind)}
               selected={selectedIds.includes(w.id)} disabled={bulkBusy} onPress={() => select(w.id)} /> : (
               <MediaCard
                 key={w.id}
@@ -219,8 +218,8 @@ export default function Library() {
                 badge={w.extraction_warnings?.length ? "Check details" : w.organization?.favorite ? "Favorite" : undefined}
                 footer={w.source_creator ? <Copy kind="small" tone="muted">By {w.source_creator}</Copy> : undefined}
                 meta={[
-                  w.kind,
-                  workoutOriginLabel(w),
+                  workoutKindLabel(w.kind),
+                  workoutOrigin(w),
                   ...(w.organization?.tags ?? []),
                 ].join(" · ")}
                 chips={w.equipment_required ?? []}

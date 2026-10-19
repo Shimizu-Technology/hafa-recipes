@@ -131,7 +131,8 @@ export default function ActivityEditor() {
       notes: content?.notes ?? "",
       strenuous: content?.strenuous ?? null,
       expected_revision: saved?.revision,
-      confirm_completed: saved?.completed_confirmed === true,
+      // Logging a past or today date is the confirmation; only older unconfirmed entries ask explicitly.
+      confirm_completed: saved ? saved.completed_confirmed === true || !saved.legacy : true,
     });
   }, [restored, draft, finished, calendar.data, entry.data, id, params.kind, owner, generation]);
   useEffect(() => {
@@ -274,8 +275,8 @@ export default function ActivityEditor() {
   return (
     <Screen
       back
-      title={id ? "Review recorded activity." : "Log what you did."}
-      subtitle="Runs, walks, basketball and other completed activity—without needing a library workout."
+      title={id ? "Activity" : "Log activity"}
+      subtitle="Log something you’ve already done."
     >
       {!validId && <Notice error>This activity address is invalid.</Notice>}
       {!enrollment?.enrolled && <Button title="Set up Workouts" onPress={() => router.push("/onboarding")} />}
@@ -288,7 +289,7 @@ export default function ActivityEditor() {
         }}
       >
         {entry.data?.status === "removed" ? (
-          <Notice>This activity has been removed. No old create/correction request can restore it.</Notice>
+          <Notice>This activity was removed.</Notice>
         ) : entry.data?.read_only ? (
           <Card>
             <Copy kind="heading">{entry.data.content?.name ?? "Imported activity"}</Copy>
@@ -298,23 +299,13 @@ export default function ActivityEditor() {
                 ? "Duration not specified"
                 : `${entry.data.content.duration_minutes} recorded minutes`}
             </Copy>
-            <Notice>
-              This imported activity is read only here. It is not a confirmed Håfa manual session and is excluded from
-              manual training counts. Manage the originating record or its Health connection.
-            </Notice>
+            <Notice>Imported from Health. It can’t be edited here and isn’t counted in your logged activity.</Notice>
             <Button title="Health connection controls" secondary onPress={() => router.push("/connections")} />
           </Card>
         ) : draft && !finished && validId ? (
           <>
-            <Notice>
-              Only record activity that already happened. Future basketball practices and other commitments belong in
-              your profile’s schedule declarations. Logging here does not write a new record to the OS Health store.
-            </Notice>
             {entry.data?.legacy && (
-              <Notice>
-                This older entry has not been confirmed as completed. Review its date, duration, type and demand before
-                adopting it into completed history.
-              </Notice>
+              <Notice>This older entry isn’t confirmed yet. Check the details, then confirm it happened.</Notice>
             )}
             {Object.entries(activityLabels).map(([kind, label]) => (
               <Choice
@@ -333,9 +324,7 @@ export default function ActivityEditor() {
               value={draft.date}
               onChange={(date) => update({ date: date ?? "" })}
             />
-            <Copy kind="small">
-              Training timezone · {calendar.data?.timezone}. Today · {calendar.data?.today}
-            </Copy>
+            <Copy kind="small" tone="muted">Dates use your training time zone ({calendar.data?.timezone}).</Copy>
             <Field
               disabled={busy || !!draft.operation}
               label="Duration · whole minutes"
@@ -399,28 +388,29 @@ export default function ActivityEditor() {
               value={draft.notes}
               onChange={(notes) => update({ notes })}
             />
-            <Choice
-              label="I confirm this activity already happened"
-              selected={draft.confirm_completed}
-              disabled={busy || !!draft.operation}
-              onPress={() => update({ confirm_completed: !draft.confirm_completed })}
-            />
+            {(entry.data?.legacy || !draft.confirm_completed) && (
+              <Choice
+                label="This activity already happened"
+                selected={draft.confirm_completed}
+                disabled={busy || !!draft.operation}
+                onPress={() => update({ confirm_completed: !draft.confirm_completed })}
+              />
+            )}
             {draft.operation && (
               <Notice>
-                A durable {draft.operation.action === "remove" ? "removal" : "save"} is pending. Retry sends its exact
-                original UUID, fields, owner, enrollment and revision. Inputs stay fixed until it is resolved or
-                explicitly discarded.
+                This {draft.operation.action === "remove" ? "removal" : "save"} hasn’t finished. Retry it, or discard it
+                and reload.
               </Notice>
             )}
             <Button
               title={
                 draft.operation
-                  ? "Retry original activity command"
+                  ? draft.operation.action === "remove" ? "Retry removal" : "Retry save"
                   : entry.data?.legacy
-                    ? "Confirm and adopt completed activity"
+                    ? "Confirm and save"
                     : id
-                      ? "Save reviewed correction"
-                      : "Save completed activity"
+                      ? "Save changes"
+                      : "Save activity"
               }
               busy={busy}
               disabled={!!draft.operation && conflict}
@@ -438,10 +428,7 @@ export default function ActivityEditor() {
                 />
                 {removeConfirm && (
                   <Card>
-                    <Notice>
-                      Remove this Håfa activity entry and its private notes. Planning context and pending coach actions
-                      are refreshed. Completed workout sessions and OS Health originals stay unchanged.
-                    </Notice>
+                    <Notice>Removes this entry and its notes. Your workouts and Health data stay unchanged.</Notice>
                     <Choice
                       label="I want to remove this activity entry"
                       selected={removeConfirm}
@@ -462,7 +449,7 @@ export default function ActivityEditor() {
             )}
             {(conflict || draft.operation) && (
               <Button
-                title="Reload current activity and discard this draft/command"
+                title="Discard and reload"
                 secondary
                 busy={busy}
                 onPress={() => {

@@ -20,6 +20,7 @@ import { contentWidth, elevation, motion, radii, spacing } from "@/constants/the
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { Copy, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
 import { Chip, IconButton, type IconName } from "./controls";
+import { animatedPressableComponent, usePressScale } from "./press";
 
 /**
  * Standard scrolling screen. Root tabs show the Håfa Workouts lockup; pushed
@@ -78,7 +79,7 @@ export function Screen({
           ) : (
             <BrandLockup />
           )}
-          {action}
+          {!!action && <View style={{ flexShrink: 0 }}>{action}</View>}
         </View>
       </View>
       <ScrollView
@@ -108,7 +109,7 @@ export function Screen({
         }}
       >
         <View style={{ gap: 6 }}>
-          {!!eyebrow && <Copy kind="caption" tone="accent">{eyebrow}</Copy>}
+          {!!eyebrow && <Copy kind="caption" tone="muted">{eyebrow}</Copy>}
           <Copy kind="title">{title}</Copy>
           {!!subtitle && <Copy tone="muted">{subtitle}</Copy>}
         </View>
@@ -150,7 +151,7 @@ export function Card({
   style?: StyleProp<ViewStyle>;
 }>) {
   const c = useColors();
-  const reduced = useReducedMotion();
+  const press = usePressScale();
   const bg = { plain: c.surface, hero: c.hero, sunken: c.sunken, accent: c.accentSoft }[tone];
   const base: ViewStyle = {
     padding: compact ? spacing.md : spacing.lg - 4,
@@ -159,24 +160,23 @@ export function Card({
     backgroundColor: bg,
     borderWidth: tone === "plain" ? 1 : 0,
     borderColor: c.border,
-    shadowColor: c.shadow,
-    ...(tone === "hero" ? elevation.raised : tone === "plain" ? elevation.card : elevation.none),
+    // Resting cards use the hairline border only; the hero keeps its lift.
+    ...(tone === "hero" ? { shadowColor: c.shadow, ...elevation.raised } : {}),
   };
   const content = <SurfaceProvider value={tone === "hero" ? "hero" : "default"}>{children}</SurfaceProvider>;
   if (!onPress) return <View style={[base, style]}>{content}</View>;
+  const AnimatedPressable = animatedPressableComponent();
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={({ pressed }) => [
-        base,
-        { transform: [{ scale: pressed && !reduced ? 0.985 : 1 }], opacity: pressed && reduced ? 0.85 : 1 },
-        style,
-      ]}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[base, { transform: [{ scale: press.scale }], opacity: press.opacity }, style]}
     >
       {content}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -306,18 +306,7 @@ export function ListRow({
   const body = (
     <>
       {!!icon && (
-        <View
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: radii.md - 2,
-            backgroundColor: destructive ? c.errorSoft : surface === "hero" ? c.onHeroSoft : c.actionSoft,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name={icon} size={21} color={destructive ? c.error : surface === "hero" ? c.onHero : c.onActionSoft} />
-        </View>
+        <Ionicons name={icon} size={22} color={destructive ? c.error : surface === "hero" ? c.heroMuted : c.muted} />
       )}
       <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
         <Copy kind="label" color={fg}>
@@ -459,22 +448,7 @@ export function Empty({
   const c = useColors();
   return (
     <Card>
-      {mark ? (
-        <BrandMark height={36} />
-      ) : (
-        <View
-          style={{
-            width: 52,
-            height: 52,
-            borderRadius: radii.lg - 4,
-            backgroundColor: c.actionSoft,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name={icon} color={c.onActionSoft} size={26} />
-        </View>
-      )}
+      {mark ? <BrandMark height={36} /> : <Ionicons name={icon} color={c.muted} size={28} />}
       <Copy kind="heading">{title}</Copy>
       <Copy tone="muted">{description}</Copy>
       {action}

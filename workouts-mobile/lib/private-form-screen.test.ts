@@ -3097,7 +3097,7 @@ it.each([undefined, false, true])("hides the numeric allowance only for server-r
   fixture.capabilities.mockResolvedValue({ ...serverCaps, limits: { successful_or_pending_imports_per_rolling_day: 100, imports_unlimited: unlimited } });
   await mount(Capture);
   const view = JSON.stringify(renderer!.toJSON());
-  expect(view.includes("pending imports in each rolling day")).toBe(unlimited !== true);
+  expect(view.includes("imports in any 24 hours")).toBe(unlimited !== true);
   expect(view).not.toContain("Free beta");
   if (!unlimited) expect(view).toContain("100");
 });

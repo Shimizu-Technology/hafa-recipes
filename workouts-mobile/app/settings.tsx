@@ -40,7 +40,7 @@ export default function Settings() {
     }
   }
   return (
-    <Screen back title="Your Håfa account." subtitle="One account. Your choices, in each app.">
+    <Screen back title="Your Håfa account">
       <SectionHeader title="Your training" />
       <ListGroup>
         <ListRow title="Edit training profile" icon="person-outline" onPress={() => router.push("/profile")} />

@@ -188,7 +188,7 @@ export default function Profile() {
   return (
     <Screen
       back
-      title={q.data?.profile ? "Your training profile." : "Make training fit your life."}
+      title={q.data?.profile ? "Training profile" : "Set up training"}
       subtitle="Choose your goal, equipment and usual schedule. Personal details are optional."
       action={<AccountButton />}
     >

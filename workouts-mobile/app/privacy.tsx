@@ -1,7 +1,7 @@
 import { Copy, Notice, Screen } from "@/components/ui";
 export default function Privacy() {
   return (
-    <Screen back title="Privacy in Håfa Workouts." subtitle="What these features use, and the controls you have.">
+    <Screen back title="Privacy" subtitle="What each feature uses, and how to control it.">
       <Copy>
         Håfa Workouts uses one Håfa account with Recipes. Product data stays separate unless you explicitly connect it.
         The app supports adult general fitness and user-declared limitations.

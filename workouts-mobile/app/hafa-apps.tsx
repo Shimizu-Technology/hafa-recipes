@@ -25,8 +25,8 @@ export default function HafaApps() {
   return (
     <Screen
       back
-      title={"Two apps.\nOne Håfa account."}
-      subtitle="Cook well. Train your way."
+      title="Håfa apps"
+      subtitle="One account for Recipes and Workouts."
     >
       <Card tone="sunken">
         <Row gap={20} justify="center">
