@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { stepsFor } from "./training";
 import type { ActualSet, Workout } from "./models";
 import {
-  blockLabel, entryValues, exerciseSets, inferActivityType, prefillFor, restPhase, sessionPrevious, sessionSummary, setPosition, stepValue,
+  blockLabel, distanceMeters, entryValues, parseEntry, exerciseSets, inferActivityType, prefillFor, restPhase, sessionPrevious, sessionSummary, setPosition, stepValue,
 } from "./training-view";
 
 const workout = (blocks: Workout["blocks"]): Workout =>
@@ -63,8 +63,18 @@ describe("prefill", () => {
     expect(prefillFor({ name: "Squat", reps_min: 8 }, done(steps[0], { reps: 6 }), "metric")).toEqual({ reps: "8" });
     expect(prefillFor({ name: "Squat" }, done(steps[0], { reps: 6 }), "metric")).toEqual({ reps: "6" });
     expect(prefillFor({ name: "Plank", duration_seconds: 45 }, null, "metric")).toEqual({ seconds: "45" });
-    expect(prefillFor({ name: "Run", distance_meters: 1609.344 }, null, "imperial")).toEqual({ distance: "1" });
-    expect(prefillFor({ name: "Run", distance_meters: 400 }, null, "metric")).toEqual({ distance: "400" });
+    expect(prefillFor({ name: "Run", distance_meters: 1609.344 }, null, "imperial")).toEqual({ distance: "1", distance_meters: "1609.344" });
+    expect(prefillFor({ name: "Run", distance_meters: 400 }, null, "metric")).toEqual({ distance: "400", distance_meters: "400" });
+  });
+  it("saves the exact prescribed distance for an untouched imperial prefill and converts typed distances", () => {
+    const prefill = prefillFor({ name: "Run", distance_meters: 400 }, null, "imperial");
+    expect(prefill.distance).toBe("0.25");
+    const untouched = entryValues(prefill, {}, "distance");
+    expect(untouched).not.toHaveProperty("distance_meters");
+    expect(distanceMeters(untouched, {}, prefill, "imperial")).toBe(400);
+    expect(distanceMeters(entryValues(prefill, { distance: "0.5" }, "distance"), { distance: "0.5" }, prefill, "imperial")).toBeCloseTo(804.672);
+    expect(distanceMeters(entryValues(prefill, { distance: "" }, "distance"), { distance: "" }, prefill, "imperial")).toBeNull();
+    expect(distanceMeters({ distance: "1,5" }, { distance: "1,5" }, {}, "metric")).toBe(1.5);
   });
   it("prefills load only with its unit and convention, preferring the previous set", () => {
     const previous = done(steps[0], { load: 62.5, load_unit: "kg", load_convention: "total" });
@@ -96,6 +106,9 @@ it("steps values without going negative", () => {
   expect(stepValue("1.2", 0.1)).toBe("1.3");
   expect(stepValue("57.5", 2.5)).toBe("60");
   expect(stepValue("abc", 5)).toBe("5");
+  expect(stepValue("62,5", 2.5)).toBe("65");
+  expect(parseEntry(" 62,5 ")).toBe(62.5);
+  expect(parseEntry("  ")).toBeNull();
 });
 
 it("shows rest done briefly after the timer reaches zero", () => {

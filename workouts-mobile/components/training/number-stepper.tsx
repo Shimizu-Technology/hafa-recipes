@@ -1,6 +1,6 @@
 import { TextInput, View } from "react-native";
 import { radii, touch, typography } from "@/constants/theme";
-import { stepValue } from "@/lib/training-view";
+import { parseEntry, stepValue } from "@/lib/training-view";
 import { Button, Copy, IconButton, Row, haptics, useColors } from "@/components/ui";
 
 /**
@@ -37,7 +37,7 @@ export function NumberStepper({
       </Row>
       <Row gap={12}>
         <IconButton icon="remove" label={`Decrease ${label}`} size={touch.comfortable}
-          disabled={disabled || !(Number(value) > 0)} onPress={() => change(-step)} />
+          disabled={disabled || !((parseEntry(value) ?? 0) > 0)} onPress={() => change(-step)} />
         <TextInput
           accessibilityLabel={label}
           accessibilityHint="Type a value or use the minus and plus buttons"

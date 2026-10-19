@@ -58,6 +58,11 @@ export function sessionPrevious(actuals: ActualSet[], step: TrainingStep | undef
 }
 
 const decimal = (value: number, places = 2) => String(Number(value.toFixed(places)));
+/** Parses a typed number, accepting a comma decimal separator (some iOS locales' decimal pad). Blank is null. */
+export function parseEntry(value: string | undefined) {
+  const text = value?.trim();
+  return text ? Number(text.replace(",", ".")) : null;
+}
 
 /** Starting values for a set: the prescription first, then the previous logged set. Strings match the input record. */
 export function prefillFor(exercise: ExercisePrescription, previous: ActualSet | null, units: UnitSystem) {
@@ -68,7 +73,11 @@ export function prefillFor(exercise: ExercisePrescription, previous: ActualSet |
   const seconds = exercise.duration_seconds ?? previous?.duration_seconds;
   if (seconds != null) prefill.seconds = String(seconds);
   const meters = exercise.distance_meters ?? previous?.distance_meters;
-  if (meters != null) prefill.distance = units === "imperial" ? decimal(meters / 1609.344) : decimal(meters, 0);
+  if (meters != null) {
+    prefill.distance = units === "imperial" ? decimal(meters / 1609.344) : decimal(meters, 0);
+    // Exact source metres, so an untouched prefill saves the prescribed distance rather than a rounded display.
+    prefill.distance_meters = String(meters);
+  }
   // A load is only valid with its unit and convention, so prefill all three from one source or none.
   const load = previous?.load != null && previous.load_unit && previous.load_convention ? previous
     : exercise.load != null && exercise.load_unit && exercise.load_convention ? exercise : null;
@@ -89,9 +98,17 @@ export function entryValues(prefill: Record<string, string>, input: Record<strin
   return { ...values, ...input };
 }
 
+/** Metres to save for an entry: the exact prefilled metres when the distance was not typed, else the typed value converted. */
+export function distanceMeters(entry: Record<string, string>, typed: Record<string, string>, prefill: Record<string, string>, units: UnitSystem) {
+  const distance = parseEntry(entry.distance);
+  if (distance == null) return null;
+  if (!("distance" in typed) && prefill.distance_meters != null) return Number(prefill.distance_meters);
+  return units === "imperial" ? distance * 1609.344 : distance;
+}
+
 /** Steps a typed number. Blank starts from zero; never goes below zero. */
 export function stepValue(value: string, delta: number) {
-  const current = Number(value.trim() || 0);
+  const current = parseEntry(value) ?? 0;
   return decimal(Math.max(0, (Number.isFinite(current) ? current : 0) + delta));
 }
 

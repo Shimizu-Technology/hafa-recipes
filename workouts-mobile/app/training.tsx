@@ -35,7 +35,7 @@ import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 import { NumberStepper } from "@/components/training/number-stepper";
 import { LastLogged, RestDone, SetProgress, announce } from "@/components/training/session-parts";
 import {
-  activityTypes, blockLabel, entryValues, exerciseSets, inferActivityType, prefillFor, restPhase, sessionPrevious,
+  activityTypes, blockLabel, distanceMeters, entryValues, parseEntry, exerciseSets, inferActivityType, prefillFor, restPhase, sessionPrevious,
   sessionSummary, setPosition, type Metric,
 } from "@/lib/training-view";
 function ActivityPicker({ value, onChange }: { value: string; onChange(type: string): void }) {
@@ -224,9 +224,8 @@ export default function Training() {
     const submitted = inputRef.current;
     // A logged set saves the values shown (typed or cleared values win); a skip keeps only what was typed.
     const entry = completed ? entryValues(prefill, submitted, metric) : submitted;
-    const optional = (key: string) => (entry[key]?.trim() ? Number(entry[key]) : null);
+    const optional = (key: string) => parseEntry(entry[key]);
     const load = optional("load");
-    const distance = optional("distance");
     const actual: ActualSet = {
       block_id: step.block_id,
       exercise_index: step.exercise_index,
@@ -236,7 +235,7 @@ export default function Training() {
       completed,
       reps: optional("reps"),
       duration_seconds: optional("seconds"),
-      distance_meters: distance == null ? null : units === "imperial" ? distance * 1609.344 : distance,
+      distance_meters: distanceMeters(entry, submitted, prefill, units),
       load,
       load_unit: load == null ? null : unitOf(entry),
       load_convention: load == null ? null : (entry.convention as ActualSet["load_convention"]) || null,
