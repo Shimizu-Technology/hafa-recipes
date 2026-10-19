@@ -117,7 +117,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     const next = serialized.current
       .catch(() => undefined)
       .then(async () => {
-        if (!current() || !vault.current) throw Error("Your account changed.");
+        if (!current() || closing.current || !vault.current) throw Error("Your account changed.");
         if (!storageReady.current)
           throw Error("Restore your private device data before saving. Existing files have not been overwritten.");
         api.assertLease(lease);
@@ -130,7 +130,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           throw Error("Start a new Baby space deliberately before saving.");
         await vault.current.write(value);
         api.assertLease(lease);
-        if (!current()) return;
+        if (!current() || closing.current) return;
         if (routineStateChanged(before, value)) routineVersion.current++;
         ref.current = value;
         setState(value);
@@ -170,6 +170,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     }
   }
   async function mergeBootstrap(bootstrap: Bootstrap) {
+    if (!current() || closing.current || deleting.current) return false;
     const lease = api.lease();
     if (
       bootstrap.active === false ||
@@ -189,11 +190,18 @@ export function BabyProvider({ children }: PropsWithChildren) {
         selectedChild: bootstrap.children.some((child) => child.id === next.selectedChild) ? next.selectedChild : null,
       };
     }, lease);
+    if (!current() || closing.current || deleting.current) return false;
     setReady(true);
+    return true;
   }
   async function refresh() {
     try {
       if (deleting.current) return;
+      if (closing.current) {
+        if (vault.current) await signOut();
+        else await initializer.current();
+        return;
+      }
       if (!vault.current) {
         await initializer.current();
         return;
@@ -201,6 +209,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (!storageReady.current) {
         if (!vault.current) throw Error("Connect once to restore your private account before retrying.");
         const saved = await vault.current.read<DeviceState>();
+        if (!current() || closing.current || deleting.current) return;
         if (saved) {
           ref.current = saved;
           setState(saved);
@@ -209,9 +218,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         setReady(true);
       }
       const fresh = await api.bootstrap();
-      if (!alive.current) return;
+      if (!current() || closing.current || deleting.current) return;
       const old = ref.current.bootstrap?.generation;
-      await mergeBootstrap(fresh);
+      if (!(await mergeBootstrap(fresh))) return;
       setError("");
       if (old !== undefined && old !== fresh.generation) await clearReminders(ownerRef.current);
       if (fresh.active === false) return;
@@ -248,7 +257,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     let restoreAfterSync = false;
     try {
       const latest = await api.bootstrap();
-      await mergeBootstrap(latest);
+      if (!(await mergeBootstrap(latest))) return;
       if (alive.current) setError("");
       if (latest.active === false) return;
       restoreAfterSync = true;
@@ -384,12 +393,16 @@ export function BabyProvider({ children }: PropsWithChildren) {
       try {
         const cleanupKey = storageKey(binding) + ".cleanup";
         const cleaning = await secret.getItemAsync(cleanupKey);
+        if (cancelled || !current()) return;
         if (cleaning) {
+          closing.current = true;
+          setReady(false);
           clearPendingShares();
           await clearReminders(cleaning);
           await clearFiles(cleaning);
           await createDeviceVault(secret, "data:" + cleaning + ":" + binding, Crypto.randomUUID).clear();
           await identityVault.clear();
+          if (cancelled || !current()) return;
           await clerk.signOut();
           await secret.deleteItemAsync(cleanupKey);
           return;
@@ -478,6 +491,22 @@ export function BabyProvider({ children }: PropsWithChildren) {
     ref.current = emptyState();
     setState(emptyState());
   }
+  async function signOut() {
+    closing.current = true;
+    setReady(false);
+    const key = storageKey(binding) + ".cleanup";
+    try {
+      await secret.setItemAsync(key, ownerRef.current);
+      if (!current()) return;
+      await clean();
+      if (!current()) return;
+      await clerk.signOut();
+      await secret.deleteItemAsync(key);
+    } catch (e) {
+      if (current()) setError("Device cleanup or sign-out needs another attempt. Your private space stays closed.");
+      throw e;
+    }
+  }
   return (
     <Context.Provider
       value={{
@@ -521,20 +550,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           });
           if (!draft) void funcs.current.sync();
         },
-        signOut: async () => {
-          closing.current = true;
-          setReady(false);
-          const key = storageKey(binding) + ".cleanup";
-          await secret.setItemAsync(key, ownerRef.current);
-          try {
-            await clean();
-            await clerk.signOut();
-            await secret.deleteItemAsync(key);
-          } catch (e) {
-            setError("Device cleanup or sign-out needs another attempt. Your private space stays closed.");
-            throw e;
-          }
-        },
+        signOut,
         erase: async () => {
           const g = ref.current.bootstrap?.generation;
           if (g === undefined) return;

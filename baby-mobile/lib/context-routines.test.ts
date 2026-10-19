@@ -14,6 +14,7 @@ const mock = vi.hoisted(() => ({
   clearShares: vi.fn(),
   signOut: vi.fn(),
   cleanupOwner: null as string | null,
+  readCleanup: vi.fn(),
 }));
 vi.mock("react-native", () => ({
   Platform: { OS: "ios" },
@@ -30,7 +31,8 @@ vi.mock("@clerk/expo", () => ({
   useClerk: () => ({ signOut: mock.signOut }),
 }));
 vi.mock("expo-secure-store", () => ({
-  getItemAsync: async (key: string) => key.endsWith(".cleanup") ? mock.cleanupOwner : null,
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: "when-unlocked-this-device-only",
+  getItemAsync: async (key: string) => key.endsWith(".cleanup") ? mock.readCleanup() : null,
   setItemAsync: async () => {},
   deleteItemAsync: async () => {},
 }));
@@ -114,6 +116,7 @@ beforeEach(() => {
   mock.clearShares.mockReset();
   mock.signOut.mockReset().mockResolvedValue(undefined);
   mock.cleanupOwner = null;
+  mock.readCleanup.mockReset().mockImplementation(async () => mock.cleanupOwner);
   mock.api = {
     identity: vi.fn(async () => ({ id: "owner" })),
     bootstrap: vi.fn(async () => bootstrap),
@@ -139,6 +142,42 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe("provider routine restore integration", () => {
+  it("retries failed live sign-out cleanup without reopening the Baby space", async () => {
+    await mount();
+    const bootstrapCalls = mock.api.bootstrap.mock.calls.length;
+    mock.clearShares.mockImplementationOnce(() => { throw Error("native cleanup unavailable"); });
+    await act(async () => { await expect(baby.signOut()).rejects.toThrow("native cleanup unavailable"); });
+    expect(baby.ready).toBe(false);
+    expect(mock.signOut).not.toHaveBeenCalled();
+    await act(async () => { await baby.refresh(); });
+    expect(mock.signOut, baby.error).toHaveBeenCalledOnce();
+    expect(mock.api.bootstrap).toHaveBeenCalledTimes(bootstrapCalls);
+    expect(baby.ready).toBe(false);
+    expect(baby.state.bootstrap).toBeUndefined();
+  });
+  it("does not reopen or write from a held bootstrap after sign-out cleanup fails", async () => {
+    await mount();
+    let resolve!: (value: typeof bootstrap) => void;
+    mock.api.bootstrap.mockReturnValueOnce(new Promise((yes) => { resolve = yes; }));
+    let syncing!: Promise<void>;
+    await act(async () => { syncing = baby.sync(); await settle(); });
+    const previous = mock.state;
+    mock.clearShares.mockImplementationOnce(() => { throw Error("native cleanup unavailable"); });
+    await act(async () => { await expect(baby.signOut()).rejects.toThrow("native cleanup unavailable"); });
+    await act(async () => { resolve(bootstrap); await syncing; });
+    expect(baby.ready).toBe(false);
+    expect(mock.state).toBe(previous);
+    expect(mock.signOut).not.toHaveBeenCalled();
+  });
+  it("does not clear global native captures when a retired initializer finishes reading its cleanup marker", async () => {
+    let resolve!: (owner: string) => void;
+    mock.readCleanup.mockReturnValueOnce(new Promise((yes) => { resolve = yes; }));
+    await mount();
+    await act(async () => { renderer!.unmount(); });
+    await act(async () => { resolve("previous-owner"); await settle(); });
+    expect(mock.clearShares).not.toHaveBeenCalled();
+    expect(mock.signOut).not.toHaveBeenCalled();
+  });
   it("clears native pending captures when erasing Baby without deleting the shared account", async () => {
     await mount();
     mock.clearShares.mockClear();
