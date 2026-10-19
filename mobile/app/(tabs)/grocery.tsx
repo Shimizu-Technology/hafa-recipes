@@ -48,7 +48,8 @@ import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
-import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import { showToast } from '@/lib/toast';
+import { ScalePressable } from '@/components/Animated';
 import {
   GrocerySection,
   groupGroceryItems,
@@ -383,7 +384,7 @@ export default function GroceryScreen() {
     haptics.light();
     toggleMutation.mutate(
       { id: item.id, checked: !item.checked },
-      { onError: () => Alert.alert('Error', 'Failed to update item') },
+      { onError: () => Alert.alert('Couldn’t update item', 'Your change wasn’t saved. Please try again.') },
     );
   };
 
@@ -396,7 +397,7 @@ export default function GroceryScreen() {
         style: 'destructive',
         onPress: () =>
           deleteMutation.mutate(id, {
-            onError: () => Alert.alert('Error', 'Failed to delete item'),
+            onError: () => Alert.alert('Couldn’t delete item', 'The item is still on your list. Please try again.'),
           }),
       },
     ]);
@@ -415,7 +416,7 @@ export default function GroceryScreen() {
           style: 'destructive',
           onPress: () =>
             clearCheckedMutation.mutate(undefined, {
-              onError: () => Alert.alert('Error', 'Failed to clear checked items'),
+              onError: () => Alert.alert('Couldn’t clear checked items', 'Your list wasn’t changed. Please try again.'),
             }),
         },
       ]
@@ -437,10 +438,15 @@ export default function GroceryScreen() {
           date_kind: null,
           date_value: null,
         })), {
-          onSuccess: () => Alert.alert('Added to pantry', 'Your checked groceries are ready to track and use in recipe search.', [
-            { text: 'Keep shopping', style: 'cancel' },
-            { text: 'Open pantry', onPress: () => router.push(appRoutes.pantry) },
-          ]),
+          onSuccess: () => {
+            haptics.success();
+            showToast({
+              message: `${readyForPantry.length} added to your pantry`,
+              tone: 'success',
+              actionLabel: 'Open pantry',
+              onAction: () => router.push(appRoutes.pantry),
+            });
+          },
           onError: () => Alert.alert('Couldn’t add to pantry', 'Refresh your grocery list and pantry, then try again. Items already added will stay in your pantry.'),
         }) },
       ],
@@ -462,7 +468,7 @@ export default function GroceryScreen() {
           style: 'destructive',
           onPress: () =>
             clearAllMutation.mutate(undefined, {
-              onError: () => Alert.alert('Error', 'Failed to clear the grocery list'),
+              onError: () => Alert.alert('Couldn’t clear the list', 'Your list wasn’t changed. Please try again.'),
             }),
         },
       ]
@@ -484,7 +490,7 @@ export default function GroceryScreen() {
             haptics.medium();
             deleteItemsMutation.mutate(
               section.data.map((item) => item.id),
-              { onError: () => Alert.alert('Error', 'Failed to clear recipe items') },
+              { onError: () => Alert.alert('Couldn’t remove recipe items', 'Your list wasn’t changed. Please try again.') },
             );
           },
         },
@@ -527,7 +533,7 @@ export default function GroceryScreen() {
             Keyboard.dismiss();
           }
         },
-        onError: () => Alert.alert('Error', 'Failed to add item'),
+        onError: () => Alert.alert('Couldn’t add item', 'The item wasn’t added. Please try again.'),
       }
     );
   };
@@ -596,7 +602,7 @@ export default function GroceryScreen() {
       });
       setEditingItem(null);
     } catch {
-      Alert.alert('Error', 'Failed to update item');
+      Alert.alert('Couldn’t update item', 'Your change wasn’t saved. Please try again.');
     }
   };
 
@@ -607,18 +613,16 @@ export default function GroceryScreen() {
     }
 
     return (
-      <AnimatedListItem index={index} delay={30}>
-        <GroceryItemRow
-          item={item}
-          colors={colors}
-          onToggle={() => handleToggle(item)}
-          onDelete={() => handleDelete(item.id, item.name)}
-          onEdit={() => handleEdit(item)}
-          showRecipeLabel={false}
-          isSharedList={listInfo?.is_shared ?? false}
-          scaleFontSize={scaleFontSize}
-        />
-      </AnimatedListItem>
+      <GroceryItemRow
+        item={item}
+        colors={colors}
+        onToggle={() => handleToggle(item)}
+        onDelete={() => handleDelete(item.id, item.name)}
+        onEdit={() => handleEdit(item)}
+        showRecipeLabel={false}
+        isSharedList={listInfo?.is_shared ?? false}
+        scaleFontSize={scaleFontSize}
+      />
     );
   };
 

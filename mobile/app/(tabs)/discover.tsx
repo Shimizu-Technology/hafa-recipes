@@ -54,7 +54,7 @@ import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { SkeletonRecipeList } from '@/components/Skeleton';
-import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import { AnimatedListItem, ScalePressable, useInitialListEntrance } from '@/components/Animated';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -595,6 +595,7 @@ export default function DiscoverScreen() {
     () => filteredRecipes?.slice(0, displayCount),
     [filteredRecipes, displayCount],
   );
+  const canEnterRow = useInitialListEntrance(Boolean(displayRecipes?.length));
   const hasPrimaryLoadError = hasServerFilters ? isSearchError : isDiscoverError;
 
   // Warm every thumbnail currently exposed by the feed. The first cards retain
@@ -685,7 +686,7 @@ export default function DiscoverScreen() {
   const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
     if (isGrid) {
       return (
-        <AnimatedListItem index={index} delay={40}>
+        <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
           <GridRecipeCard
             recipe={item}
             colors={colors}
@@ -701,7 +702,7 @@ export default function DiscoverScreen() {
       );
     }
     return (
-      <AnimatedListItem index={index} delay={40}>
+      <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
         <RecipeCard
           recipe={item}
           colors={colors}
@@ -1205,7 +1206,7 @@ export default function DiscoverScreen() {
       </RNView>
 
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
-        <SkeletonRecipeList count={5} />
+        <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
           key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout

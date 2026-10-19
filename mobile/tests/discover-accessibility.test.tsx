@@ -67,7 +67,7 @@ vi.mock('@/constants/Colors', () => ({
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: () => null }));
 vi.mock('@/components/AllContributorsModal', () => ({ default: () => null }));
 vi.mock('@/components/Skeleton', () => ({ SkeletonRecipeList: () => null }));
-vi.mock('@/components/Animated', () => ({ AnimatedListItem: () => null, ScalePressable: () => null }));
+vi.mock('@/components/Animated', () => ({ AnimatedListItem: () => null, ScalePressable: () => null, useInitialListEntrance: () => () => false }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: () => null }));
 vi.mock('@/components/RecipeGridCardFrame', () => ({ RecipeGridCardFrame: () => null, RECIPE_GRID_GAP: 8 }));
 vi.mock('react-native-reanimated', () => ({

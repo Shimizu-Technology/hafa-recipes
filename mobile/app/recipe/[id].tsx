@@ -81,6 +81,8 @@ import { appRoutes } from '@/lib/routes';
 import type { ReportCategory, SafetyTargetType } from '@/types/communitySafety';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { openRecipeSource } from '@/lib/openRecipeSource';
+import { showToast } from '@/lib/toast';
+import { haptics } from '@/utils/haptics';
 
 type TabType = 'ingredients' | 'steps' | 'nutrition' | 'cost';
 type RecipeMenuAction = {
@@ -232,7 +234,7 @@ export default function RecipeDetailScreen() {
     try {
       await updateNoteMutation.mutateAsync({ recipeId: id, noteText });
     } catch (error) {
-      Alert.alert('Error', 'Failed to save note');
+      Alert.alert('Couldn’t save note', 'Your note wasn’t saved. Check your connection and try again.');
       throw error;
     }
   };
@@ -265,8 +267,8 @@ export default function RecipeDetailScreen() {
               // Navigate to home tab where the progress UI will show
               router.replace('/(tabs)');
             } catch (error: any) {
-              const message = error?.message || 'Failed to start re-extraction';
-              Alert.alert('Error', message);
+              const message = error?.message || 'Please try again in a moment.';
+              Alert.alert('Couldn’t start re-extraction', message);
             }
           },
         },
@@ -308,17 +310,16 @@ export default function RecipeDetailScreen() {
       {
         onSuccess: () => {
           setShowIngredientPicker(false);
-          Alert.alert(
-            'Added!',
-            `${selectedIngredients.length} ingredient${selectedIngredients.length !== 1 ? 's' : ''} added to your grocery list.`,
-            [
-              { text: 'OK' },
-              { text: 'View List', onPress: () => router.push('/(tabs)/grocery') },
-            ]
-          );
+          haptics.success();
+          showToast({
+            message: `${selectedIngredients.length} added to your grocery list`,
+            tone: 'success',
+            actionLabel: 'View list',
+            onAction: () => router.push('/(tabs)/grocery'),
+          });
         },
         onError: () => {
-          Alert.alert('Error', 'Failed to add ingredients to grocery list.');
+          Alert.alert('Couldn’t add to grocery list', 'Your grocery list wasn’t changed. Please try again.');
         },
       }
     );
@@ -363,7 +364,7 @@ export default function RecipeDetailScreen() {
               try {
                 await blockMutation.mutateAsync(contributorId);
                 router.back();
-                Alert.alert('Contributor blocked', 'You will no longer see their public recipes.');
+                showToast({ message: 'Contributor blocked. You won’t see their public recipes.', tone: 'success' });
               } catch (error) {
                 Alert.alert('Couldn’t block contributor', getSafetyErrorMessage(error));
               }
@@ -578,7 +579,7 @@ export default function RecipeDetailScreen() {
           );
           return;
         }
-        Alert.alert('Error', 'Failed to update sharing settings');
+        Alert.alert('Couldn’t update sharing', 'Your recipe’s visibility didn’t change. Please try again.');
       }
     };
 

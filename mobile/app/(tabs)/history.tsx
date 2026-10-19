@@ -22,7 +22,7 @@ import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, OwnershipFilt
 import CreateCollectionModal from '@/components/CreateCollectionModal';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
 import { SkeletonRecipeList, SkeletonCollectionList } from '@/components/Skeleton';
-import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import { AnimatedListItem, ScalePressable, useInitialListEntrance } from '@/components/Animated';
 import {
   useRecipes,
   useSearchRecipes,
@@ -494,6 +494,7 @@ export default function HistoryScreen() {
 
   // For display, slice to current page
   const displayRecipes = combinedRecipes?.slice(0, displayCount);
+  const canEnterRow = useInitialListEntrance(Boolean(displayRecipes?.length));
 
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = combinedRecipes && displayCount < combinedRecipes.length;
@@ -608,7 +609,7 @@ export default function HistoryScreen() {
     // Grid view: overlay checkbox on card
     if (isGrid) {
       return (
-        <AnimatedListItem index={index} delay={40}>
+        <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
           <TouchableOpacity
             onPress={handlePress}
             onLongPress={handleLongPress}
@@ -645,7 +646,7 @@ export default function HistoryScreen() {
 
     // List view: checkbox beside card
     return (
-      <AnimatedListItem index={index} delay={40}>
+      <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
         <RNView style={styles.selectableCardContainer}>
           {isSelectionMode && (
             <TouchableOpacity
@@ -1067,7 +1068,7 @@ export default function HistoryScreen() {
       </RNView>
 
       {isLoading && !displayRecipes?.length ? (
-        <SkeletonRecipeList count={4} />
+        <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
           key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout

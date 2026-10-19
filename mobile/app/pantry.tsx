@@ -12,6 +12,7 @@ import { Text, useColors } from '@/components/Themed';
 import { fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { useCopyPersonalPantry, usePantrySnapshot, usePantryWrite } from '@/hooks/usePantry';
 import { appRoutes } from '@/lib/routes';
+import { showToast } from '@/lib/toast';
 import { pantryDateForEntry, pantryDateFromEntry, pantryDateStatus, parsePantryNames } from '@/lib/pantry';
 import type { PantryDateKind, PantryItem, PantryItemFields } from '@/types/pantry';
 
@@ -133,7 +134,7 @@ export default function PantryScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Copy items', onPress: () => copy.mutate(undefined, {
         onError: () => Alert.alert('Couldn’t copy items', 'Refresh both pantries and try again.'),
-        onSuccess: () => Alert.alert('Copied', 'Your personal items are now available to the household.'),
+        onSuccess: () => showToast({ message: 'Copied to the household pantry', tone: 'success' }),
       }) },
     ],
   );
