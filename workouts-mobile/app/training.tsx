@@ -159,7 +159,7 @@ export default function Training() {
   if (summary)
     return (
       <Screen
-        title={summary.partial ? "Partial session saved." : "Session saved."}
+        title={summary.partial ? "Partial session saved" : "Session saved"}
         footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/(tabs)/progress")} />}
       >
         <Copy tone="muted">Saved on this device. It uploads to your history when you are online.</Copy>
@@ -172,26 +172,26 @@ export default function Training() {
     );
   if (restoreError)
     return (
-      <Screen back title="Restore your session.">
+      <Screen back title="Restore session">
         <Notice error>{restoreError}</Notice>
         <Button title="Try restoring again" onPress={retry} />
       </Screen>
     );
   if (!ready)
     return (
-      <Screen back title="Restore your training.">
+      <Screen back title="Restore training">
         <Copy>Loading your saved session…</Copy>
       </Screen>
     );
   if ((!d || !store) && finishing.current)
     return (
-      <Screen title="Saving your session.">
+      <Screen title="Saving session">
         <Copy>Saving on this device…</Copy>
       </Screen>
     );
   if (!d || !store)
     return (
-      <Screen back title="Ready when you are.">
+      <Screen back title="Ready when you are">
         <Empty
           icon="fitness-outline"
           title="No active session"

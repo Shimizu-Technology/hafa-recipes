@@ -172,7 +172,7 @@ it("logs the typed entry before finishing a partial session without duplicating 
   vi.mocked(fixture.store!.finish).mockImplementation(original);
   await act(async () => { action("Finish and save partial session").props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().history[0].request).toMatchObject({ status: "partial", actuals: [{ reps: 10 }, { reps: 8, notes: "Last effort" }] });
-  expect(renderer!.root.findByType("Screen" as never).props.title).toBe("Partial session saved.");
+  expect(renderer!.root.findByType("Screen" as never).props.title).toBe("Partial session saved");
   await act(async () => { done().props.onPress(); }); await settle();
   expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
 });
