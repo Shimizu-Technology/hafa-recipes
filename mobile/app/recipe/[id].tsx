@@ -390,7 +390,7 @@ export default function RecipeDetailScreen() {
           { label: 'Delete Recipe', onPress: handleDelete, destructive: true },
         ]
       : [
-          { label: isSaved ? 'Remove from Saved' : 'Save to My Recipes', onPress: handleSaveToggle },
+          { label: isSaved ? 'Remove from Library' : 'Save to Library', onPress: handleSaveToggle },
           { label: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
           ...(canShowReExtract ? [{ label: 'Re-extract with AI', onPress: handleReExtract }] : []),
           ...(recipe.is_public

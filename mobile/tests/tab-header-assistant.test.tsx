@@ -17,7 +17,10 @@ vi.mock('expo-router', async () => {
   const Tabs = Object.assign(
     ({ children, screenOptions, tabBar }: { children: React.ReactNode; screenOptions: unknown; tabBar: unknown }) =>
       ReactModule.createElement('Tabs', { screenOptions, tabBar }, children),
-    { Screen: ({ name }: { name: string }) => ReactModule.createElement('TabScreen', { name }) },
+    {
+      Screen: ({ name, options }: { name: string; options?: Record<string, unknown> }) =>
+        ReactModule.createElement('TabScreen', { name, options }),
+    },
   );
   return { Tabs };
 });
@@ -28,8 +31,10 @@ vi.mock('@clerk/expo', () => ({
 }));
 vi.mock('@/constants/Colors', () => ({
   default: {
-    light: { tint: '#155C52', tabIconDefault: '#666', backgroundElevated: '#fff', border: '#ddd', background: '#fff' },
+    light: { tint: '#155C52', tabIconDefault: '#666', backgroundElevated: '#fff', border: '#ddd', background: '#fff', text: '#111' },
   },
+  fontFamily: { semibold: 'DMSans_600SemiBold' },
+  fontSize: { lg: 17 },
 }));
 vi.mock('@/components/useColorScheme', () => ({ useColorScheme: () => 'light' }));
 vi.mock('@/components/TabChrome', () => ({
@@ -61,6 +66,29 @@ describe('main tab assistant dock', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.type === 'AccountHeaderButton',
       )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps the brand on Discover and names every other tab in its header', async () => {
+    mocks.isSignedIn = true;
+    const renderer = createRoot();
+
+    try {
+      await act(async () => renderer.render(<TabLayout />));
+      const tabs = renderer.container.queryAll((instance) => instance.type === 'Tabs')[0];
+      const screens = renderer.container.queryAll((instance) => instance.type === 'TabScreen');
+      const byName = Object.fromEntries(screens.map((screen) => [screen.props.name, screen.props.options]));
+
+      expect(tabs.props.screenOptions.headerTitle).toBeUndefined();
+      expect(tabs.props.screenOptions.headerTitleStyle.fontFamily).toBe('DMSans_600SemiBold');
+      expect(typeof byName.discover.headerTitle).toBe('function');
+      expect(screens.map((screen) => screen.props.options.title))
+        .toEqual(['Discover', 'Library', 'Import', 'Plan', 'Grocery']);
+      for (const name of ['history', 'index', 'planner', 'grocery']) {
+        expect(byName[name].headerTitle).toBeUndefined();
+      }
     } finally {
       await act(async () => renderer.unmount());
     }

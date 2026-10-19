@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveSettingsProfileEmail, resolveSettingsProfileName } from './settingsProfile';
+import {
+  hasProfilePhoto,
+  resolveProfileInitial,
+  resolveSettingsProfileEmail,
+  resolveSettingsProfileName,
+} from './settingsProfile';
 
 describe('settings profile presentation', () => {
   it('uses the primary address when a user has multiple emails and no first name', () => {
@@ -31,5 +36,19 @@ describe('settings profile presentation', () => {
   it('returns no visible email when Clerk has no address', () => {
     expect(resolveSettingsProfileEmail({ emailAddresses: [] })).toBeUndefined();
     expect(resolveSettingsProfileEmail(null)).toBeUndefined();
+  });
+
+  it('treats Clerk\'s generated default avatar as no photo', () => {
+    expect(hasProfilePhoto({ imageUrl: 'https://img.clerk.com/default', hasImage: false })).toBe(false);
+    expect(hasProfilePhoto({ imageUrl: 'https://img.clerk.com/me', hasImage: true })).toBe(true);
+    expect(hasProfilePhoto({ imageUrl: null, hasImage: true })).toBe(false);
+    expect(hasProfilePhoto(null)).toBe(false);
+  });
+
+  it('builds an initial from the first name, then the email', () => {
+    expect(resolveProfileInitial({ firstName: 'leon' })).toBe('L');
+    expect(resolveProfileInitial({ firstName: '  ', primaryEmailAddress: { emailAddress: 'cook@example.com' } })).toBe('C');
+    expect(resolveProfileInitial({ firstName: 'Ånna' })).toBe('Å');
+    expect(resolveProfileInitial({ emailAddresses: [] })).toBeUndefined();
   });
 });

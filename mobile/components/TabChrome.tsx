@@ -7,8 +7,9 @@ import { useRouter } from 'expo-router';
 import { BrandMark } from '@/components/BrandMark';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
+import { hasProfilePhoto, resolveProfileInitial } from '@/lib/settingsProfile';
 
-/** Render the compact Håfa Recipes identity in every primary tab header. */
+/** Render the compact Håfa Recipes identity in the Discover tab header. */
 export function TabHeaderBrand() {
   const colors = useColors();
 
@@ -26,6 +27,7 @@ export function AccountHeaderButton() {
   const router = useRouter();
   const { isSignedIn, user } = useUser();
   const label = isSignedIn ? 'Open account and settings' : 'Open sign in and settings';
+  const initial = resolveProfileInitial(user);
 
   return (
     <TouchableOpacity
@@ -36,8 +38,12 @@ export function AccountHeaderButton() {
       accessibilityLabel={label}
       hitSlop={8}
     >
-      {isSignedIn && user?.imageUrl ? (
+      {isSignedIn && hasProfilePhoto(user) ? (
         <Image source={{ uri: user.imageUrl }} style={styles.accountImage} accessibilityIgnoresInvertColors />
+      ) : isSignedIn && initial ? (
+        <RNView style={[styles.accountInitial, { backgroundColor: colors.accentSoft }]}>
+          <Text maxFontSizeMultiplier={1} style={[styles.accountInitialText, { color: colors.accent }]}>{initial}</Text>
+        </RNView>
       ) : (
         <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={19} color={colors.tint} />
       )}
@@ -50,18 +56,8 @@ export function ImportTabIcon({ focused }: { focused: boolean }) {
   const colors = useColors();
 
   return (
-    <RNView
-      style={[
-        styles.importIcon,
-        {
-          backgroundColor: colors.tint,
-          borderColor: colors.backgroundElevated,
-          opacity: focused ? 1 : 0.9,
-          shadowColor: colors.shadowColor,
-        },
-      ]}
-    >
-      <Ionicons name={focused ? 'add' : 'add-outline'} size={27} color="#FFFFFF" />
+    <RNView style={[styles.importIcon, { backgroundColor: colors.tint, opacity: focused ? 1 : 0.9 }]}>
+      <Ionicons name={focused ? 'add' : 'add-outline'} size={24} color="#FFFFFF" />
     </RNView>
   );
 }
@@ -91,17 +87,27 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: radius.full,
   },
-  importIcon: {
-    width: 46,
-    height: 46,
+  accountInitial: {
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
-    borderWidth: 3,
-    marginTop: -11,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 5,
+    borderRadius: radius.full,
+  },
+  accountInitialText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSize.lg,
+  },
+  // Filled because Import is the primary capture action, but it sits inside the
+  // bar like the other icons: no ring, no shadow, no raised offset. The 28pt
+  // icon slot is centered, so the negative top margin keeps the bottom edge on
+  // the shared icon baseline instead of pushing into the label.
+  importIcon: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    marginTop: -6,
   },
 });
