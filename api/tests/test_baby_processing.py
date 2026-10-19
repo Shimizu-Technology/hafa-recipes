@@ -135,3 +135,29 @@ async def test_cleanup_fails_closed_if_production_object_storage_disappears(monk
     monkeypatch.setattr(storage, "storage_service", SimpleNamespace(is_enabled=False))
     with pytest.raises(StorageCleanupError):
         await storage.delete_private_prefix(attachments.attachment_prefix(uuid4(), "owner", 1))
+
+
+async def test_attachment_read_failure_preserves_text_and_other_attachments(monkeypatch):
+    async def read(attachment):
+        if attachment.id == "unavailable":
+            raise OSError("storage unavailable")
+        return b"pdf fixture"
+
+    async def pdf_parts(payload):
+        return [SourcePart("page:1", "Readable document")]
+
+    async def gate():
+        pass
+
+    monkeypatch.setattr(processing, "read_bytes", read)
+    monkeypatch.setattr(processing, "_pdf_parts", pdf_parts)
+    result = await processing.process_capture(
+        {"text": "Pasted annotation", "attachment_ids": []},
+        [SimpleNamespace(id=identifier, mime_type="application/pdf")
+         for identifier in ["readable-before", "unavailable", "readable-after"]],
+        SimpleNamespace(enabled=False), may_use_ai=False, gate=gate,
+    )
+    assert result["status"] == "incomplete"
+    assert "Pasted annotation" in result["data"]["source_text"]
+    assert result["data"]["source_text"].count("Readable document") == 2
+    assert any("An attachment could not be read" in note for note in result["data"]["coverage_notes"])

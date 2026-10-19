@@ -102,12 +102,13 @@ async def create_import(body: ImportCreate, user: User, db: Database, generation
             attachment_ids=body.attachment_ids,
             status="queued",
         ).model_dump(mode="json")
+        title_text = (body.text or "").strip()
         source = BabyRecord(
             id=source_id,
             app_user_id=user.id,
             generation=generation,
             kind="source",
-            title=(body.text.strip().splitlines()[0][:100] if body.text else "Saved source"),
+            title=title_text.splitlines()[0][:100] if title_text else "Saved source",
             body="",
             child_id=body.child_id,
             occurred_at=now(),

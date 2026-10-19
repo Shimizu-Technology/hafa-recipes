@@ -93,8 +93,8 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             failures.append("The linked source could not be read. The original link remains saved.")
     for index, attachment in enumerate(attachments):
         await gate()
-        payload = await read_bytes(attachment)
         try:
+            payload = await read_bytes(attachment)
             if attachment.mime_type.startswith("image/"):
                 source.images.append(
                     SourceImage(

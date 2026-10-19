@@ -842,3 +842,26 @@ async def test_release_and_record_save_serialize_without_dangling_media(baby_api
     assert released.status_code == 204
     state = (await attachment_states(baby_api, identifier))[identifier]
     assert (save.status_code, state) in {(200, "ready"), (409, "deleted")}
+
+
+async def test_capture_url_with_whitespace_text_saves_bookmark(baby_api):
+    response = await baby_api.client.post(
+        "/api/v1/baby/imports", headers=GEN,
+        json={"id": str(uuid4()), "url": "https://example.com", "text": "  \n  "},
+    )
+    assert response.status_code == 200, response.text
+    saved = await baby_api.client.get(f"/api/v1/baby/records/{response.json()['record_id']}")
+    assert saved.json()["title"] == "Saved source"
+    assert saved.json()["data"]["url"] == "https://example.com"
+
+
+async def test_migration_advisory_lock_wait_is_bounded_and_recoverable(baby_api):
+    from sqlalchemy.exc import DBAPIError
+
+    async with baby_api.engine.begin() as holder:
+        await holder.execute(text("SELECT pg_advisory_xact_lock(7340051)"))
+        with pytest.raises(DBAPIError, match="lock timeout"):
+            await asyncio.wait_for(migration.run_migration(
+                configured=baby_api.settings, migration_engine=baby_api.engine,
+            ), timeout=8)
+    await migration.run_migration(configured=baby_api.settings, migration_engine=baby_api.engine)

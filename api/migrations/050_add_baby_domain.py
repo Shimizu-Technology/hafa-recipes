@@ -16,8 +16,8 @@ async def run_migration(*, configured=None, migration_engine=None):
     if not getattr(configured, "baby_api_enabled", False):
         return
     async with (migration_engine or engine).begin() as connection:
-        await connection.execute(text("SELECT pg_advisory_xact_lock(7340051)"))
         await connection.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await connection.execute(text("SELECT pg_advisory_xact_lock(7340051)"))
         if not await connection.scalar(
             text(
                 "SELECT to_regclass('public.schema_migrations') IS NOT NULL AND to_regclass('public.app_users') IS NOT NULL AND to_regclass('public.deletion_cleanup_jobs') IS NOT NULL"
