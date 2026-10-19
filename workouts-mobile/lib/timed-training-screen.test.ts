@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { Children, createElement, isValidElement, type ReactElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -35,7 +35,8 @@ const workout: Workout = { id: "source", generation: 1, revision: 1, title: "Who
   blocks: [{ id: "main", label: "Circuit", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
     exercises: Array.from({ length: 9 }, (_, index) => ({ name: `Exercise ${index + 1}`, reps_min: 10 })) }] };
 async function settle() { for (let i = 0; i < 6; i++) await act(async () => { await Promise.resolve(); }); }
-const footer = () => renderer!.root.findByType("Screen" as never).props.footer;
+const footer = () => Children.toArray(renderer!.root.findByType("Screen" as never).props.footer.props.children)
+  .find(child => isValidElement(child) && child.type === ("Button" as never)) as ReactElement<{ title: string; disabled: boolean; busy: boolean; onPress(): void }>;
 const text = () => renderer!.root.findAllByType("Copy" as never).map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -107,6 +108,21 @@ async function recordedThenTyped() {
   await act(async () => { action("Add load or feedback").props.onPress(); }); await settle();
   await act(async () => { field("Actual reps").props.onChange("8"); field("Set notes").props.onChange("Last effort"); }); await settle();
 }
+it("asks for the missing activity in the partial-save sheet even without an unlogged entry", async () => {
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(workout, { workout_id: "source", workout_revision: 1 }, "new-client");
+  }); await settle();
+  await act(async () => { field("Actual reps").props.onChange("10"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  expect(renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Save partial session")!.props.visible).toBe(true);
+  expect(fixture.store!.snapshot().history).toHaveLength(0);
+  const activity = renderer!.root.findAllByType("Chip" as never).filter(node => node.props.label === "general fitness").at(-1)!;
+  await act(async () => { activity.props.onPress(); }); await settle();
+  await act(async () => { action("Finish and save partial session").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().history[0].request).toMatchObject({ status: "partial", activity_type: "general_fitness", actuals: [{ reps: 10 }] });
+});
 it("offers deliberate partial-finish choices and keeps typed details when training continues", async () => {
   await recordedThenTyped();
   await act(async () => { partial().props.onPress(); }); await settle();

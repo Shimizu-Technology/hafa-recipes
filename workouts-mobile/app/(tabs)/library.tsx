@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import {
   AccountButton,
   Button,
+  Card,
   Chip,
   ChipRow,
   Choice,
@@ -21,15 +22,17 @@ import {
   SkeletonCard,
 } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
-import { useTraining } from "@/lib/context";
+import { useTraining, useOfflineTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
 import { workoutOriginLabel } from "@/lib/workout-presentation";
-import { WorkoutGallery } from "@/components/workout-gallery";
+import { WorkoutGallery, useWorkoutGalleryColumns } from "@/components/workout-gallery";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
+  const columns = useWorkoutGalleryColumns();
+  const { state: training, ready: trainingReady } = useOfflineTraining();
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const [search, setSearch] = useState("");
@@ -142,6 +145,11 @@ export default function Library() {
         </Row>
       }
     >
+      {trainingReady && training.active && <Card compact>
+        <Copy kind="caption" tone="accent">Session in progress</Copy>
+        <Copy kind="subheading">{training.active.workout.title}</Copy>
+        <Button title="Resume session" secondary icon="play-outline" onPress={() => router.push("/training")} />
+      </Card>}
       <Field label="Search workouts" value={search} onChange={setSearch} placeholder="Title or training focus" />
       <ChipRow label="Quick filters">
         <Chip label="Favorites" icon="heart-outline" selected={favorite} onPress={() => setFavorite(!favorite)} />
@@ -204,6 +212,7 @@ export default function Library() {
               selected={selectedIds.includes(w.id)} disabled={bulkBusy} onPress={() => select(w.id)} /> : (
               <MediaCard
                 key={w.id}
+                layout={columns === 2 ? "stacked" : "row"}
                 title={w.title}
                 image={w.source_thumbnail_url}
                 icon={kindIcons[w.kind]}

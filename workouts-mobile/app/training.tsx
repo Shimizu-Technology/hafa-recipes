@@ -56,6 +56,7 @@ export default function Training() {
   const checkpointing = useRef(false);
   const backgroundPausePending = useRef(false);
   const [advanced, setAdvanced] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [more, setMore] = useState(false);
   const [finishReview, setFinishReview] = useState(false);
   const [metric, setMetric] = useState<"reps" | "time" | "distance">("reps");
@@ -82,7 +83,7 @@ export default function Training() {
     });
     return () => sub.remove();
   }, [store, scope, d?.id]);
-  useLayoutEffect(() => { setFinishReview(false); setBusy(false); setError(""); setMore(false);
+  useLayoutEffect(() => { setFinishReview(false); setBusy(false); setError(""); setMore(false); setInstructionsOpen(false);
     guard.current = false; operation.current = null; checkpointing.current = false; backgroundPausePending.current = false;
   }, [scope, d?.id]);
   useLayoutEffect(() => {
@@ -207,7 +208,7 @@ export default function Training() {
   function requestPartialFinish() {
     if (guard.current || !sameSession()) return;
     setMore(false);
-    if (hasUnloggedInput(inputRef.current) || hasUnloggedInput(store!.snapshot().active?.input)) {
+    if (!d?.activity_type || hasUnloggedInput(inputRef.current) || hasUnloggedInput(store!.snapshot().active?.input)) {
       setFinishReview(true);
       return;
     }
@@ -264,8 +265,9 @@ export default function Training() {
           <IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />
         </Row>
       }
-      footer={
-        timedComplete && !pendingEntry ? (
+      footer={<>
+        {!!error && <Notice error>{error}</Notice>}
+        {timedComplete && !pendingEntry ? (
           <Button title="Finish at time cap and save" icon="checkmark-done" size="lg" busy={busy}
             onPress={() => { void run(() => finish("completed")); }} />
         ) : step && e ? (
@@ -296,8 +298,8 @@ export default function Training() {
             disabled={busy || !d.actuals.length}
             onPress={requestPartialFinish}
           />
-        )
-      }
+        )}
+      </>}
     >
       {!!structureWarning && (
         <>
@@ -312,7 +314,6 @@ export default function Training() {
           )}
         </>
       )}
-      <WorkoutInstructions instructions={d.workout.instructions} />
       {timed && <Card tone="hero">
         <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} source time cap</Copy>
         <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
@@ -345,13 +346,13 @@ export default function Training() {
       )}
       {step && e ? (
         <>
-          <Card tone="hero">
+          <Card compact>
             <Copy kind="caption" tone="accent">
               {step.block_label} · round {step.round_index} · {timed ? `exercise ${step.exercise_index + 1}` : `set ${step.target_set}`}
               {step.side ? ` · ${step.side} side` : ""}
             </Copy>
-            <Copy kind="display">{e.name}</Copy>
-            <Copy kind="numericSmall">{target}</Copy>
+            <Copy kind="heading">{e.name}</Copy>
+            <Copy kind="subheading">{target}</Copy>
             {previous && <Copy tone="muted">Last time · {summaryOf(previous)}</Copy>}
             {(e.load != null || !!e.tempo || !!e.effort) && (
               <ChipRow wrap>
@@ -362,21 +363,7 @@ export default function Training() {
                 {!!e.effort && <Chip label={`Effort ${e.effort}`} />}
               </ChipRow>
             )}
-            {!!e.instructions && <Copy tone="muted">{e.instructions}</Copy>}
-            {!!e.notes && <Copy tone="muted">Private note · {e.notes}</Copy>}
-            {!!d.workout.source_url && (
-              <ListRow
-                icon="play-circle-outline"
-                title="Open original instructions"
-                detail="Your place here is saved"
-                trailing="external"
-                onPress={() => {
-                  void Linking.openURL(d.workout.source_url!).catch(() =>
-                    setError("Could not open the source. Your session remains saved.")
-                  );
-                }}
-              />
-            )}
+            <Button title="Workout instructions" variant="ghost" onPress={() => setInstructionsOpen(true)} />
           </Card>
           {e.sets == null && !timed && (
             <Notice>The source does not specify sets. Log what you do; add another set if you choose additional work.</Notice>
@@ -555,7 +542,6 @@ export default function Training() {
       {reminders.state.settings.rest_enabled && reminders.state.permission !== "granted" && (
         <Notice>Device rest alerts are unavailable or not permitted. Your in-app timer still works.</Notice>
       )}
-      {!!error && <Notice error>{error}</Notice>}
       {!!d.actuals.length && (
         <>
           <SectionHeader title="Recorded work" />
@@ -585,6 +571,25 @@ export default function Training() {
           />
         ))}
       </ChipRow>
+      <Sheet visible={instructionsOpen} onClose={() => setInstructionsOpen(false)} title="Workout instructions">
+        {!!e && <Copy kind="heading">{e.name}</Copy>}
+            {!!e?.instructions && <Copy tone="muted">{e?.instructions}</Copy>}
+            {!!e?.notes && <Copy tone="muted">Private note · {e?.notes}</Copy>}
+            {!!d.workout.source_url && (
+              <ListRow
+                icon="play-circle-outline"
+                title="Open original instructions"
+                detail="Your place here is saved"
+                trailing="external"
+                onPress={() => {
+                  void Linking.openURL(d.workout.source_url!).catch(() =>
+                    setError("Could not open the source. Your session remains saved.")
+                  );
+                }}
+              />
+            )}
+        <WorkoutInstructions instructions={d.workout.instructions} />
+      </Sheet>
       <Sheet visible={more} onClose={() => setMore(false)} title="Session">
         {step && e && (
           <>
@@ -637,7 +642,7 @@ export default function Training() {
           }}
         />
       </Sheet>
-      <Sheet visible={finishReview} onClose={() => { if (!busy) setFinishReview(false); }} title="Keep your current entry?">
+      <Sheet visible={finishReview} onClose={() => { if (!busy) setFinishReview(false); }} title={pendingEntry ? "Keep your current entry?" : "Save partial session"}>
         <Copy>{pendingEntry
           ? "You have details that have not been logged. Choose what to keep before saving this partial session."
           : "Your entry is recorded. Finish saving this partial session, or keep training."}</Copy>

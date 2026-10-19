@@ -1,4 +1,5 @@
 import WorkoutDetail from "../app/workout/[id]";
+import { WorkoutSource } from "../components/workout-source";
 import { createElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -142,6 +143,12 @@ import type { ShareSnapshot } from "./sharing";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
+it("omits an empty reference card when source identity is already in the header", async () => {
+  await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
+    source_thumbnail_url: "https://example.test/cover.jpg", source_url: "https://example.test/source",
+  }, showIdentity: false, showOriginal: false })); });
+  expect(nodes("Card")).toHaveLength(0);
+});
 it("a saved workout enters planning with that workout selected", async () => {
   fixture.params = { id: "saved-1" };
   fixture.workout.mockResolvedValue({ id: "saved-1", revision: 1, generation: 1, title: "Saved session",

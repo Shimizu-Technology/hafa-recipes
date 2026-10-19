@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { Button, Card, Copy } from "@/components/ui";
 import { SourceImage } from "@/components/source-image";
 import type { Workout } from "@/lib/models";
-import { SourcePlayback } from "./source-playback";
+import { hasSourcePlayback, SourcePlayback } from "./source-playback";
 import { radii } from "@/constants/theme";
 type Source = Pick<Workout, "source_title" | "source_creator" | "source_thumbnail_url" | "source_context" | "source_url" | "cover_origin">;
 
@@ -19,7 +19,8 @@ export function WorkoutSourceHeader({ source }: { source: Source }) {
 }
 
 export function WorkoutSource({ source, showOriginal = true, showIdentity = true }: { source: Source; showOriginal?: boolean; showIdentity?: boolean }) {
-  if (!source.source_title && !source.source_creator && !source.source_thumbnail_url && !source.source_context && !source.source_url) return null;
+  const identity = showIdentity && (source.source_title || source.source_creator || source.source_thumbnail_url);
+  if (!identity && !source.source_context && !hasSourcePlayback(source.source_url, showOriginal)) return null;
   return <Card compact>
     {showIdentity && <>
       {source.source_thumbnail_url && <SourceImage uri={source.source_thumbnail_url} label={source.cover_origin === "user" ? "Custom workout cover photo" : source.source_title ?? "Original workout source"} />}
