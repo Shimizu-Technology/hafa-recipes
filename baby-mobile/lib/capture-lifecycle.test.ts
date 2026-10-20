@@ -247,3 +247,36 @@ it("cleans earlier copies if a later supported file fails to copy", async () => 
   expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
   expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.acknowledge).not.toHaveBeenCalled();
 });
+function chips() {
+  return renderer!.root.findAll((node) => String(node.type) === "Chips")[0];
+}
+function withBaby(account: ReturnType<typeof setup>) {
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!,
+    children: [{ id: "baby-1", name: "Baby girl", revision: 1 }] } };
+}
+it("files a new care log under the baby even when Everything is selected", async () => {
+  const account = setup(); withBaby(account); scope.params = { kind: "feeding" };
+  await mount(Edit);
+  expect(chips().props.value).toBe("baby-1");
+  expect(chips().props.options.map((option: { value: string }) => option.value)).toEqual(["baby-1"]);
+  await press("Save feeding");
+  await act(async () => { await account.drain(); });
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.child_id).toBe("baby-1");
+  scope.params = { kind: "journal" };
+});
+it("lets an older general care entry be reassigned to the baby and saves that choice", async () => {
+  const account = setup(); withBaby(account);
+  account.state = { ...account.state, drafts: { legacy: { id: "care-old", kind: "diaper", title: "Diaper", body: "",
+    child_id: null, occurred_at: "2026-10-19T10:00:00.000Z", files: [], data: { type: "wet" }, existing: true, revision: 2 } } };
+  scope.params = { kind: "diaper", draft: "legacy" } as typeof scope.params;
+  await mount(Edit);
+  expect(chips().props.value).toBe("");
+  expect(chips().props.options.map((option: { value: string }) => option.value)).toEqual(["", "baby-1"]);
+  await act(async () => chips().props.onChange("baby-1"));
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.child_id).toBe("baby-1");
+  scope.params = { kind: "journal" };
+});

@@ -28,11 +28,24 @@ function readableData(line: string, kind?: Kind) {
 
 /** Citation preview without the repeated title or stored data shapes, including older conversations. */
 export function citationExcerpt(citation: Citation) {
-  const lines = citation.excerpt.split("\n").map((line) => line.trim());
+  const lines = citation.excerpt.split("\n").map((line) => line.trim()),
+    output: string[] = [];
   if (lines[0] === citation.title.trim()) lines.shift();
-  return lines
-    .map((line) => (line.startsWith("{") && line.endsWith("}") ? readableData(line, citation.kind) : line))
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  for (let index = 0; index < lines.length; index++) {
+    if (!lines[index].startsWith("{")) {
+      output.push(lines[index]);
+      continue;
+    }
+    // Stored data may be one line or pretty-printed across several lines.
+    let end = index;
+    while (end < lines.length - 1 && !lines[end].endsWith("}")) end++;
+    const block = lines.slice(index, end + 1).join(" "),
+      readable = readableData(block, citation.kind);
+    if (readable === block) output.push(lines[index]);
+    else {
+      output.push(readable);
+      index = end;
+    }
+  }
+  return output.filter(Boolean).join("\n").trim();
 }
