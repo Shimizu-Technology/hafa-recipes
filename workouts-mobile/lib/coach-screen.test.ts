@@ -27,7 +27,7 @@ vi.mock("@/lib/context", () => {
   const prerequisite = async (name: string) => { f.prerequisiteCalls.push(name); if (f.prerequisiteGate) await f.prerequisiteGate; if (f.prerequisiteError && (!f.prerequisiteFailures.length || f.prerequisiteFailures.includes(name))) throw Error(f.prerequisiteError); };
   const api = { profile: async () => { await prerequisite("profile"); return f.profileGate ?? ({ adult_confirmed: true }); }, capabilities: async () => { await prerequisite("capabilities"); return { coach: f.coach, coach_cancellation: f.cancellation, coach_streaming: f.streaming }; },
     aiConsent: async () => { await prerequisite("consent"); return { accepted: f.consent }; }, readiness: async () => ({}), setReadiness: f.readiness,
-    coachHistory: async (offset = 0) => { f.historyCalls.push(offset); if (f.historyError) throw Error(f.historyError); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, cancelCoachMessage: f.stop, clearCoach: f.clear };
+    coachHistory: async (offset = 0) => { f.historyCalls.push(offset); if (f.historyError) throw Error(f.historyError); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, workout: async () => ({ title: "Leg day" }), cancelCoachMessage: f.stop, clearCoach: f.clear };
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
 });
 vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoControl", CoachMessagePhoto: "CoachMessagePhoto",
@@ -54,18 +54,22 @@ vi.mock("expo-router", async () => {
     useFocusEffect: (fn: () => void) => useEffect(() => f.routeFocused ? fn() : undefined, [fn, f.focusVersion, f.routeFocused]) };
 });
 vi.mock("@/components/ui", () => ({
-  ...Object.fromEntries(["Button", "Card", "Chip", "ChipRow", "Copy", "Field", "ListGroup", "ListRow", "Notice", "SectionHeader"].map(name => [name, name])),
+  ...Object.fromEntries(["Button", "Card", "Chip", "ChipRow", "Copy", "IconButton", "ListGroup", "ListRow", "Notice"].map(name => [name, name])),
   Bubble: (props: React.ComponentProps<typeof import("../components/design/surfaces").Bubble>) => createElement(f.bubble ?? "Bubble", props),
   Sheet: (props: { visible: boolean; children?: React.ReactNode }) => props.visible ? createElement("Sheet", props, props.children) : null,
   useColors: () => ({ text: "ink", accentText: "accent", sunken: "sunken" }),
-  Screen: (props: { children?: React.ReactNode; footer?: React.ReactNode; scrollRef?: { current: unknown } }) => {
+}));
+// The chat shell owns the scroll view; the composer input stands in for a Field.
+vi.mock("@/components/coach-chat", () => ({ CoachInput: "Field", CoachSnackbar: "CoachSnackbar",
+  CoachChatShell: (props: { children?: React.ReactNode; menu?: () => void; banner?: React.ReactNode; footer?: React.ReactNode; overlay?: React.ReactNode; scrollRef?: { current: unknown } }) => {
     // Installed RNWeb binds forwardedRef when its scroll DOM node mounts.
     useLayoutEffect(() => {
       const node = { scrollTo: f.scrollTo, scrollToEnd: f.scrollEnd, getInnerViewRef: () => f.contentEnabled ? f.contentView : null };
       if (props.scrollRef) props.scrollRef.current = node;
       return () => { if (props.scrollRef?.current === node) props.scrollRef.current = null; };
     }, []);
-    return createElement("Screen", props, props.children, createElement("PinnedFooter", null, props.footer));
+    return createElement("Screen", props, props.menu && createElement("IconButton", { label: "Coach options", onPress: props.menu }),
+      props.banner, props.children, props.overlay, createElement("PinnedFooter", null, props.footer));
   },
 }));
 vi.mock("@believer/react-native-markdown-display", async () => ({
@@ -74,7 +78,20 @@ vi.mock("@believer/react-native-markdown-display", async () => ({
 import Coach from "../app/coach";
 let view: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => view!.root.findAll(node => node.type === type);
-const button = (title: string) => nodes("Button").find(node => node.props.title === title)!;
+// Actions may be text buttons, icon buttons (by VoiceOver label) or sheet rows.
+const button = (title: string) => view!.root.findAll(node => ["Button", "ListRow"].includes(String(node.type)) && node.props.title === title || String(node.type) === "IconButton" && node.props.label === title)[0]!;
+// Reply actions sit behind each reply's ··· button; Coach options behind the header ···.
+const replyRow = async (title: string, index = 0) => {
+  if (!button(title)) await act(async () => { nodes("IconButton").filter(node => node.props.label === "Reply options")[index].props.onPress(); });
+  return button(title);
+};
+const clickReply = async (title: string) => { const row = await replyRow(title); await act(async () => { row.props.onPress(); }); await settle(); };
+const option = async (title: string) => {
+  if (!button(title)) await act(async () => { nodes("Sheet").forEach(sheet => sheet.props.onClose()); button("Coach options").props.onPress(); });
+  return button(title);
+};
+const clickOption = async (title: string) => { const row = await option(title); await act(async () => { row.props.onPress(); }); await settle(); };
+const copiedFeedback = () => nodes("CoachSnackbar")[0]?.props.snack?.text === "Reply copied";
 const settle = async () => { for (let i = 0; i < 4; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); }); };
 const mount = async () => { await act(async () => { view = create(createElement(QueryClientProvider, { client: cache }, createElement(Coach)), { createNodeMock: element => element.type === "View" ? { measureLayout: f.measureAnchor } : null }); }); await settle(); };
 const refresh = async () => { await act(async () => { view!.update(createElement(QueryClientProvider, { client: cache }, createElement(Coach))); }); await settle(); };
@@ -102,9 +119,9 @@ it("reads chronologically with a pinned composer and copies the original reply w
   f.history = [reply("newer"), reply("older")]; await mount();
   expect(nodes("Markdown").map(node => node.props.children)).toEqual(["Reply older", "Reply newer"]);
   expect(nodes("Copy").filter(node => node.props.selectable)).toHaveLength(2);
-  expect(nodes("PinnedFooter")[0].find(node => String(node.type) === "Field").props.compact).toBe(true);
-  await act(async () => { nodes("Button").find(node => node.props.title === "Copy reply")!.props.onPress(); }); await settle();
-  expect(f.copy).toHaveBeenCalledWith("Reply older"); expect(button("Reply copied")).toBeTruthy();
+  expect(nodes("PinnedFooter")[0].find(node => String(node.type) === "Field").props.label).toBe("Message to your coach");
+  await clickReply("Copy reply");
+  expect(f.copy).toHaveBeenCalledWith("Reply older"); expect(copiedFeedback()).toBe(true);
 });
 it("preserves unsent text through remount", async () => { await mount(); await type("Keep this draft"); await unmount(); await mount(); expect(nodes("Field")[0].props.value).toBe("Keep this draft"); });
 it("retries the exact durable request after a lost acknowledgement and remount", async () => {
@@ -132,7 +149,7 @@ it.each(["owner", "generation"])("ignores a late reply after the %s changes and 
   await act(async () => gate.resolve(reply("old"))); await settle(); expect(nodes("Field")[0].props.value).toBe("New scope draft"); expect(draft().message).toBe("New scope draft"); expect(draft().pending).toBeNull();
 });
 it("shows recoverable copy errors without changing the conversation", async () => {
-  f.history = [reply("older")]; f.copy.mockRejectedValueOnce(Error("Clipboard denied")); await mount(); await click("Copy reply");
+  f.history = [reply("older")]; f.copy.mockRejectedValueOnce(Error("Clipboard denied")); await mount(); await clickReply("Copy reply");
   expect(nodes("Notice").some(node => String(node.props.children).includes("Could not copy"))).toBe(true); expect(f.send).not.toHaveBeenCalled();
 });
 
@@ -321,7 +338,7 @@ it("disables HTML and remote images while retaining selectable Markdown text", a
   expect(md.markdownit.validateLink("javascript:alert(1)")).toBe(false);
   expect(md.rules.textgroup({ key: "text" }, ["Row"], [], {}).props.selectable).toBe(true);
   expect(md.children).toContain("**Plan**");
-  await click("Copy reply"); expect(f.copy).toHaveBeenCalledWith(f.history[0].assistant_message);
+  await clickReply("Copy reply"); expect(f.copy).toHaveBeenCalledWith(f.history[0].assistant_message);
 });
 it.each(["web", "ios"] as const)("confirms HTTP links using the app sheet on %s", async platform => {
   f.platform = platform; f.history = [reply("older")]; await mount();
@@ -421,10 +438,10 @@ it("keeps the top controls in place if no existing message is visible while load
 
 it("reports resolved-false clipboard failure and clears that feedback after a confirmed retry", async () => {
   f.history = [reply("older")]; f.copy.mockResolvedValueOnce(false); await mount();
-  await click("Copy reply");
-  expect(nodes("Button").some(node => node.props.title === "Reply copied")).toBe(false);
+  await clickReply("Copy reply");
+  expect(copiedFeedback()).toBe(false);
   expect(nodes("Notice").some(node => String(node.props.children).includes("Could not copy"))).toBe(true);
-  await click("Copy reply"); expect(button("Reply copied")).toBeTruthy();
+  await clickReply("Copy reply"); expect(copiedFeedback()).toBe(true);
   expect(nodes("Notice").some(node => String(node.props.children).includes("Could not copy"))).toBe(false);
   expect(f.send).not.toHaveBeenCalled();
 });
@@ -437,11 +454,11 @@ it("an uncommitted focus render cannot retire the committed conversation callbac
     createElement(Suspense, { fallback: createElement("Fallback") },
       createElement(Params.Provider, { value: params }, createElement(Coach), createElement(Gate, { pending }))));
   await act(async () => { view = create(screen({}, false)); }); await settle();
-  await click("Copy reply");
+  await clickReply("Copy reply");
   await act(async () => { startTransition(() => view!.update(screen({ workout_id: "uncommitted", revision: "1" }, true))); });
   expect(nodes("Fallback")).toHaveLength(0);
   await act(async () => copied.resolve(true)); await settle();
-  expect(button("Reply copied")).toBeTruthy();
+  expect(copiedFeedback()).toBe(true);
   expect(f.send).not.toHaveBeenCalled();
 });
 
@@ -452,8 +469,8 @@ async function replaceScope(change: "owner" | "generation" | "focus" | "storage"
   else f.storageVersion++;
   await refresh();
 }
-const showCheckIn = async () => { await act(async () => { nodes("ListRow").find(node => node.props.title === "Check in for today")!.props.onPress(); }); await settle(); };
-async function clearHandler() { await click("Clear saved coach conversation"); return button("Clear conversation and pending suggestions").props.onPress as () => void; }
+const showCheckIn = () => clickOption("Check in for today");
+async function clearHandler() { await clickOption("Clear conversation"); return button("Clear conversation and pending suggestions").props.onPress as () => void; }
 it.each(["owner", "generation", "focus", "storage"] as const)("rejects a retained check-in command before changing busy state or calling the prior API after %s replacement", async change => {
   await mount(); await showCheckIn(); const retained = button("Save today’s check-in").props.onPress;
   await replaceScope(change); await act(async () => retained()); await settle();
@@ -503,11 +520,11 @@ it("renders pending empty replies without raw text in the native layout", async 
   expect(row).toBeTruthy();
   expect(row.props.children.some((child: unknown) => typeof child === "string" || typeof child === "number")).toBe(false);
   expect(nodes("Markdown")).toHaveLength(0);
-  expect(nodes("Notice").some(node => String(node.props.children).includes("Still processing"))).toBe(true);
+  expect(nodes("Copy").some(node => String(node.props.children).includes("Thinking…"))).toBe(true);
 });
 
 it("a retained copy cannot write to the clipboard after the same account leaves and returns", async () => {
-  f.history = [reply("older")]; await mount(); const retained = button("Copy reply").props.onPress, owner = f.owner;
+  f.history = [reply("older")]; await mount(); const retained = (await replyRow("Copy reply")).props.onPress, owner = f.owner;
   f.owner = "another-account"; await refresh(); f.owner = owner; await refresh();
   await act(async () => retained()); await settle(); expect(f.copy).not.toHaveBeenCalled();
 });
@@ -585,11 +602,12 @@ it("keeps an active request compact and retries the same durable message after a
   expect(nodes("Field")[0].props.disabled).toBe(false);
 });
 
-it("only opts the Coach conversation into manual browser reading-position authority", async () => {
-  const gate = deferred<{ adult_confirmed: boolean }>(); f.profileGate = gate.promise;
-  await mount(); expect(nodes("Screen")[0].props.disableBrowserScrollAnchoring).not.toBe(true);
-  await act(async () => gate.resolve({ adult_confirmed: true })); await settle();
-  expect(nodes("Screen")[0].props.disableBrowserScrollAnchoring).toBe(true);
+it.each(["web", "ios"] as const)("the real coach chat shell keeps manual reading-position authority on %s", async platform => {
+  f.platform = platform;
+  const { CoachChatShell } = await vi.importActual<typeof import("../components/coach-chat")>("../components/coach-chat");
+  await act(async () => { view = create(createElement(CoachChatShell, { footer: createElement("Composer") })); });
+  expect(nodes("ScrollView")[0].props.style).toEqual(platform === "web" ? { overflowAnchor: "none" } : undefined);
+  expect(nodes("IconButton").map(node => node.props.label)).toEqual(["Close coach"]);
 });
 it.each(["web", "ios", "android"])("the real Screen disables browser anchoring only for opted-in web scrollers (%s)", async platform => {
   f.platform = platform as typeof f.platform;
@@ -616,9 +634,10 @@ it("keeps the native photo reply nested list complete and copyable inside the re
   const tokens = markdown.markdownit.parse(answer, {});
   expect(tokens.filter((token: { type: string }) => token.type === "bullet_list_open")).toHaveLength(2);
   expect(tokens.filter((token: { type: string }) => token.type === "inline").map((token: { content: string }) => token.content)).toContain("6 rows total — 3 each side");
-  expect(bubble.children.filter(node => typeof node !== "string" && String(node.type) === "Button").map(node => typeof node !== "string" && node.props.title)).toEqual(["Copy reply", "Read aloud"]);
-  await click("Copy reply"); expect(f.copy).toHaveBeenCalledWith(answer);
-  expect(button("Reply copied")).toBeTruthy();
+  expect(bubble.findAll(node => String(node.type) === "Button")).toHaveLength(0);
+  await replyRow("Copy reply"); expect(nodes("ListRow").map(node => node.props.title)).toEqual(["Copy reply", "Read aloud"]);
+  await clickReply("Copy reply"); expect(f.copy).toHaveBeenCalledWith(answer);
+  expect(copiedFeedback()).toBe(true);
 });
 
 function savedPending(id = "saved-request", stop_requested?: true) {
@@ -955,7 +974,7 @@ it.each(["upload", "removal"])("a retained Clear confirmation cannot race an act
   if (phase === "upload") f.photoBusy = true; else f.photoRemoving = true;
   await refresh(); await act(async () => confirm()); await settle();
   expect(f.clear).not.toHaveBeenCalled(); expect(f.clearPhotos).not.toHaveBeenCalled();
-  expect(button("Clear saved coach conversation").props.disabled).toBe(true);
+  expect((await option("Clear conversation")).props.disabled).toBe(true);
 });
 it.each(["owner", "epoch"])("server Clear cannot remove replacement photo journals after %s changes while its acknowledgement is held", async change => {
   const held = deferred<void>(); f.clear.mockReturnValueOnce(held.promise);
@@ -970,9 +989,11 @@ it("dictates into the real editable composer without sending, hides mic while pe
   f.voice = createCoachVoice({ available: () => true, permission: async () => true,
     listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort });
   await mount(); await type("Typed base");
+  // Voice details moved from the composer into Coach options.
   expect(nodes("Copy").some(node => String(node.props.children).includes("device’s speech service"))).toBe(false);
-  await click("About voice input");
+  await option("AI preferences");
   expect(nodes("Copy").some(node => String(node.props.children).includes("device’s speech service"))).toBe(true);
+  await act(async () => { nodes("Sheet")[0].props.onClose(); });
   await click("Dictate message"); await act(async () => events.result("add rows")); await settle();
   expect(nodes("Field")[0].props.value).toBe("Typed base add rows"); expect(f.send).not.toHaveBeenCalled();
   f.send.mockRejectedValueOnce(Error("Connection interrupted")); await click("Send message");
@@ -990,7 +1011,7 @@ it("Clear cancels dictation before transport and late recognition cannot restore
     listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort });
   f.clear.mockImplementation(async () => { expect(abort).toHaveBeenCalled(); });
   await mount(); await type("Only my draft"); await click("Dictate message");
-  await click("Clear saved coach conversation"); await click("Clear conversation and pending suggestions");
+  await clickOption("Clear conversation"); await click("Clear conversation and pending suggestions");
   await act(async () => events.result("Late private dictation")); await settle();
   expect(f.clear).toHaveBeenCalledOnce(); expect(nodes("Field")[0].props.value).toBe(""); expect(f.send).not.toHaveBeenCalled();
 });
@@ -1024,39 +1045,42 @@ it("offers inline read controls only for canonical current replies and confirms 
   f.history = [reply("older"), { ...reply("pending", "pending"), assistant_message: "Provisional" },
     reply("failed", "failed"), { ...reply("stale"), generation: 2 }];
   await mount(); expect(f.speak).not.toHaveBeenCalled();
-  expect(nodes("Button").filter(node => node.props.title === "Read aloud")).toHaveLength(1);
-  await click("Read aloud"); expect(f.speak).toHaveBeenCalledOnce();
+  // Only the canonical current reply offers Read aloud; failed and stale ones only Copy.
+  const offered = [];
+  for (const index of [0, 1, 2]) { offered.push(!!(await replyRow("Read aloud", index))); await act(async () => { nodes("Sheet")[0].props.onClose(); }); }
+  expect(offered).toEqual([true, false, false]);
+  await clickReply("Read aloud"); expect(f.speak).toHaveBeenCalledOnce();
   expect(button("Stop reading").props.inline).toBe(true);
-  f.speechQuiet.mockResolvedValueOnce(true); await click("Clear saved coach conversation");
+  f.speechQuiet.mockResolvedValueOnce(true); await clickOption("Clear conversation");
   await click("Clear conversation and pending suggestions");
   expect(f.clear).not.toHaveBeenCalled(); expect(button("Retry stopping speech")).toBeDefined();
   await click("Retry stopping speech"); await click("Clear conversation and pending suggestions");
   expect(f.clear).toHaveBeenCalledOnce();
 });
 it("a retained read button cannot restart speech after route blur and return", async () => {
-  f.history = [reply("older")]; await mount(); const retained = button("Read aloud").props.onPress;
+  f.history = [reply("older")]; await mount(); const retained = (await replyRow("Read aloud")).props.onPress;
   await act(async () => { f.focusVersion++; view!.update(createElement(QueryClientProvider, { client: cache }, createElement(Coach))); }); await settle();
   await act(async () => { retained(); }); await settle();
   // The cleanup retires its committed speech scope; only the newly rendered control may start.
   expect(f.speak).not.toHaveBeenCalled();
-  await click("Read aloud"); expect(f.speak).toHaveBeenCalledOnce();
+  await clickReply("Read aloud"); expect(f.speak).toHaveBeenCalledOnce();
 });
 
 it("does not admit retained reading while a confirmed Clear awaits its server acknowledgement", async () => {
-  f.history = [reply("older")]; await mount(); const retained = button("Read aloud").props.onPress;
+  f.history = [reply("older")]; await mount(); const retained = (await replyRow("Read aloud")).props.onPress;
   const held = deferred<void>(); f.clear.mockImplementationOnce(() => held.promise);
-  await click("Clear saved coach conversation");
+  await clickOption("Clear conversation");
   let clearing!: Promise<void>;
   await act(async () => { clearing = button("Clear conversation and pending suggestions").props.onPress(); }); await settle();
-  expect(f.clear).toHaveBeenCalledOnce(); expect(button("Read aloud").props.disabled).toBe(true);
+  expect(f.clear).toHaveBeenCalledOnce(); expect((await replyRow("Read aloud")).props.disabled).toBe(true);
   await act(async () => { retained(); }); await settle(); expect(f.speak).not.toHaveBeenCalled();
   await act(async () => { held.resolve(); await clearing; }); await settle();
 });
 
 it("does not clear a successor durable epoch after waiting for native speech to stop", async () => {
-  f.history = [reply("older")]; await mount(); await click("Read aloud");
+  f.history = [reply("older")]; await mount(); await clickReply("Read aloud");
   const held = deferred<undefined>(); f.speechStop.mockImplementationOnce(() => held.promise);
-  await click("Clear saved coach conversation"); let clearing!: Promise<void>;
+  await clickOption("Clear conversation"); let clearing!: Promise<void>;
   await act(async () => { clearing = button("Clear conversation and pending suggestions").props.onPress(); }); await settle();
   expect(f.speechStop).toHaveBeenCalledTimes(2); expect(f.clear).not.toHaveBeenCalled();
   const next = JSON.stringify({ epoch: "external-successor", message: "Keep the successor question", pending: null });
@@ -1074,19 +1098,19 @@ it("confirms device speech is quiet before microphone permission and keeps photo
   let events!: Parameters<Recognition["listen"]>[0];
   f.voice = createCoachVoice({ available: () => true, permission,
     listen: handlers => { events = handlers; return vi.fn(); }, start: vi.fn(), stop: vi.fn(), abort: vi.fn() });
-  f.history = [reply("read-this")]; await mount(); await type("Editable base"); await click("Read aloud");
+  f.history = [reply("read-this")]; await mount(); await type("Editable base"); await clickReply("Read aloud");
   f.speechStop.mockImplementationOnce(() => held.promise);
   await click("Dictate message"); expect(permission).not.toHaveBeenCalled();
-  expect(nodes("CoachPhotoControl")[0].props.disabled).toBe(true);
+  expect(nodes("CoachPhotoControl").map(node => node.props.disabled)).toEqual([true, true]);
   await act(async () => held.resolve(undefined)); await settle(); expect(permission).toHaveBeenCalledOnce();
-  expect(button("Read aloud").props.disabled).toBe(true);
+  expect((await replyRow("Read aloud")).props.disabled).toBe(true);
   await act(async () => events.result("add rows")); await settle();
   expect(nodes("Field")[0].props.value).toBe("Editable base add rows"); expect(f.send).not.toHaveBeenCalled();
 });
 it("failed speech quiet confirmation blocks dictation without losing the editable draft", async () => {
   const permission = vi.fn(async () => true);
   f.voice = createCoachVoice({ available: () => true, permission, listen: vi.fn(), start: vi.fn(), stop: vi.fn(), abort: vi.fn() });
-  f.history = [reply("read-this")]; await mount(); await type("Keep this draft"); await click("Read aloud");
+  f.history = [reply("read-this")]; await mount(); await type("Keep this draft"); await clickReply("Read aloud");
   f.speechQuiet.mockResolvedValue(true); await click("Dictate message");
   expect(permission).not.toHaveBeenCalled(); expect(nodes("Field")[0].props.value).toBe("Keep this draft");
   expect(button("Retry stopping speech")).toBeDefined(); expect(f.send).not.toHaveBeenCalled();
@@ -1101,9 +1125,9 @@ it("a retained microphone command cannot start while a photo upload owns the com
 });
 
 it("a retained read command cannot restart speech after a photo operation owns the composer", async () => {
-  f.history = [reply("read-this")]; await mount(); const retained = button("Read aloud").props.onPress;
+  f.history = [reply("read-this")]; await mount(); const retained = (await replyRow("Read aloud")).props.onPress;
   f.photoBusy = true; await refresh(); await act(async () => retained()); await settle();
-  expect(f.speak).not.toHaveBeenCalled(); expect(button("Read aloud").props.disabled).toBe(true);
+  expect(f.speak).not.toHaveBeenCalled(); expect((await replyRow("Read aloud")).props.disabled).toBe(true);
 });
 
 
@@ -1122,7 +1146,7 @@ it("deduplicates rapid coach retry taps and keeps its busy control visible until
   const held = deferred<void>(); f.prerequisiteError = ""; f.prerequisiteGate = held.promise;
   await act(async () => { retry(); retry(); }); await settle();
   expect(f.prerequisiteCalls).toHaveLength(6); expect(button("Retry loading coach").props.busy).toBe(true);
-  await act(async () => held.resolve()); await settle(); expect(button("Send message").props.disabled).toBe(false);
+  await act(async () => held.resolve()); await settle(); await type("Ready again"); expect(button("Send message").props.disabled).toBe(false);
 });
 async function retireRetry(change: "owner" | "generation" | "epoch" | "focus") {
   if (change === "owner") f.owner = "replacement-coach-owner";
@@ -1176,15 +1200,14 @@ it("keeps Send and Stop outside a scrollable composer body with the full draft, 
   const question = "Review the synthetic circuit photo, keeping its targets unchanged. ".padEnd(192, "x");
   f.photo = { attachment_id: "selected-photo", state: "ready", expires_at: "2999-01-01T00:00:00Z" };
   await mount(); await type(question);
-  const body = nodes("ScrollView").find(n => n.findAll(child => String(child.type) === "Field").length)!;
-  expect(body).toBeTruthy(); expect(nodes("Screen")[0].props.constrainFooter).toBe(true); expect(body.props.keyboardShouldPersistTaps).toBe("handled");
-  expect(body.props.style).toMatchObject({ flexGrow: 0, flexShrink: 1 });
-  expect(body.findByType("Field" as never).props.value).toBe(question);
-  expect(body.findByType("CoachPhotoControl" as never).props.state.photo.attachment_id).toBe("selected-photo");
-  expect(body.findAll(n => n === button("Send message"))).toHaveLength(0);
-  expect(body.findAll(n => String(n.type) === "Button" && n.props.title === "Dictate message")).toHaveLength(1);
-  await click("About voice input");
-  expect(body.findAll(n => String(n.type) === "Copy" && String(n.props.children).includes("device’s speech service"))).toHaveLength(1);
+  // Status scrolls above a fixed input row: [photo] [message] [mic] [send].
+  const footer = nodes("PinnedFooter")[0], body = footer.findByType("ScrollView" as never);
+  expect(body.props.keyboardShouldPersistTaps).toBe("handled"); expect(body.props.style).toMatchObject({ flexGrow: 0, flexShrink: 1 });
+  expect(footer.findByType("Field" as never).props.value).toBe(question); expect(body.findAll(n => String(n.type) === "Field")).toHaveLength(0);
+  expect(body.findByType("CoachPhotoControl" as never).props).toMatchObject({ slot: "status", state: { photo: { attachment_id: "selected-photo" } } });
+  expect(footer.findAll(n => String(n.type) === "CoachPhotoControl" && n.props.slot === "button")).toHaveLength(1);
+  expect(body.findAll(n => n === button("Send message"))).toHaveLength(0); expect(footer.findAll(n => n === button("Send message"))).toHaveLength(1);
+  expect(footer.findAll(n => String(n.type) === "IconButton" && n.props.label === "Dictate message")).toHaveLength(1);
   const held = deferred<CoachMessage>(); f.send.mockReturnValueOnce(held.promise); await click("Send message");
   const pendingBody = nodes("ScrollView")[0];
   expect(pendingBody.findAll(n => String(n.type) === "Field")).toHaveLength(0);
@@ -1204,4 +1227,16 @@ it.each(["web", "ios", "android"])("the real Screen bounds both footer ancestors
   expect(content().parent!.parent!.props.style).toMatchObject({ flexShrink: 1, minHeight: 0 });
   await act(async () => view!.update(createElement(Screen, { title: "Other screen", footer })));
   expect(content().parent!.props.style.flexShrink).toBeUndefined(); expect(content().parent!.parent!.props.style.flexShrink).toBeUndefined();
+});
+it("accepts camelCase context links and shows what the conversation is about", async () => {
+  f.params = { workoutId: "workout-1" }; await mount();
+  expect(nodes("Chip").map(node => node.props.label)).toContain("About: Leg day");
+  f.send.mockResolvedValueOnce(reply("request-1")); await type("Can I do this at home?"); await click("Send message");
+  expect(f.send.mock.calls[0][2]).toEqual({ context_workout_id: "workout-1" });
+});
+it("starts an empty conversation from a suggested prompt and hides prompts once there is history", async () => {
+  await mount(); expect(button("Make today easier")).toBeDefined();
+  f.send.mockImplementationOnce(async id => { const saved = { ...reply(id), user_message: "Plan my week" }; f.history = [saved]; return saved; });
+  await click("Plan my week");
+  expect(f.send.mock.calls[0][1]).toBe("Plan my week"); expect(button("Make today easier")).toBeUndefined();
 });

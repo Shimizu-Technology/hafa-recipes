@@ -91,7 +91,8 @@ function Routes() {
         <Stack.Screen name="import/[id]" />
         <Stack.Screen name="edit-workout/[id]" />
         <Stack.Screen name="recover-workout/[id]" />
-        <Stack.Screen name="coach" />
+        {/* Coach opens as a sheet over whatever you were looking at. */}
+        <Stack.Screen name="coach" options={{ presentation: "modal" }} />
         <Stack.Screen name="coach-action/[id]" />
         <Stack.Screen name="build-plan" />
         <Stack.Screen name="review-plan" />

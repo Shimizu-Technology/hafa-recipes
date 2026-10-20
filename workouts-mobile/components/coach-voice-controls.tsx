@@ -1,22 +1,24 @@
-import { useState } from "react";
-import { View } from "react-native";
-import { Button, Copy, Notice } from "./ui";
+import { Button, Copy, IconButton, Notice } from "./ui";
 import type { useCoachVoice } from "@/lib/use-coach-voice";
 
-export function CoachVoiceControls({ voice, disabled }: { voice: ReturnType<typeof useCoachVoice>; disabled: boolean }) {
-  const [details, setDetails] = useState(false);
-  const active = voice.preparing || voice.phase !== "idle";
+type Voice = ReturnType<typeof useCoachVoice>;
+const active = (voice: Voice) => voice.preparing || voice.phase !== "idle";
+
+/** Round mic button for the composer row. */
+export function CoachVoiceButton({ voice, disabled }: { voice: Voice; disabled: boolean }) {
+  const on = active(voice);
+  return <IconButton
+    label={voice.preparing ? "Cancel dictation preparation" : voice.phase === "permission" ? "Cancel voice permission request" : voice.phase === "listening" ? "Stop dictation" : voice.phase === "stopping" ? "Stopping voice input…" : "Dictate message"}
+    icon={on ? "stop-circle-outline" : "mic-outline"} variant={on ? "primary" : "plain"}
+    disabled={voice.unavailable || voice.phase === "stopping" || (!on && disabled)} onPress={voice.toggle} />;
+}
+
+/** Dictation status and recovery, shown above the composer only when relevant. */
+export function CoachVoiceStatus({ voice }: { voice: Voice }) {
   return <>
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-    <Button title={voice.preparing ? "Cancel dictation preparation" : voice.phase === "permission" ? "Cancel voice permission request" : voice.phase === "listening" ? "Stop dictation" : voice.phase === "stopping" ? "Stopping voice input…" : "Dictate message"}
-      icon={active ? "stop-circle-outline" : "mic-outline"} secondary size="sm" inline
-      disabled={voice.unavailable || voice.phase === "stopping" || (!active && disabled)} onPress={voice.toggle} />
-    {!active && <Button title={details ? "Hide voice input details" : "About voice input"} variant="ghost" size="sm" inline onPress={() => setDetails(value => !value)} />}
-    </View>
-    {!active && details && <Copy kind="small" tone="muted">Uses your device’s speech service. Review the editable text before sending.</Copy>}
-    {active && <Copy kind="small">{voice.phase === "permission" ? "Waiting for microphone and speech permission. Canceling keeps your draft." : "Dictation edits your draft. Review it before sending; you can also stop and type."}</Copy>}
+    {active(voice) && <Copy kind="small" tone="muted">{voice.phase === "permission" ? "Waiting for microphone and speech permission. Canceling keeps your draft." : "Listening… Your words appear in the message. Review it before sending."}</Copy>}
     {voice.guidance && <Notice>{voice.guidance.message}</Notice>}
-    {voice.guidance?.settings && <Button title="Open microphone and speech Settings" variant="ghost" onPress={() => { void voice.settings(); }} />}
+    {voice.guidance?.settings && <Button title="Open microphone and speech Settings" variant="ghost" size="sm" inline onPress={() => { void voice.settings(); }} />}
     {!!voice.preparationError && <Notice error>{voice.preparationError}</Notice>}
     {!!voice.settingsError && <Notice error>{voice.settingsError}</Notice>}
   </>;

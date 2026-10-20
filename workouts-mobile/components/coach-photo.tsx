@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect } from "expo-router";
-import { Button, Copy, Notice, Row } from "./ui";
+import { Button, Copy, IconButton, Notice, Row } from "./ui";
 import { useTraining } from "@/lib/context";
 import { cleanupCaptureFiles, pickImages, recoverCaptureCleanup } from "@/lib/capture-io";
 import { createCoachPhotoStore, type CoachPhoto } from "@/lib/coach-photos";
@@ -108,8 +108,12 @@ export function useCoachPhoto(focus: string, epoch: string, disabled: boolean, b
   };
 }
 
-export function CoachPhotoControl({ state, allowed, disabled }: { state: ReturnType<typeof useCoachPhoto>; allowed: boolean; disabled: boolean }) {
+/** `slot` splits the control for a chat composer: an icon button in the input row, status above it. */
+export function CoachPhotoControl({ state, allowed, disabled, slot }: { state: ReturnType<typeof useCoachPhoto>; allowed: boolean; disabled: boolean; slot?: "button" | "status" }) {
   const expired = !!state.photo?.expires_at && Date.parse(state.photo.expires_at) <= Date.now();
+  if (slot === "button") return allowed && !state.photo
+    ? <IconButton icon="image-outline" label="Attach a photo" variant="plain" disabled={disabled || !state.loaded || state.busy} onPress={() => void state.choose()} />
+    : null;
   return <>
     {state.photo ? <>
       <Copy kind="small">{state.photo.discard ? "Photo removal needs confirmation" : expired ? "Photo expired · remove it before choosing another" : state.photo.attachment_id ? "Photo ready · shared with AI when you send" : state.busy ? "Uploading photo…" : "Photo upload not confirmed"}</Copy>
@@ -121,7 +125,7 @@ export function CoachPhotoControl({ state, allowed, disabled }: { state: ReturnT
           onPress={() => void state.remove()} />
         {!state.photo.attachment_id && !state.photo.discard && !state.busy && <Button title="Retry photo upload" secondary size="sm" inline disabled={disabled || !allowed} onPress={() => void state.retry()} />}
       </Row>
-    </> : allowed && <Button title="Attach a photo" icon="image-outline" secondary size="sm" inline disabled={disabled || !state.loaded} busy={state.busy || !state.loaded} onPress={() => void state.choose()} />}
+    </> : allowed && slot !== "status" && <Button title="Attach a photo" icon="image-outline" secondary size="sm" inline disabled={disabled || !state.loaded} busy={state.busy || !state.loaded} onPress={() => void state.choose()} />}
     {!state.loaded && !!state.error && <Button title="Retry restoring photo" secondary size="sm" inline busy={state.busy} onPress={() => void state.retry()} />}
     {!!state.error && <Notice error>{state.error}</Notice>}
   </>;
