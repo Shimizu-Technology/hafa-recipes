@@ -167,3 +167,124 @@ it("treats a deleted collection404 as unavailable without showing cached members
   expect(result.rows).toEqual([]);
   expect(result.more).toBe(false);
 });
+
+
+async function rerender(currentView: LibraryView, milliseconds = 1) {
+  await act(async () => renderer!.update(React.createElement(Probe, { currentView })));
+  await act(async () => { await vi.advanceTimersByTimeAsync(milliseconds); });
+}
+it("automatically refreshes new and completed imports without losing filters or polling on processing", async () => {
+  const filters: LibraryView = { ...view, query: "feeding", topic: "Feeding", childId: "baby" };
+  const imported = { ...row, id: "new-source", title: "Feeding tips", revision: 1,
+    child_id: "baby", data: { topics: ["Feeding"], summary: "Original saved" } };
+  let items: typeof imported[] = [];
+  const transport = vi.fn(async (_url: string) => Response.json({ items, total: items.length, has_more: false }));
+  const account = setup(transport);
+  await mount(filters);
+  await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+  expect(result.complete).toBe(true);
+  expect(result.rows).toEqual([]);
+  items = [imported];
+  account.state.imports = [{ id: "job", record_id: imported.id, status: "queued", error: null }];
+  await rerender(filters, 350);
+  expect(result.rows.map((item) => item.id)).toEqual([imported.id]);
+  expect(transport).toHaveBeenCalledTimes(2);
+  account.state.imports = [{ ...account.state.imports[0], status: "processing" }];
+  await rerender(filters, 350);
+  expect(transport).toHaveBeenCalledTimes(2);
+  items = [{ ...imported, revision: 2, data: { ...imported.data, summary: "Extracted source summary" } }];
+  account.state.imports = [{ ...account.state.imports[0], status: "incomplete", error: null }];
+  await rerender(filters, 350);
+  expect(transport).toHaveBeenCalledTimes(3);
+  expect(result.rows[0].data.summary).toBe("Extracted source summary");
+  for (const [url] of transport.mock.calls) {
+    const params = new URL(url).searchParams;
+    expect(Object.fromEntries(params)).toMatchObject({ collection_id: "collection", topic: "Feeding", child_id: "baby", q: "feeding", offset: "0" });
+  }
+  account.state.imports = [{ ...account.state.imports[0], status: "queued" }];
+  await rerender(filters, 350);
+  expect(transport).toHaveBeenCalledTimes(4);
+});
+it("retires a held pre-import page when completion refreshes the same source view", async () => {
+  let release!: (response: Response) => void;
+  const stale = new Promise<Response>((resolve) => { release = resolve; });
+  const transport = vi.fn().mockReturnValueOnce(stale).mockResolvedValueOnce(Response.json({ items: [row], total: 1, has_more: false }));
+  const account = setup(transport);
+  account.state.imports = [{ id: "job", record_id: row.id, status: "processing" }];
+  await mount();
+  account.state.imports = [{ ...account.state.imports[0], status: "incomplete", error: null }];
+  await rerender(view);
+  expect(result.rows.map((item) => item.id)).toEqual([row.id]);
+  await act(async () => { release(Response.json({ items: [], total: 0, has_more: false })); });
+  expect(result.rows.map((item) => item.id)).toEqual([row.id]);
+  expect(result.loading).toBe(false);
+  expect(result.error).toBe("");
+});
+it("retains loaded pages during import refresh and drops server-deleted IDs at completion", async () => {
+  let release!: (response: Response) => void;
+  const fresh = new Promise<Response>((resolve) => { release = resolve; });
+  const older = { ...row, id: "older" };
+  const transport = vi.fn()
+    .mockResolvedValueOnce(Response.json({ items: [row], total: 2, has_more: true }))
+    .mockResolvedValueOnce(Response.json({ items: [older], total: 2, has_more: false }))
+    .mockReturnValueOnce(fresh);
+  const account = setup(transport);
+  await mount();
+  await act(async () => { await result.loadMore(); });
+  expect(result.rows.map((item) => item.id)).toEqual([older.id, row.id]);
+  account.state.imports = [{ id: "job", record_id: row.id, status: "incomplete", error: null }];
+  await rerender(view);
+  expect(result.rows.map((item) => item.id)).toEqual([older.id, row.id]);
+  expect(new URL(transport.mock.calls[2][0]).searchParams.get("offset")).toBe("0");
+  await act(async () => { release(Response.json({ items: [older], total: 1, has_more: false })); });
+  expect(result.rows.map((item) => item.id)).toEqual([older.id]);
+  expect(account.state.records.some((item) => item.id === row.id)).toBe(true);
+});
+it("waits for focus after an import changes and leaves collection pagination alone", async () => {
+  const transport = vi.fn(async (_url: string) => Response.json({ items: [], total: 0, has_more: false }));
+  const account = setup(transport);
+  await mount();
+  scope.focused = false;
+  account.state.imports = [{ id: "job", record_id: row.id, status: "incomplete", error: null }];
+  await rerender(view);
+  expect(transport).toHaveBeenCalledOnce();
+  scope.focused = true;
+  await rerender(view);
+  expect(transport).toHaveBeenCalledTimes(2);
+  const collections: LibraryView = { kind: "collection", childId: null, query: "" };
+  await rerender(collections);
+  expect(transport).toHaveBeenCalledTimes(3);
+  account.state.imports = [{ ...account.state.imports[0], status: "queued" }];
+  await rerender(collections);
+  expect(transport).toHaveBeenCalledTimes(3);
+});
+
+it("shows a completed import after the focused source page was authoritatively empty", async () => {
+  let items: typeof row[] = [];
+  const transport = vi.fn(async (_url: string) => Response.json({ items, total: items.length, has_more: false }));
+  const account = setup(transport);
+  account.state.imports = [{ id: "job", record_id: row.id, status: "processing" }];
+  await mount();
+  expect(result.complete).toBe(true);
+  expect(result.rows).toEqual([]);
+  items = [row];
+  account.state.imports = [{ ...account.state.imports[0], status: "incomplete", error: null }];
+  await rerender(view);
+  expect(transport).toHaveBeenCalledTimes(2);
+  expect(result.rows.map((item) => item.id)).toEqual([row.id]);
+});
+it("keeps loaded sources when an import-triggered refresh fails and permits retry", async () => {
+  const transport = vi.fn()
+    .mockResolvedValueOnce(Response.json({ items: [row], total: 1, has_more: false }))
+    .mockResolvedValueOnce(Response.json({ detail: "offline" }, { status: 503 }))
+    .mockResolvedValueOnce(Response.json({ items: [row], total: 1, has_more: false }));
+  const account = setup(transport);
+  await mount();
+  account.state.imports = [{ id: "job", record_id: row.id, status: "incomplete", error: null }];
+  await rerender(view);
+  expect(result.rows.map((item) => item.id)).toEqual([row.id]);
+  expect(result.error).not.toBe("");
+  await act(async () => { await result.loadMore(); });
+  expect(result.rows.map((item) => item.id)).toEqual([row.id]);
+  expect(result.error).toBe("");
+});

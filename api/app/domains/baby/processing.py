@@ -93,6 +93,10 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             source.parts.extend(acquired.parts)
             source.images.extend(acquired.images)
             source.metadata.coverage_notes.extend(acquired.warnings)
+            if acquired.acquisition_failures:
+                failures.append(
+                    "Some linked source content could not be read. Your original link remains saved."
+                )
         except asyncio.CancelledError:
             raise
         except BudgetError as failure:

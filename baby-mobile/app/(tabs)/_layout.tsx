@@ -1,5 +1,6 @@
 import { Tabs, router } from "expo-router";
-import { Pressable, View, useWindowDimensions } from "react-native";
+import type { Ref } from "react";
+import { Platform, Pressable, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, useColors, type IconName } from "@/components/ui";
 export default function TabLayout() {
@@ -21,23 +22,51 @@ export default function TabLayout() {
             paddingTop: 8,
             paddingBottom: Math.max(10, insets.bottom),
           },
+          tabBarIconStyle: { width: 54, height: 32 },
           tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+          tabBarButton:
+            Platform.OS === "web"
+              ? undefined
+              : ({ style, ref, ...props }) => (
+                  <Pressable
+                    {...props}
+                    ref={ref as Ref<View>}
+                    style={({ pressed }) => [style, { opacity: pressed ? 0.55 : 1 }]}
+                  />
+                ),
           sceneStyle: { backgroundColor: c.background },
         }}
       >
         {[
-          { name: "index", title: "Today", icon: "sunny-outline" },
-          { name: "library", title: "Library", icon: "bookmark-outline" },
-          { name: "journal", title: "Journal", icon: "book-outline" },
-          { name: "routines", title: "Routines", icon: "checkmark-circle-outline" },
-          { name: "ask", title: "Ask", icon: "chatbubble-outline" },
+          { name: "index", title: "Today", icon: "sunny-outline", selectedIcon: "sunny" },
+          { name: "library", title: "Library", icon: "bookmark-outline", selectedIcon: "bookmark" },
+          { name: "journal", title: "Journal", icon: "book-outline", selectedIcon: "book" },
+          { name: "routines", title: "Routines", icon: "checkmark-circle-outline", selectedIcon: "checkmark-circle" },
+          { name: "ask", title: "Ask", icon: "chatbubble-outline", selectedIcon: "chatbubble" },
         ].map((t) => (
           <Tabs.Screen
             key={t.name}
             name={t.name}
             options={{
               title: t.title,
-              tabBarIcon: ({ color }) => <Icon name={t.icon as IconName} color={color} size={23} />,
+              tabBarIcon: ({ color, focused }) => (
+                <View
+                  style={{
+                    width: 54,
+                    height: 32,
+                    borderRadius: 16,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: focused ? c.action : "transparent",
+                  }}
+                >
+                  <Icon
+                    name={(focused ? t.selectedIcon : t.icon) as IconName}
+                    color={focused ? c.onAction : color}
+                    size={23}
+                  />
+                </View>
+              ),
             }}
           />
         ))}

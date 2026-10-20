@@ -297,6 +297,11 @@ class VideoService:
             return [sys.executable, "-m", "app.services.public_ytdlp"]
         return ["yt-dlp"]
 
+    def _downloader_cwd(self):
+        # uvicorn --app-dir changes only its own import path. Ensure the
+        # protected Python helper also imports from api when launched at root.
+        return Path(__file__).resolve().parents[2] if self.public_egress else None
+
     @asynccontextmanager
     async def _media_slot(self):
         try:
@@ -425,6 +430,7 @@ class VideoService:
             async with self._media_slot():
                 process = await asyncio.create_subprocess_exec(
                     *command,
+                    cwd=self._downloader_cwd(),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     start_new_session=os.name == "posix",
@@ -845,7 +851,7 @@ class VideoService:
                 return None
         else:
             if os.path.isfile(cookies):
-                return CredentialFile(path=cookies)
+                return CredentialFile(path=os.path.abspath(cookies))
             else:
                 _media_log(f"⚠️ Instagram cookies file not found: {cookies}")
                 return None
@@ -928,6 +934,7 @@ class VideoService:
             # Run yt-dlp asynchronously
             process = await asyncio.create_subprocess_exec(
                 *command,
+                cwd=self._downloader_cwd(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
@@ -1220,6 +1227,7 @@ class VideoService:
 
             process = await asyncio.create_subprocess_exec(
                 *command,
+                cwd=self._downloader_cwd(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
@@ -1595,6 +1603,7 @@ class VideoService:
 
             process = await asyncio.create_subprocess_exec(
                 *command,
+                cwd=self._downloader_cwd(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=os.name == "posix",
