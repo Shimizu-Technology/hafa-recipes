@@ -6,6 +6,7 @@ export function ChildFilter() {
   return b.state.bootstrap!.children.length > 1 ? (
     <Chips
       value={b.state.selectedChild ?? ""}
+      label="Baby"
       options={[
         { label: "Everything", value: "" },
         ...b.state.bootstrap!.children.map((child) => ({ label: child.name, value: child.id })),

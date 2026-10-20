@@ -107,6 +107,7 @@ export default function Journal() {
       <ChildFilter />
       <Chips
         value={filter}
+        label="Show"
         options={[
           { label: "Everything", value: "all" },
           { label: "Journal", value: "journal" },

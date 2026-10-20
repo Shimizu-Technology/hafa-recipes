@@ -24,7 +24,7 @@ function Routes() {
       </Screen>
     );
   const stack = (
-    // Native push and sheet transitions; iOS swaps them for fades when Reduce Motion is on.
+    // Native push and sheet transitions, as the system draws them.
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="privacy" />

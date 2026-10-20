@@ -41,8 +41,9 @@ function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): Edit
 /** An untitled journal entry or question is listed by its first words. */
 function firstLine(d: EditorDraft) {
   if (d.kind !== "journal" && d.kind !== "question") return "";
-  const line = d.body.trim().split("\n")[0].trim();
-  return line.length > 60 ? line.slice(0, 59).trimEnd() + "…" : line;
+  // Count characters, not UTF-16 units, so an emoji is never cut in half.
+  const line = [...d.body.trim().split("\n")[0].trim()];
+  return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
 }
 export default function Edit() {
   const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string }>(),
@@ -330,6 +331,7 @@ export default function Edit() {
       {b.state.bootstrap!.children.length > 0 && (
         <Chips
           value={draft.child_id ?? ""}
+          label="Who is this for?"
           options={[
             // Care always belongs to a baby; older general care entries can still be reassigned.
             ...(isCare(draft.kind) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
@@ -399,6 +401,7 @@ export default function Edit() {
           <Copy kind="small">Feeding method</Copy>
           <Chips
             value={draft.data.method ?? "breast"}
+          label="Feeding method"
             options={[
               { label: "Breast", value: "breast" },
               { label: "Bottle", value: "bottle" },
@@ -411,6 +414,7 @@ export default function Edit() {
               <Copy kind="small">Side</Copy>
               <Chips
                 value={draft.data.side ?? "both"}
+          label="Side"
                 options={[
                   { label: "Left", value: "left" },
                   { label: "Right", value: "right" },
@@ -435,6 +439,7 @@ export default function Edit() {
               />
               <Chips
                 value={draft.data.unit ?? "ml"}
+          label="Unit"
                 options={[
                   { label: "mL", value: "ml" },
                   { label: "oz", value: "oz" },
@@ -448,6 +453,7 @@ export default function Edit() {
       {draft.kind === "diaper" && (
         <Chips
           value={draft.data.type ?? "wet"}
+          label="Diaper"
           options={["wet", "dirty", "both", "dry"].map((value) => ({
             value,
             label: value === "both" ? "Wet + dirty" : value[0].toUpperCase() + value.slice(1),
@@ -477,6 +483,7 @@ export default function Edit() {
         <>
           <Chips
             value={draft.data.routine_type ?? "checklist"}
+          label="Routine type"
             options={[
               { label: "Checklist", value: "checklist" },
               { label: "Schedule / routine", value: "schedule" },
@@ -537,6 +544,7 @@ export default function Edit() {
             />
             <Chips
               value={draft.data.repeat ?? "none"}
+          label="Repeat"
               options={[
                 { label: "Once", value: "none" },
                 { label: "Daily", value: "daily" },

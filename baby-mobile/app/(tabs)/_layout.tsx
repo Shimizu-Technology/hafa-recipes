@@ -1,6 +1,6 @@
 import { Tabs, router, useSegments } from "expo-router";
 import type { Ref } from "react";
-import { Platform, Pressable, View, useWindowDimensions } from "react-native";
+import { Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, fonts, useColors, type IconName } from "@/components/ui";
 export default function TabLayout() {
@@ -27,7 +27,6 @@ export default function TabLayout() {
           },
           tabBarIconStyle: { width: 54, height: 32 },
           tabBarLabelStyle: { fontSize: 11, fontFamily: fonts.semibold },
-          tabBarAllowFontScaling: false,
           tabBarButton:
             Platform.OS === "web"
               ? undefined
@@ -53,6 +52,12 @@ export default function TabLayout() {
             name={t.name}
             options={{
               title: t.title,
+              // Labels grow with the text size, capped so five tabs still fit.
+              tabBarLabel: ({ color }) => (
+                <Text maxFontSizeMultiplier={1.35} style={{ fontSize: 11, fontFamily: fonts.semibold, color }}>
+                  {t.title}
+                </Text>
+              ),
               tabBarIcon: ({ color, focused }) => (
                 <View
                   style={{

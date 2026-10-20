@@ -33,7 +33,7 @@ export default function Ask() {
             onChangeText={chat.setQuestion}
             placeholder={available ? "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
             placeholderTextColor={c.muted}
-            editable={!busy && !chat.resolving}
+            editable={available && !busy && !chat.resolving}
             multiline
             maxLength={4000}
             maxFontSizeMultiplier={1.6}
@@ -72,6 +72,7 @@ export default function Ask() {
       {!focused && (
         <Chips
           value={chat.context.scope}
+          label="Search in"
           options={[
             { label: "Everything", value: "all" },
             { label: "Library", value: "library" },

@@ -701,25 +701,35 @@ export function ToastProvider({ children }: PropsWithChildren) {
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),
     enter = useRef(new Animated.Value(0)).current,
+    [still, setStill] = useState(false),
     show = useRef<ShowToast>((message, action) => setToast(message ? { message, action, key: Date.now() } : null));
   useEffect(() => {
     if (!toast) return;
-    // Rise 8pt and fade in quickly; with Reduce Motion only the fade remains.
-    let still = false;
+    // Rise 8pt and fade in quickly; with Reduce Motion only the fade remains. VoiceOver hears the
+    // message, and an Undo stays much longer so it can be reached by swiping.
+    let timer: ReturnType<typeof setTimeout> | undefined,
+      active = true;
     enter.setValue(0);
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      still = reduce;
-      Animated.timing(enter, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-    });
-    const timer = setTimeout(
-      () =>
-        Animated.timing(enter, { toValue: 0, duration: still ? 120 : 150, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(
-          () => setToast((current) => (current?.key === toast.key ? null : current))
-        ),
-      // Leave time to reach Undo; plain confirmations clear sooner.
-      toast.action ? 6500 : 4500
+    void Promise.all([AccessibilityInfo.isReduceMotionEnabled(), AccessibilityInfo.isScreenReaderEnabled()]).then(
+      ([reduce, reader]) => {
+        if (!active) return;
+        setStill(reduce);
+        if (reader) AccessibilityInfo.announceForAccessibility(toast.action ? `${toast.message}. ${toast.action.label} available.` : toast.message);
+        Animated.timing(enter, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+        timer = setTimeout(
+          () =>
+            Animated.timing(enter, { toValue: 0, duration: 150, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(
+              () => setToast((current) => (current?.key === toast.key ? null : current))
+            ),
+          // Leave time to reach Undo; plain confirmations clear sooner.
+          toast.action ? (reader ? 20000 : 6500) : 4500
+        );
+      }
     );
-    return () => clearTimeout(timer);
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
   }, [toast]);
   return (
     <ToastContext.Provider value={show.current}>
@@ -743,7 +753,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
             gap: 8,
             minHeight: 56,
             opacity: enter,
-            transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+            transform: still ? [] : [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
             shadowColor: "#000",
             shadowOpacity: 0.16,
             shadowRadius: 14,
