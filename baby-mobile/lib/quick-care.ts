@@ -13,8 +13,8 @@ function currentRevision(state: DeviceState, id: string, fallback = 0) {
 }
 
 /** Queue a change built from the state at the moment it is committed, then sync. */
-async function queueLatest(b: Account, build: (state: DeviceState) => Mutation) {
-  await b.commit((state) => addMutation(state, build(state)));
+async function queueLatest(b: Account, build: (state: DeviceState) => Mutation, alongside = (state: DeviceState) => state) {
+  await b.commit((state) => addMutation(alongside(state), build(state)));
   void b.sync();
 }
 
@@ -49,10 +49,12 @@ export function careWrite(kind: Kind, childId: string | null, data: RecordData, 
   };
 }
 
-/** Save a care entry in one tap and return its undo. */
-export async function logCare(b: Account, record: RecordWrite) {
+/** Save a care entry in one tap and return its undo. `alongside` changes device state in the
+ * same write (finishing a feeding timer), so the entry and that change land or fail together. */
+export async function logCare(b: Account, record: RecordWrite, alongside?: (state: DeviceState) => DeviceState) {
   const mutation: Mutation = { id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save", record, files: [] };
-  await b.queue(mutation);
+  if (alongside) await queueLatest(b, () => mutation, alongside);
+  else await b.queue(mutation);
   return undoSaved(b, record);
 }
 

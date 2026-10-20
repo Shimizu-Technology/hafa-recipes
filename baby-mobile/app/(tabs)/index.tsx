@@ -3,16 +3,18 @@ import { router } from "expo-router";
 import { ActionSheetIOS, Alert, Platform, Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
-import { messageFor, type RecordData } from "@/lib/models";
+import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { careGlance, glanceChild } from "@/lib/care-glance";
+import { careGlance, glanceChild, nextFeed } from "@/lib/care-glance";
 import { careSummary, friendlyTime } from "@/lib/care-format";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
+import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
 import { Button, Card, Copy, Empty, Icon, Loading, Notice, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
 import { RecordRow, kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, useMinuteClock } from "@/components/care-glance";
+import { FeedTimerCard } from "@/components/feed-timer";
 
 const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
   { label: "Wet", type: "wet" },
@@ -60,6 +62,8 @@ export default function Today() {
     care = latestCare.rows,
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => r.kind === "routine"),
+    timer = activeTimer(b.state),
+    timerChild = timer && children.find((c) => c.id === timer.child_id),
     name = profile.display_name.split(" ")[0],
     writing = useRef(false);
   async function quick(action: () => Promise<() => Promise<void>>, message: string) {
@@ -85,6 +89,44 @@ export default function Today() {
     } finally {
       writing.current = false;
     }
+  }
+  function feed() {
+    if (!child) return router.push({ pathname: "/edit", params: { kind: "feeding" } });
+    if (timer) return toast("A feeding timer is running. Finish it from the timer card.");
+    const choices = sideChoices(nextFeed(glance.lastFeed).side),
+      labels = choices.map((choice) => `Start ${choice.side} side${choice.suggested ? " (next)" : ""}`);
+    const start = (side: FeedSide) =>
+      void b
+        .commit((s) => (activeTimer(s) ? s : { ...s, feedTimer: startTimer(child.id, s.bootstrap!.generation, side) }))
+        .catch((e) => toast(messageFor(e)));
+    const details = () => router.push({ pathname: "/edit", params: { kind: "feeding" } });
+    if (Platform.OS === "ios")
+      return ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: `Feed ${child.name}`,
+          options: [...labels, "Log a bottle or past feed…", "Cancel"],
+          cancelButtonIndex: 3,
+        },
+        (index) => (index < 2 ? start(choices[index].side) : index === 2 && details())
+      );
+    Alert.alert(
+      `Feed ${child.name}`,
+      undefined,
+      [
+        ...labels.map((text, i) => ({ text, onPress: () => start(choices[i].side) })),
+        { text: "Bottle or past feed…", onPress: details },
+      ],
+      { cancelable: true }
+    );
+  }
+  /** Save the timed feed and clear the timer in one write. Undo removes the feed only. */
+  function finishFeed(running: FeedTimer) {
+    const data = feedRecordData(running),
+      record = careWrite("feeding", running.child_id, data, new Date(running.started_at));
+    return quick(
+      () => logCare(b, record, (s) => changeTimer(s, running.started_at, () => undefined)),
+      `${careSummary("feeding", data, record.occurred_at)} · logged`
+    );
   }
   function sleep() {
     if (!child) return router.push({ pathname: "/edit", params: { kind: "sleep" } });
@@ -148,13 +190,14 @@ export default function Today() {
         </Card>
       )}
       {children.length > 1 && <ChildFilter />}
+      {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
       {child && <CareGlance child={child} rows={latestCare.all} now={now} />}
       <View style={{ flexDirection: "row", gap: 10 }}>
         <Tile
           icon={kindIcon.feeding}
-          label="Feed"
-          hint="Opens a feeding log with the next side chosen"
-          onPress={() => router.push({ pathname: "/edit", params: { kind: "feeding" } })}
+          label={timer ? "Feeding…" : "Feed"}
+          hint={timer ? "A feeding timer is running on the card above" : "Start a breastfeeding timer or log a feed"}
+          onPress={feed}
         />
         <Tile
           icon={glance.openSleep ? "sunny-outline" : kindIcon.sleep}
