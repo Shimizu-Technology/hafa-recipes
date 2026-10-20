@@ -242,3 +242,9 @@ describe("journal history recovery", () => {
     ).toHaveLength(1);
   });
 });
+
+it.each(["empty","total"])("drops stale retained IDs at a completed %s boundary",async boundary=>{
+  const fetch=vi.fn().mockResolvedValueOnce(page(["removed","retained"])).mockResolvedValueOnce(boundary==="empty"?{items:[],total:20,has_more:true}:{...page(["retained"],true),total:1});
+  const pager=createHistoryPager(fetch); pager.reset(view); await pager.next(); pager.reset(view,true); await pager.next();
+  expect(pager.snapshot()).toMatchObject({more:false,ids:boundary==="empty"?[]:["retained"]});
+});

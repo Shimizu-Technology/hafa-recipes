@@ -53,3 +53,7 @@ it("keeps actual incomplete/budget/provider failures in attention cards with ret
   expect(importCardVisible("failed", null)).toBe(true);
   expect(importCardVisible("ready", "Unexpected error")).toBe(true);
 });
+
+it.each(["cancelled","canceled"])("keeps %s sources visible with Retry",status=>{
+  expect(importRetryable(status,null)).toBe(true); expect(importCardVisible(status,null)).toBe(true);
+});

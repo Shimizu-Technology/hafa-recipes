@@ -175,8 +175,7 @@ export function useAskSession(recordId?: string) {
     finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function review(proposal: Proposal) {
-    const operation = ticket(), id = Crypto.randomUUID(), key = "proposal:" + id;
-    working.current = false; setBusy(false);
+    const operation = ticket(false), id = Crypto.randomUUID(), key = "proposal:" + id;
     const value: EditorDraft = { id, kind: proposal.kind, title: proposal.title, body: proposal.body,
       child_id: current.current.context.child_id, occurred_at: new Date().toISOString(),
       data: { ...proposal.data, ...(proposal.kind === "routine" ? { enabled: false } : {}) }, files: [] };

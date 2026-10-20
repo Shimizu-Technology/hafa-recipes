@@ -4,8 +4,8 @@ import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useShareIntentContext } from "expo-share-intent";
 import { useBaby } from "@/lib/context";
-import { preserveFile } from "@/lib/files";
-import type { EditorDraft } from "@/lib/models";
+import { preserveFile, removeLocal } from "@/lib/files";
+import type { EditorDraft, LocalFile } from "@/lib/models";
 import {
   acknowledgeShare,
   nativeSharingAvailable,
@@ -16,17 +16,32 @@ export function ShareCapture() {
   const stock = useShareIntentContext(),
     b = useBaby(),
     handling = useRef(""),
+    mounted = useRef(false),
+    [retry, setRetry] = useState(0),
     [native, setNative] = useState<NativeShare | null>(null);
   useEffect(() => {
-    if (Platform.OS !== "ios" || !nativeSharingAvailable) return;
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
     let active = true;
-    const load = () =>
-      void pendingShare().then((p) => {
-        if (active) setNative(p);
-      });
-    load();
+    let request = 0;
+    const load = async () => {
+      const ticket = ++request;
+      if (Platform.OS === "ios" && nativeSharingAvailable) {
+        try {
+          const p = await pendingShare();
+          if (!active || ticket !== request) return;
+          setNative(p);
+        } catch {
+          return;
+        }
+      }
+      if (active && ticket === request) setRetry((value) => value + 1);
+    };
+    void load();
     const app = AppState.addEventListener("change", (s) => {
-      if (s === "active") load();
+      if (s === "active") void load();
     });
     return () => {
       active = false;
@@ -47,7 +62,7 @@ export function ShareCapture() {
     if (!has || !b.ready || !b.owner || b.state.bootstrap?.active === false || handling.current === fingerprint) return;
     handling.current = fingerprint;
     const captured = b.owner,
-      current = b.current,
+      current = () => mounted.current && b.current(),
       key = "share:" + fingerprint;
     Alert.alert(
       "Save this shared source?",
@@ -64,6 +79,8 @@ export function ShareCapture() {
           text: "Review source",
           onPress: () => {
             void (async () => {
+              const copied: LocalFile[] = [];
+              let committed = false;
               try {
                 if (!current()) return;
                 let draft = b.state.drafts[key];
@@ -80,12 +97,27 @@ export function ShareCapture() {
                     data: { url, topics: [] },
                     files: [],
                   };
-                  for (const f of shared.files ?? [])
-                    draft.files.push(
-                      await preserveFile(captured, { uri: f.path, name: f.fileName ?? undefined, mimeType: f.mimeType })
-                    );
+                  let skipped = 0;
+                  for (const f of shared.files ?? []) {
+                    try {
+                      const file = await preserveFile(captured, {
+                        uri: f.path, name: f.fileName ?? undefined, mimeType: f.mimeType,
+                      });
+                      copied.push(file);
+                      draft.files.push(file);
+                    } catch (error) {
+                      const code = (error as { code?: string }).code;
+                      if (code !== "unsupported_file" && code !== "file_too_large") throw error;
+                      skipped++;
+                    }
+                  }
                   if (!current()) return;
+                  if (!draft.files.length && !draft.body.trim() && !url)
+                    throw Error("Share an image, PDF, audio or video smaller than 25 MB, or a website link.");
                   await b.saveDraft(key, draft);
+                  committed = true;
+                  if (skipped && current()) Alert.alert("Some attachments were left out",
+                    "Your supported files, link and notes were kept. Attachments must be an image, PDF, audio or video smaller than 25 MB.");
                 }
                 if (!current()) return;
                 if (native) {
@@ -94,19 +126,26 @@ export function ShareCapture() {
                   if (!acknowledged) handling.current = "";
                 } else stock.resetShareIntent();
                 router.push({ pathname: "/edit", params: { draft: key, kind: "source" } });
-              } catch {
+              } catch (error) {
                 if (current())
                   Alert.alert(
                     "Your share needs another try",
-                    "The original share has not been discarded. Reopen Håfa Baby and try again."
+                    error instanceof Error && error.message.startsWith("Share an image")
+                      ? error.message
+                      : "Your source is still available. Try again, or reopen Håfa Baby to continue.",
+                    [{ text: "Later", style: "cancel" }, { text: "Try again", onPress: () => {
+                      if (current()) setRetry((value) => value + 1);
+                    } }]
                   );
                 handling.current = "";
+              } finally {
+                if (!committed) await Promise.allSettled(copied.map((file) => removeLocal(captured, file.uri)));
               }
             })();
           },
         },
       ]
     );
-  }, [has, fingerprint, b.ready, b.owner, b.state.bootstrap?.active]);
+  }, [has, fingerprint, b.ready, b.owner, b.state.bootstrap?.active, retry]);
   return null;
 }

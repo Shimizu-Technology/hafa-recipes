@@ -3,7 +3,7 @@ export const importFinished = (status: string) =>
 export const importRetryable = (status: string, error?: string | null) =>
   status === "incomplete" ? !!error : ["failed", "cancelled", "canceled"].includes(status);
 export const importCardVisible = (status: string, error?: string | null) =>
-  !importFinished(status) || status === "failed" || !!error;
+  !importFinished(status) || importRetryable(status, error) || !!error;
 export function importLabel(status: string, error?: string | null) {
   if (status === "incomplete" && !error) return "Source organized · see processing notes";
   if (["ready", "complete", "completed"].includes(status) && !error) return "Source organized";

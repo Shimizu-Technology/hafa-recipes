@@ -10,7 +10,6 @@ export async function socialSignIn(signIn: SignInResource, strategy: "oauth_goog
   const browser = await WebBrowser.openAuthSessionAsync(url.toString(), callbackUrl);
   if (browser.type !== "success") return null;
   const nonce = callbackNonce(browser.url);
-  if (!nonce) return null;
   await signIn.reload({ rotatingTokenNonce: nonce });
   return signIn;
 }

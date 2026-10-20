@@ -1,23 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BabyApi } from "./api";
 
-const native = vi.hoisted(() => ({ size: 3, bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
+const native = vi.hoisted(() => ({ size: 3, copy: vi.fn(), remove: vi.fn(), bytes: vi.fn(async () => new Uint8Array([65, 66, 67])) }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
-vi.mock("expo-file-system/legacy", () => ({}));
+vi.mock("expo-file-system/legacy", () => ({ documentDirectory: "file:///private/", makeDirectoryAsync: vi.fn(), copyAsync: native.copy, deleteAsync: native.remove }));
 vi.mock("expo-file-system", () => ({
   File: class {
     get size() { return native.size; }
     bytes = native.bytes;
   },
 }));
-vi.mock("expo-crypto", () => ({}));
+vi.mock("expo-crypto", () => ({ randomUUID: () => "copy-id" }));
 vi.mock("expo-sharing", () => ({}));
-import { uploadFile } from "./files";
+import { preserveFile, uploadFile } from "./files";
 
 describe("private native upload compatibility", () => {
   beforeEach(() => {
     native.size = 3;
-    native.bytes.mockClear();
+    native.bytes.mockClear(); native.copy.mockReset(); native.remove.mockReset().mockResolvedValue(undefined);
     // Native Expo FormData retains File values for its bytes()-based multipart encoder.
     vi.stubGlobal("FormData", class {
       private parts = new Map<string, unknown>();
@@ -48,5 +48,19 @@ describe("private native upload compatibility", () => {
     ).rejects.toThrow("smaller than 25 MB");
     expect(native.bytes).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
+  });
+
+
+  it("preflights actual size even when a share omits size metadata", async () => {
+    native.size = 25 * 1024 * 1024 + 1;
+    await expect(preserveFile("local-parent", { uri: "file:///shared/video.mp4", mimeType: "video/mp4" }))
+      .rejects.toMatchObject({ code: "file_too_large" });
+    expect(native.copy).not.toHaveBeenCalled();
+  });
+  it("infers a supported missing MIME and removes a partially failed private copy", async () => {
+    native.size = 123; native.copy.mockRejectedValueOnce(Error("Interrupted copy"));
+    await expect(preserveFile("local-parent", { uri: "file:///shared/photo.heic", name: "photo.heic" }))
+      .rejects.toThrow("Interrupted copy");
+    expect(native.remove).toHaveBeenCalledWith(expect.stringContaining("copy-id-photo.heic"), { idempotent: true });
   });
 });

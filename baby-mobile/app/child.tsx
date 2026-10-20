@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
@@ -16,13 +16,17 @@ export default function ChildEditor() {
     [due, setDue] = useState(child?.due_date ?? ""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [creationId] = useState(Crypto.randomUUID);
+    [creationId] = useState(Crypto.randomUUID),
+    working = useRef(false);
   async function save() {
+    if (working.current) return;
     if (!name.trim()) {
       setError("Enter a name or nickname. You can change it later.");
       return;
     }
+    working.current = true;
     setBusy(true);
+    setError("");
     try {
       const result = await b.api.child(
         {
@@ -43,6 +47,7 @@ export default function ChildEditor() {
     } catch (e) {
       setError(messageFor(e));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
@@ -61,6 +66,7 @@ export default function ChildEditor() {
         <Button
           variant="ghost"
           title="Remove this profile"
+          busy={busy}
           onPress={() =>
             Alert.alert(
               "Remove this child profile?",
@@ -71,13 +77,19 @@ export default function ChildEditor() {
                   text: "Remove profile",
                   style: "destructive",
                   onPress: () => {
+                    if (working.current) return;
+                    working.current = true;
                     setBusy(true);
+                    setError("");
                     void b.api
                       .deleteChild(child, b.state.bootstrap!.generation)
                       .then(() => b.refresh())
                       .then(() => router.back())
                       .catch((e) => setError(messageFor(e)))
-                      .finally(() => setBusy(false));
+                      .finally(() => {
+                        working.current = false;
+                        setBusy(false);
+                      });
                   },
                 },
               ]

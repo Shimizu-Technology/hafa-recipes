@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import { router, useNavigationContainerRef, usePathname, useSegments } from "expo-router";
@@ -31,7 +31,7 @@ export function NotificationResponseHandler() {
   }, [navigation]);
   const routeReady = reminderNavigationReady(navigationReady, pathname, segments);
   const live = useRef({ baby, navigationReady: routeReady, pathname, toast });
-  live.current = { baby, navigationReady: routeReady, pathname, toast };
+  useLayoutEffect(() => { live.current = { baby, navigationReady: routeReady, pathname, toast }; });
   const controller = useRef<ReturnType<typeof createReminderTapController> | null>(null);
   useEffect(() => {
     if (Platform.OS === "web") return;

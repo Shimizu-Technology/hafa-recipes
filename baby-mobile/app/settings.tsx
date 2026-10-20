@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Linking } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
@@ -13,8 +13,11 @@ export default function Settings() {
     profile = b.state.bootstrap!.profile,
     [name, setName] = useState(profile.display_name),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    working = useRef(false);
   async function run(action: () => Promise<void>) {
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
@@ -22,6 +25,7 @@ export default function Settings() {
     } catch (e) {
       setError(messageFor(e));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
@@ -146,6 +150,7 @@ export default function Settings() {
         <Button
           variant="ghost"
           title="Delete my Baby data"
+          busy={busy}
           onPress={() =>
             Alert.alert(
               "Delete all Baby information?",
@@ -168,6 +173,7 @@ export default function Settings() {
         <Button
           variant="ghost"
           title="Delete my entire Håfa account"
+          busy={busy}
           onPress={() =>
             confirmAccountDeletion(() =>
               void run(async () => {

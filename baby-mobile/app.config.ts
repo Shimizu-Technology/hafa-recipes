@@ -63,6 +63,6 @@ const config: ExpoConfig = {
     "./plugins/with-baby-share.cjs",
   ],
   experiments: { typedRoutes: true },
-  ...(projectId ? { extra: { eas: { projectId } } } : {}),
+  extra: { eas: { projectId } },
 };
 export default config;

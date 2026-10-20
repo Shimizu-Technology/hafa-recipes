@@ -1,5 +1,5 @@
 import { importFinished, importRetryable, importLabel, importProblem, importCardVisible } from "@/lib/import-status";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { router } from "expo-router";
 import { View } from "react-native";
 import { useBaby } from "@/lib/context";
@@ -15,7 +15,26 @@ export default function Library() {
     [topic, setTopic] = useState(""),
     [collection, setCollection] = useState(""),
     [error, setError] = useState(""),
-    [showAllUpdates, setShowAllUpdates] = useState(false);
+    [showAllUpdates, setShowAllUpdates] = useState(false),
+    [pendingJob, setPendingJob] = useState(""),
+    working = useRef(false);
+  async function updateJob(id: string, action: "retry" | "cancel") {
+    if (working.current) return;
+    working.current = true;
+    setPendingJob(id);
+    setError("");
+    try {
+      const fresh = await (action === "retry"
+        ? b.api.retryJob(id, b.state.bootstrap!.generation)
+        : b.api.cancelJob(id, b.state.bootstrap!.generation));
+      await b.commit((s) => ({ ...s, imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)) }));
+    } catch (e) {
+      setError(messageFor(e));
+    } finally {
+      working.current = false;
+      setPendingJob("");
+    }
+  }
   const selected = b.records.find((row) => row.kind === "collection" && row.id === collection);
   const deletedCollection =
     !!collection && b.state.outbox.some((m) => m.type === "delete" && m.record.id === collection);
@@ -156,28 +175,18 @@ export default function Library() {
                   <Button
                     secondary
                     title="Retry processing"
-                    onPress={() =>
-                      void b.api
-                        .retryJob(job.id, b.state.bootstrap!.generation)
-                        .then((fresh) =>
-                          b.commit((s) => ({ ...s, imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)) }))
-                        )
-                        .catch((e) => setError(messageFor(e)))
-                    }
+                    busy={pendingJob === job.id}
+                    disabled={!!pendingJob}
+                    onPress={() => void updateJob(job.id, "retry")}
                   />
                 )}
                 {!importFinished(job.status) && (
                   <Button
                     variant="ghost"
                     title="Cancel processing"
-                    onPress={() =>
-                      void b.api
-                        .cancelJob(job.id, b.state.bootstrap!.generation)
-                        .then((fresh) =>
-                          b.commit((s) => ({ ...s, imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)) }))
-                        )
-                        .catch((e) => setError(messageFor(e)))
-                    }
+                    busy={pendingJob === job.id}
+                    disabled={!!pendingJob}
+                    onPress={() => void updateJob(job.id, "cancel")}
                   />
                 )}
               </View>

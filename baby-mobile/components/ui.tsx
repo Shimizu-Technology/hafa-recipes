@@ -288,7 +288,7 @@ export function Field({
         multiline={multiline}
         autoCapitalize={purpose || secret ? "none" : "sentences"}
         {...inputTraits(purpose, Platform.OS, numeric)}
-        maxLength={maxLength ?? (multiline ? 30000 : 1000)}
+        maxLength={maxLength ?? inputTraits(purpose, Platform.OS, numeric).maxLength ?? (multiline ? 30000 : 1000)}
         onSubmitEditing={onSubmit}
         returnKeyType={returnKeyType}
         textAlignVertical={multiline ? "top" : "center"}

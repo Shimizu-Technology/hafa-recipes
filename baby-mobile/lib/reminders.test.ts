@@ -101,3 +101,15 @@ describe("authoritative versus legacy reminder restoration", () => {
     expect(native.cancelScheduledNotificationAsync).not.toHaveBeenCalled();
   });
 });
+
+it("schedules healthy routines after a scheduler failure and reports it",async()=>{
+  native.scheduleNotificationAsync.mockReset().mockRejectedValueOnce(Error("OS unavailable")).mockResolvedValue("scheduled");
+  await expect(reconcileReminders("owner",1,[row("failed"),row("healthy")])).rejects.toThrow("reminder");
+  expect(native.scheduleNotificationAsync.mock.calls.map(([n])=>n.content.data.recordId)).toEqual(["failed","healthy"]);
+});
+it("keeps the chosen timezone and schedules a healthy routine after a bad timezone",async()=>{
+  native.scheduleNotificationAsync.mockReset().mockResolvedValue("scheduled");
+  const invalid={...row("invalid"),data:{...row("invalid").data,timezone:"Invalid/Zone"}};
+  await expect(reconcileReminders("owner",1,[invalid,row("healthy")])).rejects.toThrow("reminder");
+  expect(native.scheduleNotificationAsync.mock.calls.map(([n])=>n.content.data.recordId)).toEqual(["healthy"]);
+});

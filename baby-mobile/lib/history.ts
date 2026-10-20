@@ -68,7 +68,7 @@ export function createHistoryPager(
         more = page.has_more && page.items.length > 0 && offset < page.total;
         // Keep already displayed history during a refresh, but walk every new
         // page in order. Once complete, drop IDs absent from the fresh result.
-        ids = !page.has_more ? [...refreshedIds] : [...new Set([...ids, ...refreshedIds])];
+        ids = !more ? [...refreshedIds] : [...new Set([...ids, ...refreshedIds])];
         return page;
       } catch (error) {
         if (!current(captured)) return null;

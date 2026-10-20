@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-const root = new URL("../dist", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+const root = fileURLToPath(new URL("../dist", import.meta.url));
 function walk(path) { return readdirSync(path, {withFileTypes:true}).flatMap(entry => entry.isDirectory() ? walk(join(path,entry.name)) : [join(path,entry.name)]); }
 const maps = walk(root).filter(path => path.endsWith(".hbc.map"));
 if (maps.length !== 2) throw new Error("Expected both iOS and Android Hermes source maps");

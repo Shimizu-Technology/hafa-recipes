@@ -80,7 +80,7 @@ export function DateField({
                 }}
               />
               <Button
-                title="Use this date"
+                title={mode === "time" ? "Use this time" : "Use this date"}
                 onPress={() => {
                   change(draft);
                   setMode(null);

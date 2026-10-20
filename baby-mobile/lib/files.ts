@@ -6,7 +6,7 @@ import { Platform } from "react-native";
 import type { BabyApi } from "./api";
 import type { LocalFile } from "./models";
 import { storageKey } from "./vault";
-import { fileExtension } from "./file-type";
+import { fileExtension, supportedFileMime } from "./file-type";
 export function directory(owner: string) {
   return `${FileSystem.documentDirectory}baby/${storageKey(owner)}/`;
 }
@@ -14,17 +14,24 @@ export async function preserveFile(
   owner: string,
   file: { uri: string; name?: string; mimeType?: string; size?: number }
 ): Promise<LocalFile> {
-  const mime = file.mimeType ?? "application/octet-stream";
-  if (!/^(image\/|video\/|audio\/|application\/pdf$)/.test(mime))
-    throw Error("Choose an image, PDF, audio, or video file.");
-  if (file.size && file.size > 25 * 1024 * 1024) throw Error("Choose a file smaller than 25 MB.");
+  const mime = supportedFileMime(file.mimeType, file.name ?? file.uri);
+  if (!mime)
+    throw Object.assign(Error("Choose an image, PDF, audio, or video file."), { code: "unsupported_file" });
+  const size = Platform.OS === "web" ? file.size : new File(file.uri).size;
+  if (size != null && size > 25 * 1024 * 1024)
+    throw Object.assign(Error("Choose a file smaller than 25 MB."), { code: "file_too_large" });
   const id = Crypto.randomUUID(),
     name = (file.name ?? "attachment").replace(/[^a-zA-Z0-9._-]/g, "_");
-  if (Platform.OS === "web") return { id, uri: file.uri, name, mime_type: mime, size: file.size };
+  if (Platform.OS === "web") return { id, uri: file.uri, name, mime_type: mime, size };
   await FileSystem.makeDirectoryAsync(directory(owner), { intermediates: true });
   const uri = directory(owner) + id + "-" + name;
-  await FileSystem.copyAsync({ from: file.uri, to: uri });
-  return { id, uri, name, mime_type: mime, size: file.size };
+  try {
+    await FileSystem.copyAsync({ from: file.uri, to: uri });
+  } catch (error) {
+    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    throw error;
+  }
+  return { id, uri, name, mime_type: mime, size };
 }
 export async function uploadFile(api: BabyApi, file: LocalFile, generation: number) {
   const body = new FormData();

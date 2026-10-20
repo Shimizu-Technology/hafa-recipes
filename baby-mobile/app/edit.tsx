@@ -48,7 +48,8 @@ export default function Edit() {
     [showDetails, setShowDetails] = useState(!!params.id);
   const latest = useRef<EditorDraft | null>(null),
     loaded = useRef(false),
-    retired = useRef(false);
+    retired = useRef(false),
+    working = useRef(false);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -78,6 +79,7 @@ export default function Edit() {
     if (!draft || !loaded.current || retired.current) return;
     setSaved(false);
     const timer = setTimeout(() => {
+      if (retired.current) return;
       void b
         .saveDraft(slot, draft)
         .then(() => setSaved(true))
@@ -104,7 +106,8 @@ export default function Edit() {
     change({ data: { ...latest.current!.data, ...value } });
   }
   async function run(fn: () => Promise<void>) {
-    if (busy) return;
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
@@ -112,6 +115,7 @@ export default function Edit() {
     } catch (e) {
       setError(messageFor(e));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
@@ -168,6 +172,9 @@ export default function Edit() {
       throw Error("Add a title, a note, or a source to keep.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
       throw Error("Enter an amount greater than zero, or leave it empty.");
+    if (d.kind === "feeding" && d.data.duration_minutes != null &&
+      (!Number.isFinite(d.data.duration_minutes) || d.data.duration_minutes <= 0))
+      throw Error("Enter a duration greater than zero, or leave it empty.");
     if (d.kind === "sleep" && d.data.end_at && new Date(d.data.end_at) < new Date(d.occurred_at))
       throw Error("Sleep must end after it starts.");
     if (d.kind === "routine" && d.data.enabled && !d.data.reminder_at)
@@ -206,25 +213,30 @@ export default function Edit() {
             record: { ...record, title: d.title.trim() || kindName[d.kind], ...(revision ? { revision } : {}) },
             files,
           };
-      await b.commit((s) => {
-        const drafts = { ...s.drafts };
-        delete drafts[slot];
-        const prepared: Mutation =
-          mutation.type === "save"
-            ? {
-                ...mutation,
-                record: {
-                  ...mutation.record,
-                  revision:
-                    mutation.record.revision ||
-                    (d.existing ? s.records.find((r) => r.id === d.id)?.revision : undefined),
-                },
-                files: mutation.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
-              }
-            : mutation;
-        return { ...addMutation(s, prepared), drafts };
-      });
       retired.current = true;
+      try {
+        await b.commit((s) => {
+          const drafts = { ...s.drafts };
+          delete drafts[slot];
+          const prepared: Mutation =
+            mutation.type === "save"
+              ? {
+                  ...mutation,
+                  record: {
+                    ...mutation.record,
+                    revision:
+                      mutation.record.revision ||
+                      (d.existing ? s.records.find((r) => r.id === d.id)?.revision : undefined),
+                  },
+                  files: mutation.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
+                }
+              : mutation;
+          return { ...addMutation(s, prepared), drafts };
+        });
+      } catch (failure) {
+        retired.current = false;
+        throw failure;
+      }
       latest.current = null;
       toast(
         process
@@ -608,7 +620,12 @@ export default function Edit() {
               onPress: () =>
                 void run(async () => {
                   retired.current = true;
-                  await b.saveDraft(slot, null);
+                  try {
+                    await b.saveDraft(slot, null);
+                  } catch (error) {
+                    retired.current = false;
+                    throw error;
+                  }
                   latest.current = null;
                   router.back();
                 }),

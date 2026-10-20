@@ -44,52 +44,59 @@ async function reconcileOwnedReminders(owner: string, generation: number, record
       await Notifications.cancelScheduledNotificationAsync(n.identifier);
   }
   if (!allowed) return;
+  let failed = 0;
   for (const r of desired) {
     if (!current()) return;
-    const signature = signatures.get(r.id)!;
-    if (existing.some((n) => n.content.data?.recordId === r.id && n.content.data?.signature === signature)) continue;
-    const date = new Date(r.data.reminder_at!);
-    if (!Number.isFinite(date.getTime())) continue;
-    let trigger: Notifications.NotificationTriggerInput;
-    if (Platform.OS === "ios" && ["daily", "weekly"].includes(r.data.repeat ?? "")) {
-      const timezone = r.data.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const clock = reminderClock(date, timezone);
-      trigger = {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
-        repeats: true,
-        timezone,
-        hour: clock.hour,
-        minute: clock.minute,
-        second: 0,
-        ...(r.data.repeat === "weekly" ? { weekday: clock.weekday } : {}),
-      };
-    } else if (r.data.repeat === "daily")
-      trigger = {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour: date.getHours(),
-        minute: date.getMinutes(),
-      };
-    else if (r.data.repeat === "weekly")
-      trigger = {
-        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-        weekday: date.getDay() + 1,
-        hour: date.getHours(),
-        minute: date.getMinutes(),
-      };
-    else {
-      if (date.getTime() <= Date.now()) continue;
-      trigger = { type: Notifications.SchedulableTriggerInputTypes.DATE, date };
+    try {
+      const signature = signatures.get(r.id)!;
+      if (existing.some((n) => n.content.data?.recordId === r.id && n.content.data?.signature === signature)) continue;
+      const date = new Date(r.data.reminder_at!);
+      if (!Number.isFinite(date.getTime())) continue;
+      let trigger: Notifications.NotificationTriggerInput;
+      if (Platform.OS === "ios" && ["daily", "weekly"].includes(r.data.repeat ?? "")) {
+        const timezone = r.data.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const clock = reminderClock(date, timezone);
+        trigger = {
+          type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+          repeats: true,
+          timezone,
+          hour: clock.hour,
+          minute: clock.minute,
+          second: 0,
+          ...(r.data.repeat === "weekly" ? { weekday: clock.weekday } : {}),
+        };
+      } else if (r.data.repeat === "daily")
+        trigger = {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour: date.getHours(),
+          minute: date.getMinutes(),
+        };
+      else if (r.data.repeat === "weekly")
+        trigger = {
+          type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+          weekday: date.getDay() + 1,
+          hour: date.getHours(),
+          minute: date.getMinutes(),
+        };
+      else {
+        if (date.getTime() <= Date.now()) continue;
+        trigger = { type: Notifications.SchedulableTriggerInputTypes.DATE, date };
+      }
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "A moment for your routine",
+          body: "Open Håfa Baby to see your reminder.",
+          sound: "default",
+          data: metadata.get(r.id)!,
+        },
+        trigger,
+      });
+    } catch {
+      failed++;
     }
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "A moment for your routine",
-        body: "Open Håfa Baby to see your reminder.",
-        sound: "default",
-        data: metadata.get(r.id)!,
-      },
-      trigger,
-    });
   }
+  if (failed && current())
+    throw Error("Some reminders could not be scheduled. Review their time settings and try again.");
 }
 export async function requestReminders() {
   if (Platform.OS === "web") throw Error("Reminders need the installed iPhone or Android app.");

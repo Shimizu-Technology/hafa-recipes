@@ -198,3 +198,23 @@ it("flushes the latest unsent text on background/unmount and never double-submit
   expect(account.api.chat).toHaveBeenCalledOnce();
   await act(async () => { pending.release({ conversation_id: "answer", message: "Answer", citations: [] }); await sending; });
 });
+
+it("proposal review preserves a held answer and the send guard", async () => {
+  const a=setup(), pending=held<Awaited<ReturnType<typeof a.api.chat>>>(); a.api.chat.mockReturnValue(pending.promise);
+  await mount(); await question("Pending followup"); let first!:Promise<void>,second!:Promise<void>;
+  await act(async()=>{first=result.send();});
+  await act(async()=>{await result.review({kind:"routine",title:"Earlier proposal",body:"",data:{}});});
+  const busy=result.busy;
+  await act(async()=>{second=result.send();}); const calls=a.api.chat.mock.calls.length;
+  await act(async()=>{pending.release({conversation_id:"same",message:"Preserved answer",citations:[]});await Promise.all([first,second]);});
+  expect(busy).toBe(true); expect(calls).toBe(1);
+  expect(result.messages.map(m=>m.content)).toEqual(["Pending followup","Preserved answer"]);
+  expect(a.state.drafts[askDraftKey(general)]).toBeUndefined();
+});
+it("proposal review preserves a held conversation load", async () => {
+  const a=setup(), pending=held<Conversation>(); a.api.conversation.mockReturnValue(pending.promise);
+  await mount(); let loading!:Promise<void>; await act(async()=>{loading=result.load("history");});
+  await act(async()=>{await result.review({kind:"routine",title:"Earlier proposal",body:"",data:{}});}); const busy=result.busy;
+  await act(async()=>{pending.release(conversation({...general,scope:"care"},"history"));await loading;});
+  expect(busy).toBe(true); expect(result.conversation).toBe("history"); expect(result.context.scope).toBe("care");
+});
