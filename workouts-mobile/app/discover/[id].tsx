@@ -105,6 +105,7 @@ export default function DiscoverWorkout() {
       // The coach talks about workouts in your library, so save a private copy first.
       const workout = item.saved_workout_id ? await api.workout(item.saved_workout_id) : await saveCopy();
       if (!workout) return;
+      if (!item.saved_workout_id) toast("Saved a private copy to your library");
       router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } });
     } catch (e) {
       setError((e as Error).message);
@@ -156,6 +157,7 @@ export default function DiscoverWorkout() {
       // Refetch the mounted feed so the contributor's cards disappear; drop the stale detail.
       cache.removeQueries({ queryKey: discoverKeys.detail(owner, enrollment?.generation, id) });
       void cache.resetQueries({ queryKey: [owner, "discover", "feed"] });
+      void cache.invalidateQueries({ queryKey: [owner, "discover", "contributors"] });
     } catch (e) {
       setError((e as Error).message);
       setSheet(null);
@@ -264,7 +266,8 @@ export default function DiscoverWorkout() {
                 <ListRow
                   icon="eye-off-outline"
                   title="Remove from Discover"
-                  detail="People who already saved it keep their copy"
+                  detail="People who already saved it keep their copy. Your notes and training stay private."
+                  value={busy === "unpublish" ? "Removing…" : undefined}
                   disabled={generation == null || busy === "unpublish"}
                   onPress={() => void unpublish()}
                 />

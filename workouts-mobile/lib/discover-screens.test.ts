@@ -479,6 +479,7 @@ it("asks the coach about a Discover workout by saving a private copy first", asy
   await act(async () => headerAction("Ask the coach")!.props.onPress());
   await settle();
   expect(fixture.saveDiscovered).toHaveBeenCalledTimes(1);
+  expect(fixture.toast).toHaveBeenCalledWith("Saved a private copy to your library");
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: "copy-1", revision: "4" } });
 });
 
@@ -565,7 +566,9 @@ it("Discover detail leads with the cover, keeps one primary save and tucks repor
   await mount(DiscoverWorkout);
   const screen = nodes("Screen")[0];
   expect(screen.props.title).toBe("Ten minute legs");
-  const first = screen.children[0] as ReactTestInstance;
+  expect(screen.props.hideTitle).toBe(true);
+  // The cover is the first body element (after the mock's rendering of the header actions).
+  const first = (screen.children as ReactTestInstance[]).find((n) => String(n.type) !== "ScreenAction")!;
   expect(String(first.type)).toBe("View");
   expect(first.findAll((n) => String(n.type) === "SourceImage")).toHaveLength(1);
   expect(headerActions().map((n) => n.props.label)).toEqual([
