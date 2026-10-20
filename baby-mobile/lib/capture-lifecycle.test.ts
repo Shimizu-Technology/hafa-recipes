@@ -25,6 +25,7 @@ vi.mock("expo-image-picker", () => ({}));
 vi.mock("expo-share-intent", () => ({ useShareIntentContext: () => ({ ...scope.stock, resetShareIntent: scope.reset }) }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
+vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/files", () => ({ preserveFile: scope.copy, removeLocal: scope.remove }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
@@ -245,4 +246,70 @@ it("cleans earlier copies if a later supported file fails to copy", async () => 
   await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
   expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
   expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.acknowledge).not.toHaveBeenCalled();
+});
+function chips() {
+  return renderer!.root.findAll((node) => String(node.type) === "Chips")[0];
+}
+function withBaby(account: ReturnType<typeof setup>) {
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!,
+    children: [{ id: "baby-1", name: "Baby girl", revision: 1 }] } };
+}
+it("files a new care log under the baby even when Everything is selected", async () => {
+  const account = setup(); withBaby(account); scope.params = { kind: "feeding" };
+  await mount(Edit);
+  expect(chips().props.value).toBe("baby-1");
+  expect(chips().props.options.map((option: { value: string }) => option.value)).toEqual(["baby-1"]);
+  await press("Save feeding");
+  await act(async () => { await account.drain(); });
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.child_id).toBe("baby-1");
+  scope.params = { kind: "journal" };
+});
+it("lets an older general care entry be reassigned to the baby and saves that choice", async () => {
+  const account = setup(); withBaby(account);
+  account.state = { ...account.state, drafts: { legacy: { id: "care-old", kind: "diaper", title: "Diaper", body: "",
+    child_id: null, occurred_at: "2026-10-19T10:00:00.000Z", files: [], data: { type: "wet" }, existing: true, revision: 2 } } };
+  scope.params = { kind: "diaper", draft: "legacy" } as typeof scope.params;
+  await mount(Edit);
+  expect(chips().props.value).toBe("");
+  expect(chips().props.options.map((option: { value: string }) => option.value)).toEqual(["", "baby-1"]);
+  await act(async () => chips().props.onChange("baby-1"));
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.child_id).toBe("baby-1");
+  scope.params = { kind: "journal" };
+});
+it("asks which baby a care log is for when there are several and none is selected", async () => {
+  const account = setup();
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, children: [
+    { id: "twin-a", name: "A", revision: 1 }, { id: "twin-b", name: "B", revision: 1 }] } };
+  scope.params = { kind: "diaper" };
+  await mount(Edit);
+  expect(chips().props.value).toBe("");
+  await press("Save diaper");
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(0);
+  const notice = renderer!.root.findAll((node) => String(node.type) === "Notice")[0];
+  expect(notice.props.children).toBe("Choose which baby this is for.");
+  await act(async () => chips().props.onChange("twin-b"));
+  await press("Save diaper");
+  await act(async () => { await account.drain(); });
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.child_id).toBe("twin-b");
+  scope.params = { kind: "journal" };
+});
+it("keeps an existing care entry on its own baby when another baby is selected", async () => {
+  const account = setup();
+  account.state = { ...account.state, selectedChild: "twin-a", bootstrap: { ...account.state.bootstrap!, children: [
+    { id: "twin-a", name: "A", revision: 1 }, { id: "twin-b", name: "B", revision: 1 }] },
+    drafts: { mine: { id: "care-b", kind: "feeding", title: "Feeding", body: "", child_id: "twin-b",
+      occurred_at: "2026-10-19T10:00:00.000Z", files: [], data: { method: "bottle" }, existing: true, revision: 3 } } };
+  scope.params = { kind: "feeding", draft: "mine" } as typeof scope.params;
+  await mount(Edit);
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.child_id).toBe("twin-b");
+  scope.params = { kind: "journal" };
 });

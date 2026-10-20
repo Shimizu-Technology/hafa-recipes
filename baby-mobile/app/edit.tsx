@@ -11,6 +11,7 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
+import { defaultChild, isCare } from "@/lib/care-format";
 import { CollectionSources } from "@/components/collection-sources";
 function fresh(kind: Kind, child: string | null): EditorDraft {
   return {
@@ -60,7 +61,8 @@ export default function Edit() {
           if (!row || row.cache_partial) row = await b.api.record(params.id);
           d = { ...row, files: inheritedFiles(b.state, row.id), existing: true };
         }
-        d ??= fresh(params.kind ?? "journal", b.state.selectedChild);
+        const kind = params.kind ?? "journal";
+        d ??= fresh(kind, defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children));
         if (active) {
           latest.current = d;
           setDraft(d);
@@ -170,6 +172,8 @@ export default function Edit() {
       !d.data.url
     )
       throw Error("Add a title, a note, or a source to keep.");
+    if (isCare(d.kind) && !d.existing && !d.child_id && b.state.bootstrap!.children.length)
+      throw Error("Choose which baby this is for.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
       throw Error("Enter an amount greater than zero, or leave it empty.");
     if (d.kind === "feeding" && d.data.duration_minutes != null &&
@@ -276,7 +280,10 @@ export default function Edit() {
         <Chips
           value={draft.child_id ?? ""}
           options={[
-            { label: "For me / general", value: "" },
+            // Care always belongs to a baby; older general care entries can still be reassigned.
+            ...(isCare(draft.kind) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
+              ? []
+              : [{ label: "For me / general", value: "" }]),
             ...b.state.bootstrap!.children.map((c) => ({ label: c.name, value: c.id })),
           ]}
           onChange={(id) => change({ child_id: id || null })}

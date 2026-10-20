@@ -103,6 +103,8 @@ export interface Citation {
   id: string;
   title: string;
   excerpt: string;
+  /** Present on newer responses; older stored conversations omit it. */
+  kind?: Kind;
 }
 export interface Proposal {
   kind: Kind;

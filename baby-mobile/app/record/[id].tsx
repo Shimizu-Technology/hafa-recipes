@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
+import { careSummary, duration, friendlyTime } from "@/lib/care-format";
 import { kindName, messageFor, sourceProcessingNotes, sourceEvidenceItems, type BabyRecord } from "@/lib/models";
 import { inheritedFiles, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
@@ -82,7 +83,7 @@ export default function RecordDetail() {
       title={record.title}
       eyebrow={kindName[record.kind].toUpperCase()}
       back
-      subtitle={new Date(record.occurred_at).toLocaleString() + (child ? " · " + child.name : "")}
+      subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
@@ -184,35 +185,18 @@ export default function RecordDetail() {
       )}
       {record.kind === "feeding" && (
         <Card tone="hero">
-          <Copy kind="heading">
-            {data.method === "breast" ? "Breastfeeding" : data.method === "bottle" ? "Bottle feeding" : "Feeding"}
-          </Copy>
-          {data.side && (
-            <Copy>
-              {data.side === "both" ? "Both sides" : data.side[0].toUpperCase() + data.side.slice(1) + " side"}
-            </Copy>
-          )}
-          {data.amount != null && (
-            <Copy>
-              {data.amount} {data.unit ?? "mL"}
-            </Copy>
-          )}
-          {data.duration_minutes != null && <Copy>{data.duration_minutes} minutes</Copy>}
+          <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
         </Card>
       )}
       {record.kind === "sleep" && (
         <Card tone="hero">
           <Copy kind="heading">{data.end_at ? "Sleep recorded" : "Sleep in progress"}</Copy>
-          <Copy>Started {new Date(record.occurred_at).toLocaleString()}</Copy>
+          <Copy>Started {friendlyTime(record.occurred_at)}</Copy>
           {data.end_at ? (
             <>
-              <Copy>Ended {new Date(data.end_at).toLocaleString()}</Copy>
+              <Copy>Ended {friendlyTime(data.end_at)}</Copy>
               <Copy>
-                {Math.max(
-                  0,
-                  Math.round((new Date(data.end_at).getTime() - new Date(record.occurred_at).getTime()) / 60000)
-                )}{" "}
-                minutes
+                {duration((new Date(data.end_at).getTime() - new Date(record.occurred_at).getTime()) / 60000)}
               </Copy>
             </>
           ) : (
@@ -226,9 +210,7 @@ export default function RecordDetail() {
       )}
       {record.kind === "diaper" && (
         <Card tone="hero">
-          <Copy kind="heading">
-            {data.type === "both" ? "Wet + dirty diaper" : `${data.type ?? "Recorded"} diaper`}
-          </Copy>
+          <Copy kind="heading">{careSummary("diaper", data, record.occurred_at)}</Copy>
         </Card>
       )}
       {!!record.body && (
@@ -264,7 +246,7 @@ export default function RecordDetail() {
             {data.enabled && data.reminder_at
               ? data.routine_type === "checklist" && data.items?.length && data.items.every((item) => item.done)
                 ? "Checklist complete. Reminders are paused."
-                : `Reminder enabled for ${new Date(data.reminder_at).toLocaleString()}${data.repeat === "daily" ? " · daily" : data.repeat === "weekly" ? " · weekly" : ""}. Repeating reminders use ${data.timezone ?? "the chosen timezone"}.`
+                : `Reminder enabled for ${friendlyTime(data.reminder_at)}${data.repeat === "daily" ? " · daily" : data.repeat === "weekly" ? " · weekly" : ""}. Repeating reminders use ${data.timezone ?? "the chosen timezone"}.`
               : "Reminders are off. Edit this routine to choose a time and activate a reminder."}
           </Notice>
         </>
