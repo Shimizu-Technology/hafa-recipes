@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Share } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Copy, Empty, Notice, Screen } from "@/components/ui";
+import { Button, Card, Copy, Empty, Notice, Row, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import type { OwnerShare } from "@/lib/sharing";
@@ -50,24 +50,28 @@ export default function SharingLinks() {
           <Empty
             icon="link-outline"
             title="No sharing links yet"
-            description="Open a selected workout or program to preview its public snapshot before creating a link."
+            description="Open a workout or plan and tap Share to create one."
           />
         ) : (
           q.data.map((share) => (
             <Card key={share.id}>
               <Copy kind="heading">{share.content.title}</Copy>
-              <Copy>
-                {share.kind} ·{" "}
+              <Copy tone="muted">
+                {share.kind === "program" ? "Plan" : "Workout"} ·{" "}
                 {share.revoked_at
-                  ? "Revoked"
+                  ? "Turned off"
                   : !shareAvailable(share, Math.max(clock, Date.now()))
                     ? "Expired"
-                    : `Expires ${new Date(share.expires_at).toLocaleDateString()}`}
+                    : `Works until ${new Date(share.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
               </Copy>
               {shareAvailable(share, Math.max(clock, Date.now())) && (
-                <>
+                <Row wrap>
                   <Button
-                    title="Share this link"
+                    title="Share"
+                    accessibilityHint={`Shares the link to ${share.content.title}`}
+                    icon="share-outline"
+                    size="sm"
+                    inline
                     secondary
                     onPress={() => {
                       if (!shareAvailable(share)) { setClock(Date.now()); setError("This link expired. Open the workout or plan to create a new sharing link."); return; }
@@ -75,17 +79,20 @@ export default function SharingLinks() {
                     }}
                   />
                   <Button
-                    title="Revoke this link"
-                    secondary
+                    title="Turn off"
+                    accessibilityHint={`Turns off the link to ${share.content.title}`}
+                    variant="ghost"
+                    size="sm"
+                    inline
                     busy={busy}
                     onPress={() =>
                       Alert.alert(
-                        "Revoke this sharing link?",
-                        "Future views and copies will stop. Independent copies already saved cannot be recalled.",
+                        "Turn off this link?",
+                        "New visits stop. Copies people already saved stay with them.",
                         [
                           { text: "Keep link", style: "cancel" },
                           {
-                            text: "Revoke",
+                            text: "Turn off",
                             style: "destructive",
                             onPress: () => {
                               void revoke(share);
@@ -95,7 +102,7 @@ export default function SharingLinks() {
                       )
                     }
                   />
-                </>
+                </Row>
               )}
             </Card>
           ))
