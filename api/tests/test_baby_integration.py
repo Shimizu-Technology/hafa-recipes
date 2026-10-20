@@ -370,7 +370,14 @@ async def test_grounded_chat_history_idempotency_proposal_and_consent(baby_api, 
     response = await c.post("/api/v1/baby/chat", headers=GEN, json=body)
     assert response.status_code == 200, response.text
     value = response.json()
-    assert value["citations"][0]["id"] == source["id"]
+    assert value["citations"] == [
+        {
+            "id": source["id"],
+            "title": "Notes",
+            "excerpt": "Original text\n\nHospital packing passports for labor",
+            "kind": "source",
+        }
+    ]
     assert value["proposal"]["kind"] == "question"
     replay = await c.post("/api/v1/baby/chat", headers=GEN, json=body)
     assert replay.status_code == 200 and len(calls) == 1

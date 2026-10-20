@@ -1,6 +1,6 @@
 """Typed wire boundaries and grounded retrieval/presentation without providers."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.domains.baby.attachments import attachment_prefix
-from app.domains.baby.chat import excerpt_for, query_terms, reviewed_proposal
+from app.domains.baby.chat import display_excerpt, excerpt_for, query_terms, reviewed_proposal
 from app.domains.baby.lifecycle import digest
 from app.domains.baby.provider import BabyProvider
 from app.domains.baby.schemas import ImportCreate, Profile, RecordCreate
@@ -98,6 +98,118 @@ def test_retrieval_keeps_old_deep_source_passages_and_hash_is_canonical():
     assert "passports" in excerpt
     assert len(excerpt) <= 7000
     assert digest({"b": 2, "a": 1}) == digest({"a": 1, "b": 2})
+
+
+STARTED = datetime(2026, 10, 20, 2, 0, tzinfo=UTC)
+
+
+def shown(kind, data, *, title="Fixture", body="", **extra):
+    item = SimpleNamespace(
+        kind=kind, title=title, body=body, data=data, occurred_at=STARTED, **extra
+    )
+    return display_excerpt(item, [])
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (
+            {"method": "breast", "side": "left", "unit": None, "amount": None, "duration_minutes": 15.0},
+            "Breastfeeding · Left side · 15 min",
+        ),
+        ({"method": "breast", "side": "both", "duration_minutes": 75}, "Breastfeeding · Both sides · 1 h 15 min"),
+        ({"method": "bottle", "amount": 4.0, "unit": "oz", "side": None}, "Bottle · 4 oz"),
+        ({"method": "bottle", "amount": 120, "unit": "ml", "duration_minutes": 0.5}, "Bottle · 120 ml · under 1 min"),
+        ({"method": "bottle", "amount": 4, "unit": None}, "Bottle"),
+        ({"method": "other", "duration_minutes": None}, "Feeding"),
+        ({}, "Feeding"),
+    ],
+)
+def test_feeding_citations_are_readable(data, expected):
+    assert shown("feeding", data) == expected
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({"end_at": (STARTED + timedelta(minutes=80)).isoformat()}, "Sleep · 1 h 20 min"),
+        ({"end_at": (STARTED + timedelta(hours=2)).isoformat()}, "Sleep · 2 h"),
+        ({"end_at": None}, "Sleep in progress"),
+        ({}, "Sleep in progress"),
+        ({"end_at": (STARTED - timedelta(minutes=5)).isoformat()}, "Sleep"),
+        ({"end_at": "not a time"}, "Sleep"),
+        ({"end_at": "2026-10-20T03:00:00"}, "Sleep"),  # Naive timestamps are not guessed.
+    ],
+)
+def test_sleep_citations_show_duration_or_progress(data, expected):
+    assert shown("sleep", data) == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [("wet", "Wet"), ("dirty", "Dirty"), ("both", "Wet and dirty"), ("dry", "Dry"), (None, "Diaper change")],
+)
+def test_diaper_citations_name_the_change(kind, expected):
+    assert shown("diaper", {"type": kind}) == expected
+
+
+def test_routine_citations_count_steps_and_list_labels():
+    items = [
+        {"id": "a", "label": "Documents", "done": True},
+        {"id": "b", "label": "Snacks", "done": False},
+        {"id": "c", "label": "Charger", "done": True},
+    ]
+    assert shown("routine", {"routine_type": "checklist", "items": items}) == (
+        "2 of 3 steps done\nDocuments\nSnacks\nCharger"
+    )
+    assert shown("routine", {"routine_type": "schedule", "items": items[:1], "repeat": "daily"}) == (
+        "Schedule · 1 step · Repeats daily\nDocuments"
+    )
+    assert shown("routine", {"routine_type": "checklist", "items": None}) == "Checklist"
+    assert shown("routine", {}) == "Schedule"
+
+
+def test_care_citations_add_notes_and_never_show_raw_data():
+    excerpt = shown(
+        "feeding",
+        {"method": "breast", "side": None, "unit": None, "amount": None, "duration_minutes": None},
+        title="Feeding",
+        body="Latched well",
+    )
+    assert excerpt == "Breastfeeding\n\nLatched well"
+    for kind, data in [
+        ("feeding", {"method": "bottle", "amount": None, "unit": None}),
+        ("sleep", {"end_at": None}),
+        ("diaper", {"type": "wet"}),
+        ("routine", {"routine_type": "checklist", "items": [], "reminder_at": None}),
+    ]:
+        excerpt = shown(kind, data, body="Note")
+        assert "{" not in excerpt and "null" not in excerpt and "None" not in excerpt
+        assert '"' not in excerpt and excerpt.endswith("Note")
+
+
+def test_citation_excerpt_does_not_repeat_title_and_stays_bounded():
+    assert shown("journal", {}, title="First smile", body="She smiled at grandma") == "She smiled at grandma"
+    assert shown("journal", {}, title="First smile", body="First smile\nAt breakfast") == "At breakfast"
+    assert shown("question", {}, title="Ask", body="Ask the nurse about vitamin D") == (
+        "Ask the nurse about vitamin D"
+    )
+    source = shown(
+        "source",
+        {"summary": "Pack documents early", "topics": ["labor", "packing"]},
+        title="Hospital bag",
+    )
+    assert source == "Pack documents early\n\nlabor, packing"
+    assert shown("journal", {}, title="Long", body="x" * 5000) == "x" * 1000
+    assert shown("collection", {"record_ids": []}, title="Saved") == ""
+
+
+def test_model_context_still_receives_typed_care_data():
+    item = SimpleNamespace(
+        kind="feeding", title="Feeding", body="", data={"method": "breast", "side": "left"}
+    )
+    excerpt = excerpt_for(item, [])
+    assert excerpt.startswith("Feeding\n") and '"side": "left"' in excerpt
 
 
 def test_asset_prefix_contains_no_account_id_and_provider_is_disabled_in_tests():

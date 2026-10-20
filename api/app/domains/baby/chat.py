@@ -2,7 +2,7 @@
 
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, HTTPException
@@ -62,12 +62,12 @@ def query_terms(message):
     )[:10]
 
 
-def excerpt_for(record, terms, *, limit=7000):
-    text = "\n\n".join(
+def record_text(record, *, include_title=True):
+    return "\n\n".join(
         filter(
             None,
             [
-                record.title,
+                record.title if include_title else None,
                 record.body,
                 record.data.get("source_text"),
                 record.data.get("summary"),
@@ -75,8 +75,16 @@ def excerpt_for(record, terms, *, limit=7000):
             ],
         )
     )
+
+
+def excerpt_for(record, terms, *, limit=7000):
+    text = record_text(record)
     if record.kind not in {"source", "journal", "question", "collection"}:
         text += "\n" + json.dumps(record.data, ensure_ascii=False)
+    return bounded(text, terms, limit)
+
+
+def bounded(text, terms, limit):
     if len(text) <= limit:
         return text
     positions = [
@@ -93,6 +101,88 @@ def excerpt_for(record, terms, *, limit=7000):
         else:
             windows.append((start, end))
     return "\n[Excerpt]\n".join(text[start:end] for start, end in windows)[:limit]
+
+
+def duration_label(minutes):
+    if not isinstance(minutes, int | float) or isinstance(minutes, bool) or minutes < 0:
+        return None
+    if 0 < minutes < 1:
+        return "under 1 min"
+    hours, rest = divmod(round(minutes), 60)
+    if not hours:
+        return f"{rest} min"
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
+
+
+def amount_label(amount, unit):
+    if not isinstance(amount, int | float) or isinstance(amount, bool) or unit not in {"ml", "oz"}:
+        return None
+    return f"{amount:g} {unit}"
+
+
+def parsed_time(value):
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def care_summary(record):
+    """Plain-language care details for people; the model still receives the typed data."""
+    data = record.data if isinstance(record.data, dict) else {}
+    if record.kind == "feeding":
+        method = data.get("method")
+        side = {"left": "Left side", "right": "Right side", "both": "Both sides"}
+        parts = [{"breast": "Breastfeeding", "bottle": "Bottle"}.get(method, "Feeding")]
+        if method == "breast":
+            parts.append(side.get(data.get("side")))
+        parts += [
+            amount_label(data.get("amount"), data.get("unit")),
+            duration_label(data.get("duration_minutes")),
+        ]
+        return " · ".join(filter(None, parts))
+    if record.kind == "sleep":
+        if not data.get("end_at"):
+            return "Sleep in progress"
+        start, end = parsed_time(record.occurred_at), parsed_time(data["end_at"])
+        try:
+            label = duration_label((end - start).total_seconds() / 60)
+        except TypeError:
+            label = None
+        return f"Sleep · {label}" if label else "Sleep"
+    if record.kind == "diaper":
+        return {"wet": "Wet", "dirty": "Dirty", "both": "Wet and dirty", "dry": "Dry"}.get(
+            data.get("type"), "Diaper change"
+        )
+    if record.kind == "routine":
+        items = [item for item in data.get("items") or [] if isinstance(item, dict)]
+        labels = [str(item["label"]) for item in items if item.get("label")]
+        steps = f"{len(items)} step" + ("" if len(items) == 1 else "s")
+        if data.get("routine_type") == "checklist":
+            done = sum(1 for item in items if item.get("done") is True)
+            heading = f"{done} of {steps} done" if items else "Checklist"
+        else:
+            heading = f"Schedule · {steps}" if items else "Schedule"
+        repeat = {"daily": "Repeats daily", "weekly": "Repeats weekly"}.get(data.get("repeat"))
+        return "\n".join(filter(None, [" · ".join(filter(None, [heading, repeat])), *labels]))
+    return ""
+
+
+def without_title(text, title):
+    title, text = (title or "").strip(), text.lstrip()
+    remainder = text[len(title) :]
+    if title and text.lower().startswith(title.lower()) and remainder[:1] in {"", "\n", ":", "."}:
+        return remainder.lstrip("\n:. ")
+    return text
+
+
+def display_excerpt(record, terms, *, limit=1000):
+    """Citation text shown beside the record title, so it never repeats that title."""
+    summary = care_summary(record) if record.kind in SCOPE_KINDS["care"] else ""
+    body = without_title(record_text(record, include_title=False), record.title)
+    return bounded("\n\n".join(filter(None, [summary, body])), terms, 7000).strip()[:limit]
 
 
 async def retrieve(db, owner, generation, request):
@@ -125,7 +215,7 @@ async def retrieve(db, owner, generation, request):
         )
     else:
         rows = list(await db.scalars(query.order_by(BabyRecord.occurred_at.desc()).limit(20)))
-    context, available = [], 45000
+    context, displays, available = [], {}, 45000
     for row in rows:
         excerpt = excerpt_for(row, terms, limit=min(7000, available))
         if not excerpt or available <= 0:
@@ -146,8 +236,9 @@ async def retrieve(db, owner, generation, request):
                 ),
             }
         )
+        displays[str(row.id)] = display_excerpt(row, terms)
         available -= len(excerpt)
-    return context
+    return context, displays
 
 
 def reviewed_proposal(raw):
@@ -309,7 +400,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
     )
     if count >= 500:
         raise HTTPException(422, "This conversation is full; start a new conversation")
-    context = await retrieve(db, user.id, generation, body)
+    context, displays = await retrieve(db, user.id, generation, body)
     history_rows = list(
         await db.scalars(
             select(BabyMessage)
@@ -356,7 +447,8 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
             {
                 "id": identifier,
                 "title": allowed[identifier]["title"],
-                "excerpt": allowed[identifier]["excerpt"][:1000],
+                "excerpt": displays[identifier],
+                "kind": allowed[identifier]["kind"],
             }
             for identifier in dict.fromkeys(result.citation_ids)
         ]
