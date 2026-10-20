@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { ApiError } from "./api";
+import { importFinished } from "./import-status";
 import { useBaby } from "./context";
 import { messageFor } from "./models";
 import { replaceRecord } from "./outbox";
@@ -9,7 +10,15 @@ import { createLibraryPager, libraryRows, libraryViewKey, type LibraryView } fro
 export function useLibraryHistory(view: LibraryView, enabled = true) {
   const b = useBaby(),
     lease = b.api.lease();
-  const key = JSON.stringify([b.owner, b.state.bootstrap?.generation, lease, enabled, libraryViewKey(view)]);
+  const scopeKey = JSON.stringify([b.owner, b.state.bootstrap?.generation, lease, enabled, libraryViewKey(view)]);
+  // A new capture or terminal result changes server search/membership. Keep
+  // loaded pages while refetching; ordinary processing polls do not reset them.
+  const key = JSON.stringify([
+    scopeKey,
+    view.kind === "source"
+      ? b.state.imports.map((job) => [job.id, job.record_id ?? null, importFinished(job.status)])
+      : [],
+  ]);
   const latest = useRef(b),
     viewKey = useRef(key),
     focused = useRef<string | null>(null),
@@ -134,8 +143,8 @@ export function useLibraryHistory(view: LibraryView, enabled = true) {
   }
   useFocusEffect(
     useCallback(() => {
-      const retained = focused.current === key;
-      focused.current = key;
+      const retained = focused.current === scopeKey;
+      focused.current = scopeKey;
       active.current = true;
       resetLocal();
       const ticket = pager.current.reset(view, retained);
