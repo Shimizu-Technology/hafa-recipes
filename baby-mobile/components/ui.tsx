@@ -1,81 +1,138 @@
 import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren, type RefObject } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
+  InputAccessoryView,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
   useColorScheme,
   type TextInputProps,
+  type TextStyle,
   type ViewStyle,
   type ColorValue,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
+import { BrandMark } from "./brand-mark";
+
+/**
+ * Håfa Baby tokens. One Håfa family: cream ground, warm ink and reef green are shared with
+ * Recipes and Workouts (mobile/constants/Colors.ts `brand`); Baby adds a dawn-blush accent that
+ * is used for decoration and the baby summary, never for body text on cream.
+ */
 const light = {
-  background: "#F8F6F0",
-  surface: "#FFFFFF",
-  soft: "#EDF1E9",
-  hero: "#DDE7D8",
-  text: "#233A2E",
-  muted: "#607065",
-  action: "#355C49",
-  onAction: "#FFFFFF",
-  border: "#DEE3DA",
-  error: "#9A3431",
-  errorBg: "#FAEBE6",
-  warm: "#EEE5D6",
+  background: "#FFF7EC",
+  surface: "#FFFCF7",
+  /** Secondary buttons, chips and quiet panels. */
+  soft: "#E3F1EC",
+  /** Quick-log tiles and grouped panels: a tone step from the ground. */
+  tile: "#F8EFE3",
+  /** The baby summary. */
+  hero: "#FBE6DD",
+  text: "#17120E",
+  muted: "#6D5D50",
+  action: "#155C52",
+  onAction: "#FFF7EC",
+  border: "#E8D8C8",
+  accent: "#E08A74",
+  /** Accent for icons and short text on light surfaces (≥4.5:1 on hero and cream). */
+  accentText: "#A4492F",
+  error: "#B3261E",
+  errorBg: "#FBE3DE",
+  scrim: "rgba(23, 18, 14, 0.42)",
 };
-const dark = {
-  background: "#151D19",
-  surface: "#202B24",
-  soft: "#28362C",
-  hero: "#304936",
-  text: "#EDF3E9",
-  muted: "#B0C0B1",
-  action: "#C1D9B8",
-  onAction: "#183020",
-  border: "#405044",
-  error: "#FFB4A9",
-  errorBg: "#402924",
-  warm: "#3D352B",
+const dark: typeof light = {
+  background: "#101411",
+  surface: "#1A201C",
+  soft: "#1E3A35",
+  tile: "#1A201C",
+  hero: "#3A2621",
+  text: "#F8F0E7",
+  muted: "#B8AEA2",
+  action: "#69C8BA",
+  onAction: "#0B2420",
+  border: "#2D352F",
+  accent: "#F0A994",
+  accentText: "#F0A994",
+  error: "#F07167",
+  errorBg: "#3A1F1C",
+  scrim: "rgba(0, 0, 0, 0.6)",
 };
 export function useColors() {
   return useColorScheme() === "dark" ? dark : light;
 }
+
+/** DM Sans, shared with Recipes and Workouts; loaded in app/_layout.tsx. */
+export const fonts = { regular: "DMSans_400Regular", semibold: "DMSans_600SemiBold", bold: "DMSans_700Bold" } as const;
+const type = {
+  title: { fontFamily: fonts.bold, fontSize: 30, lineHeight: 36, letterSpacing: -0.8, maxFontSizeMultiplier: 1.4 },
+  heading: { fontFamily: fonts.bold, fontSize: 20, lineHeight: 26, letterSpacing: -0.3, maxFontSizeMultiplier: 1.6 },
+  body: { fontFamily: fonts.regular, fontSize: 17, lineHeight: 25, letterSpacing: 0, maxFontSizeMultiplier: 2 },
+  label: { fontFamily: fonts.semibold, fontSize: 16, lineHeight: 22, letterSpacing: 0, maxFontSizeMultiplier: 1.8 },
+  small: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, letterSpacing: 0, maxFontSizeMultiplier: 1.8 },
+} satisfies Record<string, TextStyle & { maxFontSizeMultiplier: number }>;
+
+/** Gentle confirmation on deliberate choices; skipped where the platform has no haptics. */
+export function tap(kind: "select" | "success" = "select") {
+  if (Platform.OS === "web") return;
+  void (kind === "success"
+    ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    : Haptics.selectionAsync()
+  ).catch(() => undefined);
+}
+const pressed = (on: boolean, disabled = false): ViewStyle => ({
+  opacity: disabled ? 0.5 : on ? 0.82 : 1,
+  transform: [{ scale: on && !disabled ? 0.97 : 1 }],
+});
+
 export type IconName = React.ComponentProps<typeof Ionicons>["name"];
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();
-  return <Ionicons name={name} size={size} color={color ?? c.action} accessible={false} />;
+  return (
+    <Ionicons
+      name={name}
+      size={size}
+      color={color ?? c.action}
+      accessible={false}
+      importantForAccessibility="no"
+      accessibilityElementsHidden
+    />
+  );
 }
 export function Copy({
   children,
   kind = "body",
   tone,
   align,
+  lines,
 }: {
   children: React.ReactNode;
-  kind?: "body" | "small" | "heading" | "title" | "eyebrow";
-  tone?: "muted" | "error";
+  kind?: "body" | "small" | "heading" | "title" | "label";
+  tone?: "muted" | "error" | "accent";
   align?: "left" | "center";
+  lines?: number;
 }) {
-  const c = useColors();
+  const c = useColors(),
+    { maxFontSizeMultiplier, ...style } = type[kind];
   return (
     <Text
+      numberOfLines={lines}
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
+      accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
-        color: tone === "error" ? c.error : tone === "muted" ? c.muted : c.text,
-        fontSize:
-          kind === "title" ? 32 : kind === "heading" ? 21 : kind === "small" ? 13 : kind === "eyebrow" ? 11 : 16,
-        fontWeight: kind === "body" || kind === "small" ? "400" : "600",
-        letterSpacing: kind === "eyebrow" ? 2 : kind === "title" ? -0.8 : 0,
-        lineHeight:
-          kind === "title" ? 39 : kind === "heading" ? 28 : kind === "small" ? 20 : kind === "eyebrow" ? 18 : 25,
+        ...style,
+        color: tone === "error" ? c.error : tone === "muted" ? c.muted : tone === "accent" ? c.accentText : c.text,
         textAlign: align,
       }}
     >
@@ -83,20 +140,73 @@ export function Copy({
     </Text>
   );
 }
+/** Fixed bar above scrolling content so Back and Close never scroll away. */
+function TopBar({ back, close }: { back: boolean; close: boolean }) {
+  const c = useColors(),
+    leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)"));
+  if (!back && !close) return null;
+  return (
+    <View
+      style={{
+        minHeight: 48,
+        paddingHorizontal: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: close ? "flex-end" : "flex-start",
+        width: "100%",
+        maxWidth: 720,
+        alignSelf: "center",
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={close ? "Close" : "Go back"}
+        hitSlop={8}
+        onPress={leave}
+        style={({ pressed: on }) => ({
+          minHeight: 44,
+          minWidth: 44,
+          paddingHorizontal: 8,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 2,
+          opacity: on ? 0.55 : 1,
+        })}
+      >
+        {close ? (
+          <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 17, color: c.action }}>
+            Close
+          </Text>
+        ) : (
+          <>
+            <Icon name="chevron-back" size={24} />
+            <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.regular, fontSize: 17, color: c.action }}>
+              Back
+            </Text>
+          </>
+        )}
+      </Pressable>
+    </View>
+  );
+}
 export function Screen({
   children,
   title,
   subtitle,
-  eyebrow,
   back = false,
+  close = false,
   action,
   scroll = true,
+  brand = false,
 }: {
   children: React.ReactNode;
   title: string;
+  /** Show the Håfa Baby mark above the title (welcome and first-run screens). */
+  brand?: boolean;
   subtitle?: string;
-  eyebrow?: string;
   back?: boolean;
+  /** For screens presented as a sheet: a Close button replaces Back. */
+  close?: boolean;
   action?: React.ReactNode;
   scroll?: boolean;
 }) {
@@ -105,29 +215,17 @@ export function Screen({
     <View
       style={{
         paddingHorizontal: 22,
-        paddingTop: 12,
-        paddingBottom: 34,
+        paddingTop: back || close ? 2 : 14,
+        paddingBottom: 110,
         gap: 20,
         width: "100%",
         maxWidth: 720,
         alignSelf: "center",
       }}
     >
+      {brand && <BrandMark size={64} />}
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-        {back && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)"))}
-            style={({ pressed }) => ({ paddingVertical: 8, minWidth: 44, opacity: pressed ? 0.55 : 1 })}
-          >
-            <Icon name="arrow-back" />
-          </Pressable>
-        )}
-        <View style={{ flex: 1, gap: 5 }}>
-          <Copy kind="eyebrow" tone="muted">
-            {eyebrow ?? "HÅFA BABY"}
-          </Copy>
+        <View style={{ flex: 1, gap: 4 }}>
           <Copy kind="title">{title}</Copy>
           {subtitle && <Copy tone="muted">{subtitle}</Copy>}
         </View>
@@ -138,6 +236,7 @@ export function Screen({
   );
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
+      <TopBar back={back && !close} close={close} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {scroll ? (
           <ScrollView
@@ -172,7 +271,7 @@ export function Card({
           padding: 20,
           gap: 12,
           borderRadius: 24,
-          backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.soft : c.surface,
+          backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.tile : c.surface,
           borderWidth: tone === "normal" ? 1 : 0,
           borderColor: c.border,
         },
@@ -198,12 +297,15 @@ export function Button({
   busy?: boolean;
   disabled?: boolean;
   secondary?: boolean;
-  variant?: "ghost";
+  /** ghost: text-only; destructive: text-only in the error colour for permanent actions. */
+  variant?: "ghost" | "destructive";
   icon?: IconName;
   size?: "lg";
 }) {
   const c = useColors(),
-    quiet = secondary || variant === "ghost";
+    plain = variant === "ghost" || variant === "destructive",
+    quiet = secondary || plain,
+    ink = variant === "destructive" ? c.error : quiet ? c.action : c.onAction;
   return (
     <Pressable
       accessibilityRole="button"
@@ -211,7 +313,7 @@ export function Button({
       accessibilityState={{ disabled: disabled || busy, busy }}
       disabled={disabled || busy}
       onPress={onPress}
-      style={({ pressed }) => ({
+      style={({ pressed: on }) => ({
         minHeight: size === "lg" ? 56 : 50,
         paddingHorizontal: 20,
         paddingVertical: 13,
@@ -220,27 +322,47 @@ export function Button({
         alignItems: "center",
         justifyContent: "center",
         gap: 9,
-        backgroundColor: variant === "ghost" ? "transparent" : quiet ? c.soft : c.action,
-        opacity: disabled || busy ? 0.5 : pressed ? 0.75 : 1,
+        backgroundColor: plain ? "transparent" : quiet ? c.soft : c.action,
+        ...pressed(on, disabled || busy),
       })}
     >
-      {busy ? (
-        <ActivityIndicator color={quiet ? c.action : c.onAction} />
-      ) : (
-        icon && <Icon name={icon} size={19} color={quiet ? c.action : c.onAction} />
-      )}
+      {busy ? <ActivityIndicator color={ink} /> : icon && <Icon name={icon} size={19} color={ink} />}
       <Text
-        style={{
-          fontSize: 16,
-          fontWeight: "600",
-          color: quiet ? c.action : c.onAction,
-          textAlign: "center",
-          flexShrink: 1,
-        }}
+        maxFontSizeMultiplier={1.6}
+        style={{ fontFamily: fonts.semibold, fontSize: 16, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}
       </Text>
     </Pressable>
+  );
+}
+let accessoryCount = 0;
+/** Number pads have no return key on iOS; a Done bar keeps Save reachable. */
+function KeyboardDone({ id }: { id: string }) {
+  const c = useColors();
+  if (Platform.OS !== "ios") return null;
+  return (
+    <InputAccessoryView nativeID={id}>
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          backgroundColor: c.surface,
+          borderTopWidth: 1,
+          borderColor: c.border,
+          paddingHorizontal: 12,
+        }}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Done"
+          onPress={() => Keyboard.dismiss()}
+          style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
+        >
+          <Text style={{ fontFamily: fonts.semibold, fontSize: 17, color: c.action }}>Done</Text>
+        </Pressable>
+      </View>
+    </InputAccessoryView>
   );
 }
 export function Field({
@@ -257,6 +379,7 @@ export function Field({
   onSubmit,
   returnKeyType,
   maxLength,
+  autoFocus,
 }: {
   label: string;
   value: string;
@@ -271,8 +394,12 @@ export function Field({
   onSubmit?: () => void;
   returnKeyType?: TextInputProps["returnKeyType"];
   maxLength?: number;
+  autoFocus?: boolean;
 }) {
-  const c = useColors();
+  const c = useColors(),
+    traits = inputTraits(purpose, Platform.OS, numeric),
+    pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
+    [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (
     <View style={{ gap: 7 }}>
       <Copy kind="small">{label}</Copy>
@@ -286,12 +413,15 @@ export function Field({
         secureTextEntry={!!secret}
         editable={!disabled}
         multiline={multiline}
+        autoFocus={autoFocus}
         autoCapitalize={purpose || secret ? "none" : "sentences"}
-        {...inputTraits(purpose, Platform.OS, numeric)}
-        maxLength={maxLength ?? inputTraits(purpose, Platform.OS, numeric).maxLength ?? (multiline ? 30000 : 1000)}
+        {...traits}
+        maxLength={maxLength ?? traits.maxLength ?? (multiline ? 30000 : 1000)}
         onSubmitEditing={onSubmit}
         returnKeyType={returnKeyType}
+        inputAccessoryViewID={pad || multiline ? accessory : undefined}
         textAlignVertical={multiline ? "top" : "center"}
+        maxFontSizeMultiplier={2}
         style={{
           borderWidth: 1,
           borderColor: c.border,
@@ -299,11 +429,13 @@ export function Field({
           color: c.text,
           borderRadius: 16,
           padding: 15,
-          fontSize: 16,
+          fontFamily: fonts.regular,
+          fontSize: 17,
           lineHeight: 24,
           minHeight: multiline ? 150 : 52,
         }}
       />
+      {(pad || multiline) && <KeyboardDone id={accessory} />}
     </View>
   );
 }
@@ -312,7 +444,7 @@ export function Notice({ children, error }: { children: React.ReactNode; error?:
   return (
     <View
       accessibilityRole={error ? "alert" : undefined}
-      style={{ padding: 15, borderRadius: 16, backgroundColor: error ? c.errorBg : c.soft }}
+      style={{ padding: 15, borderRadius: 16, backgroundColor: error ? c.errorBg : c.tile }}
     >
       <Copy tone={error ? "error" : "muted"}>{children}</Copy>
     </View>
@@ -335,16 +467,20 @@ export function Choice({
   return (
     <Pressable
       accessibilityRole="checkbox"
+      accessibilityLabel={[label, detail].filter(Boolean).join(". ")}
       accessibilityState={{ checked: selected, disabled }}
-      onPress={onPress}
+      onPress={() => {
+        tap();
+        onPress();
+      }}
       disabled={disabled}
-      style={({ pressed }) => ({
+      style={({ pressed: on }) => ({
         paddingVertical: 13,
         minHeight: 50,
         flexDirection: "row",
         gap: 12,
         alignItems: "center",
-        opacity: pressed ? 0.6 : disabled ? 0.5 : 1,
+        opacity: on ? 0.6 : disabled ? 0.5 : 1,
       })}
     >
       <Icon name={selected ? "checkbox" : "square-outline"} color={selected ? c.action : c.muted} />
@@ -363,34 +499,48 @@ export function Chips({
   options,
   value,
   onChange,
+  label,
 }: {
   options: { label: string; value: string }[];
   value: string;
   onChange: (v: string) => void;
+  /** Read before each option by VoiceOver, for example "Feeding method". */
+  label?: string;
 }) {
   const c = useColors();
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      {options.map((o) => (
-        <Pressable
-          key={o.value}
-          accessibilityRole="button"
-          accessibilityState={{ selected: value === o.value }}
-          onPress={() => onChange(o.value)}
-          style={({ pressed }) => ({
-            minHeight: 44,
-            paddingHorizontal: 16,
-            paddingVertical: 11,
-            borderRadius: 23,
-            backgroundColor: value === o.value ? c.action : c.soft,
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Text style={{ fontSize: 14, fontWeight: "600", color: value === o.value ? c.onAction : c.text }}>
-            {o.label}
-          </Text>
-        </Pressable>
-      ))}
+    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {options.map((o) => {
+        const on = value === o.value;
+        return (
+          <Pressable
+            key={o.value}
+            accessibilityRole="radio"
+            accessibilityLabel={o.label}
+            accessibilityState={{ selected: on, checked: on }}
+            onPress={() => {
+              if (!on) tap();
+              onChange(o.value);
+            }}
+            style={({ pressed: down }) => ({
+              minHeight: 44,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderRadius: 23,
+              justifyContent: "center",
+              backgroundColor: on ? c.action : c.soft,
+              ...pressed(down),
+            })}
+          >
+            <Text
+              maxFontSizeMultiplier={1.6}
+              style={{ fontFamily: fonts.semibold, fontSize: 15, color: on ? c.onAction : c.action }}
+            >
+              {o.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -407,9 +557,7 @@ export function Empty({
 }) {
   return (
     <Card tone="soft">
-      <View style={{ alignSelf: "flex-start", padding: 8 }}>
-        <Icon name={icon} size={34} />
-      </View>
+      <Icon name={icon} size={30} />
       <Copy kind="heading">{title}</Copy>
       <Copy tone="muted">{body}</Copy>
       {action}
@@ -443,34 +591,39 @@ export function Row({
   icon,
   onPress,
   trailing,
+  hint,
 }: {
   title: string;
   detail?: string;
   icon?: IconName;
   onPress: () => void;
   trailing?: React.ReactNode;
+  hint?: string;
 }) {
   const c = useColors();
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={[title, detail].filter(Boolean).join(". ")}
+      accessibilityHint={hint}
       onPress={onPress}
-      style={({ pressed }) => ({
-        minHeight: 70,
+      style={({ pressed: on }) => ({
+        minHeight: 68,
         backgroundColor: c.surface,
         borderWidth: 1,
         borderColor: c.border,
-        padding: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
         borderRadius: 19,
         flexDirection: "row",
         alignItems: "center",
         gap: 13,
-        opacity: pressed ? 0.7 : 1,
+        ...pressed(on),
       })}
     >
       {icon && <Icon name={icon} />}
-      <View style={{ flex: 1, gap: 3 }}>
-        <Copy>{title}</Copy>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Copy kind="label">{title}</Copy>
         {detail && (
           <Copy kind="small" tone="muted">
             {detail}
@@ -493,21 +646,32 @@ export function useToast() {
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),
-    show = useRef<ShowToast>((message, action) =>
-      setToast(message ? { message, action, key: Date.now() } : null)
-    );
+    enter = useRef(new Animated.Value(0)).current,
+    show = useRef<ShowToast>((message, action) => setToast(message ? { message, action, key: Date.now() } : null));
   useEffect(() => {
-    if (toast) {
+    if (!toast) return;
+    // Rise 8pt and fade in quickly; with Reduce Motion only the fade remains.
+    let still = false;
+    enter.setValue(0);
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
+      still = reduce;
+      Animated.timing(enter, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    });
+    const timer = setTimeout(
+      () =>
+        Animated.timing(enter, { toValue: 0, duration: still ? 120 : 150, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(
+          () => setToast((current) => (current?.key === toast.key ? null : current))
+        ),
       // Leave time to reach Undo; plain confirmations clear sooner.
-      const timer = setTimeout(() => setToast(null), toast.action ? 6500 : 4500);
-      return () => clearTimeout(timer);
-    }
+      toast.action ? 6500 : 4500
+    );
+    return () => clearTimeout(timer);
   }, [toast]);
   return (
     <ToastContext.Provider value={show.current}>
       {children}
       {!!toast && (
-        <View
+        <Animated.View
           accessibilityRole="alert"
           accessibilityLiveRegion="polite"
           style={{
@@ -524,10 +688,19 @@ export function ToastProvider({ children }: PropsWithChildren) {
             alignItems: "center",
             gap: 8,
             minHeight: 56,
+            opacity: enter,
+            transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+            shadowColor: "#000",
+            shadowOpacity: 0.16,
+            shadowRadius: 14,
+            shadowOffset: { width: 0, height: 6 },
+            elevation: 6,
           }}
         >
           <Pressable style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text style={{ color: c.background, fontSize: 15 }}>{toast.message}</Text>
+            <Text maxFontSizeMultiplier={1.6} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15 }}>
+              {toast.message}
+            </Text>
           </Pressable>
           {toast.action && (
             <Pressable
@@ -538,20 +711,22 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 setToast(null);
                 void action.onPress();
               }}
-              style={({ pressed }) => ({
+              style={({ pressed: on }) => ({
                 minHeight: 44,
                 minWidth: 64,
                 paddingHorizontal: 14,
                 borderRadius: 14,
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: pressed ? 0.6 : 1,
+                opacity: on ? 0.6 : 1,
               })}
             >
-              <Text style={{ color: c.background, fontSize: 15, fontWeight: "700" }}>{toast.action.label}</Text>
+              <Text maxFontSizeMultiplier={1.6} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15 }}>
+                {toast.action.label}
+              </Text>
             </Pressable>
           )}
-        </View>
+        </Animated.View>
       )}
     </ToastContext.Provider>
   );

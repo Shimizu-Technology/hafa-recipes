@@ -36,7 +36,7 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
         paddingVertical: 19,
         paddingHorizontal: 8,
         borderRadius: 22,
-        backgroundColor: c.hero,
+        backgroundColor: c.tile,
         alignItems: "center",
         gap: 10,
         opacity: pressed ? 0.7 : 1,

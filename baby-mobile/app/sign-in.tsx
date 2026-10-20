@@ -13,7 +13,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useSSO } from "@clerk/expo";
 import * as WebBrowser from "expo-web-browser";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { callbackUrl, socialSignIn } from "@/lib/social";
 import { configuration } from "@/lib/config";
 import { signupSetup } from "@/lib/signup-setup";
@@ -213,14 +213,14 @@ export default function SignIn() {
     });
   }
   return (
-    <Screen title={mode === "signup" ? "Create your account" : mode === "recover" ? "Recover your account" : "Sign in"}>
-      <Card tone="hero">
-        <Copy kind="heading">Håfa adai</Copy>
-        <Copy tone="muted">
-          A little more room to remember. Your saved advice, everyday care, and family memories together.
-        </Copy>
-        <Copy tone="muted">Use Håfa Recipes? Sign in the same way.</Copy>
-      </Card>
+    <Screen
+      brand
+      title={mode === "signup" ? "Create your account" : mode === "recover" ? "Recover your account" : "Håfa adai"}
+      subtitle="A little more room to remember: saved advice, everyday care and family memories, together."
+    >
+      <Copy kind="small" tone="muted">
+        Use Håfa Recipes? Sign in the same way.
+      </Copy>
       {mode === "signup" && (
         <Choice
           selected={adult}

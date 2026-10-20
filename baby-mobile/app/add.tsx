@@ -4,7 +4,7 @@ import type { Kind } from "@/lib/models";
 import { kindIcon } from "@/components/record-row";
 export default function Add() {
   return (
-    <Screen title="What’s on your mind?" subtitle="Save it now. Find it when you need it." back>
+    <Screen title="What’s on your mind?" subtitle="Save it now. Find it when you need it." close>
       {(
         [
           { kind: "source", title: "Save a source", detail: "Video, link, screenshot, or document" },

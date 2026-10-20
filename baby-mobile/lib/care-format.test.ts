@@ -29,6 +29,7 @@ it("shows open sleep as happening now and finished sleep as a duration", () => {
 it("formats durations, relative and calendar times for quick scanning", () => {
   expect(duration(-3)).toBe("0 min");
   expect(duration(60)).toBe("1 h");
+  expect(duration(0.4)).toBe("under 1 min");
   expect(timeAgo(at(20, 16, 20), now)).toBe("2 h 10 min ago");
   expect(timeAgo(at(20, 18, 30), now)).toBe("just now");
   // Compare against the host locale's own formatting so the tests pass in any locale.

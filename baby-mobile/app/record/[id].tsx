@@ -81,7 +81,6 @@ export default function RecordDetail() {
   return (
     <Screen
       title={record.title}
-      eyebrow={kindName[record.kind].toUpperCase()}
       back
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >

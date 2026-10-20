@@ -98,8 +98,8 @@ export default function Sync() {
                   />
                   {remote[m.id] && (
                     <Card tone="soft">
-                      <Copy kind="eyebrow" tone="muted">
-                        CURRENT SERVER VERSION
+                      <Copy kind="label" tone="muted">
+                        Current saved version
                       </Copy>
                       <Copy kind="heading">{remote[m.id].title}</Copy>
                       <Copy>{remote[m.id].body || "No written notes."}</Copy>

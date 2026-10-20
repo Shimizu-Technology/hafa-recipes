@@ -5,6 +5,7 @@ const minute = 60_000;
 /** "45 min", "1 h", "1 h 20 min"; never negative. */
 export function duration(minutes: number) {
   if (!Number.isFinite(minutes)) return "";
+  if (minutes > 0 && minutes < 1) return "under 1 min";
   const total = Math.max(0, Math.round(minutes)),
     hours = Math.floor(total / 60),
     rest = total % 60;

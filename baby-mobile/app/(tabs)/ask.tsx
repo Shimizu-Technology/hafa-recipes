@@ -104,8 +104,8 @@ export default function Ask() {
       )}
       {messages.map((m, index) => (
         <Card key={m.id ?? index} tone={m.role === "user" ? "soft" : "normal"}>
-          <Copy kind="eyebrow" tone="muted">
-            {m.role === "user" ? "YOU" : "HÅFA BABY"}
+          <Copy kind="label" tone="muted">
+            {m.role === "user" ? "You" : "Håfa Baby"}
           </Copy>
           <Copy>{m.role === "assistant" ? readableCitations(m.content, m.citations) : m.content}</Copy>
           {!!m.citations?.length && (

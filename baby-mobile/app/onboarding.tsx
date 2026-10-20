@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { messageFor } from "@/lib/models";
-import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Field, Notice, Screen } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 export default function Onboarding() {
   const b = useBaby(),
@@ -40,11 +40,12 @@ export default function Onboarding() {
     }
   }
   return (
-    <Screen title="Make yourself at home." subtitle="Just a few details. Everything can be changed later." back>
-      <Card tone="hero">
-        <Copy kind="heading">Created for the moments that matter.</Copy>
-        <Copy>Your sources, your thoughts, your baby’s care. One private space, at your pace.</Copy>
-      </Card>
+    <Screen
+      brand
+      title="Make yourself at home."
+      subtitle="Just a few details. Everything can be changed later."
+      back
+    >
       {!!error && <Notice error>{error}</Notice>}
       <Field label="What should we call you?" value={name} onChange={setName} placeholder="Kami" />
       <Field label="Baby’s name or nickname (optional)" value={child} onChange={setChild} placeholder="Baby Shimizu" />
