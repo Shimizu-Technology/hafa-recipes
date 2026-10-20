@@ -210,6 +210,14 @@ it.each(["Discard share", "Review source"])("keeps a newer foreground share when
   await act(async () => scope.foreground?.("active"));
   await act(async () => newer.release(payload("capture-B")));
   await act(async () => older.release(null));
+  await alertPress("Save this shared source?", "Later");
+  // A retained Alert callback alone could still save B after state was erased.
+  // Re-entering readiness must offer the still-current payload again, without a native reload.
+  account.ready = false;
+  await act(async () => renderer!.update(React.createElement(ShareCapture)));
+  account.ready = true;
+  await act(async () => renderer!.update(React.createElement(ShareCapture)));
+  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(3);
   await alertPress("Save this shared source?", "Review source");
   expect(account.state.drafts["share:capture-B"]).toBeDefined();
   expect(scope.acknowledge).toHaveBeenLastCalledWith("capture-B");
