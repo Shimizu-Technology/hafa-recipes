@@ -4,6 +4,7 @@ import io
 import os
 import signal
 import stat
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -355,6 +356,22 @@ def test_raw_instagram_credentials_use_unique_restrictive_temp_files(monkeypatch
     second.cleanup()
     assert not os.path.exists(first.path)
     assert not os.path.exists(second.path)
+
+
+def test_relative_instagram_cookie_path_survives_protected_downloader_cwd(monkeypatch, tmp_path):
+    configured = tmp_path / "configured-instagram.cookies.txt"
+    configured.write_text("synthetic caller-owned cookie file")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(video_settings, "instagram_cookies", configured.name)
+    service = VideoService(public_egress=True)
+    credential = service._create_instagram_cookies_file()
+    assert credential is not None
+
+    # The protected helper starts in api/, independently of the API parent's cwd.
+    monkeypatch.chdir(service._downloader_cwd())
+    assert Path(credential.path).read_text() == "synthetic caller-owned cookie file"
+    credential.cleanup()
+    assert configured.read_text() == "synthetic caller-owned cookie file"
 
 
 @pytest.mark.asyncio

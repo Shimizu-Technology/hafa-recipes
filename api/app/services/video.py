@@ -851,7 +851,7 @@ class VideoService:
                 return None
         else:
             if os.path.isfile(cookies):
-                return CredentialFile(path=cookies)
+                return CredentialFile(path=os.path.abspath(cookies))
             else:
                 _media_log(f"⚠️ Instagram cookies file not found: {cookies}")
                 return None
