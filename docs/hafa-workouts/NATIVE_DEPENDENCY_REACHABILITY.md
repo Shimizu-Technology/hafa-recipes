@@ -462,3 +462,18 @@ this prototype. Native registration, permissions, recognition availability,
 confirmed speech stop before capture, and the photo/voice composer with the
 keyboard remain required acceptance. Device speech services may use networking;
 these checks make no offline or audible-output claim.
+
+## Markdown-it 14.3.3 and Fraunces (2026-10-21)
+
+Two Markdown-it advisories published on 2026-10-20 (1242600 high, quadratic
+smartquotes; 1242646 low, inline HTML parsing) affect 14.3.1, which Workouts
+pins directly and through an override. Both pins move to the fixed 14.3.3; the
+renderer package is unchanged. `@expo-google-fonts/fraunces` 0.4.1 (font assets
+only, no native code; the same package Håfa Recipes ships) is added for screen
+titles. A fresh production audit reports 33 affected packages (5 moderate,
+28 high, 0 critical), exactly the six reviewed advisory IDs and no unexpected
+advisory. The reviewed fingerprint is renewed to
+`e626ed7e2eb925dcb26462aba600cf184267d9407814c6346ec9e3368f6d0b23`.
+The six advisory IDs, November 3 expiry and fail-closed checks are unchanged.
+Recipes takes the same Markdown-it override and `follow-redirects` 1.16.1
+(advisories 1242604 and 1242605) through its own audit policy.

@@ -76,7 +76,7 @@
   },
   "overrides": {
     "brace-expansion": "5.0.12",
-    "markdown-it": "14.3.1",
+    "markdown-it": "14.3.3",
     "@xmldom/xmldom": "0.8.15",
     "decode-uri-component": "0.5.0"
   },
