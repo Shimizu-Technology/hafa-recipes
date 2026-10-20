@@ -98,8 +98,8 @@ export default function Sync() {
                   />
                   {remote[m.id] && (
                     <Card tone="soft">
-                      <Copy kind="eyebrow" tone="muted">
-                        CURRENT SERVER VERSION
+                      <Copy kind="label" tone="muted">
+                        Current saved version
                       </Copy>
                       <Copy kind="heading">{remote[m.id].title}</Copy>
                       <Copy>{remote[m.id].body || "No written notes."}</Copy>
@@ -194,7 +194,7 @@ export default function Sync() {
                 <Button secondary title="Retry this change" busy={busy} onPress={() => void run(() => retry(m))} />
               )}
               <Button
-                variant="ghost"
+                variant="destructive"
                 disabled={b.syncing || busy}
                 title="Discard this queued change"
                 onPress={() =>

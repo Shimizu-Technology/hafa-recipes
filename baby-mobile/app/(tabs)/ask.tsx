@@ -1,23 +1,11 @@
-import { View } from "react-native";
+import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import {
-  Button,
-  Card,
-  Chips,
-  Copy,
-  Empty,
-  Field,
-  Loading,
-  Notice,
-  Row,
-  Screen,
-  Section,
-} from "@/components/ui";
+import { Button, Card, Chips, Copy, Empty, Icon, Loading, Notice, Row, Screen, Section, fonts, useColors } from "@/components/ui";
 export default function Ask() {
   const b = useBaby(),
     params = useLocalSearchParams<{ record_id?: string }>(),
@@ -28,12 +16,45 @@ export default function Ask() {
     const result = await chat.review(proposal);
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
   }
-  const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent;
+  const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
+    canSend = available && !busy && !chat.resolving && !!question.trim(),
+    c = useColors();
   return (
     <Screen
-      title={focused ? "Ask about this" : "A little help thinking it through."}
-      subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved. Make sense of your own notes."}
+      title={focused ? "Ask about this" : "Ask"}
+      subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       action={<Button secondary title="History" icon="time-outline" disabled={chat.resolving} onPress={() => void openHistory()} />}
+      followEnd
+      footer={
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
+          <TextInput
+            accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
+            value={question}
+            onChangeText={chat.setQuestion}
+            placeholder={available ? "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
+            placeholderTextColor={c.muted}
+            editable={available && !busy && !chat.resolving}
+            multiline
+            maxLength={4000}
+            maxFontSizeMultiplier={1.6}
+            style={{ flex: 1, maxHeight: 132, minHeight: 46, borderWidth: 1, borderColor: c.border, borderRadius: 22,
+              backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
+              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={error && chat.requestId ? "Retry this question" : "Send question"}
+            accessibilityState={{ disabled: !canSend, busy }}
+            disabled={!canSend}
+            onPress={() => void send()}
+            style={({ pressed }) => ({ width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center",
+              backgroundColor: c.action, opacity: !canSend ? 0.4 : pressed ? 0.8 : 1,
+              transform: [{ scale: pressed && canSend ? 0.95 : 1 }] })}
+          >
+            {busy ? <ActivityIndicator color={c.onAction} /> : <Icon name={error && chat.requestId ? "refresh" : "arrow-up"} color={c.onAction} size={24} />}
+          </Pressable>
+        </View>
+      }
     >
       {!available && (
         <Card tone="soft">
@@ -51,6 +72,7 @@ export default function Ask() {
       {!focused && (
         <Chips
           value={chat.context.scope}
+          label="Search in"
           options={[
             { label: "Everything", value: "all" },
             { label: "Library", value: "library" },
@@ -102,63 +124,58 @@ export default function Ask() {
           }
         />
       )}
-      {messages.map((m, index) => (
-        <Card key={m.id ?? index} tone={m.role === "user" ? "soft" : "normal"}>
-          <Copy kind="eyebrow" tone="muted">
-            {m.role === "user" ? "YOU" : "HÅFA BABY"}
-          </Copy>
-          <Copy>{m.role === "assistant" ? readableCitations(m.content, m.citations) : m.content}</Copy>
-          {!!m.citations?.length && (
-            <Section title="Sources used">
-              {m.citations.map((citation, sourceIndex) => (
-                <Row
-                  key={citation.id}
-                  title={`${sourceIndex + 1}. ${citation.title}`}
-                  detail={citationExcerpt(citation) || undefined}
-                  icon={(citation.kind && kindIcon[citation.kind]) || "bookmark-outline"}
-                  onPress={() => router.push({ pathname: "/record/[id]", params: { id: citation.id } })}
-                />
-              ))}
-            </Section>
-          )}
-          {m.proposal && (
-            <Card tone="soft">
-              <Copy kind="heading">Proposed: {m.proposal.title}</Copy>
-              <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
-              <Button title="Review suggestion" onPress={() => void review(m.proposal!)} />
-            </Card>
-          )}
-        </Card>
-      ))}
-      {!!error && <Notice error>{error}</Notice>}
-      {busy && <Loading label="Looking through the selected context…" />}
-      <Field
-        label={focused ? "Ask about this source or entry" : "Your question"}
-        multiline
-        value={question}
-        onChange={chat.setQuestion}
-        placeholder="What would you like to find or understand?"
-        disabled={busy || chat.resolving}
-      />
-      <Button
-        title={error && chat.requestId ? "Retry this question" : "Ask"}
-        icon="arrow-up"
-        busy={busy}
-        disabled={!available || chat.resolving || !question.trim()}
-        onPress={() => void send()}
-      />
-      <Copy kind="small" tone="muted">
-        Saved advice, your observations, and clinician-entered instructions are different sources. Check original
-        context and bring health decisions to your clinician.
-      </Copy>
-      {messages.length > 0 && (
-        <Button
-          variant="ghost"
-          title="Start a new conversation"
-          onPress={chat.startNew}
-        />
+      {messages.map((m, index) =>
+        m.role === "user" ? (
+          <View
+            key={m.id ?? index}
+            accessible
+            accessibilityLabel={`You asked: ${m.content}`}
+            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.soft, borderRadius: 20,
+              borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
+          >
+            <Copy>{m.content}</Copy>
+          </View>
+        ) : (
+          <View key={m.id ?? index} style={{ gap: 12 }}>
+            <Copy>{readableCitations(m.content, m.citations)}</Copy>
+            {!!m.citations?.length && (
+              <View style={{ gap: 8 }}>
+                <Copy kind="small" tone="muted">
+                  From your saved entries
+                </Copy>
+                {m.citations.map((citation, sourceIndex) => (
+                  <Row
+                    key={citation.id}
+                    title={`${sourceIndex + 1}. ${citation.title}`}
+                    detail={citationExcerpt(citation) || undefined}
+                    icon={(citation.kind && kindIcon[citation.kind]) || "bookmark-outline"}
+                    hint="Opens this entry"
+                    onPress={() => router.push({ pathname: "/record/[id]", params: { id: citation.id } })}
+                  />
+                ))}
+              </View>
+            )}
+            {m.proposal && (
+              <Card tone="soft">
+                <Copy kind="heading">Proposed: {m.proposal.title}</Copy>
+                <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
+                <Button title="Review suggestion" onPress={() => void review(m.proposal!)} />
+              </Card>
+            )}
+          </View>
+        )
       )}
-      <View style={{ height: 65 }} />
+      {!!error && <Notice error>{error}</Notice>}
+      {busy && <Loading label="Looking through your saved entries…" />}
+      {messages.length > 0 && (
+        <>
+          <Copy kind="small" tone="muted">
+            Saved advice, your own observations and clinician instructions are different sources. Check the original and
+            bring health decisions to your clinician.
+          </Copy>
+          <Button variant="ghost" title="Start a new conversation" onPress={chat.startNew} />
+        </>
+      )}
     </Screen>
   );
 }

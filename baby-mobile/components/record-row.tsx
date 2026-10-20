@@ -7,9 +7,9 @@ import { Row, type IconName } from "./ui";
 export const kindIcon: Record<Kind, IconName> = {
   source: "bookmark-outline",
   journal: "book-outline",
-  feeding: "water-outline",
+  feeding: "care:baby-bottle-outline",
   sleep: "moon-outline",
-  diaper: "sunny-outline",
+  diaper: "care:human-baby-changing-table",
   routine: "checkmark-circle-outline",
   question: "chatbubble-ellipses-outline",
   collection: "folder-outline",

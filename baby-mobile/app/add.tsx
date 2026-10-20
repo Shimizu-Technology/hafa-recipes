@@ -4,13 +4,13 @@ import type { Kind } from "@/lib/models";
 import { kindIcon } from "@/components/record-row";
 export default function Add() {
   return (
-    <Screen title="What’s on your mind?" subtitle="Save it now. Find it when you need it." back>
+    <Screen title="What’s on your mind?" subtitle="Save it now. Find it when you need it." close>
       {(
         [
           { kind: "source", title: "Save a source", detail: "Video, link, screenshot, or document" },
           { kind: "journal", title: "Write in your journal", detail: "A thought, a memory, or a photo" },
           { kind: "feeding", title: "Log a feeding", detail: "Breast, bottle, or something else" },
-          { kind: "sleep", title: "Log sleep", detail: "Start a timer or record a past sleep" },
+          { kind: "sleep", title: "Log sleep", detail: "Start now or record a past sleep" },
           { kind: "diaper", title: "Log a diaper", detail: "A quick update for the care history" },
           { kind: "question", title: "Keep a doctor question", detail: "Bring your questions to the next visit" },
           { kind: "routine", title: "Make a routine or checklist", detail: "Review the plan before reminders start" },

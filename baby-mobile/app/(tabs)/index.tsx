@@ -36,7 +36,7 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
         paddingVertical: 19,
         paddingHorizontal: 8,
         borderRadius: 22,
-        backgroundColor: c.hero,
+        backgroundColor: c.tile,
         alignItems: "center",
         gap: 10,
         opacity: pressed ? 0.7 : 1,
@@ -48,6 +48,11 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
       </Copy>
     </Pressable>
   );
+}
+
+function greeting(now: Date) {
+  const hour = now.getHours();
+  return hour < 5 ? "Hello" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
 export default function Today() {
@@ -166,7 +171,7 @@ export default function Today() {
   }
   return (
     <Screen
-      title={name ? `A little space, ${name}.` : "A little space for you."}
+      title={`${greeting(now)}${name ? `, ${name}` : ""}`}
       subtitle={now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
       action={
         <Pressable

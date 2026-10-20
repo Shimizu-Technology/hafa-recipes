@@ -148,8 +148,13 @@ export default function Settings() {
           The export contains saved server records. Sync pending changes before exporting. Attachments remain separate
           private files.
         </Copy>
+      </Section>
+      <Section title="Delete">
+        <Copy kind="small" tone="muted">
+          These cannot be undone. Export anything you want to keep first.
+        </Copy>
         <Button
-          variant="ghost"
+          variant="destructive"
           title="Delete my Baby data"
           busy={busy}
           onPress={() =>
@@ -172,7 +177,7 @@ export default function Settings() {
           }
         />
         <Button
-          variant="ghost"
+          variant="destructive"
           title="Delete my entire Håfa account"
           busy={busy}
           onPress={() =>

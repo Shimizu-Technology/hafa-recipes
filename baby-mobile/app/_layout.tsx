@@ -4,6 +4,7 @@ import { tokenCache } from "@clerk/expo/token-cache";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { useFonts } from "expo-font";
 import { Platform } from "react-native";
 import { ShareIntentProvider } from "expo-share-intent";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
@@ -18,12 +19,13 @@ function Routes() {
     c = useColors();
   if (!isLoaded)
     return (
-      <Screen title="Håfa Baby">
+      <Screen brand title="Håfa Baby">
         <Loading />
       </Screen>
     );
   const stack = (
-    <Stack screenOptions={{ headerShown: false, animation: "none", contentStyle: { backgroundColor: c.background } }}>
+    // Native push and sheet transitions, as the system draws them.
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="privacy" />
       <Stack.Protected guard={!isSignedIn}>
@@ -56,11 +58,18 @@ function Routes() {
   );
 }
 export default function Root() {
+  const [fontsLoaded, fontError] = useFonts({
+    DMSans_400Regular: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
+    DMSans_600SemiBold: require("@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf"),
+    DMSans_700Bold: require("@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"),
+  });
   const error = checkAuthConfiguration(
     configuration.clerkKey,
     configuration.clerkEnvironment,
     configuration.environment
   );
+  // Bundled fonts load in a frame or two; a failed load falls back to the system face.
+  if (!fontsLoaded && !fontError) return null;
   return (
     <SafeAreaProvider>
       <ToastProvider>

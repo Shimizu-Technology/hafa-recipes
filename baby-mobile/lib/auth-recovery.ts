@@ -35,6 +35,21 @@ export function safeAuthFailure(error: unknown, verification: Verification | nul
     codes.some((code) => ["too_many_requests", "rate_limit_exceeded"].includes(String(code)))
   )
     return "Too many attempts. Wait a little before trying again; requesting codes repeatedly will not help.";
+  // Field problems people can fix themselves; Clerk's own text is never shown.
+  const fixable: Record<string, string> = {
+    form_identifier_exists: "That email already has a Håfa account. Choose “Use my existing account” to sign in.",
+    form_identifier_not_found: "No Håfa account uses that email. Check it, or create a new account.",
+    form_password_incorrect: "That password doesn’t match. Try again, or recover your account.",
+    form_password_pwned: "That password has appeared in a data breach elsewhere. Choose a different one.",
+    form_password_length_too_short: "Use a longer password: at least 8 characters.",
+    form_password_validation_failed: "Choose a stronger password: a longer phrase works well.",
+    form_password_not_strong_enough: "Choose a stronger password: a longer phrase works well.",
+    form_param_format_invalid: "Check the email address. It should look like name@example.com.",
+    form_param_missing: "Enter your email and password.",
+    strategy_for_user_invalid: "This account signs in another way. Try Apple or Google.",
+  };
+  const known = codes.find((code) => typeof code === "string" && code in fixable);
+  if (!verification && known) return fixable[String(known)];
   if (
     codes.some((code) => ["network_error", "network_request_failed", "api_connection_error"].includes(String(code))) ||
     value.name === "TypeError"

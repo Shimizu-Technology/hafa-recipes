@@ -64,7 +64,7 @@ export default function ChildEditor() {
       <Button title="Save profile" busy={busy} onPress={() => void save()} />
       {child && (
         <Button
-          variant="ghost"
+          variant="destructive"
           title="Remove this profile"
           busy={busy}
           onPress={() =>

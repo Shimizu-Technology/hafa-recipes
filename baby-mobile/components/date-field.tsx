@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Platform, View } from "react-native";
+import { Modal, Platform, View, useColorScheme } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Button, Card, Copy, useColors } from "./ui";
 export function DateField({
@@ -17,7 +17,8 @@ export function DateField({
 }) {
   const [mode, setMode] = useState<"date" | "time" | null>(null),
     [draft, setDraft] = useState(new Date()),
-    c = useColors();
+    c = useColors(),
+    scheme = useColorScheme();
   const parsed = value ? new Date(dateOnly ? value + "T12:00:00" : value) : new Date(),
     valid = Number.isFinite(parsed.getTime()) ? parsed : new Date();
   function change(date: Date) {
@@ -64,9 +65,9 @@ export function DateField({
         />
       )}
       {mode && Platform.OS !== "android" && (
-        <Modal transparent animationType="none" onRequestClose={() => setMode(null)}>
+        <Modal transparent animationType="fade" onRequestClose={() => setMode(null)}>
           <View
-            style={{ flex: 1, backgroundColor: "#0008", justifyContent: "flex-end", padding: 18, paddingBottom: 36 }}
+            style={{ flex: 1, backgroundColor: c.scrim, justifyContent: "flex-end", padding: 18, paddingBottom: 36 }}
           >
             <Card>
               <Copy kind="heading">{label}</Copy>
@@ -74,7 +75,7 @@ export function DateField({
                 value={draft}
                 mode={mode}
                 display="spinner"
-                themeVariant={c.background === "#151D19" ? "dark" : "light"}
+                themeVariant={scheme === "dark" ? "dark" : "light"}
                 onChange={(_, date) => {
                   if (date) setDraft(date);
                 }}
