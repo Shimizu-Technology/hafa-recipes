@@ -1,6 +1,7 @@
 """Grounded private conversations; proposals are data, never hidden mutations."""
 
 import json
+import math
 import re
 from datetime import datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -115,9 +116,10 @@ def duration_label(minutes):
 
 
 def amount_label(amount, unit):
-    if not isinstance(amount, int | float) or isinstance(amount, bool) or unit not in {"ml", "oz"}:
+    if not isinstance(amount, int | float) or isinstance(amount, bool) or not math.isfinite(amount) or amount <= 0:
         return None
-    return f"{amount:g} {unit}"
+    # The unit is optional in the record contract; the app shows unitless amounts as mL.
+    return f"{amount:g} {'oz' if unit == 'oz' else 'mL'}"
 
 
 def parsed_time(value):
