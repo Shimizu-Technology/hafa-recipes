@@ -54,3 +54,8 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
   cd "$repository_root/workouts-mobile"
   npx -y -p node@22.22.2 -c 'npm test && npm run typecheck && npm run doctor && npm run audit:runtime && npm run export:all && npm run check:native-bundles'
 )
+
+(
+  cd "$repository_root/baby-mobile"
+  npx -y -p node@22.22.2 -c 'npm test && npm run typecheck && npm run doctor && npm run audit:runtime && npm run export:all && npm run check:native-bundles'
+)

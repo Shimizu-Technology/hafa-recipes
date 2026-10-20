@@ -146,10 +146,15 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 - B15 Shared API/Recipes/Workouts regressions and operational restart/retry behavior.
 - B16 Signed release build matches merged source; TestFlight processing and group.
 
-## Current status
+## Release boundaries
 
-The shared API domain is implemented behind default-off feature flags. Its
-engineering gate, final review and production migration/deployment verification
-remain release gates. Native frontend acceptance and TestFlight delivery are
-tracked separately; neither is implied by API implementation. Credentials stay
-in existing secure configuration. Re-check main before each integration/release.
+The shared API domain and separate native app use the existing Recipes/Workouts
+Clerk production instance. Baby has its own bundle, App Group and private data;
+enrolling in Baby does not copy another product's private context.
+
+Verify the complete engineering gate, final review, native acceptance, recovery
+point, additive migration and intentional feature activation for each release.
+Apple registration and signing profiles do not establish TestFlight delivery:
+record the merged source, signed build, Apple processing and tester availability
+separately. Keep platform limits and unrun device checks explicit. Credentials
+stay in existing secure configuration. Re-check main before integration/release.

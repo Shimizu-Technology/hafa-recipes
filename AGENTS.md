@@ -2,7 +2,7 @@
 
 ## Product
 
-This monorepo holds two Håfa consumer apps that share one account and one API:
+This monorepo holds three Håfa consumer apps that share one account and one API:
 
 - **Håfa Recipes** is live on the App Store with real users. It turns cooking
   videos, websites, images and manual input into a personal, shareable cooking
@@ -12,6 +12,11 @@ This monorepo holds two Håfa consumer apps that share one account and one API:
   coaching. The current plan is `docs/hafa-workouts/ROADMAP.md`; the design
   plan is `docs/hafa-workouts/DESIGN_PLAN.md`.
 
+- **Håfa Baby** is a private pregnancy/baby companion with sources, journal,
+  care logs, routines/reminders and grounded AI. Its current contract is
+  `docs/hafa-baby/ROADMAP.md`. Each application user owns their Baby data;
+  child profiles are not accounts, and imports never activate medical schedules.
+
 ## Architecture
 
 - `api/`: the shared Håfa API. Python 3.12, FastAPI, SQLAlchemy, Neon
@@ -19,6 +24,7 @@ This monorepo holds two Håfa consumer apps that share one account and one API:
   `app/domains/workouts/` under `/api/v1/workouts`.
 - `mobile/`: Håfa Recipes app (Expo, React Native, Expo Router, Clerk).
 - `workouts-mobile/`: Håfa Workouts app (Expo, React Native, Expo Router, Clerk).
+- `baby-mobile/`: Håfa Baby Expo app; API in `app/domains/baby/` under `/api/v1/baby`.
 - `web/` and `workouts-web/`: marketing and support websites (React, Vite).
 - `admin/`: moderation dashboard (React, Vite).
 - Hosting: one Render service for the API, which auto-deploys `main` to
