@@ -105,7 +105,12 @@ def bounded(text, terms, limit):
 
 
 def duration_label(minutes):
-    if not isinstance(minutes, int | float) or isinstance(minutes, bool) or minutes < 0:
+    if (
+        not isinstance(minutes, int | float)
+        or isinstance(minutes, bool)
+        or not math.isfinite(minutes)
+        or minutes < 0
+    ):
         return None
     if 0 < minutes < 1:
         return "under 1 min"
@@ -116,7 +121,12 @@ def duration_label(minutes):
 
 
 def amount_label(amount, unit):
-    if not isinstance(amount, int | float) or isinstance(amount, bool) or not math.isfinite(amount) or amount <= 0:
+    if (
+        not isinstance(amount, int | float)
+        or isinstance(amount, bool)
+        or not math.isfinite(amount)
+        or amount <= 0
+    ):
         return None
     # The unit is optional in the record contract; the app shows unitless amounts as mL.
     return f"{amount:g} {'oz' if unit == 'oz' else 'mL'}"
@@ -175,7 +185,12 @@ def care_summary(record):
 def without_title(text, title):
     title, text = (title or "").strip(), text.lstrip()
     remainder = text[len(title) :]
-    if title and text.lower().startswith(title.lower()) and remainder[:1] in {"", "\n", ":", "."}:
+    # Compare the same slice that is cut, so case folding can never shift the cut point.
+    if (
+        title
+        and text[: len(title)].casefold() == title.casefold()
+        and remainder[:1] in {"", "\n", ":", "."}
+    ):
         return remainder.lstrip("\n:. ")
     return text
 

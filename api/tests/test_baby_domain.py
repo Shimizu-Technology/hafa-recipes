@@ -244,3 +244,12 @@ def test_development_provider_requires_deliberate_key_and_paid_flag(monkeypatch)
     assert adapter._key(configured) == "deliberate-qa-key-placeholder"
     configured.environment = "test"
     assert adapter.enabled is False and adapter._key(configured) is None
+
+
+def test_display_excerpt_is_safe_for_unusual_values():
+    from app.domains.baby.chat import duration_label, without_title
+
+    assert duration_label(float("inf")) is None
+    assert duration_label(float("nan")) is None
+    assert without_title("İstanbul trip\nPacked the bag", "İstanbul trip") == "Packed the bag"
+    assert without_title("Notes about feeding", "Feeding") == "Notes about feeding"
