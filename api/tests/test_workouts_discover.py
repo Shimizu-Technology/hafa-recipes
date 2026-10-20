@@ -166,6 +166,8 @@ async def test_code_runs_without_045_and_reports_discover_unavailable(assembled_
     assert edited.status_code == 200, edited.text
     for response in (
         await api.client.get("/api/v1/workouts/discover"),
+        await api.client.get("/api/v1/workouts/discover/random"),
+        await api.client.get("/api/v1/workouts/discover/contributors"),
         await api.client.get(f"/api/v1/workouts/discover/{row['id']}"),
         await publish(api, row["id"]),
     ):
@@ -360,6 +362,68 @@ async def test_dedupe_save_and_filters(discover_api):
     assert (await api.client.post(path, headers=GENERATION)).status_code == 409
     cards = {item["id"]: item for item in (await feed(api))["items"]}
     assert cards[first["id"]]["saved_workout_id"] == copy["id"]
+
+
+async def test_surprise_me_and_contributors_follow_feed_visibility(discover_api):
+    api = discover_api
+    first = await published_reel(api)
+    second = await published_reel(
+        api, {**REEL, "title": "Leg day two", "source_url": "https://example.com/legs-2"}
+    )
+    mine = await published_reel(
+        api,
+        {
+            **REEL,
+            "title": "Other's core",
+            "source_url": "https://example.com/core",
+            "equipment_required": [],
+        },
+        OTHER,
+    )
+    random = "/api/v1/workouts/discover/random"
+    # Other people's workouts come first; the caller's own is the last resort.
+    picks = set()
+    for _ in range(8):
+        response = await api.client.get(random, headers=OTHER)
+        assert response.status_code == 200, response.text
+        assert set(response.json()) == CARD_KEYS and PRIVATE_NOTE not in response.text
+        picks.add(response.json()["id"])
+    assert picks <= {first["id"], second["id"]}
+    own = await api.client.get(random + "?equipment=none", headers=OTHER)
+    assert own.status_code == 200 and own.json()["id"] == mine["id"]
+    assert own.json()["is_owner"] is True
+    missing = await api.client.get(random + "?equipment=kettlebell", headers=OTHER)
+    assert missing.status_code == 404 and missing.json()["detail"] == "No shared workouts match yet"
+
+    response = await api.client.get("/api/v1/workouts/discover/contributors", headers=OTHER)
+    assert response.status_code == 200, response.text
+    contributors = response.json()
+    assert [(c["workout_count"], c["is_you"]) for c in contributors] == [(2, False), (1, True)]
+    assert set(contributors[0]) == {"contributor_id", "display_name", "workout_count", "is_you"}
+    assert "owner" not in response.text and "other" not in json.dumps(
+        [c["contributor_id"] for c in contributors]
+    )
+    owner_id = contributors[0]["contributor_id"]
+    page = await feed(api, f"?contributor={owner_id}")
+    assert page["total"] == 2 and {item["id"] for item in page["items"]} == {
+        first["id"],
+        second["id"],
+    }
+    assert (await feed(api, "?contributor=chef_unknownperson"))["total"] == 0
+    invalid = await api.client.get("/api/v1/workouts/discover?contributor=owner", headers=OTHER)
+    assert invalid.status_code == 422
+    one = await api.client.get(random + f"?contributor={owner_id}", headers=OTHER)
+    assert one.json()["id"] in {first["id"], second["id"]}
+    limited = await api.client.get("/api/v1/workouts/discover/contributors?limit=1", headers=OTHER)
+    assert [c["contributor_id"] for c in limited.json()] == [owner_id]
+
+    blocked = await api.client.post(f"/api/v1/workouts/discover/{first['id']}/block", headers=OTHER)
+    assert blocked.status_code == 201
+    after = (await api.client.get("/api/v1/workouts/discover/contributors", headers=OTHER)).json()
+    assert [c["is_you"] for c in after] == [True]
+    only_mine = await api.client.get(random, headers=OTHER)
+    assert only_mine.json()["id"] == mine["id"]
+    assert (await feed(api, f"?contributor={owner_id}"))["total"] == 0
 
 
 async def test_moderation_blocks_reports_and_hidden_users(discover_api):

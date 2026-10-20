@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Table,
     cast,
+    false,
     func,
     literal_column,
     or_,
@@ -27,7 +28,7 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by, array_agg, insert
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from app.auth import ClerkUser
@@ -365,21 +366,24 @@ async def saved_copies(db, viewer_id, public_ids):
     return dict(rows.all())
 
 
-@router.get("/discover", response_model=DiscoverPage)
-async def discover(
-    user: User,
-    db: Database,
-    q: Text = None,
-    equipment: Annotated[str | None, Query(pattern=r"^[A-Za-z0-9 _-]{1,60}$")] = None,
-    platform: Annotated[str | None, Query(pattern=r"^[a-z]{2,24}$")] = None,
-    min_minutes: Minutes = None,
-    max_minutes: Minutes = None,
-    limit: Limit = 20,
-    offset: Offset = 0,
+Equipment = Annotated[str | None, Query(pattern=r"^[A-Za-z0-9 _-]{1,60}$")]
+Platform = Annotated[str | None, Query(pattern=r"^[a-z]{2,24}$")]
+ContributorId = Annotated[str | None, Query(pattern=r"^chef_[A-Za-z0-9_-]{8,64}$")]
+
+
+async def contributor_owner(db, contributor_id):
+    """Resolve an opaque public contributor id among current publishers, or None."""
+    owners = await db.scalars(
+        select(LIBRARY.c.app_user_id).where(LIBRARY.c.is_public.is_(True)).distinct()
+    )
+    return next((owner for owner in owners if public_contributor_id(owner) == contributor_id), None)
+
+
+async def feed_filters(
+    db, viewer_id, *, q, equipment, platform, min_minutes, max_minutes, contributor
 ):
-    await require_discover(db)
     content = LIBRARY.c.content
-    filters = list(visible_conditions(user.id))
+    filters = list(visible_conditions(viewer_id))
     if q and q.strip():
         names = cast(
             func.jsonb_path_query_array(content, literal_column("'$.blocks[*].exercises[*].name'")),
@@ -415,8 +419,15 @@ async def discover(
         filters.append(minutes >= min_minutes)
     if max_minutes is not None:
         filters.append(minutes <= max_minutes)
-    # One card per source: the earliest visible publication wins; duplicates
-    # stay private-library copies and remain reachable by id.
+    if contributor:
+        owner = await contributor_owner(db, contributor)
+        filters.append(LIBRARY.c.app_user_id == owner if owner else false())
+    return filters
+
+
+def canonical_ids(filters):
+    """One card per source: the earliest visible publication wins; duplicates
+    stay private-library copies and remain reachable by id."""
     ranked = (
         select(
             LIBRARY.c.id,
@@ -432,7 +443,34 @@ async def discover(
         .where(*filters)
         .subquery()
     )
-    canonical = select(ranked.c.id).where(ranked.c.rank == 1)
+    return select(ranked.c.id).where(ranked.c.rank == 1)
+
+
+@router.get("/discover", response_model=DiscoverPage)
+async def discover(
+    user: User,
+    db: Database,
+    q: Text = None,
+    equipment: Equipment = None,
+    platform: Platform = None,
+    min_minutes: Minutes = None,
+    max_minutes: Minutes = None,
+    contributor: ContributorId = None,
+    limit: Limit = 20,
+    offset: Offset = 0,
+):
+    await require_discover(db)
+    filters = await feed_filters(
+        db,
+        user.id,
+        q=q,
+        equipment=equipment,
+        platform=platform,
+        min_minutes=min_minutes,
+        max_minutes=max_minutes,
+        contributor=contributor,
+    )
+    canonical = canonical_ids(filters)
     total = await db.scalar(select(func.count()).select_from(canonical.subquery()))
     rows = (
         await db.execute(
@@ -453,6 +491,89 @@ async def discover(
     return DiscoverPage(
         items=items, total=total, limit=limit, offset=offset, has_more=offset + len(rows) < total
     )
+
+
+NO_MATCH = "No shared workouts match yet"
+
+
+@router.get("/discover/random", response_model=DiscoverCard)
+async def discover_random(
+    user: User,
+    db: Database,
+    q: Text = None,
+    equipment: Equipment = None,
+    platform: Platform = None,
+    min_minutes: Minutes = None,
+    max_minutes: Minutes = None,
+    contributor: ContributorId = None,
+):
+    """One random visible workout for "Surprise me", honoring the feed filters.
+
+    Other people's workouts come first; the caller's own are a last resort.
+    """
+    await require_discover(db)
+    filters = await feed_filters(
+        db,
+        user.id,
+        q=q,
+        equipment=equipment,
+        platform=platform,
+        min_minutes=min_minutes,
+        max_minutes=max_minutes,
+        contributor=contributor,
+    )
+    rows = (
+        await db.execute(
+            select(LIBRARY)
+            .where(LIBRARY.c.id.in_(canonical_ids(filters)))
+            .order_by((LIBRARY.c.app_user_id == user.id).asc(), func.random())
+            .limit(5)
+        )
+    ).all()
+    saved = await saved_copies(db, user.id, [row.id for row in rows])
+    for row in rows:
+        try:
+            return card(row, user.id, saved)
+        except HTTPException:
+            continue
+    raise HTTPException(404, NO_MATCH)
+
+
+class ContributorSummary(DomainModel):
+    contributor_id: str | None
+    display_name: str
+    workout_count: int
+    is_you: bool
+
+
+@router.get("/discover/contributors", response_model=list[ContributorSummary])
+async def discover_contributors(
+    user: User, db: Database, limit: Annotated[int, Query(ge=1, le=20)] = 10
+):
+    """Most active visible publishers, counted the way the feed shows cards."""
+    await require_discover(db)
+    canonical = canonical_ids(visible_conditions(user.id))
+    count = func.count().label("workout_count")
+    latest = func.max(LIBRARY.c.published_at).label("latest")
+    name = array_agg(
+        aggregate_order_by(LIBRARY.c.publisher_display_name, LIBRARY.c.published_at.desc())
+    )[1].label("display_name")
+    rows = await db.execute(
+        select(LIBRARY.c.app_user_id, count, latest, name)
+        .where(LIBRARY.c.id.in_(canonical))
+        .group_by(LIBRARY.c.app_user_id)
+        .order_by(count.desc(), latest.desc(), LIBRARY.c.app_user_id)
+        .limit(limit)
+    )
+    return [
+        ContributorSummary(
+            contributor_id=public_contributor_id(row.app_user_id),
+            display_name=row.display_name or FALLBACK_NAME,
+            workout_count=row.workout_count,
+            is_you=row.app_user_id == user.id,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/discover/{workout_id}", response_model=DiscoverDetail)
