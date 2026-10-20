@@ -192,7 +192,7 @@ it("verified email signup persists exact identity before activating its session"
   expect(fixture.begin.mock.invocationCallOrder[0]).toBeLessThan(fixture.setActive.mock.invocationCallOrder[0]);
 });
 
-it("creating an account asks no age question; Workouts setup records the adult attestation once", async () => {
+it("creating an account asks no age question", async () => {
   fixture.signup.mockResolvedValue({});
   await act(async () => { renderer = create(createElement(SignIn)); });
   await act(async () => renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Create a new account")!.props.onPress());
