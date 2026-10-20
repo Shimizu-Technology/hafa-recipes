@@ -14,6 +14,12 @@ export interface DiscoverContributor {
   contributor_id: string | null;
   display_name: string;
 }
+export interface DiscoverContributorSummary {
+  contributor_id: string | null;
+  display_name: string;
+  workout_count: number;
+  is_you: boolean;
+}
 export interface DiscoverCard {
   id: string;
   title: string;
@@ -57,6 +63,8 @@ export interface DiscoverFilters {
   equipment?: string;
   platform?: string;
   duration?: DurationRange;
+  /** Opaque public contributor id: show one person's workouts. */
+  contributor?: string;
 }
 
 export const DISCOVER_PAGE_SIZE = 20;
@@ -89,8 +97,8 @@ export function platformInfo(platform: string | null | undefined) {
   return platforms[platform] ?? { label: platform.charAt(0).toUpperCase() + platform.slice(1), icon: "globe-outline" as const };
 }
 
-/** Query string for GET /discover. Empty filters are omitted; search is trimmed and capped at the API's 100 chars. */
-export function discoverQuery(filters: DiscoverFilters, offset = 0, limit = DISCOVER_PAGE_SIZE) {
+/** Filter parameters shared by the feed and "Surprise me". Empty filters are omitted; search is trimmed and capped at the API's 100 chars. */
+function filterParams(filters: DiscoverFilters) {
   const params = new URLSearchParams();
   const q = filters.q?.trim().slice(0, 100);
   if (q) params.set("q", q);
@@ -100,6 +108,15 @@ export function discoverQuery(filters: DiscoverFilters, offset = 0, limit = DISC
   const range = filters.duration ? durationRanges[filters.duration] : undefined;
   if (range?.min != null) params.set("min_minutes", String(range.min));
   if (range?.max != null) params.set("max_minutes", String(range.max));
+  if (filters.contributor) params.set("contributor", filters.contributor);
+  return params;
+}
+export function discoverFilterQuery(filters: DiscoverFilters) {
+  return filterParams(filters).toString();
+}
+/** Query string for GET /discover. */
+export function discoverQuery(filters: DiscoverFilters, offset = 0, limit = DISCOVER_PAGE_SIZE) {
+  const params = filterParams(filters);
   params.set("limit", String(limit));
   params.set("offset", String(offset));
   return params.toString();
@@ -113,6 +130,7 @@ export function normalizeFilters(filters: DiscoverFilters): DiscoverFilters {
   if (filters.equipment?.trim()) out.equipment = filters.equipment.trim().toLowerCase();
   if (filters.platform) out.platform = filters.platform;
   if (filters.duration) out.duration = filters.duration;
+  if (filters.contributor) out.contributor = filters.contributor;
   return out;
 }
 
@@ -127,6 +145,8 @@ export const discoverKeys = {
     [owner, "discover", "feed", generation ?? null, normalizeFilters(filters)] as const,
   detail: (owner: string, generation: number | null | undefined, id: string) =>
     [owner, "discover", "detail", generation ?? null, id] as const,
+  contributors: (owner: string, generation: number | null | undefined) =>
+    [owner, "discover", "contributors", generation ?? null] as const,
 };
 
 /** Next offset for useInfiniteQuery, or undefined at the end. */
@@ -271,15 +291,22 @@ export function gridByline(card: Pick<DiscoverCard, "source_creator" | "contribu
   return card.source_creator?.trim() || `by ${card.contributor.display_name}`;
 }
 
-export type DiscoverFilterKey = "duration" | "equipment" | "platform";
-/** Active sheet filters (search excluded) as removable labels, in sheet order. */
-export function activeFilters(filters: DiscoverFilters): { key: DiscoverFilterKey; label: string }[] {
+const FALLBACK_CONTRIBUTOR = "Håfa member";
+export type DiscoverFilterKey = "duration" | "equipment" | "platform" | "contributor";
+/** Active filters (search excluded) as removable labels: contributor first, then sheet order. */
+export function activeFilters(filters: DiscoverFilters, contributorName?: string): { key: DiscoverFilterKey; label: string }[] {
   const active: { key: DiscoverFilterKey; label: string }[] = [];
+  if (filters.contributor) active.push({ key: "contributor", label: `by ${contributorName ?? FALLBACK_CONTRIBUTOR}` });
   if (filters.duration) active.push({ key: "duration", label: durationRanges[filters.duration].label });
   const equipment = equipmentFilters.find((item) => item.value === filters.equipment);
   if (filters.equipment) active.push({ key: "equipment", label: equipment?.label ?? filters.equipment });
   if (filters.platform) active.push({ key: "platform", label: platformInfo(filters.platform).label });
   return active;
+}
+
+/** Strip label for a contributor: "You (3)" or "Leon (3)"; VoiceOver reads it as "Leon, 3". */
+export function contributorChip(person: DiscoverContributorSummary) {
+  return `${person.is_you ? "You" : person.display_name} (${person.workout_count})`;
 }
 
 export type DiscoverView = "grid" | "list";

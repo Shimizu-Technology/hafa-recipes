@@ -4,9 +4,11 @@ import {
   DECLINED,
   activeFilters,
   cardMeta,
+  contributorChip,
   creatorCredit,
   defaultShareToDiscover,
   discoverKeys,
+  discoverFilterQuery,
   discoverQuery,
   discoverUnavailable,
   discoverViewKey,
@@ -256,5 +258,20 @@ describe("Discover browsing helpers", () => {
     expect(parseDiscoverView("nonsense")).toBe("grid");
     expect(parseDiscoverView("list")).toBe("list");
     expect(discoverViewKey("user/1")).toBe("hafa-workouts:v1:user%2F1:discover-view");
+  });
+});
+
+describe("Discover contributors and Surprise me", () => {
+  it("passes one person's opaque id to the feed and the random pick", () => {
+    expect(discoverQuery({ contributor: "chef_abc12345" }, 20)).toBe("contributor=chef_abc12345&limit=20&offset=20");
+    expect(discoverFilterQuery({ q: " legs ", equipment: "none", contributor: "chef_abc12345", duration: "short" }))
+      .toBe("q=legs&equipment=none&max_minutes=15&contributor=chef_abc12345");
+    expect(discoverFilterQuery({})).toBe("");
+  });
+  it("labels people and the active person filter plainly", () => {
+    expect(contributorChip({ contributor_id: "chef_a", display_name: "Leon", workout_count: 3, is_you: false })).toBe("Leon (3)");
+    expect(contributorChip({ contributor_id: "chef_b", display_name: "Leon", workout_count: 1, is_you: true })).toBe("You (1)");
+    expect(activeFilters({ contributor: "chef_a", duration: "long" }, "Leon").map((f) => f.label)).toEqual(["by Leon", "30+ min"]);
+    expect(activeFilters({ contributor: "chef_a" })[0].label).toBe("by Håfa member");
   });
 });

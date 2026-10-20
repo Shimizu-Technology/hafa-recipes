@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { View } from "react-native";
 import {
   AccountButton,
   Button,
@@ -15,6 +16,7 @@ import {
   Screen,
   Sheet,
   Stack,
+  useToast,
 } from "@/components/ui";
 import { DiscoverCardSkeleton, DiscoverCardView } from "@/components/discover-card";
 import { DiscoverGrid, DiscoverGridCard, DiscoverGridSkeleton } from "@/components/discover-grid-card";
@@ -24,6 +26,7 @@ import {
   DISCOVER_STALE_MS,
   SEARCH_DEBOUNCE_MS,
   activeFilters,
+  contributorChip,
   discoverKeys,
   discoverUnavailable,
   discoverViewKey,
@@ -74,6 +77,9 @@ export default function Discover() {
   const [equipment, setEquipment] = useState<string>();
   const [duration, setDuration] = useState<DurationRange>();
   const [platform, setPlatform] = useState<string>();
+  const [contributor, setContributor] = useState<{ id: string; name: string }>();
+  const [surprising, setSurprising] = useState(false);
+  const toast = useToast();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [view, toggleView] = useDiscoverView();
   const [pulling, setPulling] = useState(false);
@@ -87,7 +93,7 @@ export default function Discover() {
     staleTime: DISCOVER_STALE_MS,
   });
   const ready = capabilities.data?.discover === true;
-  const filters: DiscoverFilters = { q: settledSearch, equipment, duration, platform };
+  const filters: DiscoverFilters = { q: settledSearch, equipment, duration, platform, contributor: contributor?.id };
   const feed = useInfiniteQuery({
     queryKey: discoverKeys.feed(owner, enrollment?.generation, filters),
     initialPageParam: 0,
@@ -101,16 +107,44 @@ export default function Discover() {
   const unavailable =
     discoverUnavailable(capabilities.data, feed.error) || (capabilities.error as { status?: number } | null)?.status === 503;
   const cards = uniqueCards(feed.data?.pages);
-  const active = activeFilters(filters);
+  const active = activeFilters(filters, contributor?.name);
   const narrowed = !!(settledSearch.trim() || active.length);
   const total = feed.data?.pages[0]?.total ?? cards.length;
+  const contributors = useQuery({
+    queryKey: discoverKeys.contributors(owner, enrollment?.generation),
+    queryFn: ({ signal }) => api.discoverContributors(signal),
+    enabled: ready && cards.length > 0,
+    staleTime: DISCOVER_STALE_MS,
+    // An older API without this route just hides the strip.
+    retry: false,
+  });
+  const people = (contributors.data ?? []).filter((person) => person.contributor_id);
   function clearFilter(key: DiscoverFilterKey) {
-    ({ duration: setDuration, equipment: setEquipment, platform: setPlatform })[key](undefined);
+    ({ duration: setDuration, equipment: setEquipment, platform: setPlatform, contributor: setContributor })[key](undefined);
   }
-  function clearFilters() {
+  /** The Filters sheet's own choices; a person filter is cleared from its chip. */
+  function clearSheetFilters() {
     setEquipment(undefined);
     setDuration(undefined);
     setPlatform(undefined);
+  }
+  function clearFilters() {
+    clearSheetFilters();
+    setContributor(undefined);
+  }
+  async function surprise() {
+    if (surprising) return;
+    setSurprising(true);
+    try {
+      const pick = await api.discoverRandom(filters);
+      router.push({ pathname: "/discover/[id]", params: { id: pick.id } });
+    } catch (e) {
+      const missing = (e as { status?: number }).status === 404;
+      if (missing) toast(narrowed ? "Nothing matches these filters yet" : "No shared workouts yet", "info");
+      else toast("Couldn’t pick a workout. Check your connection and try again.", "error");
+    } finally {
+      setSurprising(false);
+    }
   }
   function clear() {
     setSearch("");
@@ -121,7 +155,7 @@ export default function Discover() {
     setPulling(true);
     try {
       const caps = await capabilities.refetch();
-      if (caps.data?.discover) await feed.refetch();
+      if (caps.data?.discover) await Promise.all([feed.refetch(), contributors.refetch()]);
     } finally {
       setPulling(false);
     }
@@ -156,21 +190,35 @@ export default function Discover() {
       ) : (
         <>
           <Field label="Search Discover" value={search} onChange={setSearch} placeholder="Workout, exercise or creator" />
-          <Row justify="space-between">
+          <Row gap={8} wrap>
             <Button
-              title={active.length ? `Filters · ${active.length}` : "Filters"}
-              icon="options-outline"
-              variant="secondary"
-              size="sm"
-              inline
-              accessibilityHint={active.length ? `${active.length} active` : "Time, equipment and source"}
-              onPress={() => setFiltersOpen(true)}
-            />
-            <IconButton
+                title={active.length ? `Filters · ${active.length}` : "Filters"}
+                icon="options-outline"
+                variant="secondary"
+                size="sm"
+                inline
+                accessibilityHint={active.length ? `${active.length} active` : "Time, equipment and source"}
+                onPress={() => setFiltersOpen(true)}
+              />
+            {!(feed.isSuccess && !cards.length) && (
+              <Button
+                title="Surprise me"
+                icon="shuffle"
+                variant="secondary"
+                size="sm"
+                inline
+                busy={surprising}
+                accessibilityHint="Opens a random shared workout that matches your filters"
+                onPress={() => void surprise()}
+              />
+            )}
+            <View style={{ marginLeft: "auto" }}>
+              <IconButton
               icon={view === "grid" ? "list-outline" : "grid-outline"}
-              label={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"}
-              onPress={toggleView}
-            />
+                label={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"}
+                onPress={toggleView}
+              />
+            </View>
           </Row>
           {!!active.length && (
             <ChipRow label="Active filters">
@@ -184,6 +232,28 @@ export default function Discover() {
               ))}
               <Button title="Clear all" variant="ghost" size="sm" inline onPress={clearFilters} />
             </ChipRow>
+          )}
+          {!settledSearch.trim() && people.length > 1 && (
+            <Stack gap={8}>
+              <Copy kind="label">People sharing</Copy>
+              <ChipRow label="Show workouts from one person">
+                {people.map((person) => (
+                  <Chip
+                    key={person.contributor_id}
+                    label={contributorChip(person)}
+                    icon="person-circle-outline"
+                    selected={contributor?.id === person.contributor_id}
+                    onPress={() =>
+                      setContributor(
+                        contributor?.id === person.contributor_id
+                          ? undefined
+                          : { id: person.contributor_id!, name: person.is_you ? "you" : person.display_name }
+                      )
+                    }
+                  />
+                ))}
+              </ChipRow>
+            </Stack>
           )}
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
@@ -305,12 +375,12 @@ export default function Discover() {
             ))}
           </FilterGroup>
           <Row gap={8} justify="flex-end">
-            {!!active.length && (
+            {active.some((filter) => filter.key !== "contributor") && (
               <Button
                 title="Clear all"
                 variant="ghost"
                 inline
-                onPress={clearFilters}
+                onPress={clearSheetFilters}
               />
             )}
             <Button title="Show workouts" inline onPress={() => setFiltersOpen(false)} />

@@ -32,7 +32,10 @@ import type { ShareKind, SharePreview, OwnerShare } from "./sharing";
 import type { BlockedContributor } from "./safety";
 import type { Capabilities, ImportJob, ExtractionRequest } from "./capture";
 import {
+  discoverFilterQuery,
   discoverQuery,
+  type DiscoverCard,
+  type DiscoverContributorSummary,
   type DiscoverDetail,
   type DiscoverFilters,
   type DiscoverPage,
@@ -728,6 +731,13 @@ export function createWorkoutsApi(
     },
     async discover(filters: DiscoverFilters, offset = 0, signal?: AbortSignal) {
       return (await request<DiscoverPage>(`/discover?${discoverQuery(filters, offset)}`, "GET", undefined, { signal })).data;
+    },
+    /** One random shared workout matching the feed filters ("Surprise me"); 404 when none match. */
+    async discoverRandom(filters: DiscoverFilters) {
+      return (await request<DiscoverCard>(`/discover/random?${discoverFilterQuery(filters)}`)).data;
+    },
+    async discoverContributors(signal?: AbortSignal) {
+      return (await request<DiscoverContributorSummary[]>("/discover/contributors?limit=10", "GET", undefined, { signal })).data;
     },
     async discoverWorkout(id: string, signal?: AbortSignal) {
       return (await request<DiscoverDetail>(`/discover/${encodeURIComponent(id)}`, "GET", undefined, { signal })).data;
