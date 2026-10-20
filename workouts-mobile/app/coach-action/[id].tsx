@@ -55,7 +55,7 @@ export default function CoachActionReview() {
           {s.state === "proposed" && data.kind === "program" && <Field label="Plan name" value={planName} disabled={s.busy} onChange={setTitle} />}
           {s.state === "proposed" && s.needsFullReview && <>
             <Copy kind="small" tone="muted">
-              Applying confirms the sets and reps below still feel comfortable for you now. It isn’t medical clearance.
+              Applying confirms the sets and reps listed above still feel comfortable for you now. It isn’t medical clearance.
             </Copy>
             <ListRow icon="person-outline" title="Check your starting point in your profile" onPress={() => router.push("/profile")} />
           </>}
@@ -68,7 +68,7 @@ export default function CoachActionReview() {
       </QueryState>
       {!!s.error && <>
         <Notice error>{s.error}</Notice>
-        <Button title="Ask Coach again" secondary inline onPress={() => router.push("/coach")} />
+        <Button title="Ask Coach again" secondary inline onPress={() => router.canGoBack() ? router.back() : router.push("/coach")} />
       </>}
       <ListGroup>
         <ListRow icon="calendar-outline" title="Open training plans" onPress={() => router.push("/(tabs)/plan")} />

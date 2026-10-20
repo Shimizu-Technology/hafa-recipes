@@ -77,3 +77,13 @@ it("does not offer Apply for an expired suggestion", async () => {
   f.action = { ...proposal("move"), expires_at: "2000-01-01T00:00:00Z" }; await card();
   expect(button("Apply")).toBeUndefined(); expect(nodes("Copy").some(node => node.props.children === "Expired")).toBe(true);
 });
+it("explains a readiness refusal in plain words and keeps Apply available to retry", async () => {
+  f.accept.mockRejectedValueOnce(Error("Confirm readiness before applying a training change")); await card(); await press("Apply");
+  expect(nodes("Notice").map(node => node.props.children)).toContain("Check in for today in Coach first, then apply.");
+  expect(button("Apply")).toBeDefined(); expect(notify).not.toHaveBeenCalled();
+});
+it("labels a suggestion from an earlier setup instead of loading forever", async () => {
+  await mount(createElement(CoachSuggestionCard, { item: { proposal_id: "proposal", kind: "schedule", status: "ready", state: "proposed" }, generation: 0, notify }));
+  expect(nodes("Copy").some(node => String(node.props.children).includes("earlier Workouts setup"))).toBe(true);
+  expect(nodes("Copy").some(node => String(node.props.children).includes("Loading"))).toBe(false); expect(button("Apply")).toBeUndefined();
+});

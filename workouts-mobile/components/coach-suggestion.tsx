@@ -19,11 +19,13 @@ export function useCoachSuggestion(id: string, generation: number, initial: Coac
   const cache = useQueryClient();
   const action = useQuery({ queryKey: [owner, "coach-action", id, generation], queryFn: () => api.coachAction(id), enabled: current });
   const kind = action.data?.kind, target = action.data?.target_id;
-  const profile = useQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, enabled: current && (kind === "profile" || kind === "schedule") });
+  // "Before" only matters while the suggestion is still open; applied/undone cards skip these reads.
+  const open = current && (initial === "proposed");
+  const profile = useQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, enabled: open && (kind === "profile" || kind === "schedule") });
   const record = useQuery({
     queryKey: [owner, "coach-change-target", kind, target, generation],
     queryFn: async () => kind === "schedule" ? { program: await api.program(target!) } : { workout: await api.workout(target!) },
-    enabled: current && !!target && (kind === "schedule" || kind === "adaptation" || kind === "progression"),
+    enabled: open && !!target && (kind === "schedule" || kind === "adaptation" || kind === "progression"),
   });
   const [state, setState] = useState(initial);
   useEffect(() => setState(initial), [initial]);
@@ -38,22 +40,23 @@ export function useCoachSuggestion(id: string, generation: number, initial: Coac
     lock.current = true; setBusy(true); setError("");
     try {
       const next = await work();
+      // The server has changed things even if this card closed meanwhile, so always refresh.
+      const refresh = Promise.all(["programs", "program", "profile", "library", "coach-history", "coach-action-history"].map(key => cache.invalidateQueries({ queryKey: [owner, key] })));
       if (live.current !== scope) return false;
       setState(next);
-      await Promise.all(["programs", "program", "profile", "library", "coach-history", "coach-action-history"].map(key => cache.invalidateQueries({ queryKey: [owner, key] })));
+      await refresh;
       return true;
     } catch (e) {
       const message = (e as Error).message;
       // The server needs today's check-in before most training changes; say where to do it.
-      if (live.current === scope) setError(/confirm readiness/i.test(message) && !/after the pause/i.test(message)
-        ? "Check in for today first (Coach ··· menu), then apply." : message);
+      if (live.current === scope) setError(friendly(message));
       return false;
     } finally {
       if (live.current === scope) { lock.current = false; setBusy(false); }
     }
   }
   return {
-    action, summary, state, busy, error,
+    action, summary, state, busy, error, current,
     ready: !!action.data && current && canApplyCoach(action.data),
     /** A return also needs the full sets and reps on screen before the confirmation is sent. */
     needsFullReview: !!action.data && needsReturnConfirmation(action.data),
@@ -66,6 +69,15 @@ export function useCoachSuggestion(id: string, generation: number, initial: Coac
     }),
     undo: () => run(async () => (await api.undoCoachAction(id, generation)).state),
   };
+}
+
+/** Plain wording for the API's guard messages; anything else passes through. */
+function friendly(message: string) {
+  if (/after the pause/i.test(message)) return "Check in for today in Coach first, then apply. Resuming needs a check-in from after the pause.";
+  if (/confirm readiness/i.test(message)) return "Check in for today in Coach first, then apply.";
+  if (/current baseline in your profile/i.test(message)) return "Update your starting point in your profile first, then apply.";
+  if (/context changed|needs information/i.test(message)) return "Your training changed since Coach suggested this. Ask Coach again for a fresh suggestion.";
+  return message;
 }
 
 /** "Label: before → after" lines. Multi-line values (a session's exercises) stay readable. */
@@ -100,7 +112,8 @@ export function CoachSuggestionCard({ item, generation, notify }: {
       {s.state === "accepted" ? "Applied" : s.state === "undone" ? "Undone" : p && !s.ready && p.status === "ready" ? "Expired" : "Suggested change"}
     </Copy>
     <Copy kind="label">{title}</Copy>
-    {s.action.isPending && <Copy kind="small" tone="muted">Loading what this changes…</Copy>}
+    {!s.current && <Copy kind="small" tone="muted">From an earlier Workouts setup. It can’t be applied now.</Copy>}
+    {s.current && s.action.isPending && <Copy kind="small" tone="muted">Loading what this changes…</Copy>}
     {!!s.action.error && <Notice error>{s.action.error.message}</Notice>}
     {s.state === "proposed" && s.summary && <CoachChangeRows summary={s.summary} />}
     {s.state === "proposed" && p && p.status !== "ready" && <Copy kind="small" tone="muted">

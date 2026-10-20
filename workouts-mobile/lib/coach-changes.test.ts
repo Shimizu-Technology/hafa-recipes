@@ -56,6 +56,7 @@ it("names a new workout copy and a new plan without inventing a before state", (
   const before = workout("Legs", [squat(3, 10)]), after = workout("Legs at home", [squat(3, 12)]);
   const copy = describeChange(action("adaptation", { status: "ready", workout: after }), { workout: before });
   expect(copy.title).toBe("Adjust Legs"); expect(copy.note).toContain("new copy");
-  const plan = describeChange(action("program", { status: "ready", program: { title: "Spring block", proposal: { sessions: [session("s1", "2026-11-02", before)] } as never } }), {});
-  expect(plan).toEqual({ title: "New plan: Spring block", rows: [{ label: "Sessions", after: `1 · starts ${formatPlanDate("2026-11-02")}` }] });
+  // The API's new-plan proposal has top-level sessions and no title.
+  const plan = describeChange(action("program", { status: "ready", sessions: [session("s1", "2026-11-02", before)] }), {});
+  expect(plan).toEqual({ title: "Add a new training plan", rows: [{ label: "Sessions", after: `1 · starts ${formatPlanDate("2026-11-02")}` }] });
 });

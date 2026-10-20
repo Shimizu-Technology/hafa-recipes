@@ -88,7 +88,8 @@ export function describeChange(action: CoachAction, context: ChangeContext): Cha
   const after = p.program?.proposal.sessions ?? p.sessions ?? [];
   if (action.kind === "program") {
     const first = after[0]?.date;
-    return { title: `New plan: ${p.program?.title ?? "Training plan"}`, rows: [{ label: "Sessions", after: `${after.length}${first ? ` · starts ${formatPlanDate(first)}` : ""}` }] };
+    // A new-plan proposal carries its sessions at the top level and no title; the title is chosen on Apply.
+    return { title: p.program?.title ? `New plan: ${p.program.title}` : "Add a new training plan", rows: [{ label: "Sessions", after: `${after.length}${first ? ` · starts ${formatPlanDate(first)}` : ""}` }] };
   }
   const before = context.program?.sessions ?? [];
   const ids = new Set([...(p.session_ids ?? []), ...(p.session_id ? [p.session_id] : [])]);
