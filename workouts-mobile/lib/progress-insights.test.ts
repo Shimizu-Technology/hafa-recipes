@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { ActualSet, Workout } from "./models";
-import { exerciseLines, exerciseRecords, friendlyDate, weekStreak } from "./progress-insights";
+import { exerciseLines, exerciseRecords, friendlyDate, setLabel, weekStreak } from "./progress-insights";
 
 const workout: Workout = { id: "w", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",
   blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [
@@ -56,4 +56,18 @@ it("skips assistance weight for heaviest and matches exercises by library id fir
   ], "metric");
   expect(records).toHaveLength(1);
   expect(records[0]).toMatchObject({ name: "Pull-up (band)", best: "8 reps", detail: "2 sessions" });
+});
+
+it("counts streak weeks in the account timezone", () => {
+  // Sunday 20:00 in Los Angeles is already Monday in Guam.
+  const sundayEvening = { started_at: "2026-10-19T03:00:00Z", recorded: true };
+  const now = new Date("2026-10-21T02:00:00Z");
+  expect(weekStreak([sundayEvening, { started_at: "2026-10-08T03:00:00Z", recorded: true }], now, "Pacific/Guam")).toBe(1);
+  expect(weekStreak([sundayEvening, { started_at: "2026-10-08T03:00:00Z", recorded: true }], now, "America/Los_Angeles")).toBe(2);
+});
+
+it("labels recorded sets by their own set number, side and round", () => {
+  expect(setLabel({ set_index: 1, round_index: 1, side: "right" }, false)).toBe("1R");
+  expect(setLabel({ set_index: 2, round_index: 1, side: null }, false)).toBe("2");
+  expect(setLabel({ set_index: 1, round_index: 3, side: null }, true)).toBe("R3 · 1");
 });

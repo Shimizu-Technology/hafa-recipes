@@ -2,7 +2,7 @@ import { View } from "react-native";
 import { spacing } from "@/constants/theme";
 import type { ActualSet, Workout } from "@/lib/models";
 import type { UnitSystem } from "@/lib/training";
-import { exerciseName, formatDistance, formatDuration, formatWeight } from "@/lib/progress-insights";
+import { exerciseName, setLabel, formatDistance, formatDuration, formatWeight } from "@/lib/progress-insights";
 import { Card, Copy, useColors } from "./ui";
 
 type Column = { title: string; value(set: ActualSet): string | null };
@@ -25,21 +25,22 @@ export function SessionTable({ actuals, workout, units }: { actuals: ActualSet[]
       { title: "Distance", value: (s) => (s.distance_meters != null ? formatDistance(s.distance_meters, units) : null) },
       { title: "Weight", value: (s) => formatWeight(s) || null },
     ] as Column[]).filter((column) => sets.some((s) => s.completed && column.value(s) != null));
-    const label = (s: ActualSet, i: number) => `${i + 1}${s.side ? (s.side === "left" ? "L" : "R") : ""}`;
-    const notes = sets.flatMap((s, i) => (feel(s) ? [`Set ${label(s, i)} · ${feel(s)}`] : []));
+    const rounds = new Set(sets.map((s) => s.round_index)).size > 1;
+    const label = (s: ActualSet) => setLabel(s, rounds);
+    const notes = sets.flatMap((s) => (feel(s) ? [`Set ${label(s)} · ${feel(s)}`] : []));
     return (
       <Card key={key} compact>
         <Copy kind="subheading">{exerciseName(workout, sets[0])}</Copy>
         <View>
           <View style={{ flexDirection: "row", gap: spacing.sm, paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
-            <Copy kind="caption" tone="muted" style={{ width: 40 }}>Set</Copy>
+            <Copy kind="caption" tone="muted" style={{ width: rounds ? 64 : 40 }}>Set</Copy>
             {columns.map((column) => <Copy key={column.title} kind="caption" tone="muted" style={{ flex: 1 }}>{column.title}</Copy>)}
           </View>
           {sets.map((s, i) => (
             <View key={i} accessible
-              accessibilityLabel={`Set ${label(s, i)}: ${s.completed ? columns.flatMap((column) => column.value(s) ? [`${column.value(s)} ${column.title.toLowerCase()}`] : []).join(", ") : "skipped"}`}
+              accessibilityLabel={`Set ${label(s)}: ${s.completed ? columns.flatMap((column) => column.value(s) ? [`${column.value(s)} ${column.title.toLowerCase()}`] : []).join(", ") : "skipped"}`}
               style={{ flexDirection: "row", gap: spacing.sm, minHeight: 36, alignItems: "center" }}>
-              <Copy kind="label" tone="muted" style={{ width: 40 }}>{label(s, i)}</Copy>
+              <Copy kind="label" tone="muted" style={{ width: rounds ? 64 : 40 }}>{label(s)}</Copy>
               {s.completed ? columns.map((column) => (
                 <Copy key={column.title} kind="label" style={{ flex: 1, fontVariant: ["tabular-nums"] }}>{column.value(s) ?? "–"}</Copy>
               )) : <Copy tone="muted" style={{ flex: 1 }}>Skipped</Copy>}

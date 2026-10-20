@@ -1,5 +1,5 @@
 import type { ActualSet, SessionRequest, Workout } from "./models";
-import type { UnitSystem } from "./training";
+import { dateInTimezone, type UnitSystem } from "./training";
 
 /** Progress presentation: friendly dates, a gentle weekly streak, records and trends. Pure and testable. */
 
@@ -18,25 +18,28 @@ export function friendlyDate(iso: string, now = new Date()) {
   }).format(date);
 }
 
-/** Monday of the week containing `date`, as a local-midnight timestamp. */
-function weekStart(date: Date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  return start.getTime();
+const localDate = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+/** Monday of the week containing a YYYY-MM-DD date. */
+function monday(iso: string, weeksBack = 0) {
+  const date = new Date(`${iso}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7) - weeksBack * 7);
+  return date.toISOString().slice(0, 10);
 }
 /**
- * Weeks in a row with at least one recorded session, counting back from this week.
- * A week that hasn't had a session yet doesn't break the run: it counts from last week.
+ * Weeks in a row with at least one recorded session, counting back from this week, in the account's
+ * timezone when given (the same days the weekly summary uses). A week that hasn't had a session yet
+ * doesn't break the run: it counts from last week.
  */
-export function weekStreak(sessions: Array<{ started_at: string; recorded: boolean }>, now = new Date()) {
+export function weekStreak(sessions: Array<{ started_at: string; recorded: boolean }>, now = new Date(), timezone?: string) {
+  const day = (date: Date) => (timezone ? dateInTimezone(date, timezone) : localDate(date));
   const weeks = new Set(sessions.filter((s) => s.recorded && Number.isFinite(Date.parse(s.started_at)))
-    .map((s) => weekStart(new Date(s.started_at))));
-  const cursor = new Date(weekStart(now));
-  if (!weeks.has(cursor.getTime())) cursor.setDate(cursor.getDate() - 7);
-  let count = 0;
-  while (weeks.has(cursor.getTime())) {
+    .map((s) => monday(day(new Date(s.started_at)))));
+  const today = day(now);
+  let back = weeks.has(monday(today)) ? 0 : 1, count = 0;
+  while (weeks.has(monday(today, back))) {
     count++;
-    cursor.setDate(cursor.getDate() - 7);
+    back++;
   }
   return count;
 }
@@ -54,6 +57,11 @@ export function formatWeight(set: Pick<ActualSet, "load" | "load_unit" | "load_c
   const kinds: Record<string, string> = { per_hand: " each", added: " added", assistance: " assist" };
   const kind = kinds[set.load_convention ?? ""] ?? "";
   return `${trim(set.load)} ${set.load_unit ?? ""}`.trim() + kind;
+}
+
+/** A recorded set's label: its set number and side, with the round when the exercise ran over several: "1L", "R2 · 1". */
+export function setLabel(set: Pick<ActualSet, "set_index" | "round_index" | "side">, withRound: boolean) {
+  return `${withRound ? `R${set.round_index} · ` : ""}${set.set_index}${set.side ? (set.side === "left" ? "L" : "R") : ""}`;
 }
 
 export function exerciseName(workout: Workout, actual: Pick<ActualSet, "block_id" | "exercise_index">) {

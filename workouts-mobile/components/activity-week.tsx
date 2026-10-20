@@ -6,15 +6,12 @@ import { Button, Card, Copy, Notice, Skeleton } from "./ui";
 import { useTraining } from "@/lib/context";
 import { activityFrequency, weekActivity } from "@/lib/activity-log";
 import { dateInTimezone } from "@/lib/training";
+import { weekStreak } from "@/lib/progress-insights";
 function shortDate(iso?: string) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso ?? "";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${iso}T00:00:00Z`));
 }
-export function ActivityWeek({ sessions, streak = 0 }: {
-  sessions: Array<{ started_at: string; recorded: boolean; active_seconds?: number }>;
-  /** Weeks in a row with training; shown from two weeks so it reads as encouragement, not pressure. */
-  streak?: number;
-}) {
+export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: string; recorded: boolean; active_seconds?: number }> }) {
   const { api, owner, enrollment } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const q = useQuery({
@@ -35,6 +32,8 @@ export function ActivityWeek({ sessions, streak = 0 }: {
   );
   if (!enrollment?.enrolled) return null;
   const summary = q.data ? activityFrequency(q.data.items, sessions, q.data.timezone, q.data.from, q.data.to) : null;
+  // Weeks in a row with training, in the account timezone. Shown from two weeks so it reads as encouragement, not pressure.
+  const streak = q.data ? weekStreak(sessions, new Date(), q.data.timezone) : 0;
   const minutes = q.data ? Math.round(sessions.reduce((total, s) => {
     if (!s.recorded || !s.active_seconds || !Number.isFinite(Date.parse(s.started_at))) return total;
     const date = dateInTimezone(new Date(s.started_at), q.data!.timezone);

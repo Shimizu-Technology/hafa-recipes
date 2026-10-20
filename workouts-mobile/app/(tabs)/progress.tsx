@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
+import { AccountButton, Button, Card, Copy, Empty, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
 import { ProgressRecords } from "@/components/progress-records";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { canRecoverResult } from "@/lib/result-recovery";
-import { exerciseLines, exerciseRecords, friendlyDate, weekStreak } from "@/lib/progress-insights";
+import { ApiError } from "@/lib/api";
+import { isTransientSyncError } from "@/lib/training";
+import { exerciseLines, exerciseRecords, friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
 import type { SessionRequest, Workout } from "@/lib/models";
 import { sessionsQuery } from "@/lib/session-query";
@@ -74,7 +76,6 @@ export default function Progress() {
   const records = ancestryReady ? exerciseRecords(selected.effective, units) : [];
   const weekSessions = selected.effective.map(({ request }) => ({ started_at: request.started_at,
     recorded: request.actuals.some((a) => a.completed), active_seconds: request.active_seconds }));
-  const streak = weekStreak(weekSessions);
   async function refresh() {
     setRefreshing(true);
     try {
@@ -92,8 +93,10 @@ export default function Progress() {
       await before?.();
       await offline.store.sync(api.saveSession);
       await q.refetch();
-    } catch {
-      setError("Couldn’t sync right now. Your sessions are safe on this device; try again when you’re online.");
+    } catch (e) {
+      // Connection and server trouble gets a calm retry message; the device store's own guidance is shown as written.
+      setError(!(e instanceof Error) || e instanceof TypeError || (e instanceof ApiError && isTransientSyncError(e.status))
+        ? "Couldn’t sync right now. Your sessions are safe on this device; try again when you’re online." : e.message);
     } finally {
       setBusy(false);
     }
@@ -111,20 +114,16 @@ export default function Progress() {
       title="Progress"
       refreshing={refreshing}
       onRefresh={() => { void refresh(); }}
-      action={
-        <Row gap={8}>
-          <IconButton icon="add" label="Log completed activity" variant="primary" onPress={() => router.push("/activity")} />
-          <AccountButton />
-        </Row>
-      }
+      action={<AccountButton />}
     >
       {historyLoading ? <Card><Skeleton height={24} width="70%" /><Skeleton height={18} width="50%" /><Copy>Loading your training history…</Copy></Card> : q.error && !q.data ?
-        <Card><Copy>Totals will show once your history loads.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={weekSessions} streak={streak} /> : <Card>
+        <Card><Copy>Totals will show once your history loads.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={weekSessions} /> : <Card>
         <Copy>{ancestry.isPending ? "Checking your edited sessions…" :
           "Totals are paused so no workout is counted twice."}</Copy>
         {!ancestry.isPending && <Button title="Try again" secondary onPress={() => { void ancestry.refetch(); }} />}
       </Card>}
       <ListGroup>
+        <ListRow icon="add-circle-outline" title="Log a completed activity" detail="A run, walk, game or class" onPress={() => router.push("/activity")} />
         <ListRow icon="walk-outline" title="Runs, walks & other activity" onPress={() => router.push("/activity-log")} />
       </ListGroup>
       <ProgressRecords records={records} />
