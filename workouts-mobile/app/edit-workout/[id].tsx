@@ -165,7 +165,17 @@ export default function EditWorkout() {
     <Screen
       back
       title="Edit workout"
-      subtitle="Saving creates a new version. Past sessions stay as they were."
+      subtitle="Past sessions stay as they were."
+      footer={value ? (
+        <Button
+          title={busy ? busyAction === "save" ? "Saving changes…" : "Reloading workout…" : command ? "Retry saving changes" : "Save changes"}
+          disabled={resolved}
+          busy={busy}
+          onPress={() => {
+            void save();
+          }}
+        />
+      ) : undefined}
     >
       <QueryState
         loading={!loaded || (q.isPending && !value)}
@@ -175,19 +185,9 @@ export default function EditWorkout() {
         }}
       >
         {value && (
-          <>
-            <View pointerEvents={busy ? "none" : "auto"}>
-              <WorkoutEditor value={editedContent(value)} onChange={update} disabled={busy || !!command || resolved} />
-            </View>
-            <Button
-              title={busy ? busyAction === "save" ? "Saving changes…" : "Reloading workout…" : command ? "Retry saving changes" : "Save new workout version"}
-              disabled={resolved}
-              busy={busy}
-              onPress={() => {
-                void save();
-              }}
-            />
-          </>
+          <View pointerEvents={busy ? "none" : "auto"}>
+            <WorkoutEditor value={editedContent(value)} onChange={update} disabled={busy || !!command || resolved} />
+          </View>
         )}
       </QueryState>
       {command && (

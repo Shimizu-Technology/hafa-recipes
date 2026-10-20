@@ -1166,7 +1166,7 @@ it("mounted workout editing preserves spaces and newlines while instructions are
   }
   await act(async () => find("WorkoutEditor").props.onChange({ ...find("WorkoutEditor").props.value,
     notes: ["Rest after each round.", "Repeat at your own pace."] }));
-  await click("Save new workout version");
+  await click("Save changes");
   expect(fixture.updateWorkout.mock.calls[0][0].notes).toEqual(["Rest after each round.", "Repeat at your own pace."]);
 });
 
@@ -1176,7 +1176,7 @@ it("mounted workout editing preserves original content/revision across backgroun
   await act(async () => find("WorkoutEditor").props.onChange({ ...workout, title: "Desired correction" }));
   const pending = deferred<Workout>();
   fixture.updateWorkout.mockReturnValueOnce(pending.promise);
-  await click("Save new workout version");
+  await click("Save changes");
   expect(button("Saving changes…").props.busy).toBe(true);
   const original = fixture.updateWorkout.mock.calls[0][0];
   await act(async () => {
@@ -1206,7 +1206,7 @@ it("mounted completed workout edits reopen the current server revision despite a
   await mount(EditWorkout);
   const corrected = { ...workout, revision: 2, title: "Saved correction" };
   fixture.updateWorkout.mockResolvedValueOnce(corrected);
-  await click("Save new workout version");
+  await click("Save changes");
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!)).toMatchObject({
     terminal: true, saved_id: "workout", input: null, command: null
   });
@@ -1222,7 +1222,7 @@ it("mounted completed workout edits reopen the current server revision despite a
   expect(find("WorkoutEditor").props.value.title).toBe("Saved correction");
   await act(async () => find("WorkoutEditor").props.onChange({ ...corrected, title: "Second correction" }));
   fixture.updateWorkout.mockResolvedValueOnce({ ...corrected, title: "Second correction", revision: 3 });
-  await click("Save new workout version");
+  await click("Save changes");
   expect(fixture.updateWorkout.mock.calls[1][0]).toMatchObject({ revision: 2, title: "Second correction" });
   expect(fixture.dismissTo).toHaveBeenCalledTimes(2);
   expect(fixture.replace).not.toHaveBeenCalled();
@@ -1252,7 +1252,7 @@ it("mounted workout edit preserves its frozen command when saving succeeded but 
     fixture.writeFailure = true;
     return { ...value, revision: 2 };
   });
-  await click("Save new workout version");
+  await click("Save changes");
   const original = fixture.updateWorkout.mock.calls[0][0];
   expect(fixture.dismissTo).not.toHaveBeenCalled();
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).command).toEqual(original);
@@ -1306,7 +1306,7 @@ it("mounted acknowledged workout edit keeps its completed receipt if returning t
   const saved = { ...workout, revision: 2, title: "Saved correction" };
   fixture.updateWorkout.mockResolvedValueOnce(saved);
   fixture.dismissTo.mockImplementationOnce(() => { throw Error("navigation unavailable"); });
-  await click("Save new workout version");
+  await click("Save changes");
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "workout-edit:1:workout"))!).terminal).toBe(true);
   expect(find("WorkoutEditor").props.disabled).toBe(true);
   await unmount();
@@ -1896,15 +1896,15 @@ it("keeps unknowns and less common prescription values intact through simple edi
       load: 10, load_unit: "kg", load_convention: "per_hand", tempo: "3-1-1", notes: "Control the movement", per_side: null }],
   }] };
   await mountRealWorkoutEditor(content);
-  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Estimated duration · minutes", "Workout instructions · included when sharing", "Private notes · only you", "Required equipment · comma separated", "Exercise name", "Sets", "Reps"]);
+  expect(nodes("Field").map((n) => n.props.label)).toEqual(["Workout title", "Duration · minutes", "Exercise name", "Sets", "Reps"]);
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("More details for Row");
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("45");
-  expect(nodes("Field").find((n) => n.props.label === "Source load · kg")!.props.value).toBe("10");
+  expect(nodes("Field").find((n) => n.props.label === "Weight · kg")!.props.value).toBe("10");
   expect(nodes("Field").find((n) => n.props.label === "Tempo")!.props.value).toBe("3-1-1");
   await click("Hide details for Row");
   await click("Show block settings: Strength");
-  expect(nodes("Field").find((n) => n.props.label === "Rounds · separate from exercise sets")!.props.value).toBe("3");
+  expect(nodes("Field").find((n) => n.props.label === "Rounds")!.props.value).toBe("3");
   await click("Hide block settings: Strength");
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await act(async () => nodes("Field").find((n) => n.props.label === "Sets")!.props.onChange("2"));
@@ -1916,14 +1916,14 @@ it("keeps unknowns and less common prescription values intact through simple edi
 it("corrects overall duration and instructions without changing the exercise prescription", async () => {
   const content: AuthoredWorkout = { ...workout, estimated_minutes: null, instructions: ["Repeat the circuit"], notes: ["Private concern"], provenance: "source" };
   await mountRealWorkoutEditor(content);
-  await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange("20"));
-  await act(async () => nodes("Field").find((n) => n.props.label === "Workout instructions · included when sharing")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Duration · minutes")!.props.onChange("20"));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Instructions · shown when shared")!.props.onChange("Repeat for 20 minutes\nRest after each round"));
   const corrected = fixture.updateWorkout.mock.calls.at(-1)![0];
   expect(corrected.estimated_minutes).toBe(20);
   expect(corrected.instructions).toEqual(["Repeat for 20 minutes", "Rest after each round"]);
   expect(corrected.notes).toEqual(["Private concern"]);
   expect(corrected.blocks).toEqual(content.blocks);
-  await act(async () => nodes("Field").find((n) => n.props.label === "Estimated duration · minutes")!.props.onChange(""));
+  await act(async () => nodes("Field").find((n) => n.props.label === "Duration · minutes")!.props.onChange(""));
   expect(fixture.updateWorkout.mock.calls.at(-1)![0].estimated_minutes).toBeNull();
 });
 it("shows existing time and distance without making optional numeric fields into zero", async () => {
@@ -1951,7 +1951,7 @@ it("edits round rest without losing source credit, cover or warnings, and leaves
 it("keeps invalid optional values visible for correction", async () => {
   await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", load: 10, rest_seconds: -1 }] }] });
   expect(nodes("Field").find((n) => n.props.label === "Rest · seconds")!.props.value).toBe("-1");
-  expect(nodes("Field").find((n) => n.props.label === "Source load · select a unit")!.props.value).toBe("10");
+  expect(nodes("Field").find((n) => n.props.label === "Weight · select a unit")!.props.value).toBe("10");
   expect(nodes("Choice").find((n) => n.props.label === "kg")).toBeDefined();
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
 });
@@ -1970,7 +1970,7 @@ it("changes an AMRAP timer from 20 to 15 minutes while retaining creator instruc
     exercises: [{ name: "Row", sets: 2, reps_min: 10, evidence: [{ field: "reps_min", wording: "10 reps" }] }],
   }] };
   await mountRealWorkoutEditor(content); await click("Show block settings: Strength");
-  expect(nodes("Field").find(n => n.props.label === "Rounds · separate from exercise sets")).toBeUndefined();
+  expect(nodes("Field").find(n => n.props.label === "Rounds")).toBeUndefined();
   const cap = nodes("Field").find(n => n.props.label === "AMRAP time cap · minutes")!;
   expect(cap.props.value).toBe("20");
   await act(async () => cap.props.onChange("15"));
@@ -1982,20 +1982,20 @@ it("shows a source's fractional-minute cap as exact seconds and can switch execu
     execution: { mode: "amrap", time_cap_seconds: 125 } }] });
   await click("Show block settings: Strength");
   expect(nodes("Field").find(n => n.props.label === "AMRAP time cap · seconds")!.props.value).toBe("125");
-  await act(async () => nodes("Choice").find(n => n.props.label === "Fixed rounds")!.props.onPress());
+  await act(async () => nodes("Choice").find(n => n.props.label === "Set number of rounds")!.props.onPress());
   expect(fixture.updateWorkout.mock.lastCall![0].blocks[0].execution).toBeUndefined();
-  expect(nodes("Field").find(n => n.props.label === "Rounds · separate from exercise sets")!.props.value).toBe("");
-  await act(async () => nodes("Choice").find(n => n.props.label === "AMRAP · repeat until the time cap")!.props.onPress());
-  await act(async () => nodes("Choice").find(n => n.props.label === "interval")!.props.onPress());
+  expect(nodes("Field").find(n => n.props.label === "Rounds")!.props.value).toBe("");
+  await act(async () => nodes("Choice").find(n => n.props.label === "As many rounds as possible")!.props.onPress());
+  await act(async () => nodes("Choice").find(n => n.props.label === "Intervals")!.props.onPress());
   expect(fixture.updateWorkout.mock.lastCall![0].blocks[0].execution).toBeUndefined();
 });
 it.each([0, 86401, 0.5, NaN])("rejects AMRAP cap %s before freezing the saved-workout command", async seconds => {
   fixture.params = { id: "workout" }; await mount(EditWorkout);
   await act(async () => find("WorkoutEditor").props.onChange({ ...workout, blocks: [{ ...workout.blocks[0], grouping: "circuit",
     execution: { mode: "amrap", time_cap_seconds: seconds } }] }));
-  await click("Save new workout version");
+  await click("Save changes");
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
-  expect(button("Save new workout version")).toBeDefined();
+  expect(button("Save changes")).toBeDefined();
   const stored = [...fixture.map.values()].map(value => JSON.parse(value)).find(value => value.input?.blocks);
   expect(stored?.command).toBeNull();
 });
@@ -2640,7 +2640,7 @@ it("explains paused importing without blaming an available source caption", asyn
 
 it("keeps legacy notes private until the owner explicitly moves them to shared instructions", async () => {
   await mountRealWorkoutEditor({ ...workout, notes: ["Old caption or private note"], instructions: undefined });
-  expect(nodes("Field").find(n => n.props.label === "Workout instructions · included when sharing")!.props.value).toBe("");
+  expect(nodes("Field").find(n => n.props.label === "Instructions · shown when shared")!.props.value).toBe("");
   expect(nodes("Field").find(n => n.props.label === "Private notes · only you")!.props.value).toBe("Old caption or private note");
   expect(fixture.updateWorkout).not.toHaveBeenCalled();
   await click("Move private notes to shared instructions");
@@ -2651,7 +2651,7 @@ it("keeps legacy notes private until the owner explicitly moves them to shared i
 it.each(["instructions", "notes"] as const)("shows oversized exercise %s immediately for correction", async field => {
   const oversized = "x".repeat(2001);
   await mountRealWorkoutEditor({ ...workout, blocks: [{ ...workout.blocks[0], exercises: [{ name: "Row", [field]: oversized }] }] });
-  const label = field === "instructions" ? "Instructions or cues · included when sharing" : "Private exercise notes · only you";
+  const label = field === "instructions" ? "Cues · shown when shared" : "Private notes · only you";
   const input = nodes("Field").find(n => n.props.label === label)!;
   expect(input.props.value).toBe(oversized);
   await act(async () => input.props.onChange("Keep this cue"));
@@ -2745,7 +2745,7 @@ it("keeps source captions and transcripts collapsed and stages explicit clearing
   await click("Clear saved source text");
   expect(fixture.updateWorkout).toHaveBeenLastCalledWith({ ...content, source_context: null });
   expect(visible()).not.toContain("PRIVATE CAPTION");
-  expect(nodes("Field").find(node => node.props.label.startsWith("Workout instructions"))!.props.value).toBe("Rest after each round");
+  expect(nodes("Field").find(node => node.props.label.startsWith("Instructions"))!.props.value).toBe("Rest after each round");
   expect(nodes("Field").find(node => node.props.label === "Private notes · only you")!.props.value).toBe("PRIVATE OWNER NOTE");
   expect(content.source_context!.parts).toHaveLength(3);
 });
