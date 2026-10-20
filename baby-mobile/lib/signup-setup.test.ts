@@ -128,6 +128,16 @@ it("retains explicit setup intent if sign-out itself fails", async () => {
   expect(gate.opened).not.toHaveBeenCalled();
 });
 
+it("offers sign-out when secure setup storage cannot be read", async () => {
+  const { setup, storage } = fixture(); prepareGate(setup);
+  storage.getItemAsync.mockRejectedValue(Error("Keychain unavailable"));
+  gate.clerk.signOut.mockResolvedValue(undefined);
+  await mountGate();
+  expect(gate.opened).not.toHaveBeenCalled(); expect(gate.onboard).not.toHaveBeenCalled();
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === "Sign out")[0].props.onPress());
+  expect(gate.clerk.signOut).toHaveBeenCalledTimes(1);
+});
+
 it("successful logout preserves exact-user recovery and requires an explicit finish in the new session", async () => {
   const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
   gate.onboard.mockRejectedValueOnce(Error("Offline")).mockResolvedValueOnce({ status: "existing", app_user_id: "app_owner" });

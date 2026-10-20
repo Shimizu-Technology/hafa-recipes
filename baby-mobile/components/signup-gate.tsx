@@ -73,6 +73,6 @@ export function SignupGate({ children }: PropsWithChildren) {
     {needsFinish && !busy && <Notice>Your account was created, but setup is unfinished. Finish setup to start using Håfa Baby.</Notice>}
     {!busy && <Button title={needsFinish ? "Finish account setup" : "Try again"} secondary
       onPress={() => void retry.current(needsFinish)} />}
-    {hasIntent && !busy && <Button title="Sign out" variant="ghost" busy={busy} onPress={() => void leave.current()} />}
+    {(hasIntent || !!error) && !busy && <Button title="Sign out" variant="ghost" busy={busy} onPress={() => void leave.current()} />}
   </Screen>;
 }

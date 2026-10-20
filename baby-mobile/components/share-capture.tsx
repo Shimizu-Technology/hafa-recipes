@@ -64,6 +64,24 @@ export function ShareCapture() {
     const captured = b.owner,
       current = () => mounted.current && b.current(),
       key = "share:" + fingerprint;
+    const discard = () => {
+      void (async () => {
+        if (!current()) return;
+        try {
+          if (native) {
+            if (!acknowledgeShare(native.token)) throw Error("Share changed");
+            const next = await pendingShare();
+            if (!current()) return;
+            setNative(next);
+          } else stock.resetShareIntent();
+          // Saved drafts own their copies; discarding only retires the incoming share.
+          handling.current = "";
+        } catch {
+          if (current()) Alert.alert("Share could not be discarded", "Try discarding it again when you return to Håfa Baby.");
+          handling.current = "";
+        }
+      })();
+    };
     Alert.alert(
       "Save this shared source?",
       "Save it privately to the Håfa Baby account you are using now. Nothing is sent to AI until you choose to process it.",
@@ -75,6 +93,7 @@ export function ShareCapture() {
             handling.current = "";
           },
         },
+        { text: "Discard share", style: "destructive", onPress: discard },
         {
           text: "Review source",
           onPress: () => {
@@ -133,7 +152,8 @@ export function ShareCapture() {
                     error instanceof Error && error.message.startsWith("Share an image")
                       ? error.message
                       : "Your source is still available. Try again, or reopen Håfa Baby to continue.",
-                    [{ text: "Later", style: "cancel" }, { text: "Try again", onPress: () => {
+                    [{ text: "Later", style: "cancel" }, { text: "Discard share", style: "destructive", onPress: discard },
+                      { text: "Try again", onPress: () => {
                       if (current()) setRetry((value) => value + 1);
                     } }]
                   );

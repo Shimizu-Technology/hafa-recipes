@@ -176,6 +176,43 @@ it("retains an unsupported-only share rather than acknowledging an empty draft",
   expect(scope.alerts.at(-1)?.title).toBe("Your share needs another try");
 });
 
+it("discards unsupported native input without repeating on foreground or touching saved drafts", async () => {
+  const account = setup();
+  account.state.drafts["share:unsupported"] = { id: "saved", kind: "source", title: "Keep", body: "", child_id: null, occurred_at: "2026-10-20", data: {}, files: [{ id: "a", uri: "file:///private/a.png", name: "a.png", mime_type: "image/png" }] };
+  scope.pending.mockResolvedValue({ token: "unsupported", url: "", text: "", files: [{ path: "file:///a.zip" }] });
+  await mount(ShareCapture);
+  // The initial prompt can discard even when a previous review already saved a draft.
+  scope.pending.mockResolvedValue(null);
+  await alertPress("Save this shared source?", "Discard share");
+  await act(async () => scope.foreground?.("active"));
+  expect(scope.acknowledge).toHaveBeenCalledWith("unsupported");
+  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
+  expect(account.state.drafts["share:unsupported"].files).toHaveLength(1);
+  expect(scope.remove).not.toHaveBeenCalled();
+});
+it("discards an unsupported-only native token from the error without a later foreground prompt", async () => {
+  const account = setup(); scope.pending.mockResolvedValue({ token: "unsupported", url: "", text: "", files: [{ path: "file:///a.zip" }] });
+  scope.copy.mockRejectedValue(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
+  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
+  scope.pending.mockResolvedValue(null);
+  await alertPress("Your share needs another try", "Discard share");
+  await act(async () => scope.foreground?.("active"));
+  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("unsupported");
+  expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.remove).not.toHaveBeenCalled();
+  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
+});
+it("offers discard after unsupported-only validation fails and resets stock input too", async () => {
+  setup(); scope.native = false; scope.stock.hasShareIntent = true;
+  scope.stock.shareIntent.files = [{ path: "file:///a.zip" }];
+  scope.copy.mockRejectedValue(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
+  scope.reset.mockImplementation(() => { scope.stock.hasShareIntent = false; });
+  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
+  await alertPress("Your share needs another try", "Discard share");
+  await act(async () => scope.foreground?.("active"));
+  expect(scope.reset).toHaveBeenCalledTimes(1); expect(scope.acknowledge).not.toHaveBeenCalled();
+  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
+});
+
 it("cleans earlier copies if a later supported file fails to copy", async () => {
   const account = setup(); scope.pending.mockResolvedValue(payload("partial", [
     { path: "file:///a.png", fileName: "a.png", mimeType: "image/png" },
