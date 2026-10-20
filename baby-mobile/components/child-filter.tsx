@@ -2,7 +2,8 @@ import { useBaby } from "@/lib/context";
 import { Chips } from "./ui";
 export function ChildFilter() {
   const b = useBaby();
-  return b.state.bootstrap!.children.length > 0 ? (
+  // With one baby, "Everything" and her name show the same entries; the filter only helps with several.
+  return b.state.bootstrap!.children.length > 1 ? (
     <Chips
       value={b.state.selectedChild ?? ""}
       options={[

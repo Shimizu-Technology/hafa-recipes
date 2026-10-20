@@ -5,7 +5,7 @@ import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import type { BabyRecord } from "@/lib/models";
 import { messageFor } from "@/lib/models";
-import { Button, Card, Choice, Copy, Empty, Notice, Screen, Section } from "@/components/ui";
+import { Button, Card, Choice, Copy, Empty, Notice, Row, Screen, Section } from "@/components/ui";
 import { friendlyTime } from "@/lib/care-format";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -36,10 +36,11 @@ export default function Routines() {
   }
   return (
     <Screen
-      title="Find your rhythm."
+      title="Routines"
+      onRefresh={() => b.sync()}
       subtitle="Plans you choose. Reminders you control."
       action={
-        <Button
+        routines.length > 0 && <Button
           secondary
           title="Create"
           icon="add"
@@ -50,19 +51,6 @@ export default function Routines() {
       <SyncStatus />
       <ChildFilter />
       {!!error && <Notice error>{error}</Notice>}
-      <Card tone="soft">
-        <Copy kind="heading">Have a schedule in a photo?</Copy>
-        <Copy tone="muted">
-          Save the image or document to your library. Ask about that source to draft a routine, then review the steps
-          and choose whether to activate reminders.
-        </Copy>
-        <Button
-          secondary
-          title="Import a schedule"
-          icon="document-outline"
-          onPress={() => router.push({ pathname: "/edit", params: { kind: "source" } })}
-        />
-      </Card>
       {routines.length ? (
         <Section title="Your routines">
           {routines.map((r) => (
@@ -101,8 +89,13 @@ export default function Routines() {
           }
         />
       )}
-      <Button secondary title="Refresh routines" busy={b.syncing} onPress={() => void b.sync()} />
-      <View style={{ height: 60 }} />
+
+      <Row
+        title="Have a schedule in a photo?"
+        detail="Save it to your library, then ask Håfa Baby to draft steps you review before any reminder starts."
+        icon="document-outline"
+        onPress={() => router.push({ pathname: "/edit", params: { kind: "source" } })}
+      />
     </Screen>
   );
 }

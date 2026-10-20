@@ -1,13 +1,16 @@
-import { Tabs, router } from "expo-router";
+import { Tabs, router, useSegments } from "expo-router";
 import type { Ref } from "react";
 import { Platform, Pressable, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Icon, useColors, type IconName } from "@/components/ui";
+import { Icon, fonts, useColors, type IconName } from "@/components/ui";
 export default function TabLayout() {
   const c = useColors(),
     insets = useSafeAreaInsets(),
     { fontScale } = useWindowDimensions(),
-    barHeight = fontScale > 1.3 ? 90 : 64;
+    barHeight = fontScale > 1.3 ? 90 : 64,
+    segments = useSegments(),
+    // Ask has its own docked composer; the Add button would sit on top of it.
+    showAdd = segments[segments.length - 1] !== "ask";
   return (
     <View style={{ flex: 1 }}>
       <Tabs
@@ -23,7 +26,8 @@ export default function TabLayout() {
             paddingBottom: Math.max(10, insets.bottom),
           },
           tabBarIconStyle: { width: 54, height: 32 },
-          tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+          tabBarLabelStyle: { fontSize: 11, fontFamily: fonts.semibold },
+          tabBarAllowFontScaling: false,
           tabBarButton:
             Platform.OS === "web"
               ? undefined
@@ -71,7 +75,7 @@ export default function TabLayout() {
           />
         ))}
       </Tabs>
-      <Pressable
+      {showAdd && <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add a source, note, or care log"
         onPress={() => router.push("/add")}
@@ -94,7 +98,7 @@ export default function TabLayout() {
         })}
       >
         <Icon name="add" color={c.onAction} size={28} />
-      </Pressable>
+      </Pressable>}
     </View>
   );
 }

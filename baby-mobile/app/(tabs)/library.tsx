@@ -66,10 +66,14 @@ export default function Library() {
     drafts = Object.entries(b.state.drafts).filter(([, d]) => d.kind === "source");
   return (
     <Screen
-      title="Keep what helps."
-      subtitle="Your saved advice, with the original always close."
+      title="Library"
+      onRefresh={() => {
+        history.refresh();
+        collectionHistory.refresh();
+      }}
+      subtitle="Saved advice, with the original always close."
       action={
-        <Button
+        sources.length > 0 && <Button
           secondary
           title="Save"
           icon="add"
@@ -121,12 +125,12 @@ export default function Library() {
           />
         </>
       )}
-      <Button
+      {(sources.length > 0 || collections.length > 0) && <Button
         variant="ghost"
         title="New collection"
         icon="folder-open-outline"
         onPress={() => router.push({ pathname: "/edit", params: { kind: "collection" } })}
-      />
+      />}
       {selected && !history.missing && !deletedCollection && (
         <Button
           variant="ghost"
@@ -253,15 +257,7 @@ export default function Library() {
           onPress={() => void history.loadMore()}
         />
       )}
-      <Button
-        variant="ghost"
-        title="Refresh library"
-        onPress={() => {
-          history.refresh();
-          collectionHistory.refresh();
-        }}
-      />
-      <View style={{ height: 55 }} />
+
     </Screen>
   );
 }

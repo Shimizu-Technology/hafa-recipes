@@ -332,7 +332,7 @@ export default function RecordDetail() {
         onPress={() => router.push({ pathname: "/(tabs)/ask", params: { record_id: record.id } })}
       />
       <Button
-        variant="ghost"
+        variant="destructive"
         title="Delete this entry"
         onPress={() =>
           Alert.alert(

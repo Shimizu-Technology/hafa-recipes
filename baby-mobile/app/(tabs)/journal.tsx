@@ -92,10 +92,10 @@ export default function Journal() {
   }
   return (
     <Screen
-      title="The little things matter."
-      subtitle="Your thoughts, memories, and everyday observations."
+      title="Journal"
+      subtitle="Thoughts, memories and everyday care."
       action={
-        <Button
+        records.length > 0 && <Button
           secondary
           title="Write"
           icon="add"
@@ -115,32 +115,29 @@ export default function Journal() {
         ]}
         onChange={setFilter}
       />
-      <Field
-        label="Find a note or observation"
-        value={q}
-        onChange={setQ}
-        placeholder="Search your notes and care history"
-      />
-      <Card tone="soft">
-        <Copy kind="heading">Feel ready for your next visit.</Copy>
-        <Copy tone="muted">
-          Keep questions as they come up. Choose the questions and observations you want to bring along.
-        </Copy>
-        <Button
-          secondary
-          title={preparing ? "Done choosing" : "Prepare a visit summary"}
-          icon="document-text-outline"
-          onPress={() => setPreparing(!preparing)}
-        />
-        {preparing && (
+      <Field label="Search" value={q} onChange={setQ} placeholder="Notes, questions and care history" />
+      {preparing ? (
+        <Card tone="soft">
+          <Copy kind="label">Choose what to bring to the visit</Copy>
+          <Copy kind="small" tone="muted">
+            Tap questions and observations below, then share them as one summary.
+          </Copy>
           <Button
             title={`Share ${selected.length} selected entr${selected.length === 1 ? "y" : "ies"}`}
             disabled={!selected.length}
             busy={busy}
             onPress={() => void share()}
           />
-        )}
-      </Card>
+          <Button variant="ghost" title="Done choosing" onPress={() => setPreparing(false)} />
+        </Card>
+      ) : (
+        <Row
+          title="Prepare a visit summary"
+          detail="Bring your questions and notes to the next appointment"
+          icon="document-text-outline"
+          onPress={() => setPreparing(true)}
+        />
+      )}
       {!!error && <Notice error>{error}</Notice>}
       {!!historyError && <>
         <Notice error>{historyError} Entries already on this device are shown below.</Notice>

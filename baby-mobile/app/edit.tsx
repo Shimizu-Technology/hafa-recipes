@@ -38,6 +38,12 @@ function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): Edit
                 : {},
   };
 }
+/** An untitled journal entry or question is listed by its first words. */
+function firstLine(d: EditorDraft) {
+  if (d.kind !== "journal" && d.kind !== "question") return "";
+  const line = d.body.trim().split("\n")[0].trim();
+  return line.length > 60 ? line.slice(0, 59).trimEnd() + "…" : line;
+}
 export default function Edit() {
   const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string }>(),
     b = useBaby(),
@@ -220,7 +226,7 @@ export default function Edit() {
             id: Crypto.randomUUID(),
             generation,
             type: "save",
-            record: { ...record, title: d.title.trim() || kindName[d.kind], ...(revision ? { revision } : {}) },
+            record: { ...record, title: d.title.trim() || firstLine(d) || kindName[d.kind], ...(revision ? { revision } : {}) },
             files,
           };
       retired.current = true;
@@ -277,6 +283,27 @@ export default function Edit() {
       router.dismissTo(process ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
     });
   }
+  // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
+  const writing = !!draft && (draft.kind === "journal" || draft.kind === "question");
+  const notesField = draft && ((!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
+        <Field
+          label={
+            draft.kind === "source"
+              ? "Your notes or pasted source text"
+              : draft.kind === "question"
+                ? "What would you like to ask?"
+                : "Notes"
+          }
+          multiline
+          value={draft.body}
+          onChange={(body) => change({ body })}
+          placeholder={
+            draft.kind === "journal"
+              ? "How are you doing? What would you like to remember?"
+              : "Write anything you want to keep with this entry."
+          }
+        />
+      ));
   if (!draft)
     return (
       <Screen title="Your draft" back>
@@ -313,9 +340,10 @@ export default function Edit() {
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
+      {writing && notesField}
       {(!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
         <Field
-          label={["feeding", "sleep", "diaper"].includes(draft.kind) ? "Label (optional)" : "Title"}
+          label={["feeding", "sleep", "diaper"].includes(draft.kind) ? "Label (optional)" : writing ? "Title (optional)" : "Title"}
           value={draft.title}
           onChange={(title) => change({ title })}
           placeholder={
@@ -330,21 +358,17 @@ export default function Edit() {
         />
       )}
       {draft.kind === "journal" && (
-        <Card tone="soft">
-          <Copy kind="small">Where does this information come from?</Copy>
-          <Chips
-            value={draft.data.provenance ?? "caregiver_observation"}
-            options={[
-              { label: "My observation", value: "caregiver_observation" },
-              { label: "Clinician instruction", value: "clinician_instruction" },
-            ]}
-            onChange={(provenance) => data({ provenance: provenance as RecordData["provenance"] })}
-          />
-          <Copy kind="small" tone="muted">
-            Choose clinician instruction only for information your clinician gave you. This label is entered by you, not
-            verified by AI.
-          </Copy>
-        </Card>
+        <Choice
+          label="My clinician told me this"
+          detail="Marks it as a clinician instruction. It’s your label; AI does not verify it."
+          selected={draft.data.provenance === "clinician_instruction"}
+          onPress={() =>
+            data({
+              provenance:
+                draft.data.provenance === "clinician_instruction" ? "caregiver_observation" : "clinician_instruction",
+            })
+          }
+        />
       )}
       {draft.kind === "source" && (
         <>
@@ -555,25 +579,7 @@ export default function Edit() {
           onPress={() => setShowDetails(!showDetails)}
         />
       )}
-      {(!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
-        <Field
-          label={
-            draft.kind === "source"
-              ? "Your notes or pasted source text"
-              : draft.kind === "question"
-                ? "What would you like to ask?"
-                : "Notes"
-          }
-          multiline
-          value={draft.body}
-          onChange={(body) => change({ body })}
-          placeholder={
-            draft.kind === "journal"
-              ? "How are you doing? What would you like to remember?"
-              : "Write anything you want to keep with this entry."
-          }
-        />
-      )}
+      {!writing && notesField}
       {["source", "journal", "question"].includes(draft.kind) && (
         <Section title="Photos & documents">
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>

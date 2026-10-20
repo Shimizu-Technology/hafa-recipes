@@ -194,7 +194,7 @@ export default function Sync() {
                 <Button secondary title="Retry this change" busy={busy} onPress={() => void run(() => retry(m))} />
               )}
               <Button
-                variant="ghost"
+                variant="destructive"
                 disabled={b.syncing || busy}
                 title="Discard this queued change"
                 onPress={() =>

@@ -7,6 +7,7 @@ import {
   InputAccessoryView,
   Keyboard,
   KeyboardAvoidingView,
+  RefreshControl,
   Platform,
   Pressable,
   ScrollView,
@@ -20,7 +21,7 @@ import {
   type ColorValue,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
@@ -96,12 +97,25 @@ const pressed = (on: boolean, disabled = false): ViewStyle => ({
   transform: [{ scale: on && !disabled ? 0.97 : 1 }],
 });
 
-export type IconName = React.ComponentProps<typeof Ionicons>["name"];
+type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table";
+/** Ionicons throughout, plus two baby-care glyphs Ionicons lacks (prefixed "care:"). */
+export type IconName = React.ComponentProps<typeof Ionicons>["name"] | `care:${CareGlyph}`;
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();
+  if (name.startsWith("care:"))
+    return (
+      <MaterialCommunityIcons
+        name={name.slice(5) as CareGlyph}
+        size={size + 2}
+        color={color ?? c.action}
+        accessible={false}
+        importantForAccessibility="no"
+        accessibilityElementsHidden
+      />
+    );
   return (
     <Ionicons
-      name={name}
+      name={name as React.ComponentProps<typeof Ionicons>["name"]}
       size={size}
       color={color ?? c.action}
       accessible={false}
@@ -198,11 +212,20 @@ export function Screen({
   action,
   scroll = true,
   brand = false,
+  footer,
+  followEnd = false,
+  onRefresh,
 }: {
   children: React.ReactNode;
   title: string;
   /** Show the Håfa Baby mark above the title (welcome and first-run screens). */
   brand?: boolean;
+  /** Docked below the scrolling content and above the keyboard, for example a message composer. */
+  footer?: React.ReactNode;
+  /** Keep the newest content in view as it grows (a conversation). */
+  followEnd?: boolean;
+  /** Pull to refresh. */
+  onRefresh?: () => Promise<unknown> | void;
   subtitle?: string;
   back?: boolean;
   /** For screens presented as a sheet: a Close button replaces Back. */
@@ -210,13 +233,23 @@ export function Screen({
   action?: React.ReactNode;
   scroll?: boolean;
 }) {
-  const c = useColors();
+  const c = useColors(),
+    scroller = useRef<ScrollView>(null),
+    [refreshing, setRefreshing] = useState(false);
+  async function pull() {
+    setRefreshing(true);
+    try {
+      await onRefresh?.();
+    } finally {
+      setRefreshing(false);
+    }
+  }
   const content = (
     <View
       style={{
         paddingHorizontal: 22,
         paddingTop: back || close ? 2 : 14,
-        paddingBottom: 110,
+        paddingBottom: footer ? 24 : 110,
         gap: 20,
         width: "100%",
         maxWidth: 720,
@@ -240,6 +273,11 @@ export function Screen({
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {scroll ? (
           <ScrollView
+            ref={scroller}
+            refreshControl={
+              onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void pull()} tintColor={c.muted} /> : undefined
+            }
+            onContentSizeChange={followEnd ? () => scroller.current?.scrollToEnd({ animated: true }) : undefined}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
@@ -249,6 +287,22 @@ export function Screen({
           </ScrollView>
         ) : (
           content
+        )}
+        {footer && (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderColor: c.border,
+              backgroundColor: c.background,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              width: "100%",
+              maxWidth: 720,
+              alignSelf: "center",
+            }}
+          >
+            {footer}
+          </View>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
