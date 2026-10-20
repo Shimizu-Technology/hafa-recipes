@@ -76,6 +76,8 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
       const open = (now.getTime() - start) / minute;
       // A sleep nobody ended is not still happening a day later.
       if (!Number.isFinite(open)) return "Sleep in progress";
+      // A sleep entered ahead of time has not started yet.
+      if (open < -2) return `Sleep starts ${friendlyTime(occurredAt, now)}`;
       if (open > 24 * 60) return `Sleep not ended · started ${friendlyTime(occurredAt, now)}`;
       // A sleep that began moments ago (or a clock a beat behind its start) reads the same everywhere.
       return open < 1 ? "Sleeping now · just started" : `Sleeping now · ${duration(open)}`;

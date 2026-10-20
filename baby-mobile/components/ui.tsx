@@ -35,7 +35,7 @@ import { BrandMark } from "./brand-mark";
 const light = {
   background: "#F8F3EE",
   surface: "#FFFCF9",
-  /** Secondary buttons, chips and quiet panels. */
+  /** Quiet filled panels (for example the sign-in hint and Google button). */
   soft: "#EDE3DA",
   /** Quick-log tiles and grouped panels: a tone step from the ground. */
   tile: "#EFE6DD",
@@ -588,7 +588,10 @@ export function Chips({
               paddingVertical: 10,
               borderRadius: 23,
               justifyContent: "center",
-              backgroundColor: on ? c.action : c.soft,
+              // Unselected chips are outlined like secondary buttons so they read on sand cards too.
+              backgroundColor: on ? c.action : c.surface,
+              borderWidth: 1.5,
+              borderColor: on ? c.action : c.outline,
               ...pressed(down),
             })}
           >
