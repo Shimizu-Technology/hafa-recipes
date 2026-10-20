@@ -54,10 +54,22 @@ def message_response(row):
     }
 
 
+def singular(word):
+    """A plain English singular, so "diapers" or "feeds" still find "Diaper" and "Feeding"."""
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 4 and word.endswith(("ches", "shes", "xes", "sses")):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        return word[:-1]
+    return word
+
+
 def query_terms(message):
+    # Matching is by substring, so the singular form also finds the plural.
     return list(
         dict.fromkeys(
-            word.lower()
+            singular(word.lower())
             for word in re.findall(r"[\w'-]{3,}", message)
             if word.lower() not in STOPWORDS
         )
