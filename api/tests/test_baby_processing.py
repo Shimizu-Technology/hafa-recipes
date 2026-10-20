@@ -167,3 +167,35 @@ async def test_attachment_read_failure_preserves_text_and_other_attachments(monk
     assert "Pasted annotation" in result["data"]["source_text"]
     assert result["data"]["source_text"].count("Readable document") == 2
     assert any("An attachment could not be read" in note for note in result["data"]["coverage_notes"])
+
+
+@pytest.mark.parametrize("acquisition_failed", [True, False])
+async def test_partial_acquisition_is_retryable_but_sampling_notes_are_not_errors(monkeypatch, acquisition_failed):
+    from app.services.source_acquisition import AcquisitionFailure
+
+    source = SourceBundle(
+        SourceMetadata(platform="tiktok", coverage_notes=["Video frames are samples."]),
+        parts=[SourcePart("caption", "Creator caption")],
+        acquisition_failures=[AcquisitionFailure("audio", "TIMEOUT")] if acquisition_failed else [],
+    )
+
+    class Acquirer:
+        def __init__(self, **kwargs):
+            pass
+
+        async def acquire(self, *args, **kwargs):
+            return source
+
+    monkeypatch.setattr(processing, "ProductionSourceAcquirer", Acquirer)
+
+    async def gate():
+        pass
+
+    result = await processing.process_capture(
+        {"url": "https://example.com/video", "text": "User annotation"},
+        [], SimpleNamespace(enabled=False), may_use_ai=False, gate=gate,
+    )
+    assert result["status"] == "incomplete"
+    assert result["data"]["source_text"] == "User annotation\n\nCreator caption"
+    assert bool(result["error"]) is acquisition_failed
+    assert "TIMEOUT" not in str(result)
