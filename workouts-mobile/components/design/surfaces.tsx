@@ -16,15 +16,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { contentWidth, elevation, motion, radii, spacing } from "@/constants/theme";
-import { BrandLockup, BrandMark } from "../brand-mark";
+import { contentWidth, elevation, motion, radii, spacing, touch } from "@/constants/theme";
+import { BrandMark } from "../brand-mark";
 import { Copy, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
 import { Chip, IconButton, type IconName } from "./controls";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 /**
- * Standard scrolling screen. Root tabs show the Håfa Workouts lockup; pushed
- * screens show a back button. `footer` pins actions above the home indicator
+ * Standard scrolling screen. Root tabs show a centered title bar with the
+ * account button; pushed screens show a back button and a large serif title. `footer` pins actions above the home indicator
  * so the main action stays in thumb reach.
  */
 export function Screen({
@@ -43,12 +43,18 @@ export function Screen({
   onContentSizeChange,
   disableBrowserScrollAnchoring = false,
   constrainFooter = false,
+  dismiss = false,
+  hideTitle = false,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
-  /** Small line above the title (e.g. the date, or a step count). */
+  /** Short context (e.g. the date, or a step count); shown with the subtitle, never above the title. */
   eyebrow?: string;
   back?: boolean;
+  /** Modal screens: a close button instead of the back chevron. Implies `back`. */
+  dismiss?: boolean;
+  /** Pushed screens that lead with their own hero/title (e.g. workout detail) skip the large title. */
+  hideTitle?: boolean;
   action?: ReactNode;
   footer?: ReactNode;
   /** Pull to refresh. */
@@ -66,20 +72,37 @@ export function Screen({
 }>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  back = back || dismiss;
+  // Root tabs name the screen in a centered bar (like Håfa Recipes) instead of a lockup plus a large title.
+  const root = !back;
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={{ paddingHorizontal: spacing.lg - 4, paddingVertical: spacing.xs, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 48 }}>
-          {back ? (
-            <IconButton icon="chevron-back" label="Go back" variant="plain"
-              onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
-          ) : (
-            <BrandLockup fill />
-          )}
-          {!!action && <View style={{ flexShrink: 0 }}>{action}</View>}
+      <View
+        style={{
+          borderBottomWidth: root ? 0.5 : 0,
+          borderBottomColor: c.border,
+        }}
+      >
+        <View style={{ paddingHorizontal: spacing.md, paddingVertical: 6, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 44 }}>
+            {root ? (
+              // Centered like a native navigation bar; the side slots never push it off-center.
+              <View pointerEvents="none" style={{ position: "absolute", left: 104, right: 104, alignItems: "center" }}>
+                <Copy kind="navTitle" numberOfLines={1} accessibilityLabel={title}>{title}</Copy>
+              </View>
+            ) : null}
+            {back ? (
+              <IconButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"} variant={dismiss ? "soft" : "plain"}
+                size={dismiss ? 36 : touch.min}
+                onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
+            ) : (
+              <View style={{ width: 1 }} />
+            )}
+            {!!action && <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 }}>{action}</View>}
+          </View>
         </View>
       </View>
       <ScrollView
@@ -108,11 +131,16 @@ export function Screen({
           alignSelf: "center",
         }}
       >
-        <View style={{ gap: 6 }}>
-          {!!eyebrow && <Copy kind="caption" tone="muted">{eyebrow}</Copy>}
-          <Copy kind="title">{title}</Copy>
-          {!!subtitle && <Copy tone="muted">{subtitle}</Copy>}
-        </View>
+        {root ? (
+          !!(subtitle || eyebrow) && (
+            <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>
+          )
+        ) : !hideTitle ? (
+          <View style={{ gap: 6 }}>
+            <Copy kind="title">{title}</Copy>
+            {!!(subtitle || eyebrow) && <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>}
+          </View>
+        ) : null}
         {children}
       </ScrollView>
       {!!footer && (

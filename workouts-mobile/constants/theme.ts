@@ -123,8 +123,9 @@ export const dark: ColorTokens = {
   muted: "#B8AEA2",
   border: "#2D352F",
   borderStrong: "#6A7A70",
-  action: hafa.reefHighlight,
-  onAction: "#0B2420",
+  // Filled buttons match Recipes' dark tint: reef with light text, not neon mint.
+  action: hafa.reefMid,
+  onAction: hafa.cream,
   actionSoft: "#1E3A35",
   onActionSoft: "#8CD8CC",
   accent: workouts.sunriseNight,
@@ -158,12 +159,17 @@ export const fonts = {
   regular: "DMSans_400Regular",
   semibold: "DMSans_600SemiBold",
   bold: "DMSans_700Bold",
+  /** Fraunces carries screen and workout titles, as it does in Håfa Recipes. */
+  display: "Fraunces_700Bold",
+  displaySemibold: "Fraunces_600SemiBold",
 } as const;
 
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 export const typography = {
-  display: { fontFamily: fonts.bold, fontSize: 38, lineHeight: 44, letterSpacing: -1.1 },
-  title: { fontFamily: fonts.bold, fontSize: 30, lineHeight: 36, letterSpacing: -0.8 },
+  display: { fontFamily: fonts.display, fontSize: 36, lineHeight: 44, letterSpacing: -0.6 },
+  title: { fontFamily: fonts.display, fontSize: 30, lineHeight: 38, letterSpacing: -0.4 },
+  /** Centered navigation-bar title on root tabs. */
+  navTitle: { fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22 },
   heading: { fontFamily: fonts.bold, fontSize: 21, lineHeight: 27, letterSpacing: -0.3 },
   subheading: { fontFamily: fonts.semibold, fontSize: 18, lineHeight: 24, letterSpacing: -0.1 },
   body: { fontFamily: fonts.regular, fontSize: 17, lineHeight: 25 },

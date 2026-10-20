@@ -2,6 +2,8 @@ import { useState, type PropsWithChildren, type Ref } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
+import { Image } from "expo-image";
+import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
 import { Copy, haptics, useColors, useReducedMotion, useSurface, type Surface } from "./foundation";
@@ -11,7 +13,7 @@ export type IconName = keyof typeof Ionicons.glyphMap;
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive" | "accent";
 export type ButtonSize = "sm" | "md" | "lg";
 
-function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface) {
+function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface): { bg: string; fg: string; border?: string } {
   if (surface === "hero") {
     if (variant === "primary" || variant === "accent") return { bg: c.onHero, fg: c.hero };
     return { bg: c.onHeroSoft, fg: c.onHero };
@@ -20,7 +22,8 @@ function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface) 
     case "primary":
       return { bg: c.action, fg: c.onAction };
     case "secondary":
-      return { bg: c.actionSoft, fg: c.onActionSoft };
+      // Neutral, like Recipes: supporting actions shouldn't compete with the one primary.
+      return { bg: c.elevated, fg: c.text, border: c.border };
     case "ghost":
       return { bg: "transparent", fg: c.onActionSoft };
     case "destructive":
@@ -65,7 +68,7 @@ export function Button({
   const c = useColors();
   const surface = useSurface();
   const kind = variant ?? (secondary ? "secondary" : "primary");
-  const { bg, fg } = buttonColors(c, kind, surface);
+  const { bg, fg, border } = buttonColors(c, kind, surface);
   const inactive = disabled || busy;
   const press = usePressScale(inactive);
   const AnimatedPressable = animatedPressableComponent();
@@ -91,6 +94,8 @@ export function Button({
         paddingHorizontal: size === "sm" ? 16 : 22,
         borderRadius: radii.full,
         backgroundColor: bg,
+        borderWidth: border ? 1 : 0,
+        borderColor: border,
         opacity: inactive ? 0.55 : press.opacity,
         transform: [{ scale: press.scale }],
         flexDirection: "row",
@@ -171,9 +176,44 @@ export function IconButton({
   );
 }
 
+/** Account entry in tab headers: the person's initial (or photo), like Håfa Recipes. */
 export function AccountButton() {
+  const c = useColors();
+  const identity = useAccountIdentity();
+  const press = usePressScale();
+  const AnimatedPressable = animatedPressableComponent();
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const image = identity?.imageUrl && identity.imageUrl !== failedImage ? identity.imageUrl : undefined;
   return (
-    <IconButton icon="person-outline" label="Open account and settings" onPress={() => router.push("/settings")} />
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel="Open account and settings"
+      hitSlop={4}
+      onPress={() => router.push("/settings")}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: c.border,
+        backgroundColor: identity?.initial ? c.actionSoft : c.sunken,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        opacity: press.opacity,
+        transform: [{ scale: press.scale }],
+      }}
+    >
+      {image ? (
+        <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: 40, height: 40 }} accessibilityIgnoresInvertColors />
+      ) : identity?.initial ? (
+        <Copy kind="label" color={c.onActionSoft} style={{ fontSize: 17 }}>{identity.initial}</Copy>
+      ) : (
+        <Ionicons name="person" size={19} color={c.onActionSoft} />
+      )}
+    </AnimatedPressable>
   );
 }
 
