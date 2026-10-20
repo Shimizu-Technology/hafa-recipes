@@ -1,9 +1,11 @@
 """Grounded private conversations; proposals are data, never hidden mutations."""
 
 import json
+import math
 import re
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import case, func, or_, select
@@ -62,12 +64,12 @@ def query_terms(message):
     )[:10]
 
 
-def excerpt_for(record, terms, *, limit=7000):
-    text = "\n\n".join(
+def record_text(record, *, include_title=True):
+    return "\n\n".join(
         filter(
             None,
             [
-                record.title,
+                record.title if include_title else None,
                 record.body,
                 record.data.get("source_text"),
                 record.data.get("summary"),
@@ -75,8 +77,35 @@ def excerpt_for(record, terms, *, limit=7000):
             ],
         )
     )
+
+
+def parent_zone(name):
+    try:
+        return ZoneInfo(name) if name else UTC
+    except (ZoneInfoNotFoundError, ValueError):
+        return UTC
+
+
+def local_data(data, zone):
+    """Care times the model reads in the parent's own timezone, so answers quote local clock times."""
+    if zone is None or not isinstance(data, dict):
+        return data
+    shifted = dict(data)
+    for key in ("end_at", "reminder_at"):
+        moment = parsed_time(shifted.get(key))
+        if moment and moment.tzinfo:
+            shifted[key] = moment.astimezone(zone).isoformat()
+    return shifted
+
+
+def excerpt_for(record, terms, *, limit=7000, zone=None):
+    text = record_text(record)
     if record.kind not in {"source", "journal", "question", "collection"}:
-        text += "\n" + json.dumps(record.data, ensure_ascii=False)
+        text += "\n" + json.dumps(local_data(record.data, zone), ensure_ascii=False)
+    return bounded(text, terms, limit)
+
+
+def bounded(text, terms, limit):
     if len(text) <= limit:
         return text
     positions = [
@@ -95,7 +124,105 @@ def excerpt_for(record, terms, *, limit=7000):
     return "\n[Excerpt]\n".join(text[start:end] for start, end in windows)[:limit]
 
 
-async def retrieve(db, owner, generation, request):
+def duration_label(minutes):
+    if (
+        not isinstance(minutes, int | float)
+        or isinstance(minutes, bool)
+        or not math.isfinite(minutes)
+        or minutes < 0
+    ):
+        return None
+    if 0 < minutes < 1:
+        return "under 1 min"
+    hours, rest = divmod(round(minutes), 60)
+    if not hours:
+        return f"{rest} min"
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
+
+
+def amount_label(amount, unit):
+    if (
+        not isinstance(amount, int | float)
+        or isinstance(amount, bool)
+        or not math.isfinite(amount)
+        or amount <= 0
+    ):
+        return None
+    # The unit is optional in the record contract; the app shows unitless amounts as mL.
+    return f"{amount:g} {'oz' if unit == 'oz' else 'mL'}"
+
+
+def parsed_time(value):
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def care_summary(record):
+    """Plain-language care details for people; the model still receives the typed data."""
+    data = record.data if isinstance(record.data, dict) else {}
+    if record.kind == "feeding":
+        method = data.get("method")
+        side = {"left": "Left side", "right": "Right side", "both": "Both sides"}
+        parts = [{"breast": "Breastfeeding", "bottle": "Bottle"}.get(method, "Feeding")]
+        if method == "breast":
+            parts.append(side.get(data.get("side")))
+        parts += [
+            amount_label(data.get("amount"), data.get("unit")),
+            duration_label(data.get("duration_minutes")),
+        ]
+        return " · ".join(filter(None, parts))
+    if record.kind == "sleep":
+        if not data.get("end_at"):
+            return "Sleep in progress"
+        start, end = parsed_time(record.occurred_at), parsed_time(data["end_at"])
+        try:
+            label = duration_label((end - start).total_seconds() / 60)
+        except TypeError:
+            label = None
+        return f"Sleep · {label}" if label else "Sleep"
+    if record.kind == "diaper":
+        return {"wet": "Wet", "dirty": "Dirty", "both": "Wet and dirty", "dry": "Dry"}.get(
+            data.get("type"), "Diaper change"
+        )
+    if record.kind == "routine":
+        items = [item for item in data.get("items") or [] if isinstance(item, dict)]
+        labels = [str(item["label"]) for item in items if item.get("label")]
+        steps = f"{len(items)} step" + ("" if len(items) == 1 else "s")
+        if data.get("routine_type") == "checklist":
+            done = sum(1 for item in items if item.get("done") is True)
+            heading = f"{done} of {steps} done" if items else "Checklist"
+        else:
+            heading = f"Schedule · {steps}" if items else "Schedule"
+        repeat = {"daily": "Repeats daily", "weekly": "Repeats weekly"}.get(data.get("repeat"))
+        return "\n".join(filter(None, [" · ".join(filter(None, [heading, repeat])), *labels]))
+    return ""
+
+
+def without_title(text, title):
+    title, text = (title or "").strip(), text.lstrip()
+    remainder = text[len(title) :]
+    # Compare the same slice that is cut, so case folding can never shift the cut point.
+    if (
+        title
+        and text[: len(title)].casefold() == title.casefold()
+        and remainder[:1] in {"", "\n", ":", "."}
+    ):
+        return remainder.lstrip("\n:. ")
+    return text
+
+
+def display_excerpt(record, terms, *, limit=1000):
+    """Citation text shown beside the record title, so it never repeats that title."""
+    summary = care_summary(record) if record.kind in SCOPE_KINDS["care"] else ""
+    body = without_title(record_text(record, include_title=False), record.title)
+    return bounded("\n\n".join(filter(None, [summary, body])), terms, 7000).strip()[:limit]
+
+
+async def retrieve(db, owner, generation, request, zone=UTC):
     terms = query_terms(request.message)
     query = records_query(owner, generation, child_id=request.child_id)
     if request.scope in SCOPE_KINDS:
@@ -125,9 +252,9 @@ async def retrieve(db, owner, generation, request):
         )
     else:
         rows = list(await db.scalars(query.order_by(BabyRecord.occurred_at.desc()).limit(20)))
-    context, available = [], 45000
+    context, displays, available = [], {}, 45000
     for row in rows:
-        excerpt = excerpt_for(row, terms, limit=min(7000, available))
+        excerpt = excerpt_for(row, terms, limit=min(7000, available), zone=zone)
         if not excerpt or available <= 0:
             break
         context.append(
@@ -135,7 +262,7 @@ async def retrieve(db, owner, generation, request):
                 "id": str(row.id),
                 "title": row.title,
                 "kind": row.kind,
-                "occurred_at": row.occurred_at.isoformat(),
+                "occurred_at": row.occurred_at.astimezone(zone).isoformat(),
                 "revision": row.revision,
                 "child_id": str(row.child_id) if row.child_id else None,
                 "excerpt": excerpt,
@@ -146,8 +273,9 @@ async def retrieve(db, owner, generation, request):
                 ),
             }
         )
+        displays[str(row.id)] = display_excerpt(row, terms)
         available -= len(excerpt)
-    return context
+    return context, displays
 
 
 def reviewed_proposal(raw):
@@ -309,7 +437,8 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
     )
     if count >= 500:
         raise HTTPException(422, "This conversation is full; start a new conversation")
-    context = await retrieve(db, user.id, generation, body)
+    zone = parent_zone(member.profile.get("timezone"))
+    context, displays = await retrieve(db, user.id, generation, body, zone)
     history_rows = list(
         await db.scalars(
             select(BabyMessage)
@@ -348,7 +477,12 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         with ai_request_context(
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
         ):
-            result = await provider.answer(message=body.message, context=context, history=history)
+            result = await provider.answer(
+                message=body.message,
+                context=context,
+                history=history,
+                now_local=datetime.now(zone).isoformat(timespec="minutes"),
+            )
         allowed = {item["id"]: item for item in context}
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")
@@ -356,7 +490,8 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
             {
                 "id": identifier,
                 "title": allowed[identifier]["title"],
-                "excerpt": allowed[identifier]["excerpt"][:1000],
+                "excerpt": displays[identifier],
+                "kind": allowed[identifier]["kind"],
             }
             for identifier in dict.fromkeys(result.citation_ids)
         ]
