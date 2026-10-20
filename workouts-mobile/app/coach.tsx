@@ -617,7 +617,10 @@ export default function Coach() {
       <ListGroup>
         {enrollment?.enrolled && <ListRow icon="pulse-outline" title="Check in for today" trailing="none"
           onPress={() => { if (currentConversation()) setShowCheckIn(true); }} />}
-        <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => { close(); router.push("/ai-preferences"); }} />
+        <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => {
+          // Let the options sheet finish closing; iOS can't present a screen from a view that is still presenting one.
+          close(); setTimeout(() => { if (currentConversation()) router.push("/ai-preferences"); }, 350);
+        }} />
         <ListRow icon="trash-outline" title="Clear conversation" destructive trailing="none"
           disabled={busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled}
           onPress={() => { if (currentConversation()) setClearConfirm(true); }} />

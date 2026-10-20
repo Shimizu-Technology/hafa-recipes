@@ -25,11 +25,14 @@ export function CoachChatShell({ children, title = "Coach", menu, banner, footer
   const sheet = Platform.OS === "ios";
   const root = useRef<View | null>(null);
   const [offset, setOffset] = useState(0);
+  const measure = () => root.current?.measureInWindow?.((_x, y) => setOffset(Math.max(0, y)));
+  // Measure again once the sheet has finished sliding in; the first layout can land mid-animation.
+  useEffect(() => { const timer = setTimeout(measure, 600); return () => clearTimeout(timer); }, []);
   const column: ViewStyle = { width: "100%", maxWidth: contentWidth, alignSelf: "center" };
   return (
     // A sheet starts below the window top; the keyboard math needs that offset.
     <View ref={root} style={{ flex: 1, backgroundColor: c.background }}
-      onLayout={() => root.current?.measureInWindow?.((_x, y) => setOffset(Math.max(0, y)))}>
+      onLayout={measure}>
       <KeyboardAvoidingView style={{ flex: 1, paddingTop: sheet ? 0 : insets.top }}
         behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={offset}>
         <View style={[column, { flexDirection: "row", alignItems: "center", gap: spacing.xs, minHeight: 56, paddingHorizontal: spacing.xs }]}>
