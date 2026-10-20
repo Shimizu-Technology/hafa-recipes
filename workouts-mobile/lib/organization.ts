@@ -23,6 +23,8 @@ export interface Collection {
   revision: number;
   title: string;
   workout_count: number;
+  /** Up to four newest covers; absent on servers before collection previews. */
+  preview_thumbnail_urls?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +37,8 @@ export interface LibraryFilters {
   archived_only?: boolean;
   collection_id?: string;
   tags?: string[];
+  /** Only workouts with an estimated duration at or under this many minutes. */
+  max_minutes?: number;
 }
 export interface LibraryPage {
   items: Workout[];

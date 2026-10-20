@@ -47,6 +47,7 @@ export default function Library() {
   const [favorite, setFavorite] = useState(false);
   const [archived, setArchived] = useState(false);
   const [collection, setCollection] = useState<string>();
+  const [maxMinutes, setMaxMinutes] = useState<number>();
   const [filters, setFilters] = useState(false);
   const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
@@ -115,6 +116,7 @@ export default function Library() {
     include_archived: archived,
     collection_id: collection,
     tags: tagsFromText(tags),
+    max_minutes: maxMinutes,
   };
   const q = useInfiniteQuery({
     queryKey: [owner, "library", enrollment?.generation, "search", selected],
@@ -133,7 +135,7 @@ export default function Library() {
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
   const covers = collectionCovers(visible);
-  const filterCount = [favorite, kind, archived, equipment.trim(), tags.trim(), collection].filter(Boolean).length;
+  const filterCount = [favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
   const narrowed = !!search || !!filterCount;
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
@@ -145,6 +147,7 @@ export default function Library() {
     setFavorite(false);
     setArchived(false);
     setCollection(undefined);
+    setMaxMinutes(undefined);
   }
   const header = (screenHeader: ReactNode) => (
     <View style={{ gap: spacing.md, paddingBottom: spacing.xs }}>
@@ -167,6 +170,7 @@ export default function Library() {
       {!!filterCount && <ChipRow label="Active filters">
         {favorite && <Chip label="Favorites" selected onPress={() => setFavorite(false)} />}
         {!!kind && <Chip label={kindLabels[kind]} selected onPress={() => setKind(undefined)} />}
+        {!!maxMinutes && <Chip label={`Up to ${maxMinutes} min`} selected onPress={() => setMaxMinutes(undefined)} />}
         {archived && <Chip label="Archived" selected onPress={() => setArchived(false)} />}
         {!!collection && <Chip label={collectionTitle ?? "Collection"} selected onPress={() => setCollection(undefined)} />}
         {!!equipment.trim() && <Chip label={equipment.trim()} selected onPress={() => setEquipment("")} />}
@@ -176,8 +180,8 @@ export default function Library() {
         <Copy kind="label">Collections</Copy>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel="Collections"
           contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.md }}>
-          {collections.data.map(item => <CollectionTile key={item.id} title={item.title} count={item.workout_count} cover={covers.get(item.id)}
-            selected={collection === item.id} onPress={() => setCollection(collection === item.id ? undefined : item.id)} />)}
+          {collections.data.map(item => <CollectionTile key={item.id} title={item.title} count={item.workout_count} covers={item.preview_thumbnail_urls?.length ? item.preview_thumbnail_urls : [covers.get(item.id)].filter((uri): uri is string => !!uri)}
+            onPress={() => router.push({ pathname: "/collection/[id]", params: { id: item.id } })} />)}
         </ScrollView>
       </View>}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
@@ -267,6 +271,11 @@ export default function Library() {
         <ChipRow wrap>
           {(["session", "exercise", "program", "accessory"] as const).map(value => <Chip key={value}
             label={kindLabels[value]} selected={kind === value} onPress={() => setKind(kind === value ? undefined : value)} />)}
+        </ChipRow>
+        <Copy kind="label">Time</Copy>
+        <ChipRow wrap>
+          {[15, 30, 45].map(value => <Chip key={value} label={`Up to ${value} min`} selected={maxMinutes === value}
+            onPress={() => setMaxMinutes(maxMinutes === value ? undefined : value)} />)}
         </ChipRow>
         <Choice label="Archived workouts" selected={archived} onPress={() => setArchived(!archived)} />
         <Field label="Equipment" value={equipment} onChange={setEquipment} placeholder="Dumbbells, bodyweight…" optional />

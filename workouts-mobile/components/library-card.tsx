@@ -108,28 +108,31 @@ export function LibraryCard({
   );
 }
 
-/** Horizontal tiles for collections, with a cover when one is known. */
-export function CollectionTile({ title, count, cover, selected, onPress }: {
-  title: string; count: number; cover?: string | null; selected?: boolean; onPress(): void;
+/** Horizontal tiles for collections: a 2×2 mosaic with four covers, else one cover or a folder. */
+export function CollectionTile({ title, count, covers, onPress }: {
+  title: string; count: number; covers: string[]; onPress(): void;
 }) {
   const c = useColors();
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
+  const mosaic = covers.length >= 4;
   return (
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${count} ${count === 1 ? "workout" : "workouts"}`}
-      accessibilityState={selected === undefined ? undefined : { selected }}
+      accessibilityHint="Opens this collection"
       onPress={onPress}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       style={{ width: 128, gap: 6, opacity: press.opacity, transform: [{ scale: press.scale }] }}
     >
-      <View style={{ width: 128, height: 88, borderRadius: radii.md, overflow: "hidden",
-        borderWidth: selected ? 2 : 1, borderColor: selected ? c.action : c.border }}>
-        <Cover uri={cover} icon="folder-open-outline" size={28} />
+      <View style={{ width: 128, height: 88, borderRadius: radii.md, overflow: "hidden", borderWidth: 1, borderColor: c.border,
+        flexDirection: "row", flexWrap: "wrap", gap: 1, backgroundColor: c.border }}>
+        {mosaic ? covers.slice(0, 4).map((uri) => <View key={uri} style={{ width: 62.5, height: 42.5 }}>
+          <Cover uri={uri} icon="image-outline" size={18} />
+        </View>) : <Cover uri={covers[0]} icon="folder-open-outline" size={28} />}
       </View>
-      <View style={{ gap: 0 }}>
+      <View>
         <Copy kind="label" numberOfLines={1}>{title}</Copy>
         <Copy kind="small" tone="muted">{count} {count === 1 ? "workout" : "workouts"}</Copy>
       </View>

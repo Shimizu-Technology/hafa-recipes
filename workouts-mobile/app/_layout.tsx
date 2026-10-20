@@ -102,6 +102,7 @@ function Routes() {
         <Stack.Screen name="measurements" />
         <Stack.Screen name="measurement" />
         <Stack.Screen name="collections" />
+        <Stack.Screen name="collection/[id]" />
         <Stack.Screen name="organize/[id]" />
         <Stack.Screen name="connections" />
         <Stack.Screen name="recipes-connection" />
