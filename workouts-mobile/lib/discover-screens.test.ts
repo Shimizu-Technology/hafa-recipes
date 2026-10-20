@@ -1168,9 +1168,13 @@ it("removing a collection confirms first, keeps its workouts and goes back", asy
   await act(async () => listRow("Remove collection")!.props.onPress());
   expect(fixture.removeCollection).not.toHaveBeenCalled();
   expect(sheet("Remove collection?").props.visible).toBe(true);
+  const searches = fixture.searchLibrary.mock.calls.length;
+  fixture.collections.mockResolvedValue([]);
   await act(async () => button("Remove collection")!.props.onPress()); await settle();
   expect(fixture.removeCollection).toHaveBeenCalledExactlyOnceWith("gym", 3, 1);
   expect(fixture.back).toHaveBeenCalled();
+  expect(fixture.searchLibrary.mock.calls.length).toBe(searches); // The deleted collection is never searched again.
+  expect(fixture.collections.mock.calls.length).toBeGreaterThan(1); // The library's collection list refreshes.
 });
 it("a removed collection explains itself instead of loading", async () => {
   fixture.params = { id: "gone" }; fixture.collections.mockResolvedValue([gym]);

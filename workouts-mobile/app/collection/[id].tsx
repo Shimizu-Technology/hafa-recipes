@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, View } from "react-native";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button, Copy, Empty, Field, IconButton, ListGroup, ListRow, Notice, Row, Screen, Sheet, SkeletonCard, useColors } from "@/components/ui";
 import { LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
@@ -18,7 +18,7 @@ export default function CollectionDetail() {
   const generation = enrollment?.generation ?? 0;
   const cache = useQueryClient();
   const [view, setView] = useLibraryView(storage, owner);
-  const [menu, setMenu] = useState(false), [renaming, setRenaming] = useState(false), [removing, setRemoving] = useState(false);
+  const [menu, setMenu] = useState(false), [renaming, setRenaming] = useState(false), [removing, setRemoving] = useState(false), [removed, setRemoved] = useState(false);
   const [title, setTitle] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const scope = useMemo(() => ({ lock: null as object | null }), [owner, generation, storage, id]);
   const live = useRef<typeof scope | null>(null);
@@ -34,25 +34,30 @@ export default function CollectionDetail() {
   });
   const item = collections.data?.find((value) => value.id === id);
   const filters: LibraryFilters = { collection_id: id };
+  const searchKey = [owner, "library", enrollment?.generation, "search", filters];
   const q = useInfiniteQuery({
-    queryKey: [owner, "library", enrollment?.generation, "search", filters],
+    queryKey: searchKey,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => api.searchLibrary(filters, pageParam, generation),
     getNextPageParam: (page) => (page.has_more ? (page.next_cursor ?? undefined) : undefined),
-    enabled: !!enrollment?.enrolled && !!item,
+    enabled: !!enrollment?.enrolled && !!item && !removed,
   });
   const freshness = useFocusRefresh([q, collections], { enabled: !!enrollment?.enrolled });
   const visible = [...new Map(q.data?.pages.flatMap((page) => page.items).map((w) => [w.id, w]) ?? []).values()];
-  const gone = collections.isSuccess && !item;
+  const gone = collections.isSuccess && !item && !removed;
 
   /** One collection write at a time, fenced to this account and collection. */
-  async function run(work: () => Promise<unknown>) {
+  async function run(work: () => Promise<unknown>, done?: () => void) {
     if (!current() || scope.lock) return false;
     const token = {}; scope.lock = token; setBusy(true); setError("");
     try {
       await work();
       if (!current()) return false;
-      await Promise.all([cache.invalidateQueries({ queryKey: [owner, "collections"] }), cache.invalidateQueries({ queryKey: [owner, "library"] }),
+      done?.();
+      // Refresh shared lists even after `done` leaves this screen, while the account is unchanged.
+      if (!storage.isCurrent() || !isCurrentAccount()) return false;
+      await Promise.all([cache.invalidateQueries({ queryKey: [owner, "collections"] }), // This collection's own workouts don't change when it is renamed or removed.
+        cache.invalidateQueries({ queryKey: [owner, "library"], predicate: (query) => query.queryHash !== hashKey(searchKey) }),
         cache.invalidateQueries({ queryKey: [owner, "organization"] })]);
       return current();
     } catch (e) {
@@ -72,10 +77,12 @@ export default function CollectionDetail() {
   async function remove() {
     if (!item) return;
     const revision = item.revision;
-    if (await run(() => api.removeCollection(item.id, revision, generation))) {
+    // Leave before refreshing so this screen never flashes "removed" or searches a deleted collection.
+    await run(() => api.removeCollection(item.id, revision, generation), () => {
+      setRemoved(true);
       setRemoving(false);
       if (router.canGoBack()) router.back(); else router.replace("/(tabs)/library");
-    }
+    });
   }
   const header = (screenHeader: ReactNode) => (
     <View style={{ gap: spacing.md, paddingBottom: spacing.xs }}>
@@ -119,7 +126,7 @@ export default function CollectionDetail() {
           ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
             : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} /> : null}
           onEndReachedThreshold={0.6}
-          onEndReached={() => { if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError) void q.fetchNextPage(); }}
+          onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (
             <LibraryCard view={view} title={w.title} meta={workoutCardMeta(w, view === "list")} creator={w.source_creator}
               image={w.source_thumbnail_url} icon={kindIcons[w.kind]} favorite={!!w.organization?.favorite} badge={workoutCardBadge(w)}

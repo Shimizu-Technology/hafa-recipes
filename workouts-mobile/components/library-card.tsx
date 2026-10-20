@@ -128,7 +128,7 @@ export function CollectionTile({ title, count, covers, onPress }: {
     >
       <View style={{ width: 128, height: 88, borderRadius: radii.md, overflow: "hidden", borderWidth: 1, borderColor: c.border,
         flexDirection: "row", flexWrap: "wrap", gap: 1, backgroundColor: c.border }}>
-        {mosaic ? covers.slice(0, 4).map((uri) => <View key={uri} style={{ width: 62.5, height: 42.5 }}>
+        {mosaic ? covers.slice(0, 4).map((uri, index) => <View key={index} style={{ width: 62.5, height: 42.5 }}>
           <Cover uri={uri} icon="image-outline" size={18} />
         </View>) : <Cover uri={covers[0]} icon="folder-open-outline" size={28} />}
       </View>
