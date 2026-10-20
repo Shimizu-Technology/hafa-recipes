@@ -1,7 +1,7 @@
 import WorkoutDetail from "../app/workout/[id]";
 import { WorkoutSource } from "../components/workout-source";
 import { createElement, Fragment, isValidElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError } from "./api";
@@ -23,6 +23,7 @@ const fixture = vi.hoisted(() => ({
   back: vi.fn(),
   navigate: vi.fn(),
   announce: vi.fn(),
+  share: vi.fn(),
   active: null as null | { workout: { title: string }; source: { workout_id: string; workout_revision: number } },
   importJob: vi.fn(),
   importJobs: vi.fn(),
@@ -105,6 +106,7 @@ vi.mock("@/components/publishing-disclosure", async () => {
 });
 vi.mock("react-native", () => ({
   Platform: { OS: "web" },
+  Share: { share: (content: { message: string }) => fixture.share(content) },
   ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",
@@ -204,6 +206,14 @@ function actionButton(element: unknown, title: string): { props: { onPress(): vo
   return element.props.title === title ? element : actionButton(element.props.children, title);
 }
 const emptyAction = (title: string) => actionButton(nodes("Empty")[0].props.action, title);
+type HeaderAction = { props: { label: string; icon: string; onPress(): void } };
+/** IconButtons passed in Screen's `action` prop, which the Screen mock doesn't render. */
+function headerActions(element: unknown = nodes("Screen")[0].props.action): HeaderAction[] {
+  if (Array.isArray(element)) return element.flatMap((child) => headerActions(child));
+  if (!isValidElement<{ label?: string; children?: unknown }>(element)) return [];
+  return element.type === "IconButton" ? [element as unknown as HeaderAction] : headerActions(element.props.children);
+}
+const headerAction = (label: string) => headerActions().find((n) => n.props.label.startsWith(label));
 const choice = (label: string) => nodes("Choice").find((n) => n.props.label === label);
 const listRow = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const libraryCard = (title: string) => nodes("LibraryCard").find((n) => n.props.title === title);
@@ -241,7 +251,7 @@ beforeEach(() => {
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
     fixture.push, fixture.replace, fixture.back, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
-    fixture.unpublishWorkout, fixture.announce, fixture.start, fixture.publishWorkout, fixture.navigate]) mock.mockReset();
+    fixture.unpublishWorkout, fixture.announce, fixture.start, fixture.publishWorkout, fixture.navigate, fixture.share]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
   fixture.active = null;
@@ -451,7 +461,7 @@ it("saves from detail, then offers the saved workout and a plan", async () => {
   fixture.discoverWorkout.mockResolvedValue(detail);
   fixture.saveDiscovered.mockResolvedValue(saved);
   await mount(DiscoverWorkout);
-  await act(async () => button("Save to my library")!.props.onPress());
+  await act(async () => button("Save to library")!.props.onPress());
   await settle();
   expect(fixture.saveDiscovered).toHaveBeenCalledWith("pub-1", 1);
   expect(fixture.toast).toHaveBeenCalledWith("Saved to your library");
@@ -466,7 +476,7 @@ it("asks the coach about a Discover workout by saving a private copy first", asy
   fixture.discoverWorkout.mockResolvedValue(detail);
   fixture.saveDiscovered.mockResolvedValue(saved);
   await mount(DiscoverWorkout);
-  await act(async () => nodes("ListRow").find((n) => n.props.title === "Ask the coach about this")!.props.onPress());
+  await act(async () => headerAction("Ask the coach")!.props.onPress());
   await settle();
   expect(fixture.saveDiscovered).toHaveBeenCalledTimes(1);
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: "copy-1", revision: "4" } });
@@ -543,9 +553,34 @@ it("shows owners their own workout with unpublish and no save, report or block",
   fixture.params = { id: "pub-1" };
   fixture.discoverWorkout.mockResolvedValue({ ...detail, is_owner: true });
   await mount(DiscoverWorkout);
-  expect(button("Save to my library")).toBeUndefined();
-  expect(button("Remove from Discover")).toBeDefined();
-  expect(nodes("IconButton").find((n) => n.props.label === "More options")).toBeUndefined();
+  expect(button("Save to library")).toBeUndefined();
+  expect(nodes("ListRow").find((n) => n.props.title === "Remove from Discover")).toBeDefined();
+  expect(headerActions().map((n) => n.props.label)).toEqual(["Share this workout"]);
+});
+
+it("Discover detail leads with the cover, keeps one primary save and tucks report and block into more options", async () => {
+  fixture.params = { id: "pub-1" };
+  fixture.discoverWorkout.mockResolvedValue({ ...detail, thumbnail_url: "https://example.test/cover.jpg" });
+  fixture.share.mockResolvedValue({ action: "sharedAction" });
+  await mount(DiscoverWorkout);
+  const screen = nodes("Screen")[0];
+  expect(screen.props.title).toBe("Ten minute legs");
+  const first = screen.children[0] as ReactTestInstance;
+  expect(String(first.type)).toBe("View");
+  expect(first.findAll((n) => String(n.type) === "SourceImage")).toHaveLength(1);
+  expect(headerActions().map((n) => n.props.label)).toEqual([
+    "Ask the coach about this workout. Saves a private copy first", "Share this workout", "More options"]);
+  expect(nodes("Button").filter((n) => n.props.size === "lg").map((n) => n.props.title)).toEqual(["Save to library"]);
+  expect(nodes("ListRow").filter((n) => /Report|Block/.test(n.props.title)).every((n) => {
+    let parent = n.parent;
+    while (parent && String(parent.type) !== "Sheet") parent = parent.parent;
+    return parent?.props.title === "Workout options";
+  })).toBe(true);
+  await act(async () => headerAction("Share this workout")!.props.onPress());
+  const message = fixture.share.mock.calls[0][0].message as string;
+  expect(message).toContain("Ten minute legs\n10 min · 3 exercises · Dumbbell");
+  expect(message).toContain("1. Goblet squat: 3 × 12 reps · 45s rest");
+  expect(message).toContain("Original by Coach Nani on YouTube: https://www.youtube.com/watch?v=abc");
 });
 
 it("shows the unavailable state on a detail 503", async () => {
@@ -717,7 +752,7 @@ it("Discover detail keeps the real cover instead of replacing it with generic ar
   await mount(DiscoverWorkout);
   expect(nodes("SourceImage")[0].props).toMatchObject({ uri: "https://example.test/source-cover.jpg", cover: true, label: card.title });
   expect(nodes("SourceImage")[0].props.fallback).toBeDefined();
-  expect(button("Save to my library")).toBeDefined();
+  expect(button("Save to library")).toBeDefined();
 });
 it("a saved source copy stays recognizable as a source in Library and detail without changing provenance", async () => {
   fixture.capabilities.mockResolvedValue(caps(true));

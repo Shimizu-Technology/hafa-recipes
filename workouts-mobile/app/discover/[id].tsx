@@ -1,6 +1,6 @@
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useState } from "react";
-import { View } from "react-native";
+import { Share, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -20,6 +20,7 @@ import {
   Sheet,
   Skeleton,
   SkeletonCard,
+  Stack,
   useToast,
 } from "@/components/ui";
 import { CreditLine, SourceArtwork } from "@/components/discover-card";
@@ -39,6 +40,7 @@ import type { Workout } from "@/lib/models";
 import { blockSummary } from "@/lib/amrap-editor";
 import { workoutMeta } from "@/lib/plan-presentation";
 import { blockedContributorsKey, contributorName } from "@/lib/safety";
+import { discoverShareText } from "@/lib/discover-share";
 import { SourcePlayback } from "@/components/source-playback";
 
 const reportCategories: Array<{ value: ReportCategory; label: string; detail: string }> = [
@@ -161,26 +163,61 @@ export default function DiscoverWorkout() {
       setBusy(null);
     }
   }
+  async function share() {
+    if (!item) return;
+    try {
+      await Share.share({ message: discoverShareText(item) });
+    } catch {
+      setError("Couldn’t open sharing. Try again.");
+    }
+  }
   const workout = item?.workout;
   const credit = item ? creatorCredit(item) : null;
   const savedId = item?.saved_workout_id;
+  const hero = q.isPending ? (
+    <Skeleton height={220} radius={radii.xl - 4} />
+  ) : item && workout ? (
+    <View style={{ borderRadius: radii.xl - 4, overflow: "hidden" }}>
+      {item.thumbnail_url ? <SourceImage uri={item.thumbnail_url} label={item.title} cover
+        fallback={<SourceArtwork platform={item.source_platform} height={220} />} />
+        : <SourceArtwork platform={item.source_platform} height={220} />}
+    </View>
+  ) : undefined;
+  const title = item?.title ?? (q.isPending ? "Loading workout…" : "Discover");
+  const meta = item ? workoutMeta({ minutes: item.estimated_minutes, exercises: item.exercise_count,
+    equipment: item.equipment_required.length ? item.equipment_required : ["No equipment"] }) : undefined;
   return (
     <Screen
       back
-      title={item?.title ?? (q.isPending ? "Loading workout…" : "Discover.")}
-      subtitle={item ? workoutMeta({ minutes: item.estimated_minutes, exercises: item.exercise_count,
-        equipment: item.equipment_required.length ? item.equipment_required : ["No equipment"] }) : undefined}
+      title={title}
+      // The cover leads; the title and meta line follow it in the page body.
+      hideTitle
       action={
-        item && !item.is_owner ? (
-          <IconButton icon="ellipsis-horizontal" label="More options" onPress={() => setSheet("menu")} />
+        item ? (
+          <Row gap={8}>
+            {!item.is_owner && (
+              <IconButton
+                icon="chatbubble-ellipses-outline"
+                label={savedId ? "Ask the coach about this workout" : "Ask the coach about this workout. Saves a private copy first"}
+                disabled={generation == null || !!busy}
+                onPress={() => void askCoach()}
+              />
+            )}
+            <IconButton icon="share-outline" label="Share this workout" onPress={() => void share()} />
+            {!item.is_owner && (
+              <IconButton icon="ellipsis-horizontal" label="More options" onPress={() => setSheet("menu")} />
+            )}
+          </Row>
         ) : undefined
       }
     >
+      {hero}
+      <Stack gap={6}>
+        <Copy kind="title">{title}</Copy>
+        {!!meta && <Copy tone="muted">{meta}</Copy>}
+      </Stack>
       {q.isPending ? (
-        <>
-          <Skeleton height={180} radius={radii.xl - 4} />
-          <SkeletonCard lines={3} label="Loading workout" />
-        </>
+        <SkeletonCard lines={3} label="Loading workout" />
       ) : status === 503 ? (
         <Empty
           mark
@@ -203,11 +240,6 @@ export default function DiscoverWorkout() {
         </>
       ) : (
         <>
-          <View style={{ borderRadius: radii.xl - 4, overflow: "hidden" }}>
-            {item.thumbnail_url ? <SourceImage uri={item.thumbnail_url} label={item.title} cover
-              fallback={<SourceArtwork platform={item.source_platform} height={180} />} />
-              : <SourceArtwork platform={item.source_platform} height={180} />}
-          </View>
           {(credit || item.contributor) && (
             <View style={{ gap: 6 }}>
               {!!credit && <CreditLine platform={item.source_platform} text={`Original by ${credit}`} />}
@@ -221,22 +253,23 @@ export default function DiscoverWorkout() {
           )}
 
           {item.is_owner ? (
-            <Card tone="accent">
-              <Copy kind="caption" tone="accent">This is yours</Copy>
-              <Copy>People can find and save this workout. Your notes and training stay private.</Copy>
+            <>
               <Button
                 title="Open in your library"
                 icon="albums-outline"
+                size="lg"
                 onPress={() => router.push({ pathname: "/workout/[id]", params: { id: item.id } })}
               />
-              <Button
-                title="Remove from Discover"
-                variant="ghost"
-                busy={busy === "unpublish"}
-                disabled={generation == null}
-                onPress={() => void unpublish()}
-              />
-            </Card>
+              <ListGroup>
+                <ListRow
+                  icon="eye-off-outline"
+                  title="Remove from Discover"
+                  detail="People who already saved it keep their copy"
+                  disabled={generation == null || busy === "unpublish"}
+                  onPress={() => void unpublish()}
+                />
+              </ListGroup>
+            </>
           ) : savedId ? (
             <Button
               title="Open in your library"
@@ -246,7 +279,7 @@ export default function DiscoverWorkout() {
             />
           ) : (
             <Button
-              title="Save to my library"
+              title="Save to library"
               icon="bookmark-outline"
               size="lg"
               haptic="success"
@@ -261,22 +294,13 @@ export default function DiscoverWorkout() {
           )}
           {!!error && <Notice error>{error}</Notice>}
 
-          {!item.is_owner && (
+          {!item.is_owner && !!savedId && (
             <ListGroup>
-              {!!savedId && (
-                <ListRow
-                  icon="calendar-outline"
-                  title="Add to a plan"
-                  detail="Build a training plan that includes it"
-                  onPress={() => router.push({ pathname: "/build-plan", params: { include: savedId } })}
-                />
-              )}
               <ListRow
-                icon="chatbubble-ellipses-outline"
-                title="Ask the coach about this"
-                detail={savedId ? undefined : "Saves a private copy first"}
-                disabled={generation == null || !!busy}
-                onPress={() => void askCoach()}
+                icon="calendar-outline"
+                title="Add to a plan"
+                detail="Build a training plan that includes it"
+                onPress={() => router.push({ pathname: "/build-plan", params: { include: savedId } })}
               />
             </ListGroup>
           )}
