@@ -29,6 +29,12 @@ function invalidExerciseDetails(e: ExercisePrescription) {
     (e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200)) ||
     (e.instructions?.length ?? 0) > 2000 || (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
 }
+function invalidWorkoutDetails(w: AuthoredWorkout) {
+  const lines = (list?: string[] | null) => list ?? [];
+  return lines(w.instructions).filter(line => line.trim()).length > 100 || lines(w.instructions).some(line => line.length > 4000) ||
+    lines(w.notes).filter(line => line.trim()).length > 100 || lines(w.notes).some(line => line.length > 4000) ||
+    (w.equipment_required?.length ?? 0) > 100 || lines(w.equipment_required).some(item => item.length > 4000);
+}
 function retainExpanded(current: string[], revealed: string[]) {
   const missing = revealed.filter(key => !current.includes(key));
   return missing.length ? [...current, ...missing] : current;
@@ -47,6 +53,8 @@ export function WorkoutEditor({
   const { units } = useTraining();
   const [showMore, setShowMore] = useState(() => hasText(value.instructions) || hasText(value.notes) ||
     !!value.equipment_required?.length || !!value.source_context);
+  // Fields with a validation problem stay visible so they can be corrected.
+  const moreOpen = showMore || invalidWorkoutDetails(value);
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
@@ -96,9 +104,10 @@ export function WorkoutEditor({
       />
       {/* New Workout already says blanks are fine above the form. */}
       {context === "edit" && <Copy kind="small" tone="muted">Fix what you need. Anything unknown can stay blank.</Copy>}
-      <Disclosure title={`${showMore ? "Hide" : "Show"} instructions, notes and equipment`} open={showMore} disabled={disabled}
-        onPress={() => { if (!disabled) setShowMore(!showMore); }} />
-      {showMore && <>
+      {/* Viewing hidden details is allowed even while a save is pending; the fields themselves stay disabled. */}
+      <Disclosure title={`${moreOpen ? "Hide" : "Show"} instructions, notes and equipment`} open={moreOpen}
+        onPress={() => setShowMore(!moreOpen)} />
+      {moreOpen && <>
       <Field
         disabled={disabled}
         label="Instructions · shown when shared"

@@ -166,7 +166,9 @@ export default function EditWorkout() {
       back
       title="Edit workout"
       subtitle="Past sessions stay as they were."
-      footer={value ? (
+      footer={value ? (<>
+        {/* The save error sits next to Save, where the person is looking. */}
+        {!!error && <Notice error>{error}</Notice>}
         <Button
           title={busy ? busyAction === "save" ? "Saving changes…" : "Reloading workout…" : command ? "Retry saving changes" : "Save changes"}
           disabled={resolved}
@@ -175,7 +177,7 @@ export default function EditWorkout() {
             void save();
           }}
         />
-      ) : undefined}
+      </>) : undefined}
     >
       <QueryState
         loading={!loaded || (q.isPending && !value)}
@@ -206,7 +208,7 @@ export default function EditWorkout() {
           }}
         />
       )}
-      {!!error && <Notice error>{error}</Notice>}
+      {!!error && !value && <Notice error>{error}</Notice>}
     </Screen>
   );
 }

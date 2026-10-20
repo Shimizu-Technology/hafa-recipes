@@ -76,11 +76,11 @@ it("shows and saves distance in miles for imperial users without changing an unt
   const initial = workout(); initial.blocks[0].exercises[0] = { name: "Run", distance_meters: 400 };
   await render(initial);
   expect(field("Distance · metres")).toBeUndefined();
-  expect(field("Distance · miles")!.props.value).toBe("0.25");
+  expect(field("Distance · miles")!.props.value).toBe("0.249");
   await act(async () => field("Exercise name")!.props.onChange("Easy run"));
   expect(latest!.blocks[0].exercises[0].distance_meters).toBe(400);
   await act(async () => field("Distance · miles")!.props.onChange("1"));
-  expect(latest!.blocks[0].exercises[0].distance_meters).toBe(1609.34);
+  expect(latest!.blocks[0].exercises[0].distance_meters).toBe(1609);
   expect(field("Distance · miles")!.props.value).toBe("1");
   await act(async () => field("Distance · miles")!.props.onChange(""));
   expect(latest!.blocks[0].exercises[0].distance_meters).toBeNull();
@@ -112,4 +112,11 @@ it("starts a new weight in the person's units, counted as the total", async () =
   await act(async () => field("Weight · select a unit")!.props.onChange("135"));
   expect(latest!.blocks[0].exercises[0]).toMatchObject({ load: 135, load_unit: "lb", load_convention: "total" });
   expect(field("Weight · lb")).toBeDefined();
+});
+
+it("keeps oversized workout notes visible for correction even after the disclosure is toggled", async () => {
+  await render({ ...workout(), notes: ["x".repeat(4001)] });
+  expect(field("Private notes · only you")).toBeDefined();
+  await act(async () => button("Hide instructions, notes and equipment").props.onPress());
+  expect(field("Private notes · only you")).toBeDefined();
 });
