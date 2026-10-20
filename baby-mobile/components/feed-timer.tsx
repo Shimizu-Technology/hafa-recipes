@@ -15,7 +15,7 @@ import {
   spokenTimer,
   switchSide,
 } from "@/lib/feed-timer";
-import { Button, Card, Copy, useColors, useToast } from "./ui";
+import { Button, Card, Copy, fonts, useColors, useToast } from "./ui";
 
 /** Tick once a second only while the timer runs, Today is focused, and the app is in front. */
 function useSecondClock(running: boolean) {
@@ -84,7 +84,8 @@ export function FeedTimerCard({
     ]);
   }
   return (
-    <Card tone="hero">
+    // A plain surface card keeps the secondary buttons visible; the blush summary below stays the baby's status.
+    <Card style={{ borderColor: c.action, borderWidth: 2 }}>
       <View accessible accessibilityLabel={`Feeding ${childName}. ${spokenTimer(timer, now)}`} style={{ gap: 2 }}>
         <Copy kind="small" tone="muted">
           {`Feeding ${childName} · started ${friendlyTime(timer.started_at, now)}${paused ? " · paused" : ""}`}
@@ -93,7 +94,7 @@ export function FeedTimerCard({
         <Text
           numberOfLines={1}
           adjustsFontSizeToFit
-          style={{ color: c.text, fontSize: 44, lineHeight: 54, fontWeight: "600", fontVariant: ["tabular-nums"] }}
+          style={{ color: c.text, fontSize: 44, lineHeight: 54, fontFamily: fonts.bold, fontVariant: ["tabular-nums"] }}
         >
           {clockText(activeMs(timer, now))}
         </Text>
