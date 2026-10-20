@@ -72,7 +72,7 @@ export function LibraryCard({
     <AnimatedPressable
       accessibilityRole={selecting ? "checkbox" : "button"}
       accessibilityLabel={[title, meta, creator ? `By ${creator}` : null, favorite ? "Favorite" : null, badge].filter(Boolean).join(", ")}
-      accessibilityHint={selecting ? undefined : "Long press to select workouts"}
+      accessibilityHint={onLongPress ? "Long press to select workouts" : undefined}
       accessibilityState={selecting ? { checked: selected } : undefined}
       onPress={onPress}
       onLongPress={onLongPress}

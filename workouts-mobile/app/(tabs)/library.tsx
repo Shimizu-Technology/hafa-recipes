@@ -161,13 +161,13 @@ export default function Library() {
           <Button title="Done" variant="ghost" size="sm" inline disabled={bulkBusy}
             onPress={() => interact(() => { setSelecting(false); setSelectedIds([]); setBulkMessage(""); setBulkError(""); })} />
           <Copy kind="label">{selectedIds.length} selected</Copy>
-          <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length}
+          <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
             onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
         </Row>
       ) : (
         <Row justify="space-between">
           <Copy tone="muted">{q.data ? workoutCountLabel(q.data.pages[0].total, archived) : " "}</Copy>
-          <IconButton icon="ellipsis-horizontal" label="Library options" onPress={() => setMenu(true)} size={40} />
+          <IconButton icon="ellipsis-horizontal" label="Library options" onPress={() => setMenu(true)} variant="plain" />
         </Row>
       )}
       <LibrarySearch value={search} onChange={setSearch} filterCount={filterCount} onFilters={() => setFilters(true)} />
@@ -238,7 +238,7 @@ export default function Library() {
           ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
             : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} /> : null}
           onEndReachedThreshold={0.6}
-          onEndReached={() => { if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError) void q.fetchNextPage(); }}
+          onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (
             <LibraryCard
               view={view}

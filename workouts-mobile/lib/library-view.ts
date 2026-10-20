@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Storage } from "./drafts";
 import { draftKey } from "./drafts";
 import { workoutKindLabel, workoutOrigin } from "./labels";
@@ -6,22 +6,28 @@ import type { Workout } from "./models";
 
 export type LibraryView = "grid" | "list";
 
-/** Remember grid or list per account on this device. Starts as a grid until the saved choice loads. */
+/**
+ * Remember grid or list per account on this device, shared by the Library and
+ * collection screens. Starts as a grid; a choice made before the saved value
+ * loads wins over it.
+ */
 export function useLibraryView(storage: Storage & { isCurrent(): boolean }, owner: string) {
-  const [view, setView] = useState<LibraryView>("grid");
-  useEffect(() => {
-    let live = true;
-    if (!owner) return;
-    void storage.getItem(draftKey(owner, "library-view"))
-      .then((saved) => { if (live) setView(saved === "list" ? "list" : "grid"); })
-      .catch(() => undefined);
-    return () => { live = false; };
-  }, [storage, owner]);
+  const cache = useQueryClient();
+  const key = [owner, "library-view"];
+  const saved = useQuery({
+    queryKey: key,
+    queryFn: async (): Promise<LibraryView> => {
+      const value = await storage.getItem(draftKey(owner, "library-view")).catch(() => null);
+      return cache.getQueryData<LibraryView>(key) ?? (value === "list" ? "list" : "grid");
+    },
+    enabled: !!owner,
+    staleTime: Infinity,
+  });
   function choose(next: LibraryView) {
-    setView(next);
+    cache.setQueryData(key, next);
     if (owner && storage.isCurrent()) void storage.setItem(draftKey(owner, "library-view"), next).catch(() => undefined);
   }
-  return [view, choose] as const;
+  return [saved.data ?? "grid", choose] as const;
 }
 
 /** A quiet, neutral badge only when a workout needs a look. Favorites show as a heart instead. */

@@ -35,7 +35,7 @@ export function LibrarySearch({ value, onChange, filterCount, onFilters }: {
           clearButtonMode="never"
           style={[typography.body, { flex: 1, color: c.text, paddingVertical: 10 }]}
         />
-        {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={12} onPress={() => onChange("")}>
+        {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={15} onPress={() => onChange("")}>
           <Ionicons name="close-circle" size={18} color={c.muted} />
         </Pressable>}
       </View>

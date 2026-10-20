@@ -1109,7 +1109,8 @@ it("Library remembers grid or list for this account and covers collections from 
   await act(async () => listRow("Show as a list")!.props.onPress()); await settle();
   expect(nodes("FlatList")[0].props.numColumns).toBe(1);
   expect(fixture.map.get("hafa-workouts:v1:owner:library-view")).toBe("list");
-  await act(async () => renderer!.unmount()); await mount(Library);
+  // A fresh launch reads the saved choice from this account's device storage.
+  await act(async () => renderer!.unmount()); cache.clear(); await mount(Library);
   expect(libraryCard(saved.title)!.props.view).toBe("list");
 });
 it("surfaces collection filters and management directly beside library search", async () => {
