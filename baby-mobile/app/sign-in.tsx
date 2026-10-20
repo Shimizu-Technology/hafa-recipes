@@ -15,6 +15,8 @@ import { useSSO } from "@clerk/expo";
 import * as WebBrowser from "expo-web-browser";
 import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
 import { callbackUrl, socialSignIn } from "@/lib/social";
+import { configuration } from "@/lib/config";
+import { signupSetup } from "@/lib/signup-setup";
 import { nativeAppleSignIn } from "@/lib/native-apple-sign-in";
 WebBrowser.maybeCompleteAuthSession();
 type Mode = "signin" | "signup" | "recover";
@@ -78,6 +80,12 @@ export default function SignIn() {
       setBusy(false);
     }
   }
+  async function activateSignup(sessionId: string, userId: string, activate = setActive) {
+    if (!activate) throw Error("The new account session is unavailable.");
+    // Persist explicit intent before activation can mount private account queries.
+    if (configuration.clerkEnvironment === "production") await signupSetup.begin(sessionId, userId);
+    await activate({ session: sessionId });
+  }
   async function finish(result: NonNullable<typeof signIn>, prepare = true) {
     if (result.status === "complete" && result.createdSessionId) {
       await setActive!({ session: result.createdSessionId });
@@ -140,8 +148,8 @@ export default function SignIn() {
     await run(async () => {
       if (verification === "signup" && signUp) {
         const result = await signUp.attemptEmailAddressVerification({ code: code.trim() });
-        if (result.status === "complete" && result.createdSessionId)
-          await setActive!({ session: result.createdSessionId });
+        if (result.status === "complete" && result.createdSessionId && result.createdUserId)
+          await activateSignup(result.createdSessionId, result.createdUserId);
         else setError("Your account needs additional information. Try another sign-in method.");
       } else if (verification === "reset") {
         if (!password) {
@@ -189,8 +197,12 @@ export default function SignIn() {
     await run(async () => {
       if (mode === "signup") {
         const result = await startSSOFlow({ strategy, redirectUrl: callbackUrl });
-        if (result.createdSessionId && result.setActive) await result.setActive({ session: result.createdSessionId });
-        else setError("Account creation was not completed. You can use email instead.");
+        if (result.createdSessionId && result.signUp?.createdSessionId === result.createdSessionId &&
+          result.signUp.createdUserId && result.setActive)
+          await activateSignup(result.createdSessionId, result.signUp.createdUserId, result.setActive);
+        else setError(result.createdSessionId
+          ? "This account already uses Håfa. Choose Sign in to open it."
+          : "Account creation was not completed. You can use email instead.");
       } else if (strategy === "oauth_apple" && Platform.OS === "ios") {
         const result = await nativeAppleSignIn(signIn);
         if (result) await finish(result);

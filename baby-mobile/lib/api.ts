@@ -154,6 +154,8 @@ export function createBabyApi(
     lease,
     assertLease,
     identity: () => request<{ id: string }>("/api/users/me/identity"),
+    onboard: (installationId: string) => request<{ status: "created" | "existing"; app_user_id: string }>(
+      "/api/auth/clerk-transition/onboard", "POST", { installation_id: installationId, intent: "create_account" }),
     bootstrap: () => request<Bootstrap>("/bootstrap", "POST", {}),
     enroll: (g: number) => {
       epoch++;

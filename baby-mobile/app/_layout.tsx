@@ -8,12 +8,13 @@ import { Platform } from "react-native";
 import { ShareIntentProvider } from "expo-share-intent";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { BabyProvider } from "@/lib/context";
+import { SignupGate } from "@/components/signup-gate";
 import { AccountGate } from "@/components/account-gate";
 import { NotificationResponseHandler } from "@/components/notification-response-handler";
 import { ShareCapture } from "@/components/share-capture";
 import { Copy, Loading, Notice, Screen, ToastProvider, useColors } from "@/components/ui";
 function Routes() {
-  const { isLoaded, isSignedIn, userId } = useAuth(),
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth(),
     c = useColors();
   if (!isLoaded)
     return (
@@ -41,13 +42,15 @@ function Routes() {
     </Stack>
   );
   return isSignedIn ? (
-    <BabyProvider key={userId}>
-      <AccountGate>
-        <ShareCapture />
-        {stack}
-        <NotificationResponseHandler />
-      </AccountGate>
-    </BabyProvider>
+    <SignupGate key={sessionId}>
+      <BabyProvider key={userId}>
+        <AccountGate>
+          <ShareCapture />
+          {stack}
+          <NotificationResponseHandler />
+        </AccountGate>
+      </BabyProvider>
+    </SignupGate>
   ) : (
     stack
   );

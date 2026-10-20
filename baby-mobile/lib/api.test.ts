@@ -295,3 +295,14 @@ it("sends collection/topic membership filters with paginated records and search"
       child_id: "child", q: "packing", offset: "30", limit: "30", include_general: "true" });
   }
 });
+
+it("uses the explicit shared signup provisioner without a Baby generation header", async () => {
+  const transport = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ status: "created", app_user_id: "app_owner" }));
+  const api = createBabyApi("https://service.example", async () => "verified-token", () => true, transport);
+  await api.onboard("cmi_" + "a".repeat(64));
+  const [url, init] = transport.mock.calls[0];
+  expect(url).toBe("https://service.example/api/auth/clerk-transition/onboard");
+  expect(init?.method).toBe("POST");
+  expect(JSON.parse(init?.body as string)).toEqual({ installation_id: "cmi_" + "a".repeat(64), intent: "create_account" });
+  expect(init?.headers).toEqual({ Authorization: "Bearer verified-token", "Content-Type": "application/json" });
+});
