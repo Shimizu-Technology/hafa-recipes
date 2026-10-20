@@ -425,6 +425,30 @@ async def test_surprise_me_and_contributors_follow_feed_visibility(discover_api)
     assert only_mine.json()["id"] == mine["id"]
     assert (await feed(api, f"?contributor={owner_id}"))["total"] == 0
 
+    # The owner still sees their own work; a moderator hiding the workout or the
+    # whole account removes it from the random pick and the contributor list.
+    def names(response):
+        return [(c["display_name"], c["is_you"]) for c in response.json()]
+
+    contributors_path = "/api/v1/workouts/discover/contributors"
+    # Publisher names come from the account display name at publish time.
+    assert names(await api.client.get(contributors_path)) == [("A chef", True), ("A chef", False)]
+    api.app.dependency_overrides[require_admin] = lambda: user("moderator")
+    for row in (first, second):
+        hidden = await api.client.put(
+            f"/api/v1/workouts/admin/discover/{row['id']}/moderation",
+            json={"moderation_status": "hidden", "reason": "test"},
+        )
+        assert hidden.status_code == 200
+    assert [c["is_you"] for c in (await api.client.get(contributors_path)).json()] == [False]
+    assert (await api.client.get(random)).json()["id"] == mine["id"]
+    async with api.sessions.begin() as db:
+        await db.execute(
+            update(AppUser).where(AppUser.id == "other").values(moderation_status="hidden")
+        )
+    assert (await api.client.get(contributors_path)).json() == []
+    assert (await api.client.get(random)).status_code == 404
+
 
 async def test_moderation_blocks_reports_and_hidden_users(discover_api):
     api = discover_api
