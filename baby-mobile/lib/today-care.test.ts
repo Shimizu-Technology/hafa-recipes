@@ -48,7 +48,7 @@ it("restores real older care behind100newer sources using the scoped latest3API 
   await mount();
   const params = new URL(transport.mock.calls[0][0] ?? "").searchParams;
   expect(params.getAll("kinds")).toEqual(["feeding", "sleep", "diaper"]);
-  expect(params.get("limit")).toBe("60");
+  expect(params.get("limit")).toBe("100");
   expect(params.get("include_general")).toBe("true");
   expect(result.rows.map((row) => row.id)).toEqual([saved.id]);
   expect(account.state.records).toContainEqual(saved);

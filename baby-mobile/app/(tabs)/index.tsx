@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { router } from "expo-router";
 import { ActionSheetIOS, Alert, Platform, Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
@@ -59,8 +60,12 @@ export default function Today() {
     care = latestCare.rows,
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => r.kind === "routine"),
-    name = profile.display_name.split(" ")[0];
+    name = profile.display_name.split(" ")[0],
+    writing = useRef(false);
   async function quick(action: () => Promise<() => Promise<void>>, message: string) {
+    // One write at a time: a double tap must not start two sleeps or end one twice.
+    if (writing.current) return;
+    writing.current = true;
     try {
       const undo = await action();
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
@@ -77,6 +82,8 @@ export default function Today() {
       });
     } catch (e) {
       toast(messageFor(e));
+    } finally {
+      writing.current = false;
     }
   }
   function sleep() {
@@ -105,10 +112,15 @@ export default function Today() {
         },
         (index) => (index < diaperChoices.length ? save(diaperChoices[index].type) : index === diaperChoices.length && details())
       );
-    Alert.alert(`Diaper for ${child.name}`, undefined, [
-      ...diaperChoices.slice(0, 2).map((choice) => ({ text: choice.label, onPress: () => save(choice.type) })),
-      { text: "More…", onPress: details },
-    ]);
+    Alert.alert(
+      `Diaper for ${child.name}`,
+      undefined,
+      [
+        ...diaperChoices.slice(0, 2).map((choice) => ({ text: choice.label, onPress: () => save(choice.type) })),
+        { text: "More…", onPress: details },
+      ],
+      { cancelable: true }
+    );
   }
   return (
     <Screen

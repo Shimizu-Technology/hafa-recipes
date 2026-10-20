@@ -29,8 +29,8 @@ export function todayCareRows(
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at) || a.id.localeCompare(b.id))
     .slice(0, limit);
 }
-/** Enough recent care for today's totals at newborn frequency (about 30 entries a day). */
-export const glanceLimit = 60;
+/** Enough recent care for today's totals at newborn frequency (about 30 entries a day per baby). */
+export const glanceLimit = 100;
 
 export function useTodayCare() {
   const b = useBaby(),

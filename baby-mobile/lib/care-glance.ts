@@ -46,6 +46,13 @@ export interface CareGlance {
   feeds: number;
 }
 
+/** A sleep counts as happening now only if it is her newest sleep and began within a day;
+ * an old one nobody ended is left for the editor rather than ended as a days-long sleep. */
+function currentSleep(newestFirst: BabyRecord[], now: Date) {
+  const newest = newestFirst.find((row) => row.kind === "sleep");
+  return newest && !newest.data.end_at && now.getTime() - new Date(newest.occurred_at).getTime() < day ? newest : undefined;
+}
+
 /** Newest-first care rows for one baby reduced to what a parent checks at a glance. */
 export function careGlance(rows: BabyRecord[], childId: string | null, now = new Date()): CareGlance {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(),
@@ -56,7 +63,7 @@ export function careGlance(rows: BabyRecord[], childId: string | null, now = new
     diapers = today.filter((row) => row.kind === "diaper");
   return {
     lastFeed: mine.find((row) => row.kind === "feeding"),
-    openSleep: mine.find((row) => row.kind === "sleep" && !row.data.end_at),
+    openSleep: currentSleep(mine, now),
     lastSleep: mine.find((row) => row.kind === "sleep" && !!row.data.end_at),
     diapers: {
       total: diapers.length,
@@ -70,7 +77,7 @@ export function careGlance(rows: BabyRecord[], childId: string | null, now = new
 /** Prefill a new feed from the last one: same method, and the other breast after one side. */
 export function nextFeed(last?: Pick<BabyRecord, "data">): RecordData {
   const method = last?.data.method ?? "breast";
-  if (method !== "breast") return { method, ...(last?.data.unit ? { unit: last.data.unit } : {}) };
+  if (method !== "breast") return { method, side: undefined, ...(last?.data.unit ? { unit: last.data.unit } : {}) };
   const side = last?.data.side === "left" ? "right" : last?.data.side === "right" ? "left" : "both";
   return { method, side };
 }

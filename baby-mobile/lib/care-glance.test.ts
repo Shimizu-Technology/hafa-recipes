@@ -41,6 +41,10 @@ it("summarizes today's care for one baby only", () => {
   expect(glance.openSleep?.occurred_at).toBe(at(20, 17));
   expect(glance.lastSleep?.data.end_at).toBe(at(20, 15));
   expect(careGlance([], "a", now)).toEqual({ diapers: { total: 0, wet: 0, dirty: 0 }, feeds: 0 });
+  // A forgotten open sleep from days ago, or one older than a newer finished sleep, is not "now".
+  expect(careGlance([row("sleep", at(18, 20))], "a", now).openSleep).toBeUndefined();
+  expect(careGlance([row("sleep", at(20, 9)), row("sleep", at(20, 12), { end_at: at(20, 13) })], "a", now).openSleep)
+    .toBeUndefined();
 });
 
 it("picks the selected baby or falls back to the first profile", () => {
@@ -57,6 +61,6 @@ it("suggests the other side after a one-sided breastfeed and keeps bottle detail
   expect(nextFeed({ data: { method: "breast", side: "left" } })).toEqual({ method: "breast", side: "right" });
   expect(nextFeed({ data: { method: "breast", side: "right" } })).toEqual({ method: "breast", side: "left" });
   expect(nextFeed({ data: { method: "breast", side: "both" } })).toEqual({ method: "breast", side: "both" });
-  expect(nextFeed({ data: { method: "bottle", unit: "oz", amount: 4 } })).toEqual({ method: "bottle", unit: "oz" });
+  expect(nextFeed({ data: { method: "bottle", unit: "oz", amount: 4 } })).toEqual({ method: "bottle", side: undefined, unit: "oz" });
   expect(nextFeed()).toEqual({ method: "breast", side: "both" });
 });

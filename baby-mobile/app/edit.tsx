@@ -254,8 +254,12 @@ export default function Edit() {
         toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at)}`, {
           label: "Undo",
           onPress: async () => {
-            await undo();
-            toast("Undone.");
+            try {
+              await undo();
+              toast("Undone.");
+            } catch (e) {
+              toast(messageFor(e));
+            }
           },
         });
         void b.sync();
