@@ -80,7 +80,11 @@ function prepareGate(setup: ReturnType<typeof createSignupSetup>) {
     if (!String(args[0]).includes("react-test-renderer is deprecated")) throw Error(String(args[0]));
   });
   gate.opened.mockClear(); gate.onboard.mockReset(); gate.clerk.signOut.mockReset();
+  gate.auth.sessionId = "session_A"; gate.auth.userId = "user_A";
+  gate.clerk.session = { id: "session_A", user: { id: "user_A" } };
+  vi.spyOn(signupSetup, "begin").mockImplementation(setup.begin);
   vi.spyOn(signupSetup, "pending").mockImplementation(setup.pending);
+  vi.spyOn(signupSetup, "recoverable").mockImplementation(setup.recoverable);
   vi.spyOn(signupSetup, "complete").mockImplementation(setup.complete);
   vi.spyOn(signupSetup, "clear").mockImplementation(setup.clear);
 }
@@ -122,4 +126,47 @@ it("retains explicit setup intent if sign-out itself fails", async () => {
   expect(gate.clerk.signOut).toHaveBeenCalledTimes(1);
   expect(await setup.pending("session_A", "user_A")).toBe(true);
   expect(gate.opened).not.toHaveBeenCalled();
+});
+
+it("successful logout preserves exact-user recovery and requires an explicit finish in the new session", async () => {
+  const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
+  gate.onboard.mockRejectedValueOnce(Error("Offline")).mockResolvedValueOnce({ status: "existing", app_user_id: "app_owner" });
+  gate.clerk.signOut.mockResolvedValue(undefined);
+  await mountGate();
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === "Sign out")[0].props.onPress());
+  expect(await setup.pending("session_A", "user_A")).toBe(false);
+  expect(await setup.recoverable("user_A")).toBe(true);
+  await act(async () => renderer!.unmount());
+  gate.auth.sessionId = "session_B"; gate.clerk.session = { id: "session_B", user: { id: "user_A" } };
+  await mountGate();
+  expect(gate.onboard).toHaveBeenCalledTimes(1); expect(gate.opened).not.toHaveBeenCalled();
+  const finish = renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === "Finish account setup")[0];
+  await act(async () => { finish.props.onPress(); finish.props.onPress(); });
+  expect(gate.onboard).toHaveBeenCalledTimes(2); expect(gate.opened).toHaveBeenCalled();
+  expect(new Set(gate.onboard.mock.calls.map(([id]) => id)).size).toBe(1);
+  expect(await setup.recoverable("user_A")).toBe(false);
+});
+
+it("interruption before session activation retains exact-user recovery provenance", async () => {
+  const { setup, storage, data } = fixture();
+  storage.setItemAsync.mockImplementationOnce(async (key, value) => { data.set(key, value); })
+    .mockRejectedValueOnce(Error("Interrupted"));
+  await expect(setup.begin("session_A", "user_A")).rejects.toThrow("Interrupted");
+  expect(await setup.pending("session_A", "user_A")).toBe(false);
+  expect(await setup.recoverable("user_A")).toBe(true);
+  expect(await setup.recoverable("user_B")).toBe(false);
+});
+
+it("an expired signup session offers recovery only to the original user", async () => {
+  const { setup } = fixture(); await setup.begin("session_A", "user_A");
+  prepareGate(setup); gate.auth.sessionId = "session_B";
+  gate.clerk.session = { id: "session_B", user: { id: "user_A" } };
+  await mountGate();
+  expect(gate.opened).not.toHaveBeenCalled(); expect(gate.onboard).not.toHaveBeenCalled();
+  expect(renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === "Finish account setup")).toHaveLength(1);
+  await act(async () => renderer!.unmount());
+  gate.auth.userId = "user_B"; gate.clerk.session = { id: "session_B", user: { id: "user_B" } };
+  await mountGate();
+  expect(gate.opened).toHaveBeenCalled(); expect(gate.onboard).not.toHaveBeenCalled();
+  expect(renderer!.root.findAll((node) => String(node.type) === "Button" && node.props.title === "Finish account setup")).toHaveLength(0);
 });

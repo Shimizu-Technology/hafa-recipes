@@ -11,11 +11,22 @@ export function createSignupSetup(storage: SecretStorage, randomHex: () => Promi
       throw Error("The new account could not be securely verified.");
     return `baby.signup.intent.${session}.${user}`;
   }
+  function provenanceKey(user: string) {
+    // Reuse ID validation; provenance is for this exact verified Clerk user only.
+    intentKey("provenance", user);
+    return `baby.signup.user.${user}`;
+  }
+  async function recoverable(user: string) {
+    return (await storage.getItemAsync(provenanceKey(user))) === "create_account";
+  }
   async function pending(session: string, user: string) {
     return (await storage.getItemAsync(intentKey(session, user))) === "create_account";
   }
   async function begin(session: string, user: string) {
-    await storage.setItemAsync(intentKey(session, user), "create_account");
+    const key = intentKey(session, user);
+    // Persist before activation, including interruption between these two writes.
+    await storage.setItemAsync(provenanceKey(user), "create_account");
+    await storage.setItemAsync(key, "create_account");
   }
   async function clear(session: string, user: string) {
     await storage.deleteItemAsync(intentKey(session, user));
@@ -49,8 +60,10 @@ export function createSignupSetup(storage: SecretStorage, randomHex: () => Promi
       throw Error("Account setup could not be verified. Please try again.");
     await clear(session, user);
     guard();
+    await storage.deleteItemAsync(provenanceKey(user));
+    guard();
   }
-  return { begin, pending, complete, clear };
+  return { begin, pending, recoverable, complete, clear };
 }
 const memory = new Map<string, string>();
 const storage: SecretStorage = Platform.OS === "web" ? {
