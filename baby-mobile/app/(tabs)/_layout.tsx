@@ -94,7 +94,7 @@ export default function TabLayout() {
           backgroundColor: c.action,
           justifyContent: "center",
           alignItems: "center",
-          shadowColor: "#000",
+          shadowColor: "#2D2420",
           shadowOpacity: 0.14,
           shadowRadius: 9,
           shadowOffset: { width: 0, height: 4 },

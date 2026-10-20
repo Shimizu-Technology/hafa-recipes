@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="484" height="700" viewBox="270 164 484 700" fill="none">
   <title>Håfa Baby</title>
   <g>
-  <path d="M637.8 398.4A146 146 0 1 1 486 204.7A124 124 0 0 0 637.8 398.4Z" fill="#E08A74" stroke="#E08A74" stroke-width="14" stroke-linejoin="round"/>
-  <circle cx="650" cy="214" r="30" fill="#E08A74"/>
-  <path d="M418 626C432 572 592 572 606 626L650 788C657 816 635 843 606 843H418C389 843 367 816 374 788L418 626Z" fill="#155C52"/>
-  <path d="M330 554H694C673 612 604 654 512 654C420 654 351 612 330 554Z" fill="#0F4942"/>
-  <rect x="290" y="486" width="444" height="94" rx="47" fill="#155C52"/>
+  <path d="M637.8 398.4A146 146 0 1 1 486 204.7A124 124 0 0 0 637.8 398.4Z" fill="#C9907E" stroke="#C9907E" stroke-width="14" stroke-linejoin="round"/>
+  <circle cx="650" cy="214" r="30" fill="#C9907E"/>
+  <path d="M418 626C432 572 592 572 606 626L650 788C657 816 635 843 606 843H418C389 843 367 816 374 788L418 626Z" fill="#6E5A50"/>
+  <path d="M330 554H694C673 612 604 654 512 654C420 654 351 612 330 554Z" fill="#5A4740"/>
+  <rect x="290" y="486" width="444" height="94" rx="47" fill="#6E5A50"/>
   </g>
 </svg>

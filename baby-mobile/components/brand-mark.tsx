@@ -9,10 +9,10 @@ const MOON = "M637.8 398.4A146 146 0 1 1 486 204.7A124 124 0 0 0 637.8 398.4Z";
 const PILLAR = "M418 626C432 572 592 572 606 626L650 788C657 816 635 843 606 843H418C389 843 367 816 374 788L418 626Z";
 const UNDERSIDE = "M330 554H694C673 612 604 654 512 654C420 654 351 612 330 554Z";
 
-// Shared Håfa reef values plus the Baby dawn-blush accent; the dark set matches hafa-baby-icon-dark.svg.
+// Sand & Cocoa: cocoa stone with a clay moon; the dark set matches hafa-baby-icon-dark.svg.
 const PALETTES = {
-  light: { stone: "#155C52", stoneDeep: "#0F4942", accent: "#E08A74" },
-  dark: { stone: "#2F8F83", stoneDeep: "#1D6F65", accent: "#F0A994" },
+  light: { stone: "#6E5A50", stoneDeep: "#5A4740", accent: "#C9907E" },
+  dark: { stone: "#CDB8AA", stoneDeep: "#B29C8F", accent: "#E7B7A5" },
 } as const;
 
 type BrandMarkProps = {

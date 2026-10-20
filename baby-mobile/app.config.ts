@@ -1,10 +1,10 @@
 import type { ExpoConfig } from "expo/config";
 const babyShareActivation = require("./plugins/share-activation.cjs") as string;
 const projectId = "12a0a2fa-0a4e-404e-b0d5-62e737eb859d";
-// Brand backgrounds shared with Recipes and Workouts: Håfa cream (the icon ground) and the dark app ground.
+// Splash grounds match Baby's Sand & Cocoa app backgrounds (light sand, warm near-black) so launch has no colour jump.
 // Icons and splash come from assets/brand/*.svg.
-const cream = "#FFF7EC";
-const darkGround = "#101411";
+const sand = "#F8F3EE";
+const darkGround = "#14110F";
 const config: ExpoConfig = {
   name: "Håfa Baby",
   icon: "./assets/icon.png",
@@ -40,7 +40,7 @@ const config: ExpoConfig = {
         image: "./assets/splash.png",
         imageWidth: 128,
         resizeMode: "contain",
-        backgroundColor: cream,
+        backgroundColor: sand,
         dark: { image: "./assets/splash-dark.png", backgroundColor: darkGround },
       },
     ],

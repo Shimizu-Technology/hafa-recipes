@@ -225,6 +225,7 @@ export default function Today() {
             <RecordRow
               key={r.id}
               record={r}
+              now={now}
               pending={b.state.outbox.some((m) => m.type !== "import" && m.record.id === r.id)}
             />
           ))}

@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
@@ -130,10 +130,12 @@ export default function Ask() {
             key={m.id ?? index}
             accessible
             accessibilityLabel={`You asked: ${m.content}`}
-            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.soft, borderRadius: 20,
+            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: 20,
               borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
           >
-            <Copy>{m.content}</Copy>
+            <Text maxFontSizeMultiplier={2} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 25 }}>
+              {m.content}
+            </Text>
           </View>
         ) : (
           <View key={m.id ?? index} style={{ gap: 12 }}>

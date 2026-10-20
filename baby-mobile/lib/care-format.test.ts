@@ -17,6 +17,8 @@ it("summarizes feeds with method, side, amount and duration and never shows empt
 
 it("shows open sleep as happening now and finished sleep as a duration", () => {
   expect(careSummary("sleep", {}, at(20, 17, 48), now)).toBe("Sleeping now · 42 min");
+  expect(careSummary("sleep", {}, at(20, 18, 31), now)).toBe("Sleeping now · just started");
+  expect(careSummary("sleep", {}, at(20, 21), now)).toMatch(/^Sleep starts /);
   expect(careSummary("sleep", { end_at: at(20, 15, 20) }, at(20, 14), now)).toBe("Slept 1 h 20 min");
   expect(careSummary("sleep", {}, at(18, 9), now)).toMatch(/^Sleep not ended · started /);
   expect(careSummary("sleep", {}, "not a date", now)).toBe("Sleep in progress");
