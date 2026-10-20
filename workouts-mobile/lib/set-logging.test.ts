@@ -16,6 +16,7 @@ it("summarises last time compactly", () => {
   expect(setsLine([set(null, undefined, { duration_seconds: 45 }), set(null, undefined, { duration_seconds: 90 })], "metric")).toBe("45s, 1:30");
   expect(setsLine([set(null, undefined, { distance_meters: 1609.344 })], "imperial")).toBe("1 mi");
   expect(setsLine([set(null, undefined, { distance_meters: 400 })], "metric")).toBe("400 m");
+  expect(setsLine([set(8, 20, { load_convention: "assistance" })], "metric")).toBe("8 @ 20 kg assist");
   expect(setsLine([], "metric")).toBe("");
 });
 

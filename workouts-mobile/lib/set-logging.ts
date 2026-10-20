@@ -61,7 +61,8 @@ function amount(set: ActualSet, units: UnitSystem) {
 }
 function weight(set: ActualSet) {
   if (set.load == null) return "";
-  const each = set.load_convention === "per_hand" ? " each" : set.load_convention === "added" ? " added" : "";
+  const kinds: Record<string, string> = { per_hand: " each", added: " added", assistance: " assist" };
+  const each = kinds[set.load_convention ?? ""] ?? "";
   return ` @ ${trim(set.load)} ${set.load_unit ?? ""}`.trimEnd() + each;
 }
 

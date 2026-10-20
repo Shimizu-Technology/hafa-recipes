@@ -482,3 +482,22 @@ it("shows every set from last time on one line", async () => {
   await act(async () => { await fixture.store!.start(kettlebell, { workout_id: "source", workout_revision: 1 }, "kb-again"); }); await settle();
   expect(text()).toContain("Last time · 10, 10, 8 @ 16 kg");
 });
+it("saves only the measure on screen and keeps the weight kind on skipped sets", async () => {
+  const dumbbells: Workout = { ...workout, provenance: "user", blocks: [{ id: "main", label: "Main", grouping: "sequential",
+    exercises: [{ name: "Curl", sets: 3, reps_min: 10, load_convention: "per_hand" }] }] };
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(dumbbells, { workout_id: "source", workout_revision: 1 }, "dumbbells");
+  }); await settle();
+  await act(async () => { field("Reps").props.onChange("12"); field("Weight · kg").props.onChange("10"); }); await settle();
+  expect(field("Weight · kg").props.note).toBe("Per hand");
+  await act(async () => { field("Reps").props.onLabelPress(); }); await settle();
+  await act(async () => { sheet("What to record").findByType("Segmented" as never).props.onChange("time"); }); await settle();
+  await act(async () => { field("Time · sec").props.onChange("40"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[0]).toMatchObject({ reps: null, duration_seconds: 40, load: 10, load_convention: "per_hand" });
+  await act(async () => { field("Weight · kg").props.onChange("12"); }); await settle();
+  const skip = renderer!.root.findAllByType("ListRow" as never).find((row) => row.props.title === "Skip this set")!;
+  await act(async () => { skip.props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[1]).toMatchObject({ completed: false, load: 12, load_unit: "kg", load_convention: "per_hand" });
+});

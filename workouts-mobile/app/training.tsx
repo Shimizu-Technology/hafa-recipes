@@ -214,6 +214,10 @@ export default function Training() {
     : [];
   const previous = lastSets.at(-1) ?? null;
   const prefill = e ? prefillFor(e, sessionPrevious(d.actuals, step) ?? previous, units) : {};
+  // A typed weight counts as the workout's kind of weight (else total) unless another kind was chosen.
+  const convention = (values: Record<string, string>) =>
+    ((values.convention || e?.load_convention || defaultConvention) as NonNullable<ActualSet["load_convention"]>);
+  const amountKey = metric === "time" ? "seconds" : metric;
   const unitOf = (values: Record<string, string>) =>
     values.load_unit === "kg" || values.load_unit === "lb" ? values.load_unit : units === "imperial" ? "lb" : "kg";
   const values = entryValues(prefill, input, metric);
@@ -227,7 +231,10 @@ export default function Training() {
       throw Error("This session changed. Review the current session before logging.");
     const submitted = inputRef.current;
     // A logged set saves the values shown (typed or cleared values win); a skip keeps only what was typed.
-    const entry = completed ? entryValues(prefill, submitted, metric) : submitted;
+    const shown = entryValues(prefill, submitted, metric);
+    // Only the measure on screen is saved, so reps typed before switching to time are not logged as well.
+    const hidden = (["reps", "seconds", "distance"] as const).filter((key) => key !== amountKey);
+    const entry = Object.fromEntries(Object.entries(completed ? shown : submitted).filter(([key]) => !hidden.includes(key as never)));
     const optional = (key: string) => parseEntry(entry[key]);
     const load = optional("load");
     const actual: ActualSet = {
@@ -241,9 +248,9 @@ export default function Training() {
       duration_seconds: optional("seconds"),
       distance_meters: distanceMeters(entry, submitted, prefill, units),
       load,
-      load_unit: load == null ? null : unitOf(entry),
-      // A typed weight counts as total weight unless another kind was chosen in the weight sheet.
-      load_convention: load == null ? null : (entry.convention as ActualSet["load_convention"]) || defaultConvention,
+      // Unit and kind always match what the weight field shows, including on a skipped set.
+      load_unit: load == null ? null : unitOf(shown),
+      load_convention: load == null ? null : convention(shown),
       difficulty: (submitted.difficulty as ActualSet["difficulty"]) || null,
       effort: optional("effort"),
       pain_reported: submitted.pain === "yes" ? true : submitted.pain === "no" ? false : null,
@@ -476,7 +483,7 @@ export default function Training() {
               label={`Weight · ${unit}`}
               labelHint="Change kg or lb, or how the weight is counted"
               onLabelPress={() => setWeightOpen(true)}
-              note={values.load?.trim() && (values.convention || defaultConvention) !== "total" ? conventionLabel(values.convention) : undefined}
+              note={values.load?.trim() && convention(values) !== "total" ? conventionLabel(convention(values)) : undefined}
               step={unit === "kg" ? 2.5 : 5}
               decimal
               value={values.load ?? ""}
@@ -612,7 +619,7 @@ export default function Training() {
             <Chip
               key={option.value}
               label={option.label}
-              selected={(values.convention || defaultConvention) === option.value}
+              selected={convention(values) === option.value}
               onPress={() => field("convention", option.value)}
             />
           ))}
