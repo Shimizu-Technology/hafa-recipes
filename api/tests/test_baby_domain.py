@@ -272,3 +272,11 @@ def test_ai_context_uses_the_parents_local_clock():
     )
     assert "19:18:20+10:00" in excerpt_for(item, [], zone=guam)
     assert local_data({"end_at": "not a time"}, guam) == {"end_at": "not a time"}
+
+
+def test_question_terms_find_singular_titles():
+    terms = query_terms("How many diapers and feeds today? Any bottles or stretches? Glass bus")
+    assert {"diaper", "feed", "bottle", "stretch", "glass", "bus"} <= set(terms)
+    # -ies trims to a stem that still matches both forms; short stems keep the original word.
+    assert query_terms("allergies onesies") == ["allerg", "ones"]
+    assert query_terms("naps meds aches babies rabies") == ["naps", "meds", "aches", "babies", "rabies"]
