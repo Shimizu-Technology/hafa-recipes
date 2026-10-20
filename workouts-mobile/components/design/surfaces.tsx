@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ScrollView,
   View,
+  type RefreshControlProps,
   type ScrollViewProps,
   type StyleProp,
   type ViewStyle,
@@ -46,6 +47,7 @@ export function Screen({
   constrainFooter = false,
   dismiss = false,
   hideTitle = false,
+  list,
 }: PropsWithChildren<{
   title: string;
   subtitle?: string;
@@ -70,6 +72,12 @@ export function Screen({
   scrollRef?: Ref<ScrollView>;
   onScroll?: ScrollViewProps["onScroll"];
   onContentSizeChange?: ScrollViewProps["onContentSizeChange"];
+  /**
+   * Render a virtualized list as the body instead of the scroll view (long
+   * feeds). It receives the title block and the screen's scroll styling;
+   * `children` then render after the list, so keep them to sheets/modals.
+   */
+  list?: (body: { header: ReactNode; contentContainerStyle: ViewStyle; refreshControl?: ReactElement<RefreshControlProps> }) => ReactNode;
 }>) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -77,6 +85,28 @@ export function Screen({
   // Main tabs name the screen in a centered bar (like Håfa Recipes) instead of a lockup plus a large title.
   const root = useIsTabRoot() && !back;
   const overlay = useTabOverlayHeight();
+  const heading = root ? (
+    !!(subtitle || eyebrow) && (
+      <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>
+    )
+  ) : !hideTitle ? (
+    <View style={{ gap: 6 }}>
+      <Copy kind="title">{title}</Copy>
+      {!!(subtitle || eyebrow) && <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>}
+    </View>
+  ) : null;
+  const contentContainerStyle: ViewStyle = {
+    paddingTop: spacing.md,
+    paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl + (root ? overlay : 0)),
+    paddingHorizontal: spacing.lg - 4,
+    gap: spacing.lg,
+    width: "100%",
+    maxWidth: contentWidth,
+    alignSelf: "center",
+  };
+  const refreshControl = onRefresh ? (
+    <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={c.action} colors={[c.action]} />
+  ) : undefined;
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}
@@ -108,44 +138,23 @@ export function Screen({
           </View>
         </View>
       </View>
-      <ScrollView
+      {list ? <>{list({ header: heading, contentContainerStyle, refreshControl })}{children}</> : <ScrollView
         ref={scrollRef}
         style={Platform.OS === "web" && disableBrowserScrollAnchoring ? { overflowAnchor: "none" } as ViewStyle : undefined}
         onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={c.action} colors={[c.action]} />
-          ) : undefined
-        }
+        refreshControl={refreshControl}
         scrollEventThrottle={onScroll ? 100 : onEndReached ? 200 : undefined}
         onScroll={onScroll || onEndReached ? event => {
           onScroll?.(event);
           const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
           if (onEndReached && layoutMeasurement.height + contentOffset.y >= contentSize.height - 600) onEndReached();
         } : undefined}
-        contentContainerStyle={{
-          paddingTop: spacing.md,
-          paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl + (root ? overlay : 0)),
-          paddingHorizontal: spacing.lg - 4,
-          gap: spacing.lg,
-          width: "100%",
-          maxWidth: contentWidth,
-          alignSelf: "center",
-        }}
+        contentContainerStyle={contentContainerStyle}
       >
-        {root ? (
-          !!(subtitle || eyebrow) && (
-            <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>
-          )
-        ) : !hideTitle ? (
-          <View style={{ gap: 6 }}>
-            <Copy kind="title">{title}</Copy>
-            {!!(subtitle || eyebrow) && <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>}
-          </View>
-        ) : null}
+        {heading}
         {children}
-      </ScrollView>
+      </ScrollView>}
       {!!footer && (
         <View
           style={{

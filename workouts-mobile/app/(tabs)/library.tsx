@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, FlatList, ScrollView, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
@@ -12,30 +13,34 @@ import {
   Empty,
   Field,
   IconButton,
+  ListGroup,
   ListRow,
-  MediaCard,
   Notice,
   Row,
   Screen,
-  SectionHeader,
   Sheet,
   SkeletonCard,
+  haptics,
+  useColors,
 } from "@/components/ui";
-import { QueryState } from "@/components/query-state";
+import { CollectionTile, LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
+import { LibrarySearch } from "@/components/library-search";
+import { spacing } from "@/constants/theme";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
-import { workoutKindLabel, workoutOrigin } from "@/lib/labels";
-import { WorkoutGallery, useWorkoutGalleryColumns } from "@/components/workout-gallery";
+import { collectionCovers, useLibraryView, workoutCardBadge, workoutCardMeta, workoutCountLabel } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
-  const columns = useWorkoutGalleryColumns();
+  const c = useColors();
   const { state: training, ready: trainingReady } = useOfflineTraining();
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
+  const [view, setView] = useLibraryView(storage, owner);
+  const [menu, setMenu] = useState(false);
   const [search, setSearch] = useState("");
   const [settledSearch, setSettledSearch] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -69,6 +74,10 @@ export default function Library() {
     try { current(); } catch { return; }
     setSelectedIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]);
     setBulkMessage(""); setBulkError("");
+  }
+  function startSelecting(id?: string) {
+    if (!enrollment?.enrolled || bulkBusy) return;
+    interact(() => { haptics.tick(); setMenu(false); setSelecting(true); setSelectedIds(id ? [id] : []); setBulkMessage(""); setBulkError(""); });
   }
   async function addSelected() {
     if (scope.lock || !selectedIds.length || !bulkTarget || !enrollment?.generation) return;
@@ -114,6 +123,9 @@ export default function Library() {
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => api.searchLibrary(selected, pageParam, enrollment?.generation ?? 0),
     getNextPageParam: (page) => (page.has_more ? (page.next_cursor ?? undefined) : undefined),
+    // Keep this account's results on screen while a new search loads, so typing never flashes empty.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[0] === owner && previousQuery.queryKey[2] === enrollment?.generation ? previous : undefined,
     enabled: !!enrollment?.enrolled,
   });
   // Workouts saved on another device or from a share appear without relaunching.
@@ -122,8 +134,11 @@ export default function Library() {
   const visible = [
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
-  const narrowed = search || equipment || tags || kind || favorite || archived || collection;
-  const advanced = [equipment, tags, collection].filter(Boolean).length;
+  const covers = collectionCovers(visible);
+  const filterCount = [favorite, kind, archived, equipment.trim(), tags.trim(), collection].filter(Boolean).length;
+  const narrowed = !!search || !!filterCount;
+  const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
+  const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   function clear() {
     setSearch("");
     setEquipment("");
@@ -133,155 +148,143 @@ export default function Library() {
     setArchived(false);
     setCollection(undefined);
   }
+  const header = (screenHeader: ReactNode) => (
+    <View style={{ gap: spacing.md, paddingBottom: spacing.xs }}>
+      {screenHeader}
+      {trainingReady && training.active && <Card compact>
+        <Copy kind="caption" tone="muted">Session in progress</Copy>
+        <Copy kind="subheading">{training.active.workout.title}</Copy>
+        <Button title="Resume session" secondary icon="play-outline" onPress={() => router.push("/training")} />
+      </Card>}
+      {selecting ? (
+        <Row justify="space-between">
+          <Button title="Done" variant="ghost" size="sm" inline disabled={bulkBusy}
+            onPress={() => interact(() => { setSelecting(false); setSelectedIds([]); setBulkMessage(""); setBulkError(""); })} />
+          <Copy kind="label">{selectedIds.length} selected</Copy>
+          <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length}
+            onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
+        </Row>
+      ) : (
+        <Row justify="space-between">
+          <Copy tone="muted">{q.data ? workoutCountLabel(q.data.pages[0].total, archived) : " "}</Copy>
+          <IconButton icon="ellipsis-horizontal" label="Library options" onPress={() => setMenu(true)} size={40} />
+        </Row>
+      )}
+      <LibrarySearch value={search} onChange={setSearch} filterCount={filterCount} onFilters={() => setFilters(true)} />
+      {!!filterCount && <ChipRow label="Active filters">
+        {favorite && <Chip label="Favorites" selected onPress={() => setFavorite(false)} />}
+        {!!kind && <Chip label={kindLabels[kind]} selected onPress={() => setKind(undefined)} />}
+        {archived && <Chip label="Archived" selected onPress={() => setArchived(false)} />}
+        {!!collection && <Chip label={collectionTitle ?? "Collection"} selected onPress={() => setCollection(undefined)} />}
+        {!!equipment.trim() && <Chip label={equipment.trim()} selected onPress={() => setEquipment("")} />}
+        {!!tags.trim() && <Chip label={`Tags: ${tagsFromText(tags).join(", ")}`} selected onPress={() => setTags("")} />}
+      </ChipRow>}
+      {!!collections.data?.length && <View style={{ gap: spacing.xs }}>
+        <Copy kind="label">Collections</Copy>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel="Collections"
+          contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.md }}>
+          {collections.data.map(item => <CollectionTile key={item.id} title={item.title} count={item.workout_count} cover={covers.get(item.id)}
+            selected={collection === item.id} onPress={() => setCollection(collection === item.id ? undefined : item.id)} />)}
+        </ScrollView>
+      </View>}
+      {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
+      {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
+    </View>
+  );
+  const empty = q.isPending && !!enrollment?.enrolled ? (
+    <>
+      <SkeletonCard label="Loading your workouts" />
+      <SkeletonCard lines={1} label="Loading your workouts" />
+    </>
+  ) : q.error ? (
+    <>
+      <Notice error>{q.error.message}</Notice>
+      <Button title="Try again" secondary onPress={() => void q.refetch()} />
+    </>
+  ) : (
+    <Empty
+      icon="albums-outline"
+      title={narrowed ? "No matching workouts" : "Build your own library"}
+      description={narrowed
+        ? "Try a shorter search or clear the filters."
+        : "Save a workout from a link, photo or your own notes. Choose what to share as you save."}
+      action={narrowed ? <Button title="Clear filters" secondary onPress={clear} /> : (
+        <Button title={enrollment?.enrolled ? "Add a workout" : "Start saving workouts"} icon="add"
+          onPress={() => router.push(enrollment?.enrolled ? "/capture" : "/onboarding")} />
+      )}
+    />
+  );
   return (
     <Screen
       title="Library"
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
-      action={
-        <Row gap={8}>
-          <IconButton
-            icon="add"
-            label="Add a workout"
-            variant="primary"
-            onPress={() => router.push(enrollment?.enrolled ? "/capture" : "/onboarding")}
-          />
-          <AccountButton />
-        </Row>
-      }
+      action={<AccountButton />}
+      footer={selecting ? <Button title="Add selected to collection" icon="folder-open-outline" disabled={!selectedIds.length || bulkBusy}
+        onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
+      list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
+        <FlatList
+          key={view}
+          data={visible}
+          numColumns={view === "grid" ? 2 : 1}
+          keyExtractor={(w) => w.id}
+          columnWrapperStyle={view === "grid" ? { gap: LIBRARY_GRID_GAP } : undefined}
+          contentContainerStyle={[contentContainerStyle, { gap: LIBRARY_GRID_GAP }]}
+          refreshControl={refreshControl}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListHeaderComponent={header(screenHeader)}
+          ListEmptyComponent={empty}
+          ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
+            : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} /> : null}
+          onEndReachedThreshold={0.6}
+          onEndReached={() => { if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError) void q.fetchNextPage(); }}
+          renderItem={({ item: w }) => (
+            <LibraryCard
+              view={view}
+              title={w.title}
+              meta={workoutCardMeta(w, view === "list")}
+              creator={w.source_creator}
+              image={w.source_thumbnail_url}
+              icon={kindIcons[w.kind]}
+              favorite={!!w.organization?.favorite}
+              badge={workoutCardBadge(w)}
+              selected={selecting ? selectedIds.includes(w.id) : undefined}
+              onPress={() => selecting ? select(w.id) : router.push({ pathname: "/workout/[id]", params: { id: w.id } })}
+              onLongPress={selecting ? undefined : () => startSelecting(w.id)}
+            />
+          )}
+        />
+      )}
     >
-      {trainingReady && training.active && <Card compact>
-        <Copy kind="caption" tone="accent">Session in progress</Copy>
-        <Copy kind="subheading">{training.active.workout.title}</Copy>
-        <Button title="Resume session" secondary icon="play-outline" onPress={() => router.push("/training")} />
-      </Card>}
-      <Field label="Search workouts" value={search} onChange={setSearch} placeholder="Title or training focus" />
-      <ChipRow label="Quick filters">
-        <Chip label="Favorites" icon="heart-outline" selected={favorite} onPress={() => setFavorite(!favorite)} />
-        {!!kind && <Chip label={kindLabels[kind]} selected onPress={() => setKind(undefined)} />}
-        {archived && <Chip label="Archived" selected onPress={() => setArchived(false)} />}
-        <Chip label={advanced || kind || archived ? "Filters · active" : "Filters"} icon="options-outline"
-          selected={!!(advanced || kind || archived)} onPress={() => setFilters(true)} />
-      </ChipRow>
-      {!!collections.data?.length && <ChipRow label="Collections">
-        <Chip label="All workouts" selected={!collection} onPress={() => setCollection(undefined)} />
-        {collections.data.map(item => <Chip key={item.id} label={item.title} selected={collection === item.id} onPress={() => setCollection(item.id)} />)}
-      </ChipRow>}
-      {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
-      {selecting && <>
-        <Copy kind="small">{selectedIds.length} selected across your library</Copy>
-        <Button title="Add selected to collection" icon="folder-open-outline" secondary disabled={!selectedIds.length || bulkBusy}
-          onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} />
-      </>}
-      {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
-      <Row gap={10} wrap>
-        <Button title="Manage collections" icon="folder-open-outline" variant="ghost" size="sm" inline onPress={() => router.push("/collections")} />
-        <Button title={selecting ? "Done selecting" : "Select workouts"} variant="ghost" size="sm" inline disabled={bulkBusy || !enrollment?.enrolled}
-          onPress={() => interact(() => { setSelecting(!selecting); setSelectedIds([]); setBulkMessage(""); setBulkError(""); })} />
-      </Row>
-      <QueryState
-        loading={false}
-        error={q.error}
-        retry={() => {
-          void q.refetch();
-        }}
-      >
-        {q.isPending && !!enrollment?.enrolled ? (
-          <>
-            <SkeletonCard label="Loading your workouts" />
-            <SkeletonCard lines={1} label="Loading your workouts" />
-          </>
-        ) : !visible.length ? (
-          <Empty
-            icon="albums-outline"
-            title={narrowed ? "No matching workouts" : "Build your own library"}
-            description={
-              narrowed
-                ? "Try a shorter search or clear the filters."
-                : "Save a workout from a link, photo or your own notes. Choose what to share as you save."
-            }
-            action={
-              narrowed ? (
-                <Button title="Clear filters" secondary onPress={clear} />
-              ) : (
-                <Button title={enrollment?.enrolled ? "Add a workout" : "Start saving workouts"} icon="add"
-                  onPress={() => router.push(enrollment?.enrolled ? "/capture" : "/onboarding")} />
-              )
-            }
-          />
-        ) : (
-          <>
-            <SectionHeader title={`${q.data?.pages[0].total ?? visible.length} ${archived ? "archived " : ""}${q.data?.pages[0].total === 1 ? "workout" : "workouts"}`} />
-            <WorkoutGallery>
-            {visible.map((w) => selecting ? <Choice key={w.id} label={w.title} detail={w.source_creator ? `By ${w.source_creator}` : workoutKindLabel(w.kind)}
-              selected={selectedIds.includes(w.id)} disabled={bulkBusy} onPress={() => select(w.id)} /> : (
-              <MediaCard
-                key={w.id}
-                layout={columns === 2 ? "stacked" : "row"}
-                title={w.title}
-                image={w.source_thumbnail_url}
-                icon={kindIcons[w.kind]}
-                badge={w.extraction_warnings?.length ? "Check details" : w.organization?.favorite ? "Favorite" : undefined}
-                footer={w.source_creator ? <Copy kind="small" tone="muted">By {w.source_creator}</Copy> : undefined}
-                meta={[
-                  workoutKindLabel(w.kind),
-                  workoutOrigin(w),
-                  ...(w.organization?.tags ?? []),
-                ].join(" · ")}
-                chips={w.equipment_required ?? []}
-                accessibilityLabel={`View workout ${w.title}`}
-                onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })}
-              />
-            ))}
-            </WorkoutGallery>
-            {q.hasNextPage && (
-              <Button
-                title="Load more workouts"
-                secondary
-                busy={q.isFetchingNextPage}
-                onPress={() => {
-                  void q.fetchNextPage();
-                }}
-              />
-            )}
-          </>
-        )}
-      </QueryState>
-      <Sheet visible={filters} onClose={() => setFilters(false)} title="Find your next session">
+      <Sheet visible={menu} onClose={() => setMenu(false)} title="Library options">
+        <ListGroup>
+          <ListRow icon={view === "grid" ? "list-outline" : "grid-outline"} title={view === "grid" ? "Show as a list" : "Show as a grid"} trailing="none"
+            onPress={() => { setView(view === "grid" ? "list" : "grid"); setMenu(false); }} />
+          <ListRow icon="checkmark-circle-outline" title="Select workouts" trailing="none" disabled={!enrollment?.enrolled || bulkBusy}
+            onPress={() => startSelecting()} />
+          <ListRow icon="folder-open-outline" title="Manage collections" onPress={() => { setMenu(false); router.push("/collections"); }} />
+          <ListRow icon="archive-outline" title={archived ? "Show active workouts" : "Show archived workouts"} trailing="none"
+            onPress={() => { setArchived(!archived); setMenu(false); }} />
+        </ListGroup>
+      </Sheet>
+      <Sheet visible={filters} onClose={() => setFilters(false)} title="Filter workouts">
+        <Choice label="Favorites only" selected={favorite} onPress={() => setFavorite(!favorite)} />
         <Copy kind="label">Workout type</Copy>
         <ChipRow wrap>
           {(["session", "exercise", "program", "accessory"] as const).map(value => <Chip key={value}
             label={kindLabels[value]} selected={kind === value} onPress={() => setKind(kind === value ? undefined : value)} />)}
         </ChipRow>
         <Choice label="Archived workouts" selected={archived} onPress={() => setArchived(!archived)} />
-        <Field
-          label="Equipment filter"
-          value={equipment}
-          onChange={setEquipment}
-          placeholder="Dumbbells, bodyweight…"
-          optional
-        />
-        <Field label="Tag filter" value={tags} onChange={setTags} placeholder="Separate tags with commas" optional />
-        <Copy kind="label">Collection</Copy>
-        <Choice label="All collections" selected={!collection} onPress={() => setCollection(undefined)} />
+        <Field label="Equipment" value={equipment} onChange={setEquipment} placeholder="Dumbbells, bodyweight…" optional />
+        <Field label="Tags" value={tags} onChange={setTags} placeholder="Separate tags with commas" optional />
+        {!!collections.data?.length && <Copy kind="label">Collection</Copy>}
+        {!!collections.data?.length && <Choice label="All collections" selected={!collection} onPress={() => setCollection(undefined)} />}
         {collections.data?.map((item) => (
-          <Choice
-            key={item.id}
-            label={item.title}
-            detail={`${item.workout_count} workouts`}
-            selected={collection === item.id}
-            onPress={() => setCollection(item.id)}
-          />
+          <Choice key={item.id} label={item.title} detail={`${item.workout_count} workouts`}
+            selected={collection === item.id} onPress={() => setCollection(item.id)} />
         ))}
         {collections.error && <Notice error>{collections.error.message}</Notice>}
-        <ListRow
-          icon="folder-open-outline"
-          title="Manage collections"
-          onPress={() => {
-            setFilters(false);
-            router.push("/collections");
-          }}
-        />
         <Row gap={10}>
           <Button title="Clear filters" secondary inline onPress={clear} />
           <Button title="Show workouts" inline onPress={() => setFilters(false)} />
