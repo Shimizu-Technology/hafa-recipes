@@ -3,10 +3,13 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, IconButton, Notice, Screen } from "@/components/ui";
+import { SessionTable } from "@/components/session-table";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { summaryOf, actualIdentity, historicalStructureWarning } from "@/lib/training";
+import { actualIdentity, historicalStructureWarning } from "@/lib/training";
+import { friendlyDate } from "@/lib/progress-insights";
+import { sessionStatusLabel } from "@/lib/labels";
 import type { ActualSet } from "@/lib/models";
 type NumericActual = "reps" | "duration_seconds" | "distance_meters" | "load" | "effort";
 export default function SessionDetail() {
@@ -55,36 +58,33 @@ export default function SessionDetail() {
     <Screen
       back
       title={q.data?.title ?? "Session"}
-      subtitle="What you did, and the workout as it was then."
+      subtitle={q.data ? [friendlyDate(q.data.started_at), sessionStatusLabel(q.data.status),
+        q.data.content.active_seconds != null ? `${Math.round(q.data.content.active_seconds / 60)} min` : null].filter(Boolean).join(" · ") : undefined}
+      action={q.data ? <IconButton icon="chatbubble-ellipses-outline" label="Chat about this session"
+        onPress={() => router.push({ pathname: "/coach", params: { session_id: q.data!.id } })} /> : undefined}
     >
       <QueryState
         loading={q.isPending}
         error={q.error}
+        errorMessage="This session couldn’t load. Check your connection and try again."
         retry={() => {
           void q.refetch();
         }}
       >
         {q.data && (
           <>
-            <Button
-              title="Chat about this recorded session"
-              secondary
-              onPress={() => router.push({ pathname: "/coach", params: { session_id: q.data!.id } })}
-            />
             {!!historicalStructureWarning(q.data.content.prescription_snapshot, q.data.content.actuals) && (
               <Notice>{historicalStructureWarning(q.data.content.prescription_snapshot, q.data.content.actuals)}</Notice>
             )}
-            <HealthExport sessionId={q.data.id} />
-            <Card>
-              <Copy>
-                {new Date(q.data.started_at).toLocaleString()} · {q.data.status}
-              </Copy>
-              {q.data.content.active_seconds != null && (
-                <Copy>{Math.round(q.data.content.active_seconds / 60)} recorded active minutes</Copy>
-              )}
-              {!!q.data.content.notes && <Copy>{q.data.content.notes}</Copy>}
-            </Card>
-            {(editing ?? q.data.content.actuals).map((a, index) => (
+            {!editing && !!q.data.content.notes && (
+              <Card compact tone="sunken">
+                <Copy kind="label">Notes</Copy>
+                <Copy>{q.data.content.notes}</Copy>
+              </Card>
+            )}
+            {!editing && <SessionTable actuals={q.data.content.actuals} workout={q.data.content.prescription_snapshot} units={units} />}
+            {!editing && <HealthExport sessionId={q.data.id} />}
+            {editing?.map((a, index) => (
               <Card key={`${actualIdentity(a)}:${index}`}>
                 <Copy kind="heading">
                   {
@@ -97,8 +97,7 @@ export default function SessionDetail() {
                   Round {a.round_index} · set {a.set_index}
                   {a.side ? ` · ${a.side}` : ""}
                 </Copy>
-                {editing ? (
-                  <>
+                <>
                     <Field
                       label="Actual reps"
                       optional
@@ -161,16 +160,7 @@ export default function SessionDetail() {
                       selected={a.completed}
                       onPress={() => change(index, { completed: !a.completed })}
                     />
-                  </>
-                ) : (
-                  <>
-                    <Copy>{a.completed ? summaryOf(a) : "Skipped"}</Copy>
-                    {a.effort != null && <Copy>Effort · {a.effort}/10</Copy>}
-                    {!!a.difficulty && <Copy>Felt {a.difficulty}</Copy>}
-                    {a.pain_reported != null && <Copy>{a.pain_reported ? "Pain reported" : "No pain reported"}</Copy>}
-                    {!!a.notes && <Copy>{a.notes}</Copy>}
-                  </>
-                )}
+                </>
               </Card>
             ))}
             {editing ? (
@@ -192,7 +182,8 @@ export default function SessionDetail() {
             ) : (
               <Button
                 title="Correct these results"
-                secondary
+                variant="ghost"
+                icon="create-outline"
                 onPress={() => {
                   setEditing(q.data!.content.actuals.map((a) => ({ ...a })));
                   setNumericDraft({});

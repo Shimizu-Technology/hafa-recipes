@@ -16,7 +16,9 @@ vi.mock("@/lib/context", () => {
   return { useTraining: () => ({ api, storage, isCurrentAccount: () => fixture.current, owner: fixture.owner, enrollment: { enrolled: true, generation: fixture.generation } }),
     useOfflineTraining: () => ({ state: { history: fixture.history, recovery_receipts: fixture.receipts }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
-vi.mock("react-native", () => ({ View: "View", AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
+vi.mock("@/components/progress-records", () => ({ ProgressRecords: "ProgressRecords" }));
+vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
   useLocalSearchParams: () => fixture.params, useFocusEffect() {} }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "recovery-uuid" }));
@@ -142,11 +144,12 @@ it("shows initial history loading instead of a false empty library or zero-sessi
   await act(async () => { resolve([saved("A")]); }); await settle();
   expect(text()).toContain("1 session ·");
 });
-it("a failed initial history read has an actionable retry instead of an empty-library claim", async () => {
-  fixture.sessions.mockRejectedValueOnce(Error("Training history unavailable"));
+it("a failed initial history read has a friendly retry instead of an empty-library claim or raw error", async () => {
+  fixture.sessions.mockRejectedValueOnce(Error("PRIVATE upstream 503 body"));
   await act(async () => { renderer = create(tree()); }); await settle();
   expect(renderer!.root.findAllByType("Empty" as never)).toHaveLength(0);
-  const retry = renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Retry loading training history")!;
+  expect(text()).toContain("Your training history couldn’t load"); expect(text()).not.toContain("PRIVATE upstream");
+  const retry = renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Try again")!;
   expect(retry).toBeDefined();
   await act(async () => { retry.props.onPress(); }); await settle();
   expect(renderer!.root.findAllByType("Empty" as never)).toHaveLength(1);
@@ -154,7 +157,7 @@ it("a failed initial history read has an actionable retry instead of an empty-li
 it("renders twenty history rows at a time without truncating authoritative counts or correction inputs", async () => {
   fixture.remote = Array.from({ length: 45 }, (_, index) => saved(`result-${index}`));
   await act(async () => { renderer = create(tree()); }); await settle();
-  const views = () => renderer!.root.findAllByType("Button" as never).filter((node) => node.props.title === "View saved session");
+  const views = () => renderer!.root.findAllByType("Pressable" as never).filter((node) => /View session$/.test(node.props.accessibilityLabel));
   const more = () => renderer!.root.findAllByType("Button" as never).find((node) => node.props.title === "Show more sessions");
   expect(views()).toHaveLength(20); expect(text()).toContain("45 sessions ·");
   await act(async () => { more()!.props.onPress(); }); expect(views()).toHaveLength(40);
@@ -267,4 +270,27 @@ it("opens an accepted result from its receipt after history pruning and a lost l
   fixture.replace.mockClear(); fixture.owner = "next-owner"; fixture.receipts = [];
   await act(async () => renderer!.update(tree(RecoverResult))); await settle();
   await act(async () => oldOpen()); expect(fixture.replace).not.toHaveBeenCalled();
+});
+
+it("session cards open the saved session, read friendly dates and summarise each exercise", async () => {
+  fixture.remote = [saved("A")];
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(text()).toMatch(/(Fri, Oct 9|Sat, Oct 10) · Completed/); // Local date of 2026-10-10T00:00Z.
+  expect(text()).toContain("Row · 8, 7 reps");
+  const card = renderer!.root.findAllByType("Pressable" as never).find((node) => /View session$/.test(node.props.accessibilityLabel))!;
+  await act(async () => { card.props.onPress(); });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/session/[id]", params: { id: "A" } });
+});
+it("shows records from accepted sessions and refreshes on pull", async () => {
+  const heavy = saved("A");
+  heavy.content.actuals = [{ block_id: "main", exercise_index: 0, round_index: 1, set_index: 1, reps: 8, completed: true,
+    load: 20, load_unit: "kg", load_convention: "total" }];
+  fixture.remote = [heavy];
+  await act(async () => { renderer = create(tree()); }); await settle();
+  const records = renderer!.root.findByType("ProgressRecords" as never).props.records;
+  expect(records).toMatchObject([{ name: "Row", best: "20 kg × 8" }]);
+  expect(fixture.sessions).toHaveBeenCalledTimes(1);
+  await act(async () => { renderer!.root.findByType("Screen" as never).props.onRefresh(); }); await settle();
+  expect(fixture.sessions).toHaveBeenCalledTimes(2);
+  expect(renderer!.root.findByType("Screen" as never).props.refreshing).toBe(false);
 });
