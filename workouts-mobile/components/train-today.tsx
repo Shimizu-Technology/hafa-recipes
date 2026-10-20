@@ -1,4 +1,4 @@
-import { completedProgramSessions, programSessionKey } from "@/lib/program-session-identity";
+import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { router } from "expo-router";
@@ -41,8 +41,9 @@ export function TrainToday() {
   const ancestryReady = !needsAncestry || ancestry.data?.complete === true;
   const timezone = profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = dateInTimezone(new Date(), timezone);
-  const completed = completedProgramSessions(sessions.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(sessions.data));
-  const isDone = (p: Program, s: ScheduledSession) => completed.has(programSessionKey(p.id, s.id)!);
+  // Any recorded work (even partial) settles a planned session here, matching the plan list below.
+  const recordedStates = programSessionStates(sessions.data, offline.state.history, enrollment?.generation ?? 0, sessionReadStartedAt(sessions.data));
+  const isDone = (p: Program, s: ScheduledSession) => recordedStates.has(programSessionKey(p.id, s.id)!);
   const live = programs.data?.filter((p) => !p.schedule_state?.archived_at) ?? [];
   const activePrograms = live.filter((p) => p.status === "ready" && p.schedule_state?.status !== "paused");
   const planned = activePrograms.flatMap((p) => p.sessions.filter((s) => s.date === date && !isDone(p, s)).map((s) => ({ program: p, session: s })))[0];
@@ -102,9 +103,6 @@ export function TrainToday() {
   if (active) {
     hero = { title: active.workout.title, detail: `${recorded} ${recorded === 1 ? "set" : "sets"} recorded so far · saved on this device`,
       action: <Button title="Resume" icon="play" size="lg" onPress={() => router.push("/training")} /> };
-  } else if (!profile.data) {
-    hero = { title: "Set up your training", detail: "Add your goal and free days, then build a plan that fits your week.",
-      action: buildPlan("/profile"), extra: library };
   } else if (planned) {
     const workout = planned.session.workout;
     hero = { title: workout.title, detail: planned.session.purpose,
@@ -114,6 +112,9 @@ export function TrainToday() {
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}
         <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => { void start(planned.program, planned.session); }} />
       </> };
+  } else if (!profile.data) {
+    hero = { title: "Set up your training", detail: "Add your goal and free days, then build a plan that fits your week.",
+      action: buildPlan("/profile"), extra: library };
   } else if (doneToday) {
     hero = { title: "Done for today", detail: "Nice work. Rest and recovery are part of the plan." };
   } else if (activePrograms.length) {

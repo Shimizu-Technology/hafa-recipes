@@ -39,7 +39,8 @@ export function groupPlanWeeks<T extends { date: string }>(items: T[], today: st
   }
   const first = [...weeks.keys()].find((key) => key !== "other");
   const firstAt = first ? readable(first)!.getTime() : 0;
-  return [...weeks.entries()].map(([key, grouped]) => {
+  // Unreadable dates go last so they never split two real weeks.
+  return [...weeks.entries()].sort(([a], [b]) => Number(a === "other") - Number(b === "other")).map(([key, grouped]) => {
     if (key === "other") return { key, label: "Other dates", past: false, current: false, items: grouped };
     const current = key === thisMonday;
     const number = Math.round((readable(key)!.getTime() - firstAt) / (7 * DAY)) + 1;

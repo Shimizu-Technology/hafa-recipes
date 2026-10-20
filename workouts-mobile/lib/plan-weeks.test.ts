@@ -25,7 +25,8 @@ it("groups a long plan into numbered Monday weeks with this week called out", ()
 });
 
 it("keeps unreadable dates visible in their own group", () => {
-  const weeks = groupPlanWeeks([{ date: "2026-02-30" }, { date: "2026-10-21" }], "2026-10-21", now, "en-US");
+  const weeks = groupPlanWeeks([{ date: "2026-02-30" }, { date: "2026-10-21" }, { date: "2026-03-02" }], "2026-10-21", now, "en-US");
+  expect(weeks.at(-1)?.key).toBe("other");
   expect(weeks.find((w) => w.key === "other")?.items).toEqual([{ date: "2026-02-30" }]);
   expect(weeks.find((w) => w.current)?.label).toBe("This week · Oct 19 – 25");
 });

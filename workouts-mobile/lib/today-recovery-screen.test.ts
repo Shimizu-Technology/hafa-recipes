@@ -782,3 +782,18 @@ it("the Today hero gives each state one clear next step", async () => {
   expect(fixture.start).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenLastCalledWith("/training");
 });
+
+it("partly recorded work today settles the hero instead of offering a second Start", async () => {
+  fixture.available = true;
+  const today = dateInTimezone(new Date(), "UTC");
+  fixture.programs.mockResolvedValue([{ id: "plan", generation: 1, revision: 1, status: "ready", sessions: [
+    { id: "today", date: today, purpose: "Strength", workout: { title: "Today strength" } },
+    { id: "missed", date: "2020-01-01", purpose: "Strength", workout: { title: "Earlier strength" } }] } as Program]);
+  fixture.sessions.mockResolvedValue(["today", "missed"].map((id) => ({ id, client_session_id: id, generation: 1, content: {
+    client_session_id: id, program_id: "plan", program_session_id: id, status: "partial", started_at: `${today}T00:00:00Z`,
+    actuals: [{ completed: true }, { completed: false }], prescription_snapshot: { blocks: [] } } })));
+  await mount();
+  expect(buttons("Start")).toHaveLength(0);
+  expect(text()).toContain("Done for today");
+  expect(text()).not.toContain("a new date. Tap one below");
+});
