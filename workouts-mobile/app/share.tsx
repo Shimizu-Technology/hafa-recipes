@@ -24,6 +24,8 @@ export default function SharePrescription() {
     queryKey: [owner, "share-source", kind, id, enrollment?.generation],
     queryFn: () => (kind === "workout" ? api.workout(id) : api.program(id)),
     enabled: !!enrollment?.enrolled,
+    // Always read the latest revision; a cached one from before an edit makes the preview fail.
+    refetchOnMount: "always",
   });
   const [title, setTitle] = useState("");
   const [name, setName] = useState("");
@@ -69,6 +71,12 @@ export default function SharePrescription() {
       .catch((e) => {
         if (mine !== sequence.current) return;
         if (/needs review/i.test(detail(e))) setNeedsReview(true);
+        // The workout was edited since it loaded: reload it, and the new revision previews again.
+        else if (/content changed/i.test(detail(e)))
+          void q.refetch().then((result) => {
+            // The same revision came back, so retrying alone would fail again; let the person try later.
+            if (mine === sequence.current && result.data === data) setError("This workout changed while sharing. Try again.");
+          });
         else setError((e as Error).message);
       })
       .finally(() => { if (mine === sequence.current) setBusy(false); });
@@ -143,7 +151,10 @@ export default function SharePrescription() {
         </Copy>
       )}
       {link && (link.revoked_at ? (
-        <Notice>This link is off. Copies people already saved stay with them.</Notice>
+        <>
+          <Notice>This link is off. Copies people already saved stay with them.</Notice>
+          <Button title="Create a new link" secondary onPress={() => { setLink(null); refresh(); }} />
+        </>
       ) : (
         <>
           <Copy selectable>{url}</Copy>
@@ -155,9 +166,12 @@ export default function SharePrescription() {
             ])} />
         </>
       ))}
-      {!link && <Button title="Link options" variant="ghost" size="sm" inline icon="options-outline" disabled={busy && !preview}
+      {!link && <Button title="Link options" variant="ghost" size="sm" inline icon="options-outline" disabled={busy}
         onPress={() => setOptions(true)} />}
       {!!(error || q.error) && <Notice error>{error || q.error?.message}</Notice>}
+      {!!error && !preview && !link && !busy && !notReady && (
+        <Button title="Try again" variant="ghost" size="sm" inline icon="refresh" onPress={refresh} />
+      )}
       <Sheet visible={options} onClose={closeOptions} title="Link options">
         <Field label="Public title" optional value={title} onChange={(v) => { setTitle(v); changed(); }}
           placeholder={kind === "program" ? "Shared training plan" : q.data?.title} />

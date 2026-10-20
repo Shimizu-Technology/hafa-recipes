@@ -12,7 +12,7 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("react-native", () => ({ Alert: { alert: fixture.alert }, Share: { share: fixture.share } }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => ({ id: "w1", kind: "workout" }) }));
-const query = vi.hoisted(() => ({ data: { id: "w1", title: "Leg day", revision: 3, generation: 2 }, error: null }));
+const query = vi.hoisted(() => ({ data: { id: "w1", title: "Leg day", revision: 3, generation: 2 }, error: null, refetch: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => query }));
 vi.mock("@/lib/context", () => ({
   useTraining: () => ({ owner: "owner", enrollment: { enrolled: true, generation: 2 },
@@ -38,6 +38,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   for (const mock of Object.values(fixture)) mock.mockReset();
   fixture.share.mockResolvedValue({});
+  query.refetch.mockReset().mockResolvedValue({ data: { revision: 4 } });
   fixture.previewShare.mockResolvedValue(preview);
   fixture.confirmShare.mockResolvedValue(link);
 });
@@ -85,4 +86,33 @@ it("makes a fresh preview when the old one expired before sharing", async () => 
   expect(fixture.previewShare).toHaveBeenCalledTimes(2);
   expect(fixture.share).not.toHaveBeenCalled();
   expect(JSON.stringify(renderer!.toJSON())).toContain("That preview expired");
+});
+
+it("offers a retry when the preview fails, and reloads an edited workout instead of failing", async () => {
+  fixture.previewShare.mockRejectedValueOnce(new ApiError("Could not reach the training service.", 0));
+  await mount();
+  expect(button("Share link")!.props.disabled).toBe(true);
+  await act(async () => button("Try again")!.props.onPress());
+  expect(fixture.previewShare).toHaveBeenCalledTimes(2);
+  expect(all("SharedSnapshot")).toHaveLength(1);
+  expect(button("Try again")).toBeUndefined();
+});
+
+it("reloads the workout when it changed since the screen opened", async () => {
+  fixture.previewShare.mockRejectedValueOnce(new ApiError("changed", 409, false, "Content changed; refresh before previewing"));
+  await mount();
+  expect(query.refetch).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain("changed elsewhere");
+});
+
+it("can create a new link after turning one off", async () => {
+  fixture.revokeShare.mockResolvedValue({ ...link, revoked_at: "2026-10-21T01:00:00Z" });
+  await mount();
+  await act(async () => button("Share link")!.props.onPress());
+  await act(async () => button("Turn off link")!.props.onPress());
+  await act(async () => (fixture.alert.mock.lastCall![2] as { style?: string; onPress?(): void }[]).find((choice) => choice.style === "destructive")!.onPress!());
+  expect(fixture.revokeShare).toHaveBeenCalledTimes(1);
+  await act(async () => button("Create a new link")!.props.onPress());
+  expect(fixture.previewShare).toHaveBeenCalledTimes(2);
+  expect(button("Share link")!.props.disabled).toBe(false);
 });
