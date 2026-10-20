@@ -458,11 +458,16 @@ async def test_acquirer_uses_injected_service_for_metadata_audio_and_frames(monk
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["metadata", "audio", "frames", "photo"])
 async def test_all_social_subprocesses_use_the_locked_wrapper_and_shared_capacity(monkeypatch, tmp_path, kind):
+    # Render launches uvicorn with --app-dir api from the repository root.
+    # That parent-only sys.path change does not reach downloader subprocesses.
+    monkeypatch.chdir(Path(__file__).resolve().parents[2])
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     service = video.public_video_service
     assert service._media_slots is video.video_service._media_slots
     assert ProductionSourceAcquirer(video_service=service)._video_service() is service
     assert ProductionSourceAcquirer()._video_service() is video.video_service
     commands = []
+    probes = []
     url = "https://www.tiktok.com/@fixture/photo/123" if kind == "photo" else "https://www.youtube.com/watch?v=abcdefghijk"
 
     class Process:
@@ -473,6 +478,14 @@ async def test_all_social_subprocesses_use_the_locked_wrapper_and_shared_capacit
 
     async def create(*command, **kwargs):
         commands.append(command)
+        # Exercise the real module import, forwarding the launch directory used
+        # by each acquisition path, without making a network request.
+        probe = subprocess.run(
+            [*command[:3], "--version"], cwd=kwargs.get("cwd"),
+            capture_output=True, timeout=30,
+        )
+        probes.append(probe)
+        assert probe.returncode == 0, probe.stderr.decode()
         if "--output" in command:
             template = command[command.index("--output") + 1]
             Path(template.replace("%(ext)s", "mp3" if kind == "audio" else "mp4")).write_bytes(b"media")
@@ -493,6 +506,8 @@ async def test_all_social_subprocesses_use_the_locked_wrapper_and_shared_capacit
         assert Path(path).exists()
     else:
         await service.fetch_tiktok_photo_images(url)
+    assert len(probes) == 1
+    assert probes[0].returncode == 0, probes[0].stderr.decode()
     assert len(commands) == 1
     assert commands[0][:3] == (sys.executable, "-m", "app.services.public_ytdlp")
     assert commands[0][-1] == url
