@@ -158,3 +158,16 @@ Apple registration and signing profiles do not establish TestFlight delivery:
 record the merged source, signed build, Apple processing and tester availability
 separately. Keep platform limits and unrun device checks explicit. Credentials
 stay in existing secure configuration. Re-check main before integration/release.
+
+
+### Tab feedback validation
+
+The native tab button uses immediate pressed opacity and a contrasting selected
+icon pill; the web branch retains Expo Router's default link-aware button. This
+small visual change uses actual native interaction checks rather than assertions
+that repeat style constants or a new renderer harness. Validate all five routes,
+exactly one selected accessibility state, press/release feedback, repeated taps,
+detail/return context, light/dark appearance, compact screens and larger text.
+Record the tested source, screenshots, outcomes and platform limits in the private
+acceptance ledger. Type checking and the repository gate cover both platform
+branches; a clean build alone does not establish native interaction acceptance.
