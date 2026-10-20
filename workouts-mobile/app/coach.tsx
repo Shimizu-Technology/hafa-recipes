@@ -512,7 +512,7 @@ export default function Coach() {
       setEpoch(nextEpoch);
       await cache.invalidateQueries({ queryKey: [owner, "coach-history"] });
       if (!current()) return;
-      setClearConfirm(false); setOptions(false);
+      setClearConfirm(false); setOptions(false); setSnack(null);
     } catch (e) {
       if (currentConversation()) setError((e as Error).message);
     } finally {
@@ -596,6 +596,7 @@ export default function Coach() {
   );
   const close = () => { setOptions(false); setClearConfirm(false); setShowCheckIn(false); };
   const optionsSheet = <Sheet visible={optionsOpen} title={clearConfirm ? "Clear conversation?" : showCheckIn ? "How are you feeling today?" : "Coach"} onClose={close}>
+    {!!error && <Notice error>{error}</Notice>}
     {clearConfirm ? <>
       <Copy kind="small">Clears messages and pending suggestions. Changes you accepted stay saved. Some content-free usage records stay briefly.</Copy>
       <Button title="Clear conversation and pending suggestions" variant="destructive" busy={busy}

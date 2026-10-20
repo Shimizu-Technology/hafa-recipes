@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PropsWithChildren, type ReactNode, type Ref } from "react";
-import { Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewProps, type ViewStyle } from "react-native";
+import { AccessibilityInfo, Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewProps, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Copy, IconButton, useColors, useReducedMotion } from "./ui";
@@ -42,6 +42,8 @@ export function CoachChatShell({ children, title = "Coach", menu, banner, footer
           {menu ? <IconButton icon="ellipsis-horizontal" label="Coach options" variant="plain" onPress={menu} /> : <View style={{ width: 48 }} />}
         </View>
         {banner}
+        {/* The snackbar floats over the bottom of the messages, never over the composer. */}
+        <View style={{ flex: 1, minHeight: 0 }}>
         <ScrollView
           ref={scrollRef}
           style={Platform.OS === "web" ? { overflowAnchor: "none" } as ViewStyle : undefined}
@@ -55,6 +57,7 @@ export function CoachChatShell({ children, title = "Coach", menu, banner, footer
           {children}
         </ScrollView>
         {overlay}
+        </View>
         {!!footer && (
           <View style={{ flexShrink: 1, minHeight: 0, paddingHorizontal: spacing.sm, paddingTop: spacing.xs,
             paddingBottom: Math.max(insets.bottom, spacing.xs) + 4, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface }}>
@@ -102,6 +105,8 @@ export function CoachSnackbar({ snack, onDone }: { snack: Snack | null; onDone(i
   const opacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!snack) return;
+    // accessibilityLiveRegion is Android-only; VoiceOver needs an explicit announcement.
+    AccessibilityInfo.announceForAccessibility?.(snack.action ? `${snack.text}. ${snack.action.label} available.` : snack.text);
     opacity.setValue(reduced ? 1 : 0);
     if (!reduced) Animated.timing(opacity, { toValue: 1, duration: motion.base, useNativeDriver: Platform.OS !== "web" }).start();
     const timer = setTimeout(() => onDone(snack.id), snack.action ? 6000 : 2400);
