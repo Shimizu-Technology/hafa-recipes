@@ -51,7 +51,7 @@ export function sourceChoiceErrors(ids: string[], minutes: Record<string, string
 export function sourceDayErrors(workout: Workout, start_date: string, days: SourceProgramDay[]) {
   const errors: string[] = [];
   if (!isISODate(start_date)) errors.push("Choose a valid calendar start date.");
-  if (!days.length || days.length > 366) errors.push("Add at least one day assignment, up to 366 sessions.");
+  if (!days.length || days.length > 366) errors.push("Add at least one session, up to 366.");
   const ids = new Set(workout.blocks.map((block) => block.id));
   for (const day of days) {
     if (

@@ -126,6 +126,10 @@ export default function ReviewPlan() {
   }
   async function propose() {
     if (!draft) return;
+    if (isSource && !isISODate(draft.date)) {
+      setError("Choose a start date.");
+      return;
+    }
     const offsets = draft.days.map((day) => day.date != null ? daysBetween(draft.date, day.date) : sessionDate(draft.date, day.day_offset) ? Number(day.day_offset) : null);
     if (isSource && offsets.some((offset) => offset == null)) {
       setError("Choose a date for each session.");
@@ -238,7 +242,7 @@ export default function ReviewPlan() {
                 {draft.days.map((day, index) => (
                   <Card key={index}>
                     <Field label="Session name" value={day.label} onChange={(label) => changeDay(index, { label })} />
-                    <CalendarDate label="Date" value={dayDate(day)} min={draft.date} disabled={busy}
+                    <CalendarDate label={`Date for ${day.label.trim() || `session ${index + 1}`}`} value={dayDate(day)} min={draft.date} disabled={busy}
                       onChange={(date) => changeDay(index, { date: date ?? "" })} />
                     <Field
                       label="Session length · minutes"

@@ -137,6 +137,8 @@ export default function BuildPlan() {
     if (draft.source_mode === "selected" && !draft.selected.length)
       problems.push("Pick at least one saved workout, or choose Mix with suggestions.");
     if (problems.length) {
+      // Open the saved-workouts section when that's where the problem is.
+      if (draft.selected.length || draft.source_mode === "selected") setShowSources(true);
       setError(problems.join(" "));
       return;
     }

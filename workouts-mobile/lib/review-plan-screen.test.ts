@@ -44,9 +44,10 @@ it("schedules sessions by date and sends the day offsets the API expects", async
   expect(all("Field").some((node) => String(node.props.label).includes("Days after"))).toBe(false);
   await press("Button", "title", "Add a session");
   await press("Button", "title", "Add a session");
-  const dates = () => all("CalendarDate").filter((node) => node.props.label === "Date");
+  const dates = () => all("CalendarDate").filter((node) => String(node.props.label).startsWith("Date for"));
   // New sessions land on consecutive days from the start date.
   expect(dates().map((node) => node.props.value)).toEqual(["2026-10-21", "2026-10-22"]);
+  expect(dates().map((node) => node.props.label)).toEqual(["Date for Session 1", "Date for Session 2"]);
   await act(async () => dates()[1].props.onChange("2026-10-24"));
   for (const card of all("Card")) {
     await act(async () => card.findAll((node) => String(node.type) === "Choice").find((node) => node.props.label === "Upper")!.props.onPress());
@@ -64,7 +65,7 @@ it("schedules sessions by date and sends the day offsets the API expects", async
 it("stops a session dated before the start", async () => {
   await act(async () => { renderer = create(createElement(ReviewPlan)); });
   await press("Button", "title", "Add a session");
-  await act(async () => all("CalendarDate").find((node) => node.props.label === "Date")!.props.onChange("2026-10-20"));
+  await act(async () => all("CalendarDate").find((node) => node.props.label === "Date for Session 1")!.props.onChange("2026-10-20"));
   await press("Button", "title", "Propose my plan");
   expect(fixture.propose).not.toHaveBeenCalled();
   expect(JSON.stringify(renderer!.toJSON())).toContain("before the start date");
