@@ -39,7 +39,7 @@ vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "
   } } }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 }, spacing: { xs: 8, sm: 12 } }));
-vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
+vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
 vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
 vi.mock("@/components/ui", () => ({
@@ -48,7 +48,8 @@ vi.mock("@/components/ui", () => ({
   Choice: "Choice", Grow: "Grow", IconButton: "IconButton", Row: "Row", Sheet: "Sheet", Field: "Field", SkeletonCard: "SkeletonCard",
   useColors: () => ({ action: "green", muted: "gray" }),
 }));
-import Today from "../app/(tabs)/index";
+import { TrainToday as Today } from "@/components/train-today";
+import TodayRoute from "../app/(tabs)/index";
 import Plan from "../app/(tabs)/plan";
 import SessionDetail from "../app/session/[id]";
 import { dateInTimezone } from "./training";
@@ -66,10 +67,17 @@ const notices = () => renderer!.root.findAllByType("Notice" as never).filter((no
 const text = () => renderer!.root.findAll((node) => String(node.type) === "Copy" || String(node.type) === "Notice")
   .map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 async function mount() { await act(async () => { renderer = create(tree()); }); await settle(); }
-/** Plan sessions are compact rows; tapping one opens its actions. */
+/** Plan sessions are compact rows grouped by week; tapping one opens its actions. Folded weeks open first. */
 async function openSession(id: string) {
-  const row = renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.testID === `plan-session-${id}`)[0];
-  await act(async () => row.props.onPress());
+  const row = () => renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.testID === `plan-session-${id}`)[0];
+  if (!row()) for (const week of renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.accessibilityState?.expanded === false))
+    await act(async () => week.props.onPress());
+  await act(async () => row().props.onPress());
+}
+/** Switches between current and archived plans from the "Your plans" heading. */
+async function showPlans(label: string) {
+  const heading = renderer!.root.findAllByType("SectionHeader" as never).find((node) => node.props.action?.label.startsWith(label))!;
+  await act(async () => heading.props.action.onPress());
 }
 async function retry() { await act(async () => { buttons("Try again")[0].props.onPress(); }); await settle(); }
 beforeEach(() => {
@@ -103,7 +111,7 @@ it("Plan distinguishes partial work and permits inspecting recorded work and exp
   expect(buttons("Start session")).toHaveLength(1); // Only the next session (in the other plan) gets Start in the list.
   await openSession("recorded");
   expect(text()).toContain("Partially recorded"); expect(text()).not.toContain("Done. Nice work.");
-  await act(async () => buttons("Inspect session instructions")[0].props.onPress());
+  await act(async () => buttons("Show workout details")[0].props.onPress());
   expect(text()).toContain("Keep your back steady"); expect(text()).toContain("30s rest");
   expect(fixture.start).not.toHaveBeenCalled();
   expect(buttons("Choose a new date")).toHaveLength(0);
@@ -132,11 +140,11 @@ it("one Today retry recovers all OFF→ON reads while preserving saved device tr
   fixture.drafts.set("owner-A:profile", "unchanged private draft");
   await mount();
   expect(notices()).toHaveLength(1); expect(buttons("Try again")).toHaveLength(1);
-  expect(buttons("Resume session")).toHaveLength(1);
+  expect(buttons("Resume")).toHaveLength(1);
   fixture.available = true;
   await retry();
   expect(notices()).toHaveLength(0); expect(buttons("Try again")).toHaveLength(0);
-  expect(text()).toContain("Build strength"); expect(text()).toContain("Saved device strength");
+  expect(text()).toContain("Saved device strength");
   expect(cache.getQueryData(["owner-A", "profile", 1])).toEqual(profile);
   expect(cache.getQueryData(["owner-A", "programs", 1])).toEqual([]);
   expect(cache.getQueryData(["owner-A", "sessions", 1])).toEqual([]);
@@ -153,13 +161,13 @@ it("a sessions-only failure has a retry and recovering actuals prevents offering
   fixture.sessions.mockRejectedValue(Error("Saved sessions are unavailable."));
   await mount();
   expect(notices()).toHaveLength(1); expect(buttons("Try again")).toHaveLength(1);
-  expect(buttons("Start this session")).toHaveLength(0);
+  expect(buttons("Start")).toHaveLength(0);
   fixture.sessions.mockResolvedValue([{ id: "saved", client_session_id: "client", generation: 1,
     content: { client_session_id: "client", program_id: "plan", program_session_id: "today", status: "completed",
       started_at: new Date().toISOString(), actuals: [{ completed: true }], prescription_snapshot: { blocks: [] } } }]);
   await retry();
-  expect(notices()).toHaveLength(0); expect(buttons("Start this session")).toHaveLength(0);
-  expect(text()).toContain("Build strength");
+  expect(notices()).toHaveLength(0); expect(buttons("Start")).toHaveLength(0);
+  expect(text()).toContain("Done for today");
   expect(fixture.start).not.toHaveBeenCalled();
 });
 it("missed sessions remain visible with explicit recovery and no silent date changes", async () => {
@@ -168,8 +176,8 @@ it("missed sessions remain visible with explicit recovery and no silent date cha
     purpose: "Saved plan", workout: { title: "Missed strength" } }] } as Program;
   fixture.programs.mockResolvedValue([program]);
   await mount();
-  expect(buttons("Review missed sessions")).toHaveLength(1);
-  expect(text()).toContain("sessions are never stacked automatically");
+  expect(text()).toContain("1 earlier session needs a new date");
+  expect(text()).toContain("nothing moves on its own");
   expect(program.sessions[0].date).toBe("2020-01-01");
   expect(fixture.start).not.toHaveBeenCalled();
 });
@@ -292,16 +300,16 @@ it("Today pauses recorded-day markers for missing correction ancestry and retrie
   fixture.session.mockRejectedValue(Error("PRIVATE transport body"));
   await mount();
   const days = () => renderer!.root.findByType("WeekStrip" as never).props.days as Array<{ state: string }>;
-  expect(text()).toContain("Recorded-day markers are paused");
+  expect(text()).toContain("Done-day checkmarks are paused");
   expect(text()).not.toContain("PRIVATE transport body");
   expect(days().some(day => day.state === "done")).toBe(false);
-  expect(buttons("Retry correction history")).toHaveLength(1);
+  expect(buttons("Check again")).toHaveLength(1);
   fixture.session.mockResolvedValue({ ...original, id: "B", client_session_id: "client-B", content: {
     ...original.content, client_session_id: "client-B", supersedes_session_id: "A",
   } });
-  await act(async () => buttons("Retry correction history")[0].props.onPress()); await settle();
-  expect(text()).not.toContain("Recorded-day markers are paused");
-  expect(buttons("Retry correction history")).toHaveLength(0);
+  await act(async () => buttons("Check again")[0].props.onPress()); await settle();
+  expect(text()).not.toContain("Done-day checkmarks are paused");
+  expect(buttons("Check again")).toHaveLength(0);
   expect(days().filter(day => day.state === "done")).toHaveLength(1);
   expect(fixture.session.mock.calls).toEqual([["B"], ["B"]]);
   expect(fixture.start).not.toHaveBeenCalled();
@@ -387,15 +395,15 @@ it("Plan archives and restores without losing its paused queue or changing dates
   const archive = renderer!.root.findAllByType("ListRow" as never).find((n) => n.props.title === "Archive plan")!;
   await act(async () => archive.props.onPress()); await settle();
   expect(fixture.archiveProgram).toHaveBeenCalledWith(paused, true);
-  expect(buttons("Review returning to this plan")).toHaveLength(0);
+  expect(buttons("Plan your return with coach")).toHaveLength(0);
   expect(text()).toContain("Archived. Workout instructions and recorded training stay saved");
-  await act(async () => buttons("Active plans")[0].props.onPress());
+  await showPlans("Current plans");
   expect(text()).not.toContain("Queued strength");
-  await act(async () => buttons("Archived plans")[0].props.onPress());
+  await showPlans("Archived");
   await act(async () => buttons("Restore plan")[0].props.onPress()); await settle();
   expect(fixture.archiveProgram.mock.calls[1][0].revision).toBe(2);
   expect(fixture.archiveProgram.mock.calls[1][1]).toBe(false);
-  expect(buttons("Review returning to this plan")).toHaveLength(1);
+  expect(buttons("Plan your return with coach")).toHaveLength(1);
   expect(text()).toContain("Queued strength");
   expect(paused.schedule_state?.paused_sessions?.[0].date).toBe("2020-01-01");
   expect(fixture.start).not.toHaveBeenCalled();
@@ -519,9 +527,9 @@ it.each(["recorded", "active", "pending", "paused", "archived"])("does not offer
   if (kind === "paused") program.schedule_state = { status: "paused" };
   if (kind === "archived") program.schedule_state = { status: "paused", archived_at: "2026-10-15" };
   await mountPlan(program);
-  if (kind === "archived") { await act(async () => buttons("Archived plans")[0].props.onPress()); }
+  if (kind === "archived") await showPlans("Archived");
   await openSession("future");
-  expect(buttons("Inspect session instructions")).toHaveLength(1);
+  expect(buttons("Show workout details")).toHaveLength(1);
   expect(buttons("Remove from plan")).toHaveLength(0);
 });
 it("rechecks live active training before confirming removal", async () => {
@@ -708,15 +716,30 @@ it("Plan refetches only stale queries on return and every query when pulled down
   } finally { clock.mockRestore(); }
 });
 
-it("keeps Today and active training one tap from Plan", async () => {
+it("Train leads with Resume during active training and only explains blocked starts", async () => {
   const { router } = await import("expo-router");
   fixture.active = { workout: { title: "In progress" }, actuals: [] };
   await mountPlan();
-  const today = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Today · start a workout")!;
-  await act(async () => today.props.onPress());
-  expect(router.push).toHaveBeenLastCalledWith("/(tabs)");
-  await act(async () => buttons("Resume active session")[0].props.onPress());
+  expect(renderer!.root.findAllByType("Screen" as never)[0].props.title).toBe("Train");
+  expect(buttons("Start")).toHaveLength(0); expect(buttons("Start session")).toHaveLength(0);
+  await act(async () => buttons("Resume")[0].props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/training");
+  await openSession("future");
+  expect(buttons("Start session")[0].props.disabled).toBe(true);
+  expect(text()).toContain("Finish your current session first.");
+});
+
+it("Train shows today's session once, folds past weeks and keeps old Today links working", async () => {
+  fixture.sessions.mockResolvedValue([{ id: "saved", client_session_id: "client", generation: 1, content: { client_session_id: "client",
+    program_id: "plan", program_session_id: "past", status: "completed", started_at: "2020-01-01T00:00:00Z", actuals: [{ completed: true }],
+    prescription_snapshot: { blocks: [] } } }]);
+  await mountPlan();
+  expect(buttons("Start")).toHaveLength(1); // Today's session starts from the top only.
+  expect(buttons("Start session")).toHaveLength(0);
+  const weeks = renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.accessibilityState);
+  expect(weeks.map((w) => w.props.accessibilityState.expanded)).toEqual([false, true, true]); // The finished past week folds away.
+  await act(async () => { renderer = create(createElement(TodayRoute)); });
+  expect(renderer!.root.findByType("Redirect" as never).props.href).toBe("/(tabs)/plan");
 });
 
 
@@ -724,8 +747,38 @@ it("keeps the existing Coach entry reachable from Today", async () => {
   const { router } = await import("expo-router");
   fixture.available = true;
   await mount();
-  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Adjust today with your coach")!;
+  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Adjust with coach")!;
   expect(coach.props.icon).toBe("chatbubble-ellipses-outline");
   await act(async () => coach.props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/coach");
+});
+
+it("the Today hero gives each state one clear next step", async () => {
+  const { router } = await import("expo-router");
+  fixture.available = true;
+  const remount = async () => { if (renderer) await act(async () => renderer!.unmount()); cache.clear(); await mount(); };
+  fixture.profile.mockResolvedValue(null);
+  await mount();
+  expect(text()).toContain("Set up your training");
+  await act(async () => buttons("Build a plan")[0].props.onPress());
+  expect(router.push).toHaveBeenLastCalledWith({ pathname: "/profile", params: { return_to: "build-plan" } });
+  fixture.profile.mockResolvedValue(profile);
+  await remount();
+  expect(text()).toContain("No plan yet");
+  await act(async () => buttons("Build a plan")[0].props.onPress());
+  expect(router.push).toHaveBeenLastCalledWith("/build-plan");
+  await act(async () => buttons("Pick a workout from your library")[0].props.onPress());
+  expect(router.push).toHaveBeenLastCalledWith("/(tabs)/library");
+  const plan = (date: string, title: string) => ({ id: "plan", generation: 1, revision: 1, status: "ready",
+    sessions: [{ id: "s", date, purpose: "Strength day", workout: { title, estimated_minutes: 30 } }] }) as Program;
+  fixture.programs.mockResolvedValue([plan("2099-01-01", "Future strength")]);
+  await remount();
+  expect(text()).toContain("Rest day"); expect(text()).toContain("Future strength");
+  expect(buttons("Start")).toHaveLength(0);
+  fixture.programs.mockResolvedValue([plan(dateInTimezone(new Date(), "UTC"), "Today strength")]);
+  await remount();
+  expect(text()).toContain("Today strength");
+  await act(async () => buttons("Start")[0].props.onPress()); await settle();
+  expect(fixture.start).toHaveBeenCalledTimes(1);
+  expect(router.push).toHaveBeenLastCalledWith("/training");
 });
