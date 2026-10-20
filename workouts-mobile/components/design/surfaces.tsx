@@ -16,8 +16,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { contentWidth, elevation, motion, radii, spacing, touch } from "@/constants/theme";
-import { BrandMark } from "../brand-mark";
+import { contentWidth, elevation, motion, radii, spacing } from "@/constants/theme";
+import { BrandLockup, BrandMark } from "../brand-mark";
+import { useIsTabRoot, useTabOverlayHeight } from "../tab-chrome";
 import { Copy, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
 import { Chip, IconButton, type IconName } from "./controls";
 import { animatedPressableComponent, usePressScale } from "./press";
@@ -73,8 +74,9 @@ export function Screen({
   const c = useColors();
   const insets = useSafeAreaInsets();
   back = back || dismiss;
-  // Root tabs name the screen in a centered bar (like Håfa Recipes) instead of a lockup plus a large title.
-  const root = !back;
+  // Main tabs name the screen in a centered bar (like Håfa Recipes) instead of a lockup plus a large title.
+  const root = useIsTabRoot() && !back;
+  const overlay = useTabOverlayHeight();
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}
@@ -91,15 +93,16 @@ export function Screen({
             {root ? (
               // Centered like a native navigation bar; the side slots never push it off-center.
               <View pointerEvents="none" style={{ position: "absolute", left: 104, right: 104, alignItems: "center" }}>
-                <Copy kind="navTitle" numberOfLines={1} accessibilityLabel={title}>{title}</Copy>
+                <Copy kind="navTitle" numberOfLines={1}>{title}</Copy>
               </View>
             ) : null}
             {back ? (
               <IconButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"} variant={dismiss ? "soft" : "plain"}
-                size={dismiss ? 36 : touch.min}
                 onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
-            ) : (
+            ) : root ? (
               <View style={{ width: 1 }} />
+            ) : (
+              <BrandLockup fill />
             )}
             {!!action && <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 }}>{action}</View>}
           </View>
@@ -123,7 +126,7 @@ export function Screen({
         } : undefined}
         contentContainerStyle={{
           paddingTop: spacing.md,
-          paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl),
+          paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl + (root ? overlay : 0)),
           paddingHorizontal: spacing.lg - 4,
           gap: spacing.lg,
           width: "100%",

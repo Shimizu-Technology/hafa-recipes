@@ -9,6 +9,7 @@ import { radii, spacing } from "@/constants/theme";
 import { Copy, haptics, useColors } from "./design/foundation";
 import { animatedPressableComponent, usePressScale } from "./design/press";
 import { useOfflineTraining } from "@/lib/context";
+import { setTabOverlayHeight } from "./tab-chrome";
 
 /** Tabs that show the floating coach button. Add has its own capture flow. */
 const coachTabs = new Set(["discover", "library", "plan", "progress"]);
@@ -17,7 +18,7 @@ const coachTabs = new Set(["discover", "library", "plan", "progress"]);
 export function WorkoutsTabBar(props: BottomTabBarProps) {
   const c = useColors();
   const offline = useOfflineTraining();
-  const [keyboard, setKeyboard] = useState(false);
+  const [keyboard, setKeyboard] = useState(() => Keyboard.isVisible?.() ?? false);
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => setKeyboard(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboard(false));
@@ -27,13 +28,20 @@ export function WorkoutsTabBar(props: BottomTabBarProps) {
     };
   }, []);
   const route = props.state.routes[props.state.index]?.name;
-  const active = offline.state.active;
+  // Train shows its own Resume action at the top, so the floating bar would repeat it.
+  const active = route === "plan" ? null : offline.state.active;
   const showCoach = !keyboard && coachTabs.has(route ?? "");
+  const floating = !keyboard && (showCoach || !!active);
+  useEffect(() => {
+    if (!floating) setTabOverlayHeight(0);
+  }, [floating]);
+  useEffect(() => () => setTabOverlayHeight(0), []);
   return (
     <View style={{ backgroundColor: c.surface, overflow: "visible" }}>
-      {!keyboard && (showCoach || active) && (
+      {floating && (
         <View
           pointerEvents="box-none"
+          onLayout={event => setTabOverlayHeight(event.nativeEvent.layout.height + spacing.sm)}
           style={{ position: "absolute", bottom: "100%", left: spacing.md, right: spacing.md, marginBottom: spacing.sm, gap: spacing.sm, alignItems: "flex-end" }}
         >
           {showCoach && <CoachButton />}

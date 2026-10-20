@@ -2,6 +2,7 @@ import { Tabs } from "expo-router";
 import type { ColorValue } from "react-native";
 import { AddTabIcon, TabIcon, useColors } from "@/components/ui";
 import { WorkoutsTabBar } from "@/components/workouts-tab-bar";
+import { TabRootContext } from "@/components/tab-chrome";
 import { fonts } from "@/constants/theme";
 
 const visible = ["Discover", "Library", "Add", "Train", "Progress"];
@@ -19,6 +20,7 @@ export default function Layout() {
     ),
   });
   return (
+    <TabRootContext.Provider value>
     <Tabs
       initialRouteName="library"
       tabBar={props => <WorkoutsTabBar {...props} />}
@@ -45,5 +47,6 @@ export default function Layout() {
       <Tabs.Screen name="plan" options={tab("Train", "plan")} />
       <Tabs.Screen name="progress" options={tab("Progress", "progress")} />
     </Tabs>
+    </TabRootContext.Provider>
   );
 }

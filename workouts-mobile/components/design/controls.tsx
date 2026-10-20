@@ -500,7 +500,7 @@ export function Choice({
         paddingHorizontal: 16,
         borderRadius: radii.lg,
         borderWidth: selected ? 2 : 1,
-        borderColor: selected ? c.action : c.border,
+        borderColor: selected ? c.onActionSoft : c.border,
         backgroundColor: selected ? c.actionSoft : c.surface,
         opacity: disabled || busy ? 0.55 : 1,
         transform: [{ scale: pressed && !reduced ? 0.985 : 1 }],
@@ -509,7 +509,7 @@ export function Choice({
         alignItems: "center",
       })}
     >
-      {!!icon && <Ionicons name={icon} size={22} color={selected ? c.action : c.muted} />}
+      {!!icon && <Ionicons name={icon} size={22} color={selected ? c.onActionSoft : c.muted} />}
       <View style={{ flex: 1, gap: 2 }}>
         <Copy kind="label">{label}</Copy>
         {!!detail && (
@@ -524,7 +524,7 @@ export function Choice({
         <Ionicons
           name={selected ? "checkmark-circle" : "ellipse-outline"}
           size={24}
-          color={selected ? c.action : c.borderStrong}
+          color={selected ? c.onActionSoft : c.borderStrong}
         />
       )}
     </Pressable>
