@@ -191,6 +191,7 @@ vi.mock("expo-file-system/legacy", () => ({ cacheDirectory: "file:///cache/", ge
 vi.mock("@/components/ui", () => ({
   Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
   useColors: () => ({ background: "#000", success: "#0f0" }),
+  useReducedMotion: () => false,
   Sheet: ({ visible, children }: { visible: boolean; children: import("react").ReactNode }) => visible ? createElement("Sheet", null, children) : null,
   Card: "Card",
   Copy: "Copy",
@@ -922,6 +923,7 @@ it("mounted source import freezes its request UUID/source through lost acknowled
   await unmount();
   await mount(Capture);
   expect(nodes("Field")[0].props.value).toBe("https://example.test/original");
+  expect(button("Retry import").props.disabled).toBe(false);
   fixture.startImport.mockResolvedValueOnce({ id: "saved-import" });
   await click("Retry import");
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
@@ -1827,6 +1829,7 @@ it("a first shared link waits for one explicit AI disclosure action", async () =
   fixture.startImport.mockResolvedValue({ id: "first-job" });
   await mount(Capture);
   expect(fixture.startImport).not.toHaveBeenCalled();
+  expect(button("Agree and import").props.disabled).toBe(false);
   await click("Agree and import");
   expect(fixture.setAiConsent).toHaveBeenCalledWith(true, 1);
   expect(fixture.startImport).toHaveBeenCalledTimes(1);
@@ -2016,7 +2019,9 @@ it("photo imports keep an explicit review step even when extraction succeeds", a
     kind: "images", source_url: "", text: "", files: [{ uri: "file:///cache/qa.jpg", name: "QA image", mime_type: "image/jpeg", owned: true }],
     created_at: "2026-10-13T00:00:00Z" }));
   fixture.startImport.mockResolvedValue({ id: "photo-job" });
-  await mount(Capture); await click("Import workout");
+  await mount(Capture);
+  expect(button("Import workout").props.disabled).toBe(false);
+  await click("Import workout");
   const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "photo-job")))!);
   expect(captured.auto_save).toBe(false);
   const references = JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!);
@@ -3110,6 +3115,7 @@ it("keeps Import workout disabled until a complete link is entered", async () =>
   for (const partial of ["youtube", "https://", "https://youtube"]) {
     await act(async () => nodes("Field")[0].props.onChange(partial)); await settle();
     expect(button("Import workout").props.disabled).toBe(true);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("starting with https://");
   }
   await act(async () => nodes("Field")[0].props.onChange("https://www.youtube.com/watch?v=qa")); await settle();
   expect(button("Import workout").props.disabled).toBe(false);
@@ -3120,7 +3126,7 @@ it("pastes the link from copied caption text and explains an empty clipboard", a
   fixture.clipboard.mockResolvedValueOnce("");
   await click("Paste");
   expect(nodes("Field")[0].props.value).toBe("");
-  expect(JSON.stringify(renderer!.toJSON())).toContain("Copy a workout link first");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Nothing to paste");
   fixture.clipboard.mockResolvedValueOnce("Leg day 🔥 https://www.instagram.com/reel/qa/ #fitness");
   await click("Paste");
   expect(nodes("Field")[0].props.value).toBe("https://www.instagram.com/reel/qa/");

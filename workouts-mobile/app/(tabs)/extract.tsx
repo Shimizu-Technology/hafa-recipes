@@ -2,13 +2,13 @@ import { ImportList } from "@/components/import-list";
 import { updateNativeSharingConsent } from "@/lib/native-share-session";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform } from "react-native";
+import { View, type ScrollView } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
-import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors } from "@/components/ui";
+import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors, useReducedMotion } from "@/components/ui";
 import { RecentImports } from "@/components/recent-imports";
 import { importSettingsSummary, linkLooksComplete } from "@/lib/add-composer";
 import { useTraining } from "@/lib/context";
@@ -61,6 +61,8 @@ export default function Capture() {
   const [panel, setPanel] = useState<"settings" | "help" | null>(null);
   const [pasteNote, setPasteNote] = useState("");
   const colors = useColors();
+  const reduced = useReducedMotion();
+  const scrollRef = useRef<ScrollView>(null);
   const automatic = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [abandon, setAbandon] = useState(false);
@@ -203,6 +205,7 @@ export default function Capture() {
       setSubmittedId(null);
       setStale(false);
       setError("");
+      setPanel(null); setPasteNote("");
     })().catch(() => {
       // Keep the existing draft and conflict state if the account or slot moved.
     });
@@ -292,6 +295,7 @@ export default function Capture() {
       setReady(true);
       setStale(false);
       setError("");
+      setPanel(null); setPasteNote("");
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -330,6 +334,7 @@ export default function Capture() {
     guard.current = true;
     setBusy(true);
     setError("");
+    setPasteNote("");
     try {
       await replace({ ...draftRef.current, request_id: Crypto.randomUUID(), kind, files: [], job_id: undefined });
     } catch (e) {
@@ -505,7 +510,7 @@ export default function Capture() {
       if (!mounted.current || draftRef.current !== before) return;
       const link = sharedWorkoutURL(null, text);
       if (link) update({ source_url: link });
-      else setPasteNote(text.trim() ? "No link found on your clipboard. To import text, choose Paste workout text below." : "Copy a workout link first, then tap Paste.");
+      else setPasteNote(text.trim() ? "No link found on your clipboard. To import text, choose Paste workout text below." : "Nothing to paste. Copy a workout link first, and allow pasting if your phone asks.");
     } catch {
       if (mounted.current) setPasteNote("Could not read your clipboard. Try pasting into the link field.");
     }
@@ -526,7 +531,7 @@ export default function Capture() {
   const submittable = draft.kind === "url" ? linkLooksComplete(draft.source_url) : !captureErrors(draft).length;
   const limits = capabilities.data?.limits;
   return (
-    <Screen title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />}>
+    <Screen title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />} scrollRef={scrollRef}>
       {(draft.job_id || submittedId) && <Card compact>
         <Row gap={10} align="flex-start">
           <Ionicons name="checkmark-circle" size={22} color={colors.success} />
@@ -553,10 +558,13 @@ export default function Capture() {
                 <Field disabled={locked} label="Workout link" value={draft.source_url} placeholder="Paste a workout link" purpose="url"
                   onChange={(source_url) => { setPasteNote(""); update({ source_url }); }} />
               </Grow>
-              <Button title="Paste" icon="clipboard-outline" variant="secondary" inline disabled={locked}
-                accessibilityHint="Pastes a workout link from your clipboard" onPress={() => { void paste(); }} />
+              <View>
+                <Button title="Paste" icon="clipboard-outline" variant="secondary" inline disabled={locked}
+                  accessibilityHint="Pastes a workout link from your clipboard" onPress={() => { void paste(); }} />
+              </View>
             </Row>
             {pasteNote ? <Copy kind="small" tone="warning">{pasteNote}</Copy>
+              : draft.source_url.trim() && !submittable ? <Copy kind="small" tone="warning">Use the full link, starting with https://</Copy>
               : <Copy kind="small" tone="muted">YouTube, Instagram, TikTok and workout websites</Copy>}
           </>
         ) : (
@@ -634,7 +642,7 @@ export default function Capture() {
       <ListGroup>
         {otherWays.map(way => (
           <ListRow key={way.kind} icon={way.icon} title={way.title} disabled={locked} value={draft.kind === way.kind ? "Selected" : undefined}
-            onPress={() => { void choose(way.kind); }} />
+            onPress={() => { void choose(way.kind).then(() => scrollRef.current?.scrollTo({ y: 0, animated: !reduced })); }} />
         ))}
         <ListRow icon="create-outline" title="Write your own" onPress={() => router.push("/add-workout")} />
       </ListGroup>
@@ -646,7 +654,7 @@ export default function Capture() {
         <Copy kind="small" tone="muted">Up to {limits.successful_or_pending_imports_per_rolling_day} imports in any 24 hours.</Copy>
       )}
       <Sheet visible={panel === "settings"} onClose={() => setPanel(null)} title="Import settings">
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ gap: 12 }}>
+        <View style={{ gap: 12 }}>
           {discoverOn && <>
             <Choice label="Public in Discover" icon="globe-outline" selected={isPublic} disabled={locked}
               detail="Others can find and save complete workouts. Your training and incomplete drafts stay private."
@@ -658,7 +666,7 @@ export default function Capture() {
           {notesApply && <Field disabled={locked} label="Extra instructions" optional multiline compact value={draft.text}
             onChange={(text) => update({ text })} placeholder="Paste the caption, or say which workout to save" />}
           <Button title="Done" onPress={() => setPanel(null)} />
-        </KeyboardAvoidingView>
+        </View>
       </Sheet>
       <Sheet visible={panel === "help"} onClose={() => setPanel(null)} title="How importing works">
         <Copy>Copy a link from YouTube, Instagram, TikTok or a workout website, then tap Paste and Import workout. You can also share straight to Håfa Workouts from those apps.</Copy>

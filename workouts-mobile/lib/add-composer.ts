@@ -32,7 +32,7 @@ export function importedFrom(workout: Pick<Workout, "capture_kind" | "source_url
   return workout.source_creator?.trim() || host(workout.source_url) || (workout.capture_kind ? kindLabels[workout.capture_kind] : "");
 }
 
-export type RecentImport = { id: string; title: string; detail: string; thumbnail?: string | null };
+export type RecentImport = { id: string; title: string; detail: string };
 /**
  * Saved imports for the Add tab. Server import jobs are purged after a day, so
  * the newest imported library workouts keep the section useful afterwards.
@@ -48,6 +48,8 @@ export function recentImports(jobs: ImportJob[] | undefined, workouts: Workout[]
   for (const job of jobs ?? []) {
     if (job.generation !== generation || !job.accepted_workout_id) continue;
     const saved = library.get(job.accepted_workout_id);
+    // Once the library has loaded, a missing workout was deleted or archived.
+    if (!saved && workouts) continue;
     add(saved ? fromWorkout(saved) : {
       id: job.accepted_workout_id,
       title: job.result?.workout?.title ?? job.result?.source.title ?? "Imported workout",
@@ -59,5 +61,5 @@ export function recentImports(jobs: ImportJob[] | undefined, workouts: Workout[]
   return items;
 }
 function fromWorkout(workout: Workout): RecentImport {
-  return { id: workout.id, title: workout.title, detail: importedFrom(workout), thumbnail: workout.source_thumbnail_url };
+  return { id: workout.id, title: workout.title, detail: importedFrom(workout) };
 }

@@ -40,12 +40,15 @@ describe("recentImports", () => {
       workout("w3", { capture_kind: "url", source_creator: "Coach Ana" }),
     ];
     const jobs = [job("j-pending", null), job("j-new", "w-new"), job("j-1", "w1"), job("j-other-gen", "w9", { generation: 2 })];
+    // w-new is missing from the loaded library, so it was deleted or archived.
     expect(recentImports(jobs, library, 1)).toEqual([
-      { id: "w-new", title: "Server title", detail: "tiktok.com" },
-      { id: "w1", title: "Workout w1", detail: "youtube.com", thumbnail: undefined },
-      { id: "w2", title: "Workout w2", detail: "Photos", thumbnail: undefined },
-      { id: "w3", title: "Workout w3", detail: "Coach Ana", thumbnail: undefined },
+      { id: "w1", title: "Workout w1", detail: "youtube.com" },
+      { id: "w2", title: "Workout w2", detail: "Photos" },
+      { id: "w3", title: "Workout w3", detail: "Coach Ana" },
     ]);
+  });
+  it("uses the server import while the library is still loading", () => {
+    expect(recentImports([job("j-new", "w-new")], undefined, 1)).toEqual([{ id: "w-new", title: "Server title", detail: "tiktok.com" }]);
   });
   it("still fills the section from the library after server imports are purged", () => {
     const library = Array.from({ length: 8 }, (_, i) => workout(`w${i}`, { capture_kind: "url" }));

@@ -540,7 +540,8 @@ export function Sheet({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
+      {/* Lift the sheet above the keyboard so fields inside it stay visible. */}
+      <KeyboardAvoidingView style={{ flex: 1, justifyContent: "flex-end" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -569,7 +570,7 @@ export function Sheet({
           </View>
           <ScrollView contentContainerStyle={{ gap: spacing.xs, paddingBottom: 4 }}>{children}</ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

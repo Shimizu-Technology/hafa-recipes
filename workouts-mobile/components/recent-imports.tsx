@@ -1,5 +1,6 @@
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { ListGroup, ListRow, SectionHeader } from "./ui";
 import { useTraining } from "@/lib/context";
 import { recentImports } from "@/lib/add-composer";
@@ -10,10 +11,12 @@ export function RecentImports() {
   const { api, owner, enrollment } = useTraining();
   const generation = enrollment?.generation;
   const enabled = !!enrollment?.enrolled;
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(useCallback(() => { setFocused(true); return () => setFocused(false); }, []));
   const capabilities = useQuery({ queryKey: [owner, "capabilities", generation], queryFn: api.capabilities, enabled, staleTime: 60000 });
   // Shares ImportList's cache entry; ImportList owns polling while jobs run.
   const jobs = useQuery({ queryKey: [owner, "imports", generation], queryFn: () => api.importJobs(),
-    enabled: enabled && capabilities.data?.server_auto_save === true });
+    enabled: enabled && focused && capabilities.data?.server_auto_save === true, staleTime: 30000 });
   // Library search is newest first, so its first page holds the latest imports.
   const library = useQuery({ queryKey: [owner, "library", generation, "recent-imports"],
     queryFn: () => api.searchLibrary({}, null, generation ?? 0), enabled });
