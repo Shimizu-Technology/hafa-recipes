@@ -123,8 +123,9 @@ vi.mock("@/components/ui", () => {
   const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "IconButton",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])),
-    Screen: ({ children, footer, ...props }: PropsWithChildren<{ footer?: ReactNode; [key: string]: unknown }>) => createElement("Screen", props, children, footer),
-    useToast: () => fixture.toast };
+    Screen: ({ children, footer, ...props }: PropsWithChildren<{ footer?: ReactNode; [key: string]: unknown }>) =>
+      createElement("Screen", props, createElement("ScreenAction", null, props.action as ReactNode), children, footer),
+    useToast: () => fixture.toast, useColors: () => new Proxy({}, { get: (_target, key) => String(key) }) };
 });
 vi.mock("@/components/discover-card", () => ({
   DiscoverCardView: "DiscoverCardView",
@@ -136,6 +137,9 @@ vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: { childr
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
 vi.mock("@/components/workout-start-sheet", () => ({ WorkoutStartSheet: "WorkoutStartSheet" }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
+vi.mock("@/components/design/press", () => ({ animatedPressableComponent: () => "Pressable",
+  usePressScale: () => ({ onPressIn() {}, onPressOut() {}, scale: 1, opacity: 1 }) }));
 vi.mock("@/lib/capture-io", () => ({ cleanupCaptureFiles: vi.fn() }));
 import Discover from "../app/(tabs)/discover";
 import DiscoverWorkout from "../app/discover/[id]";
@@ -150,6 +154,9 @@ import type { ShareSnapshot } from "./sharing";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
+const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
+const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === undefined)?.children.join("");
+const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
 it("omits an empty reference card when source identity is already in the header", async () => {
   await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
     source_thumbnail_url: "https://example.test/cover.jpg", source_url: "https://example.test/source",
@@ -159,7 +166,8 @@ it("omits an empty reference card when source identity is already in the header"
 it("a saved workout enters planning with that workout selected", async () => {
   fixture.params = { id: "saved-1" };
   fixture.workout.mockResolvedValue({ id: "saved-1", revision: 1, generation: 1, title: "Saved session",
-    kind: "session", provenance: "user", blocks: [], equipment_required: [] });
+    kind: "session", provenance: "user", blocks: [{ id: "b", label: "Main", grouping: "sequential",
+      exercises: [{ name: "Squat", sets: 3, reps_min: 8 }] }], equipment_required: [] });
   await mount(WorkoutDetail);
   const action = nodes("ListRow").find((n) => n.props.title === "Add to a plan");
   expect(action).toBeDefined();
@@ -323,12 +331,26 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   fixture.workout.mockResolvedValue({ ...saved, estimated_minutes: 30, equipment_required: ["Dumbbells", "Bench"], publication });
   fixture.unpublishWorkout.mockResolvedValue({ ...publication, is_public: false, discover_visible: false });
   await mount(WorkoutDetail);
-  expect(nodes("Screen")[0].props.subtitle).toBe("30 min · 1 exercise · Dumbbells, Bench");
+  // The page leads with its own hero, then the title and one meta line.
+  expect(nodes("Screen")[0].props.hideTitle).toBe(true);
+  expect(nodes("Copy").find((n) => n.props.kind === "title")!.children.join("")).toBe(saved.title);
+  expect(metaLine()).toBe("30 min · 1 exercise · Dumbbells, Bench");
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
-  for (const title of ["Chat about this workout", "Edit workout details", "Remove from Discover"])
+  // Recipes-style header: chat, share and everything else in one ··· sheet.
+  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "IconButton").map((n) => n.props.label))
+    .toEqual(["Ask the coach about this workout", "Share workout", "More workout actions"]);
+  await act(async () => header("Ask the coach about this workout")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
+  await act(async () => header("Share workout")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/share", params: { id: saved.id, kind: "workout" } });
+  for (const title of ["Favorite workout", "Organize workout", "Edit workout details", "Remove from Discover", "See it in Discover",
+    "Version history", "Update from caption or link", "Delete workout"])
     expect(nodes("ListRow").filter((n) => n.props.title === title)).toHaveLength(1);
-  await act(async () => nodes("ListRow").find((n) => n.props.title === "Remove from Discover")!.props.onPress()); await settle();
+  expect(nodes("Button").filter((n) => !n.props.inline && n.props.size !== "lg").map((n) => n.props.title)).toEqual([]);
+  expect(nodes("Button").filter((n) => n.props.size === "lg").map((n) => n.props.title)).toEqual(["Start workout"]);
+  await act(async () => header("More workout actions")!.props.onPress());
+  await act(async () => row("Remove from Discover")!.props.onPress()); await settle();
   expect(fixture.unpublishWorkout).toHaveBeenCalledWith(saved.id, saved.generation);
   const notice = nodes("Notice").find((n) => n.props.tone === "success")!;
   expect(notice.props.children).toBe("Removed from Discover. People who already saved it keep their copy.");
@@ -341,9 +363,15 @@ it.each([true, false])("a program workout page resumes an active session but nev
   fixture.active = active ? { workout: { title: "Session in progress" }, source: { workout_id: "other", workout_revision: 1 } } : null;
   fixture.workout.mockResolvedValue({ ...saved, kind: "program" });
   await mount(WorkoutDetail);
-  const action = button(active ? "Resume current session" : "Start this workout")!;
-  expect(action.props.disabled).toBe(!active);
-  if (active) { await act(async () => action.props.onPress()); expect(fixture.push).toHaveBeenCalledWith("/training"); }
+  expect(button("Start workout")).toBeUndefined();
+  expect(header("Share workout")).toBeUndefined();
+  // Scheduling stays reachable from ··· even while another session holds the footer.
+  await act(async () => row("Schedule as a plan")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/review-plan", params: { workout_id: saved.id } });
+  const action = button(active ? "Resume current session" : "Schedule as a plan")!;
+  expect(action.props.disabled).toBeFalsy();
+  await act(async () => action.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith(active ? "/training" : { pathname: "/review-plan", params: { workout_id: saved.id } });
 });
 
 it("shows owners their own workout with unpublish and no save, report or block", async () => {
@@ -545,7 +573,7 @@ it("saved detail retains source metadata and prevents starting a source-only dra
   fixture.workout.mockResolvedValue({ ...saved, provenance: "source", blocks: [], source_url: "https://example.test/source", source_title: "Original clip", source_creator: "Creator",
     source_thumbnail_url: "https://example.test/cover.jpg", extraction_warnings: ["No readable instructions"] });
   await mount(WorkoutDetail);
-  expect(button("Start this workout")).toBeUndefined();
+  expect(button("Start workout")).toBeUndefined();
   await act(async () => button("Recover workout instructions")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
   expect(nodes("SourceImage")[0].props.uri).toBe("https://example.test/cover.jpg");
@@ -816,12 +844,12 @@ it("shows source-wide instructions and review action instead of starting a one-p
   expect(text).not.toContain("tracking prescription");
   expect(text).not.toContain("Review before tracking"); expect(button("Review tracking details")).toBeUndefined();
   const plan = nodes("ListRow").find(node => node.props.title === "Add to a plan")!;
-  expect(plan.props.disabled).toBe(false);
+  expect(plan.props.disabled).toBeFalsy();
   expect(plan.props.detail).toBe("Add set or round counts first");
   await act(async () => plan.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
   // Start is never a dead button: it asks how to track instead.
-  const start = button("Start this workout")!;
+  const start = button("Start workout")!;
   expect(start.props.disabled).toBe(false);
   expect(nodes("WorkoutStartSheet")[0].props.visible).toBe(false);
   await act(async () => start.props.onPress());
@@ -840,7 +868,7 @@ it("starts a fully specified workout immediately without asking how to track it"
   await mount(WorkoutDetail);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).not.toContain("No set counts yet");
-  await act(async () => button("Start this workout")!.props.onPress()); await settle();
+  await act(async () => button("Start workout")!.props.onPress()); await settle();
   expect(nodes("WorkoutStartSheet")[0].props.visible).toBe(false);
   expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ id: saved.id }),
     { workout_id: saved.id, workout_revision: saved.revision }, "uuid", undefined, undefined);
@@ -864,7 +892,7 @@ it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a sep
     execution: { mode: "amrap", time_cap_seconds: seconds }, exercises: [{ name: "Curls", reps_min: 10 }] }] });
   await mount(WorkoutDetail);
   expect(nodes("StatTile")).toHaveLength(0);
-  const meta = nodes("Screen")[0].props.subtitle as string;
+  const meta = metaLine()!;
   expect(meta).toBe(`${seconds === 1200 ? "20 min" : "2m 5s"} AMRAP · 1 exercise`); expect(meta).not.toContain("25 min");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
@@ -872,7 +900,7 @@ it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a sep
 it("gives an empty manual workout a usable add-exercises action", async () => {
   fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
   fixture.workout.mockResolvedValue({ ...saved, blocks: [] }); await mount(WorkoutDetail);
-  expect(button("Start this workout")).toBeUndefined();
+  expect(button("Start workout")).toBeUndefined();
   await act(async () => button("Add workout exercises")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
 });
@@ -935,7 +963,7 @@ it("deletes only after explicit confirmation and returns to the library", async 
   fixture.workout.mockResolvedValue(saved);
   fixture.deleteWorkout.mockResolvedValue(undefined);
   await mount(WorkoutDetail);
-  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => header("More workout actions")!.props.onPress());
   await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
   expect(fixture.deleteWorkout).not.toHaveBeenCalled();
   await act(async () => button("Keep workout")!.props.onPress());
@@ -946,11 +974,27 @@ it("deletes only after explicit confirmation and returns to the library", async 
   expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/library");
 });
 
+it("puts the source video first and makes its play button actually open the video", async () => {
+  const { Linking } = await import("react-native");
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue({ ...saved, source_url: "https://www.youtube.com/watch?v=abcdefghijk",
+    source_thumbnail_url: "https://example.test/thumb.jpg", source_creator: "Coach Nani" });
+  await mount(WorkoutDetail);
+  const screen = nodes("Screen")[0];
+  const hero = screen.findAll((n) => String(n.type) === "Pressable")[0];
+  expect(hero.props.accessibilityLabel).toBe(`Open YouTube video for ${saved.title}`);
+  expect(nodes("SourceImage")).toHaveLength(0);
+  expect(button("Watch YouTube source")).toBeUndefined();
+  expect(nodes("Copy").flatMap(n => n.children).join(" ")).toContain("Original by Coach Nani");
+  await act(async () => hero.props.onPress());
+  expect(Linking.openURL).toHaveBeenCalledWith("https://www.youtube.com/watch?v=abcdefghijk");
+});
+
 it("keeps a failed deletion available for retry", async () => {
   fixture.params = { id: saved.id }; fixture.workout.mockResolvedValue(saved);
   fixture.deleteWorkout.mockRejectedValue(new Error("Could not delete. Try again."));
   await mount(WorkoutDetail);
-  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => header("More workout actions")!.props.onPress());
   await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
   await act(async () => button("Delete workout")!.props.onPress());
   expect(fixture.replace).not.toHaveBeenCalled();
@@ -962,7 +1006,7 @@ it("serializes deletion and suppresses navigation after an account change", asyn
   let release!: () => void;
   fixture.deleteWorkout.mockImplementation(() => new Promise<void>(resolve => { release = resolve; }));
   await mount(WorkoutDetail);
-  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => header("More workout actions")!.props.onPress());
   await act(async () => nodes("ListRow").find(n => n.props.title === "Delete workout")!.props.onPress());
   const remove = button("Delete workout")!.props.onPress;
   await act(async () => { remove(); remove(); });
@@ -1014,12 +1058,12 @@ it("a direct favorite reads its current private revision and preserves membershi
   const latest = { ...original, revision: 7, archived: true, collection_ids: ["original", "another"] };
   fixture.saveOrganization.mockResolvedValue({ ...latest, revision: 8, favorite: true });
   await mount(WorkoutDetail);
-  const press = button("Favorite workout")!.props.onPress;
+  const press = row("Favorite workout")!.props.onPress;
   await act(async () => { press(); press(); }); expect(fixture.organization).toHaveBeenCalledTimes(1);
   await act(async () => resolve(latest)); await settle();
   expect(fixture.saveOrganization).toHaveBeenCalledExactlyOnceWith(saved.id, { expected_revision: 7, favorite: true }, 1);
   expect(cache.getQueryData<Workout>(["owner", "workout", saved.id, 1])?.organization).toEqual({ ...latest, revision: 8, favorite: true });
-  expect(button("Remove favorite")).toBeDefined(); expect(button("Organize workout")).toBeDefined();
+  expect(row("Remove favorite")).toBeDefined(); expect(row("Organize workout")).toBeDefined();
 });
 it("a retired account cannot continue a held bulk add", async () => {
   fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym", workout_count: 0 }]);
@@ -1038,7 +1082,7 @@ it("a direct favorite stops before writing when the account retires during its m
   fixture.workout.mockResolvedValue({ ...saved, organization: emptyOrganization() });
   let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
   fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  await mount(WorkoutDetail); await act(async () => button("Favorite workout")!.props.onPress());
+  await mount(WorkoutDetail); await act(async () => row("Favorite workout")!.props.onPress());
   fixture.current = false; await act(async () => resolve(emptyOrganization())); await settle();
   expect(fixture.saveOrganization).not.toHaveBeenCalled();
   expect(cache.getQueryData<Workout>(["owner", "workout", saved.id, 1])?.organization?.favorite).toBe(false);
@@ -1250,7 +1294,7 @@ it.each([undefined, false, true])("gates the owner cover editor on actual server
     source_title: "Original source title", source_creator: "Original creator" });
   fixture.capabilities.mockResolvedValue({ ...caps(false), cover_upload: ready });
   await mount(WorkoutDetail);
-  const change = nodes("Button").find(node => node.props.title === "Change cover photo");
+  const change = row("Change cover photo");
   expect(!!change).toBe(ready === true);
   expect(nodes("SourceImage")[0].props.label).toBe("Custom workout cover photo");
   expect(nodes("Copy").flatMap(node => node.children).join(" ")).toContain("Original creator");

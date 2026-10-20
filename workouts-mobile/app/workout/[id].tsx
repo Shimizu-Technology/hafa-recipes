@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Linking } from "react-native";
+import { AccessibilityInfo } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,7 +29,8 @@ import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
-import { WorkoutSource, WorkoutSourceHeader } from "@/components/workout-source";
+import { SavedSourceText } from "@/components/workout-source";
+import { WorkoutHero } from "@/components/workout-hero";
 import { workoutOriginDescription } from "@/lib/workout-presentation";
 import { workoutMeta } from "@/lib/plan-presentation";
 import { amrapCap, blockSummary } from "@/lib/amrap-editor";
@@ -157,59 +158,52 @@ export default function WorkoutDetail() {
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
   const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null,
     exercises, equipment: workout.equipment_required }) : undefined;
-  const startable = !!workout && (exercises > 0 || !!offline.state.active);
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
     router.push(to);
   };
+  const recoverable = !!workout && (workout.provenance === "source" || !!workout.source_url || !!workout.capture_kind);
+  const edit = () => go({ pathname: "/edit-workout/[id]", params: { id: workout!.id } });
+  // One primary action: resume, start, schedule a program, or fill in an empty workout.
+  const primary = !workout ? null : offline.state.active
+    ? <Button title="Resume current session" icon="play" size="lg" disabled={!offline.ready} onPress={() => router.push("/training")} />
+    : workout.kind === "program"
+      ? <Button title="Schedule as a plan" icon="calendar-outline" size="lg"
+        onPress={() => router.push({ pathname: "/review-plan", params: { workout_id: workout.id } })} />
+      : exercises === 0
+        ? <Button title={recoverable ? "Recover workout instructions" : "Add workout exercises"} icon="create-outline" size="lg"
+          onPress={() => router.push({ pathname: recoverable ? "/recover-workout/[id]" : "/edit-workout/[id]", params: { id: workout.id } })} />
+        : <Button title="Start workout" icon="play" size="lg" busy={busy} disabled={!offline.ready}
+          onPress={() => { if (trackingWarning) { setError(""); setChoosing(true); } else void start(); }} />;
+  const hint = !workout || offline.state.active ? null
+    : workout.kind === "program" ? "This program runs over several days. Pick your days to train it."
+      : exercises === 0 ? "No exercises yet."
+        : timedParts ? "More than one timed part — you’ll choose how to track it."
+          : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
     <Screen
       back
       title={workout?.title ?? "Your workout."}
-      subtitle={meta}
-      action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
-      footer={startable ? (<Stack gap={6}>
-        {!!trackingWarning && exercises > 0 && workout!.kind !== "program" && !offline.state.active &&
-          <Copy kind="small" tone="muted" align="center">{timedParts
-            ? "More than one timed part — you’ll choose how to track it."
-            : "No set counts yet — you’ll choose rounds or log as you go."}</Copy>}
-        <Button
-          title={offline.state.active ? "Resume current session" : "Start this workout"}
-          icon="play"
-          size="lg"
-          busy={busy}
-          // A program can't be started as one workout, but an active session can always be resumed from here.
-          disabled={!offline.ready || (!offline.state.active && (workout!.kind === "program" || exercises === 0))}
-          onPress={() => {
-            if (offline.state.active) router.push("/training");
-            else if (trackingWarning) { setError(""); setChoosing(true); }
-            else void start();
-          }}
-        />
-      </Stack>) : undefined}
+      // The hero leads; the title and meta line follow it in the page body.
+      hideTitle
+      action={workout ? <Row gap={4}>
+        <IconButton icon="chatbubble-ellipses-outline" label="Ask the coach about this workout" variant="plain"
+          onPress={() => router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })} />
+        {workout.kind !== "program" && <IconButton icon="share-outline" label="Share workout" variant="plain"
+          onPress={() => router.push({ pathname: "/share", params: { id: workout.id, kind: "workout" } })} />}
+        <IconButton icon="ellipsis-horizontal" label="More workout actions" variant="plain" onPress={() => setMore(true)} />
+      </Row> : undefined}
+      footer={primary ? <Stack gap={6}>
+        {!!hint && <Copy kind="small" tone="muted" align="center">{hint}</Copy>}
+        {primary}
+      </Stack> : undefined}
     >
-      {workout && <WorkoutSourceHeader source={workout} />}
-      {workout && exercises === 0 && <Button
-        title={workout.provenance === "source" || workout.source_url || workout.capture_kind ? "Recover workout instructions" : "Add workout exercises"}
-        icon="create-outline" size="lg" onPress={() => router.push({
-          pathname: workout.provenance === "source" || workout.source_url || workout.capture_kind ? "/recover-workout/[id]" : "/edit-workout/[id]",
-          params: { id: workout.id },
-        })} />}
-      {workout && exercises === 0 && <Notice tone="warning">This source has no extracted exercises yet. Check the source and edit its details before training.</Notice>}
-      {workout?.kind === "program" && (
-        <Card tone="sunken" compact>
-          <Copy kind="small">
-            This source describes a program. Review it as a dated training plan instead of performing all its blocks as
-            one workout.
-          </Copy>
-          <Button
-            title="Assign source blocks to a training schedule"
-            secondary
-            icon="calendar-outline"
-            onPress={() => router.push({ pathname: "/review-plan", params: { workout_id: workout.id } })}
-          />
-        </Card>
-      )}
+      {workout && <WorkoutHero source={workout} />}
+      <Stack gap={6}>
+        <Copy kind="title">{workout?.title ?? "Your workout."}</Copy>
+        {!!meta && <Copy tone="muted">{meta}</Copy>}
+      </Stack>
+      {!!error && <Notice error>{error}</Notice>}
       {publication?.is_public && publication.moderation_status === "hidden" && (
         <Notice tone="warning">
           This workout was hidden from Discover after a review. It’s still in your library.
@@ -218,12 +212,7 @@ export default function WorkoutDetail() {
       {workout?.organization?.archived && (
         <Notice>This workout is archived. Restore it in Organize when you want it back in the default library.</Notice>
       )}
-      {workout && <Row gap={10} wrap>
-        <WorkoutFavorite workout={workout} />
-        <Button title="Organize workout" icon="folder-open-outline" secondary size="sm" inline
-          onPress={() => router.push({ pathname: "/organize/[id]", params: { id: workout.id } })} />
-      </Row>}
-      {!!error && <Notice error>{error}</Notice>}
+      {published?.scope === scope && <Notice tone="success">{published.text}</Notice>}
       <QueryState
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
@@ -240,12 +229,10 @@ export default function WorkoutDetail() {
         ) : (
           <>
             <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
-            <Copy kind="small" tone="muted">
-              {workoutOriginDescription(workout)}
-            </Copy>
-            {workout.blocks.map((block, index) => (
+            {exercises > 0 && <SectionHeader title="Exercises" />}
+            {workout.blocks.map((block, index) => block.exercises.length > 0 && (
               <Card key={index}>
-                <Copy kind="caption" tone="accent">
+                <Copy kind="caption" tone="muted">
                   {[
                     block.label || null,
                     blockSummary(block, block.label),
@@ -269,72 +256,33 @@ export default function WorkoutDetail() {
                 ))}
               </Card>
             ))}
-            {diagnostics.length > 0 && <Card compact tone="sunken">
-              <Copy kind="subheading">Review workout details</Copy>
-              <Copy kind="small">Some workout details need checking. Review the source or edit the details before training.</Copy>
-              <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } })} />
-              {exercises > 0 && !!(workout.source_url || workout.capture_kind) && <Button
-                title="Recover from caption or source" secondary icon="refresh-outline"
-                onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />}
-              <Button title={diagnosticScope === scope ? "Hide import diagnostics" : "Import diagnostics"} variant="ghost"
-                onPress={() => setDiagnosticScope(diagnosticScope === scope ? null : scope)} />
-              {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
-            </Card>}
-            <WorkoutSource source={workout} showOriginal={false} showIdentity={false} />
-            {capabilities.data?.cover_upload === true && <Button
-              title={workout.source_thumbnail_url ? "Change cover photo" : "Choose cover photo"} secondary icon="image-outline"
-              disabled={busy || deleteBusy || publishing} onPress={() => { if (!action.current && isCurrentAccount()) router.push({ pathname: "/workout-cover/[id]", params: { id: workout.id } }); }} /> }
-            {workout.source_url && /^https?:\/\//i.test(workout.source_url) && (
-              <Button title="Open original source" icon="open-outline" secondary onPress={() => {
-                void Linking.openURL(workout.source_url!).catch(() => setError("Could not open the original source."));
-              }} />
-            )}
-            <SectionHeader title="Make it yours" />
-            <ListGroup>
-              {workout.kind === "session" && <ListRow
+            {workout.kind === "session" && exercises > 0 && <ListGroup>
+              <ListRow
                 icon="calendar-outline"
                 title="Add to a plan"
-                disabled={exercises === 0}
                 // Plans need set or round counts; send people straight to the fix instead of a dead row.
                 detail={timedParts ? "Split its timed parts first" : trackingWarning ? "Add set or round counts first" : "Choose your days and keep this workout selected"}
                 onPress={() => router.push(trackingWarning
                   ? { pathname: "/edit-workout/[id]", params: { id: workout.id } }
                   : { pathname: "/build-plan", params: { include: workout.id } })}
-              />}
-              <ListRow
-                icon="chatbubble-ellipses-outline"
-                title="Chat about this workout"
-                onPress={() =>
-                  router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })
-                }
               />
-              <ListRow
-                icon="create-outline"
-                title="Edit workout details"
-                onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } })}
-              />
-              {discoverOn && (
-                <ListRow
-                  icon={isPublic ? "eye-off-outline" : "globe-outline"}
-                  title={isPublic ? "Remove from Discover" : "Share to Discover"}
-                  detail={
-                    isPublic
-                      ? "People who already saved it keep their copy"
-                      : "Anyone using Håfa Workouts can find and save it"
-                  }
-                  disabled={publishing}
-                  onPress={() => void setShared(!isPublic)}
-                />
-              )}
-              {discoverOn && publication?.discover_visible && (
-                <ListRow
-                  icon="compass-outline"
-                  title="See it in Discover"
-                  onPress={() => router.push({ pathname: "/discover/[id]", params: { id: workout.id } })}
-                />
-              )}
-            </ListGroup>
-            {published?.scope === scope && <Notice tone="success">{published.text}</Notice>}
+            </ListGroup>}
+            <SectionHeader title="Source" />
+            <Copy kind="small" tone="muted">{workoutOriginDescription(workout)}</Copy>
+            <SavedSourceText context={workout.source_context} />
+            {diagnostics.length > 0 && <Card compact tone="sunken">
+              <Copy kind="subheading">Review workout details</Copy>
+              <Copy kind="small">Some workout details need checking. Review the source or edit the details before training.</Copy>
+              <Row gap={8} wrap>
+                <Button title="Check details" secondary size="sm" inline onPress={edit} />
+                {exercises > 0 && !!(workout.source_url || workout.capture_kind) && <Button
+                  title="Recover from caption or source" secondary size="sm" inline icon="refresh-outline"
+                  onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />}
+              </Row>
+              <Button title={diagnosticScope === scope ? "Hide import diagnostics" : "Import diagnostics"} variant="ghost" size="sm" inline
+                onPress={() => setDiagnosticScope(diagnosticScope === scope ? null : scope)} />
+              {diagnosticScope === scope && diagnostics.map((warning, index) => <Copy key={index} kind="small">{warning}</Copy>)}
+            </Card>}
           </>
         )}
       </QueryState>
@@ -349,17 +297,34 @@ export default function WorkoutDetail() {
             <Button title="Keep workout" secondary disabled={deleteBusy} onPress={() => setDeleting(false)} />
             <Button title="Archive instead" variant="ghost" disabled={deleteBusy} onPress={() => { setDeleting(false); go({ pathname: "/organize/[id]", params: { id: workout.id } }); }} />
           </> : <>
-          <ListRow
-            icon="share-outline"
-            title="Share selected workout"
-            detail={workout.kind === "program" ? "Programs can’t be shared as one workout" : undefined}
-            disabled={workout.kind === "program"}
-            onPress={() => go({ pathname: "/share", params: { id: workout.id, kind: "workout" } })}
-          />
-          <ListRow icon="time-outline" title="Version history" onPress={() => go({ pathname: "/workout-history/[id]", params: { id: workout.id } })} />
-          <ListRow icon="refresh-outline" title="Update from caption or link"
-            onPress={() => go({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />
-          <ListRow icon="trash-outline" title="Delete workout" detail="Remove from your library" onPress={() => { setError(""); setDeleting(true); }} />
+          <ListGroup>
+            <WorkoutFavorite workout={workout} />
+            <ListRow icon="folder-open-outline" title="Organize workout" detail="Collections, tags and archive"
+              onPress={() => go({ pathname: "/organize/[id]", params: { id: workout.id } })} />
+            {workout.kind === "program" && <ListRow icon="calendar-outline" title="Schedule as a plan" detail="Pick your days to train this program"
+              onPress={() => go({ pathname: "/review-plan", params: { workout_id: workout.id } })} />}
+            <ListRow icon="create-outline" title="Edit workout details" onPress={edit} />
+            {capabilities.data?.cover_upload === true && <ListRow icon="image-outline"
+              title={workout.source_thumbnail_url ? "Change cover photo" : "Choose cover photo"} disabled={busy || deleteBusy || publishing}
+              onPress={() => { if (!action.current && isCurrentAccount()) go({ pathname: "/workout-cover/[id]", params: { id: workout.id } }); }} />}
+          </ListGroup>
+          {discoverOn && <ListGroup>
+            <ListRow
+              icon={isPublic ? "eye-off-outline" : "globe-outline"}
+              title={isPublic ? "Remove from Discover" : "Share to Discover"}
+              detail={isPublic ? "People who already saved it keep their copy" : "Anyone using Håfa Workouts can find and save it"}
+              disabled={publishing}
+              onPress={() => { setMore(false); void setShared(!isPublic); }}
+            />
+            {publication?.discover_visible && <ListRow icon="compass-outline" title="See it in Discover"
+              onPress={() => go({ pathname: "/discover/[id]", params: { id: workout.id } })} />}
+          </ListGroup>}
+          <ListGroup>
+            <ListRow icon="time-outline" title="Version history" onPress={() => go({ pathname: "/workout-history/[id]", params: { id: workout.id } })} />
+            <ListRow icon="refresh-outline" title="Update from caption or link"
+              onPress={() => go({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />
+            <ListRow icon="trash-outline" title="Delete workout" detail="Remove from your library" destructive onPress={() => { setError(""); setDeleting(true); }} />
+          </ListGroup>
           </>}
         </Sheet>
       )}
