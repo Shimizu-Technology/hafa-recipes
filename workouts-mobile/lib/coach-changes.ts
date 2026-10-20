@@ -81,7 +81,8 @@ export function describeChange(action: CoachAction, context: ChangeContext): Cha
     return {
       title: action.kind === "progression" ? `Progress ${p.workout.title}` : `Adjust ${context.workout?.title ?? p.workout.title}`,
       rows: workoutRows(context.workout, p.workout),
-      note: action.kind === "adaptation" ? "Saved as a new copy. Your original workout stays as it is." : undefined,
+      // Both kinds save a new workout linked to the original (see accept_action in the API).
+      note: "Saved as a new copy. Your original workout stays as it is.",
     };
   }
   const after = p.program?.proposal.sessions ?? p.sessions ?? [];
