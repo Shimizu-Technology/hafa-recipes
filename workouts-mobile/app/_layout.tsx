@@ -18,6 +18,7 @@ import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
 import { Screen, Copy, Notice, Button, ToastProvider, useColors } from "@/components/ui";
 import { LogoutRecoveryBoundary } from "@/components/logout-recovery-boundary";
+import { AccountIdentityProvider } from "@/components/account-identity";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
 
@@ -112,10 +113,12 @@ function Routes() {
   );
   return isSignedIn ? (
     <TrainingProvider key={userId}>
-      <RemindersProvider>
-        <ShareCapture />
-        {stack}
-      </RemindersProvider>
+      <AccountIdentityProvider>
+        <RemindersProvider>
+          <ShareCapture />
+          {stack}
+        </RemindersProvider>
+      </AccountIdentityProvider>
     </TrainingProvider>
   ) : (
     stack
@@ -147,6 +150,8 @@ export default function Root() {
     DMSans_400Regular: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
     DMSans_600SemiBold: require("@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf"),
     DMSans_700Bold: require("@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"),
+    Fraunces_600SemiBold: require("@expo-google-fonts/fraunces/600SemiBold/Fraunces_600SemiBold.ttf"),
+    Fraunces_700Bold: require("@expo-google-fonts/fraunces/700Bold/Fraunces_700Bold.ttf"),
   });
   const error = checkAuthConfiguration(
     configuration.clerkKey,

@@ -1,25 +1,33 @@
 import { Tabs } from "expo-router";
 import type { ColorValue } from "react-native";
-import { TabIcon, useColors } from "@/components/ui";
+import { AddTabIcon, TabIcon, useColors } from "@/components/ui";
+import { WorkoutsTabBar } from "@/components/workouts-tab-bar";
+import { TabRootContext } from "@/components/tab-chrome";
 import { fonts } from "@/constants/theme";
 
-// Today stays deep-linkable and reachable from Plan; five destinations stay visible.
+const visible = ["Discover", "Library", "Add", "Train", "Progress"];
+
+// Mirrors Håfa Recipes: Discover, Library, a filled center Add, then Train and Progress.
+// Today (`index`) stays deep-linkable; its content lives at the top of Train.
 export default function Layout() {
   const c = useColors();
-  const tab = (title: string, route: Parameters<typeof TabIcon>[0]["route"]) => ({
+  const tab = (title: string, route: Parameters<typeof TabIcon>[0]["route"], label = title) => ({
     title,
     // The hidden Today route must not inflate the spoken visible-tab count.
-    tabBarAccessibilityLabel: `${title}, tab, ${["Discover", "Library", "Extract", "Plan", "Progress"].indexOf(title) + 1} of 5`,
+    tabBarAccessibilityLabel: `${label}, tab, ${visible.indexOf(title) + 1} of ${visible.length}`,
     tabBarIcon: ({ color, focused }: { color: ColorValue; focused: boolean }) => (
       <TabIcon route={route} focused={focused} color={color} />
     ),
   });
   return (
+    <TabRootContext.Provider value>
     <Tabs
       initialRouteName="library"
+      tabBar={props => <WorkoutsTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: c.accentText,
+        tabBarHideOnKeyboard: true,
+        tabBarActiveTintColor: c.onActionSoft,
         tabBarInactiveTintColor: c.muted,
         tabBarStyle: { backgroundColor: c.surface, borderTopColor: c.border },
         tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2 },
@@ -29,9 +37,16 @@ export default function Layout() {
       <Tabs.Screen name="index" options={{ href: null }} />
       <Tabs.Screen name="discover" options={tab("Discover", "discover")} />
       <Tabs.Screen name="library" options={tab("Library", "library")} />
-      <Tabs.Screen name="extract" options={tab("Extract", "extract")} />
-      <Tabs.Screen name="plan" options={tab("Plan", "plan")} />
+      <Tabs.Screen
+        name="extract"
+        options={{
+          ...tab("Add", "extract", "Add a workout"),
+          tabBarIcon: ({ focused }: { focused: boolean }) => <AddTabIcon focused={focused} />,
+        }}
+      />
+      <Tabs.Screen name="plan" options={tab("Train", "plan")} />
       <Tabs.Screen name="progress" options={tab("Progress", "progress")} />
     </Tabs>
+    </TabRootContext.Provider>
   );
 }

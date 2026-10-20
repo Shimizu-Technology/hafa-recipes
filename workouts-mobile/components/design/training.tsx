@@ -283,26 +283,33 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
 export const tabIcons = {
   index: ["sunny", "sunny-outline"],
   discover: ["compass", "compass-outline"],
-  extract: ["sparkles", "sparkles-outline"],
+  extract: ["add", "add-outline"],
   library: ["albums", "albums-outline"],
-  plan: ["calendar", "calendar-outline"],
+  plan: ["barbell", "barbell-outline"],
   progress: ["stats-chart", "stats-chart-outline"],
 } as const satisfies Record<string, readonly [IconName, IconName]>;
 export function TabIcon({ route, focused, color }: { route: keyof typeof tabIcons; focused: boolean; color: ColorValue }) {
-  const c = useColors();
   const [active, idle] = tabIcons[route];
+  return <Ionicons name={focused ? active : idle} size={24} color={color} />;
+}
+
+/** Add is the primary capture action: a filled tile that still sits on the shared icon baseline. */
+export function AddTabIcon({ focused }: { focused: boolean }) {
+  const c = useColors();
   return (
     <View
       style={{
-        width: 48,
-        height: 26,
-        borderRadius: radii.full,
+        width: 36,
+        height: 36,
+        marginTop: -6,
+        borderRadius: radii.md,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: focused ? c.accentSoft : "transparent",
+        backgroundColor: c.action,
+        opacity: focused ? 1 : 0.92,
       }}
     >
-      <Ionicons name={focused ? active : idle} size={21} color={color} />
+      <Ionicons name="add" size={26} color={c.onAction} />
     </View>
   );
 }

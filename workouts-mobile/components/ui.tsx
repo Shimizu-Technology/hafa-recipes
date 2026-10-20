@@ -46,6 +46,7 @@ export {
   type NoticeTone,
 } from "./design/surfaces";
 export {
+  AddTabIcon,
   ProgressRing,
   RestTimer,
   SetRow,

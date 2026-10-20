@@ -81,7 +81,7 @@ export function toneColor(c: ColorTokens, tone: Tone, surface: Surface) {
   }[tone];
 }
 
-const headerKinds = new Set<TypeKind>(["display", "title", "heading"]);
+const headerKinds = new Set<TypeKind>(["display", "title", "navTitle", "heading"]);
 export function Copy({
   children,
   kind = "body",
