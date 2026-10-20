@@ -41,6 +41,7 @@ const fixture = vi.hoisted(() => ({
   current: true, generation: 1, owner: "owner",
   load: vi.fn(),
   saveDraft: vi.fn(),
+  start: vi.fn(),
 }));
 vi.mock("@/lib/context", () => {
   const storage = {
@@ -69,7 +70,7 @@ vi.mock("@/lib/context", () => {
     acceptPublishingDisclosure: fixture.acceptPublishingDisclosure,
   };
   return {
-    useOfflineTraining: () => ({ ready: true, state: { active: fixture.active, history: [] }, store: { start: vi.fn(), snapshot: () => ({ active: fixture.active, history: [] }) } }),
+    useOfflineTraining: () => ({ ready: true, state: { active: fixture.active, history: [] }, store: { start: fixture.start, snapshot: () => ({ active: fixture.active, history: [] }) } }),
     useTraining: () => ({
       api,
       owner: fixture.owner,
@@ -134,6 +135,7 @@ vi.mock("@/components/discover-card", () => ({
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: { children: unknown }) => children }));
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
+vi.mock("@/components/workout-start-sheet", () => ({ WorkoutStartSheet: "WorkoutStartSheet" }));
 vi.mock("@/lib/capture-io", () => ({ cleanupCaptureFiles: vi.fn() }));
 import Discover from "../app/(tabs)/discover";
 import DiscoverWorkout from "../app/discover/[id]";
@@ -197,7 +199,7 @@ beforeEach(() => {
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
     fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
-    fixture.unpublishWorkout, fixture.announce]) mock.mockReset();
+    fixture.unpublishWorkout, fixture.announce, fixture.start]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
   fixture.active = null;
@@ -810,10 +812,39 @@ it("shows source-wide instructions and review action instead of starting a one-p
   await mount(WorkoutDetail);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain(quote);
-  expect(button("Start this workout")!.props.disabled).toBe(true);
-  expect(nodes("ListRow").find(node => node.props.title === "Add to a plan")!.props.disabled).toBe(true);
-  await act(async () => button("Review tracking details")!.props.onPress());
+  expect(text).toContain("No set counts yet");
+  expect(text).not.toContain("tracking prescription");
+  expect(text).not.toContain("Review before tracking"); expect(button("Review tracking details")).toBeUndefined();
+  const plan = nodes("ListRow").find(node => node.props.title === "Add to a plan")!;
+  expect(plan.props.disabled).toBe(false);
+  expect(plan.props.detail).toBe("Add set or round counts first");
+  await act(async () => plan.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+  // Start is never a dead button: it asks how to track instead.
+  const start = button("Start this workout")!;
+  expect(start.props.disabled).toBe(false);
+  expect(nodes("WorkoutStartSheet")[0].props.visible).toBe(false);
+  await act(async () => start.props.onPress());
+  expect(fixture.start).not.toHaveBeenCalled();
+  const sheet = nodes("WorkoutStartSheet")[0];
+  expect(sheet.props.visible).toBe(true);
+  await act(async () => sheet.props.onStart({ rounds: 4 })); await settle();
+  expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ id: saved.id }),
+    { workout_id: saved.id, workout_revision: saved.revision }, "uuid", undefined, { rounds: 4 });
+  expect(fixture.push).toHaveBeenCalledWith("/training");
+});
+
+it("starts a fully specified workout immediately without asking how to track it", async () => {
+  fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.workout.mockResolvedValue(saved);
+  await mount(WorkoutDetail);
+  const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
+  expect(text).not.toContain("No set counts yet");
+  await act(async () => button("Start this workout")!.props.onPress()); await settle();
+  expect(nodes("WorkoutStartSheet")[0].props.visible).toBe(false);
+  expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ id: saved.id }),
+    { workout_id: saved.id, workout_revision: saved.revision }, "uuid", undefined, undefined);
+  expect(nodes("ListRow").find(node => node.props.title === "Add to a plan")!.props.detail).toBe("Choose your days and keep this workout selected");
 });
 
 it("keeps the original overall instructions visible during import review", async () => {
