@@ -435,6 +435,20 @@ describe("source circuits with open-ended rounds", () => {
     await store.addRound();
     expect(store.snapshot().active!.steps.slice(9, 12).map((x) => [x.block_id, x.round_index])).toEqual(
       [["main", 4], ["main", 4], ["main", 4]]);
+    await store.activityType("strength_training");
+    for (let i = 0; i < 12; i++) await store.log(next(store));
+    // Just finished the circuit and the finisher hasn't started: repeat the circuit, at the cursor.
+    await store.addRound();
+    let d2 = store.snapshot().active!;
+    expect(d2.cursor).toBe(12);
+    expect(d2.steps.slice(12, 15).map((x) => [x.block_id, x.round_index])).toEqual([["main", 5], ["main", 5], ["main", 5]]);
+    for (let i = 0; i < 4; i++) await store.log(next(store));
+    // Inside a straight-set block, another round is one more set of each exercise, not three.
+    await store.addRound();
+    d2 = store.snapshot().active!;
+    expect(d2.steps.slice(20).map((x) => [x.block_id, x.exercise_index, x.round_index, x.set_index])).toEqual(
+      [["finisher", 0, 2, 1], ["finisher", 1, 2, 1]]);
+    expect(new Set(d2.steps.map((x) => x.key)).size).toBe(d2.steps.length);
   });
   it("lets a multi-block timed workout start untimed only by explicit choice, and never adds rounds to a timed circuit", async () => {
     const workout = amrap(2);

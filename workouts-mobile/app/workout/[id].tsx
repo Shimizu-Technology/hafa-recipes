@@ -150,6 +150,8 @@ export default function WorkoutDetail() {
     }
   }
   const trackingWarning = workout ? trackingPrescriptionWarning(workout) : null;
+  // Several timed (AMRAP) parts need different words than missing set counts.
+  const timedParts = !!trackingWarning && !!workout?.blocks.some((block) => block.execution);
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
@@ -168,7 +170,9 @@ export default function WorkoutDetail() {
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
       footer={startable ? (<Stack gap={6}>
         {!!trackingWarning && exercises > 0 && workout!.kind !== "program" && !offline.state.active &&
-          <Copy kind="small" tone="muted" align="center">No set counts yet — you’ll choose rounds or log as you go.</Copy>}
+          <Copy kind="small" tone="muted" align="center">{timedParts
+            ? "More than one timed part — you’ll choose how to track it."
+            : "No set counts yet — you’ll choose rounds or log as you go."}</Copy>}
         <Button
           title={offline.state.active ? "Resume current session" : "Start this workout"}
           icon="play"
@@ -292,7 +296,7 @@ export default function WorkoutDetail() {
                 title="Add to a plan"
                 disabled={exercises === 0}
                 // Plans need set or round counts; send people straight to the fix instead of a dead row.
-                detail={trackingWarning ? "Add set or round counts first" : "Choose your days and keep this workout selected"}
+                detail={timedParts ? "Split its timed parts first" : trackingWarning ? "Add set or round counts first" : "Choose your days and keep this workout selected"}
                 onPress={() => router.push(trackingWarning
                   ? { pathname: "/edit-workout/[id]", params: { id: workout.id } }
                   : { pathname: "/build-plan", params: { include: workout.id } })}
@@ -362,6 +366,7 @@ export default function WorkoutDetail() {
       {workout && <WorkoutStartSheet
         visible={choosing}
         busy={busy}
+        timedParts={timedParts}
         onClose={() => { if (!busy) setChoosing(false); }}
         onStart={(choice) => void start(choice)}
         onEdit={() => { setChoosing(false); router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } }); }}

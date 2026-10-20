@@ -576,7 +576,11 @@ export function createTrainingStore(
         return s;
       });
     },
-    /** Repeats the current block's latest round once more, right after that block. */
+    /**
+     * Repeats a block's latest round once more, right after that block. At a block boundary
+     * it repeats the block just finished, not the one not yet started. Straight-set blocks
+     * repeat one set of each exercise.
+     */
     addRound() {
       return update((s) => {
         const d = s.active;
@@ -584,18 +588,19 @@ export function createTrainingStore(
         const warning = draftStructureWarning(d);
         if (warning) throw Error(warning);
         if (d.timed_circuit) throw Error("This timed circuit already repeats rounds until the time cap.");
-        const current = d.steps[Math.min(d.cursor, d.steps.length - 1)];
+        const boundary = d.cursor > 0 && d.cursor < d.steps.length && d.steps[d.cursor - 1].block_id !== d.steps[d.cursor].block_id;
+        const current = d.steps[boundary ? d.cursor - 1 : Math.min(d.cursor, d.steps.length - 1)];
         if (!current) throw Error("Choose an exercise first.");
         const block = d.steps.filter((x) => x.block_id === current.block_id);
         const latest = Math.max(...block.map((x) => x.round_index));
         const round = latest + 1;
-        const template = block.filter((x) => x.round_index === latest);
+        const template = block.filter((x) => x.round_index === latest && (x.grouping !== "sequential" || x.set_index === 1));
         if (round > 100 || d.steps.length + template.length > 1000) throw Error("This session has reached its round limit.");
         const added = template.map((first): TrainingStep => {
           const step = { ...clone(first), round_index: round };
           return { ...step, key: actualIdentity(step) };
         });
-        // The cursor is inside (or just past) this block, so the new round never lands before it.
+        // The cursor is inside or just past this block, so the new round never lands before it.
         let insertion = d.steps.length;
         while (insertion > 0 && d.steps[insertion - 1].block_id !== current.block_id) insertion--;
         d.steps.splice(insertion, 0, ...added);

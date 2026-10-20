@@ -403,5 +403,9 @@ it("the start sheet logs as you go, starts a bounded round count, or opens the e
   expect(onStart).toHaveBeenLastCalledWith({ rounds: 2 });
   await act(async () => rows("Edit workout")[0].props.onPress());
   expect(onEdit).toHaveBeenCalledOnce();
+  expect(rows("Edit workout")[0].props.detail).toBe("Add sets and reps first");
+  await act(async () => renderer!.update(createElement(WorkoutStartSheet, { visible: true, busy: false, timedParts: true, onClose() {}, onStart, onEdit })));
+  expect(rows("Edit workout")[0].props.detail).toBe("Split the timed parts first");
+  expect(text()).toContain("more than one timed part");
   await act(async () => renderer!.unmount()); renderer = undefined;
 });
