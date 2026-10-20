@@ -11,9 +11,11 @@ import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
-import { defaultChild, isCare } from "@/lib/care-format";
+import { careSummary, defaultChild, friendlyTime, isCare } from "@/lib/care-format";
+import { nextFeed } from "@/lib/care-glance";
+import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
-function fresh(kind: Kind, child: string | null): EditorDraft {
+function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
     kind,
@@ -24,7 +26,7 @@ function fresh(kind: Kind, child: string | null): EditorDraft {
     files: [],
     data:
       kind === "feeding"
-        ? { method: "breast", side: "both" }
+        ? { method: "breast", side: "both", ...prefill }
         : kind === "diaper"
           ? { type: "wet" }
           : kind === "routine"
@@ -61,8 +63,12 @@ export default function Edit() {
           if (!row || row.cache_partial) row = await b.api.record(params.id);
           d = { ...row, files: inheritedFiles(b.state, row.id), existing: true };
         }
-        const kind = params.kind ?? "journal";
-        d ??= fresh(kind, defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children));
+        const kind = params.kind ?? "journal",
+          child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
+          lastFeed = b.records
+            .filter((r) => r.kind === "feeding" && r.child_id === child)
+            .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at))[0];
+        d ??= fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
         if (active) {
           latest.current = d;
           setDraft(d);
@@ -242,6 +248,24 @@ export default function Edit() {
         throw failure;
       }
       latest.current = null;
+      if (mutation.type === "save" && isCare(d.kind) && !d.existing) {
+        // Quick logs return to Today; the new entry can be undone from there.
+        const undo = undoSaved(b, mutation.record);
+        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at)}`, {
+          label: "Undo",
+          onPress: async () => {
+            try {
+              await undo();
+              toast("Undone.");
+            } catch (e) {
+              toast(messageFor(e));
+            }
+          },
+        });
+        void b.sync();
+        router.dismissTo("/(tabs)");
+        return;
+      }
       toast(
         process
           ? "Source saved. Processing can continue in the background."

@@ -481,39 +481,77 @@ export function Row({
     </Pressable>
   );
 }
-const ToastContext = createContext<(value: string) => void>(() => undefined);
+export interface ToastAction {
+  label: string;
+  onPress: () => void | Promise<void>;
+}
+type ShowToast = (value: string, action?: ToastAction) => void;
+const ToastContext = createContext<ShowToast>(() => undefined);
 export function useToast() {
   return useContext(ToastContext);
 }
 export function ToastProvider({ children }: PropsWithChildren) {
-  const [toast, setToast] = useState(""),
-    c = useColors();
+  const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
+    c = useColors(),
+    show = useRef<ShowToast>((message, action) =>
+      setToast(message ? { message, action, key: Date.now() } : null)
+    );
   useEffect(() => {
     if (toast) {
-      const timer = setTimeout(() => setToast(""), 4500);
+      // Leave time to reach Undo; plain confirmations clear sooner.
+      const timer = setTimeout(() => setToast(null), toast.action ? 6500 : 4500);
       return () => clearTimeout(timer);
     }
   }, [toast]);
   return (
-    <ToastContext.Provider value={setToast}>
+    <ToastContext.Provider value={show.current}>
       {children}
       {!!toast && (
-        <Pressable
+        <View
           accessibilityRole="alert"
           accessibilityLiveRegion="polite"
-          onPress={() => setToast("")}
           style={{
             position: "absolute",
             bottom: 105,
             left: 22,
             right: 22,
             backgroundColor: c.text,
-            padding: 17,
+            paddingVertical: 8,
+            paddingLeft: 17,
+            paddingRight: 8,
             borderRadius: 18,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            minHeight: 56,
           }}
         >
-          <Text style={{ color: c.background, fontSize: 15 }}>{toast}</Text>
-        </Pressable>
+          <Pressable style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
+            <Text style={{ color: c.background, fontSize: 15 }}>{toast.message}</Text>
+          </Pressable>
+          {toast.action && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={toast.action.label}
+              onPress={() => {
+                const action = toast.action!;
+                setToast(null);
+                void action.onPress();
+              }}
+              style={({ pressed }) => ({
+                minHeight: 44,
+                minWidth: 64,
+                paddingHorizontal: 14,
+                borderRadius: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Text style={{ color: c.background, fontSize: 15, fontWeight: "700" }}>{toast.action.label}</Text>
+            </Pressable>
+          )}
+        </View>
       )}
     </ToastContext.Provider>
   );

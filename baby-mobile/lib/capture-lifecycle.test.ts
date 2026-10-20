@@ -7,7 +7,7 @@ const scope = vi.hoisted(() => ({
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   params: { kind: "journal" }, native: true,
   pending: vi.fn(), acknowledge: vi.fn(), copy: vi.fn(), remove: vi.fn(),
-  push: vi.fn(), dismiss: vi.fn(), reset: vi.fn(),
+  push: vi.fn(), dismiss: vi.fn(), reset: vi.fn(), toast: vi.fn(),
   stock: { hasShareIntent: false, shareIntent: { webUrl: "", text: "", files: [] as unknown[] } },
 }));
 vi.mock("react-native", () => ({
@@ -26,6 +26,8 @@ vi.mock("expo-share-intent", () => ({ useShareIntentContext: () => ({ ...scope.s
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/lib/care-glance", () => import("./care-glance"));
+vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/files", () => ({ preserveFile: scope.copy, removeLocal: scope.remove }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
@@ -36,7 +38,7 @@ vi.mock("@/modules/hafa-baby-share/src", () => ({
 }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field",
-  Loading: "Loading", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => () => {},
+  Loading: "Loading", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => scope.toast,
 }));
 import Edit from "../app/edit";
 import { ShareCapture } from "../components/share-capture";
@@ -311,5 +313,28 @@ it("keeps an existing care entry on its own baby when another baby is selected",
   await act(async () => { await account.drain(); });
   const saved = account.state.outbox[0];
   expect(saved.type === "save" && saved.record.child_id).toBe("twin-b");
+  scope.params = { kind: "journal" };
+});
+it("prefills the other breast, returns to Today and offers an Undo that removes the new feed", async () => {
+  const account = setup(); withBaby(account); scope.params = { kind: "feeding" };
+  (account as { records: unknown[] }).records = [{ id: "older", kind: "feeding", title: "Feeding", body: "", child_id: "baby-1",
+    occurred_at: "2026-10-20T01:00:00.000Z", data: { method: "breast", side: "left", duration_minutes: 12 }, revision: 1,
+    created_at: "", updated_at: "" }];
+  (account as unknown as { queue: (m: unknown) => Promise<void> }).queue = (m) =>
+    account.commit((state) => ({ ...state, outbox: [...state.outbox, m as DeviceState["outbox"][number]] }));
+  await mount(Edit);
+  const side = renderer!.root.findAll((node) => String(node.type) === "Chips")
+    .find((node) => node.props.options.some((option: { value: string }) => option.value === "right"));
+  expect(side!.props.value).toBe("right");
+  await press("Save feeding");
+  await act(async () => { await account.drain(); });
+  expect(scope.dismiss).toHaveBeenCalledWith("/(tabs)");
+  const [message, action] = scope.toast.mock.calls.at(-1)!;
+  expect(message).toContain("Breastfeeding · Right side");
+  expect(action.label).toBe("Undo");
+  await act(async () => { await action.onPress(); await account.drain(); });
+  const [saved, removed] = account.state.outbox;
+  expect(saved.type).toBe("save");
+  expect(removed.type === "delete" && removed.record.id).toBe(saved.type === "save" && saved.record.id);
   scope.params = { kind: "journal" };
 });

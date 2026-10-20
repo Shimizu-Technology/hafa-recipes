@@ -12,7 +12,8 @@ export function todayCareRows(
   childId: string | null,
   ids: readonly string[] | null,
   retainedLocal: readonly string[] = [],
-  retainedDeleted: readonly string[] = []
+  retainedDeleted: readonly string[] = [],
+  limit = 3
 ) {
   const remote = ids === null ? null : new Set(ids),
     deleted = new Set(retainedDeleted),
@@ -26,8 +27,10 @@ export function todayCareRows(
     .filter((row) => !childId || !row.child_id || row.child_id === childId)
     .filter((row) => remote === null || remote.has(row.id) || local.has(row.id))
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at) || a.id.localeCompare(b.id))
-    .slice(0, 3);
+    .slice(0, limit);
 }
+/** Enough recent care for today's totals at newborn frequency (about 30 entries a day per baby). */
+export const glanceLimit = 100;
 
 export function useTodayCare() {
   const b = useBaby(),
@@ -61,7 +64,7 @@ export function useTodayCare() {
     setLoading(true);
     setError("");
     try {
-      const response = await account.api.records({ kinds: careKinds, child_id: childId, include_general: true, limit: 3 });
+      const response = await account.api.records({ kinds: careKinds, child_id: childId, include_general: true, limit: glanceLimit });
       account.api.assertLease(lease);
       if (!valid()) return;
       await account.commit((state) => {
@@ -96,8 +99,11 @@ export function useTodayCare() {
     void refresh();
     return () => { active.current = false; request.current++; };
   }, [key]));
+  const ids = page?.key === key ? page.ids : null,
+    all = todayCareRows(b.state, childId, ids, [...local.current.ids], [...local.current.deleted], glanceLimit);
   return {
-    rows: todayCareRows(b.state, childId, page?.key === key ? page.ids : null, [...local.current.ids], [...local.current.deleted]),
+    rows: all.slice(0, 3),
+    all,
     loading,
     error,
     refresh,
