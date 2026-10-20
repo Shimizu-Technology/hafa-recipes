@@ -14,14 +14,15 @@ export const kindIcon: Record<Kind, IconName> = {
   question: "chatbubble-ellipses-outline",
   collection: "folder-outline",
 };
-export function RecordRow({ record, pending = false }: { record: BabyRecord; pending?: boolean }) {
+/** `now` lets a screen share one clock between rows and its summary so durations agree. */
+export function RecordRow({ record, pending = false, now }: { record: BabyRecord; pending?: boolean; now?: Date }) {
   const children = useBaby().state.bootstrap?.children ?? [],
     care = isCare(record.kind),
     label = record.title && record.title !== kindName[record.kind] ? record.title : "",
     child = children.length > 1 ? children.find((c) => c.id === record.child_id)?.name : undefined;
   const details = [
     care ? label : record.data.provenance === "clinician_instruction" ? "Clinician instruction" : kindName[record.kind],
-    friendlyTime(record.occurred_at),
+    friendlyTime(record.occurred_at, now),
     child,
     pending ? "Saved on this device" : record.kind === "source" ? String(record.data.status ?? "") : null,
   ]
@@ -29,7 +30,7 @@ export function RecordRow({ record, pending = false }: { record: BabyRecord; pen
     .join(" · ");
   return (
     <Row
-      title={care ? careSummary(record.kind, record.data, record.occurred_at) : label || kindName[record.kind]}
+      title={care ? careSummary(record.kind, record.data, record.occurred_at, now) : label || kindName[record.kind]}
       detail={details}
       icon={kindIcon[record.kind]}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}

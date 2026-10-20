@@ -28,44 +28,48 @@ import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
 /**
- * Håfa Baby tokens. One Håfa family: cream ground, warm ink and reef green are shared with
- * Recipes and Workouts (mobile/constants/Colors.ts `brand`); Baby adds a dawn-blush accent that
- * is used for decoration and the baby summary, never for body text on cream.
+ * Håfa Baby tokens: "Sand & Cocoa", a warm neutral palette Kami chose. Sand and nude grounds,
+ * cocoa ink and actions, and a soft clay accent used for the baby summary's icons. DM Sans and
+ * the latte-stone mark keep Baby recognisably part of the Håfa family.
  */
 const light = {
-  background: "#FFF7EC",
-  surface: "#FFFCF7",
+  background: "#F8F3EE",
+  surface: "#FFFCF9",
   /** Secondary buttons, chips and quiet panels. */
-  soft: "#E3F1EC",
+  soft: "#EDE3DA",
   /** Quick-log tiles and grouped panels: a tone step from the ground. */
-  tile: "#F8EFE3",
+  tile: "#EFE6DD",
   /** The baby summary. */
-  hero: "#FBE6DD",
-  text: "#17120E",
-  muted: "#6D5D50",
-  action: "#155C52",
-  onAction: "#FFF7EC",
-  border: "#E8D8C8",
-  accent: "#E08A74",
-  /** Accent for icons and short text on light surfaces (≥4.5:1 on hero and cream). */
-  accentText: "#A4492F",
+  hero: "#F1E3DA",
+  text: "#2D2420",
+  muted: "#6A5A51",
+  action: "#5A4740",
+  onAction: "#F8F3EE",
+  border: "#E6D8CC",
+  /** Outline of secondary buttons, so they stay visible on sand cards. */
+  outline: "#D6C3B4",
+  /** Decorative clay (the mark's moon); never used for text. */
+  accent: "#C9907E",
+  /** Clay for icons and short text (≥4.5:1 on the summary and the ground). */
+  accentText: "#8C5443",
   error: "#B3261E",
   errorBg: "#FBE3DE",
-  scrim: "rgba(23, 18, 14, 0.42)",
+  scrim: "rgba(45, 36, 32, 0.42)",
 };
 const dark: typeof light = {
-  background: "#101411",
-  surface: "#1A201C",
-  soft: "#1E3A35",
-  tile: "#1A201C",
-  hero: "#3A2621",
-  text: "#F8F0E7",
-  muted: "#B8AEA2",
-  action: "#69C8BA",
-  onAction: "#0B2420",
-  border: "#2D352F",
-  accent: "#F0A994",
-  accentText: "#F0A994",
+  background: "#14110F",
+  surface: "#1E1A17",
+  soft: "#2E2621",
+  tile: "#231E1A",
+  hero: "#33251F",
+  text: "#F5EDE6",
+  muted: "#BBAEA4",
+  action: "#E7D5C8",
+  onAction: "#2D2420",
+  border: "#382F29",
+  outline: "#4A3E36",
+  accent: "#E7B7A5",
+  accentText: "#E7B7A5",
   error: "#F07167",
   errorBg: "#3A1F1C",
   scrim: "rgba(0, 0, 0, 0.6)",
@@ -376,7 +380,9 @@ export function Button({
         alignItems: "center",
         justifyContent: "center",
         gap: 9,
-        backgroundColor: plain ? "transparent" : quiet ? c.soft : c.action,
+        backgroundColor: plain ? "transparent" : quiet ? c.surface : c.action,
+        borderWidth: quiet && !plain ? 1.5 : 0,
+        borderColor: c.outline,
         ...pressed(on, disabled || busy),
       })}
     >

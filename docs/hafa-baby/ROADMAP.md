@@ -17,7 +17,8 @@ this release. Support multiple child profiles without making setup complicated.
 
 ## Experience brief
 
-Calm, warm and contemporary. Legible typography, restrained sage/cream accents,
+Calm, warm and contemporary. Legible typography, "Sand & Cocoa" warm neutrals
+(sand and nude grounds, cocoa actions, a soft clay accent; chosen by Kami),
 clear contrast, comfortable one-handed targets, useful empty states, and plain
 language. Today gives fast logging; Library holds sources; Journal holds writing,
 questions and care history; Routines holds checklists/schedules; Ask uses selected

@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
-  <title>Håfa Baby</title><rect width="1024" height="1024" fill="#101411"/><circle cx="512" cy="512" r="380" fill="#171D1A"/>
+  <title>Håfa Baby</title><rect width="1024" height="1024" fill="#14110F"/><circle cx="512" cy="512" r="380" fill="#1E1A17"/>
   <g>
-  <path d="M637.8 398.4A146 146 0 1 1 486 204.7A124 124 0 0 0 637.8 398.4Z" fill="#F0A994" stroke="#F0A994" stroke-width="14" stroke-linejoin="round"/>
-  <circle cx="650" cy="214" r="30" fill="#F0A994"/>
-  <path d="M418 626C432 572 592 572 606 626L650 788C657 816 635 843 606 843H418C389 843 367 816 374 788L418 626Z" fill="#2F8F83"/>
-  <path d="M330 554H694C673 612 604 654 512 654C420 654 351 612 330 554Z" fill="#1D6F65"/>
-  <rect x="290" y="486" width="444" height="94" rx="47" fill="#2F8F83"/>
+  <path d="M637.8 398.4A146 146 0 1 1 486 204.7A124 124 0 0 0 637.8 398.4Z" fill="#E7B7A5" stroke="#E7B7A5" stroke-width="14" stroke-linejoin="round"/>
+  <circle cx="650" cy="214" r="30" fill="#E7B7A5"/>
+  <path d="M418 626C432 572 592 572 606 626L650 788C657 816 635 843 606 843H418C389 843 367 816 374 788L418 626Z" fill="#CDB8AA"/>
+  <path d="M330 554H694C673 612 604 654 512 654C420 654 351 612 330 554Z" fill="#B29C8F"/>
+  <rect x="290" y="486" width="444" height="94" rx="47" fill="#CDB8AA"/>
   </g>
 </svg>
