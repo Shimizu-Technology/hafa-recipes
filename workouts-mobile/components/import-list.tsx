@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect, useLayoutEffect, useRef } from "react
 import { ActivityIndicator, AppState } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Copy, Notice, Row } from "./ui";
+import { Button, Card, Copy, Grow, Notice, Row, SectionHeader } from "./ui";
 import { importPresentation, importSourceLabel } from "@/lib/import-recovery";
 import { useTraining } from "@/lib/context";
 import { canSaveAutomatically, importIsTerminal, retireCapturedImport, updateImportReferences } from "@/lib/capture";
@@ -83,9 +83,11 @@ export function ImportList({ showEmpty = false }: { showEmpty?: boolean }) {
     <>
       {showEmpty && deviceLoaded && !inbox.size && !capabilities.isPending && (capabilities.data?.server_auto_save !== true || !server.isPending) && !server.error && !deviceError && <Copy kind="small" tone="muted">No unfinished imports. Saved workouts are in Library.</Copy>}
       {!!deviceError && <Notice error>{deviceError}</Notice>}
-      {server.error && <><Notice error>Could not check your imports. Your saved workouts are still in your library.</Notice>
-        <Button title="Retry imports" secondary onPress={() => { void server.refetch(); }} /></>}
-      {inbox.size > 0 && <Copy kind="subheading">Unfinished imports · {inbox.size}</Copy>}
+      {server.error && <Row gap={8} wrap>
+        <Grow><Copy kind="small" tone="error">Could not check your imports. Saved workouts are still in Library.</Copy></Grow>
+        <Button title="Retry imports" size="sm" variant="ghost" inline onPress={() => { void server.refetch(); }} />
+      </Row>}
+      {inbox.size > 0 && <SectionHeader title={`In progress · ${inbox.size}`} />}
       {[...inbox.values()].map((item) => (
           <ImportCard key={item.id} id={item.id} label={item.label} autoSave={item.auto_save}
             onRemoved={() => setItems(prior => prior.filter(value => value.id !== item.id))} />
@@ -191,30 +193,36 @@ function ImportCard({ id, label, autoSave, onRemoved }: { id: string; label: str
   const unavailable = [404, 410].includes((q.error as { status?: number } | null)?.status ?? 0);
   const presentation = unavailable ? { label: "Import no longer available", action: "View options" } : importPresentation(q.data);
   const terminal = unavailable || !!q.data && importIsTerminal(q.data.status);
+  const failed = q.data?.status === "failed" || q.data?.status === "incomplete";
   return (
     <Card compact>
-      <Row gap={8}>
+      <Row gap={12} align="flex-start">
         {q.data && !terminal && <ActivityIndicator accessibilityLabel={presentation.label} />}
-        <Copy kind="small" tone={q.data?.status === "failed" || q.data?.status === "incomplete" ? "warning" : "muted"}>{presentation.label}</Copy>
+        <Grow>
+          <Copy kind="label" numberOfLines={1}>{q.data?.result?.workout?.title ?? q.data?.result?.source.title ?? importSourceLabel(label)}</Copy>
+          <Copy kind="small" tone={failed ? "warning" : "muted"}>{presentation.label}</Copy>
+        </Grow>
       </Row>
-      <Copy kind="label" numberOfLines={2}>{q.data?.result?.workout?.title ?? q.data?.result?.source.title ?? importSourceLabel(label)}</Copy>
-      {q.error && <Notice error>{q.error.message}</Notice>}
-      {!!saveError && <Notice error>{saveError}</Notice>}
-      <Button
-        title={presentation.action}
-        size="sm"
-        secondary
-        onPress={() =>
-          router.push(
-            q.data?.accepted_workout_id
-              ? { pathname: "/workout/[id]", params: { id: q.data.accepted_workout_id } }
-              : { pathname: "/import/[id]", params: { id, ...(autoSave ? { auto: "1" } : {}) } }
-          )
-        }
-      />
-      {terminal && <Button title="Dismiss import" size="sm" variant="ghost" busy={removing}
-        accessibilityHint="Clears this import and its temporary source. Saved workouts stay in your library."
-        onPress={() => { void remove(true); }} />}
+      {q.error && <Copy kind="small" tone="error">{q.error.message}</Copy>}
+      {!!saveError && <Copy kind="small" tone="error">{saveError}</Copy>}
+      <Row gap={4} wrap>
+        <Button
+          title={presentation.action}
+          size="sm"
+          variant="secondary"
+          inline
+          onPress={() =>
+            router.push(
+              q.data?.accepted_workout_id
+                ? { pathname: "/workout/[id]", params: { id: q.data.accepted_workout_id } }
+                : { pathname: "/import/[id]", params: { id, ...(autoSave ? { auto: "1" } : {}) } }
+            )
+          }
+        />
+        {terminal && <Button title="Dismiss import" size="sm" variant="ghost" inline busy={removing}
+          accessibilityHint="Clears this import and its temporary source. Saved workouts stay in your library."
+          onPress={() => { void remove(true); }} />}
+      </Row>
     </Card>
   );
 }

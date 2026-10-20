@@ -2,13 +2,17 @@ import { ImportList } from "@/components/import-list";
 import { updateNativeSharingConsent } from "@/lib/native-share-session";
 import { SourceImage } from "@/components/source-image";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Image, View } from "react-native";
+import { KeyboardAvoidingView, Platform } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useQuery } from "@tanstack/react-query";
-import { AccountButton, Button, Card, Choice, Copy, Field, Grow, Notice, Row, Screen, SectionHeader } from "@/components/ui";
+import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors } from "@/components/ui";
+import { RecentImports } from "@/components/recent-imports";
+import { importSettingsSummary, linkLooksComplete } from "@/lib/add-composer";
 import { useTraining } from "@/lib/context";
-import { archiveCapturedImport, captureErrors, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
+import { archiveCapturedImport, captureErrors, sharedWorkoutURL, updateImportReferences, type CaptureDraft, type CaptureKind, type CaptureFile } from "@/lib/capture";
 import { createPrivateDraftSlot, type PrivateDraftSnapshot } from "@/lib/private-form";
 import { pickImages, pickDocument, sourceFor, cleanupCaptureFiles } from "@/lib/capture-io";
 import { ApiError } from "@/lib/api";
@@ -54,9 +58,9 @@ export default function Capture() {
     queryFn: () => api.duplicateSources(duplicateUrl, undefined, generation),
     enabled: !!enrollment?.enrolled && /^https?:\/\//i.test(duplicateUrl) && duplicateUrl.length <= 2000
   });
-  const [otherSources, setOtherSources] = useState(false);
-  const [showImports, setShowImports] = useState(true);
-  const [extraInstructions, setExtraInstructions] = useState(false);
+  const [panel, setPanel] = useState<"settings" | "help" | null>(null);
+  const [pasteNote, setPasteNote] = useState("");
+  const colors = useColors();
   const automatic = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [abandon, setAbandon] = useState(false);
@@ -313,7 +317,7 @@ export default function Capture() {
       saved.current = next;
       const blank: CaptureDraft = { request_id: Crypto.randomUUID(), generation, kind: "url", source_url: "", text: "", files: [], created_at: new Date().toISOString() };
       draftRef.current = blank; setDraft(blank); setSubmittedId(original.job_id);
-      setStale(false); setOtherSources(false); setExtraInstructions(false);
+      setStale(false); setPanel(null); setPasteNote("");
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -474,7 +478,7 @@ export default function Capture() {
       saved.current = next;
       const blank: CaptureDraft = { request_id: Crypto.randomUUID(), generation, kind: "url", source_url: "", text: "", files: [], created_at: new Date().toISOString() };
       draftRef.current = blank; setDraft(blank); setSubmittedId(job.id);
-      setStale(false); setOtherSources(false); setExtraInstructions(false);
+      setStale(false); setPanel(null); setPasteNote("");
       router.push({ pathname: "/import/[id]", params: { id: job.id, auto: "1" } });
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
@@ -492,6 +496,20 @@ export default function Capture() {
   }, [shared, sharedRequest, ready, stale, draft.request_id, draft.pending_import, draft.job_id,
     capabilities.data?.imports, aiConsent.data]);
   const locked = busy || stale || !ready || !!draft.pending_import;
+  async function paste() {
+    if (locked || guard.current || draftRef.current.kind !== "url") return;
+    const before = draftRef.current;
+    setPasteNote("");
+    try {
+      const text = await Clipboard.getStringAsync();
+      if (!mounted.current || draftRef.current !== before) return;
+      const link = sharedWorkoutURL(null, text);
+      if (link) update({ source_url: link });
+      else setPasteNote(text.trim() ? "No link found on your clipboard. To import text, choose Paste workout text below." : "Copy a workout link first, then tap Paste.");
+    } catch {
+      if (mounted.current) setPasteNote("Could not read your clipboard. Try pasting into the link field.");
+    }
+  }
   async function visibility(value: boolean) {
     if (locked || guard.current) return;
     guard.current = true; setBusy(true); setError("");
@@ -501,231 +519,198 @@ export default function Capture() {
     } catch (e) { if (mounted.current) setError((e as Error).message); }
     finally { guard.current = false; if (mounted.current) setBusy(false); }
   }
+  const discoverOn = capabilities.data?.server_auto_save === true && capabilities.data.discover === true;
+  const isPublic = draft.is_public ?? defaultShareToDiscover(draft.kind);
+  const notesApply = draft.kind !== "text";
+  const consentOk = !!aiConsent.data?.accepted && aiConsent.data.disclosure_version === 1;
+  const submittable = draft.kind === "url" ? linkLooksComplete(draft.source_url) : !captureErrors(draft).length;
+  const limits = capabilities.data?.limits;
   return (
-    <Screen title="Save a workout" subtitle="Turn a saved link into a workout you can use." action={<AccountButton />}>
-      {(draft.job_id || submittedId) && <Card>
-        <Copy kind="heading">Your previous import is saved.</Copy>
-        <Copy>{draft.job_id ? "Start another source to unlock this form. Your original source stays saved for this import." : "Add another workout below, or open your previous import."}</Copy>
-        <Button title="Open previous import" secondary onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
-        {!!draft.job_id && <Button title="Start another source draft" secondary busy={busy} onPress={() => { void startAnother(); }} />}
+    <Screen title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />}>
+      {(draft.job_id || submittedId) && <Card compact>
+        <Row gap={10} align="flex-start">
+          <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+          <Grow><Copy kind="small">{draft.job_id ? "Your previous import is saved. Start another source to use this form again." : "Your previous import is saved."}</Copy></Grow>
+        </Row>
+        <Row gap={4} wrap>
+          <Button title="Open previous import" size="sm" variant="secondary" inline onPress={() => router.push({ pathname: "/import/[id]", params: { id: draft.job_id ?? submittedId! } })} />
+          {!!draft.job_id && <Button title="Start another source draft" size="sm" variant="ghost" inline busy={busy} onPress={() => { void startAnother(); }} />}
+        </Row>
       </Card>}
       {!!error && <Notice error>{error}</Notice>}
       {stale && <Notice>A newer source is saved. Load it before changing this draft.</Notice>}
-      {(stale || !ready) && (
-        <Button
-          title="Load saved source"
-          secondary
-          busy={busy}
-          onPress={() => {
-            void reloadSaved();
-          }}
-        />
-      )}
+      {(stale || !ready) && <Button title="Load saved source" secondary busy={busy} onPress={() => { void reloadSaved(); }} />}
       {!enrollment?.enrolled && <Button title="Start saving workouts" onPress={() => router.push("/onboarding")} />}
       {capabilities.error && <Notice error>{capabilities.error.message}</Notice>}
       {capabilities.data && !capabilities.data.imports && (
-        <Notice>Automatic extraction is not enabled for this build. You can write a workout manually.</Notice>
+        <Notice>Automatic importing is not on for this build. You can still write a workout yourself.</Notice>
       )}
-      {draft.kind === "url" && (
-        <Field
-          disabled={locked}
-          label="Source link"
-          value={draft.source_url}
-          onChange={(source_url) => update({ source_url })}
-          placeholder="https://…"
-          purpose="url"
+      <Card>
+        {draft.kind === "url" ? (
+          <>
+            <Row gap={8} align="flex-end">
+              <Grow>
+                <Field disabled={locked} label="Workout link" value={draft.source_url} placeholder="Paste a workout link" purpose="url"
+                  onChange={(source_url) => { setPasteNote(""); update({ source_url }); }} />
+              </Grow>
+              <Button title="Paste" icon="clipboard-outline" variant="secondary" inline disabled={locked}
+                accessibilityHint="Pastes a workout link from your clipboard" onPress={() => { void paste(); }} />
+            </Row>
+            {pasteNote ? <Copy kind="small" tone="warning">{pasteNote}</Copy>
+              : <Copy kind="small" tone="muted">YouTube, Instagram, TikTok and workout websites</Copy>}
+          </>
+        ) : (
+          <Row gap={8}>
+            <Grow><Copy kind="label">{modeTitles[draft.kind]}</Copy></Grow>
+            <Button title="Use a link instead" size="sm" variant="ghost" inline disabled={locked} onPress={() => { void choose("url"); }} />
+          </Row>
+        )}
+        {draft.kind === "url" && duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
+          <>
+            <Copy kind="small" tone="muted">You saved this link before. Open it, or import a separate copy.</Copy>
+            {duplicateHint.data.matches.map((item) => (
+              <ListRow key={item.id} icon="barbell-outline" title={item.title} value={item.archived ? "Archived" : undefined}
+                onPress={() => router.push({ pathname: "/workout/[id]", params: { id: item.id } })} />
+            ))}
+            {duplicateHint.data.has_more && <Copy kind="small" tone="muted">More saved matches may exist.</Copy>}
+          </>
+        )}
+        {draft.kind === "text" && (
+          <Field disabled={locked} label="Workout text" multiline value={draft.text} onChange={(text) => update({ text })}
+            placeholder="Paste the creator’s instructions, including rounds, reps and equipment." />
+        )}
+        {draft.kind === "images" && (
+          <>
+            <Row gap={8}>
+              <Grow>
+                <Button title="Choose up to four images" size="sm" variant="secondary" icon="images-outline" busy={busy} disabled={locked}
+                  onPress={() => { void pick("images"); }} />
+              </Grow>
+              <Grow>
+                <Button title="Take a photo" size="sm" variant="secondary" icon="camera-outline" disabled={locked}
+                  onPress={() => { void pick("images", true); }} />
+              </Grow>
+            </Row>
+            {draft.files.map((file) => <SourceImage key={file.uri} uri={file.uri} label={file.name} />)}
+            <Copy kind="small" tone="muted">Clear images where exercise names are easy to read work best.</Copy>
+          </>
+        )}
+        {draft.kind === "document" && (
+          <>
+            <Button title="Choose PDF or text document" size="sm" variant="secondary" icon="document-attach-outline" busy={busy} disabled={locked}
+              onPress={() => { void pick("document"); }} />
+            {draft.files.map((file) => <Copy key={file.uri} kind="label">{file.name}</Copy>)}
+            <Copy kind="small" tone="muted">Small text PDFs work best. For scans, use screenshots or paste the text.</Copy>
+          </>
+        )}
+        {(discoverOn || notesApply) && (
+          <ListRow icon={discoverOn ? isPublic ? "globe-outline" : "lock-closed-outline" : "options-outline"} disabled={locked}
+            title={importSettingsSummary({ discover: discoverOn, isPublic, notes: draft.text, notesApply })}
+            detail={discoverOn ? isPublic ? "Complete workouts appear in Discover" : "Only you can see it" : "Add a caption or instructions"}
+            onPress={() => setPanel("settings")} />
+        )}
+        {draft.pending_import && !draft.job_id && (
+          <Row gap={8} wrap>
+            <Grow><Copy kind="small" tone="muted">This source is saved on your device. Retry to pick up the earlier import.</Copy></Grow>
+            <Button title="Start another source" size="sm" variant="ghost" inline disabled={busy} onPress={() => setAbandon(true)} />
+          </Row>
+        )}
+        {aiConsent.error && <Copy kind="small" tone="error">Could not check AI preferences. Try again before importing.</Copy>}
+        {!aiConsent.isPending && !consentOk && <Copy kind="small" tone="muted">
+          Importing sends this source to OpenAI to read the workout. Your training profile isn’t included.
+        </Copy>}
+        <Button
+          title={draft.pending_import ? "Retry import" : consentOk ? "Import workout" : "Agree and import"}
+          icon="sparkles-outline"
+          busy={busy}
+          disabled={stale || !ready || aiConsent.isPending || !!aiConsent.error || !capabilities.data?.imports || !enrollment?.enrolled ||
+            !!draft.job_id || (!draft.pending_import && !submittable)}
+          onPress={() => { void submit(false, !consentOk); }}
         />
+      </Card>
+      <ImportList />
+      <RecentImports />
+      <SectionHeader title="Other ways to add" />
+      <ListGroup>
+        {otherWays.map(way => (
+          <ListRow key={way.kind} icon={way.icon} title={way.title} disabled={locked} value={draft.kind === way.kind ? "Selected" : undefined}
+            onPress={() => { void choose(way.kind); }} />
+        ))}
+        <ListRow icon="create-outline" title="Write your own" onPress={() => router.push("/add-workout")} />
+      </ListGroup>
+      <ListGroup>
+        <ListRow icon="help-circle-outline" title="How importing works" onPress={() => setPanel("help")} />
+        <ListRow icon="chatbubble-ellipses-outline" title="Ask the coach" detail="Get help planning or changing a workout" onPress={() => router.push("/coach")} />
+      </ListGroup>
+      {limits && !limits.imports_unlimited && (
+        <Copy kind="small" tone="muted">Up to {limits.successful_or_pending_imports_per_rolling_day} imports in any 24 hours.</Copy>
       )}
-      {draft.kind === "url" && <Copy kind="small" tone="muted">Instagram, TikTok, YouTube and workout websites</Copy>}
-      <Button title={otherSources ? "Hide other ways to add" : "Other ways to add a workout"} variant="ghost"
-        disabled={locked} onPress={() => setOtherSources(!otherSources)} />
-      {(otherSources || draft.kind !== "url") && (["url", "text", "images", "document"] as const).map((kind) => (
-        <Choice
-          key={kind}
-          icon={({ url: "link-outline", text: "document-text-outline", images: "images-outline", document: "document-attach-outline" } as const)[kind]}
-          label={
-            {
-              url: "A link",
-              text: "Pasted workout text",
-              images: "Photos or screenshots",
-              document: "A PDF or text document"
-            }[kind]
-          }
-          disabled={locked}
-          selected={draft.kind === kind}
+      <Sheet visible={panel === "settings"} onClose={() => setPanel(null)} title="Import settings">
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ gap: 12 }}>
+          {discoverOn && <>
+            <Choice label="Public in Discover" icon="globe-outline" selected={isPublic} disabled={locked}
+              detail="Others can find and save complete workouts. Your training and incomplete drafts stay private."
+              onPress={() => { if (!isPublic) void visibility(true); }} />
+            <Choice label="Private" icon="lock-closed-outline" selected={!isPublic} disabled={locked}
+              detail="Only you can see this workout."
+              onPress={() => { if (isPublic) void visibility(false); }} />
+          </>}
+          {notesApply && <Field disabled={locked} label="Extra instructions" optional multiline compact value={draft.text}
+            onChange={(text) => update({ text })} placeholder="Paste the caption, or say which workout to save" />}
+          <Button title="Done" onPress={() => setPanel(null)} />
+        </KeyboardAvoidingView>
+      </Sheet>
+      <Sheet visible={panel === "help"} onClose={() => setPanel(null)} title="How importing works">
+        <Copy>Copy a link from YouTube, Instagram, TikTok or a workout website, then tap Paste and Import workout. You can also share straight to Håfa Workouts from those apps.</Copy>
+        <Copy>Håfa reads the video or page and writes out the exercises, sets and reps. {capabilities.data?.server_auto_save
+          ? "Your workout saves to your library when it is ready. You can check or edit the details afterward."
+          : "You check the details before it saves to your library."}</Copy>
+        <Copy>Importing sends the source to OpenAI to read the workout. Your training profile isn’t included.</Copy>
+        {discoverOn && <Copy>Public link imports appear in Discover once they are complete. Photos, PDFs and pasted text stay private unless you choose Public.</Copy>}
+        <Copy>If an import can’t finish, open it from In progress to retry or add the caption.</Copy>
+      </Sheet>
+      <Sheet visible={abandon} onClose={() => setAbandon(false)} title="Start a separate source?">
+        <Copy>This source may still be processing. Starting over discards this draft and may create a second import.</Copy>
+        <Button title="Keep this source" secondary disabled={busy} onPress={() => setAbandon(false)} />
+        <Button
+          title="Start a separate source and discard this draft"
+          variant="destructive"
+          disabled={busy}
           onPress={() => {
-            void choose(kind);
+            if (guard.current) return;
+            guard.current = true;
+            setBusy(true);
+            void replace({
+              request_id: Crypto.randomUUID(),
+              generation,
+              kind: "url",
+              text: "",
+              source_url: "",
+              files: [],
+              created_at: new Date().toISOString()
+            })
+              .then(() => {
+                current();
+                setAbandon(false);
+                setError("");
+              })
+              .catch((e) => {
+                if (mounted.current) setError(e.message);
+              })
+              .finally(() => {
+                guard.current = false;
+                if (mounted.current) setBusy(false);
+              });
           }}
         />
-      ))}
-      {capabilities.data?.server_auto_save && capabilities.data.discover && <Choice
-        label="Share to Discover" icon="globe-outline" selected={draft.is_public ?? defaultShareToDiscover(draft.kind)}
-        detail="Others can find and save complete workouts. Your training and incomplete drafts stay private."
-        disabled={locked} onPress={() => { void visibility(!(draft.is_public ?? defaultShareToDiscover(draft.kind))); }} />}
-      {duplicateUrl === draft.source_url.trim() && !!duplicateHint.data?.matches.length && (
-        <Card>
-          <Copy kind="heading">You have saved this source before.</Copy>
-          <Copy>Open one of these, or keep going to save a separate copy.</Copy>
-          {duplicateHint.data.matches.map((item) => (
-            <Button
-              key={item.id}
-              title={`${item.title}${item.archived ? " · archived" : ""}`}
-              secondary
-              onPress={() => router.push({ pathname: "/workout/[id]", params: { id: item.id } })}
-            />
-          ))}
-          {duplicateHint.data.has_more && <Copy>More saved matches may exist.</Copy>}
-        </Card>
-      )}
-      {draft.kind !== "text" && <Button title={extraInstructions ? "Hide extra instructions" : "Add extra instructions"}
-        variant="ghost" disabled={locked} onPress={() => setExtraInstructions(!extraInstructions)} />}
-      {draft.kind !== "text" && (extraInstructions || !!draft.text.trim()) && (
-        <Field
-          disabled={locked}
-          label="Caption or extra source instructions"
-          optional
-          multiline
-          value={draft.text}
-          onChange={(text) => update({ text })}
-        />
-      )}
-      {draft.kind === "text" && (
-        <Field
-          disabled={locked}
-          label="Workout text"
-          multiline
-          value={draft.text}
-          onChange={(text) => update({ text })}
-          placeholder="Paste the creator’s instructions, including rounds, reps and equipment."
-        />
-      )}
-      {draft.kind === "images" && (
-        <>
-          <Row gap={10}>
-            <Grow>
-              <Button
-                title="Choose up to four images"
-                secondary
-                icon="images-outline"
-                busy={busy}
-                disabled={locked}
-                onPress={() => {
-                  void pick("images");
-                }}
-              />
-            </Grow>
-            <Grow>
-              <Button
-                title="Take a photo"
-                secondary
-                icon="camera-outline"
-                disabled={locked}
-                onPress={() => {
-                  void pick("images", true);
-                }}
-              />
-            </Grow>
-          </Row>
-          {draft.files.map((file) => (
-            <Card key={file.uri}>
-              <SourceImage uri={file.uri} label={file.name} />
-              <Copy>{file.name}</Copy>
-            </Card>
-          ))}
-          <Notice>Pick clear images where exercise names are easy to read.</Notice>
-        </>
-      )}
-      {draft.kind === "document" && (
-        <>
-          <Button
-            title="Choose PDF or text document"
-            secondary
-            icon="document-attach-outline"
-            busy={busy}
-            disabled={locked}
-            onPress={() => {
-              void pick("document");
-            }}
-          />
-          {draft.files.map((file) => (
-            <Copy key={file.uri}>{file.name}</Copy>
-          ))}
-          <Notice>Small text PDFs work best. For scans, use screenshots or paste the text.</Notice>
-        </>
-      )}
-      {aiConsent.error && <Notice error>Could not check AI preferences. Try again before extracting.</Notice>}
-      {!aiConsent.isPending && (!aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1) && <Notice>
-        Agree and extract sends this source to OpenAI to read the workout. Your training profile isn’t included.
-      </Notice>}
-      {capabilities.data?.limits && !capabilities.data.limits.imports_unlimited && (
-        <Copy kind="small" tone="muted">
-          Up to {capabilities.data.limits.successful_or_pending_imports_per_rolling_day} imports in any 24 hours.
-        </Copy>
-      )}
-      {draft.pending_import && !draft.job_id && (
-        <Notice>This source is saved on your device. Retry to pick up the earlier import.</Notice>
-      )}
-      {draft.pending_import && !draft.job_id && (
-        <Button title="Start another source" secondary disabled={busy} onPress={() => setAbandon(true)} />
-      )}
-      {abandon && (
-        <Card>
-          <Notice>This source may still be processing. Starting over discards this draft and may create a second import.</Notice>
-          <Button title="Keep this source" secondary disabled={busy} onPress={() => setAbandon(false)} />
-          <Button
-            title="Start a separate source and discard this draft"
-            secondary
-            disabled={busy}
-            onPress={() => {
-              if (guard.current) return;
-              guard.current = true;
-              setBusy(true);
-              void replace({
-                request_id: Crypto.randomUUID(),
-                generation,
-                kind: "url",
-                text: "",
-                source_url: "",
-                files: [],
-                created_at: new Date().toISOString()
-              })
-                .then(() => {
-                  current();
-                  setAbandon(false);
-                  setError("");
-                })
-                .catch((e) => {
-                  if (mounted.current) setError(e.message);
-                })
-                .finally(() => {
-                  guard.current = false;
-                  if (mounted.current) setBusy(false);
-                });
-            }}
-          />
-        </Card>
-      )}
-      <Button
-        title={draft.pending_import ? "Retry extraction" : aiConsent.data?.accepted && aiConsent.data.disclosure_version === 1
-          ? "Extract workout" : "Agree and extract"}
-        icon="sparkles-outline"
-        size="lg"
-        busy={busy}
-        disabled={stale || !ready || aiConsent.isPending || !!aiConsent.error || !capabilities.data?.imports || !enrollment?.enrolled || !!draft.job_id}
-        onPress={() => {
-          void submit(false, !aiConsent.data?.accepted || aiConsent.data.disclosure_version !== 1);
-        }}
-      />
-      {capabilities.data?.server_auto_save && <Copy kind="small" tone="muted">Your workout saves to your library when it is ready. You can check or edit the details afterward.</Copy>}
-      <Button
-        title="Write a workout manually"
-        variant="ghost"
-        icon="create-outline"
-        onPress={() => router.push("/add-workout")}
-      />
-      <Button title={showImports ? "Hide unfinished imports" : "View processing and unfinished imports"} secondary icon="time-outline" onPress={() => setShowImports(value => !value)} />
-      {showImports && <ImportList showEmpty />}
+      </Sheet>
       {disclosure.sheet}
     </Screen>
   );
 }
+const modeTitles = { text: "Pasted workout text", images: "Photos or screenshots", document: "PDF or text document" } as const;
+const otherWays = [
+  { kind: "text", title: "Paste workout text", icon: "document-text-outline" },
+  { kind: "images", title: "Photos or screenshots", icon: "images-outline" },
+  { kind: "document", title: "PDF or text document", icon: "document-attach-outline" },
+] as const;
