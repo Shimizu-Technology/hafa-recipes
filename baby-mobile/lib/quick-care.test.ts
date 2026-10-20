@@ -62,3 +62,17 @@ it("restores a synced sleep at its newest revision", async () => {
   expect(restored.record.revision).toBe(5);
   expect(restored.record.data.end_at).toBeUndefined();
 });
+
+it("applies an alongside change in the same write as the save, or neither", async () => {
+  const b = account();
+  b.state = { ...b.state, selectedChild: "kept" };
+  await logCare(b, careWrite("feeding", "baby", { method: "breast" }), (state) => ({ ...state, selectedChild: "changed" }));
+  expect(b.state.selectedChild).toBe("changed");
+  expect(b.state.outbox).toHaveLength(1);
+  await expect(
+    logCare(b, careWrite("feeding", "baby", { method: "breast" }), () => {
+      throw Error("already ended");
+    })
+  ).rejects.toThrow("already ended");
+  expect(b.state.outbox).toHaveLength(1);
+});

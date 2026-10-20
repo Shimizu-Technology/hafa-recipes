@@ -171,7 +171,17 @@ export type Mutation =
       error?: string;
       conflict?: boolean;
     };
+/** A breastfeed being timed on this device. Active time is the sum of segments; a pause
+ * closes the open segment. It belongs to one Baby space generation and is never synced. */
+export interface FeedTimer {
+  child_id: string;
+  generation: number;
+  started_at: string;
+  segments: { side: "left" | "right"; started_at: string; ended_at?: string }[];
+  paused_at?: string;
+}
 export interface DeviceState {
+  feedTimer?: FeedTimer;
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];

@@ -1,0 +1,129 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, AppState, Text, View } from "react-native";
+import { useFocusEffect } from "expo-router";
+import { useBaby } from "@/lib/context";
+import { messageFor, type FeedTimer } from "@/lib/models";
+import { friendlyTime } from "@/lib/care-format";
+import {
+  activeMs,
+  changeTimer,
+  clockText,
+  currentSide,
+  isPaused,
+  pauseTimer,
+  resumeTimer,
+  spokenTimer,
+  switchSide,
+} from "@/lib/feed-timer";
+import { Button, Card, Copy, useColors, useToast } from "./ui";
+
+/** Tick once a second only while the timer runs, Today is focused, and the app is in front. */
+function useSecondClock(running: boolean) {
+  const [now, setNow] = useState(() => new Date()),
+    [focused, setFocused] = useState(true),
+    [foreground, setForeground] = useState(AppState.currentState !== "background");
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, [])
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (status) => setForeground(status !== "background"));
+    return () => subscription.remove();
+  }, []);
+  useEffect(() => {
+    if (!running || !focused || !foreground) return;
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [running, focused, foreground]);
+  return now;
+}
+
+const sideTitle = { left: "Left side", right: "Right side" } as const;
+
+/** The running breastfeed: one place to switch, pause, finish or discard it. */
+export function FeedTimerCard({
+  timer,
+  childName,
+  onDone,
+}: {
+  timer: FeedTimer;
+  childName: string;
+  onDone: (timer: FeedTimer) => Promise<void>;
+}) {
+  const b = useBaby(),
+    c = useColors(),
+    toast = useToast(),
+    paused = isPaused(timer),
+    now = useSecondClock(!paused),
+    side = currentSide(timer),
+    [busy, setBusy] = useState(false),
+    // A ref, not state, so two taps in the same frame cannot both start a write.
+    working = useRef(false);
+  async function run(action: () => Promise<void>) {
+    if (working.current) return;
+    working.current = true;
+    setBusy(true);
+    try {
+      await action();
+    } catch (e) {
+      toast(messageFor(e));
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
+  }
+  const change = (next: (current: FeedTimer) => FeedTimer | undefined) =>
+    run(() => b.commit((state) => changeTimer(state, timer.started_at, next)));
+  function cancel() {
+    Alert.alert("Discard this feeding timer?", "The time so far will not be saved.", [
+      { text: "Keep timing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: () => void change(() => undefined) },
+    ]);
+  }
+  return (
+    <Card tone="hero">
+      <View accessible accessibilityLabel={`Feeding ${childName}. ${spokenTimer(timer, now)}`} style={{ gap: 2 }}>
+        <Copy kind="small" tone="muted">
+          {`Feeding ${childName} · started ${friendlyTime(timer.started_at, now)}${paused ? " · paused" : ""}`}
+        </Copy>
+        <Copy kind="heading">{sideTitle[side]}</Copy>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          style={{ color: c.text, fontSize: 44, lineHeight: 54, fontWeight: "600", fontVariant: ["tabular-nums"] }}
+        >
+          {clockText(activeMs(timer, now))}
+        </Text>
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+        <View style={{ flexGrow: 1, flexBasis: 140 }}>
+          <Button
+            secondary
+            icon="swap-horizontal"
+            title={`Switch to ${side === "left" ? "right" : "left"}`}
+            disabled={busy}
+            onPress={() => void change((current) => switchSide(current, new Date()))}
+          />
+        </View>
+        <View style={{ flexGrow: 1, flexBasis: 140 }}>
+          <Button
+            secondary
+            icon={paused ? "play" : "pause"}
+            title={paused ? "Resume" : "Pause"}
+            disabled={busy}
+            onPress={() =>
+              void change((current) =>
+                isPaused(current) ? resumeTimer(current, new Date()) : pauseTimer(current, new Date())
+              )
+            }
+          />
+        </View>
+      </View>
+      <Button size="lg" icon="checkmark" title="Done" busy={busy} onPress={() => void run(() => onDone(timer))} />
+      <Button variant="ghost" title="Cancel timer" disabled={busy} onPress={cancel} />
+    </Card>
+  );
+}
