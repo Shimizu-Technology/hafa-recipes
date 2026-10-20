@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
@@ -45,11 +45,13 @@ import {
 function useDiscoverView() {
   const { owner, storage } = useTraining();
   const [view, setView] = useState<DiscoverView>("grid");
+  const chosen = useRef(false);
   useEffect(() => {
     let live = true;
     storage
       .getItem(discoverViewKey(owner))
-      .then((value) => live && setView(parseDiscoverView(value)))
+      // A tap before the saved choice loads wins over the stored value.
+      .then((value) => live && !chosen.current && setView(parseDiscoverView(value)))
       .catch(() => undefined);
     return () => {
       live = false;
@@ -57,6 +59,7 @@ function useDiscoverView() {
   }, [owner, storage]);
   function toggle() {
     const next = view === "grid" ? "list" : "grid";
+    chosen.current = true;
     setView(next);
     storage.setItem(discoverViewKey(owner), next).catch(() => undefined);
   }
