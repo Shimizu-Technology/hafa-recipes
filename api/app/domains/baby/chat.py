@@ -55,14 +55,20 @@ def message_response(row):
 
 
 def singular(word):
-    """A plain English singular, so "diapers" or "feeds" still find "Diaper" and "Feeding"."""
-    if len(word) > 4 and word.endswith("ies"):
-        return word[:-3] + "y"
-    if len(word) > 4 and word.endswith(("ches", "shes", "xes", "sses")):
-        return word[:-2]
-    if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is")):
-        return word[:-1]
-    return word
+    """A search stem for plurals, so "diapers" finds "Diaper" and "feeds" finds "Feeding".
+
+    Stems only ever trim letters (so they still match the plural too) and stay at least four
+    letters long, so short words like "naps" or "meds" are not widened into "nap" or "med".
+    """
+    if word.endswith("ies"):
+        stem = word[:-3]  # "allergies" -> "allerg" finds both allergy and allergies
+    elif word.endswith(("ches", "shes", "xes", "sses")):
+        stem = word[:-2]
+    elif word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        stem = word[:-1]
+    else:
+        return word
+    return stem if len(stem) >= 4 else word
 
 
 def query_terms(message):

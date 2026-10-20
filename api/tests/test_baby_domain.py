@@ -275,8 +275,8 @@ def test_ai_context_uses_the_parents_local_clock():
 
 
 def test_question_terms_find_singular_titles():
-    terms = query_terms("How many diapers and feeds today? Any bottles, naps or stretches? Glass bus")
-    assert "diaper" in terms and "feed" in terms and "bottle" in terms and "nap" in terms
-    assert "stretch" in terms
-    assert "glass" in terms and "bus" in terms
-    assert query_terms("babies") == ["baby"]
+    terms = query_terms("How many diapers and feeds today? Any bottles or stretches? Glass bus")
+    assert {"diaper", "feed", "bottle", "stretch", "glass", "bus"} <= set(terms)
+    # -ies trims to a stem that still matches both forms; short stems keep the original word.
+    assert query_terms("allergies onesies") == ["allerg", "ones"]
+    assert query_terms("naps meds aches babies rabies") == ["naps", "meds", "aches", "babies", "rabies"]
