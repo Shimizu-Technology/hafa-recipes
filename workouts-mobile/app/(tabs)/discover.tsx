@@ -48,6 +48,7 @@ function useDiscoverView() {
   const chosen = useRef(false);
   useEffect(() => {
     let live = true;
+    chosen.current = false;
     storage
       .getItem(discoverViewKey(owner))
       // A tap before the saved choice loads wins over the stored value.
@@ -106,12 +107,15 @@ export default function Discover() {
   function clearFilter(key: DiscoverFilterKey) {
     ({ duration: setDuration, equipment: setEquipment, platform: setPlatform })[key](undefined);
   }
-  function clear() {
-    setSearch("");
-    setSettledSearch("");
+  function clearFilters() {
     setEquipment(undefined);
     setDuration(undefined);
     setPlatform(undefined);
+  }
+  function clear() {
+    setSearch("");
+    setSettledSearch("");
+    clearFilters();
   }
   async function refresh() {
     setPulling(true);
@@ -174,11 +178,11 @@ export default function Discover() {
                 <Chip
                   key={filter.key}
                   label={filter.label}
-                  selected
+                  icon="close"
                   onPress={() => clearFilter(filter.key)}
                 />
               ))}
-              <Button title="Clear all" variant="ghost" size="sm" inline onPress={clear} />
+              <Button title="Clear all" variant="ghost" size="sm" inline onPress={clearFilters} />
             </ChipRow>
           )}
           {loadingFeed ? (
@@ -226,9 +230,21 @@ export default function Discover() {
             )
           ) : (
             <>
-              <Copy kind="small" tone="muted">
-                {total} {total === 1 ? "workout" : "workouts"}
-              </Copy>
+              <Row justify="space-between">
+                <Copy kind="small" tone="muted">
+                  {total} {total === 1 ? "workout" : "workouts"}
+                </Copy>
+                <Button
+                  title="Share yours"
+                  icon="globe-outline"
+                  variant="ghost"
+                  size="sm"
+                  inline
+                  disabled={!enrollment?.enrolled}
+                  accessibilityHint="Pick a workout from your library to share to Discover"
+                  onPress={() => router.push("/discover/share")}
+                />
+              </Row>
               {view === "grid" ? (
                 <DiscoverGrid>
                   {cards.map((card) => (
@@ -294,11 +310,7 @@ export default function Discover() {
                 title="Clear all"
                 variant="ghost"
                 inline
-                onPress={() => {
-                  setEquipment(undefined);
-                  setDuration(undefined);
-                  setPlatform(undefined);
-                }}
+                onPress={clearFilters}
               />
             )}
             <Button title="Show workouts" inline onPress={() => setFiltersOpen(false)} />

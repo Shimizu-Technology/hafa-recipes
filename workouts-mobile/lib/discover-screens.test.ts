@@ -36,7 +36,6 @@ const fixture = vi.hoisted(() => ({
   asked: 0,
   push: vi.fn(),
   replace: vi.fn(),
-  back: vi.fn(),
   toast: vi.fn(),
   map: new Map<string, string>(),
   focus: false,
@@ -354,11 +353,38 @@ it("keeps every filter in one sheet, counts active ones and clears them together
   await act(async () => summary.findAll((n) => String(n.type) === "Chip")[1].props.onPress());
   await settle();
   expect(filters().props.title).toBe("Filters · 2");
+  await act(async () => nodes("Field")[0].props.onChange("legs"));
+  await act(async () => nodes("ChipRow").find((n) => n.props.label === "Active filters")!
+    .findAll((n) => String(n.type) === "Button" && n.props.title === "Clear all")[0].props.onPress());
+  expect(filters().props.title).toBe("Filters");
+  expect(nodes("Field")[0].props.value).toBe("legs");
+  await act(async () => nodes("Field")[0].props.onChange(""));
+  await act(async () => inSheet("YouTube").props.onPress());
   await act(async () => sheet().findAll((n) => String(n.type) === "Button" && n.props.title === "Clear all")[0].props.onPress());
   await settle();
   expect(filters().props.title).toBe("Filters");
   expect(nodes("ChipRow").find((n) => n.props.label === "Active filters")).toBeUndefined();
   expect(nodes("DiscoverGridCard").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+});
+
+it("keeps sharing one of yours reachable once the feed has workouts", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page());
+  await mount(Discover);
+  await act(async () => button("Share yours")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith("/discover/share");
+});
+
+it("the share picker keeps reading pages until it finds a private workout", async () => {
+  const shared = (id: string) => ({ ...saved, id, title: id, publication: { is_public: true, discover_visible: true,
+    moderation_status: "active" as const, published_at: "2026-10-13T02:00:00Z" } });
+  fixture.searchLibrary
+    .mockResolvedValueOnce({ items: [shared("a"), shared("b")], total: 3, limit: 2, offset: 0, has_more: true, next_cursor: "c1" })
+    .mockResolvedValueOnce({ items: [{ ...saved, id: "c", title: "Private one", publication: null }], total: 3, limit: 2, offset: 2, has_more: false, next_cursor: null });
+  await mount(ShareToDiscover);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2);
+  expect(nodes("ListRow").map((n) => n.props.title)).toEqual(["Private one"]);
+  expect(nodes("Notice")).toHaveLength(0);
 });
 
 it("switches between grid and list and remembers the choice for this account", async () => {

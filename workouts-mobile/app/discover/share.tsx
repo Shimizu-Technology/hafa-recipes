@@ -33,6 +33,11 @@ export default function ShareToDiscover() {
   });
   const all = [...new Map(q.data?.pages.flatMap((page) => page.items).map((w) => [w.id, w]) ?? []).values()];
   const shareable = all.filter((workout) => !workout.publication?.is_public);
+  // Shared workouts are filtered on the device, so keep reading until a private one appears.
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = q;
+  useEffect(() => {
+    if (!shareable.length && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
+  }, [shareable.length, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
   async function share(workout: Workout) {
     if (busy) return;
@@ -48,9 +53,11 @@ export default function ShareToDiscover() {
       void cache.invalidateQueries({ queryKey: [owner, "library"] });
       void cache.invalidateQueries({ queryKey: [owner, "workout", workout.id] });
       toast("Shared to Discover");
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace("/(tabs)/discover");
     } catch (e) {
-      const incomplete = isIncomplete(e);
+      // Same guard as the workout page: only the publish-completeness 422 means missing details.
+      const incomplete = isIncomplete(e) && /discover|shar/i.test((e as { detail?: string }).detail ?? "");
       setFailure({ workout, incomplete, message: incomplete ? INCOMPLETE_MESSAGE : (e as Error).message });
     } finally {
       setBusy(null);
@@ -115,12 +122,14 @@ export default function ShareToDiscover() {
                 />
               ))}
             </ListGroup>
+          ) : q.hasNextPage || q.isFetchingNextPage ? (
+            <SkeletonCard lines={2} label="Loading more of your workouts" />
           ) : (
             <Notice>
               {settled ? "No private workouts match that search." : "Everything in your library is already shared."}
             </Notice>
           )}
-          {q.hasNextPage && (
+          {q.hasNextPage && !!shareable.length && (
             <Button
               title="Show more"
               variant="secondary"
