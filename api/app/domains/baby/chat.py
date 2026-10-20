@@ -3,8 +3,9 @@
 import json
 import math
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import case, func, or_, select
@@ -78,10 +79,29 @@ def record_text(record, *, include_title=True):
     )
 
 
-def excerpt_for(record, terms, *, limit=7000):
+def parent_zone(name):
+    try:
+        return ZoneInfo(name) if name else UTC
+    except (ZoneInfoNotFoundError, ValueError):
+        return UTC
+
+
+def local_data(data, zone):
+    """Care times the model reads in the parent's own timezone, so answers quote local clock times."""
+    if zone is None or not isinstance(data, dict):
+        return data
+    shifted = dict(data)
+    for key in ("end_at", "reminder_at"):
+        moment = parsed_time(shifted.get(key))
+        if moment and moment.tzinfo:
+            shifted[key] = moment.astimezone(zone).isoformat()
+    return shifted
+
+
+def excerpt_for(record, terms, *, limit=7000, zone=None):
     text = record_text(record)
     if record.kind not in {"source", "journal", "question", "collection"}:
-        text += "\n" + json.dumps(record.data, ensure_ascii=False)
+        text += "\n" + json.dumps(local_data(record.data, zone), ensure_ascii=False)
     return bounded(text, terms, limit)
 
 
@@ -202,7 +222,7 @@ def display_excerpt(record, terms, *, limit=1000):
     return bounded("\n\n".join(filter(None, [summary, body])), terms, 7000).strip()[:limit]
 
 
-async def retrieve(db, owner, generation, request):
+async def retrieve(db, owner, generation, request, zone=UTC):
     terms = query_terms(request.message)
     query = records_query(owner, generation, child_id=request.child_id)
     if request.scope in SCOPE_KINDS:
@@ -234,7 +254,7 @@ async def retrieve(db, owner, generation, request):
         rows = list(await db.scalars(query.order_by(BabyRecord.occurred_at.desc()).limit(20)))
     context, displays, available = [], {}, 45000
     for row in rows:
-        excerpt = excerpt_for(row, terms, limit=min(7000, available))
+        excerpt = excerpt_for(row, terms, limit=min(7000, available), zone=zone)
         if not excerpt or available <= 0:
             break
         context.append(
@@ -242,7 +262,7 @@ async def retrieve(db, owner, generation, request):
                 "id": str(row.id),
                 "title": row.title,
                 "kind": row.kind,
-                "occurred_at": row.occurred_at.isoformat(),
+                "occurred_at": row.occurred_at.astimezone(zone).isoformat(),
                 "revision": row.revision,
                 "child_id": str(row.child_id) if row.child_id else None,
                 "excerpt": excerpt,
@@ -417,7 +437,8 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
     )
     if count >= 500:
         raise HTTPException(422, "This conversation is full; start a new conversation")
-    context, displays = await retrieve(db, user.id, generation, body)
+    zone = parent_zone(member.profile.get("timezone"))
+    context, displays = await retrieve(db, user.id, generation, body, zone)
     history_rows = list(
         await db.scalars(
             select(BabyMessage)
@@ -456,7 +477,12 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         with ai_request_context(
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
         ):
-            result = await provider.answer(message=body.message, context=context, history=history)
+            result = await provider.answer(
+                message=body.message,
+                context=context,
+                history=history,
+                now_local=datetime.now(zone).isoformat(timespec="minutes"),
+            )
         allowed = {item["id"]: item for item in context}
         if any(identifier not in allowed for identifier in result.citation_ids):
             raise ValueError("Unsupported citation")

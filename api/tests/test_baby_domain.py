@@ -253,3 +253,22 @@ def test_display_excerpt_is_safe_for_unusual_values():
     assert duration_label(float("nan")) is None
     assert without_title("İstanbul trip\nPacked the bag", "İstanbul trip") == "Packed the bag"
     assert without_title("Notes about feeding", "Feeding") == "Notes about feeding"
+
+
+def test_ai_context_uses_the_parents_local_clock():
+    from zoneinfo import ZoneInfo
+
+    from app.domains.baby.chat import local_data, parent_zone
+
+    guam = ZoneInfo("Pacific/Guam")
+    assert parent_zone("Pacific/Guam") == guam
+    assert str(parent_zone("Not/AZone")) == "UTC"
+    assert str(parent_zone(None)) == "UTC"
+    shifted = local_data({"end_at": "2026-10-20T09:18:20+00:00", "type": "wet"}, guam)
+    assert shifted["end_at"] == "2026-10-20T19:18:20+10:00"
+    assert shifted["type"] == "wet"
+    item = SimpleNamespace(
+        kind="sleep", title="Sleep", body="", data={"end_at": "2026-10-20T09:18:20+00:00"}
+    )
+    assert "19:18:20+10:00" in excerpt_for(item, [], zone=guam)
+    assert local_data({"end_at": "not a time"}, guam) == {"end_at": "not a time"}
