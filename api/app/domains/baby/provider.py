@@ -185,7 +185,7 @@ class BabyProvider:
             output_model=ExtractionOutput,
         )
 
-    async def answer(self, *, message, context, history):
+    async def answer(self, *, message, context, history, now_local=None):
         return await self.json_call(
             capability="baby_chat",
             instructions=(
@@ -202,10 +202,17 @@ class BabyProvider:
                 "from incomplete logs. For a medical decision encourage the user's clinician; urgent symptoms need urgent care. "
                 "Only suggest editable checklists/schedules, journal entries, or questions when requested; never claim you saved them. "
                 "A routine proposal data is {routine_type:'checklist'|'schedule',items:[{id,label,done:false}],enabled:false,repeat:'none'}. "
-                "Never propose enabled reminders. Use clear plain language; no unsupported health predictions."
+                "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
+                "Record times carry the parent's own UTC offset and now_local is their current local time; "
+                "quote clock times as those local times (never UTC), written like 7:25 PM unless the parent uses 24-hour times."
             ),
             content=json.dumps(
-                {"question": message, "retrieved_records": context, "recent_conversation": history}
+                {
+                    "question": message,
+                    "now_local": now_local,
+                    "retrieved_records": context,
+                    "recent_conversation": history,
+                }
             ),
             output_model=AnswerOutput,
         )
