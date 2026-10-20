@@ -264,3 +264,29 @@ export function creatorCredit(card: Pick<DiscoverCard, "source_creator" | "sourc
 export function equipmentChips(card: Pick<DiscoverCard, "equipment_required">) {
   return card.equipment_required.length ? card.equipment_required : ["No equipment"];
 }
+
+/** One short byline for a grid card: the original creator when known, else who shared it. */
+export function gridByline(card: Pick<DiscoverCard, "source_creator" | "contributor" | "is_owner">) {
+  if (card.is_owner) return "Shared by you";
+  return card.source_creator?.trim() || `by ${card.contributor.display_name}`;
+}
+
+export type DiscoverFilterKey = "duration" | "equipment" | "platform";
+/** Active sheet filters (search excluded) as removable labels, in sheet order. */
+export function activeFilters(filters: DiscoverFilters): { key: DiscoverFilterKey; label: string }[] {
+  const active: { key: DiscoverFilterKey; label: string }[] = [];
+  if (filters.duration) active.push({ key: "duration", label: durationRanges[filters.duration].label });
+  const equipment = equipmentFilters.find((item) => item.value === filters.equipment);
+  if (filters.equipment) active.push({ key: "equipment", label: equipment?.label ?? filters.equipment });
+  if (filters.platform) active.push({ key: "platform", label: platformInfo(filters.platform).label });
+  return active;
+}
+
+export type DiscoverView = "grid" | "list";
+/** Device-only, per-account layout preference. */
+export function discoverViewKey(owner: string) {
+  return `hafa-workouts:v1:${encodeURIComponent(owner)}:discover-view`;
+}
+export function parseDiscoverView(value: string | null | undefined): DiscoverView {
+  return value === "list" ? "list" : "grid";
+}

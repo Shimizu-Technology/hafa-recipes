@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
@@ -13,25 +13,55 @@ import {
   Notice,
   Row,
   Screen,
+  Sheet,
   Stack,
 } from "@/components/ui";
 import { DiscoverCardSkeleton, DiscoverCardView } from "@/components/discover-card";
+import { DiscoverGrid, DiscoverGridCard, DiscoverGridSkeleton } from "@/components/discover-grid-card";
 import { WorkoutGallery } from "@/components/workout-gallery";
 import { useTraining } from "@/lib/context";
 import {
   DISCOVER_STALE_MS,
   SEARCH_DEBOUNCE_MS,
+  activeFilters,
   discoverKeys,
   discoverUnavailable,
+  discoverViewKey,
   durationRanges,
   equipmentFilters,
   nextDiscoverOffset,
+  parseDiscoverView,
   platformFilters,
   platformInfo,
   uniqueCards,
+  type DiscoverCard,
+  type DiscoverFilterKey,
   type DiscoverFilters,
+  type DiscoverView,
   type DurationRange,
 } from "@/lib/discover";
+
+/** Grid or list, remembered on this device for this account. */
+function useDiscoverView() {
+  const { owner, storage } = useTraining();
+  const [view, setView] = useState<DiscoverView>("grid");
+  useEffect(() => {
+    let live = true;
+    storage
+      .getItem(discoverViewKey(owner))
+      .then((value) => live && setView(parseDiscoverView(value)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [owner, storage]);
+  function toggle() {
+    const next = view === "grid" ? "list" : "grid";
+    setView(next);
+    storage.setItem(discoverViewKey(owner), next).catch(() => undefined);
+  }
+  return [view, toggle] as const;
+}
 
 export default function Discover() {
   const { api, owner, enrollment } = useTraining();
@@ -40,6 +70,8 @@ export default function Discover() {
   const [equipment, setEquipment] = useState<string>();
   const [duration, setDuration] = useState<DurationRange>();
   const [platform, setPlatform] = useState<string>();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [view, toggleView] = useDiscoverView();
   const [pulling, setPulling] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setSettledSearch(search), SEARCH_DEBOUNCE_MS);
@@ -65,7 +97,12 @@ export default function Discover() {
   const unavailable =
     discoverUnavailable(capabilities.data, feed.error) || (capabilities.error as { status?: number } | null)?.status === 503;
   const cards = uniqueCards(feed.data?.pages);
-  const narrowed = !!(settledSearch.trim() || equipment || duration || platform);
+  const active = activeFilters(filters);
+  const narrowed = !!(settledSearch.trim() || active.length);
+  const total = feed.data?.pages[0]?.total ?? cards.length;
+  function clearFilter(key: DiscoverFilterKey) {
+    ({ duration: setDuration, equipment: setEquipment, platform: setPlatform })[key](undefined);
+  }
   function clear() {
     setSearch("");
     setSettledSearch("");
@@ -82,6 +119,7 @@ export default function Discover() {
       setPulling(false);
     }
   }
+  const open = (card: DiscoverCard) => router.push({ pathname: "/discover/[id]", params: { id: card.id } });
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
     <Screen
@@ -93,18 +131,7 @@ export default function Discover() {
       onEndReached={() => {
         if (feed.hasNextPage && !feed.isFetchingNextPage && !feed.isFetchNextPageError) void feed.fetchNextPage();
       }}
-      action={
-        <Row gap={8}>
-          <IconButton
-            icon="add"
-            label="Share a workout video"
-            variant="primary"
-            disabled={!enrollment?.enrolled}
-            onPress={() => router.push("/capture")}
-          />
-          <AccountButton />
-        </Row>
-      }
+      action={<AccountButton />}
     >
       {unavailable ? (
         <Empty
@@ -122,97 +149,97 @@ export default function Discover() {
       ) : (
         <>
           <Field label="Search Discover" value={search} onChange={setSearch} placeholder="Workout, exercise or creator" />
-          <ChipRow label="Filter workouts">
-            {equipmentFilters
-              .filter((item) => item.value === "none")
-              .map((item) => (
+          <Row justify="space-between">
+            <Button
+              title={active.length ? `Filters · ${active.length}` : "Filters"}
+              icon="options-outline"
+              variant="secondary"
+              size="sm"
+              inline
+              accessibilityHint={active.length ? `${active.length} active` : "Time, equipment and source"}
+              onPress={() => setFiltersOpen(true)}
+            />
+            <IconButton
+              icon={view === "grid" ? "list-outline" : "grid-outline"}
+              label={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"}
+              onPress={toggleView}
+            />
+          </Row>
+          {!!active.length && (
+            <ChipRow label="Active filters">
+              {active.map((filter) => (
                 <Chip
-                  key={item.value}
-                  label={item.label}
-                  icon={item.icon}
-                  selected={equipment === item.value}
-                  onPress={() => setEquipment(equipment === item.value ? undefined : item.value)}
+                  key={filter.key}
+                  label={filter.label}
+                  selected
+                  onPress={() => clearFilter(filter.key)}
                 />
               ))}
-            {(Object.keys(durationRanges) as DurationRange[]).map((value) => (
-              <Chip
-                key={value}
-                label={durationRanges[value].label}
-                icon="time-outline"
-                selected={duration === value}
-                onPress={() => setDuration(duration === value ? undefined : value)}
-              />
-            ))}
-            {platformFilters.map((value) => (
-              <Chip
-                key={value}
-                label={platformInfo(value).label}
-                icon={platformInfo(value).icon}
-                selected={platform === value}
-                onPress={() => setPlatform(platform === value ? undefined : value)}
-              />
-            ))}
-            {equipmentFilters
-              .filter((item) => item.value !== "none")
-              .map((item) => (
-                <Chip
-                  key={item.value}
-                  label={item.label}
-                  icon="barbell-outline"
-                  selected={equipment === item.value}
-                  onPress={() => setEquipment(equipment === item.value ? undefined : item.value)}
-                />
-              ))}
-          </ChipRow>
+              <Button title="Clear all" variant="ghost" size="sm" inline onPress={clear} />
+            </ChipRow>
+          )}
           {loadingFeed ? (
-            <>
-              <DiscoverCardSkeleton />
-              <DiscoverCardSkeleton />
-            </>
+            view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
           ) : feed.error && !cards.length ? (
             <Stack>
               <Notice>{feed.error.message}</Notice>
               <Button title="Try again" variant="secondary" onPress={() => void feed.refetch()} />
             </Stack>
           ) : !cards.length ? (
-            <Empty
-              icon={narrowed ? "search-outline" : "compass-outline"}
-              title={narrowed ? "No workouts match" : "Be the first to share"}
-              description={
-                narrowed
-                  ? "Try a shorter search or clear the filters."
-                  : "Share a workout video to Håfa Workouts and turn on Share to Discover when you save it."
-              }
-              action={
-                narrowed ? (
-                  <Button title="Clear filters" variant="secondary" onPress={clear} />
-                ) : (
-                  <Button
-                    title="Share a workout video"
-                    icon="add"
-                    variant="secondary"
-                    disabled={!enrollment?.enrolled}
-                    onPress={() => router.push("/capture")}
-                  />
-                )
-              }
-            />
+            narrowed ? (
+              <Empty
+                icon="search-outline"
+                title="No workouts match"
+                description="Try a shorter search or fewer filters."
+                action={<Button title="Clear search and filters" variant="secondary" onPress={clear} />}
+              />
+            ) : (
+              <Empty
+                mark
+                icon="compass-outline"
+                title="Discover is just getting started"
+                description="Discover shows workouts Håfa members choose to share. Share one from your library, or import a workout from a video or link."
+                action={
+                  <Row gap={8} wrap>
+                    <Button
+                      title="Share one of yours"
+                      icon="globe-outline"
+                      size="sm"
+                      inline
+                      disabled={!enrollment?.enrolled}
+                      onPress={() => router.push("/discover/share")}
+                    />
+                    <Button
+                      title="Import a workout"
+                      icon="add"
+                      variant="secondary"
+                      size="sm"
+                      inline
+                      onPress={() => router.navigate("/(tabs)/extract")}
+                    />
+                  </Row>
+                }
+              />
+            )
           ) : (
             <>
-              <Row justify="space-between">
-                <Copy kind="small" tone="muted">
-                  {feed.data?.pages[0]?.total ?? cards.length} {(feed.data?.pages[0]?.total ?? cards.length) === 1 ? "workout" : "workouts"}
-                </Copy>
-                {narrowed && <Button title="Clear filters" variant="ghost" size="sm" inline onPress={clear} />}
-              </Row>
-              <WorkoutGallery>{cards.map((card) => (
-                <DiscoverCardView
-                  key={card.id}
-                  card={card}
-                  onPress={() => router.push({ pathname: "/discover/[id]", params: { id: card.id } })}
-                />
-              ))}</WorkoutGallery>
-              {feed.isFetchingNextPage && <DiscoverCardSkeleton />}
+              <Copy kind="small" tone="muted">
+                {total} {total === 1 ? "workout" : "workouts"}
+              </Copy>
+              {view === "grid" ? (
+                <DiscoverGrid>
+                  {cards.map((card) => (
+                    <DiscoverGridCard key={card.id} card={card} onPress={() => open(card)} />
+                  ))}
+                </DiscoverGrid>
+              ) : (
+                <WorkoutGallery>
+                  {cards.map((card) => (
+                    <DiscoverCardView key={card.id} card={card} onPress={() => open(card)} />
+                  ))}
+                </WorkoutGallery>
+              )}
+              {feed.isFetchingNextPage && (view === "grid" ? <DiscoverGridSkeleton count={2} /> : <DiscoverCardSkeleton />)}
               {feed.isFetchNextPageError && <Notice>{feed.error?.message}</Notice>}
               {feed.hasNextPage && !feed.isFetchingNextPage && (
                 <Button
@@ -225,6 +252,67 @@ export default function Discover() {
           )}
         </>
       )}
+      <Sheet visible={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filters">
+        <Stack gap={16}>
+          <FilterGroup title="Time">
+            {(Object.keys(durationRanges) as DurationRange[]).map((value) => (
+              <Chip
+                key={value}
+                label={durationRanges[value].label}
+                selected={duration === value}
+                onPress={() => setDuration(duration === value ? undefined : value)}
+              />
+            ))}
+          </FilterGroup>
+          <FilterGroup title="Equipment">
+            {equipmentFilters.map((item) => (
+              <Chip
+                key={item.value}
+                label={item.label}
+                selected={equipment === item.value}
+                onPress={() => setEquipment(equipment === item.value ? undefined : item.value)}
+              />
+            ))}
+          </FilterGroup>
+          <FilterGroup title="Source">
+            {platformFilters.map((value) => (
+              <Chip
+                key={value}
+                label={platformInfo(value).label}
+                icon={platformInfo(value).icon}
+                selected={platform === value}
+                onPress={() => setPlatform(platform === value ? undefined : value)}
+              />
+            ))}
+          </FilterGroup>
+          <Row gap={8} justify="flex-end">
+            {!!active.length && (
+              <Button
+                title="Clear all"
+                variant="ghost"
+                inline
+                onPress={() => {
+                  setEquipment(undefined);
+                  setDuration(undefined);
+                  setPlatform(undefined);
+                }}
+              />
+            )}
+            <Button title="Show workouts" inline onPress={() => setFiltersOpen(false)} />
+          </Row>
+        </Stack>
+      </Sheet>
     </Screen>
+  );
+}
+
+function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Stack gap={8}>
+      <Copy kind="label">{title}</Copy>
+      <ChipRow wrap label={title}>
+        {children}
+      </ChipRow>
+    </Stack>
   );
 }
