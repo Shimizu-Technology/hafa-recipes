@@ -201,6 +201,20 @@ it("discards an unsupported-only native token from the error without a later for
   expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.remove).not.toHaveBeenCalled();
   expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
 });
+it.each(["Discard share", "Review source"])("keeps a newer foreground share when an older %s refresh resolves last", async (action) => {
+  const account = setup(); scope.pending.mockResolvedValueOnce(payload("capture-A"));
+  await mount(ShareCapture);
+  const older = held<ReturnType<typeof payload> | null>(), newer = held<ReturnType<typeof payload> | null>();
+  scope.pending.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+  await alertPress("Save this shared source?", action);
+  await act(async () => scope.foreground?.("active"));
+  await act(async () => newer.release(payload("capture-B")));
+  await act(async () => older.release(null));
+  await alertPress("Save this shared source?", "Review source");
+  expect(account.state.drafts["share:capture-B"]).toBeDefined();
+  expect(scope.acknowledge).toHaveBeenLastCalledWith("capture-B");
+  expect(scope.remove).not.toHaveBeenCalled();
+});
 it("offers discard after unsupported-only validation fails and resets stock input too", async () => {
   setup(); scope.native = false; scope.stock.hasShareIntent = true;
   scope.stock.shareIntent.files = [{ path: "file:///a.zip" }];

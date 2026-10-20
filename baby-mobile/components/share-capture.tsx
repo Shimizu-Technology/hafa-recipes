@@ -16,6 +16,7 @@ export function ShareCapture() {
   const stock = useShareIntentContext(),
     b = useBaby(),
     handling = useRef(""),
+    nativeRequest = useRef(0),
     mounted = useRef(false),
     [retry, setRetry] = useState(0),
     [native, setNative] = useState<NativeShare | null>(null);
@@ -25,19 +26,18 @@ export function ShareCapture() {
   }, []);
   useEffect(() => {
     let active = true;
-    let request = 0;
     const load = async () => {
-      const ticket = ++request;
+      const ticket = ++nativeRequest.current;
       if (Platform.OS === "ios" && nativeSharingAvailable) {
         try {
           const p = await pendingShare();
-          if (!active || ticket !== request) return;
+          if (!active || ticket !== nativeRequest.current) return;
           setNative(p);
         } catch {
           return;
         }
       }
-      if (active && ticket === request) setRetry((value) => value + 1);
+      if (active && ticket === nativeRequest.current) setRetry((value) => value + 1);
     };
     void load();
     const app = AppState.addEventListener("change", (s) => {
@@ -45,6 +45,7 @@ export function ShareCapture() {
     });
     return () => {
       active = false;
+      nativeRequest.current++;
       app.remove();
     };
   }, [b.owner]);
@@ -70,8 +71,9 @@ export function ShareCapture() {
         try {
           if (native) {
             if (!acknowledgeShare(native.token)) throw Error("Share changed");
+            const ticket = ++nativeRequest.current;
             const next = await pendingShare();
-            if (!current()) return;
+            if (!current() || ticket !== nativeRequest.current) return;
             setNative(next);
           } else stock.resetShareIntent();
           // Saved drafts own their copies; discarding only retires the incoming share.
@@ -141,7 +143,10 @@ export function ShareCapture() {
                 if (!current()) return;
                 if (native) {
                   const acknowledged = acknowledgeShare(native.token);
-                  setNative(await pendingShare());
+                  const ticket = ++nativeRequest.current;
+                  const next = await pendingShare();
+                  if (!current()) return;
+                  if (ticket === nativeRequest.current) setNative(next);
                   if (!acknowledged) handling.current = "";
                 } else stock.resetShareIntent();
                 router.push({ pathname: "/edit", params: { draft: key, kind: "source" } });
