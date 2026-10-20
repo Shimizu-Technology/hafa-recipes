@@ -105,6 +105,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     vault = useRef<ReturnType<typeof createDeviceVault> | null>(null),
     serialized = useRef<Promise<unknown>>(Promise.resolve()),
     busy = useRef(false),
+    rerun = useRef(false),
     onlineRef = useRef(true),
     ownerRef = useRef(""),
     storageReady = useRef(false),
@@ -241,6 +242,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
     }
   }
   async function sync() {
+    // A change queued mid-sync (for example Undo right after a quick log) runs on the next pass.
+    if (busy.current) rerun.current = true;
     if (
       deleting.current ||
       closing.current ||
@@ -382,6 +385,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
       }
       busy.current = false;
       if (alive.current) setSyncing(false);
+      if (rerun.current && alive.current) {
+        rerun.current = false;
+        void funcs.current.sync();
+      }
     }
   }
   const funcs = useRef({ refresh, sync });
