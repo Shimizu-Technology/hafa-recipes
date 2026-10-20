@@ -7,6 +7,7 @@ import { messageFor } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Notice, Row, Screen, Section, useToast } from "@/components/ui";
+import { friendlyDate } from "@/lib/care-format";
 export default function Settings() {
   const b = useBaby(),
     toast = useToast(),
@@ -67,9 +68,9 @@ export default function Settings() {
             title={child.name}
             detail={
               child.birth_date
-                ? "Born " + child.birth_date
+                ? "Born " + friendlyDate(child.birth_date)
                 : child.due_date
-                  ? "Due " + child.due_date
+                  ? "Due " + friendlyDate(child.due_date)
                   : "Name, dates, and profile"
             }
             icon="person-outline"

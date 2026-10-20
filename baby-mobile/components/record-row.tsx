@@ -1,6 +1,8 @@
 import { router } from "expo-router";
 import type { BabyRecord, Kind } from "@/lib/models";
 import { kindName } from "@/lib/models";
+import { careSummary, friendlyTime, isCare } from "@/lib/care-format";
+import { useBaby } from "@/lib/context";
 import { Row, type IconName } from "./ui";
 export const kindIcon: Record<Kind, IconName> = {
   source: "bookmark-outline",
@@ -13,16 +15,21 @@ export const kindIcon: Record<Kind, IconName> = {
   collection: "folder-outline",
 };
 export function RecordRow({ record, pending = false }: { record: BabyRecord; pending?: boolean }) {
+  const children = useBaby().state.bootstrap?.children ?? [],
+    care = isCare(record.kind),
+    label = record.title && record.title !== kindName[record.kind] ? record.title : "",
+    child = children.length > 1 ? children.find((c) => c.id === record.child_id)?.name : undefined;
   const details = [
-    record.data.provenance === "clinician_instruction" ? "Clinician instruction" : kindName[record.kind],
-    new Date(record.occurred_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    care ? label : record.data.provenance === "clinician_instruction" ? "Clinician instruction" : kindName[record.kind],
+    friendlyTime(record.occurred_at),
+    child,
     pending ? "Saved on this device" : record.kind === "source" ? String(record.data.status ?? "") : null,
   ]
     .filter(Boolean)
     .join(" · ");
   return (
     <Row
-      title={record.title || kindName[record.kind]}
+      title={care ? careSummary(record.kind, record.data, record.occurred_at) : label || kindName[record.kind]}
       detail={details}
       icon={kindIcon[record.kind]}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}

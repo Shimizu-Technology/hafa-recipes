@@ -1,7 +1,8 @@
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { readableCitations } from "@/lib/chat-citations";
+import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
+import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
 import {
@@ -113,8 +114,8 @@ export default function Ask() {
                 <Row
                   key={citation.id}
                   title={`${sourceIndex + 1}. ${citation.title}`}
-                  detail={citation.excerpt}
-                  icon="bookmark-outline"
+                  detail={citationExcerpt(citation) || undefined}
+                  icon={citation.kind ? kindIcon[citation.kind] : "bookmark-outline"}
                   onPress={() => router.push({ pathname: "/record/[id]", params: { id: citation.id } })}
                 />
               ))}

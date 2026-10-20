@@ -25,6 +25,7 @@ vi.mock("expo-image-picker", () => ({}));
 vi.mock("expo-share-intent", () => ({ useShareIntentContext: () => ({ ...scope.stock, resetShareIntent: scope.reset }) }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
+vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/files", () => ({ preserveFile: scope.copy, removeLocal: scope.remove }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));

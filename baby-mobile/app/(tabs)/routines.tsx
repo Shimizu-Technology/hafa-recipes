@@ -6,6 +6,7 @@ import { useBaby } from "@/lib/context";
 import type { BabyRecord } from "@/lib/models";
 import { messageFor } from "@/lib/models";
 import { Button, Card, Choice, Copy, Empty, Notice, Screen, Section } from "@/components/ui";
+import { friendlyTime } from "@/lib/care-format";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 export default function Routines() {
@@ -75,7 +76,7 @@ export default function Routines() {
                 {r.data.enabled && r.data.reminder_at
                   ? r.data.routine_type === "checklist" && r.data.items?.length && r.data.items.every((item) => item.done)
                     ? "Checklist complete. Reminders are paused."
-                    : `Reminder ${new Date(r.data.reminder_at).toLocaleString()}${r.data.repeat === "daily" ? " · daily" : r.data.repeat === "weekly" ? " · weekly" : ""}`
+                    : `Reminder ${friendlyTime(r.data.reminder_at)}${r.data.repeat === "daily" ? " · daily" : r.data.repeat === "weekly" ? " · weekly" : ""}`
                   : "No active reminders"}
               </Copy>
               <Button
