@@ -89,14 +89,14 @@ export function coachFocusErrors(focus: CoachFocus) {
     ? ["Choose exactly one valid focus and its original revision."]
     : [];
 }
+/**
+ * A return from a pause must be confirmed against the concrete sets and reps
+ * shown on the full review screen; the API requires `confirm_return_baseline`.
+ */
 export function needsReturnConfirmation(action: CoachAction) {
   return action.proposal.operation === "return" || action.proposal.confirmation_required === true;
 }
-export function canAcceptCoach(action: CoachAction, reviewed: boolean, returnConfirmed: boolean, now = Date.now()) {
-  return (
-    action.proposal.status === "ready" &&
-    reviewed &&
-    Date.parse(action.expires_at) > now &&
-    (!needsReturnConfirmation(action) || returnConfirmed)
-  );
+/** Ready and unexpired. Apply is one tap; Undo stays available afterwards. */
+export function canApplyCoach(action: CoachAction, now = Date.now()) {
+  return action.proposal.status === "ready" && Date.parse(action.expires_at) > now;
 }

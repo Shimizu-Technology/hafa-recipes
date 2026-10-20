@@ -60,6 +60,8 @@ vi.mock("@/components/ui", () => ({
   useColors: () => ({ text: "ink", accentText: "accent", sunken: "sunken" }),
 }));
 // The chat shell owns the scroll view; the composer input stands in for a Field.
+// Suggestion cards own Apply/Undo and are covered in coach-suggestion.test.ts.
+vi.mock("@/components/coach-suggestion", () => ({ CoachSuggestionCard: "CoachSuggestionCard" }));
 vi.mock("@/components/coach-chat", () => ({ CoachInput: "Field", CoachSnackbar: "CoachSnackbar",
   CoachChatShell: (props: { children?: React.ReactNode; menu?: () => void; banner?: React.ReactNode; footer?: React.ReactNode; overlay?: React.ReactNode; scrollRef?: { current: unknown } }) => {
     // Installed RNWeb binds forwardedRef when its scroll DOM node mounts.
@@ -91,6 +93,7 @@ const option = async (title: string) => {
   return button(title);
 };
 const clickOption = async (title: string) => { const row = await option(title); await act(async () => { row.props.onPress(); }); await settle(); };
+const suggestion = (id: string) => nodes("CoachSuggestionCard").find(node => node.props.item.proposal_id === id);
 const copiedFeedback = () => nodes("CoachSnackbar")[0]?.props.snack?.text === "Reply copied";
 const settle = async () => { for (let i = 0; i < 4; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); }); };
 const mount = async () => { await act(async () => { view = create(createElement(QueryClientProvider, { client: cache }, createElement(Coach)), { createNodeMock: element => element.type === "View" ? { measureLayout: f.measureAnchor } : null }); }); await settle(); };
@@ -164,10 +167,12 @@ it("a response arriving after the private storage lease closes cannot change the
   const saved = draft(); f.current = false; await act(async () => gate.resolve(reply("late"))); await settle();
   expect(draft()).toEqual(saved); expect(nodes("Field")).toHaveLength(0); expect(nodes("Copy").some(node => node.props.accessibilityLabel === "Your message: Keep pending")).toBe(true);
 });
-it("an existing reviewed proposal remains an explicit navigation action", async () => {
+it("an existing proposal renders as a suggestion card for its own generation and applies nothing by itself", async () => {
   f.history = [{ ...reply("older"), actions: [{ proposal_id: "suggestion", kind: "schedule", status: "ready", state: "proposed" }] }];
-  await mount(); expect(f.send).not.toHaveBeenCalled(); await click("Review schedule suggestion");
-  expect(f.push).toHaveBeenCalledWith({ pathname: "/coach-action/[id]", params: { id: "suggestion", generation: "1", state: "proposed" } });
+  await mount(); expect(f.send).not.toHaveBeenCalled();
+  expect(suggestion("suggestion")!.props).toMatchObject({ generation: 1, item: { state: "proposed" } });
+  await act(async () => suggestion("suggestion")!.props.notify("Change applied", vi.fn())); await settle();
+  expect(nodes("CoachSnackbar")[0].props.snack).toMatchObject({ text: "Change applied", action: { label: "Undo" } });
 });
 
 it("reusing an old failed message preserves the current draft until replacement is confirmed", async () => {
@@ -689,7 +694,7 @@ it("keeps a completed-first reply and its reviewable proposal without claiming i
   expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("");
   expect(nodes("Notice").some(node => String(node.props.children).includes("finished before Stop"))).toBe(true);
   expect(nodes("Notice").some(node => String(node.props.children).includes("Reply stopped"))).toBe(false);
-  await click("Review schedule suggestion"); expect(f.push).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ id: "review-me" }) }));
+  expect(suggestion("review-me")).toBeDefined();
   expect(f.send).not.toHaveBeenCalled();
 });
 it("stops a visible history request without replacing a separate unsent draft", async () => {
@@ -774,14 +779,14 @@ it("shows actual provisional deltas only in RAM, clears a tool turn, and exposes
   expect(nodes("Bubble").find(node => String(node.props.meta).includes("not saved"))?.findByType("Copy" as never).props.children).toBe("First turn preview");
   expect(JSON.stringify([...f.values.values()])).not.toContain("First turn preview");
   expect(cache.getQueryData([f.owner, "coach-history", 1, "initial"])).not.toMatchObject({ assistant_message: "First turn preview" });
-  expect(button("Review schedule suggestion")).toBeUndefined();
+  expect(nodes("CoachSuggestionCard")).toHaveLength(0);
   await act(async () => emit("")); expect(nodes("Bubble").filter(node => String(node.props.meta).includes("not saved"))).toHaveLength(0);
   await act(async () => emit("Final turn preview"));
   const id = f.stream.mock.calls[0][0];
   const canonical: CoachMessage = { ...reply(id), actions: [{ proposal_id: "approved", kind: "schedule", status: "ready", state: "proposed" }] };
   f.history = [canonical]; await act(async () => finish(canonical)); await settle();
   expect(nodes("Bubble").filter(node => String(node.props.meta).includes("not saved"))).toHaveLength(0);
-  expect(button("Review schedule suggestion")).toBeDefined(); expect(f.send).not.toHaveBeenCalled();
+  expect(suggestion("approved")).toBeDefined(); expect(f.send).not.toHaveBeenCalled();
 });
 it("an interrupted stream discards provisional text and retries the frozen request without a JSON fallback or fresh UUID", async () => {
   f.streaming = true;
@@ -828,7 +833,7 @@ it.each([true, false])("a canonical terminal stream replay resolves saved delive
   expect(f.stream.mock.calls[1].slice(0, 4)).toEqual(original); expect(f.uuid).toBe(1); expect(f.send).not.toHaveBeenCalled();
   expect(draft().pending).toBeNull(); expect(nodes("Field")[0].props.value).toBe("Keep my exact question");
   expect(nodes("Field")[0].props.disabled).toBe(false); expect(button("Send message")).toBeDefined();
-  expect(button("Retry saved message")).toBeUndefined(); expect(button("Review schedule suggestion")).toBeUndefined();
+  expect(button("Retry saved message")).toBeUndefined(); expect(nodes("CoachSuggestionCard")).toHaveLength(0);
 });
 
 

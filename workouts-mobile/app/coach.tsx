@@ -4,6 +4,7 @@ import { useCoachVoice } from "@/lib/use-coach-voice";
 import { stopCoachReadAloud, useCoachReadAloud } from "@/lib/use-coach-read-aloud";
 import { CoachMessagePhoto, CoachPhotoControl, useCoachPhoto } from "@/components/coach-photo";
 import { CoachReply } from "@/components/coach-reply";
+import { CoachSuggestionCard } from "@/components/coach-suggestion";
 import { createCoachDraftStore } from "@/lib/coach-drafts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, ScrollView, View } from "react-native";
@@ -14,7 +15,6 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@
 import { Bubble, Button, Card, Chip, ChipRow, Copy, IconButton, ListGroup, ListRow, Notice, Sheet } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
-import { coachActionNoun } from "@/lib/labels";
 const HISTORY_POSITION_ERROR = "Could not keep your reading position. Try loading earlier messages again.";
 const COPY_ERROR = "Could not copy this reply. Try again or select the text to copy it.";
 const messageOrder = (a: CoachMessage, b: CoachMessage) =>
@@ -766,24 +766,8 @@ export default function Coach() {
               <Button title="Keep my draft" variant="ghost" onPress={() => { if (currentConversation()) setReuse(null); }} />
             </Card>}
           </>}
-          {item.actions.map((action) => (
-            <Card key={action.proposal_id} tone="accent" compact>
-              <Copy kind="caption" tone="accent">
-                {action.state === "accepted" ? "Applied" : action.state === "undone" ? "Undone" : "Suggested change"}
-              </Copy>
-              <Button
-                title={`${action.state === "accepted" ? "Inspect or undo" : action.state === "undone" ? "Inspect undone" : "Review"} ${coachActionNoun(action.kind)} suggestion`}
-                variant={action.state === "proposed" ? "primary" : "secondary"}
-                size="sm"
-                onPress={() =>
-                  router.push({
-                    pathname: "/coach-action/[id]",
-                    params: { id: action.proposal_id, generation: String(item.generation), state: action.state },
-                  })
-                }
-              />
-            </Card>
-          ))}
+          {item.actions.map((action) => <CoachSuggestionCard key={action.proposal_id} item={action} generation={item.generation}
+            notify={(text, undo) => { if (currentConversation()) setSnack({ id: Date.now(), text, ...(undo ? { action: { label: "Undo", onPress: () => { setSnack(null); undo(); } } } : {}) }); }} />)}
         </View>
       ))}
       {!!provisional && <Bubble from="coach" meta="Reply in progress · not saved yet"><Copy>{provisional}</Copy></Bubble>}
