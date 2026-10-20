@@ -115,7 +115,7 @@ export default function Ask() {
                   key={citation.id}
                   title={`${sourceIndex + 1}. ${citation.title}`}
                   detail={citationExcerpt(citation) || undefined}
-                  icon={citation.kind ? kindIcon[citation.kind] : "bookmark-outline"}
+                  icon={(citation.kind && kindIcon[citation.kind]) || "bookmark-outline"}
                   onPress={() => router.push({ pathname: "/record/[id]", params: { id: citation.id } })}
                 />
               ))}

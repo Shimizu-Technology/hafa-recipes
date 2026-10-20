@@ -27,6 +27,7 @@ describe("citation previews", () => {
     expect(citationExcerpt({ id: one, title: "First call", excerpt: "First call\n\nFeed every 2 to 3 hours." }))
       .toBe("Feed every 2 to 3 hours.");
     expect(citationExcerpt({ id: one, title: "Note", excerpt: "{not json}" })).toBe("{not json}");
+    expect(citationExcerpt({ id: one, title: "Tip", excerpt: '{"keep": "this"}', kind: "source" })).toBe('{"keep": "this"}');
     expect(citationExcerpt({ id: one, title: "Note", excerpt: "{ a thought\nthat continues" })).toBe("{ a thought\nthat continues");
   });
 });

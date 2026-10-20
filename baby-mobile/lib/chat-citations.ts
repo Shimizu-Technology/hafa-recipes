@@ -32,7 +32,9 @@ export function citationExcerpt(citation: Citation) {
     output: string[] = [];
   if (lines[0] === citation.title.trim()) lines.shift();
   for (let index = 0; index < lines.length; index++) {
-    if (!lines[index].startsWith("{")) {
+    // Newer responses carry `kind` and readable text; only care data from older ones needs formatting.
+    const careOrUnknown = !citation.kind || citation.kind === "feeding" || citation.kind === "sleep" || citation.kind === "diaper";
+    if (!careOrUnknown || !lines[index].startsWith("{")) {
       output.push(lines[index]);
       continue;
     }

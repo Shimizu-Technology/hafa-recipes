@@ -18,6 +18,10 @@ it("summarizes feeds with method, side, amount and duration and never shows empt
 it("shows open sleep as happening now and finished sleep as a duration", () => {
   expect(careSummary("sleep", {}, at(20, 17, 48), now)).toBe("Sleeping now · 42 min");
   expect(careSummary("sleep", { end_at: at(20, 15, 20) }, at(20, 14), now)).toBe("Slept 1 h 20 min");
+  expect(careSummary("sleep", {}, at(18, 9), now)).toMatch(/^Sleep not ended · started /);
+  expect(careSummary("sleep", {}, "not a date", now)).toBe("Sleep in progress");
+  expect(careSummary("sleep", { end_at: "bad" }, at(20, 14), now)).toBe("Sleep recorded");
+  expect(duration(Number.NaN)).toBe("");
   expect(careSummary("diaper", { type: "both" }, at(20, 18))).toBe("Wet and dirty diaper");
   expect(careSummary("diaper", {}, at(20, 18))).toBe("Recorded diaper");
 });
@@ -41,10 +45,12 @@ it("formats durations, relative and calendar times for quick scanning", () => {
 
 it("files care under a baby by default while general notes stay general", () => {
   const kids = [{ id: "a" }, { id: "b" }];
-  expect(defaultChild("feeding", null, kids)).toBe("a");
+  expect(defaultChild("feeding", null, [{ id: "a" }])).toBe("a");
+  expect(defaultChild("sleep", "removed", [{ id: "a" }])).toBe("a");
   expect(defaultChild("diaper", "b", kids)).toBe("b");
+  // With several babies and none selected, the parent chooses.
+  expect(defaultChild("feeding", null, kids)).toBeNull();
   expect(defaultChild("journal", null, kids)).toBeNull();
   expect(defaultChild("journal", "b", kids)).toBe("b");
-  expect(defaultChild("sleep", "removed", kids)).toBe("a");
   expect(defaultChild("sleep", null, [])).toBeNull();
 });

@@ -4,6 +4,7 @@ const minute = 60_000;
 
 /** "45 min", "1 h", "1 h 20 min"; never negative. */
 export function duration(minutes: number) {
+  if (!Number.isFinite(minutes)) return "";
   const total = Math.max(0, Math.round(minutes)),
     hours = Math.floor(total / 60),
     rest = total % 60;
@@ -70,8 +71,14 @@ export function careSummary(kind: Kind, data: RecordData, occurredAt: string, no
   }
   if (kind === "sleep") {
     const start = new Date(occurredAt).getTime();
-    if (!data.end_at) return `Sleeping now · ${duration((now.getTime() - start) / minute)}`;
-    return `Slept ${duration((new Date(data.end_at).getTime() - start) / minute)}`;
+    if (!data.end_at) {
+      const open = (now.getTime() - start) / minute;
+      // A sleep nobody ended is not still happening a day later.
+      if (!Number.isFinite(open)) return "Sleep in progress";
+      return open > 24 * 60 ? `Sleep not ended · started ${friendlyTime(occurredAt, now)}` : `Sleeping now · ${duration(open)}`;
+    }
+    const slept = duration((new Date(data.end_at).getTime() - start) / minute);
+    return slept ? `Slept ${slept}` : "Sleep recorded";
   }
   if (kind === "diaper") return `${data.type && diapers[data.type] ? diapers[data.type] : "Recorded"} diaper`;
   return "";
@@ -81,8 +88,9 @@ export function isCare(kind: Kind) {
   return kind === "feeding" || kind === "sleep" || kind === "diaper";
 }
 
-/** The child a new entry belongs to: care always goes to a baby when one exists. */
+/** The child a new entry belongs to. Care goes to the selected baby or the only baby; with
+ * several babies and none selected the parent chooses, so a log is never filed to the wrong one. */
 export function defaultChild(kind: Kind, selected: string | null, children: Pick<Child, "id">[]) {
   if (selected && children.some((child) => child.id === selected)) return selected;
-  return isCare(kind) ? children[0]?.id ?? null : null;
+  return isCare(kind) && children.length === 1 ? children[0].id : null;
 }
