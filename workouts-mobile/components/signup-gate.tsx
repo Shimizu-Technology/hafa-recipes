@@ -10,7 +10,8 @@ import { Button, Copy, Notice, Screen } from "./ui";
 export function SignupGate({ children }: PropsWithChildren) {
   const { isLoaded, sessionId, userId, getToken } = useAuth(), clerk = useClerk();
   const { isLoaded: sessionLoaded, session } = useSession();
-  const [ready, setReady] = useState(configuration.clerkEnvironment !== "production"),
+  const scope = sessionId && userId ? `${sessionId}:${userId}` : null;
+  const [readyScope, setReadyScope] = useState<string | null>(null),
     [busy, setBusy] = useState(true), [error, setError] = useState(""),
     [needsFinish, setNeedsFinish] = useState(false);
   const live = useRef({ sessionId, userId, session, getToken });
@@ -44,7 +45,7 @@ export function SignupGate({ children }: PropsWithChildren) {
         if (!current()) return;
         setNeedsFinish(false);
         if (pending) await signupSetup.complete(sessionId, userId, api.onboard, current);
-        if (current()) setReady(true);
+        if (current()) setReadyScope(binding);
       } catch (failure) {
         if (current()) setError(failure instanceof ApiError && failure.status === 409
           ? "This Håfa account needs recovery. Use your existing account or contact support."
@@ -66,7 +67,7 @@ export function SignupGate({ children }: PropsWithChildren) {
     void run();
     return () => { active = false; };
   }, [hydrated, sessionId, userId]);
-  if (ready && (configuration.clerkEnvironment !== "production" || hydrated)) return children;
+  if (configuration.clerkEnvironment !== "production" || (hydrated && !!scope && readyScope === scope)) return children;
   return <Screen title={needsFinish ? "Finish account setup" : "Getting your account ready"}>
     {(busy || !hydrated) && <Copy>Preparing your private Håfa account…</Copy>}
     {!busy && needsFinish && <Copy>Your account was created, but setup is unfinished. Finish setup to start using Workouts.</Copy>}

@@ -230,3 +230,21 @@ it("revokes native sharing before sign-out and preserves setup recovery when cle
   expect(await setup.pending("session_A", "user_A")).toBe(false);
   expect(await setup.recoverable("user_A")).toBe(true);
 });
+
+it("a replacement session cannot inherit readiness when the gate is reused without a parent key", async () => {
+  const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
+  gate.onboard.mockResolvedValueOnce({ status: "created", app_user_id: "app_owner_A" });
+  await mountGate(); expect(gate.opened).toHaveBeenCalledWith("user_A");
+  await setup.begin("session_B", "user_B");
+  let finish!: (value: unknown) => void;
+  gate.onboard.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  gate.opened.mockClear(); gate.auth.sessionId = "session_B"; gate.auth.userId = "user_B";
+  gate.clerk.session = { id: "session_B", user: { id: "user_B" } };
+  await act(async () => renderer!.update(React.createElement(React.StrictMode, null,
+    React.createElement(SignupGate, null, React.createElement(PrivateData)))));
+  expect(gate.onboard).toHaveBeenCalledTimes(2); expect(gate.opened).not.toHaveBeenCalled();
+  expect(await setup.pending("session_B", "user_B")).toBe(true);
+  await act(async () => finish({ status: "created", app_user_id: "app_owner_B" }));
+  expect(gate.opened).toHaveBeenCalledWith("user_B");
+  expect(await setup.pending("session_B", "user_B")).toBe(false);
+});
