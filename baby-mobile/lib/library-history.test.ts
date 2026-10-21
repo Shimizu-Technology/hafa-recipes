@@ -34,6 +34,20 @@ function held() {
   return { promise, resolve, reject };
 }
 describe("full-history source collections", () => {
+  it("uses server-wide uncategorized filtering and does not reintroduce an edited categorized source", async () => {
+    const fetch = vi.fn().mockResolvedValue(page(["old-uncategorized"], false));
+    const pager = createLibraryPager(fetch), inbox = { kind: "source" as const, childId: null, query: "", uncategorized: true };
+    pager.reset(inbox);
+    await pager.next();
+    expect(fetch.mock.calls[0][0].uncategorized).toBe(true);
+    const state = { ...emptyState(), records: [source("old-uncategorized"), source("edited-existing")],
+      outbox: [{ id: "edit", generation: 1, type: "save" as const, record: { ...source("edited-existing"), revision: 2 }, files: [] }] };
+    expect(libraryRows(state, inbox, pager.snapshot().ids).map((row) => row.id)).toEqual(["old-uncategorized"]);
+    state.records.push(collection(["old-uncategorized"]));
+    expect(libraryRows(state, inbox, pager.snapshot().ids).map(row => row.id)).toEqual(["old-uncategorized"]);
+    state.outbox.push({ id: "category-edit", generation: 1, type: "save", record: { ...collection(["old-uncategorized"]), revision: 1 }, files: [] });
+    expect(libraryRows(state, inbox, pager.snapshot().ids)).toEqual([]);
+  });
   it("starts the collection+topic+query+child cursor at zero even with only unrelated recent cached sources", async () => {
     const fetch = vi
       .fn()

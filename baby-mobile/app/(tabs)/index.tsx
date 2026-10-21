@@ -9,7 +9,7 @@ import { careGlance, glanceChild, nextFeed } from "@/lib/care-glance";
 import { careSummary, friendlyTime } from "@/lib/care-format";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
-import { Button, Card, Copy, Empty, Icon, Loading, Notice, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, Empty, Icon, Loading, Notice, Row, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
 import { RecordRow, kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -67,6 +67,7 @@ export default function Today() {
     care = latestCare.rows,
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => r.kind === "routine"),
+    showCare = !!child && (!child.due_date || !!child.birth_date || care.length > 0),
     timer = activeTimer(b.state),
     timerChild = timer && children.find((c) => c.id === timer.child_id),
     name = profile.display_name.split(" ")[0],
@@ -185,19 +186,15 @@ export default function Today() {
       }
     >
       <SyncStatus />
-      {!children.length && (
-        <Card tone="hero">
-          <Copy kind="heading">Welcome to your next chapter.</Copy>
-          <Copy>
-            Keep the advice you want to remember, the moments you want to keep, and everyday care in one calm place.
-          </Copy>
-          <Button title="Make this space yours" onPress={() => router.push("/onboarding")} />
-        </Card>
-      )}
+      {!children.length && <Row title="Add a baby profile" detail="Optional · personalize everyday care when you’re ready"
+        icon="person-add-outline" onPress={() => router.push("/child")} />}
+      <Row title="Write a journal entry" detail="A thought, photo or small moment" icon="book-outline"
+        onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
+      <Button secondary title="Open saved posts" icon="bookmark-outline" onPress={() => router.push("/(tabs)/library")} />
       {children.length > 1 && <ChildFilter />}
       {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
-      {child && <CareGlance child={child} rows={latestCare.all} now={now} />}
-      <View style={{ flexDirection: "row", gap: 10 }}>
+      {child && showCare && <CareGlance child={child} rows={latestCare.all} now={now} />}
+      {showCare && <View style={{ flexDirection: "row", gap: 10 }}>
         <Tile
           icon={kindIcon.feeding}
           label={timer ? "Feeding…" : "Feed"}
@@ -211,7 +208,7 @@ export default function Today() {
           onPress={sleep}
         />
         <Tile icon={kindIcon.diaper} label="Diaper" hint="Choose wet, dirty or both" onPress={diaper} />
-      </View>
+      </View>}
       {(care.length > 0 || latestCare.loading || latestCare.error) && (
         <Section title="Recent care">
           {latestCare.loading && !care.length && <Loading label="Loading latest care…" />}
@@ -231,29 +228,9 @@ export default function Today() {
           ))}
         </Section>
       )}
-      <Section title="Your chosen routines">
-        {routines.length ? (
-          routines.slice(0, 2).map((r) => <RecordRow key={r.id} record={r} />)
-        ) : (
-          <Empty
-            title="Find your rhythm"
-            body="A packing list, a routine you chose, or a gentle reminder. Make room for what helps."
-            icon="checkmark-circle-outline"
-            action={
-              <Button
-                secondary
-                title="Create a routine"
-                onPress={() => router.push({ pathname: "/edit", params: { kind: "routine" } })}
-              />
-            }
-          />
-        )}
-      </Section>
-      <Card tone="soft">
-        <Copy kind="heading">Something worth keeping?</Copy>
-        <Copy tone="muted">Save a video, write a thought, or keep a question for your next appointment.</Copy>
-        <Button secondary title="Save something" icon="add" onPress={() => router.push("/add")} />
-      </Card>
+      {routines.length > 0 && <Section title="Lists & routines">
+        {routines.slice(0, 2).map((r) => <RecordRow key={r.id} record={r} />)}
+      </Section>}
       {records.filter((r) => r.kind === "source" || r.kind === "journal").length > 0 && (
         <Section title="Recently saved">
           {records

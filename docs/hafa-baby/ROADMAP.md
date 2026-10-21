@@ -20,9 +20,14 @@ this release. Support multiple child profiles without making setup complicated.
 Calm, warm and contemporary. Legible typography, "Sand & Cocoa" warm neutrals
 (sand and nude grounds, cocoa actions, a soft clay accent; chosen by Kami),
 clear contrast, comfortable one-handed targets, useful empty states, and plain
-language. Today gives fast logging; Library holds sources; Journal holds writing,
-questions and care history; Routines holds checklists/schedules; Ask uses selected
-context. Global Add is reachable without hunting. Preserve drafts, return paths
+language. Four main tabs: Today gives fast logging and writing; Saved holds an
+uncategorized inbox, all posts and user-created categories; Journal opens on
+writing; More keeps routines, Ask, doctor questions, care history and settings
+available. Global Add follows the current task. Bulk category selection preserves
+membership on other devices and offers Undo. Source details lead with concise
+attributed takeaways and explicit source-supported steps; original text, evidence
+and processing details remain available on demand. Journal Save stays docked above
+the keyboard; opening an empty editor does not leave an unfinished draft. Preserve drafts, return paths
 and search context. Editing with the keyboard open must remain comfortable.
 Light/dark, large text, VoiceOver and reduced motion are acceptance dimensions.
 Use native date controls and nonblocking confirmations. Motion cannot delay entry.
@@ -33,7 +38,15 @@ Keep imported source claims, caregiver observations and clinician-entered
 instructions distinct. Importing never activates a medical schedule. Retain
 original sources and evidence; missing details stay missing. AI proposes editable
 changes, cites actual authorized records, and never treats source text as system
-instructions. Provider processing requires explicit revocable consent. Existing
+instructions. Provider processing requires explicit revocable consent. Automatic processing of
+new shares is a separate opt-in, off by default and gated by both permissions.
+Sharing saves every original before import admission; existing import and spending
+limits can defer processing without refusing the original. Revocation retires
+queued and deferred automatic work, even if permission is later re-enabled.
+Native sharing uses a Baby-only expiring capability bound to the stable owner,
+installation and generation. Sign-out and erasure clear native authority and
+captures before cleanup. Captures made before an owner is established are kept
+unassigned rather than attached to a later account. Existing
 Recipes/Workouts data are not sent to Baby AI.
 
 ## API contract

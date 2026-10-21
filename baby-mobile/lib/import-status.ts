@@ -1,5 +1,5 @@
 export const importFinished = (status: string) =>
-  ["ready", "incomplete", "complete", "completed", "failed", "cancelled", "canceled"].includes(status);
+  ["saved", "ready", "incomplete", "complete", "completed", "failed", "cancelled", "canceled"].includes(status);
 export const importRetryable = (status: string, error?: string | null) =>
   status === "incomplete" ? !!error : ["failed", "cancelled", "canceled"].includes(status);
 export const importCardVisible = (status: string, error?: string | null) =>
@@ -9,7 +9,8 @@ export function importLabel(status: string, error?: string | null) {
   if (["ready", "complete", "completed"].includes(status) && !error) return "Source organized";
   if (error || ["incomplete", "failed"].includes(status)) return "Original saved · processing needs attention";
   if (["cancelled", "canceled"].includes(status)) return "Processing cancelled";
-  return status === "queued" ? "Waiting to process" : "Processing your source";
+  if (status === "saved") return "Original saved";
+  return status === "queued" || status === "deferred" ? "Waiting to process" : "Processing your source";
 }
 
 export const dailyAiLimitMessage =

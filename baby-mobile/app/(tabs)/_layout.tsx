@@ -42,10 +42,9 @@ export default function TabLayout() {
       >
         {[
           { name: "index", title: "Today", icon: "sunny-outline", selectedIcon: "sunny" },
-          { name: "library", title: "Library", icon: "bookmark-outline", selectedIcon: "bookmark" },
+          { name: "library", title: "Saved", icon: "bookmark-outline", selectedIcon: "bookmark" },
           { name: "journal", title: "Journal", icon: "book-outline", selectedIcon: "book" },
-          { name: "routines", title: "Routines", icon: "checkmark-circle-outline", selectedIcon: "checkmark-circle" },
-          { name: "ask", title: "Ask", icon: "chatbubble-outline", selectedIcon: "chatbubble" },
+          { name: "more", title: "More", icon: "ellipsis-horizontal", selectedIcon: "ellipsis-horizontal" },
         ].map((t) => (
           <Tabs.Screen
             key={t.name}
@@ -79,11 +78,13 @@ export default function TabLayout() {
             }}
           />
         ))}
+        <Tabs.Screen name="routines" options={{ href: null }} />
+        <Tabs.Screen name="ask" options={{ href: null }} />
       </Tabs>
       {showAdd && <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add a source, note, or care log"
-        onPress={() => router.push("/add")}
+        onPress={() => router.push(segments[segments.length - 1] === "library" ? { pathname: "/edit", params: { kind: "source" } } : segments[segments.length - 1] === "journal" ? { pathname: "/edit", params: { kind: "journal" } } : "/add")}
         style={({ pressed }) => ({
           position: "absolute",
           right: 20,
