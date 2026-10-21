@@ -94,10 +94,10 @@ export default function CollectionDetail() {
     <Empty icon="folder-open-outline" title="This collection was removed" description="Its workouts are still in your library."
       action={<Button title="Open your library" secondary onPress={() => router.replace("/(tabs)/library")} />} />
   ) : collections.error || q.error ? (
-    <>
+    <View style={{ gap: spacing.md }}>
       <Notice error>{(collections.error ?? q.error)!.message}</Notice>
       <Button title="Try again" secondary onPress={() => void (collections.error ? collections.refetch() : q.refetch())} />
-    </>
+    </View>
   ) : !q.data ? (
     <SkeletonCard label="Loading this collection" />
   ) : (

@@ -188,16 +188,17 @@ export default function Library() {
       {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
     </View>
   );
+  // The list clones its empty element with layout props, so multi-part states need a real View, not a Fragment.
   const empty = q.isPending && !!enrollment?.enrolled ? (
-    <>
+    <View style={{ gap: spacing.md }}>
       <SkeletonCard label="Loading your workouts" />
       <SkeletonCard lines={1} label="Loading your workouts" />
-    </>
+    </View>
   ) : q.error ? (
-    <>
+    <View style={{ gap: spacing.md }}>
       <Notice error>{q.error.message}</Notice>
       <Button title="Try again" secondary onPress={() => void q.refetch()} />
-    </>
+    </View>
   ) : (
     <Empty
       icon="albums-outline"
