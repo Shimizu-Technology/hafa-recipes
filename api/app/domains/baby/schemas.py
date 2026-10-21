@@ -80,6 +80,22 @@ class SourceData(DomainModel):
     )
     source_text: str | None = Field(default=None, max_length=100000)
     summary: str | None = Field(default=None, max_length=12000)
+    key_points: list[Annotated[str, Field(min_length=1, max_length=600)]] = Field(
+        default_factory=list, max_length=12, exclude_if=lambda value: not value
+    )
+    steps: list[Annotated[str, Field(min_length=1, max_length=600)]] = Field(
+        default_factory=list, max_length=30, exclude_if=lambda value: not value
+    )
+    # Omit empty additions on the wire to preserve pre-upgrade creation hashes.
+    creator: str | None = Field(
+        default=None, max_length=240, exclude_if=lambda value: value is None
+    )
+    platform: str | None = Field(
+        default=None, max_length=80, exclude_if=lambda value: value is None
+    )
+    thumbnail_url: str | None = Field(
+        default=None, max_length=2000, exclude_if=lambda value: value is None
+    )
     evidence: list[Evidence] = Field(default_factory=list, max_length=100)
     status: (
         Literal["saved", "queued", "processing", "ready", "incomplete", "failed", "cancelled"]
@@ -89,6 +105,27 @@ class SourceData(DomainModel):
     coverage_notes: list[Annotated[str, Field(max_length=300)]] = Field(
         default_factory=list, max_length=30
     )
+
+    @field_validator("thumbnail_url")
+    @classmethod
+    def public_thumbnail(cls, value):
+        if value is None:
+            return value
+        import ipaddress
+
+        cls.public_scheme(value)
+        hostname = urlsplit(value).hostname.lower().rstrip(".")
+        if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(
+            (".local", ".internal", ".localhost")
+        ):
+            raise ValueError("Use a public thumbnail URL")
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not address.is_global:
+            raise ValueError("Use a public thumbnail URL")
+        return value
 
     @field_validator("url")
     @classmethod

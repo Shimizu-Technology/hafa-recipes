@@ -280,3 +280,38 @@ def test_question_terms_find_singular_titles():
     # -ies trims to a stem that still matches both forms; short stems keep the original word.
     assert query_terms("allergies onesies") == ["allerg", "ones"]
     assert query_terms("naps meds aches babies rabies") == ["naps", "meds", "aches", "babies", "rabies"]
+
+
+@pytest.mark.parametrize("model", ["source", "extraction"])
+def test_source_takeaways_are_backward_compatible_and_bounded(model):
+    from app.domains.baby.provider import ExtractionOutput
+    from app.domains.baby.schemas import SourceData
+
+    def parse(**data):
+        return SourceData(**data) if model == "source" else ExtractionOutput(title="Source", **data)
+
+    legacy = parse(summary="Original summary")
+    assert legacy.key_points == legacy.steps == []
+    assert parse(key_points=["x" * 600] * 12, steps=["x" * 600] * 30)
+    for data in [{"key_points": ["x"] * 13}, {"steps": ["x"] * 31},
+                 {"key_points": ["x" * 601]}, {"steps": [""]}]:
+        with pytest.raises(ValidationError):
+            parse(**data)
+
+
+def test_new_source_fields_round_trip_and_legacy_defaults():
+    data = {"summary": "The creator describes packing.", "key_points": ["Their bag stays by the door."],
+            "steps": [], "creator": "Creator", "platform": "instagram",
+            "thumbnail_url": "https://cdn.example.com/frame.jpg"}
+    saved = record("source", data).data
+    assert {key: saved.get(key, []) if key == "steps" else saved[key] for key in data} == data
+    legacy = record("source", {}).data
+    assert not set(["key_points", "steps", "creator", "platform", "thumbnail_url"]) & legacy.keys()
+
+
+@pytest.mark.parametrize("field,limit", [("creator", 240), ("platform", 80), ("thumbnail_url", 2000)])
+def test_source_metadata_limits(field, limit):
+    from app.domains.baby.schemas import SourceData
+
+    with pytest.raises(ValidationError):
+        SourceData(**{field: "x" * (limit + 1)})

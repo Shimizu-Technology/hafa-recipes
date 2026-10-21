@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -18,6 +19,31 @@ from app.domains.workouts.extraction import (
     _pdf_parts,
 )
 from app.services.video import public_video_service
+
+
+def sampling_disclosure(note):
+    # Only recognized successful sampling disclosures are informational. Unknown
+    # notes, truncation and missing audio/frames must still mark coverage incomplete.
+    return note in {
+        "Video frames are samples.",
+        "Video frames are samples; details between samples may be missing.",
+    } or re.fullmatch(
+        r"image:\d+ sampled at [0-9.e+-]+s; samples do not cover every frame\.", note
+    ) is not None
+
+
+def safe_metadata(metadata):
+    thumbnail = metadata.thumbnail_url
+    try:
+        if thumbnail is not None:
+            thumbnail = SourceData(thumbnail_url=thumbnail).thumbnail_url
+    except ValueError:
+        thumbnail = None
+    return {
+        "creator": metadata.creator.strip()[:240] or None if metadata.creator else None,
+        "platform": metadata.platform.strip()[:80] or None if metadata.platform else None,
+        "thumbnail_url": thumbnail,
+    }
 
 
 async def local_media(payload, mime, provider, *, may_use_ai, gate):
@@ -71,6 +97,10 @@ async def local_media(payload, mime, provider, *, may_use_ai, gate):
                             "data:image/webp;base64," + base64.b64encode(image.data).decode(),
                         )
                     )
+            if len(source.images) < 4:
+                source.metadata.coverage_notes.append(
+                    "Some visual frames could not be read; visual-only details may be missing."
+                )
             source.metadata.coverage_notes.append(
                 "Video frames are samples; details between samples may be missing."
             )
@@ -78,7 +108,12 @@ async def local_media(payload, mime, provider, *, may_use_ai, gate):
 
 
 async def process_capture(request, attachments, provider, *, may_use_ai, gate):
-    source = SourceBundle(SourceMetadata(url=request.get("url"), platform="text"))
+    source = SourceBundle(
+        SourceMetadata(
+            url=request.get("url"),
+            platform="upload" if attachments and not request.get("url") else "text",
+        )
+    )
     failures = []
     budget_failure = None
     if request.get("text"):
@@ -156,11 +191,13 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     source.parts, source.images = retained, source.images[:8]
     title = source.metadata.title
     summary, topics = None, request.get("topics", [])
+    key_points, steps = [], []
     if may_use_ai and provider.enabled and (source.parts or source.images):
         await gate()
         try:
             result = await provider.extract(source)
             title, summary = result.title, result.summary
+            key_points, steps = result.key_points, result.steps
             topics = list(dict.fromkeys([*topics, *result.topics]))[:30]
             image_locations = {image.location for image in source.images}
             for entry in result.visual_text:
@@ -189,12 +226,18 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     ][:100]
     text = "\n\n".join(part.text for part in source.parts)[:100000]
     notes = list(dict.fromkeys([*source.metadata.coverage_notes, *failures]))[:30]
-    status = "incomplete" if notes or not text else "ready"
+    incomplete = failures or not text or any(
+        not sampling_disclosure(note) for note in source.metadata.coverage_notes
+    )
+    status = "incomplete" if incomplete else "ready"
     data = SourceData(
         url=request.get("url"),
         topics=topics,
         source_text=text or request.get("text"),
         summary=summary,
+        key_points=key_points,
+        steps=steps,
+        **safe_metadata(source.metadata),
         evidence=evidence,
         status=status,
         attachment_ids=request.get("attachment_ids", []),
