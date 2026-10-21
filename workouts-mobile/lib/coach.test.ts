@@ -1,6 +1,6 @@
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
 import { it, expect, vi } from "vitest";
-import { canAcceptCoach, coachFocusErrors, needsReturnConfirmation, type CoachAction } from "./coach";
+import { canApplyCoach, coachFocusErrors, needsReturnConfirmation, type CoachAction } from "./coach";
 import { createWorkoutsApi } from "./api";
 const action = {
   id: "proposal",
@@ -11,14 +11,12 @@ const action = {
   target_revision: 3,
   expires_at: "2027-01-01T00:00:00Z",
 } as CoachAction;
-it("requires an explicit comfortable-baseline confirmation for a reviewed return and refuses expired/not-ready actions", () => {
+it("marks a return as needing the shown-baseline confirmation and refuses expired/not-ready actions", () => {
   expect(needsReturnConfirmation(action)).toBe(true);
-  expect(canAcceptCoach(action, true, false, 0)).toBe(false);
-  expect(canAcceptCoach(action, true, true, 0)).toBe(true);
-  expect(
-    canAcceptCoach({ ...action, proposal: { ...action.proposal, status: "needs_information" } }, true, true, 0)
-  ).toBe(false);
-  expect(canAcceptCoach(action, true, true, Date.parse("2028-01-01"))).toBe(false);
+  expect(needsReturnConfirmation({ ...action, proposal: { status: "ready", operation: "move" } })).toBe(false);
+  expect(canApplyCoach(action, 0)).toBe(true);
+  expect(canApplyCoach({ ...action, proposal: { ...action.proposal, status: "needs_information" } }, 0)).toBe(false);
+  expect(canApplyCoach(action, Date.parse("2028-01-01"))).toBe(false);
 });
 it("does not mix focus IDs or attach a revision to a session/general conversation", () => {
   expect(coachFocusErrors({ context_workout_id: "workout", context_program_id: "program" })).toHaveLength(1);

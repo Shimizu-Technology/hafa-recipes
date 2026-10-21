@@ -1,10 +1,11 @@
 import { Card, Copy, Notice } from "./ui";
 import { ProgramPreview, PrescriptionPreview } from "./program-preview";
-import { goalLabels } from "@/lib/models";
 import type { CoachAction } from "@/lib/coach";
-import { humanize, proposalStatusLabel } from "@/lib/labels";
+import { proposalStatusLabel } from "@/lib/labels";
 import type { ProgramReceipt } from "@/lib/plans";
-const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+import { formatPlanDate } from "@/lib/plan-presentation";
+
+/** Everything a suggestion would save, below the short before → after summary. */
 export function CoachActionPreview({ action }: { action: CoachAction }) {
   const p = action.proposal;
   const programme = p.program?.proposal ?? (p.sessions ? p : null);
@@ -13,63 +14,26 @@ export function CoachActionPreview({ action }: { action: CoachAction }) {
     : null;
   return (
     <>
-      <Copy kind="heading">
-        {action.kind === "program"
-          ? "A proposed training plan"
-          : action.kind === "profile"
-            ? "Proposed preferences"
-            : action.kind === "schedule"
-              ? "Proposed future schedule"
-              : "A proposed workout variation"}
-      </Copy>
-      <Copy>
-        {proposalStatusLabel(p.status)} · Expires {new Date(action.expires_at).toLocaleString()}
+      <Copy kind="small" tone="muted">
+        {proposalStatusLabel(p.status)} · Expires {new Date(action.expires_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
       </Copy>
       {!!p.review_notice && <Notice>{p.review_notice}</Notice>}
-      {!receipt && p.warnings?.map((warning, index) => <Notice key={`w${index}`}>{warning}</Notice>)}
-      {!receipt && p.questions?.map((question, index) => <Notice key={`q${index}`}>{question}</Notice>)}
-      {!receipt && p.assumptions?.map((assumption, index) => <Copy key={`a${index}`}>{assumption}</Copy>)}
-      {!!p.evaluation?.reason && <Notice>{p.evaluation.reason}</Notice>}
-      {p.changes && (
-        <Card>
-          <Copy kind="heading">Changes to review</Copy>
-          {Object.entries(p.changes).map(([key, value]) => (
-            <Copy key={key}>
-              {key === "primary_goal"
-                ? "Goal"
-                : key === "session_minutes"
-                  ? "Minutes per session"
-                  : key === "available_days"
-                    ? "Usual training days"
-                    : key === "running_baseline.accepted_stage"
-                      ? "Running foundation stage"
-                      : humanize(key)}{" "}
-              ·{" "}
-              {key === "primary_goal" && typeof value === "string"
-                ? (goalLabels[value as keyof typeof goalLabels] ?? value)
-                : key === "available_days" && Array.isArray(value)
-                  ? value.map((day) => days[Number(day)]).join(", ")
-                  : Array.isArray(value)
-                    ? value.join(", ") || "None"
-                    : value == null
-                      ? "Unknown"
-                      : String(value)}
-            </Copy>
-          ))}
-        </Card>
-      )}
-      {p.workout && <PrescriptionPreview workout={p.workout} />} {receipt && <ProgramPreview receipt={receipt} />}{" "}
+      {!receipt && p.warnings?.map((warning, index) => <Copy key={`w${index}`} kind="small">• {warning}</Copy>)}
+      {!receipt && p.questions?.map((question, index) => <Copy key={`q${index}`} kind="small">• {question}</Copy>)}
+      {!receipt && p.assumptions?.map((assumption, index) => <Copy key={`a${index}`} kind="small">{assumption}</Copy>)}
+      {!!p.evaluation?.reason && <Copy kind="small">{p.evaluation.reason}</Copy>}
+      {p.workout && <PrescriptionPreview workout={p.workout} />}
+      {receipt && <ProgramPreview receipt={receipt} />}
       {p.program?.schedule_state?.status === "paused" && (
         <>
-          <Copy kind="heading">Paused future sessions stay saved</Copy>
-          <Notice>
-            These sessions stay in their original order. They are dormant until you review a return with a current
-            comfortable baseline.
-          </Notice>
+          <Copy kind="heading">Paused sessions stay saved</Copy>
+          <Copy kind="small" tone="muted">
+            They keep their order and wait until you resume. Coach checks in with you before they come back.
+          </Copy>
           {p.program.schedule_state.paused_sessions?.map((session, index) => (
             <Card key={session.id}>
-              <Copy>
-                {index + 1} · {session.date} · {session.workout.title}
+              <Copy kind="label">
+                {index + 1} · {formatPlanDate(session.date)} · {session.workout.title}
               </Copy>
               <PrescriptionPreview workout={session.workout} />
             </Card>

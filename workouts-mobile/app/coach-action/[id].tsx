@@ -1,206 +1,78 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, ListGroup, ListRow, Notice, Screen } from "@/components/ui";
+import { useQuery } from "@tanstack/react-query";
+import { Button, Card, Copy, Field, ListGroup, ListRow, Notice, Row, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { CoachActionPreview } from "@/components/coach-action-preview";
+import { CoachChangeRows, useCoachSuggestion } from "@/components/coach-suggestion";
 import { useTraining } from "@/lib/context";
-import { canAcceptCoach, needsReturnConfirmation } from "@/lib/coach";
+import type { CoachSummary } from "@/lib/coach";
+
+/** Full details of one coach suggestion, with the same one-tap Apply and Undo as the chat card. */
 export default function CoachActionReview() {
   const params = useLocalSearchParams<{ id: string; generation?: string; state?: string }>();
   const { api, owner, enrollment } = useTraining();
   const generation = Number(params.generation ?? enrollment?.generation ?? 0);
   const current = enrollment?.enrolled && enrollment.generation === generation;
-  const cache = useQueryClient();
-  const q = useQuery({
-    queryKey: [owner, "coach-action", params.id, generation],
-    queryFn: () => api.coachAction(params.id),
-    enabled: !!current,
-  });
   const history = useQuery({
     queryKey: [owner, "coach-action-history", generation],
     queryFn: () => api.coachHistory(),
     enabled: !!current,
   });
-  const summary = history.data?.messages
-    .flatMap((message) => message.actions)
-    .find((action) => action.proposal_id === params.id);
-  const [state, setState] = useState(params.state ?? "proposed");
-  const effective = state;
-  useEffect(() => {
-    if (summary) setState(summary.state);
-  }, [history.dataUpdatedAt, summary?.state]);
-  const [reviewed, setReviewed] = useState(false);
-  const [baseline, setBaseline] = useState(false);
-  const [title, setTitle] = useState("Training plan");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const known = history.data?.messages.flatMap((message) => message.actions).find((action) => action.proposal_id === params.id);
+  const s = useCoachSuggestion(params.id, generation, known?.state ?? (params.state as CoachSummary["state"] | undefined) ?? "proposed");
+  const data = s.action.data;
+  const [title, setTitle] = useState<string | null>(null);
+  const planName = title ?? data?.proposal.program?.title ?? "Training plan";
   const [result, setResult] = useState("");
-  const [undoConfirm, setUndoConfirm] = useState(false);
-  async function refreshAffected() {
-    await Promise.all([
-      cache.invalidateQueries({ queryKey: [owner, "programs"] }),
-      cache.invalidateQueries({ queryKey: [owner, "program"] }),
-      cache.invalidateQueries({ queryKey: [owner, "profile"] }),
-      cache.invalidateQueries({ queryKey: [owner, "library"] }),
-      cache.invalidateQueries({ queryKey: [owner, "coach-history"] }),
-      history.refetch(),
-    ]);
-  }
-  async function accept() {
-    if (!q.data || !canAcceptCoach(q.data, reviewed, baseline) || !current) return;
-    setBusy(true);
-    setError("");
-    try {
-      const saved = await api.acceptCoachAction(
-        params.id,
-        title,
-        needsReturnConfirmation(q.data) && baseline,
-        generation
-      );
-      setState(saved.state);
-      setResult("The reviewed change was applied. Completed training remains unchanged.");
-      await refreshAffected();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function undo() {
-    if (!current) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api.undoCoachAction(params.id, generation);
-      setState("undone");
-      setUndoConfirm(false);
-      setResult("This unused future change was undone. Historical training remains unchanged.");
-      await refreshAffected();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const footer = !data ? undefined : s.state === "proposed" ? (s.ready ? (
+    <Button title="Apply" icon="checkmark" busy={s.busy} disabled={!planName.trim()}
+      onPress={() => { void s.apply({ title: planName, shownPrescriptions: true }).then(done => { if (done) setResult("Applied. Your completed training stays as it is."); }); }} />
+  ) : undefined) : s.state === "accepted" ? (
+    <Row justify="space-between">
+      <Copy kind="label" style={{ flexShrink: 1 }}>{result || "Applied"}</Copy>
+      <Button title="Undo" icon="arrow-undo-outline" secondary size="sm" inline busy={s.busy}
+        onPress={() => { void s.undo().then(done => { if (done) setResult("Undone."); }); }} />
+    </Row>
+  ) : <Copy kind="label">{result || "Undone. This suggestion stays here for your records."}</Copy>;
+  // After applying, "before" is re-read from the changed record, so only show what the suggestion sets.
+  const rows = s.summary && (s.state === "proposed" ? s.summary : { ...s.summary, rows: s.summary.rows.map(({ label, after }) => ({ label, after })) });
   return (
     <Screen
       back
-      title="Review change"
-      subtitle="Nothing changes until you accept it."
+      title={s.summary?.title ?? "Suggested change"}
+      subtitle={s.state === "proposed" ? "Nothing changes until you apply it." : undefined}
+      footer={footer}
     >
       {!current && (
-        <Notice error>
-          This suggestion belongs to an older Workouts enrollment. It has not been accepted under new account data.
-        </Notice>
+        <Notice error>This suggestion belongs to an older Workouts account setup and can’t be applied now.</Notice>
       )}
-      <QueryState
-        loading={q.isPending && !!current}
-        error={q.error}
-        retry={() => {
-          void q.refetch();
-        }}
-      >
-        {q.data && (
-          <>
-            <CoachActionPreview action={q.data} />
-            {effective === "proposed" ? (
-              <>
-                <Field
-                  label="Name for a created plan or workout"
-                  value={title}
-                  onChange={(value) => {
-                    if (!busy) setTitle(value);
-                  }}
-                />
-                <Choice
-                  label="I reviewed the proposed prescriptions, preferences, dates and warnings"
-                  selected={reviewed}
-                  disabled={busy}
-                  onPress={() => setReviewed(!reviewed)}
-                />
-                {needsReturnConfirmation(q.data) && (
-                  <Card>
-                    <Notice>
-                      Returning from a pause requires a fresh readiness check after the pause and an updated comfortable
-                      baseline in your profile. Stored paused sessions remain dormant until this reviewed return is
-                      accepted.
-                    </Notice>
-                    <Button
-                      title="Review my baseline in profile"
-                      secondary
-                      disabled={busy}
-                      onPress={() => router.push("/profile")}
-                    />
-                    <Choice
-                      label="These shown prescriptions match my current comfortable baseline"
-                      detail="This is an explicit return confirmation, not a medical clearance."
-                      selected={baseline}
-                      disabled={busy}
-                      onPress={() => setBaseline(!baseline)}
-                    />
-                  </Card>
-                )}
-                <Button
-                  title="Accept this reviewed change"
-                  icon="checkmark"
-                  size="lg"
-                  busy={busy}
-                  disabled={!current || !title.trim() || !canAcceptCoach(q.data, reviewed, baseline)}
-                  onPress={() => {
-                    void accept();
-                  }}
-                />
-                {q.data.proposal.status !== "ready" && (
-                  <Button title="Update profile or ask a follow-up" secondary onPress={() => router.push("/coach")} />
-                )}
-              </>
-            ) : (
-              <Notice>
-                {effective === "accepted"
-                  ? "This change was accepted. An unused future change can be undone if its source and recorded history still permit it."
-                  : "This change was undone; its suggestion remains visible for your records."}
-              </Notice>
-            )}
-            {effective === "accepted" && (
-              <Button
-                title="Review undoing this future change"
-                secondary
-                icon="arrow-undo-outline"
-                disabled={busy}
-                onPress={() => setUndoConfirm(true)}
-              />
-            )}
-          </>
-        )}
+      <QueryState loading={s.action.isPending && !!current} error={s.action.error} retry={() => { void s.action.refetch(); }}>
+        {data && <>
+          {rows && <Card><CoachChangeRows summary={rows} /></Card>}
+          {s.state === "proposed" && data.proposal.status !== "ready" && <Button title="Answer in Coach" secondary inline
+            onPress={() => router.canGoBack() ? router.back() : router.push("/coach")} />}
+          {s.state === "proposed" && data.kind === "program" && <Field label="Plan name" value={planName} disabled={s.busy} onChange={setTitle} />}
+          {s.state === "proposed" && s.needsFullReview && <>
+            <Copy kind="small" tone="muted">
+              Applying confirms the sets and reps listed above still feel comfortable for you now. It isn’t medical clearance.
+            </Copy>
+            <ListRow icon="person-outline" title="Check your starting point in your profile" onPress={() => router.push("/profile")} />
+          </>}
+          {s.state === "proposed" && !s.ready && data.proposal.status === "ready" && <Notice>This suggestion expired. Ask Coach again for a fresh one.</Notice>}
+          {s.state === "accepted" && <Copy kind="small" tone="muted">
+            You can undo this while the change is unused. Undo can’t change completed training or later edits.
+          </Copy>}
+          <CoachActionPreview action={data} />
+        </>}
       </QueryState>
-      {undoConfirm && (
-        <Card>
-          <Notice>
-            Undo can remove an unchanged unused created copy/plan or revert an unchanged future edit. It cannot rewrite
-            completed training or erase later changes. The service will recheck the current record and history.
-          </Notice>
-          <Button
-            title="Undo this unused future change"
-            variant="destructive"
-            busy={busy}
-            onPress={() => {
-              void undo();
-            }}
-          />
-          <Button title="Keep the accepted change" secondary disabled={busy} onPress={() => setUndoConfirm(false)} />
-        </Card>
-      )}
-      {!!result && <Notice>{result}</Notice>}
-      {!!error && (
-        <>
-          <Notice error>{error}</Notice>
-          <Button title="Ask for a fresh review with current context" secondary onPress={() => router.push("/coach")} />
-        </>
-      )}
+      {!!s.error && <>
+        <Notice error>{s.error}</Notice>
+        <Button title="Ask Coach again" secondary inline onPress={() => router.canGoBack() ? router.back() : router.push("/coach")} />
+      </>}
       <ListGroup>
         <ListRow icon="calendar-outline" title="Open training plans" onPress={() => router.push("/(tabs)/plan")} />
-        <ListRow icon="albums-outline" title="Open private library" onPress={() => router.push("/(tabs)/library")} />
+        <ListRow icon="albums-outline" title="Open your library" onPress={() => router.push("/(tabs)/library")} />
       </ListGroup>
     </Screen>
   );
