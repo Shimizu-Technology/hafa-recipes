@@ -99,7 +99,7 @@ describe("generated Safari preprocessing", () => {
     expect(body).toContain("try await BabyShareImageBatch.process");
     expect(body).toContain("try await self.loadBabyImage(provider, directory: capture.directory)");
     expect(body).toContain("guard let producer = self.babyProducer");
-    expect(body).toContain("try storage.publish(encoded, capture: capture)");
+    expect(body).toContain("try self.publishBabyPayload(encoded)");
     expect(body).toContain("if !published { try? storage.abort(capture) }");
     expect(body).toContain("BabyShareImageNormalization.normalize(fileURL: url)");
     expect(body).toContain("BabyShareImageNormalization.normalize(bytes: bytes)");
@@ -145,7 +145,7 @@ describe("generated Safari preprocessing", () => {
     expect(entry).toContain("guard prepareBabyShare() else { return }");
     expect(entry.indexOf("guard prepareBabyShare()")).toBeLessThan(entry.indexOf("Task {"));
     expect(output.match(/storage.begin\(id: self.babyCaptureId\)/g)).toHaveLength(1);
-    expect(output).toContain("try producer.storage.publish(raw, capture: producer.capture)");
+    expect(output).toContain("try producer.storage.publish(payload, capture: producer.capture)");
     expect(output).not.toContain("publish(raw, id: self.babyCaptureId)");
     expect(output).not.toContain("publish(encoded, id: self.babyCaptureId)");
     // Retained SDK video, file and screenshot writes use the pre-await namespace;
@@ -163,6 +163,29 @@ describe("generated Safari preprocessing", () => {
     expect(() =>
       patchShareController(output.replace("publishBabyShare(self.sharedText)", "publishBabyShare([])"))
     ).toThrow("partial generation");
+  });
+  it("keeps link and caption together and confirms inside the originating app", () => {
+    const output = patchShareController(upstream);
+    expect(output).toContain("await self.handleBabyLinks(attachments)");
+    expect(output).toContain("try await provider.loadItem(forTypeIdentifier: textContentType)");
+    expect(output).toContain("BabySharePayload.merging(raw, caption: caption)");
+    expect(output).toContain("attributedContentText?.string");
+    expect(output).toContain('"Saved on this phone"');
+    expect(output).toContain('"Import started"');
+    expect(output).toContain('"Done"');
+    expect(output).toContain("BabyShareSession.enqueue(producer.capture.id");
+    expect(output).not.toContain("application.open(url)");
+    const confirmation = output.slice(output.indexOf("  private func redirectToHostApp("), output.indexOf("  enum RedirectType"));
+    expect(confirmation).not.toContain("extensionContext!.completeRequest");
+    expect(output).toContain('"com.shimizutechnology.hafababy.share.v1"');
+    expect(output).toContain('"auto_process_epoch": automaticEpoch');
+    expect(output).toContain("storage.bind(scope, automaticEpoch: automaticEpoch)");
+    expect(output).toContain("request.httpBody = try BabySharePayload.requestBody(capture)");
+    expect(output).toContain('"automatic_epoch": saved.automaticEpoch');
+    expect(output).toContain('"capture_id", "occurred_at", "url", "text", "automatic_epoch"');
+    expect(output).toContain("scope: original.scope");
+    expect(output).toContain("automaticEpoch: capture.automaticEpoch");
+    expect(output).not.toContain('"hfws_v1."');
   });
   it.skipIf(process.platform !== "darwin")(
     "executes the exact embedded Foundation decoder against valid and malformed native values",
@@ -216,6 +239,7 @@ describe("generated Safari preprocessing", () => {
           "swiftc",
           [
             fileURLToPath(new URL("../modules/hafa-baby-share/ios/BabyShareStore.swift", import.meta.url)),
+            fileURLToPath(new URL("../modules/hafa-baby-share/ios/BabySharePayload.swift", import.meta.url)),
             fileURLToPath(new URL("./__tests__/BabyShareStoreTests.swift", import.meta.url)),
             "-o",
             executable,

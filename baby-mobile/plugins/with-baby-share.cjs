@@ -1,4 +1,4 @@
-const { withBaseMod } = require("@expo/config-plugins");
+const { withBaseMod, withInfoPlist } = require("@expo/config-plugins");
 const fs = require("node:fs");
 const path = require("node:path");
 const plist = require("@expo/plist").default;
@@ -6,6 +6,9 @@ const { createHash } = require("node:crypto");
 const storeSource = fs
   .readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareStore.swift"), "utf8")
   .trim();
+const payloadSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabySharePayload.swift"), "utf8").trim();
+const sessionSource = fs.readFileSync(path.join(__dirname, "../modules/hafa-baby-share/ios/BabyShareSession.swift"), "utf8").trim();
+const keychain = "$(AppIdentifierPrefix)com.shimizutechnology.hafababy.share";
 const storeMarker = "// HAFA BABY SHARED STORE v1 SHA256 ";
 const helper = fs.readFileSync(path.join(__dirname, "BabySharePreprocessing.swift"), "utf8").trim();
 const helperStart = "// BEGIN HAFA BABY SAFARI DECODER v1";
@@ -322,7 +325,9 @@ function patchShareController(text) {
   }
   private func publishBabyPayload(_ raw: Any) throws {
     guard let producer = babyProducer else { throw BabyShareStore.Failure.stale }
-    try producer.storage.publish(raw, capture: producer.capture)
+    let caption = (self.extensionContext?.inputItems.first as? NSExtensionItem)?.attributedContentText?.string ?? ""
+    let payload = try BabySharePayload.merging(raw, caption: caption)
+    try producer.storage.publish(payload, capture: producer.capture)
   }
   private func babyShareStore() throws -> BabyShareStore {
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: self.hostAppGroupIdentifier),
@@ -341,12 +346,25 @@ function patchShareController(text) {
     }
   }
 `;
-  text = text.replace(receipt, receipt + methods);
+  const linkHandler = fs.readFileSync(path.join(__dirname, "BabyShareLinkHandler.swift"), "utf8");
+  text = text.replace(receipt, receipt + methods + "\n" + linkHandler);
   const entry = "  private func handleViewLoad() {\n";
   if (text.split(entry).length !== 2) throw Error("Håfa Baby producer entry changed; refusing unsafe generation.");
   text = text.replace(entry, entry + "    guard prepareBabyShare() else { return }\n");
   text = patchNonImageStaging(text);
-  text = text.trimEnd() + "\n\n" + storeSource + "\n";
+  const linkEntry = `      if attachments.allSatisfy({ $0.hasItemConformingToTypeIdentifier(self.urlContentType) ||
+        $0.hasItemConformingToTypeIdentifier(self.textContentType) }) {
+        await self.handleBabyLinks(attachments)
+        return
+      }
+`;
+  text = text.replace(imageBatchGuard, linkEntry + imageBatchGuard);
+  const redirectFirst = text.indexOf("  private func redirectToHostApp(type: RedirectType) {"),
+    redirectLast = text.indexOf("  enum RedirectType", redirectFirst);
+  if (redirectFirst < 0 || redirectLast < 0) throw Error("Baby share redirect changed; refusing host-app launch.");
+  const confirmation = fs.readFileSync(path.join(__dirname, "BabyCaptureConfirmation.swift"), "utf8");
+  text = text.slice(0, redirectFirst) + confirmation + "\n" + text.slice(redirectLast);
+  text = text.trimEnd() + "\n\n" + storeSource + "\n" + payloadSource + "\n" + sessionSource + "\n";
   return text + storeMarker + createHash("sha256").update(text).digest("hex") + "\n";
 }
 module.exports = (config) => {
@@ -355,7 +373,15 @@ module.exports = (config) => {
       extension.entitlements = {
         ...extension.entitlements,
         "com.apple.developer.default-data-protection": "NSFileProtectionComplete",
+        "keychain-access-groups": [keychain],
       };
+  config = withInfoPlist(config, (mod) => { mod.modResults.BabyShareKeychainGroup = keychain; return mod; });
+  config = withBaseMod(config, { platform: "ios", mod: "entitlements", isProvider: false, isIntrospective: true,
+    action: async (mod) => {
+      mod = await mod.modRequest.nextMod(mod);
+      mod.modResults["keychain-access-groups"] = [...new Set([...(mod.modResults["keychain-access-groups"] ?? []), keychain])];
+      return mod;
+    } });
   return withBaseMod(config, {
     platform: "ios",
     mod: "xcodeproj",
@@ -371,6 +397,11 @@ module.exports = (config) => {
       const entitlements = path.join(root, "ShareExtension", "ShareExtension.entitlements");
       const values = plist.parse(fs.readFileSync(entitlements, "utf8"));
       values["com.apple.developer.default-data-protection"] = "NSFileProtectionComplete";
+      values["keychain-access-groups"] = [keychain];
+      const info = path.join(root, "ShareExtension", "ShareExtension-Info.plist");
+      const infoValues = plist.parse(fs.readFileSync(info, "utf8"));
+      infoValues.BabyShareKeychainGroup = keychain;
+      fs.writeFileSync(info, plist.build(infoValues));
       fs.writeFileSync(entitlements, plist.build(values));
       return mod;
     },

@@ -4,6 +4,8 @@ export interface Profile {
   display_name: string;
   timezone: string;
   ai_consent: boolean;
+  auto_process_shares?: boolean;
+  auto_process_epoch?: number;
 }
 export interface Child {
   id: string;
@@ -52,6 +54,11 @@ export interface RecordData {
   topics?: string[];
   source_text?: string;
   summary?: string;
+  key_points?: string[];
+  steps?: string[];
+  creator?: string | null;
+  platform?: string | null;
+  thumbnail_url?: string | null;
   coverage_notes?: string[];
   evidence?: Evidence[];
   status?: string;
@@ -161,6 +168,8 @@ export type Mutation =
       id: string;
       generation: number;
       type: "import";
+      automatic?: boolean;
+      automatic_epoch?: number;
       url?: string;
       text?: string;
       record_id?: string;

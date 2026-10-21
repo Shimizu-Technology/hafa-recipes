@@ -25,21 +25,29 @@ final class BabyShareStore {
     let directory: URL
     fileprivate let epoch: UUID
     fileprivate let createdAt: Date
+    fileprivate let automaticEpoch: Int
     fileprivate var lease: AnyObject?
-    fileprivate init(id: String, directory: URL, epoch: UUID, createdAt: Date, lease: AnyObject) {
-      self.id = id; self.directory = directory; self.epoch = epoch; self.createdAt = createdAt; self.lease = lease
+    fileprivate init(id: String, directory: URL, epoch: UUID, createdAt: Date, automaticEpoch: Int, lease: AnyObject) {
+      self.id = id; self.directory = directory; self.epoch = epoch; self.createdAt = createdAt; self.automaticEpoch = automaticEpoch; self.lease = lease
     }
   }
   struct Snapshot {
     let token: String
     let raw: Any
+    let scope: String?
+    let occurredAt: Date
+    let automaticEpoch: Int
+    let receipt: [String: String]?
   }
   private struct Manifest: Codable {
     let id: String
-    let epoch: UUID
+    var epoch: UUID
     let createdAt: Date
     let text: Bool
     let payload: Data?
+    var scope: String? = nil
+    var sequence: Int? = nil
+    var automaticEpoch: Int? = nil
     var token: String? {
       payload.map { id + ":" + SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
     }
@@ -59,7 +67,7 @@ final class BabyShareStore {
     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
     #endif
   }
-  private func locked<T>(_ work: () throws -> T) throws -> T {
+  func locked<T>(_ work: () throws -> T) throws -> T {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try protect(root)
     let lock = try Lease(root.appendingPathComponent("store.lock"), exclusive: true)
@@ -84,20 +92,38 @@ final class BabyShareStore {
     if FileManager.default.fileExists(atPath: url.path) { return try read(UUID.self, url) }
     let value = UUID(); try write(value, to: url); return value
   }
+  func scope() -> String? { try? read(String.self, root.appendingPathComponent("scope.json")) }
+  func bind(_ value: String, automaticEpoch: Int = 0, install: () throws -> Void = {}) throws {
+    guard automaticEpoch >= 0 else { throw Failure.invalid }
+    try locked {
+      if let previous = scope(), previous != value { try clearLocked() }
+      try install()
+      try write(value, to: root.appendingPathComponent("scope.json"))
+      // The Keychain install and this non-sensitive sidecar share the store lock.
+      // Foundation-only producers freeze it before awaiting any provider work.
+      try write(automaticEpoch, to: root.appendingPathComponent("automatic-epoch.json"))
+    }
+  }
   private func currentID() -> String? { try? read(String.self, root.appendingPathComponent("current.json")) }
   private func manifest(_ id: String) throws -> Manifest {
     let value = try read(Manifest.self, directory(id).appendingPathComponent("manifest.json"))
     guard value.id == id else { throw Failure.invalid }; return value
   }
-  private func beginLocked(id: String) throws -> Capture {
+  private func nextSequence() throws -> Int {
+    let url = root.appendingPathComponent("sequence.json")
+    let next = ((try? read(Int.self, url)) ?? 0) + 1
+    try write(next, to: url); return next
+  }
+  private func beginLocked(id: String, automaticEpoch: Int? = nil, unassigned: Bool = false) throws -> Capture {
     let folder = try directory(id)
     guard !FileManager.default.fileExists(atPath: folder.path) else { throw Failure.invalid }
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try protect(folder)
     let lease = try Lease(folder.appendingPathComponent("lease.lock"), exclusive: false)
     let generation = try epoch(), date = now()
-    try write(Manifest(id: id, epoch: generation, createdAt: date, text: false, payload: nil), to: folder.appendingPathComponent("manifest.json"))
-    return Capture(id: id, directory: folder, epoch: generation, createdAt: date, lease: lease)
+    let automaticEpoch = automaticEpoch ?? (try? read(Int.self, root.appendingPathComponent("automatic-epoch.json"))) ?? 0
+    try write(Manifest(id: id, epoch: generation, createdAt: date, text: false, payload: nil, scope: unassigned ? nil : scope(), sequence: try nextSequence(), automaticEpoch: automaticEpoch), to: folder.appendingPathComponent("manifest.json"))
+    return Capture(id: id, directory: folder, epoch: generation, createdAt: date, automaticEpoch: automaticEpoch, lease: lease)
   }
   func begin(id: String = UUID().uuidString) throws -> Capture {
     try locked { try sweepLocked(); return try beginLocked(id: id) }
@@ -111,7 +137,8 @@ final class BabyShareStore {
   private func publishLocked(_ raw: Any, capture: Capture) throws {
     guard capture.epoch == (try epoch()), capture.lease != nil else { throw Failure.stale }
     let (payload, text) = try bytes(raw)
-    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload)
+    let original = try manifest(capture.id)
+    let value = Manifest(id: capture.id, epoch: capture.epoch, createdAt: capture.createdAt, text: text, payload: payload, scope: original.scope, sequence: original.sequence, automaticEpoch: capture.automaticEpoch)
     try write(value, to: capture.directory.appendingPathComponent("manifest.json"))
     try write(capture.id, to: root.appendingPathComponent("current.json"))
     // Keep the stock share-intent reader compatible. The native bridge uses the
@@ -140,24 +167,46 @@ final class BabyShareStore {
     if consumers[token] == nil {
       consumers[token] = try Lease(directory(value.id).appendingPathComponent("lease.lock"), exclusive: false)
     }
-    return Snapshot(token: token, raw: raw)
+    return Snapshot(token: token, raw: raw, scope: value.scope, occurredAt: value.createdAt, automaticEpoch: value.automaticEpoch ?? 0,
+      receipt: try? read([String: String].self, directory(value.id).appendingPathComponent("receipt.json")))
+  }
+  func published(_ id: String) throws -> Snapshot? {
+    try locked {
+      let value = try manifest(id)
+      guard value.epoch == (try epoch()), value.scope == scope() else { return nil }
+      return try snapshot(value)
+    }
+  }
+  func release(_ token: String) throws { _ = try locked { consumers.removeValue(forKey: token) } }
+  func accept(_ token: String, receipt: [String: String]) throws -> Bool {
+    try locked {
+      guard let id = token.split(separator: ":").first.map(String.init),
+        let value = try? manifest(id), value.token == token,
+        value.epoch == (try epoch()), value.scope == scope() else { return false }
+      try write(receipt, to: directory(id).appendingPathComponent("receipt.json")); return true
+    }
   }
   func pending() throws -> Snapshot? {
     try locked {
       try sweepLocked()
-      if let id = currentID() {
-        let value = try manifest(id)
-        guard value.epoch == (try epoch()) else { throw Failure.stale }
-        return try snapshot(value)
-      }
+      // Every published manifest is a queue entry; current.json is compatibility
+      // metadata only. Never expire accepted originals before exact handoff.
+      let hadEpoch = FileManager.default.fileExists(atPath: root.appendingPathComponent("epoch.json").path)
+      let generation = try epoch(), currentScope = scope()
+      let folders = (try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)) ?? []
+      let published: [Manifest] = folders.compactMap { try? manifest($0.lastPathComponent) }
+      let values = published.filter { $0.payload != nil && $0.epoch == generation &&
+        (currentScope == nil || $0.scope == currentScope) }
+        .sorted { $0.createdAt == $1.createdAt ? ($0.sequence ?? 0) < ($1.sequence ?? 0) : $0.createdAt < $1.createdAt }
+      if let value = values.first { return try snapshot(value) }
       // Only an upgrade from the old store can migrate compatibility keys. Once
       // an epoch exists, stale cross-process defaults must not resurrect a clear.
-      guard !FileManager.default.fileExists(atPath: root.appendingPathComponent("epoch.json").path) else { return nil }
+      guard !hadEpoch else { return nil }
       defaults.synchronize()
       guard let raw = defaults.object(forKey: sharedKey) else { return nil }
-      let capture = try beginLocked(id: UUID().uuidString)
+      let capture = try beginLocked(id: UUID().uuidString, automaticEpoch: 0, unassigned: true)
       try publishLocked(raw, capture: capture)
-      return try snapshot(manifest(capture.id))
+      return scope() == nil ? try snapshot(manifest(capture.id)) : nil
     }
   }
   func ownedFile(_ path: String) -> URL? {
@@ -168,7 +217,7 @@ final class BabyShareStore {
     if parent == container || parent == container.appendingPathComponent("thumbnail") { return file }
     if parent.deletingLastPathComponent() == captures,
       UUID(uuidString: parent.lastPathComponent) != nil,
-      !["manifest.json", "lease.lock"].contains(file.lastPathComponent) { return file }
+      !["manifest.json", "lease.lock", "receipt.json"].contains(file.lastPathComponent) { return file }
     return nil
   }
   private func removeLegacyFiles(_ value: Manifest) throws {
@@ -202,29 +251,49 @@ final class BabyShareStore {
   }
   // Explicit privacy cleanup invalidates even an extension that is still loading.
   // The lock/epoch files contain no captured content and must retain their inode.
-  func clear() throws {
-    try locked {
-      try write(UUID(), to: root.appendingPathComponent("epoch.json"))
+  func clear(preserveUnassigned: Bool = false, retire: () throws -> Void = {}) throws {
+    try locked { try retire(); try clearLocked(preserveUnassigned: preserveUnassigned) }
+  }
+  private func clearLocked(preserveUnassigned: Bool = false) throws {
+      // Preserve pre-manifest originals on the initial signed-out upgrade too.
+      if preserveUnassigned, !FileManager.default.fileExists(atPath: root.appendingPathComponent("epoch.json").path),
+        let raw = defaults.object(forKey: sharedKey) {
+        let capture = try beginLocked(id: UUID().uuidString, automaticEpoch: 0, unassigned: true)
+        try publishLocked(raw, capture: capture)
+      }
+      let generation = UUID()
+      try write(generation, to: root.appendingPathComponent("epoch.json"))
       consumers.removeAll()
       if let folders = try? FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil) {
         for folder in folders {
-          if let value = try? manifest(folder.lastPathComponent) { try removeLegacyFiles(value) }
+          if var value = try? manifest(folder.lastPathComponent) {
+            if preserveUnassigned, value.scope == nil, value.payload != nil {
+              // Retire all live producers while retaining quarantined originals.
+              value.epoch = generation
+              try write(value, to: folder.appendingPathComponent("manifest.json"))
+              continue
+            }
+            try removeLegacyFiles(value)
+          }
+          if preserveUnassigned { try FileManager.default.removeItem(at: folder) }
         }
       }
       if currentID() == nil, let raw = defaults.object(forKey: sharedKey), let (payload, text) = try? bytes(raw) {
         try removeLegacyFiles(Manifest(id: UUID().uuidString, epoch: try epoch(), createdAt: now(), text: text, payload: payload))
       }
-      if FileManager.default.fileExists(atPath: captures.path) { try FileManager.default.removeItem(at: captures) }
+      if !preserveUnassigned, FileManager.default.fileExists(atPath: captures.path) { try FileManager.default.removeItem(at: captures) }
       let pointer = root.appendingPathComponent("current.json")
       if FileManager.default.fileExists(atPath: pointer.path) { try FileManager.default.removeItem(at: pointer) }
       defaults.removeObject(forKey: sharedKey); defaults.removeObject(forKey: receiptKey); defaults.synchronize()
-    }
+      try? FileManager.default.removeItem(at: root.appendingPathComponent("scope.json"))
+      try? FileManager.default.removeItem(at: root.appendingPathComponent("automatic-epoch.json"))
   }
   private func sweepLocked() throws {
     guard FileManager.default.fileExists(atPath: captures.path) else { return }
     let current = currentID()
     for folder in try FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: [.creationDateKey]) {
       guard UUID(uuidString: folder.lastPathComponent) != nil, folder.lastPathComponent != current else { continue }
+      if (try? manifest(folder.lastPathComponent).payload) != nil { continue }
       let created = (try? manifest(folder.lastPathComponent).createdAt) ?? (try? folder.resourceValues(forKeys: [.creationDateKey]).creationDate)
       guard let created, now().timeIntervalSince(created) >= Self.expiry,
         let lease = try? Lease(folder.appendingPathComponent("lease.lock"), exclusive: true, nonblocking: true)

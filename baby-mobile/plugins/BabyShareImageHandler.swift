@@ -16,7 +16,7 @@
         load: { provider in try await self.loadBabyImage(provider, directory: capture.directory) },
         publish: { images in
           let encoded = try JSONEncoder().encode(images)
-          try storage.publish(encoded, capture: capture)
+          try self.publishBabyPayload(encoded)
           published = true
           self.redirectToHostApp(type: .media)
         },
