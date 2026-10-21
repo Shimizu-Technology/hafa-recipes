@@ -1,10 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type PropsWithChildren } from "react";
 import { View } from "react-native";
-import { Button, Card, Choice, Copy, Field, Notice } from "./ui";
+import { Button, Card, Choice, Copy, Field } from "./ui";
 import { SavedSourceText } from "./workout-source";
-import { prescriptionLine } from "@/lib/discover";
+import { useTraining } from "@/lib/context";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
 import { blockSummary, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "@/lib/amrap-editor";
+import { defaultLoadUnit, distanceText, distanceUnit, typedDistance } from "@/lib/workout-units";
+const groupings = [["sequential", "One after another"], ["circuit", "Circuit"], ["superset", "Superset"], ["interval", "Intervals"]] as const;
+const conventions = [["total", "Total"], ["per_hand", "Per hand"], ["added", "Added"], ["assistance", "Assistance"]] as const;
+/** Lays out short fields or choices side by side, wrapping on narrow screens and large text. */
+function Columns({ children }: PropsWithChildren) {
+  return <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>{children}</View>;
+}
+function Column({ children }: PropsWithChildren) {
+  return <View style={{ flexBasis: 140, flexGrow: 1 }}>{children}</View>;
+}
+function Disclosure({ title, open, disabled, onPress }: { title: string; open: boolean; disabled?: boolean; onPress(): void }) {
+  return <Button title={title} variant="ghost" size="sm" inline icon={open ? "chevron-up" : "chevron-down"} disabled={disabled} onPress={onPress} />;
+}
+const hasText = (lines?: string[] | null) => !!lines?.some(line => line.trim());
 function invalidBlockSettings(block: AuthoredWorkout["blocks"][number]) {
   return !!executionError(block) || !block.label.trim() || block.label.length > 200 ||
     (block.rounds != null && (!Number.isInteger(block.rounds) || block.rounds < 1 || block.rounds > 100)) ||
@@ -14,6 +28,12 @@ function invalidExerciseDetails(e: ExercisePrescription) {
   return (e.load != null && (!Number.isFinite(e.load) || e.load < 0 || e.load > 2000 || !e.load_unit || !e.load_convention)) ||
     (e.rest_seconds != null && (!Number.isInteger(e.rest_seconds) || e.rest_seconds < 0 || e.rest_seconds > 7200)) ||
     (e.instructions?.length ?? 0) > 2000 || (e.notes?.length ?? 0) > 2000 || (e.tempo?.length ?? 0) > 100 || (e.effort?.length ?? 0) > 500;
+}
+function invalidWorkoutDetails(w: AuthoredWorkout) {
+  const lines = (list?: string[] | null) => list ?? [];
+  return lines(w.instructions).filter(line => line.trim()).length > 100 || lines(w.instructions).some(line => line.length > 4000) ||
+    lines(w.notes).filter(line => line.trim()).length > 100 || lines(w.notes).some(line => line.length > 4000) ||
+    (w.equipment_required?.length ?? 0) > 100 || lines(w.equipment_required).some(item => item.length > 4000);
 }
 function retainExpanded(current: string[], revealed: string[]) {
   const missing = revealed.filter(key => !current.includes(key));
@@ -30,6 +50,11 @@ export function WorkoutEditor({
   disabled?: boolean;
   context?: "create" | "edit";
 }) {
+  const { units } = useTraining();
+  const [showMore, setShowMore] = useState(() => hasText(value.instructions) || hasText(value.notes) ||
+    !!value.equipment_required?.length || !!value.source_context);
+  // Fields with a validation problem stay visible so they can be corrected.
+  const moreOpen = showMore || invalidWorkoutDetails(value);
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
@@ -73,13 +98,19 @@ export function WorkoutEditor({
       />
       <NumberField
         disabled={disabled}
-        label="Estimated duration · minutes"
+        label="Duration · minutes"
         value={value.estimated_minutes}
         onChange={(estimated_minutes) => update({ ...value, estimated_minutes })}
       />
+      {/* New Workout already says blanks are fine above the form. */}
+      {context === "edit" && <Copy kind="small" tone="muted">Fix what you need. Anything unknown can stay blank.</Copy>}
+      {/* Viewing hidden details is allowed even while a save is pending; the fields themselves stay disabled. */}
+      <Disclosure title={`${moreOpen ? "Hide" : "Show"} instructions, notes and equipment`} open={moreOpen}
+        onPress={() => setShowMore(!moreOpen)} />
+      {moreOpen && <>
       <Field
         disabled={disabled}
-        label="Workout instructions · included when sharing"
+        label="Instructions · shown when shared"
         multiline
         optional
         value={value.instructions?.join("\n") ?? ""}
@@ -93,7 +124,7 @@ export function WorkoutEditor({
           onPress={() => update({ ...value, instructions: value.notes, notes: [] })} />}
       <Field
         disabled={disabled}
-        label="Required equipment · comma separated"
+        label="Equipment · separate with commas"
         optional
         value={value.equipment_required?.join(", ") ?? ""}
         onChange={(text) =>
@@ -110,20 +141,16 @@ export function WorkoutEditor({
         <SavedSourceText context={value.source_context} />
         <Button title="Clear saved source text" variant="ghost" disabled={disabled}
           onPress={() => update({ ...value, source_context: null })} />
-        <Copy kind="small" tone="muted">Save changes to clear it from this version. Earlier versions keep their original text.</Copy>
+        <Copy kind="small" tone="muted">It's removed when you save. Earlier saves keep their original text.</Copy>
       </Card>}
-      <Notice>
-        {context === "create"
-          ? "Use the details you know. Sets, reps and other targets can stay blank. Open block settings for circuits, rounds or AMRAP."
-          : "Missing facts can remain blank. Changes below are your corrections; they are not newly discovered creator instructions."}
-      </Notice>
+      </>}
       {value.blocks.map((block, bi) => {
         const blockExpanded = expandedBlocks.includes(block.id) || invalidBlockSettings(block);
         return (
         <Card key={block.id}>
           <Copy kind="heading">{block.label || "Workout block"}</Copy>
           <Copy kind="small" tone="muted">{blockSummary(block)}</Copy>
-          <Button title={`${blockExpanded ? "Hide" : "Show"} block settings: ${block.label || "Workout block"}`} variant="ghost" disabled={disabled} onPress={() => toggle(block.id, expandedBlocks, setExpandedBlocks)} />
+          <Disclosure title={`${blockExpanded ? "Hide" : "Show"} block settings: ${block.label || "Workout block"}`} open={blockExpanded} disabled={disabled} onPress={() => toggle(block.id, expandedBlocks, setExpandedBlocks)} />
           {blockExpanded && <>
           <Field
             disabled={disabled}
@@ -133,30 +160,26 @@ export function WorkoutEditor({
               update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, label } : b)) })
             }
           />
-          {(["sequential", "circuit", "superset", "interval"] as const).map((grouping) => (
-            <Choice
-              disabled={disabled}
-              key={grouping}
-              label={grouping}
-              selected={block.grouping === grouping}
-              onPress={() =>
-                update(changeGrouping(value, bi, grouping))
-              }
-            />
-          ))}
-          {block.grouping === "circuit" && <>
-            <Choice label="Fixed rounds" selected={!block.execution} disabled={disabled}
-              onPress={() => update(changeExecution(value, bi, false))} />
-            <Choice label="AMRAP · repeat until the time cap" selected={block.execution?.mode === "amrap"} disabled={disabled}
-              onPress={() => update(changeExecution(value, bi, true))} />
-          </>}
+          <Copy kind="label">How it runs</Copy>
+          <Columns>
+            {groupings.map(([grouping, label]) => (
+              <Column key={grouping}><Choice disabled={disabled} label={label} selected={block.grouping === grouping}
+                onPress={() => update(changeGrouping(value, bi, grouping))} /></Column>
+            ))}
+          </Columns>
+          {block.grouping === "circuit" && <Columns>
+            <Column><Choice label="Set number of rounds" selected={!block.execution} disabled={disabled}
+              onPress={() => update(changeExecution(value, bi, false))} /></Column>
+            <Column><Choice label="As many rounds as possible" selected={block.execution?.mode === "amrap"} disabled={disabled}
+              onPress={() => update(changeExecution(value, bi, true))} /></Column>
+          </Columns>}
           {block.execution?.mode === "amrap" ? <>
             <TimeCapField seconds={block.execution.time_cap_seconds} disabled={disabled}
               onChange={(seconds) => update(changeTimeCap(value, bi, seconds))} />
             <Copy kind="small" tone="muted">This sets the timer; review written instructions if you change it.</Copy>
           </> : <NumberField
             disabled={disabled}
-            label="Rounds · separate from exercise sets"
+            label="Rounds"
             value={block.rounds}
             onChange={(rounds) =>
               update({ ...value, blocks: value.blocks.map((b, i) => (i === bi ? { ...b, rounds } : b)) })
@@ -171,102 +194,81 @@ export function WorkoutEditor({
             const range = e.reps_max != null && e.reps_max !== e.reps_min;
             return (
             <Card key={key} tone="sunken" compact>
-              <Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
               <Field
                 disabled={disabled}
                 label="Exercise name"
                 value={e.name}
                 onChange={(name) => exercise(bi, ei, { name })}
               />
-              <NumberField
-                disabled={disabled}
-                label="Sets"
-                value={e.sets}
-                onChange={(sets) => exercise(bi, ei, { sets })}
-              />
-              <NumberField
-                disabled={disabled}
-                label={range ? "Minimum reps" : "Reps"}
-                value={e.reps_min}
-                onChange={(reps_min) => exercise(bi, ei, { reps_min, ...(!range && e.reps_max != null ? { reps_max: reps_min } : {}) })}
-              />
-              {(range || expanded) && <NumberField
-                disabled={disabled}
-                label="Maximum reps"
-                value={e.reps_max}
-                onChange={(reps_max) => exercise(bi, ei, { reps_max })}
-              />}
-              {(e.duration_seconds != null || expanded) && <NumberField
-                disabled={disabled}
-                label="Time · seconds"
-                value={e.duration_seconds}
-                onChange={(duration_seconds) => exercise(bi, ei, { duration_seconds })}
-              />}
-              {(e.distance_meters != null || expanded) && <NumberField
-                disabled={disabled}
-                label="Distance · metres"
-                value={e.distance_meters}
-                onChange={(distance_meters) => exercise(bi, ei, { distance_meters })}
-              />}
-              <Button title={`${expanded ? "Hide" : "More"} details for ${e.name || "exercise"}`} variant="ghost" disabled={disabled} onPress={() => toggle(key, expandedExercises, setExpandedExercises)} />
+              <Columns>
+                <Column><NumberField disabled={disabled} label="Sets" value={e.sets} onChange={(sets) => exercise(bi, ei, { sets })} /></Column>
+                <Column><NumberField
+                  disabled={disabled}
+                  label={range ? "Minimum reps" : "Reps"}
+                  value={e.reps_min}
+                  onChange={(reps_min) => exercise(bi, ei, { reps_min, ...(!range && e.reps_max != null ? { reps_max: reps_min } : {}) })}
+                /></Column>
+                {(range || expanded) && <Column><NumberField disabled={disabled} label="Maximum reps" value={e.reps_max}
+                  onChange={(reps_max) => exercise(bi, ei, { reps_max })} /></Column>}
+              </Columns>
+              {(e.duration_seconds != null || e.distance_meters != null || expanded) && <Columns>
+                {(e.duration_seconds != null || expanded) && <Column><NumberField disabled={disabled} label="Time · seconds"
+                  value={e.duration_seconds} onChange={(duration_seconds) => exercise(bi, ei, { duration_seconds })} /></Column>}
+                {(e.distance_meters != null || expanded) && <Column><NumberField disabled={disabled} label={`Distance · ${distanceUnit(units)}`}
+                  value={e.distance_meters} format={(meters) => distanceText(meters, units)} parse={(text) => typedDistance(text, units)}
+                  onChange={(distance_meters) => exercise(bi, ei, { distance_meters })} /></Column>}
+              </Columns>}
+              <Disclosure title={`${expanded ? "Hide" : "More"} details for ${e.name || "exercise"}`} open={expanded} disabled={disabled} onPress={() => toggle(key, expandedExercises, setExpandedExercises)} />
               {expanded && <>
-              <NumberField
-                disabled={disabled}
-                label="Rest · seconds"
-                value={e.rest_seconds}
-                onChange={(rest_seconds) => exercise(bi, ei, { rest_seconds })}
-              />
+              <Columns>
+                <Column><NumberField disabled={disabled} label="Rest · seconds" value={e.rest_seconds}
+                  onChange={(rest_seconds) => exercise(bi, ei, { rest_seconds })} /></Column>
+                <Column><Field disabled={disabled} label="Tempo" optional value={e.tempo ?? ""}
+                  onChange={(tempo) => exercise(bi, ei, { tempo: tempo || null })} /></Column>
+              </Columns>
               <Choice
                 disabled={disabled}
-                label="Prescription is per side"
+                label="Each side separately"
+                detail="For example, 10 reps per arm or leg"
                 selected={e.per_side === true}
                 onPress={() => exercise(bi, ei, { per_side: e.per_side === true ? false : true })}
               />
               <Field
                 disabled={disabled}
-                label="Tempo"
-                optional
-                value={e.tempo ?? ""}
-                onChange={(tempo) => exercise(bi, ei, { tempo: tempo || null })}
-              />
-              <Field
-                disabled={disabled}
-                label="Instructions or cues · included when sharing"
+                label="Cues · shown when shared"
                 optional
                 multiline
                 value={e.instructions ?? ""}
                 onChange={(instructions) => exercise(bi, ei, { instructions: instructions || null })}
               />
-              <Field disabled={disabled} label="Private exercise notes · only you" optional multiline
+              <Field disabled={disabled} label="Private notes · only you" optional multiline
                 value={e.notes ?? ""} onChange={notes => exercise(bi, ei, { notes: notes || null })} />
               {!!e.notes && !e.instructions && <Button title={`Move private notes to shared instructions for ${e.name || "exercise"}`}
                 variant="ghost" disabled={disabled} onPress={() => exercise(bi, ei, { instructions: e.notes, notes: null })} />}
               <NumberField
                 disabled={disabled}
-                label={`${context === "create" ? "Load" : "Source load"} · ${e.load_unit ?? "select a unit"}`}
+                label={`Weight · ${e.load_unit ?? "select a unit"}`}
                 value={e.load}
-                onChange={(load) => exercise(bi, ei, { load })}
+                onChange={(load) => exercise(bi, ei, {
+                  load,
+                  // A new weight starts in the person's units, counted as the total, so it can be saved straight away.
+                  ...(load != null && e.load == null ? { load_unit: e.load_unit ?? defaultLoadUnit(units), load_convention: e.load_convention ?? "total" } : {}),
+                })}
               />
               {e.load != null && (
                 <>
-                  {(["kg", "lb"] as const).map((load_unit) => (
-                    <Choice
-                      disabled={disabled}
-                      key={load_unit}
-                      label={load_unit}
-                      selected={e.load_unit === load_unit}
-                      onPress={() => exercise(bi, ei, { load_unit })}
-                    />
-                  ))}
-                  {(["total", "per_hand", "added", "assistance"] as const).map((load_convention) => (
-                    <Choice
-                      disabled={disabled}
-                      key={load_convention}
-                      label={load_convention.replaceAll("_", " ")}
-                      selected={e.load_convention === load_convention}
-                      onPress={() => exercise(bi, ei, { load_convention })}
-                    />
-                  ))}
+                  <Columns>
+                    {(["kg", "lb"] as const).map((load_unit) => (
+                      <Column key={load_unit}><Choice disabled={disabled} label={load_unit} selected={e.load_unit === load_unit}
+                        onPress={() => exercise(bi, ei, { load_unit })} /></Column>
+                    ))}
+                  </Columns>
+                  <Columns>
+                    {conventions.map(([load_convention, label]) => (
+                      <Column key={load_convention}><Choice disabled={disabled} label={label} selected={e.load_convention === load_convention}
+                        onPress={() => exercise(bi, ei, { load_convention })} /></Column>
+                    ))}
+                  </Columns>
                 </>
               )}
               </>}
@@ -274,7 +276,10 @@ export function WorkoutEditor({
                 <Button
                   disabled={disabled}
                   title={`Remove ${e.name || "exercise"}`}
-                  secondary
+                  variant="ghost"
+                  size="sm"
+                  inline
+                  icon="trash-outline"
                   onPress={() =>
                     update({
                       ...value,
@@ -291,6 +296,9 @@ export function WorkoutEditor({
             disabled={disabled || block.exercises.length >= 100}
             title="Add exercise to this block"
             secondary
+            size="sm"
+            inline
+            icon="add"
             onPress={() => {
               if (block.exercises.length >= 100) return;
               update({
@@ -309,7 +317,7 @@ export function WorkoutEditor({
               update({ ...value, blocks: value.blocks.filter((_, index) => index !== bi) });
               setRemovingBlock(null);
             }} />
-          </Card> : <Button title={`Remove block: ${block.label || "Workout block"}`} secondary disabled={disabled}
+          </Card> : <Button title={`Remove block: ${block.label || "Workout block"}`} variant="ghost" size="sm" inline icon="trash-outline" disabled={disabled}
             onPress={() => { if (!disabled) setRemovingBlock(block.id); }} />}
         </Card>
       ); })}
@@ -317,6 +325,7 @@ export function WorkoutEditor({
         disabled={disabled || value.blocks.length >= 100}
         title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
+        icon="add"
         onPress={() => {
           if (value.blocks.length >= 100) return;
           update({
@@ -356,25 +365,33 @@ function TimeCapField({ seconds, onChange, disabled }: {
       onChange={next => { if (!disabled) { setText(next); onChange(parseCap(next, units)); } }} />
   </>;
 }
+const plainNumber = (text: string) => text.trim() === "" ? null : Number(text);
 function NumberField({
   label,
   value,
   onChange,
-  disabled
+  disabled,
+  format = String,
+  parse = plainNumber,
 }: {
   disabled?: boolean;
   label: string;
   value?: number | null;
   onChange(value: number | null): void;
+  /** Stored value to display text, for fields shown in another unit. */
+  format?(value: number): string;
+  /** Display text to stored value; blank is null. */
+  parse?(text: string): number | null;
 }) {
-  const [text, setText] = useState(value == null ? "" : String(value));
+  const [text, setText] = useState(value == null ? "" : format(value));
   useEffect(() => {
     if (value == null) {
       if (text.trim() !== "") setText("");
       return;
     }
-    if (Number(text) !== value) setText(String(value));
-  }, [value]);
+    if (!Object.is(parse(text), value)) setText(format(value));
+    // The label names the unit, so a units change re-formats the text too.
+  }, [value, label]);
   return (
     <Field
       disabled={disabled}
@@ -385,7 +402,7 @@ function NumberField({
       onChange={(v) => {
         if (disabled) return;
         setText(v);
-        onChange(v.trim() === "" ? null : Number(v));
+        onChange(parse(v));
       }}
     />
   );

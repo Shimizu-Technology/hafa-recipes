@@ -64,7 +64,7 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
           errors.push(`${e.name}: reps, seconds and rest need whole numbers.`);
       if([e.reps_min,e.reps_max].some(v=>v!=null && (v<1||v>1000)))errors.push(`${e.name}: reps must be from 1 to 1000, or blank.`);
       if(e.duration_seconds!=null && (e.duration_seconds<1||e.duration_seconds>86400))errors.push(`${e.name}: timed targets must be from 1 to 86400 seconds, or blank.`);
-      if(e.distance_meters!=null && (!Number.isFinite(e.distance_meters)||e.distance_meters<=0||e.distance_meters>1000000))errors.push(`${e.name}: enter a positive distance in metres, or leave it blank.`);
+      if(e.distance_meters!=null && (!Number.isFinite(e.distance_meters)||e.distance_meters<=0||e.distance_meters>1000000))errors.push(`${e.name}: enter a distance above zero, or leave it blank.`);
       if(e.rest_seconds!=null && e.rest_seconds>7200)errors.push(`${e.name}: rest must be no more than 7200 seconds.`);
     }
   }
