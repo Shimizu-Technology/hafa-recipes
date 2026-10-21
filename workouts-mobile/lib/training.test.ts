@@ -355,6 +355,14 @@ describe("sync queue and local history size", () => {
 });
 
 
+function openSource(): Workout {
+  const workout = fixture();
+  workout.provenance = "source";
+  workout.blocks[0].grouping = "circuit";
+  workout.blocks[0].rounds = null;
+  workout.blocks[0].exercises.forEach((item) => { item.sets = null; });
+  return workout;
+}
 describe("source circuits with open-ended rounds", () => {
   it("keeps a 20-minute source flow out of the one-pass session default", async () => {
     const workout = fixture();
@@ -366,15 +374,94 @@ describe("source circuits with open-ended rounds", () => {
     const storage = memory();
     const store = createTrainingStore(storage, "source-qa", 1);
     await store.load();
-    expect(trackingPrescriptionWarning(workout)).toMatch(/edit the tracking prescription/);
+    expect(trackingPrescriptionWarning(workout)).toMatch(/no set or round counts/);
     await expect(store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "blocked"))
-      .rejects.toThrow(/fixed sets or rounds/);
+      .rejects.toThrow(/no set or round counts/);
     expect(store.snapshot().active).toBeNull();
     expect(workout.notes[0]).toContain("20 minutes");
     workout.blocks[0].rounds = 3; // Explicitly confirmed adaptation, not an extracted guess.
     expect(trackingPrescriptionWarning(workout)).toBeNull();
     await store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "confirmed");
     expect(store.snapshot().active?.steps).toHaveLength(9);
+  });
+  it("starts open-ended with one pass, then adds rounds and sets as you go without changing the workout", async () => {
+    const workout = openSource();
+    const before = JSON.stringify(workout);
+    const store = createTrainingStore(memory(), "open-qa", 1);
+    await store.load();
+    await store.start(workout, { workout_id: workout.id, workout_revision: workout.revision }, "open", 1000, { log_as_you_go: true });
+    let d = store.snapshot().active!;
+    expect(d.open_ended).toBe(true);
+    expect(d.timed_circuit).toBeUndefined();
+    expect(d.steps.map((x) => [x.exercise_index, x.round_index, x.side])).toEqual([[0, 1, "left"], [0, 1, "right"], [1, 1, null]]);
+    await store.log(next(store)); await store.log(next(store));
+    await store.addRound();
+    d = store.snapshot().active!;
+    expect(d.steps.map((x) => [x.exercise_index, x.round_index, x.side])).toEqual(
+      [[0, 1, "left"], [0, 1, "right"], [1, 1, null], [0, 2, "left"], [0, 2, "right"], [1, 2, null]]);
+    expect(new Set(d.steps.map((x) => x.key)).size).toBe(d.steps.length);
+    expect(d.cursor).toBe(2);
+    for (let i = 0; i < 4; i++) await store.log(next(store));
+    // At the end, another round repeats the last block's latest round, including added sets.
+    await store.addSet();
+    await store.log(next(store));
+    await store.addRound();
+    d = store.snapshot().active!;
+    expect(d.steps.slice(7).map((x) => [x.exercise_index, x.round_index, x.set_index])).toEqual(
+      [[0, 3, 1], [0, 3, 1], [1, 3, 1], [1, 3, 2]]);
+    await store.activityType("strength_training");
+    for (let i = 0; i < 4; i++) await store.log(next(store));
+    await store.finish("completed", 5000);
+    expect(store.snapshot().history[0].request.actuals).toHaveLength(11);
+    expect(store.snapshot().history[0].problem).toBeUndefined();
+    expect(JSON.stringify(workout)).toBe(before);
+  });
+  it("starts with chosen rounds for circuits and chosen sets for straight-set blocks", async () => {
+    const workout = openSource();
+    workout.blocks.push({ id: "finisher", label: "Finisher", grouping: "sequential",
+      exercises: [{ name: "Plank", duration_seconds: 30 }, { name: "Carry", sets: 2, distance_meters: 20 }] });
+    const store = createTrainingStore(memory(), "rounds-qa", 1);
+    await store.load();
+    await expect(store.start(workout, { workout_id: workout.id, workout_revision: 3 }, "bad", 1000, { rounds: 0 }))
+      .rejects.toThrow(/1 to 100 rounds/);
+    await store.start(workout, { workout_id: workout.id, workout_revision: 3 }, "rounds", 1000, { rounds: 3 });
+    const d = store.snapshot().active!;
+    expect(d.workout.blocks[0].rounds).toBe(3);
+    expect(d.workout.blocks[1].exercises.map((x) => x.sets)).toEqual([3, 2]);
+    expect(d.steps.filter((x) => x.block_id === "main")).toHaveLength(9);
+    expect(d.steps.filter((x) => x.block_id === "finisher").map((x) => x.exercise_index)).toEqual([0, 0, 0, 1, 1]);
+    expect(workout.blocks[0].rounds).toBeNull();
+    // A round added in the first block stays inside that block.
+    await store.addRound();
+    expect(store.snapshot().active!.steps.slice(9, 12).map((x) => [x.block_id, x.round_index])).toEqual(
+      [["main", 4], ["main", 4], ["main", 4]]);
+    await store.activityType("strength_training");
+    for (let i = 0; i < 12; i++) await store.log(next(store));
+    // Just finished the circuit and the finisher hasn't started: repeat the circuit, at the cursor.
+    await store.addRound();
+    let d2 = store.snapshot().active!;
+    expect(d2.cursor).toBe(12);
+    expect(d2.steps.slice(12, 15).map((x) => [x.block_id, x.round_index])).toEqual([["main", 5], ["main", 5], ["main", 5]]);
+    for (let i = 0; i < 4; i++) await store.log(next(store));
+    // Inside a straight-set block, another round is one more set of each exercise, not three.
+    await store.addRound();
+    d2 = store.snapshot().active!;
+    expect(d2.steps.slice(20).map((x) => [x.block_id, x.exercise_index, x.round_index, x.set_index])).toEqual(
+      [["finisher", 0, 2, 1], ["finisher", 1, 2, 1]]);
+    expect(new Set(d2.steps.map((x) => x.key)).size).toBe(d2.steps.length);
+  });
+  it("lets a multi-block timed workout start untimed only by explicit choice, and never adds rounds to a timed circuit", async () => {
+    const workout = amrap(2);
+    workout.blocks.push({ ...workout.blocks[0], id: "second" });
+    expect(trackingPrescriptionWarning(workout)).toMatch(/one AMRAP/);
+    const store = createTrainingStore(memory(), "multi-qa", 1);
+    await store.load();
+    await expect(store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "blocked")).rejects.toThrow(/one AMRAP/);
+    await store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "open", 1000, { log_as_you_go: true });
+    expect(store.snapshot().active!.timed_circuit).toBeUndefined();
+    await store.discard();
+    const timed = await timedStore();
+    await expect(timed.store.addRound()).rejects.toThrow(/time cap/);
   });
   it("allows a timed warmup followed by an explicitly counted manual circuit", async () => {
     const workout = fixture();

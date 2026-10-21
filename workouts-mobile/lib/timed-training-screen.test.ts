@@ -27,11 +27,12 @@ vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy"
   Chip: "Chip", ChipRow: "ChipRow", Empty: "Empty", Field: "Field", IconButton: "IconButton", ListRow: "ListRow",
   RestTimer: "RestTimer", Row: "Row", SectionHeader: "SectionHeader", Segmented: "Segmented", SetRow: "SetRow", Sheet: "Sheet", StatTile: "StatTile",
   formatClock: (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`,
-  haptics: { light() {}, success: fixture.success } }));
+  ListGroup: "ListGroup", Stack: "Stack", haptics: { light() {}, tick() {}, success: fixture.success } }));
 vi.mock("@/components/training/number-stepper", () => ({ NumberStepper: "NumberStepper" }));
 vi.mock("@/components/training/session-parts", () => ({ LastLogged: "LastLogged", RestDone: "RestDone", SetProgress: "SetProgress",
   announce: fixture.announce }));
 import Training from "../app/training";
+import { WorkoutStartSheet } from "../components/workout-start-sheet";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const workout: Workout = { id: "source", generation: 1, revision: 1, title: "Whole-source AMRAP", kind: "session", provenance: "source",
@@ -366,4 +367,45 @@ it("a partial finish saves only logged sets, never the untouched prefill, and a 
   await act(async () => { action("Finish and save partial session").props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().history[0].request).toMatchObject({ status: "partial", activity_type: "strength_training" });
   expect(fixture.store!.snapshot().history[0].request.actuals).toHaveLength(1);
+});
+
+const rows = (title: string) => renderer!.root.findAllByType("ListRow" as never).filter(node => node.props.title === title);
+it("offers another round only for open-ended sessions, both mid-session and at the end", async () => {
+  expect(rows("Add another round")).toHaveLength(0);
+  await act(async () => { await fixture.store!.discard(); }); await settle();
+  const open: Workout = { ...workout, id: "open", title: "Kettlebell E2MOM ladder", blocks: [{ id: "main", label: "Ladder", grouping: "circuit",
+    exercises: [{ name: "Swing", reps_min: 10 }, { name: "Goblet squat", reps_min: 5 }] }] };
+  await act(async () => { await fixture.store!.start(open, { workout_id: "open", workout_revision: 1 }, "open", Date.now(), { log_as_you_go: true }); }); await settle();
+  expect(rows("Add another round")).toHaveLength(1);
+  await act(async () => { rows("Add another round")[0].props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.steps.map(step => step.round_index)).toEqual([1, 1, 2, 2]);
+  for (const reps of ["10", "5", "10", "5"]) {
+    await act(async () => { field("Actual reps").props.onChange(reps); }); await settle();
+    await act(async () => { footer().props.onPress(); }); await settle();
+  }
+  await act(async () => { action("Add another round").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.steps).toHaveLength(6);
+  expect(fixture.store!.snapshot().active!.cursor).toBe(4);
+});
+
+it("the start sheet logs as you go, starts a bounded round count, or opens the editor", async () => {
+  const onStart = vi.fn(), onEdit = vi.fn();
+  await act(async () => renderer!.unmount());
+  await act(async () => { renderer = create(createElement(WorkoutStartSheet, { visible: true, busy: false, onClose() {}, onStart, onEdit })); });
+  const icon = (label: string) => renderer!.root.findAllByType("IconButton" as never).find(node => node.props.label === label)!;
+  await act(async () => rows("Log as I go")[0].props.onPress());
+  expect(onStart).toHaveBeenLastCalledWith({ log_as_you_go: true });
+  expect(action("Start 3 rounds")).toBeDefined();
+  for (let i = 0; i < 3; i++) await act(async () => icon("Fewer rounds").props.onPress());
+  expect(icon("Fewer rounds").props.disabled).toBe(true);
+  await act(async () => icon("More rounds").props.onPress());
+  await act(async () => action("Start 2 rounds").props.onPress());
+  expect(onStart).toHaveBeenLastCalledWith({ rounds: 2 });
+  await act(async () => rows("Edit workout")[0].props.onPress());
+  expect(onEdit).toHaveBeenCalledOnce();
+  expect(rows("Edit workout")[0].props.detail).toBe("Add sets and reps first");
+  await act(async () => renderer!.update(createElement(WorkoutStartSheet, { visible: true, busy: false, timedParts: true, onClose() {}, onStart, onEdit })));
+  expect(rows("Edit workout")[0].props.detail).toBe("Split the timed parts first");
+  expect(text()).toContain("more than one timed part");
+  await act(async () => renderer!.unmount()); renderer = undefined;
 });

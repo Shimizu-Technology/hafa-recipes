@@ -39,8 +39,12 @@ export interface SessionDraft {
   checkpoint_at: number;
   activity_type: string | null;
   timed_circuit?: { time_cap_seconds: number; round_size: number; limit_reached?: boolean };
+  /** Started without fixed set/round counts; the person adds rounds and sets as they go. */
+  open_ended?: boolean;
   undo: Array<{ actuals: ActualSet[]; cursor: number }>;
 }
+/** How to track a workout whose source gives no fixed set or round counts. */
+export type StartChoice = { log_as_you_go: true } | { rounds: number };
 export interface RecoveryOrigin { request: SessionRequest; workout: Workout; previous?: RecoveryOrigin }
 export interface SavedLocalSession {
   cell_identity_version?: 2;
@@ -103,8 +107,24 @@ export function trackingPrescriptionWarning(workout: Workout): string | null {
   return workout.blocks.some(block =>
     (sourceSession || workout.estimated_minutes != null && block.grouping === "circuit") &&
     block.exercises.some(item => item.sets == null && block.rounds == null))
-    ? "This source does not specify fixed sets or rounds. Its instructions are saved; edit the tracking prescription before starting or adding it to a plan."
+    ? "This workout has no set or round counts. Choose rounds or log as you go when you start, or edit the workout to add them."
     : null;
+}
+/** Applies a chosen round count to every block that lacks counts. The original workout is never changed. */
+export function withChosenRounds(workout: Workout, rounds: number): Workout {
+  if (!Number.isInteger(rounds) || rounds < 1 || rounds > 100) throw Error("Choose from 1 to 100 rounds.");
+  const result = clone(workout);
+  for (const block of result.blocks) {
+    if (block.rounds != null || !block.exercises.some((item) => item.sets == null)) continue;
+    if (block.grouping === "sequential") {
+      // Straight sets: "3 rounds" means three sets of each exercise that has no count.
+      for (const item of block.exercises) if (item.sets == null) item.sets = rounds;
+    } else {
+      block.rounds = rounds;
+      delete block.execution;
+    }
+  }
+  return result;
 }
 export function stepsFor(workout: Workout): TrainingStep[] {
   const steps: TrainingStep[] = [];
@@ -361,15 +381,18 @@ export function createTrainingStore(
       loaded = true;
       listeners.forEach((fn) => fn());
     },
-    start(workout: Workout, source: SessionSource, id: string, now = clock()) {
+    /** `choice` lets a workout without fixed counts start open-ended or with chosen rounds. */
+    start(workout: Workout, source: SessionSource, id: string, now = clock(), choice?: StartChoice) {
       return update((s) => {
         if (s.active) throw Error("Finish or discard your current session before starting another.");
         if (workout.generation !== generation)
           throw Error("This workout belongs to an older account generation. Reload your library.");
         const warning = trackingPrescriptionWarning(workout);
-        if (warning) throw Error(warning);
+        if (warning && !choice) throw Error(warning);
+        if (choice && workout.kind === "program") throw Error("Start a plan session instead of the whole program.");
+        if (choice && "rounds" in choice) workout = withChosenRounds(workout, choice.rounds);
         const steps = stepsFor(workout);
-        const execution = timedCircuit(workout);
+        const execution = choice ? null : timedCircuit(workout);
         if (!steps.length) throw Error("Add at least one exercise before training.");
         s.active = {
           id,
@@ -394,6 +417,7 @@ export function createTrainingStore(
           ...(execution ? { timed_circuit: {
             time_cap_seconds: execution.time_cap_seconds, round_size: steps.length,
           } } : {}),
+          ...(choice ? { open_ended: true } : {}),
         };
         return s;
       });
@@ -548,6 +572,37 @@ export function createTrainingStore(
           d.steps[insertion].exercise_index === previous.exercise_index &&
           d.steps[insertion].round_index === previous.round_index)
           insertion++;
+        d.steps.splice(insertion, 0, ...added);
+        return s;
+      });
+    },
+    /**
+     * Repeats a block's latest round once more, right after that block. At a block boundary
+     * it repeats the block just finished, not the one not yet started. Straight-set blocks
+     * repeat one set of each exercise.
+     */
+    addRound() {
+      return update((s) => {
+        const d = s.active;
+        if (!d) throw Error("No session is active.");
+        const warning = draftStructureWarning(d);
+        if (warning) throw Error(warning);
+        if (d.timed_circuit) throw Error("This timed circuit already repeats rounds until the time cap.");
+        const boundary = d.cursor > 0 && d.cursor < d.steps.length && d.steps[d.cursor - 1].block_id !== d.steps[d.cursor].block_id;
+        const current = d.steps[boundary ? d.cursor - 1 : Math.min(d.cursor, d.steps.length - 1)];
+        if (!current) throw Error("Choose an exercise first.");
+        const block = d.steps.filter((x) => x.block_id === current.block_id);
+        const latest = Math.max(...block.map((x) => x.round_index));
+        const round = latest + 1;
+        const template = block.filter((x) => x.round_index === latest && (x.grouping !== "sequential" || x.set_index === 1));
+        if (round > 100 || d.steps.length + template.length > 1000) throw Error("This session has reached its round limit.");
+        const added = template.map((first): TrainingStep => {
+          const step = { ...clone(first), round_index: round };
+          return { ...step, key: actualIdentity(step) };
+        });
+        // The cursor is inside or just past this block, so the new round never lands before it.
+        let insertion = d.steps.length;
+        while (insertion > 0 && d.steps[insertion - 1].block_id !== current.block_id) insertion--;
         d.steps.splice(insertion, 0, ...added);
         return s;
       });

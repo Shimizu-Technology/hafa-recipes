@@ -16,6 +16,7 @@ import {
   Screen,
   SectionHeader,
   Sheet,
+  Stack,
   Row,
   useToast,
 } from "@/components/ui";
@@ -24,7 +25,8 @@ import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
-import { trackingPrescriptionWarning } from "@/lib/training";
+import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
+import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
 import { WorkoutSource, WorkoutSourceHeader } from "@/components/workout-source";
@@ -51,6 +53,7 @@ export default function WorkoutDetail() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -125,7 +128,7 @@ export default function WorkoutDetail() {
       setPublishing(false);
     }
   }
-  async function start() {
+  async function start(choice?: StartChoice) {
     if (!workout || !offline.store || action.current || !isCurrentAccount() || !workout.blocks.some(block => block.exercises.length)) return;
     action.current = "start";
     setBusy(true);
@@ -133,7 +136,9 @@ export default function WorkoutDetail() {
       await offline.store.start(
         workout,
         { workout_id: workout.id, workout_revision: workout.revision },
-        Crypto.randomUUID()
+        Crypto.randomUUID(),
+        undefined,
+        choice
       );
       if (mounted.current && isCurrentAccount()) router.push("/training");
     } catch (e) {
@@ -141,9 +146,12 @@ export default function WorkoutDetail() {
     } finally {
       action.current = null;
       setBusy(false);
+      setChoosing(false);
     }
   }
   const trackingWarning = workout ? trackingPrescriptionWarning(workout) : null;
+  // Several timed (AMRAP) parts need different words than missing set counts.
+  const timedParts = !!trackingWarning && !!workout?.blocks.some((block) => block.execution);
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
@@ -160,20 +168,25 @@ export default function WorkoutDetail() {
       title={workout?.title ?? "Your workout."}
       subtitle={meta}
       action={workout ? <IconButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} /> : undefined}
-      footer={startable ? (
+      footer={startable ? (<Stack gap={6}>
+        {!!trackingWarning && exercises > 0 && workout!.kind !== "program" && !offline.state.active &&
+          <Copy kind="small" tone="muted" align="center">{timedParts
+            ? "More than one timed part — you’ll choose how to track it."
+            : "No set counts yet — you’ll choose rounds or log as you go."}</Copy>}
         <Button
           title={offline.state.active ? "Resume current session" : "Start this workout"}
           icon="play"
           size="lg"
           busy={busy}
           // A program can't be started as one workout, but an active session can always be resumed from here.
-          disabled={!offline.ready || (!offline.state.active && (workout!.kind === "program" || exercises === 0 || !!trackingWarning))}
+          disabled={!offline.ready || (!offline.state.active && (workout!.kind === "program" || exercises === 0))}
           onPress={() => {
             if (offline.state.active) router.push("/training");
+            else if (trackingWarning) { setError(""); setChoosing(true); }
             else void start();
           }}
         />
-      ) : undefined}
+      </Stack>) : undefined}
     >
       {workout && <WorkoutSourceHeader source={workout} />}
       {workout && exercises === 0 && <Button
@@ -182,11 +195,6 @@ export default function WorkoutDetail() {
           pathname: workout.provenance === "source" || workout.source_url || workout.capture_kind ? "/recover-workout/[id]" : "/edit-workout/[id]",
           params: { id: workout.id },
         })} />}
-      {trackingWarning && exercises > 0 && <Card compact>
-        <Copy kind="subheading">Review before tracking</Copy>
-        <Copy kind="small">{trackingWarning}</Copy>
-        <Button title="Review tracking details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: workout!.id } })} />
-      </Card>}
       {workout && exercises === 0 && <Notice tone="warning">This source has no extracted exercises yet. Check the source and edit its details before training.</Notice>}
       {workout?.kind === "program" && (
         <Card tone="sunken" compact>
@@ -286,9 +294,12 @@ export default function WorkoutDetail() {
               {workout.kind === "session" && <ListRow
                 icon="calendar-outline"
                 title="Add to a plan"
-                disabled={exercises === 0 || !!trackingWarning}
-                detail="Choose your days and keep this workout selected"
-                onPress={() => router.push({ pathname: "/build-plan", params: { include: workout.id } })}
+                disabled={exercises === 0}
+                // Plans need set or round counts; send people straight to the fix instead of a dead row.
+                detail={timedParts ? "Split its timed parts first" : trackingWarning ? "Add set or round counts first" : "Choose your days and keep this workout selected"}
+                onPress={() => router.push(trackingWarning
+                  ? { pathname: "/edit-workout/[id]", params: { id: workout.id } }
+                  : { pathname: "/build-plan", params: { include: workout.id } })}
               />}
               <ListRow
                 icon="chatbubble-ellipses-outline"
@@ -352,6 +363,14 @@ export default function WorkoutDetail() {
           </>}
         </Sheet>
       )}
+      {workout && <WorkoutStartSheet
+        visible={choosing}
+        busy={busy}
+        timedParts={timedParts}
+        onClose={() => { if (!busy) setChoosing(false); }}
+        onStart={(choice) => void start(choice)}
+        onEdit={() => { setChoosing(false); router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } }); }}
+      />}
       {disclosure.sheet}
     </Screen>
   );

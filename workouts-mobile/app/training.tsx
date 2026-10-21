@@ -622,6 +622,8 @@ export default function Training() {
             title={timed ? (timed.limit_reached ? "Tracking limit reached" : "Time cap reached") : "You've reached the end"}
             description={timed ? "Review your recorded work, then explicitly save. Skipped work and tracking limits stay partial." : "Nice work. Review your recorded work below, then save the session. Skipped sets stay visible as partial training."}
           />
+          {d.open_ended && !timed && <Button title="Add another round" icon="add-circle-outline" secondary inline
+            disabled={busy || !!structureWarning} onPress={() => { void run(() => store.addRound()); }} />}
           {!timedComplete && <ActivityPicker value={activity} onChange={chooseActivity} />}
         </>
       )}
@@ -688,6 +690,16 @@ export default function Training() {
               onPress={() => {
                 setMore(false);
                 void run(() => store.addSet());
+              }}
+            />}
+            {!timed && d.open_ended && <ListRow
+              icon="repeat-outline"
+              title="Add another round"
+              detail="Repeats this part of the workout once more"
+              disabled={busy || !!structureWarning}
+              onPress={() => {
+                setMore(false);
+                void run(() => store.addRound());
               }}
             />}
           </>
