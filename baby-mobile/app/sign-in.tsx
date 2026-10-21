@@ -33,6 +33,8 @@ export default function SignIn() {
   const [code, setCode] = useState("");
   const [verification, setVerification] = useState<Verification | null>(null);
   const [adult, setAdult] = useState(false);
+  const [googleSignup, setGoogleSignup] = useState<string | null>(null);
+  const googleAccount = useRef<{ attempt: string; session: string; user: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -190,12 +192,20 @@ export default function SignIn() {
       setError("Sign-in is still loading. Try again in a moment.");
       return;
     }
-    if (mode === "signup" && !adult) {
+    if (strategy !== "oauth_google" && mode === "signup" && !adult) {
       setError("Confirm you are 18 or older first.");
       return;
     }
     await run(async () => {
-      if (mode === "signup") {
+      if (strategy === "oauth_google") {
+        const result = await socialSignIn(signIn, strategy);
+        if (result?.firstFactorVerification.status === "transferable") {
+          if (!result.id) throw Error("Google verification could not be confirmed.");
+          googleAccount.current = null;
+          setGoogleSignup(result.id);
+          if (mode !== "signup") setAdult(false);
+        } else if (result) await finish(result);
+      } else if (mode === "signup") {
         const result = await startSSOFlow({ strategy, redirectUrl: callbackUrl });
         if (result.createdSessionId && result.signUp?.createdSessionId === result.createdSessionId &&
           result.signUp.createdUserId && result.setActive)
@@ -212,6 +222,41 @@ export default function SignIn() {
       }
     });
   }
+  async function createGoogleAccount() {
+    if (!adult) { setError("Confirm you are 18 or older to create your account."); return; }
+    if (!signIn || !signUp || !signupLoaded) return;
+    await run(async () => {
+      const completed = googleAccount.current;
+      if (completed && completed.attempt === googleSignup && signUp.createdSessionId === completed.session &&
+        signUp.createdUserId === completed.user) {
+        await activateSignup(completed.session, completed.user);
+        return;
+      }
+      if (!googleSignup || signIn.id !== googleSignup || signIn.firstFactorVerification.status !== "transferable") {
+        setGoogleSignup(null);
+        throw Error("The Google verification expired.");
+      }
+      const result = await signUp.create({ transfer: true });
+      if (result.status === "complete" && result.createdSessionId && result.createdUserId) {
+        googleAccount.current = { attempt: googleSignup, session: result.createdSessionId, user: result.createdUserId };
+        await activateSignup(result.createdSessionId, result.createdUserId);
+      } else setError("Your account needs additional information. You can create it with email instead.");
+    });
+  }
+  if (googleSignup) return (
+    <Screen brand title="Create your Håfa account" subtitle="Google verified your account. One last step to get started.">
+      <Copy>{signIn?.identifier ? `Continue with ${signIn.identifier}.` : "Create one account for Håfa Baby, Recipes, and Workouts."}</Copy>
+      <Copy kind="small" tone="muted">Already use Håfa Recipes? Use the same Google account to keep your existing account.</Copy>
+      <Choice selected={adult} disabled={busy} onPress={() => setAdult(!adult)} label="I am 18 or older"
+        detail="Håfa Baby is an app for parents and adult caregivers." />
+      {!!error && <Notice error>{error}</Notice>}
+      <Button title="Create account and continue" onPress={() => void createGoogleAccount()} busy={busy}
+        disabled={!signupLoaded} />
+      <Button title="Use a different account" secondary disabled={busy} onPress={() => {
+        setGoogleSignup(null); googleAccount.current = null; setAdult(false); setError(""); setMode("signin");
+      }} />
+    </Screen>
+  );
   return (
     <Screen
       brand
@@ -261,7 +306,7 @@ export default function SignIn() {
             />
           )}
           <Button
-            title={`${mode === "signup" ? "Join" : "Sign in"} with Google`}
+            title="Continue with Google"
             secondary
             icon="logo-google"
             onPress={() => {

@@ -63,11 +63,20 @@ vi.mock("./reminders", () => ({
 }));
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
+import { ApiError } from "./api";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
   baby = useBaby();
   return null;
 }
+it("retries initial records loading quietly before starting routine sync", async () => {
+  mock.api.records.mockRejectedValueOnce(new ApiError("Temporary service failure", 503));
+  await mount();
+  expect(baby.error).toBe("");
+  await act(async () => { await vi.advanceTimersByTimeAsync(300); await settle(); });
+  expect(baby.error).toBe(""); expect(baby.state.bootstrap).toEqual(bootstrap);
+  expect(mock.api.records.mock.calls.filter(([filters]: any[]) => !filters.kind)).toHaveLength(2);
+});
 function row(id: string, enabled = true, revision = 1): BabyRecord {
   return {
     ...optimisticRecord({

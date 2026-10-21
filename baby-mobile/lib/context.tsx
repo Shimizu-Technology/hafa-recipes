@@ -6,6 +6,7 @@ import {
   trackRoutineIntents,
 } from "./routine-sync";
 import { importFinished } from "./import-status";
+import { openingAccount } from "./startup";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 import { AppState, Platform } from "react-native";
 import { useAuth, useClerk } from "@clerk/expo";
@@ -196,7 +197,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     setReady(true);
     return true;
   }
-  async function refresh() {
+  async function refresh(opening = false) {
     try {
       if (deleting.current) return;
       if (closing.current) {
@@ -239,6 +240,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       await restoreRoutines();
       setError("");
     } catch (e) {
+      if (opening) throw e;
       if (alive.current) setError(messageFor(e));
     }
   }
@@ -444,7 +446,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         }
         let identity: { id: string } | null = null;
         try {
-          identity = await api.identity();
+          identity = await openingAccount(() => api.identity(), () => !cancelled && current());
           await identityVault.write(identity);
         } catch (e) {
           if (e instanceof ApiError && !shouldRetry(e.status)) throw e;
@@ -464,7 +466,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           setState(saved);
         }
         setReady(true);
-        await funcs.current.refresh();
+        await openingAccount(() => funcs.current.refresh(true), () => !cancelled && current());
         await funcs.current.sync();
       } catch (e) {
         if (!cancelled) setError(messageFor(e));

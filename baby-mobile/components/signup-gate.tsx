@@ -1,24 +1,34 @@
 import { useEffect, useRef, useState, type PropsWithChildren } from "react";
-import { useAuth, useClerk } from "@clerk/expo";
+import { useAuth, useClerk, useSession } from "@clerk/expo";
 import { ApiError, createBabyApi } from "../lib/api";
 import { configuration } from "../lib/config";
 import { revokeShareSession } from "../lib/share-session-state";
 import { signupSetup } from "../lib/signup-setup";
+import { openingAccount } from "../lib/startup";
 import { Button, Loading, Notice, Screen } from "./ui";
 
 /** Keep private queries closed until this exact explicit signup is provisioned. */
 export function SignupGate({ children }: PropsWithChildren) {
-  const { sessionId, userId, getToken } = useAuth(), clerk = useClerk();
+  const { isLoaded, sessionId, userId, getToken } = useAuth(), clerk = useClerk();
+  const { isLoaded: sessionLoaded, session } = useSession();
+  const sessionReady = isLoaded && sessionLoaded && !!sessionId && !!userId &&
+    session?.id === sessionId && session.user.id === userId &&
+    clerk.session?.id === sessionId && clerk.session.user.id === userId;
   const [ready, setReady] = useState(configuration.clerkEnvironment !== "production"),
     [busy, setBusy] = useState(configuration.clerkEnvironment === "production"), [error, setError] = useState(""),
     [hasIntent, setHasIntent] = useState(false), [needsFinish, setNeedsFinish] = useState(false);
   const retry = useRef(async (_finish = false) => {}), leave = useRef(async () => {});
   useEffect(() => {
     if (configuration.clerkEnvironment !== "production") return;
+    if (!sessionReady) { setReady(false); setBusy(true); setError(""); return; }
     let active = true, working = false;
     const current = () => active && !!sessionId && !!userId &&
       clerk.session?.id === sessionId && clerk.session.user.id === userId;
-    const api = createBabyApi(configuration.apiBase, () => getToken(), current);
+    const api = createBabyApi(configuration.apiBase, async () => {
+      const token = await getToken();
+      if (!token) throw new ApiError("Your sign-in is still opening.", 0);
+      return token;
+    }, current);
     async function run(finish = false) {
       if (working) return;
       working = true; setBusy(true); setError("");
@@ -38,7 +48,8 @@ export function SignupGate({ children }: PropsWithChildren) {
           pending = true;
         }
         setNeedsFinish(false);
-        if (pending) await signupSetup.complete(sessionId, userId, api.onboard, current);
+        if (pending) await openingAccount(
+          () => signupSetup.complete(sessionId, userId, api.onboard, current), current);
         if (current()) setReady(true);
       } catch (failure) {
         if (active) setError(failure instanceof ApiError && failure.status === 409
@@ -67,8 +78,8 @@ export function SignupGate({ children }: PropsWithChildren) {
     };
     void run();
     return () => { active = false; };
-  }, [sessionId, userId]);
-  if (ready) return children;
+  }, [sessionId, userId, sessionReady]);
+  if (ready && (configuration.clerkEnvironment !== "production" || sessionReady)) return children;
   return <Screen title={needsFinish ? "Finish account setup" : "Getting your account ready"}>
     {busy && <Loading />}
     {!!error && <Notice error>{error}</Notice>}
