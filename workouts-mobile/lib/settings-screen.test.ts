@@ -6,8 +6,8 @@ const clerk = vi.hoisted(() => ({ signOut: vi.fn() }));
 const revoke = vi.hoisted(() => vi.fn(async () => undefined));
 const resume = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/native-share-session", () => ({ suspendNativeSharing: () => ({ clear: revoke(), resume }) }));
-vi.mock("@clerk/expo", () => ({ useClerk: () => clerk, useAuth: () => ({ userId: "subject", sessionId: "original-session" }),
-  useUser: () => ({ user: { firstName: "Leon", lastName: "Shimizu", primaryEmailAddress: { emailAddress: "leon@example.com" } } }) }));
+vi.mock("@clerk/expo", () => ({ useClerk: () => clerk, useAuth: () => ({ userId: "subject", sessionId: "original-session" }) }));
+vi.mock("@/components/account-identity", () => ({ useAccountIdentity: () => ({ initial: "L", name: "Leon Shimizu", email: "leon@example.com" }) }));
 type AlertButton = { text: string; style?: string; onPress?(): void };
 const alert = vi.hoisted(() => vi.fn());
 vi.mock("react-native", () => ({ Alert: { alert }, Text: "Text", View: "View" }));

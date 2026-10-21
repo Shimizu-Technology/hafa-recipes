@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import { Image } from "expo-image";
-import { useAuth, useClerk, useUser } from "@clerk/expo";
+import { useAuth, useClerk } from "@clerk/expo";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Copy, ListGroup, ListRow, Notice, Screen, SectionHeader, useColors } from "@/components/ui";
 import { radii, spacing, typography } from "@/constants/theme";
-import { accountIdentity } from "@/lib/account-identity";
+import { useAccountIdentity } from "@/components/account-identity";
 import { suspendNativeSharing } from "@/lib/native-share-session";
 import { useTraining } from "@/lib/context";
 import { configuration } from "@/lib/config";
@@ -18,8 +18,8 @@ const avatarSize = 56;
 /** Who is signed in: photo or initial, name, and email. */
 function IdentityCard() {
   const c = useColors();
-  const { user } = useUser();
-  const identity = accountIdentity(user);
+  const account = useAccountIdentity();
+  const identity = { ...account, name: account?.name || account?.email?.split("@")[0] || "Your account" };
   return (
     <View
       accessible
@@ -31,8 +31,8 @@ function IdentityCard() {
     >
       <View style={{ width: avatarSize, height: avatarSize, borderRadius: radii.full, backgroundColor: c.actionSoft,
         alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        {identity.photo ? (
-          <Image source={{ uri: identity.photo }} style={{ width: avatarSize, height: avatarSize }} accessibilityIgnoresInvertColors />
+        {identity.imageUrl ? (
+          <Image source={{ uri: identity.imageUrl }} style={{ width: avatarSize, height: avatarSize }} accessibilityIgnoresInvertColors />
         ) : identity.initial ? (
           <Text maxFontSizeMultiplier={1.2} style={[typography.heading, { color: c.onActionSoft }]}>{identity.initial}</Text>
         ) : (
