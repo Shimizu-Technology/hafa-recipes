@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
-import { Button, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
+import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen, Section } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
@@ -14,10 +14,12 @@ import { ImportUpdates } from "@/components/import-updates";
 import { Disclosure } from "@/components/disclosure";
 
 export default function Library() {
-  const b = useBaby(), toast = useToast();
+  const b = useBaby();
   const [q, setQ] = useState(""), [view, setView] = useState("inbox"), [collection, setCollection] = useState("");
   const [selecting, setSelecting] = useState(false), [selected, setSelected] = useState<string[]>([]);
   const [organizing, setOrganizing] = useState(false), [error, setError] = useState("");
+  const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
+  const [undoing, setUndoing] = useState(false), undoBusy = useRef(false);
   const history = useLibraryHistory({ kind: "source", childId: b.state.selectedChild, query: q,
     collectionId: collection || undefined, uncategorized: view === "inbox" });
   const categories = useLibraryHistory({ kind: "collection", childId: null, query: "" });
@@ -35,14 +37,20 @@ export default function Library() {
       await b.commit((s) => ({ ...s, records: replaceRecord(s.records, record) }));
       setOrganizing(false); setSelecting(false); setSelected([]);
       history.refresh(); categories.refresh();
-      toast(`Saved to ${record.title}.`, added.length ? { label: "Undo", onPress: async () => {
-        try {
-          const result = await changeCategory(b.api, record.id, added, b.state.bootstrap!.generation, "remove");
-          await b.commit((s) => ({ ...s, records: replaceRecord(s.records, result.record) }));
-          history.refresh(); categories.refresh(); toast("Category change undone.");
-        } catch (failure) { toast(messageFor(failure)); }
-      } } : undefined);
+      setLastChange({ record, added });
     } catch (failure) { setError(messageFor(failure)); }
+  }
+  async function undoCategory() {
+    if (!lastChange || undoBusy.current) return;
+    const change = lastChange;
+    undoBusy.current = true; setUndoing(true); setError("");
+    try {
+      const result = await changeCategory(b.api, change.record.id, change.added, b.state.bootstrap!.generation, "remove");
+      await b.commit((s) => ({ ...s, records: replaceRecord(s.records, result.record) }));
+      history.refresh(); categories.refresh();
+      setLastChange((current) => current === change ? null : current);
+    } catch (failure) { setError(messageFor(failure)); }
+    finally { undoBusy.current = false; setUndoing(false); }
   }
   const listingCategories = view === "categories" && !collection;
   return <Screen title="Saved" subtitle={category?.title || "The useful part, kept for later."}
@@ -57,6 +65,11 @@ export default function Library() {
     <Chips value={view} label="Saved posts" options={[
       { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" }, { label: "Categories", value: "categories" },
     ]} onChange={chooseView} />
+    {lastChange && <Card tone="soft">
+      <Copy>Saved to {lastChange.record.title}.</Copy>
+      {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
+      <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
+    </Card>}
     {!!error && <Notice error>{error}</Notice>}
     {listingCategories ? <>
       {categories.rows.map((r) => <Row key={r.id} title={r.title} detail={`${r.data.record_ids?.length ?? 0} saved posts`}
