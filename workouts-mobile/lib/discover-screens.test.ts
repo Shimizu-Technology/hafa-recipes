@@ -133,6 +133,7 @@ vi.mock("@/components/discover-card", () => ({
   SourceArtwork: "SourceArtwork",
   CreditLine: "CreditLine",
 }));
+vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: { children: unknown }) => children }));
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
@@ -988,6 +989,36 @@ it("puts the source video first and makes its play button actually open the vide
   expect(nodes("Copy").flatMap(n => n.children).join(" ")).toContain("Original by Coach Nani");
   await act(async () => hero.props.onPress());
   expect(Linking.openURL).toHaveBeenCalledWith("https://www.youtube.com/watch?v=abcdefghijk");
+});
+
+it("plays the source video in the app on a phone, without leaving for the original post", async () => {
+  const { Linking, Platform } = await import("react-native");
+  const os = Platform.OS;
+  Platform.OS = "ios";
+  try {
+    fixture.focus = true;
+    fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
+    fixture.workout.mockResolvedValue({ ...saved, source_url: "https://www.youtube.com/watch?v=abcdefghijk",
+      source_thumbnail_url: "https://example.test/thumb.jpg" });
+    await mount(WorkoutDetail);
+    const opened = vi.mocked(Linking.openURL).mock.calls.length;
+    const hero = nodes("Screen")[0].findAll((n) => String(n.type) === "Pressable")[0];
+    expect(hero.props.accessibilityLabel).toBe(`Play YouTube video for ${saved.title}`);
+    expect(hero.props.accessibilityHint).toBe("Loads the official YouTube player. Its privacy terms apply.");
+    expect(nodes("Copy").map(n => n.children.join("")).join(" ")).toContain("Playing loads the YouTube player; its privacy terms apply.");
+    expect(nodes("SourcePlayerModal")).toHaveLength(0);
+    await act(async () => hero.props.onPress());
+    expect(nodes("SourcePlayerModal")).toHaveLength(1);
+    expect(vi.mocked(Linking.openURL).mock.calls).toHaveLength(opened);
+    await act(async () => nodes("SourcePlayerModal")[0].props.onClose());
+    expect(nodes("SourcePlayerModal")).toHaveLength(0);
+    // Leaving the screen dismisses an open player.
+    await act(async () => hero.props.onPress());
+    await act(async () => { fixture.focus = false; renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(WorkoutDetail))); });
+    expect(nodes("SourcePlayerModal")).toHaveLength(0);
+  } finally {
+    Platform.OS = os;
+  }
 });
 
 it("keeps a failed deletion available for retry", async () => {
