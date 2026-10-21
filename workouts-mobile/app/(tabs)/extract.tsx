@@ -555,7 +555,7 @@ export default function Capture() {
           <>
             <Row gap={8} align="flex-end">
               <Grow>
-                <Field disabled={locked} label="Workout link" value={draft.source_url} placeholder="Paste a workout link" purpose="url"
+                <Field disabled={locked} label="Workout link" value={draft.source_url} placeholder="Paste a link" purpose="url"
                   onChange={(source_url) => { setPasteNote(""); update({ source_url }); }} />
               </Grow>
               <View>
