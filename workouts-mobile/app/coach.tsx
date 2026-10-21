@@ -1,4 +1,5 @@
-import { CoachVoiceControls } from "@/components/coach-voice-controls";
+import { CoachVoiceButton, CoachVoiceStatus } from "@/components/coach-voice-controls";
+import { CoachChatShell, CoachInput, CoachSnackbar, type Snack } from "@/components/coach-chat";
 import { useCoachVoice } from "@/lib/use-coach-voice";
 import { stopCoachReadAloud, useCoachReadAloud } from "@/lib/use-coach-read-aloud";
 import { CoachMessagePhoto, CoachPhotoControl, useCoachPhoto } from "@/components/coach-photo";
@@ -10,7 +11,7 @@ import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { Bubble, Button, Card, Chip, ChipRow, Copy, Field, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
+import { Bubble, Button, Card, Chip, ChipRow, Copy, IconButton, ListGroup, ListRow, Notice, Sheet } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
 import { coachActionNoun } from "@/lib/labels";
@@ -19,12 +20,19 @@ const COPY_ERROR = "Could not copy this reply. Try again or select the text to c
 const messageOrder = (a: CoachMessage, b: CoachMessage) =>
   Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id);
 export default function Coach() {
-  const params = useLocalSearchParams<{
-    workout_id?: string;
-    program_id?: string;
-    session_id?: string;
+  const raw = useLocalSearchParams<{
+    workout_id?: string; workoutId?: string;
+    program_id?: string; programId?: string;
+    session_id?: string; sessionId?: string;
     revision?: string;
   }>();
+  // Detail screens may link with camelCase (`/coach?workoutId=…`) or the original snake_case.
+  const params = Object.fromEntries(Object.entries({
+    workout_id: raw.workout_id ?? raw.workoutId,
+    program_id: raw.program_id ?? raw.programId,
+    session_id: raw.session_id ?? raw.sessionId,
+    revision: raw.revision,
+  }).filter(([, value]) => !!value)) as { workout_id?: string; program_id?: string; session_id?: string; revision?: string };
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const drafts = useMemo(() => createCoachDraftStore(storage), [storage]);
   const generation = enrollment?.generation ?? 0;
@@ -37,6 +45,12 @@ export default function Coach() {
     ...(params.revision ? { context_revision: Number(params.revision) } : {}),
   };
   const focusToken = JSON.stringify(focus);
+  const about = useQuery({
+    queryKey: [owner, "coach-about", params.workout_id, params.program_id, params.session_id, generation],
+    queryFn: async () => (params.workout_id ? await api.workout(params.workout_id)
+      : params.program_id ? await api.program(params.program_id) : await api.session(params.session_id!)).title,
+    enabled: !!enrollment?.enrolled && !!(params.workout_id || params.program_id || params.session_id),
+  });
   const focusKey = params.workout_id ?? params.program_id ?? params.session_id ?? "general";
   const [epoch, setEpoch] = useState("initial");
   const [focused, setFocused] = useState(false);
@@ -63,7 +77,9 @@ export default function Coach() {
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState<string | null>(null);
+  const [snack, setSnack] = useState<Snack | null>(null);
+  const [optionsOpen, setOptions] = useState(false);
+  const [replyMenu, setReplyMenu] = useState<string | null>(null);
   const [draftNotice, setDraftNotice] = useState("");
   const [reuse, setReuse] = useState<{ id: string; message: string } | null>(null);
   const scope = useMemo(() => ({ owner, generation, focusKey, focusToken, storage }), [owner, generation, focusKey, focusToken, storage]);
@@ -80,17 +96,12 @@ export default function Coach() {
   useLayoutEffect(() => { finishing.current = null; }, [scope, epoch]);
   useLayoutEffect(() => {
     liveScope.current = scope; loadedScope.current = null;
-    setCopied(null); setDraftNotice(""); setReuse(null); setError(""); setBusy(false);
+    setSnack(null); setOptions(false); setReplyMenu(null); setDraftNotice(""); setReuse(null); setError(""); setBusy(false);
     setClearConfirm(false); setClearedRequest(false); setShowCheckIn(false); setReadiness("unknown");
     sending.current?.controller.abort(); sending.current = null; setProvisional("");
     stoppingRef.current = null; finishing.current = null; setStopping(null); guard.current = false;
     return () => { if (liveScope.current === scope) { liveScope.current = null; sending.current?.controller.abort(); } };
   }, [scope]);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(null), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [showCheckIn, setShowCheckIn] = useState(false);
   const [readiness, setReadiness] = useState<"ready" | "limited" | "unknown">("unknown");
@@ -408,7 +419,7 @@ export default function Coach() {
       if (current() && stoppingRef.current === operation) { stoppingRef.current = null; setStopping(null); }
     }
   }
-  async function send() {
+  async function send(text = message) {
     if (guard.current || stoppingRef.current || !currentDelivery() || !loaded) return;
     if (pendingRef.current?.stop_requested) return; // A lost Stop acknowledgement must never resend.
     if (voice.preparing) return;
@@ -418,7 +429,7 @@ export default function Coach() {
       setError("Finish uploading or removing the photo before sending."); return;
     }
     const problems = coachFocusErrors(focus);
-    if (!pending && (!message.trim() || message.length > 4000)) problems.push("Write a message of 1–4000 characters.");
+    if (!pending && (!text.trim() || text.length > 4000)) problems.push("Write a message of 1–4000 characters.");
     if (!consent.data?.accepted) problems.push("Accept the separate AI sharing disclosure first.");
     if (problems.length) {
       setError(problems.join(" "));
@@ -434,7 +445,7 @@ export default function Coach() {
     try {
       const request = pending ?? {
         request_id: Crypto.randomUUID(),
-        message: message.trim(),
+        message: text.trim(),
         generation,
         focus,
         ...(photos.photo?.attachment_id ? { attachment_id: photos.photo.attachment_id } : {}),
@@ -501,7 +512,7 @@ export default function Coach() {
       setEpoch(nextEpoch);
       await cache.invalidateQueries({ queryKey: [owner, "coach-history"] });
       if (!current()) return;
-      setClearConfirm(false);
+      setClearConfirm(false); setOptions(false); setSnack(null);
     } catch (e) {
       if (currentConversation()) setError((e as Error).message);
     } finally {
@@ -509,13 +520,13 @@ export default function Coach() {
       if (current()) { guard.current = false; setBusy(false); }
     }
   }
-  async function copyReply(text: string, id: string) {
+  async function copyReply(text: string) {
     if (!currentConversation()) return;
     try {
       if ((await Clipboard.setStringAsync(text)) !== true) throw Error("Clipboard did not confirm copying");
-      if (currentConversation()) { setCopied(id); setError(value => value === COPY_ERROR ? "" : value); }
+      if (currentConversation()) { setSnack({ id: Date.now(), text: "Reply copied" }); setError(value => value === COPY_ERROR ? "" : value); }
     } catch {
-      if (currentConversation()) { setCopied(null); setError(COPY_ERROR); }
+      if (currentConversation()) { setSnack(null); setError(COPY_ERROR); }
     }
   }
   function useMessage(text: string) {
@@ -531,76 +542,133 @@ export default function Coach() {
     {readAloud.stopFailed && <Button title="Retry stopping speech" variant="ghost" size="sm" inline onPress={() => { void readAloud.retryStop().catch(() => undefined); }} />}
     {!!readAloud.messageId && Platform.OS === "ios" && <Copy kind="small" tone="muted">If you can’t hear speech, turn off silent mode.</Copy>}
   </>;
+  const unavailable = !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted;
+  const photoBlocked = !photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard ||
+    !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now());
+  const sendDisabled = !loaded || voice.preparing || !pending && photoBlocked || !!stopping || unavailable;
   const composer = (
       <View style={{ gap: 8, flexShrink: 1, minHeight: 0 }}>
         <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
         {speechFeedback}
-        {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" variant="ghost" size="sm" onPress={latest} />}
+        {awayFromLatest && (!!history.length || !!provisional) && <Button title="Jump to latest reply" icon="arrow-down" variant="ghost" size="sm" inline onPress={latest} />}
         {!!draftNotice && <Notice>{draftNotice}</Notice>}
         {!!error && <Notice error>{error}</Notice>}
-        {draftLoadError && <Button title="Retry restoring message draft" secondary onPress={() => { if (currentConversation()) { setError(""); setRestoreAttempt(value => value + 1); } }} />}
-        {pending ? (
+        {draftLoadError && <Button title="Retry restoring message draft" secondary size="sm" inline onPress={() => { if (currentConversation()) { setError(""); setRestoreAttempt(value => value + 1); } }} />}
+        {pending ? <>
           <Copy kind="small" numberOfLines={2} accessibilityLabel={`Your message: ${pending.message}`}>
             Your message: {pending.message}
           </Copy>
-        ) : <>
-        <Field
-          label="Message to your coach"
-          multiline
-          compact
-          disabled={!loaded || busy || !!pending}
-          value={message}
-          onChange={(value) => {
-            if (currentConversation() && loaded && !busy && !pending) { voice.cancel(); setMessage(value); setDraftNotice(""); setReuse(null); }
-          }}
-          placeholder="Help me fit strength and running around basketball this week."
-        />
-        <CoachVoiceControls voice={voice} disabled={!loaded || busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted} />
-        </>}
-        {!pending && <CoachPhotoControl state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />}
-        {pending && (
           <Copy kind="small" tone="muted">
             {pending.stop_requested ? "Stopping… This message won’t be resent. You can leave and come back."
               : busy ? "Sending your message…" : history.some(item => item.request_id === pending.request_id)
               ? "Preparing a reply. You can leave and return."
               : "Delivery unconfirmed. Retry uses this saved message."}
           </Copy>
-        )}
+        </> : <>
+          <CoachVoiceStatus voice={voice} />
+          <CoachPhotoControl slot="status" state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />
+        </>}
         </ScrollView>
-        <View style={{ gap: 8 }}>
-        {(!pending || !busy) && !pending?.stop_requested && <Button
-          title={pending ? history.some(item => item.request_id === pending.request_id) ? "Check for reply" : "Retry saved message" : "Send message"}
-          icon="send"
-          busy={busy}
-          size="sm"
-          disabled={!loaded || voice.preparing || !pending && (!photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard || !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now())) || !!stopping || !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted}
-          onPress={() => {
-            void send();
-          }}
-        />}
-        {pending && capabilities.data?.coach_cancellation && <Button
-          title={pending.stop_requested ? "Retry stopping reply" : "Stop reply"}
-          secondary busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
-          onPress={() => { void stopReply(pending.request_id); }} />}
-        </View>
+        {pending ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+          {!busy && !pending.stop_requested && <Button
+            title={history.some(item => item.request_id === pending.request_id) ? "Check for reply" : "Retry saved message"}
+            icon="refresh" size="sm" inline disabled={sendDisabled} onPress={() => { void send(); }} />}
+          {capabilities.data?.coach_cancellation && <Button
+            title={pending.stop_requested ? "Retry stopping reply" : "Stop reply"} icon="stop-circle-outline"
+            secondary size="sm" inline busy={stopping === pending.request_id} disabled={!loaded || !!stopping}
+            onPress={() => { void stopReply(pending.request_id); }} />}
+        </View> : <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 4 }}>
+          <CoachPhotoControl slot="button" state={photos} allowed={!!capabilities.data?.coach_images && !!consent.data?.accepted} disabled={busy || !loaded || voiceActive} />
+          <CoachInput
+            label="Message to your coach"
+            disabled={!loaded || busy}
+            value={message}
+            onChange={(value) => {
+              if (currentConversation() && loaded && !busy && !pending) { voice.cancel(); setMessage(value); setDraftNotice(""); setReuse(null); }
+            }}
+            placeholder={params.workout_id ? "Ask about this workout…" : params.program_id ? "Ask about this plan…" : params.session_id ? "Ask about this session…" : "Ask your coach…"}
+          />
+          <CoachVoiceButton voice={voice} disabled={!loaded || busy || !!stopping || photos.busy || photos.removing || unavailable} />
+          <IconButton icon="arrow-up" label="Send message" variant="primary"
+            disabled={sendDisabled || busy || !message.trim()} onPress={() => { void send(); }} />
+        </View>}
       </View>
   );
-  if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <Screen back title="Coach"><Copy>Loading your training preferences…</Copy>{speechFeedback}</Screen>;
-  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <Screen back title="Coach" subtitle="Set up your training preferences when you’re ready.">
+  const close = () => { setOptions(false); setClearConfirm(false); setShowCheckIn(false); };
+  const optionsSheet = <Sheet visible={optionsOpen} title={clearConfirm ? "Clear conversation?" : showCheckIn ? "How are you feeling today?" : "Coach"} onClose={close}>
+    {!!error && <Notice error>{error}</Notice>}
+    {clearConfirm ? <>
+      <Copy kind="small">Clears messages and pending suggestions. Changes you accepted stay saved. Some content-free usage records stay briefly.</Copy>
+      <Button title="Clear conversation and pending suggestions" variant="destructive" busy={busy}
+        disabled={photos.busy || photos.removing} onPress={() => { void clear(); }} />
+      <Button title="Keep conversation" secondary disabled={busy} onPress={() => { if (currentConversation()) setClearConfirm(false); }} />
+    </> : showCheckIn ? <>
+      <ChipRow wrap label="How are you feeling today?">
+        {(["ready", "limited", "unknown"] as const).map((value) => (
+          <Chip key={value} selected={readiness === value} disabled={busy}
+            label={value === "ready" ? "Ready to train" : value === "limited" ? "I need to take it easier" : "Not sure"}
+            onPress={() => { if (currentConversation()) setReadiness(value); }} />
+        ))}
+      </ChipRow>
+      <Button title="Save today’s check-in" busy={busy} onPress={() => { void saveCheckIn(); }} />
+      {checkIn.data?.confirmed_at && <Copy kind="small" tone="muted">
+        Last check-in {new Date(checkIn.data.confirmed_at).toLocaleString()}{checkIn.data.expires_at ? ` · good until ${new Date(checkIn.data.expires_at).toLocaleString()}` : ""}
+      </Copy>}
+    </> : <>
+      <ListGroup>
+        {enrollment?.enrolled && <ListRow icon="pulse-outline" title="Check in for today" trailing="none"
+          onPress={() => { if (currentConversation()) setShowCheckIn(true); }} />}
+        <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => {
+          // Let the options sheet finish closing; iOS can't present a screen from a view that is still presenting one.
+          close(); setTimeout(() => { if (currentConversation()) router.push("/ai-preferences"); }, 350);
+        }} />
+        <ListRow icon="trash-outline" title="Clear conversation" destructive trailing="none"
+          disabled={busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled}
+          onPress={() => { if (currentConversation()) setClearConfirm(true); }} />
+      </ListGroup>
+      <Copy kind="small" tone="muted">Coach uses your profile and recent training, not Health data. You approve any change before it’s saved. Voice input uses your device’s speech service; check the text before sending.</Copy>
+    </>}
+  </Sheet>;
+  const replyItem = history.find(item => item.id === replyMenu);
+  const replyOptions = <Sheet visible={!!replyItem?.assistant_message} title="Reply" onClose={() => setReplyMenu(null)}>
+    {replyItem?.assistant_message && <ListGroup>
+      <ListRow icon="copy-outline" title="Copy reply" trailing="none"
+        onPress={() => { setReplyMenu(null); void copyReply(replyItem.assistant_message!); }} />
+      {replyItem.state === "completed" && replyItem.generation === generation && <ListRow
+        icon={readAloud.messageId === replyItem.id ? "stop-circle-outline" : "volume-high-outline"}
+        title={readAloud.messageId === replyItem.id ? "Stop reading" : "Read aloud"} trailing="none"
+        disabled={busy || voiceActive || photos.busy || photos.removing || readAloud.busy && readAloud.messageId !== replyItem.id}
+        onPress={() => {
+          if (guard.current || voiceActive || photos.busy || photos.removing) return;
+          setReplyMenu(null);
+          if (readAloud.messageId === replyItem.id) void readAloud.stop().catch(() => undefined); else readAloud.read(replyItem);
+        }} />}
+    </ListGroup>}
+  </Sheet>;
+  const aboutLabel = focusKey === "general" ? "" : `About: ${about.data ?? (params.workout_id ? "this workout" : params.program_id ? "this plan" : "this session")}`;
+  const banner = !!aboutLabel && <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 16, paddingBottom: 4 }}>
+    <Chip label={aboutLabel} icon={params.workout_id ? "barbell-outline" : params.program_id ? "calendar-outline" : "time-outline"} />
+    <IconButton icon="close" label="Talk about anything instead" variant="plain" size={32} onPress={() => router.replace("/coach")} />
+  </View>;
+  const prompts = params.workout_id ? ["Make this easier", "Make it shorter", "Swap an exercise", "How should I warm up?"]
+    : params.program_id ? ["Move a session", "Make this week lighter", "Pause my plan", "How am I doing?"]
+    : ["Plan my week", "Make today easier", "Swap an exercise", "How am I progressing?"];
+  if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <CoachChatShell><Copy>Loading your training preferences…</Copy>{speechFeedback}</CoachChatShell>;
+  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <CoachChatShell>
     {speechFeedback}
-    <Copy>Add your goal, equipment and schedule so Coach can use your saved workouts.</Copy>
-    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
-  </Screen>;
+    <Copy kind="heading">Set up your training first</Copy>
+    <Copy tone="muted">Add your goal, equipment and schedule so Coach can use your saved workouts.</Copy>
+    <Button title={enrollment?.enrolled ? "Set up training" : "Join Workouts"} inline onPress={() => router.push({ pathname: enrollment?.enrolled ? "/profile" : "/onboarding", params: { return_to: "coach", ...params } })} />
+  </CoachChatShell>;
+  const empty = !q.isPending && !q.error && !history.length && !provisional && !pending;
   return (
-    <Screen
+    <CoachChatShell
       key="conversation"
-      back
-      title="Coach"
-      subtitle="Ask about your training. You approve any change first."
+      menu={() => { if (currentConversation()) setOptions(true); }}
+      banner={banner}
       footer={composer}
+      overlay={<CoachSnackbar snack={snack} onDone={id => setSnack(value => value?.id === id ? null : value)} />}
       scrollRef={scroll}
-      disableBrowserScrollAnchoring
-      constrainFooter
       onScroll={({ nativeEvent }) => {
         if (!currentConversation() || (!history.length && !provisional)) return;
         const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
@@ -617,39 +685,20 @@ export default function Coach() {
           scroll.current?.scrollToEnd({ animated: false });
       }}
     >
-      {(params.workout_id || params.program_id || params.session_id) && (
-        <Card tone="accent" compact>
-          <Copy>
-            {params.workout_id
-              ? "Talking about this workout"
-              : params.program_id
-                ? "Talking about this plan"
-                : "Talking about this session"}
-          </Copy>
-          <Button title="Start a general conversation instead" variant="ghost" size="sm" inline onPress={() => router.replace("/coach")} />
-        </Card>
-      )}
-      {!enrollment?.enrolled && <Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
+      {optionsSheet}
+      {replyOptions}
       {capabilities.data && !capabilities.data.coach && (
         <Notice>Coach isn’t available in this version. Everything else still works.</Notice>
       )}
       {(prerequisiteErrors.length > 0 || retryingCoach) && <>
         {prerequisiteErrors.length > 0 && <Notice error>{[...new Set([...prerequisiteErrors, ...(q.error ? [q.error.message] : [])])].join(" ")}</Notice>}
-        <Button title="Retry loading coach" secondary busy={retryingCoach} onPress={() => { void retryCoach(); }} />
+        <Button title="Retry loading coach" secondary inline busy={retryingCoach} onPress={() => { void retryCoach(); }} />
       </>}
-      {q.error && !prerequisiteErrors.length && !retryingCoach && (
-        <>
-          <Notice error>{q.error.message}</Notice>
-          <Button
-            title="Refresh saved conversation"
-            secondary
-            onPress={() => {
-              void q.refetch();
-            }}
-          />
-        </>
-      )}
-      {q.isPending && <Notice>Loading your saved conversation…</Notice>}
+      {q.error && !prerequisiteErrors.length && !retryingCoach && <>
+        <Notice error>{q.error.message}</Notice>
+        <Button title="Refresh saved conversation" secondary inline onPress={() => { void q.refetch(); }} />
+      </>}
+      {q.isPending && <Copy tone="muted" align="center">Loading your conversation…</Copy>}
       {clearedRequest && pending && (
         <Button
           title="Discard this cleared request and write a new message"
@@ -663,112 +712,45 @@ export default function Coach() {
           }}
         />
       )}
-      {enrollment?.enrolled && (
-        <ListGroup>
-          <ListRow
-            icon="pulse-outline"
-            title={showCheckIn ? "Hide today’s check-in" : "Check in for today"}
-            onPress={() => { if (currentConversation()) setShowCheckIn(!showCheckIn); }}
-            trailing="none"
-          />
-          <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => router.push("/ai-preferences")} />
-        </ListGroup>
-      )}
-      {!enrollment?.enrolled && (
-        <ListRow icon="shield-checkmark-outline" title="AI preferences" onPress={() => router.push("/ai-preferences")} />
-      )}
-      {enrollment?.enrolled && showCheckIn && (
-        <Card>
-          <Copy kind="heading">How are you feeling today?</Copy>
-          <ChipRow wrap label="How are you feeling today?">
-            {(["ready", "limited", "unknown"] as const).map((value) => (
-              <Chip
-                key={value}
-                label={
-                  value === "ready"
-                    ? "Ready for general training"
-                    : value === "limited"
-                      ? "I need to take it easier"
-                      : "Unsure / prefer not to say"
-                }
-                selected={readiness === value}
-                disabled={busy}
-                onPress={() => { if (currentConversation()) setReadiness(value); }}
-              />
-            ))}
-          </ChipRow>
-          <Button
-            title="Save today’s check-in"
-            busy={busy}
-            onPress={() => {
-              void saveCheckIn();
-            }}
-          />
-          {checkIn.data?.confirmed_at && (
-            <Copy kind="small" tone="muted">Last check-in · {new Date(checkIn.data.confirmed_at).toLocaleString()}</Copy>
-          )}
-          {checkIn.data?.expires_at && (
-            <Copy kind="small" tone="muted">Valid until · {new Date(checkIn.data.expires_at).toLocaleString()}</Copy>
-          )}
-          <Copy kind="small" tone="muted">Check-ins expire, so check in again when things change.</Copy>
-        </Card>
-      )}
-        <Copy kind="small" tone="muted">Coach uses your profile and recent training, not Health data.</Copy>
-      <Button
-        title="Clear saved coach conversation"
-        variant="ghost"
-        icon="trash-outline"
-        disabled={busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled}
-        onPress={() => { if (currentConversation()) setClearConfirm(true); }}
-      />
-      {clearConfirm && (
-        <Card tone="sunken">
-          <Copy kind="small">Clears messages and pending suggestions. Changes you accepted stay saved. Some content-free usage records stay briefly.</Copy>
-          <Button
-            title="Clear conversation and pending suggestions"
-            variant="destructive"
-            busy={busy}
-            disabled={photos.busy || photos.removing}
-            onPress={() => {
-              void clear();
-            }}
-          />
-          <Button title="Keep conversation" secondary disabled={busy} onPress={() => { if (currentConversation()) setClearConfirm(false); }} />
-        </Card>
-      )}
+      {empty && <View style={{ flexGrow: 1, justifyContent: "center", gap: 12, paddingVertical: 24 }}>
+        <Copy kind="heading" align="center">{focusKey === "general" ? "What can I help with?" : "What would you like to change?"}</Copy>
+        <Copy kind="small" tone="muted" align="center">Coach uses your profile and recent training. You approve any change first.</Copy>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingTop: 4 }}>
+          {prompts.map(prompt => <Button key={prompt} title={prompt} secondary size="sm" inline
+            disabled={sendDisabled || busy || !!message.trim()} onPress={() => { void send(prompt); }} />)}
+        </View>
+      </View>}
       {q.hasNextPage && (
         <Button
           title="Load earlier messages"
           variant="ghost"
+          size="sm"
           busy={q.isFetchingNextPage}
           onPress={() => {
             void loadEarlier();
           }}
         />
       )}
-
-      {!!history.length && <SectionHeader title="Conversation" />}
       {history.map((item) => (
         <View key={item.id} collapsable={false} ref={node => { if (node) messageViews.current.set(item.id, node); else messageViews.current.delete(item.id); }} onLayout={event => messageLayout(item.id, event.nativeEvent.layout.y)} style={{ gap: 10 }}>
-          <Bubble from="you" meta={`${new Date(item.created_at).toLocaleString()} · ${item.cancelled ? "Stopped" : item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : "Sent"}`}>
+          <Bubble from="you" meta={item.cancelled ? "Stopped" : item.state === "pending" ? "Awaiting reply" : item.state === "failed" ? "Reply unavailable" : undefined}>
             <Copy selectable>{item.user_message}</Copy>
             {item.attachment_id && <CoachMessagePhoto id={item.attachment_id} generation={item.generation} expires={item.attachment_expires_at} />}
           </Bubble>
-          {!!item.assistant_message && (
+          {!!item.assistant_message && <View style={{ gap: 2 }}>
             <Bubble from="coach">
               <CoachReply text={item.assistant_message} scopeToken={replyScope} isCurrent={() => current() && routeActive.current && AppState.currentState === "active"} />
-              <Button title={copied === item.id ? "Reply copied" : "Copy reply"} icon={copied === item.id ? "checkmark" : "copy-outline"} variant="ghost" size="sm" inline onPress={() => { void copyReply(item.assistant_message!, item.id); }} />
-              {item.state === "completed" && item.generation === generation && <Button
-                title={readAloud.messageId === item.id ? "Stop reading" : "Read aloud"}
-                icon={readAloud.messageId === item.id ? "stop-circle-outline" : "volume-high-outline"} variant="ghost" size="sm" inline
-                disabled={busy || voiceActive || photos.busy || photos.removing || readAloud.busy && readAloud.messageId !== item.id}
-                onPress={() => { if (guard.current || voiceActive || photos.busy || photos.removing) return; if (readAloud.messageId === item.id) void readAloud.stop().catch(() => undefined); else readAloud.read(item); }} />}
             </Bubble>
-          )}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <IconButton icon="ellipsis-horizontal" label="Reply options" variant="plain" size={32} onPress={() => { if (currentConversation()) setReplyMenu(item.id); }} />
+              {readAloud.messageId === item.id && <Button title="Stop reading" icon="stop-circle-outline" variant="ghost" size="sm" inline
+                onPress={() => { void readAloud.stop().catch(() => undefined); }} />}
+            </View>
+          </View>}
           {item.state === "pending" && <>
-            <Notice>Still processing. You can leave and return; this request will not be resent as a new message.</Notice>
+            {!item.assistant_message && <Bubble from="coach"><Copy tone="muted">Thinking… You can leave and come back; this message won’t be sent twice.</Copy></Bubble>}
             {capabilities.data?.coach_cancellation && item.request_id !== pending?.request_id && <Button
-              title="Stop this reply" secondary busy={stopping === item.request_id} disabled={!loaded || !!stopping}
+              title="Stop this reply" secondary size="sm" inline busy={stopping === item.request_id} disabled={!loaded || !!stopping}
               onPress={() => { void stopReply(item.request_id); }} />}
           </>}
           {item.state === "failed" && <>
@@ -805,6 +787,6 @@ export default function Coach() {
         </View>
       ))}
       {!!provisional && <Bubble from="coach" meta="Reply in progress · not saved yet"><Copy>{provisional}</Copy></Bubble>}
-    </Screen>
+    </CoachChatShell>
   );
 }
