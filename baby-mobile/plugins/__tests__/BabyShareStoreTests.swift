@@ -66,9 +66,11 @@ struct BabyShareStoreTests {
       defaults.set(a, forKey: "babyCaptureId")
       try check(try store.pending()!.token == old.token, "legacy keys cannot relabel current payload")
       try store.publish(["second payload"], id: b)
+      try check(try store.pending()!.token == old.token, "queue returns oldest until acknowledged")
+      try check(try store.acknowledge(old.token), "first receipt handed off")
       let current = try store.pending()!
       try check(!store.acknowledge(a + ":wrong-digest"), "wrong payload cannot acknowledge")
-      try check(try store.acknowledge(old.token), "superseded leased receipt can acknowledge")
+      try check(!store.acknowledge(old.token), "exact receipt is acknowledged only once")
       try check(!FileManager.default.fileExists(atPath: path(root, a).path), "old namespace removed")
       try check(try store.pending()!.token == current.token, "new receipt survives older acknowledgement")
       try check(try store.acknowledge(current.token), "current receipt can acknowledge")
@@ -148,21 +150,23 @@ struct BabyShareStoreTests {
       defer { defaults.removePersistentDomain(forName: suite) }
       let writerID = UUID().uuidString
       var writer: BabyShareStore.Capture? = try store.begin(id: writerID)
-      let later = BabyShareStore(container: root, defaults: defaults, now: { future })
-      _ = try later.pending()
+      var later: BabyShareStore? = BabyShareStore(container: root, defaults: defaults, now: { future })
+      _ = try later!.pending()
       try check(FileManager.default.fileExists(atPath: writer!.directory.path), "active producer survives expiry")
-      writer = nil; _ = try later.pending()
+      writer = nil; _ = try later!.pending()
       try check(!FileManager.default.fileExists(atPath: path(root, writerID).path), "inactive interrupted producer expires")
       let a = UUID().uuidString, b = UUID().uuidString
       try store.publish(["leased old payload"], id: a); let old = try store.pending()!
-      try store.publish(["current payload"], id: b); _ = try later.pending()
+      try store.publish(["current payload"], id: b); _ = try later!.pending()
       try check(FileManager.default.fileExists(atPath: path(root, a).path), "active superseded reader survives expiry")
+      later = nil
       try check(try store.acknowledge(old.token), "superseded reader can release after expiry")
+      later = BabyShareStore(container: root, defaults: defaults, now: { future })
       try check(FileManager.default.fileExists(atPath: path(root, b).path), "sweep retains referenced current capture")
       let unreferenced = UUID().uuidString
       try store.publish(["unleased"], id: unreferenced); try store.publish(["new current"], id: UUID().uuidString)
-      _ = try later.pending()
-      try check(!FileManager.default.fileExists(atPath: path(root, unreferenced).path), "inactive superseded capture expires")
+      _ = try later!.pending()
+      try check(FileManager.default.fileExists(atPath: path(root, unreferenced).path), "published unacknowledged captures never expire")
     }
     do {
       let (root, defaults, _, suite) = try fixture("crash")
@@ -214,7 +218,7 @@ struct BabyShareStoreTests {
       let newerID = UUID().uuidString
       try store.publish(["newer receipt"], id: newerID)
       try store.abort(capture)
-      try check(try store.pending()!.token.hasPrefix(newerID + ":"), "retired producer cannot abort a newer publication")
+      try check(try store.pending()!.token == saved.token, "retired producer cannot remove an earlier queued publication")
       try check(try store.acknowledge(saved.token), "superseded immutable publication releases producer lease and survives abort")
     }
     do {
@@ -242,6 +246,131 @@ struct BabyShareStoreTests {
       defaults.set(raw, forKey: "hafababyShareKey")
       try check(try store.pending() == nil, "stale legacy defaults cannot resurrect a cleared store")
       try check(FileManager.default.fileExists(atPath: arbitrary.path), "cleanup never sweeps arbitrary app-group files")
+    }
+    do {
+      let (_, defaults, store, suite) = try fixture("scope")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1")
+      let late = try store.begin()
+      try store.publish(["A"], id: UUID().uuidString)
+      let a = try store.pending()!
+      try check(a.scope == "owner-a:1", "receipt bound to stable owner and generation")
+      try store.bind("owner-a:1")
+      try check(try store.pending()!.token == a.token, "same scope refresh preserves pending captures")
+      try store.bind("owner-a:2")
+      try check(try store.pending() == nil, "generation change clears exact prior namespace")
+      do { try store.publish(["late A"], capture: late); fatalError("late generation accepted") }
+      catch BabyShareStore.Failure.stale { count += 1 }
+      try store.publish(["new generation"], id: UUID().uuidString)
+      try store.bind("owner-b:1")
+      try check(try store.pending() == nil, "account change cannot borrow previous captures")
+      try check(!store.acknowledge(a.token), "old exact receipt cannot acknowledge new scope")
+    }
+    do {
+      let (_, defaults, store, suite) = try fixture("receipt-handoff")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.publish(["unbound"], id: UUID().uuidString)
+      try store.bind("owner-a:1")
+      let id = UUID().uuidString
+      let raw = try BabySharePayload.merging(
+        JSONSerialization.data(withJSONObject: [["url": "http://example.com/post"], ["text": "Caption"]]),
+        caption: "Extra accompanying text")
+      try store.publish(raw, id: id)
+      let saved = try store.pending()!
+      try check(saved.scope == "owner-a:1", "unbound old capture cannot block or borrow scoped queue")
+      let payload = try BabySharePayload.decode(saved)
+      try check(payload["capture_id"] as? String == id.lowercased(), "server identity is canonical capture UUID")
+      try check(payload["record_id"] as? String == id.lowercased(), "host and server use one original identity")
+      try check(payload["url"] as? String == "http://example.com/post", "HTTP original link retained")
+      try check(payload["text"] as? String == "Caption\nExtra accompanying text", "link never drops accompanying text")
+      try check(try BabySharePayload.decode(store.pending()!)["occurred_at"] as? String == payload["occurred_at"] as? String,
+        "recovery preserves immutable occurrence timestamp")
+      try check(!store.accept(id + ":wrong", receipt: ["status": "queued"]), "wrong exact payload refuses server receipt")
+      try check(try store.accept(saved.token, receipt: ["status": "deferred"]), "durable saved-original handoff receipt accepted")
+      try check(try store.pending()!.receipt?["status"] == "deferred", "receipt survives subsequent host recovery")
+      try check(try store.published(id)?.token == saved.token, "direct submission addresses exact queued capture")
+      try store.clear()
+      try check(!store.accept(saved.token, receipt: ["status": "queued"]), "late network response cannot resurrect cleared owner")
+    }
+    do {
+      let (root, defaults, store, suite) = try fixture("automatic-permission-version")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      try store.bind("owner-a:1", automaticEpoch: 0)
+      let a = try store.begin()
+      // Same owner/generation, permission withdrawn while provider A is loading.
+      try store.bind("owner-a:1", automaticEpoch: 1)
+      let otherProcess = BabyShareStore(container: root, defaults: defaults)
+      let b = try otherProcess.begin()
+      try otherProcess.publish(["B"], capture: b)
+      let bSaved = try otherProcess.published(b.id)!
+      try check(bSaved.automaticEpoch == 1, "new producer reads configured permission version across instances")
+      try store.publish(["A"], capture: a)
+      let aSaved = try store.published(a.id)!
+      try check(aSaved.automaticEpoch == 0, "late publication retains permission version from begin")
+      let payload = try BabySharePayload.decode(aSaved)
+      try check(payload["automatic_epoch"] as? Int == 0, "host payload includes immutable permission version")
+      let aRequest = try JSONSerialization.jsonObject(with: BabySharePayload.requestBody(payload)) as! [String: Any]
+      let bRequest = try JSONSerialization.jsonObject(with: BabySharePayload.requestBody(BabySharePayload.decode(bSaved))) as! [String: Any]
+      try check(aRequest["automatic_epoch"] as? Int == 0 && bRequest["automatic_epoch"] as? Int == 1,
+        "direct network intake carries each original's permission version")
+      try check(Set(aRequest.keys) == Set(["capture_id", "occurred_at", "text", "automatic_epoch"]),
+        "network request excludes bridge-only metadata")
+      try store.bind("owner-a:1", automaticEpoch: 2)
+      try check(try store.published(a.id)!.token == aSaved.token && store.published(a.id)!.automaticEpoch == 0,
+        "permission refresh never changes source digest or backfills queued version")
+      try check(try store.accept(aSaved.token, receipt: ["status": "saved"]), "older permission version still accepts exact receipt")
+      try check(try store.acknowledge(aSaved.token), "older version still acknowledges exactly")
+      try check(try store.pending()!.token == bSaved.token, "acknowledgement leaves other permission version queued")
+      try otherProcess.release(bSaved.token)
+      // Existing manifests predate this optional field, even under a newer profile.
+      let file = path(root, b.id).appendingPathComponent("manifest.json")
+      var legacy = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+      legacy.removeValue(forKey: "automaticEpoch")
+      try JSONSerialization.data(withJSONObject: legacy).write(to: file, options: .atomic)
+      try check(try store.pending()!.automaticEpoch == 0, "legacy manifest defaults to zero rather than latest configured permission")
+    }
+    do {
+      let (root, defaults, store, suite) = try fixture("unassigned-authority-revocation")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      let unassigned = try store.begin()
+      let original = unassigned.directory.appendingPathComponent("original.pdf")
+      try Data("saved original".utf8).write(to: original)
+      try store.bind("owner-a:1", automaticEpoch: 4)
+      try store.publish(JSONSerialization.data(withJSONObject: [["path": original.absoluteString]]), capture: unassigned)
+      try check(try store.pending() == nil, "configure during provider load cannot assign an unowned original")
+      let bound = try store.begin()
+      try store.publish(["bound"], capture: bound)
+      let boundToken = try store.pending()!.token
+      let late = try store.begin()
+      var retired = false
+      try store.clear(preserveUnassigned: true) { retired = true }
+      let saved = try store.pending()!
+      try check(retired && store.scope() == nil, "initial signed-out revocation retires authority")
+      try check(saved.scope == nil && saved.automaticEpoch == 0, "preserved original retains nil scope and begin permission version")
+      try check(FileManager.default.fileExists(atPath: original.path), "confirmed unassigned original bytes survive authority revocation")
+      try check(!FileManager.default.fileExists(atPath: bound.directory.path), "revocation removes previous bound capture")
+      try check(!store.acknowledge(boundToken), "revoked bound exact receipt cannot touch retained original")
+      do { try store.publish(["late"], capture: late); fatalError("revoked producer published") }
+      catch BabyShareStore.Failure.stale { count += 1 }
+      try store.clear(preserveUnassigned: true)
+      try check(try store.pending()!.token == saved.token, "repeated signed-out guard preserves exact original")
+      try store.bind("owner-b:1", automaticEpoch: 5)
+      try check(try store.pending() == nil, "retained unassigned originals remain quarantined from next account")
+      try store.clear()
+      try check(!FileManager.default.fileExists(atPath: path(root, unassigned.id).path), "explicit account cleanup still removes all captures")
+    }
+    for configureFirst in [false, true] {
+      let (_, defaults, store, suite) = try fixture("legacy-unassigned-\(configureFirst)")
+      defer { defaults.removePersistentDomain(forName: suite) }
+      defaults.set(["legacy saved original"], forKey: "hafababyShareKey")
+      if configureFirst {
+        try store.bind("owner-a:1", automaticEpoch: 6)
+        try check(try store.pending() == nil, "legacy defaults never inherit a later configured account")
+      }
+      try store.clear(preserveUnassigned: true)
+      let saved = try store.pending()!
+      try check(saved.scope == nil && saved.automaticEpoch == 0, "initial revocation preserves legacy original without later permission version")
+      try check((saved.raw as? [String]) == ["legacy saved original"], "legacy original content survives initial signed-out guard")
     }
     print("\(count) native capture store cases passed")
   }

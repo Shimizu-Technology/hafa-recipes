@@ -21,6 +21,7 @@ export interface RecordFilters {
   q?: string;
   collection_id?: string;
   topic?: string;
+  uncategorized?: boolean;
   offset?: number;
   limit?: number;
 }
@@ -161,7 +162,10 @@ export function createBabyApi(
       epoch++;
       return request<Bootstrap>("/enroll", "POST", {}, g);
     },
-    profile: (value: Profile, g: number) => request<Profile>("/profile", "PATCH", value, g),
+    profile: (value: Profile, g: number) => {
+      const { auto_process_epoch: _, ...patch } = value;
+      return request<Profile>("/profile", "PATCH", patch, g);
+    },
     child: (value: Partial<Child>, g: number) =>
       request<Child>(
         value.revision !== undefined ? `/children/${value.id}` : "/children",
@@ -176,7 +180,7 @@ export function createBabyApi(
     records: (filters: RecordFilters = {}) =>
       request<RecordPage>("/records?" + query({ ...filters })),
     search: (q: string, kind?: Kind, child_id?: string | null,
-      filters: Pick<RecordFilters, "kinds" | "include_general" | "offset" | "limit" | "collection_id" | "topic"> = {}) =>
+      filters: Pick<RecordFilters, "kinds" | "include_general" | "offset" | "limit" | "collection_id" | "topic" | "uncategorized"> = {}) =>
       request<RecordPage>("/search?" + query({ q, kind, child_id, limit: 100, ...filters })),
     record: (id: string) => request<BabyRecord>(`/records/${encodeURIComponent(id)}`),
     save: (value: RecordWrite, g: number) => {
@@ -201,6 +205,7 @@ export function createBabyApi(
     import: (
       value: {
         id: string;
+        automatic?: boolean; automatic_epoch?: number;
         url?: string;
         text?: string;
         record_id?: string;
