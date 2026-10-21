@@ -255,3 +255,15 @@ it.each([
   expect(f.replace).toHaveBeenCalledWith({ pathname: params.return_to === "coach" ? "/coach" : "/build-plan", params: params.return_to === "coach" ? { workout_id: "saved-workout", revision: "3" } : { include: "saved-workout" } });
   expect(node("ProfileForm").props.expandDetails).toBe(params.return_to === "coach");
 });
+
+it("opens a finished profile ready to edit when Coach sends someone to fix it", async () => {
+  await mount();
+  await click("Save profile");
+  await unmount(); await mount();
+  expect(node("ProfileForm").props.disabled).toBe(true); // A plain visit keeps the saved-state guard.
+  await unmount();
+  f.params = { return_to: "coach", workout_id: "saved-workout", revision: "3" };
+  await mount();
+  expect(node("ProfileForm").props.disabled).toBe(false);
+  expect(renderer!.root.findAll((entry) => entry.props?.title === "Edit these saved preferences")).toHaveLength(0);
+});

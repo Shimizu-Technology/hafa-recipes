@@ -150,7 +150,7 @@ export function CoachSuggestionCard({ item, generation, notify, recovery }: {
           onPress={() => { void s.apply().then(done => { if (done) notify("Change applied", () => { void undo(); }); }); }} />)}
       {s.state === "proposed" && <Button title="Not now" variant="ghost" size="sm" inline disabled={s.busy} onPress={() => setHidden(true)} />}
       {s.state === "accepted" && <Button title="Undo" icon="arrow-undo-outline" secondary size="sm" inline busy={s.busy} onPress={() => { void undo(); }} />}
-      <Button title="Details" variant="ghost" size="sm" inline onPress={details} />
+      {!(s.current && help && recovery && help.next === "details") && <Button title="Details" variant="ghost" size="sm" inline onPress={details} />}
     </Row>
   </Card>;
 }

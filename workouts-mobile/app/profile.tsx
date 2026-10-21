@@ -72,8 +72,15 @@ export default function Profile() {
     setResolved(false);
     void form
       .load()
-      .then((box) => {
+      .then(async (box) => {
         if (!active) return;
+        // Arriving from Coach or plan building to fix something: start from the saved profile, ready to edit.
+        if (box.terminal && params.return_to) {
+          await form.reset();
+          if (!active) return;
+          setLoaded(true);
+          return;
+        }
         if (box.input?.generation === generation) {
           setValue(box.input.value);
           setRevision(box.input.revision);
@@ -91,7 +98,7 @@ export default function Profile() {
     return () => {
       active = false;
     };
-  }, [form, generation]);
+  }, [form, generation, params.return_to]);
   useEffect(() => {
     // Background refetch may update the comparison baseline, never a live/pending draft.
     if (loaded && !value && !command && q.data) {

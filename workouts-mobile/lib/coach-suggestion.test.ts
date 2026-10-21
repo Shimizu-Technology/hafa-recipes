@@ -142,6 +142,13 @@ it("explains source timing separately from missing profile information", async (
   await press("Review details"); expect(f.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/coach-action/[id]" }));
 });
 
+it("shows an unfamiliar question once and offers a single way to its details", async () => {
+  f.action = needsInfo(["Something new A.", "Something new B.", "Something new C."]);
+  f.readiness = { state: "ready", expires_at: "2999-01-01T00:00:00Z" }; await recoveryCard();
+  expect(JSON.stringify(view!.toJSON()).split("Coach needs more details before it can offer a change").length - 1).toBe(1);
+  expect(button("Review details")).toBeDefined(); expect(button("Details")).toBeUndefined();
+});
+
 it("advances the same card from profile review to check-in to Ask again as saves update the cache", async () => {
   f.action = needsInfo(); f.profile = { profile: { ...initialProfile(), adult_confirmed: true }, revision: 1 };
   const client = await recoveryCard(); expect(button("Review training profile")).toBeDefined();

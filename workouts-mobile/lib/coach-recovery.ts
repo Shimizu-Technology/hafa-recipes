@@ -48,5 +48,5 @@ export function coachRecovery(action: CoachAction, profile: TrainingProfile, rev
     : "Check in for today so Coach knows how you are feeling. Saving your training profile does not save today’s check-in.");
   const next = reviewProfile ? "profile" : !ready ? "check-in" : other.length || !questions.length ? "details" : "ask";
   if (!lines.length) lines.push("Your saved information is updated. Ask Coach again to prepare a fresh suggestion.");
-  return { lines, next, title: next === "profile" ? "Review training profile" : next === "check-in" ? "Check in for today" : next === "details" ? "Review details" : "Ask again" };
+  return { lines: [...new Set(lines)], next, title: next === "profile" ? "Review training profile" : next === "check-in" ? "Check in for today" : next === "details" ? "Review details" : "Ask again" };
 }
