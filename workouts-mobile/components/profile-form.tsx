@@ -18,8 +18,10 @@ export function ProfileForm({
   update,
   section,
   baseline,
-  disabled = false
+  disabled = false,
+  expandDetails = false
 }: {
+  expandDetails?: boolean;
   disabled?: boolean;
   value: TrainingProfile;
   update(value: TrainingProfile): void;
@@ -27,7 +29,7 @@ export function ProfileForm({
   baseline?: TrainingProfile | null;
 }) {
   const { units, setUnits } = useTraining();
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(expandDetails);
   const expanded = section != null || showDetails;
   const set = (change: Partial<TrainingProfile>) => {
     if (disabled) return;
@@ -44,6 +46,8 @@ export function ProfileForm({
   }
   return (
     <View style={{ gap: 16 }}>
+      {!value.adult_confirmed && <Choice disabled={disabled} label="I am 18 or older" selected={false}
+        onPress={() => set({ adult_confirmed: true })} />}
       {(section == null || section === 0) && (
         <>
           <Copy kind="heading">What matters most to you?</Copy>
