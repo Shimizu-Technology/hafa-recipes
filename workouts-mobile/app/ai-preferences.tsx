@@ -1,10 +1,12 @@
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Copy, Notice, Screen } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import { updateNativeSharingConsent } from "@/lib/native-share-session";
 export default function AiPreferences() {
-  const { api, owner, enrollment } = useTraining();
+  const params = useLocalSearchParams<{ return_to?: string; workout_id?: string; program_id?: string; session_id?: string; revision?: string }>();
+  const { api, owner, enrollment, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const q = useQuery({
     queryKey: [owner, "ai-consent", enrollment?.generation],
@@ -15,10 +17,19 @@ export default function AiPreferences() {
   const [error, setError] = useState("");
   async function save(accepted: boolean) {
     setBusy(true);
+    setError("");
     try {
-      await updateNativeSharingConsent(() => api.setAiConsent(accepted, enrollment?.generation ?? undefined));
+      const saved = await updateNativeSharingConsent(() => api.setAiConsent(accepted, enrollment?.generation ?? undefined));
       await cache.invalidateQueries({ queryKey: [owner, "ai-consent"] });
       await cache.invalidateQueries({ queryKey: [owner, "health-connection"] });
+      if (accepted && saved.accepted && isCurrentAccount() && params.return_to === "coach") {
+        router.dismissTo({ pathname: "/coach", params: {
+          ...(params.workout_id ? { workout_id: params.workout_id } : {}),
+          ...(params.program_id ? { program_id: params.program_id } : {}),
+          ...(params.session_id ? { session_id: params.session_id } : {}),
+          ...(params.revision ? { revision: params.revision } : {}),
+        } });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {

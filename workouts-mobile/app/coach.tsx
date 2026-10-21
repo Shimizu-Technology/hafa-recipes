@@ -542,6 +542,8 @@ export default function Coach() {
     {readAloud.stopFailed && <Button title="Retry stopping speech" variant="ghost" size="sm" inline onPress={() => { void readAloud.retryStop().catch(() => undefined); }} />}
     {!!readAloud.messageId && Platform.OS === "ios" && <Copy kind="small" tone="muted">If you can’t hear speech, turn off silent mode.</Copy>}
   </>;
+  const needsConsent = !!enrollment?.enrolled && !!profile.data && !!capabilities.data?.coach &&
+    consent.isSuccess && consent.data.accepted === false && !prerequisiteErrors.length;
   const unavailable = !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted;
   const photoBlocked = !photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard ||
     !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now());
@@ -694,6 +696,12 @@ export default function Coach() {
         {prerequisiteErrors.length > 0 && <Notice error>{[...new Set([...prerequisiteErrors, ...(q.error ? [q.error.message] : [])])].join(" ")}</Notice>}
         <Button title="Retry loading coach" secondary inline busy={retryingCoach} onPress={() => { void retryCoach(); }} />
       </>}
+      {needsConsent && <Card>
+        <Copy>Coach sends your question and training details to our AI provider. Turn on AI sharing to start chatting.</Copy>
+        <Button title="Review AI sharing" onPress={() => router.push({
+          pathname: "/ai-preferences", params: { return_to: "coach", ...params },
+        })} />
+      </Card>}
       {q.error && !prerequisiteErrors.length && !retryingCoach && <>
         <Notice error>{q.error.message}</Notice>
         <Button title="Refresh saved conversation" secondary inline onPress={() => { void q.refetch(); }} />
@@ -714,7 +722,7 @@ export default function Coach() {
       )}
       {empty && <View style={{ flexGrow: 1, justifyContent: "center", gap: 12, paddingVertical: 24 }}>
         <Copy kind="heading" align="center">{focusKey === "general" ? "What can I help with?" : "What would you like to change?"}</Copy>
-        <Copy kind="small" tone="muted" align="center">Coach uses your profile and recent training. You approve any change first.</Copy>
+        {!needsConsent && <Copy kind="small" tone="muted" align="center">Coach uses your profile and recent training. You approve any change first.</Copy>}
         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingTop: 4 }}>
           {prompts.map(prompt => <Button key={prompt} title={prompt} secondary size="sm" inline
             disabled={sendDisabled || busy || !!message.trim()} onPress={() => { void send(prompt); }} />)}

@@ -1245,3 +1245,28 @@ it("starts an empty conversation from a suggested prompt and hides prompts once 
   await click("Plan my week");
   expect(f.send.mock.calls[0][1]).toBe("Plan my week"); expect(button("Make today easier")).toBeUndefined();
 });
+
+it("offers consent review with the current focus, then unlocks Coach after acceptance", async () => {
+  f.consent = false; f.params = { workout_id: "legs", revision: "3" }; await mount();
+  expect(nodes("Copy").some(node => node.children.join("").includes("Turn on AI sharing"))).toBe(true);
+  expect(button("Make this easier").props.disabled).toBe(true);
+  expect(button("Send message").props.disabled).toBe(true);
+  await click("Review AI sharing");
+  expect(f.push).toHaveBeenLastCalledWith({ pathname: "/ai-preferences", params: {
+    return_to: "coach", workout_id: "legs", revision: "3",
+  } });
+  f.consent = true;
+  await act(async () => { await cache.invalidateQueries({ queryKey: [f.owner, "ai-consent"] }); }); await settle();
+  expect(button("Review AI sharing")).toBeUndefined();
+  expect(button("Make this easier").props.disabled).toBe(false);
+  await type("Help me train"); expect(button("Send message").props.disabled).toBe(false);
+});
+
+it("uses retry for a consent load failure before offering consent review", async () => {
+  f.consent = false; f.prerequisiteError = "Consent unavailable"; f.prerequisiteFailures = ["consent"]; await mount();
+  expect(button("Review AI sharing")).toBeUndefined();
+  expect(button("Plan my week").props.disabled).toBe(true);
+  f.prerequisiteError = ""; await click("Retry loading coach");
+  expect(button("Review AI sharing")).toBeDefined();
+  expect(button("Plan my week").props.disabled).toBe(true);
+});
