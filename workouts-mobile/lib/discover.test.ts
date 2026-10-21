@@ -2,13 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError, authoredWorkout, createWorkoutsApi } from "./api";
 import {
   DECLINED,
+  activeFilters,
   cardMeta,
   creatorCredit,
   defaultShareToDiscover,
   discoverKeys,
   discoverQuery,
   discoverUnavailable,
+  discoverViewKey,
+  gridByline,
   isDisclosureRequired,
+  parseDiscoverView,
   nextDiscoverOffset,
   prescriptionLine,
   publishable,
@@ -231,5 +235,26 @@ describe("discover API client", () => {
     const workout = await api.workout("w");
     expect(workout.publication).toEqual(publication);
     expect(authoredWorkout(workout)).not.toHaveProperty("publication");
+  });
+});
+
+describe("Discover browsing helpers", () => {
+  const who = { source_creator: null, contributor: { contributor_id: "c1", display_name: "Leon" }, is_owner: false };
+  it("bylines credit the original creator, then the person who shared it", () => {
+    expect(gridByline({ ...who, source_creator: "Coach Nani" })).toBe("Coach Nani");
+    expect(gridByline({ ...who, source_creator: "  " })).toBe("by Leon");
+    expect(gridByline({ ...who, is_owner: true })).toBe("Shared by you");
+  });
+  it("lists active sheet filters in sheet order with readable labels", () => {
+    expect(activeFilters({ q: "legs" })).toEqual([]);
+    expect(activeFilters({ platform: "tiktok", equipment: "none", duration: "long" }).map((f) => f.label))
+      .toEqual(["30+ min", "No equipment", "TikTok"]);
+    expect(activeFilters({ equipment: "bench" })).toEqual([{ key: "equipment", label: "bench" }]);
+  });
+  it("defaults to the grid and keeps the layout key owner-scoped", () => {
+    expect(parseDiscoverView(null)).toBe("grid");
+    expect(parseDiscoverView("nonsense")).toBe("grid");
+    expect(parseDiscoverView("list")).toBe("list");
+    expect(discoverViewKey("user/1")).toBe("hafa-workouts:v1:user%2F1:discover-view");
   });
 });

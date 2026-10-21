@@ -1,6 +1,6 @@
 import WorkoutDetail from "../app/workout/[id]";
 import { WorkoutSource } from "../components/workout-source";
-import { createElement, Fragment, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
+import { createElement, Fragment, isValidElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -19,6 +19,9 @@ const fixture = vi.hoisted(() => ({
   workout: vi.fn(),
   deleteWorkout: vi.fn(),
   unpublishWorkout: vi.fn(),
+  publishWorkout: vi.fn(),
+  back: vi.fn(),
+  navigate: vi.fn(),
   announce: vi.fn(),
   active: null as null | { workout: { title: string }; source: { workout_id: string; workout_revision: number } },
   importJob: vi.fn(),
@@ -33,7 +36,6 @@ const fixture = vi.hoisted(() => ({
   asked: 0,
   push: vi.fn(),
   replace: vi.fn(),
-  back: vi.fn(),
   toast: vi.fn(),
   map: new Map<string, string>(),
   focus: false,
@@ -61,6 +63,7 @@ vi.mock("@/lib/context", () => {
     workout: fixture.workout,
     deleteWorkout: fixture.deleteWorkout,
     unpublishWorkout: fixture.unpublishWorkout,
+    publishWorkout: fixture.publishWorkout,
     importJob: fixture.importJob,
     importJobs: fixture.importJobs,
     searchLibrary: fixture.searchLibrary, collections: fixture.collections, createCollection: fixture.createCollection, renameCollection: fixture.renameCollection, removeCollection: fixture.removeCollection, organization: fixture.organization, saveOrganization: fixture.saveOrganization,
@@ -123,7 +126,7 @@ vi.mock("react-native", () => ({
 vi.mock("expo-router", async () => {
   const { useEffect } = await import("react");
   return ({
-  router: { push: fixture.push, replace: fixture.replace, back: fixture.back, canGoBack: () => true, navigate: vi.fn() },
+  router: { push: fixture.push, replace: fixture.replace, back: fixture.back, canGoBack: () => true, navigate: fixture.navigate },
   useFocusEffect(callback: () => (() => void) | void) { useEffect(() => fixture.focus ? callback() : undefined, [callback, fixture.focus]); },
   useLocalSearchParams: () => fixture.params,
 }); });
@@ -146,6 +149,11 @@ vi.mock("@/components/discover-card", () => ({
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionTile: "CollectionTile", LIBRARY_GRID_GAP: 12 }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
+vi.mock("@/components/discover-grid-card", () => ({
+  DiscoverGrid: "DiscoverGrid",
+  DiscoverGridCard: "DiscoverGridCard",
+  DiscoverGridSkeleton: "DiscoverGridSkeleton",
+}));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: { children: unknown }) => children }));
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
@@ -156,6 +164,7 @@ vi.mock("@/components/design/press", () => ({ animatedPressableComponent: () => 
 vi.mock("@/lib/capture-io", () => ({ cleanupCaptureFiles: vi.fn() }));
 import Discover from "../app/(tabs)/discover";
 import DiscoverWorkout from "../app/discover/[id]";
+import ShareToDiscover from "../app/discover/share";
 import ImportReview from "../app/import/[id]";
 import Library from "../app/(tabs)/library";
 import Collections from "../app/collections";
@@ -188,6 +197,13 @@ it("a saved workout enters planning with that workout selected", async () => {
   await act(async () => action!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/build-plan", params: { include: "saved-1" } });
 });
+/** Finds a Button inside an element passed as a prop (e.g. Empty's action), which the string mocks don't render. */
+function actionButton(element: unknown, title: string): { props: { onPress(): void } } | undefined {
+  if (Array.isArray(element)) return element.map((child) => actionButton(child, title)).find(Boolean);
+  if (!isValidElement<{ title?: string; children?: unknown; onPress(): void }>(element)) return undefined;
+  return element.props.title === title ? element : actionButton(element.props.children, title);
+}
+const emptyAction = (title: string) => actionButton(nodes("Empty")[0].props.action, title);
 const choice = (label: string) => nodes("Choice").find((n) => n.props.label === label);
 const listRow = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const libraryCard = (title: string) => nodes("LibraryCard").find((n) => n.props.title === title);
@@ -225,7 +241,7 @@ beforeEach(() => {
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
     fixture.push, fixture.replace, fixture.back, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
-    fixture.unpublishWorkout, fixture.announce, fixture.start]) mock.mockReset();
+    fixture.unpublishWorkout, fixture.announce, fixture.start, fixture.publishWorkout, fixture.navigate]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
   fixture.active = null;
@@ -275,7 +291,7 @@ it("renders feed cards, passes an abort signal, and debounces search before refe
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  expect(nodes("DiscoverCardView").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+  expect(nodes("DiscoverGridCard").map((n) => n.props.card.id)).toEqual(["pub-1"]);
   expect(fixture.discover).toHaveBeenCalledTimes(1);
   expect(fixture.discover.mock.calls[0][1]).toBe(0);
   expect(fixture.discover.mock.calls[0][2]).toBeInstanceOf(AbortSignal);
@@ -292,11 +308,142 @@ it("shows a narrowed empty state with a way to clear filters", async () => {
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.discover.mockResolvedValue(page([]));
   await mount(Discover);
-  expect(nodes("Empty")[0].props.title).toBe("Be the first to share");
+  expect(nodes("Empty")[0].props.title).toBe("Discover is just getting started");
   await act(async () => nodes("Chip").find((n) => n.props.label === "No equipment")!.props.onPress());
   await settle();
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ equipment: "none" });
   expect(nodes("Empty")[0].props.title).toBe("No workouts match");
+  await act(async () => emptyAction("Clear search and filters")!.props.onPress());
+  await settle();
+  expect(nodes("Empty")[0].props.title).toBe("Discover is just getting started");
+});
+
+it("a young feed explains Discover and offers sharing or importing instead of a dead end", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page([]));
+  await mount(Discover);
+  const empty = nodes("Empty")[0];
+  expect(empty.props.description).toContain("workouts Håfa members choose to share");
+  expect(nodes("IconButton").find((n) => n.props.icon === "add")).toBeUndefined();
+  await act(async () => emptyAction("Share one of yours")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith("/discover/share");
+  await act(async () => emptyAction("Import a workout")!.props.onPress());
+  expect(fixture.navigate).toHaveBeenCalledWith("/(tabs)/extract");
+});
+
+it("keeps every filter in one sheet, counts active ones and clears them together", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page());
+  await mount(Discover);
+  const filters = () => nodes("Button").find((n) => String(n.props.title).startsWith("Filters"))!;
+  const sheet = () => nodes("Sheet").find((n) => n.props.title === "Filters")!;
+  expect(filters().props.title).toBe("Filters");
+  expect(nodes("ChipRow").find((n) => n.props.label === "Filter workouts")).toBeUndefined();
+  await act(async () => filters().props.onPress());
+  expect(sheet().props.visible).toBe(true);
+  const inSheet = (label: string) => sheet().findAll((n) => String(n.type) === "Chip" && n.props.label === label)[0];
+  await act(async () => inSheet("Under 15 min").props.onPress());
+  await act(async () => inSheet("Dumbbell").props.onPress());
+  await act(async () => inSheet("YouTube").props.onPress());
+  await settle();
+  expect(filters().props.title).toBe("Filters · 3");
+  expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ duration: "short", equipment: "dumbbell", platform: "youtube" });
+  const summary = nodes("ChipRow").find((n) => n.props.label === "Active filters")!;
+  expect(summary.findAll((n) => String(n.type) === "Chip").map((n) => n.props.label)).toEqual(["Under 15 min", "Dumbbell", "YouTube"]);
+  await act(async () => summary.findAll((n) => String(n.type) === "Chip")[1].props.onPress());
+  await settle();
+  expect(filters().props.title).toBe("Filters · 2");
+  await act(async () => nodes("Field")[0].props.onChange("legs"));
+  await act(async () => nodes("ChipRow").find((n) => n.props.label === "Active filters")!
+    .findAll((n) => String(n.type) === "Button" && n.props.title === "Clear all")[0].props.onPress());
+  expect(filters().props.title).toBe("Filters");
+  expect(nodes("Field")[0].props.value).toBe("legs");
+  await act(async () => nodes("Field")[0].props.onChange(""));
+  await act(async () => inSheet("YouTube").props.onPress());
+  await act(async () => sheet().findAll((n) => String(n.type) === "Button" && n.props.title === "Clear all")[0].props.onPress());
+  await settle();
+  expect(filters().props.title).toBe("Filters");
+  expect(nodes("ChipRow").find((n) => n.props.label === "Active filters")).toBeUndefined();
+  expect(nodes("DiscoverGridCard").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+});
+
+it("keeps sharing one of yours reachable once the feed has workouts", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page());
+  await mount(Discover);
+  await act(async () => button("Share yours")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith("/discover/share");
+});
+
+it("the share picker keeps reading pages until it finds a private workout", async () => {
+  const shared = (id: string) => ({ ...saved, id, title: id, publication: { is_public: true, discover_visible: true,
+    moderation_status: "active" as const, published_at: "2026-10-13T02:00:00Z" } });
+  fixture.searchLibrary
+    .mockResolvedValueOnce({ items: [shared("a"), shared("b")], total: 3, limit: 2, offset: 0, has_more: true, next_cursor: "c1" })
+    .mockResolvedValueOnce({ items: [{ ...saved, id: "c", title: "Private one", publication: null }], total: 3, limit: 2, offset: 2, has_more: false, next_cursor: null });
+  await mount(ShareToDiscover);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2);
+  expect(nodes("ListRow").map((n) => n.props.title)).toEqual(["Private one"]);
+  expect(nodes("Notice")).toHaveLength(0);
+});
+
+it("switches between grid and list and remembers the choice for this account", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page());
+  await mount(Discover);
+  const toggle = () => nodes("IconButton").find((n) => /as a (list|grid)/.test(n.props.label))!;
+  expect(toggle().props.label).toBe("Show workouts as a list");
+  await act(async () => toggle().props.onPress());
+  await settle();
+  expect(nodes("DiscoverGridCard")).toHaveLength(0);
+  expect(nodes("DiscoverCardView").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+  expect(fixture.map.get("hafa-workouts:v1:owner:discover-view")).toBe("list");
+  await act(async () => renderer!.unmount());
+  await mount(Discover);
+  expect(toggle().props.label).toBe("Show workouts as a grid");
+  expect(nodes("DiscoverCardView")).toHaveLength(1);
+});
+
+it("shares a private library workout to Discover from the picker, asking for the disclosure once", async () => {
+  const privateOne = { ...saved, id: "w-private", title: "Morning mobility", publication: null };
+  const sharedOne = { ...saved, id: "w-shared", title: "Already out there",
+    publication: { is_public: true, discover_visible: true, moderation_status: "active" as const, published_at: "2026-10-13T02:00:00Z" } };
+  fixture.searchLibrary.mockResolvedValue({ items: [privateOne, sharedOne], total: 2, limit: 20, offset: 0, has_more: false, next_cursor: null });
+  fixture.publishWorkout.mockRejectedValueOnce(new ApiError("Accept the publishing disclosure", 409, false, "Accept the current publishing disclosure"))
+    .mockResolvedValueOnce({ is_public: true, discover_visible: true, moderation_status: "active", published_at: "2026-10-21T00:00:00Z" });
+  fixture.publishingDisclosure.mockResolvedValue({ current_version: 2, accepted_version: 1, requires_acceptance: true });
+  fixture.acceptPublishingDisclosure.mockResolvedValue({ current_version: 2, accepted_version: 2, requires_acceptance: false });
+  await mount(ShareToDiscover);
+  expect(nodes("ListRow").map((n) => n.props.title)).toEqual(["Morning mobility"]);
+  await act(async () => nodes("ListRow")[0].props.onPress());
+  await settle();
+  expect(fixture.asked).toBe(1);
+  expect(fixture.acceptPublishingDisclosure).toHaveBeenCalledWith(2);
+  expect(fixture.publishWorkout).toHaveBeenCalledTimes(2);
+  expect(fixture.publishWorkout).toHaveBeenLastCalledWith("w-private", 1);
+  expect(fixture.toast).toHaveBeenCalledWith("Shared to Discover");
+  expect(fixture.back).toHaveBeenCalled();
+});
+
+it("an incomplete workout explains what is missing and links to it from the share picker", async () => {
+  const privateOne = { ...saved, id: "w-private", title: "Morning mobility", publication: null };
+  fixture.searchLibrary.mockResolvedValue({ items: [privateOne], total: 1, limit: 20, offset: 0, has_more: false, next_cursor: null });
+  fixture.publishWorkout.mockRejectedValue(new ApiError("Give every exercise reps", 422, false, "Give every exercise reps, time or distance before sharing to Discover"));
+  await mount(ShareToDiscover);
+  await act(async () => nodes("ListRow")[0].props.onPress());
+  await settle();
+  expect(nodes("Notice")[0].props.children).toMatch(/Every exercise needs reps, time or distance/);
+  await act(async () => button("Open Morning mobility")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: "w-private" } });
+  expect(fixture.back).not.toHaveBeenCalled();
+});
+
+it("an empty library points to importing before sharing", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0, has_more: false, next_cursor: null });
+  await mount(ShareToDiscover);
+  expect(nodes("Empty")[0].props.title).toBe("Nothing to share yet");
+  await act(async () => emptyAction("Import a workout")!.props.onPress());
+  expect(fixture.navigate).toHaveBeenCalledWith("/(tabs)/extract");
 });
 
 it("saves from detail, then offers the saved workout and a plan", async () => {

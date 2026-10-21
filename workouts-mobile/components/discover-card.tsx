@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { View, type DimensionValue } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BrandMark, Copy, MediaCard, Row, Skeleton, useColors } from "@/components/ui";
 import { radii } from "@/constants/theme";
@@ -11,7 +11,7 @@ const PATTERN_COLUMNS = 5;
  * Artwork for a workout without a thumbnail: the reef hero surface with a quiet
  * latte-stone pattern and the source platform's icon. Decorative only.
  */
-export function SourceArtwork({ platform, height = 168, compact = false }: { platform: string | null; height?: number; compact?: boolean }) {
+export function SourceArtwork({ platform, height = 168, compact = false }: { platform: string | null; height?: DimensionValue; compact?: boolean }) {
   const c = useColors();
   const info = platformInfo(platform);
   return (
