@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Alert, Linking } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
+import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
 import { messageFor } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
@@ -32,7 +33,8 @@ export default function Settings() {
   }
   async function consent(value: boolean) {
     await run(async () => {
-      const result = await b.api.profile({ ...profile, ai_consent: value }, b.state.bootstrap!.generation);
+      const result = await b.api.profile({ ...profile, ai_consent: value,
+        ...(!value ? { auto_process_shares: false } : {}) }, b.state.bootstrap!.generation);
       await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
       toast(value ? "AI processing enabled." : "AI permission removed.");
     });
@@ -108,6 +110,22 @@ export default function Settings() {
           }}
         />
         <Button variant="ghost" title="Read privacy details" onPress={() => router.push("/privacy")} />
+        <Choice label="Automatically organize posts I share" selected={profile.auto_process_shares === true}
+          disabled={busy || !profile.ai_consent}
+          detail={profile.ai_consent ? "New shared posts process automatically. Existing saved posts are kept as they are."
+            : "Allow AI processing above to enable this. Saving originals always works."}
+          onPress={() => {
+            const save = () => void run(async () => {
+              const enabled = !profile.auto_process_shares;
+              const result = await b.api.profile({ ...profile, auto_process_shares: enabled }, b.state.bootstrap!.generation);
+              await b.commit((s) => ({ ...s, bootstrap: { ...s.bootstrap!, profile: result } }));
+              toast(enabled ? "Shared posts will process automatically." : "Automatic processing is off. Originals stay saved.");
+            });
+            if (profile.auto_process_shares) save();
+            else Alert.alert("Automatically process shared posts?",
+              "New posts you share with Baby will be sent to OpenAI for processing. You can keep browsing, and turn this off at any time.",
+              [{ text: "Keep off", style: "cancel" }, { text: "Allow processing", onPress: save }]);
+          }} />
       </Card>
       <Section title="Your device">
         <Row
@@ -183,6 +201,7 @@ export default function Settings() {
           onPress={() =>
             confirmAccountDeletion(() =>
               void run(async () => {
+                await revokeShareSession();
                 await b.api.deleteAccount();
                 await b.signOut();
               })

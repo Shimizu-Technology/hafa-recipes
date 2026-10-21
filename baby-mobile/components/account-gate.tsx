@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { messageFor } from "@/lib/models";
@@ -12,6 +13,7 @@ export function AccountGate({ children }: { children: React.ReactNode }) {
     setBusy(true);
     setError("");
     try {
+      await revokeShareSession();
       await b.api.deleteAccount();
       await b.signOut();
     } catch (e) {

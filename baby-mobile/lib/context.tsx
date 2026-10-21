@@ -35,6 +35,7 @@ import {
   queueRemovedUploads,
   uploadedReferences,
 } from "./outbox";
+import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
 import { clearFiles, removeLocal, uploadFile } from "./files";
 import { clearReminders, reconcileReminders } from "./reminders";
@@ -264,11 +265,23 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) setError("");
       if (latest.active === false) return;
       restoreAfterSync = true;
+      let importsDeferred = false;
       for (const pending of [...ref.current.outbox]) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
+        if (next.type === "import" && importsDeferred) continue;
         if (!alive.current || !onlineRef.current) break;
         if (next.generation !== latest.generation || next.conflict || next.error) continue;
+        if (next.type === "import" && next.automatic &&
+          (!(latest.profile.ai_consent && latest.profile.auto_process_shares) ||
+            (next.automatic_epoch ?? 0) !== (latest.profile.auto_process_epoch ?? 0))) {
+          // The preceding original-save mutation remains. A later opt-in must
+          // not resurrect an automatic provider request that was withdrawn.
+          await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
+          continue;
+        }
+        if (next.type === "import" && next.record_id &&
+          ref.current.outbox.some((m) => m.type === "save" && m.record.id === next.record_id)) continue;
         try {
           let result: BabyRecord | undefined;
           if (next.type === "delete") {
@@ -307,6 +320,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
               const job = await api.import(
                 {
                   id: next.id,
+                  ...(next.automatic ? { automatic: true, automatic_epoch: next.automatic_epoch ?? 0 } : {}),
                   record_id: next.record_id,
                   url: next.url,
                   text: next.text,
@@ -338,6 +352,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
             await refresh();
             break;
           }
+          if (next.type === "import" && status === 429) {
+            importsDeferred = true;
+            setError(messageFor(e));
+            continue;
+          }
           if (shouldRetry(status)) {
             setError(messageFor(e));
             break;
@@ -363,11 +382,19 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (!importFinished(job.status)) {
           try {
             const fresh = await api.job(job.id);
-            await commit((s) => ({ ...s, imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)) }));
+            let row: BabyRecord | undefined;
             if (fresh.record_id) {
-              const row = await api.record(fresh.record_id);
-              await commit((s) => ({ ...s, records: replaceRecord(s.records, row) }));
+              try { row = await api.record(fresh.record_id); }
+              catch (failure) {
+                if (!(failure instanceof ApiError && failure.status === 404)) throw failure;
+              }
             }
+            // A terminal job and its refreshed source become durable together.
+            // A failed fetch leaves the previous polling obligation intact.
+            await commit((s) => ({ ...s,
+              imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)),
+              records: row ? replaceRecord(s.records, row) : s.records,
+            }));
           } catch {
             /* The next foreground attempt retries persisted jobs. */
           }
@@ -404,6 +431,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (cleaning) {
           closing.current = true;
           setReady(false);
+          await revokeShareSession();
           clearPendingShares();
           await clearReminders(cleaning);
           await clearFiles(cleaning);
@@ -490,6 +518,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     };
   }, [state, owner, ready]);
   async function clean() {
+    await revokeShareSession();
     clearPendingShares();
     await clearReminders(ownerRef.current);
     await clearFiles(ownerRef.current);
@@ -566,6 +595,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           let removed = false,
             cleaned = false;
           try {
+            await revokeShareSession();
             await api.erase(g);
             removed = true;
             clearPendingShares();

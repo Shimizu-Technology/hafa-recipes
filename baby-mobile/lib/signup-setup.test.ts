@@ -10,6 +10,7 @@ vi.mock("@clerk/expo", () => ({ useAuth: () => gate.auth, useClerk: () => gate.c
 vi.mock("./config", () => ({ configuration: { clerkEnvironment: "production", apiBase: "https://service.example" } }));
 vi.mock("./api", async (original) => ({ ...(await original<object>()), createBabyApi: () => ({ onboard: gate.onboard }) }));
 vi.mock("../components/ui", () => ({ Button: "Button", Loading: "Loading", Notice: "Notice", Screen: "Screen" }));
+vi.mock("./share-session-state", () => ({ revokeShareSession: vi.fn(async () => undefined) }));
 vi.mock("expo-secure-store", () => ({}));
 vi.mock("expo-crypto", () => ({}));
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));

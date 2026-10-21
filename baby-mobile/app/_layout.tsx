@@ -12,6 +12,8 @@ import { BabyProvider } from "@/lib/context";
 import { SignupGate } from "@/components/signup-gate";
 import { AccountGate } from "@/components/account-gate";
 import { NotificationResponseHandler } from "@/components/notification-response-handler";
+import { ShareSessionGuard } from "@/lib/use-share-session";
+import { StockShareBoundary } from "@/components/stock-share-boundary";
 import { ShareCapture } from "@/components/share-capture";
 import { Copy, Loading, Notice, Screen, ToastProvider, useColors } from "@/components/ui";
 function Routes() {
@@ -84,7 +86,8 @@ export default function Root() {
             options={{ resetOnBackground: false, scheme: "hafababy", debug: false, disabled: Platform.OS === "web" }}
           >
             <ClerkProvider publishableKey={configuration.clerkKey} tokenCache={tokenCache}>
-              <Routes />
+              <ShareSessionGuard />
+              <StockShareBoundary><Routes /></StockShareBoundary>
             </ClerkProvider>
           </ShareIntentProvider>
         )}

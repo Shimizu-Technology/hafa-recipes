@@ -13,6 +13,7 @@ const mock = vi.hoisted(() => ({
   clear: vi.fn(),
   clearShares: vi.fn(),
   signOut: vi.fn(),
+  revoke: vi.fn(async () => undefined),
   cleanupOwner: null as string | null,
   readCleanup: vi.fn(),
 }));
@@ -60,6 +61,7 @@ vi.mock("./reminders", () => ({
   clearReminders: (...args: unknown[]) => mock.clear(...args),
   reconcileReminders: (...args: unknown[]) => mock.reconcile(...args),
 }));
+vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
@@ -115,6 +117,7 @@ beforeEach(() => {
   mock.clear.mockReset().mockResolvedValue(undefined);
   mock.clearShares.mockReset();
   mock.signOut.mockReset().mockResolvedValue(undefined);
+  mock.revoke.mockClear();
   mock.cleanupOwner = null;
   mock.readCleanup.mockReset().mockImplementation(async () => mock.cleanupOwner);
   mock.api = {
@@ -374,4 +377,97 @@ describe("provider routine restore integration", () => {
     await reading;
     expect(mock.state).toBe(previous);
   });
+});
+
+
+it("waits for a conflicted original save before admitting its automatic import", async () => {
+  const profile = { ...bootstrap.profile, ai_consent: true, auto_process_shares: true };
+  mock.api.bootstrap.mockResolvedValue({ ...bootstrap, profile });
+  const source = { ...row("shared-source"), kind: "source" as const, data: { status: "saved" } };
+  mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, profile }, outbox: [
+    { id: "save-original", generation: 1, type: "save", record: source, files: [], error: "Try again", conflict: true },
+    { id: "automatic-import", generation: 1, type: "import", record_id: source.id, files: [], automatic: true },
+  ] };
+  mock.api.import = vi.fn(async () => ({ id: "automatic-import", record_id: source.id, status: "queued" }));
+  await mount();
+  expect(mock.api.import).not.toHaveBeenCalled();
+  expect(baby.state.outbox).toHaveLength(2);
+  await act(async () => { await baby.commit(s => ({ ...s, outbox: s.outbox.map(m => ({ ...m, error: undefined, conflict: false })) })); });
+  await act(async () => { await baby.sync(); });
+  expect(mock.api.save).toHaveBeenCalledOnce();
+  expect(mock.api.import).toHaveBeenCalledOnce();
+  expect(mock.api.save.mock.invocationCallOrder[0]).toBeLessThan(mock.api.import.mock.invocationCallOrder[0]);
+  expect(mock.api.import.mock.calls[0][0]).toMatchObject({ id: "automatic-import", record_id: source.id, automatic: true });
+});
+it("drops withdrawn automatic work but keeps the original and explicit manual work", async () => {
+  mock.saved = { ...emptyState(), bootstrap, outbox: [
+    { id: "automatic-import", generation: 1, type: "import", record_id: "original", files: [], automatic: true },
+    { id: "manual-import", generation: 1, type: "import", record_id: "manual", files: [], error: "retry manually" },
+  ] };
+  mock.api.import = vi.fn();
+  await mount();
+  expect(mock.api.import).not.toHaveBeenCalled();
+  expect(baby.state.outbox.map(m => m.id)).toEqual(["manual-import"]);
+});
+it("revokes native authority before signing out or erasing server data", async () => {
+  await mount();
+  await act(async () => { await baby.erase(); });
+  expect(mock.revoke.mock.invocationCallOrder[0]).toBeLessThan(mock.api.erase.mock.invocationCallOrder[0]);
+  mock.revoke.mockClear();
+  await act(async () => { await baby.signOut(); });
+  expect(mock.revoke.mock.invocationCallOrder[0]).toBeLessThan(mock.signOut.mock.invocationCallOrder[0]);
+});
+
+it("does not revive an offline automatic import after remote permission off and on", async () => {
+  mock.saved = { ...emptyState(), bootstrap, outbox: [
+    { id: "old-automatic", generation: 1, type: "import", record_id: "original", files: [], automatic: true, automatic_epoch: 0 },
+  ] };
+  mock.api.bootstrap.mockResolvedValue({ ...bootstrap, profile: { ...bootstrap.profile,
+    ai_consent: true, auto_process_shares: true, auto_process_epoch: 1 } });
+  mock.api.import = vi.fn();
+  await mount();
+  expect(mock.api.import).not.toHaveBeenCalled();
+  expect(baby.state.outbox).toHaveLength(0);
+});
+
+it("continues original and journal saves when automatic imports hit a quota", async () => {
+  const { ApiError } = await import("./api");
+  const profile = { ...bootstrap.profile, ai_consent: true, auto_process_shares: true, auto_process_epoch: 1 };
+  mock.api.bootstrap.mockResolvedValue({ ...bootstrap, profile });
+  const source = (id: string) => ({ ...row(id), kind: "source" as const, data: { status: "saved" } });
+  mock.saved = { ...emptyState(), bootstrap: { ...bootstrap, profile }, outbox: [
+    { id: "save-A", generation: 1, type: "save", record: source("A"), files: [] },
+    { id: "import-A", generation: 1, type: "import", record_id: "A", files: [], automatic: true, automatic_epoch: 1 },
+    { id: "save-B", generation: 1, type: "save", record: source("B"), files: [] },
+    { id: "import-B", generation: 1, type: "import", record_id: "B", files: [], automatic: true, automatic_epoch: 1 },
+    { id: "journal-save", generation: 1, type: "save", record: { ...row("journal"), kind: "journal" }, files: [] },
+  ] };
+  mock.api.import = vi.fn().mockRejectedValue(new ApiError("Daily allowance reached", 429));
+  await mount();
+  expect(mock.api.import).toHaveBeenCalledOnce();
+  expect(mock.api.save.mock.calls.map(([record]: [BabyRecord]) => record.id)).toEqual(["A", "B", "journal"]);
+  expect(baby.state.outbox.map(m => m.id)).toEqual(["import-A", "import-B"]);
+});
+it("refreshes persisted native progress and its source when processing finishes", async () => {
+  mock.saved = { ...emptyState(), bootstrap, imports: [{ id: "capture", record_id: "source", status: "queued" }] };
+  mock.api.job = vi.fn(async () => ({ id: "capture", record_id: "source", status: "ready" }));
+  mock.api.record = vi.fn(async () => ({ ...row("source"), kind: "source", data: { status: "ready", summary: "Extracted takeaway" } }));
+  await mount();
+  expect(baby.state.imports[0].status).toBe("ready");
+  expect(baby.records.find(r => r.id === "source")?.data.summary).toBe("Extracted takeaway");
+});
+it("retains terminal polling until the updated source is safely persisted", async () => {
+  const { ApiError } = await import("./api");
+  const original = { ...row("source"), kind: "source" as const, data: { status: "queued" } };
+  mock.saved = { ...emptyState(), bootstrap, records: [original],
+    imports: [{ id: "capture", record_id: "source", status: "queued" }] };
+  mock.api.job = vi.fn(async () => ({ id: "capture", record_id: "source", status: "ready" }));
+  mock.api.record = vi.fn().mockRejectedValueOnce(new ApiError("Temporary failure", 503))
+    .mockResolvedValue({ ...original, revision: 3, data: { status: "ready", summary: "Useful result" } });
+  await mount();
+  expect(baby.state.imports[0].status).toBe("queued");
+  expect(baby.records.find(r => r.id === "source")?.data.summary).toBeUndefined();
+  await act(async () => { await baby.sync(); });
+  expect(baby.state.imports[0].status).toBe("ready");
+  expect(baby.records.find(r => r.id === "source")?.data.summary).toBe("Useful result");
 });
