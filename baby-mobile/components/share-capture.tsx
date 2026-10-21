@@ -1,176 +1,123 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Alert, AppState, Platform } from "react-native";
-import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useShareIntentContext } from "expo-share-intent";
 import { useBaby } from "@/lib/context";
 import { preserveFile, removeLocal } from "@/lib/files";
-import type { EditorDraft, LocalFile } from "@/lib/models";
-import {
-  acknowledgeShare,
-  nativeSharingAvailable,
-  pendingShare,
-  type NativeShare,
-} from "@/modules/hafa-baby-share/src";
+import { addMutation } from "@/lib/outbox";
+import type { LocalFile, Mutation, Profile } from "@/lib/models";
+import { stockShareScope } from "../lib/stock-share-scope";
+import { useShareSession } from "@/lib/use-share-session";
+import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
+
+// Match Python's strip/splitlines/code-point slicing at the idempotent wire
+// boundary, including emoji and Unicode separators in shared captions.
+export function sharedSourceTitle(text?: string) {
+  const blank = "\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+  const stripped = (text ?? "").replace(new RegExp(`^[${blank}]+|[${blank}]+$`, "g"), "");
+  return Array.from(stripped.split(/\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]/)[0]).slice(0, 100).join("") || "Saved source";
+}
+
+/** Ordinary captures go straight into the encrypted durable outbox. Native
+ * originals remain until the exact capture, including every file, is committed. */
 export function ShareCapture() {
-  const stock = useShareIntentContext(),
-    b = useBaby(),
-    handling = useRef(""),
-    nativeRequest = useRef(0),
-    mounted = useRef(false),
-    [retry, setRetry] = useState(0),
-    [native, setNative] = useState<NativeShare | null>(null);
+  useShareSession();
+  const b = useBaby(), stock = useShareIntentContext();
+  const account = useRef(b);
+  account.current = b;
   useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const ticket = ++nativeRequest.current;
-      if (Platform.OS === "ios" && nativeSharingAvailable) {
-        try {
-          const p = await pendingShare();
-          if (!active || ticket !== nativeRequest.current) return;
-          setNative(p);
-        } catch {
-          return;
+    let alive = true, running = false;
+    const drain = async () => {
+      if (running) return;
+      running = true;
+      try {
+        while (alive) {
+          const baby = account.current, bootstrap = baby.state.bootstrap;
+          if (!baby.ready || !baby.owner || !bootstrap || bootstrap.active === false || !baby.current()) return;
+          const owner = baby.owner, generation = bootstrap.generation;
+          const current = () => alive && baby.current() && account.current.owner === owner &&
+            account.current.state.bootstrap?.generation === generation;
+          const native = Platform.OS === "ios" && nativeSharingAvailable ? await pendingShare() : null;
+          if (!current()) return;
+          if (Platform.OS === "ios" && nativeSharingAvailable && !native) return;
+          if (native && native.scope !== `${owner}:${generation}`) return;
+          if (!native && !stock.hasShareIntent) return;
+          if (!native && !stockShareScope.allow(stock.shareIntent, owner, generation)) return;
+          if (native?.status) {
+            // Persist progress discovery before retiring the native receipt.
+            if (native.import_id || native.status === "deferred") {
+              const job = { id: native.import_id || native.capture_id, record_id: native.record_id,
+                status: native.status === "deferred" ? "deferred" : "queued" };
+              await baby.commit(state => {
+                if (!current() || state.bootstrap?.generation !== generation) throw Error("Account changed");
+                return state.imports.some(existing => existing.id === job.id) ? state
+                  : { ...state, imports: [job, ...state.imports] };
+              });
+            }
+            if (!acknowledgeShare(native.token)) return;
+            void baby.refresh();
+            void baby.sync();
+            continue;
+          }
+          const shared = native ?? stock.shareIntent;
+          const text = shared.text || undefined;
+          const url = native ? native.url : stock.shareIntent.webUrl || stock.shareIntent.meta?.url ||
+            text?.match(/https?:\/\/[^\s]+/)?.[0];
+          const id = native?.capture_id ?? Crypto.randomUUID();
+          const saveId = `share-save:${id}`;
+          if (baby.state.outbox.some(m => m.id === saveId) || baby.state.records.some(r => r.id === id)) {
+            if (native) { if (!acknowledgeShare(native.token)) return; continue; }
+            stock.resetShareIntent(); return;
+          }
+          const copied: LocalFile[] = [];
+          let committed = false, copiesRetained = false;
+          try {
+            // Refuse the whole handoff if any attachment cannot be preserved.
+            // No supported subset may silently acknowledge discarded originals.
+            for (const file of shared.files ?? []) {
+              copied.push(await preserveFile(owner, { uri: file.path,
+                name: file.fileName ?? undefined, mimeType: file.mimeType }));
+              if (!current()) return;
+            }
+            if (!url && !text?.trim() && !copied.length) return;
+            const occurred_at = native?.occurred_at ?? new Date().toISOString();
+            const profile = bootstrap.profile as Profile & { auto_process_shares?: boolean };
+            const save: Mutation = { id: saveId, generation, type: "save", files: copied,
+              record: { id, kind: "source", title: sharedSourceTitle(text),
+                body: "", child_id: null, occurred_at,
+                data: { url, source_text: text, status: "saved", topics: [] } } };
+            const automatic: Mutation & { automatic: true } = { id, generation, type: "import",
+              record_id: id, files: [], automatic: true, automatic_epoch: native?.automatic_epoch ?? profile.auto_process_epoch ?? 0 };
+            await baby.commit(state => {
+              if (!current() || state.bootstrap?.generation !== generation) throw Error("Account changed");
+              // Retries after an interrupted acknowledgement reuse prior durable
+              // file copies and creation bytes rather than replacing the save.
+              if (state.outbox.some(m => m.id === save.id) || state.records.some(r => r.id === id)) return state;
+              copiesRetained = true;
+              let next = addMutation(state, save);
+              if (profile.ai_consent && profile.auto_process_shares &&
+                (automatic.automatic_epoch ?? 0) === (profile.auto_process_epoch ?? 0)) next = addMutation(next, automatic);
+              return next;
+            });
+            committed = true;
+            if (!current()) return;
+            void baby.sync();
+            if (native) { if (!acknowledgeShare(native.token)) return; }
+            else { stock.resetShareIntent(); return; }
+          } finally {
+            // On failure the native namespace still owns the originals. Existing
+            // outbox saves own prior copies when replaying an interrupted ack.
+            if (!committed || !copiesRetained) await Promise.allSettled(copied.map(file => removeLocal(owner, file.uri)));
+          }
         }
-      }
-      if (active && ticket === nativeRequest.current) setRetry((value) => value + 1);
+      } catch {
+        if (alive) Alert.alert("Your shared source is still on this phone",
+          "Håfa Baby could not finish saving every item. Your original capture is kept; reopen the app to try again.");
+      } finally { running = false; }
     };
-    void load();
-    const app = AppState.addEventListener("change", (s) => {
-      if (s === "active") void load();
-    });
-    return () => {
-      active = false;
-      nativeRequest.current++;
-      app.remove();
-    };
-  }, [b.owner]);
-  const shared = native
-    ? {
-        webUrl: native.url,
-        text: native.text,
-        files: native.files.map((f) => ({ ...f, path: f.path })),
-        meta: { url: native.url },
-      }
-    : stock.shareIntent;
-  const has = Platform.OS === "ios" && nativeSharingAvailable ? !!native : stock.hasShareIntent;
-  const fingerprint = native?.token ?? JSON.stringify([shared.webUrl, shared.text, shared.files?.map((f) => f.path)]);
-  useEffect(() => {
-    if (!has || !b.ready || !b.owner || b.state.bootstrap?.active === false || handling.current === fingerprint) return;
-    handling.current = fingerprint;
-    const captured = b.owner,
-      current = () => mounted.current && b.current(),
-      key = "share:" + fingerprint;
-    const discard = () => {
-      void (async () => {
-        if (!current()) return;
-        try {
-          if (native) {
-            if (!acknowledgeShare(native.token)) throw Error("Share changed");
-            const ticket = ++nativeRequest.current;
-            const next = await pendingShare();
-            if (!current() || ticket !== nativeRequest.current) return;
-            setNative(next);
-          } else stock.resetShareIntent();
-          // Saved drafts own their copies; discarding only retires the incoming share.
-          handling.current = "";
-        } catch {
-          if (current()) Alert.alert("Share could not be discarded", "Try discarding it again when you return to Håfa Baby.");
-          handling.current = "";
-        }
-      })();
-    };
-    Alert.alert(
-      "Save this shared source?",
-      "Save it privately to the Håfa Baby account you are using now. Nothing is sent to AI until you choose to process it.",
-      [
-        {
-          text: "Later",
-          style: "cancel",
-          onPress: () => {
-            handling.current = "";
-          },
-        },
-        { text: "Discard share", style: "destructive", onPress: discard },
-        {
-          text: "Review source",
-          onPress: () => {
-            void (async () => {
-              const copied: LocalFile[] = [];
-              let committed = false;
-              try {
-                if (!current()) return;
-                let draft = b.state.drafts[key];
-                if (!draft) {
-                  const id = Crypto.randomUUID(),
-                    url = shared.webUrl ?? shared.meta?.url ?? shared.text?.match(/https?:\/\/[^\s]+/)?.[0] ?? "";
-                  draft = {
-                    id,
-                    kind: "source",
-                    title: "",
-                    body: shared.text ?? "",
-                    child_id: b.state.selectedChild,
-                    occurred_at: new Date().toISOString(),
-                    data: { url, topics: [] },
-                    files: [],
-                  };
-                  let skipped = 0;
-                  for (const f of shared.files ?? []) {
-                    try {
-                      const file = await preserveFile(captured, {
-                        uri: f.path, name: f.fileName ?? undefined, mimeType: f.mimeType,
-                      });
-                      copied.push(file);
-                      draft.files.push(file);
-                    } catch (error) {
-                      const code = (error as { code?: string }).code;
-                      if (code !== "unsupported_file" && code !== "file_too_large") throw error;
-                      skipped++;
-                    }
-                  }
-                  if (!current()) return;
-                  if (!draft.files.length && !draft.body.trim() && !url)
-                    throw Error("Share an image, PDF, audio or video smaller than 25 MB, or a website link.");
-                  await b.saveDraft(key, draft);
-                  committed = true;
-                  if (skipped && current()) Alert.alert("Some attachments were left out",
-                    "Your supported files, link and notes were kept. Attachments must be an image, PDF, audio or video smaller than 25 MB.");
-                }
-                if (!current()) return;
-                if (native) {
-                  const acknowledged = acknowledgeShare(native.token);
-                  const ticket = ++nativeRequest.current;
-                  const next = await pendingShare();
-                  if (!current()) return;
-                  if (ticket === nativeRequest.current) setNative(next);
-                  if (!acknowledged) handling.current = "";
-                } else stock.resetShareIntent();
-                router.push({ pathname: "/edit", params: { draft: key, kind: "source" } });
-              } catch (error) {
-                if (current())
-                  Alert.alert(
-                    "Your share needs another try",
-                    error instanceof Error && error.message.startsWith("Share an image")
-                      ? error.message
-                      : "Your source is still available. Try again, or reopen Håfa Baby to continue.",
-                    [{ text: "Later", style: "cancel" }, { text: "Discard share", style: "destructive", onPress: discard },
-                      { text: "Try again", onPress: () => {
-                      if (current()) setRetry((value) => value + 1);
-                    } }]
-                  );
-                handling.current = "";
-              } finally {
-                if (!committed) await Promise.allSettled(copied.map((file) => removeLocal(captured, file.uri)));
-              }
-            })();
-          },
-        },
-      ]
-    );
-  }, [has, fingerprint, b.ready, b.owner, b.state.bootstrap?.active, retry]);
+    void drain();
+    const app = AppState.addEventListener("change", state => { if (state === "active") void drain(); });
+    return () => { alive = false; app.remove(); };
+  }, [b.ready, b.owner, b.state.bootstrap?.generation, stock.hasShareIntent, b.state.bootstrap?.active]);
   return null;
 }

@@ -15,6 +15,7 @@ import { careSummary, defaultChild, friendlyTime, isCare } from "@/lib/care-form
 import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
+import { keepDraft } from "../lib/draft-content";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -40,6 +41,7 @@ function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): Edit
 }
 /** An untitled journal entry or question is listed by its first words. */
 function firstLine(d: EditorDraft) {
+  if (d.kind === "source") return [...(d.data.source_text || d.body).trim().split(/\r?\n/)[0]].slice(0, 100).join("");
   if (d.kind !== "journal" && d.kind !== "question") return "";
   // Count characters, not UTF-16 units, so an emoji is never cut in half.
   const line = [...d.body.trim().split("\n")[0].trim()];
@@ -59,7 +61,8 @@ export default function Edit() {
   const latest = useRef<EditorDraft | null>(null),
     loaded = useRef(false),
     retired = useRef(false),
-    working = useRef(false);
+    working = useRef(false),
+    changed = useRef(false);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -87,7 +90,7 @@ export default function Edit() {
     })();
     return () => {
       active = false;
-      if (!retired.current && latest.current) void b.saveDraft(slot, latest.current).catch(() => undefined);
+      if (!retired.current && latest.current) void b.saveDraft(slot, keepDraft(latest.current, changed.current) ? latest.current : null).catch(() => undefined);
     };
   }, [slot]);
   useEffect(() => {
@@ -96,8 +99,8 @@ export default function Edit() {
     const timer = setTimeout(() => {
       if (retired.current) return;
       void b
-        .saveDraft(slot, draft)
-        .then(() => setSaved(true))
+        .saveDraft(slot, keepDraft(draft, changed.current) ? draft : null)
+        .then(() => setSaved(keepDraft(draft, changed.current)))
         .catch((e) => setError(messageFor(e)));
     }, 400);
     return () => clearTimeout(timer);
@@ -105,11 +108,12 @@ export default function Edit() {
   useEffect(() => {
     const app = AppState.addEventListener("change", (s) => {
       if (s !== "active" && !retired.current && latest.current)
-        void b.saveDraft(slot, latest.current).catch(() => undefined);
+        void b.saveDraft(slot, keepDraft(latest.current, changed.current) ? latest.current : null).catch(() => undefined);
     });
     return () => app.remove();
   }, [slot]);
   function change(value: Partial<EditorDraft>) {
+    changed.current = true;
     setDraft((d) => {
       if (!d) return d;
       const next = { ...d, ...value };
@@ -212,24 +216,20 @@ export default function Edit() {
           "Enable optional AI processing in Settings before organizing sources with AI. You can save the source without AI."
         );
       const { files, existing: _, revision, ...record } = d;
-      const mutation: Mutation = process
-        ? {
-            id: d.id,
-            generation,
-            type: "import",
-            url: d.data.url || undefined,
-            text: [d.title, d.body, d.data.source_text].filter(Boolean).join("\n\n") || undefined,
-            files,
-            child_id: d.child_id,
-            topics: d.data.topics,
-          }
-        : {
-            id: Crypto.randomUUID(),
-            generation,
-            type: "save",
-            record: { ...record, title: d.title.trim() || firstLine(d) || kindName[d.kind], ...(revision ? { revision } : {}) },
-            files,
-          };
+      const automatic = !d.existing && d.kind === "source" &&
+        !!b.state.bootstrap!.profile.ai_consent && !!b.state.bootstrap!.profile.auto_process_shares;
+      const shouldProcess = d.kind === "source" && (process || automatic);
+      // Keep the original in the durable outbox before its optional import.
+      const mutation: Mutation = {
+        id: Crypto.randomUUID(), generation, type: "save",
+        record: { ...record, title: d.title.trim() || firstLine(d) || (d.kind === "source" ? "Saved source" : kindName[d.kind]),
+          data: d.kind === "source" ? { ...d.data, source_text: d.data.source_text || d.body || undefined } : d.data,
+          ...(revision ? { revision } : {}) }, files,
+      };
+      const importMutation: Mutation | undefined = shouldProcess ? {
+        id: Crypto.randomUUID(), generation, type: "import", record_id: d.id,
+        ...(automatic && !process ? { automatic: true, automatic_epoch: b.state.bootstrap!.profile.auto_process_epoch ?? 0 } : {}), files: [],
+      } : undefined;
       retired.current = true;
       try {
         await b.commit((s) => {
@@ -248,7 +248,8 @@ export default function Edit() {
                   files: mutation.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
                 }
               : mutation;
-          return { ...addMutation(s, prepared), drafts };
+          const saved = addMutation(s, prepared);
+          return { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts };
         });
       } catch (failure) {
         retired.current = false;
@@ -274,18 +275,18 @@ export default function Edit() {
         return;
       }
       toast(
-        process
+        shouldProcess
           ? "Source saved. Processing can continue in the background."
           : b.online
             ? "Saved. Your changes are syncing."
             : "Saved privately on this device."
       );
       void b.sync();
-      router.dismissTo(process ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
+      router.dismissTo(shouldProcess ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
     });
   }
   // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
-  const writing = !!draft && (draft.kind === "journal" || draft.kind === "question");
+  const writing = !!draft && (draft.kind === "journal" || draft.kind === "question" || draft.kind === "source");
   const notesField = draft && ((!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
         <Field
           label={
@@ -317,7 +318,7 @@ export default function Edit() {
         draft.existing
           ? "Edit " + kindName[draft.kind].toLowerCase()
           : draft.kind === "source"
-            ? "Something worth keeping"
+            ? "Save a post"
             : draft.kind === "journal"
               ? "A moment to remember"
               : draft.kind === "question"
@@ -325,10 +326,11 @@ export default function Edit() {
                 : kindName[draft.kind]
       }
       back
+      footer={<Button title={draft.existing ? "Save changes" : draft.kind === "collection" ? "Save category" : draft.kind === "source" ? "Save post" : "Save " + kindName[draft.kind].toLowerCase()} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}
       subtitle={saved ? "Draft saved privately on this device." : "Your draft stays here while you write."}
     >
       {!!error && <Notice error>{error}</Notice>}
-      {b.state.bootstrap!.children.length > 0 && (
+      {(showDetails || !["journal", "question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && (
         <Chips
           value={draft.child_id ?? ""}
           label="Who is this for?"
@@ -342,8 +344,11 @@ export default function Edit() {
           onChange={(id) => change({ child_id: id || null })}
         />
       )}
+      {draft.kind === "source" && <Field label="Original link" purpose="url" value={draft.data.url ?? ""}
+        onChange={(url) => data({ url })} placeholder="https://…" />}
       {writing && notesField}
-      {(!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
+      {writing && <Button variant="ghost" title={showDetails ? "Hide optional details" : "Add photo, title or details"} onPress={() => setShowDetails(!showDetails)} />}
+      {((!["feeding", "sleep", "diaper", "journal", "question", "source"].includes(draft.kind)) || showDetails) && (
         <Field
           label={["feeding", "sleep", "diaper"].includes(draft.kind) ? "Label (optional)" : writing ? "Title (optional)" : "Title"}
           value={draft.title}
@@ -359,7 +364,7 @@ export default function Edit() {
           }
         />
       )}
-      {draft.kind === "journal" && (
+      {draft.kind === "journal" && showDetails && (
         <Choice
           label="My clinician told me this"
           detail="Marks it as a clinician instruction. It’s your label; AI does not verify it."
@@ -372,15 +377,8 @@ export default function Edit() {
           }
         />
       )}
-      {draft.kind === "source" && (
+      {draft.kind === "source" && showDetails && (
         <>
-          <Field
-            label="Original link"
-            purpose="url"
-            value={draft.data.url ?? ""}
-            onChange={(url) => data({ url })}
-            placeholder="https://…"
-          />
           <Field
             label="Topics (separate with commas)"
             value={(draft.data.topics ?? []).join(", ")}
@@ -461,11 +459,11 @@ export default function Edit() {
           onChange={(type) => data({ type: type as RecordData["type"] })}
         />
       )}
-      <DateField
+      {draft.kind !== "collection" && (!writing || showDetails) && <DateField
         label={draft.kind === "sleep" ? "Sleep started" : "Date and time"}
         value={draft.occurred_at}
         onChange={(occurred_at) => change({ occurred_at })}
-      />
+      />}
       {draft.kind === "sleep" && (
         <>
           <Choice
@@ -587,8 +585,8 @@ export default function Edit() {
           onPress={() => setShowDetails(!showDetails)}
         />
       )}
-      {!writing && notesField}
-      {["source", "journal", "question"].includes(draft.kind) && (
+      {!writing && draft.kind !== "collection" && notesField}
+      {(["source", "journal", "question"].includes(draft.kind)) && (!writing || showDetails) && (
         <Section title="Photos & documents">
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
             <Button secondary title="Photos" icon="images-outline" busy={busy} onPress={() => void choose("photo")} />
@@ -624,19 +622,6 @@ export default function Edit() {
           ))}
         </Section>
       )}
-      <Button
-        title={
-          draft.kind === "source"
-            ? "Save source"
-            : draft.existing
-              ? "Save changes"
-              : "Save " + kindName[draft.kind].toLowerCase()
-        }
-        icon="checkmark"
-        size="lg"
-        busy={busy}
-        onPress={() => void save()}
-      />
       {draft.kind === "source" && !draft.existing && (
         <>
           <Button

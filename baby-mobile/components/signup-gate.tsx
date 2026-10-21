@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PropsWithChildren } from "react";
 import { useAuth, useClerk } from "@clerk/expo";
 import { ApiError, createBabyApi } from "../lib/api";
 import { configuration } from "../lib/config";
+import { revokeShareSession } from "../lib/share-session-state";
 import { signupSetup } from "../lib/signup-setup";
 import { Button, Loading, Notice, Screen } from "./ui";
 
@@ -54,6 +55,7 @@ export function SignupGate({ children }: PropsWithChildren) {
       working = true; setBusy(true); setError("");
       try {
         // Retain exact-user provenance so a later session can explicitly finish setup.
+        await revokeShareSession();
         await clerk.signOut();
         await signupSetup.clear(sessionId, userId);
       } catch {

@@ -124,3 +124,17 @@ describe("offline attachment ancestry", () => {
     });
   });
 });
+
+
+import { createStockShareScope } from "./stock-share-scope";
+it("quarantines ownerless stock shares and fences account and generation changes", () => {
+  const scope = createStockShareScope(), anonymous = {}, signedIn = {};
+  scope.observe(anonymous, null);
+  scope.observe(anonymous, "issuer:account-A");
+  expect(scope.allow(anonymous, "stable-A", 1)).toBe(false);
+  scope.observe(signedIn, "issuer:account-A");
+  expect(scope.allow(signedIn, "stable-A", 1)).toBe(true);
+  expect(scope.allow(signedIn, "stable-A", 2)).toBe(false);
+  scope.observe(signedIn, "issuer:account-B");
+  expect(scope.allow(signedIn, "stable-B", 1)).toBe(false);
+});

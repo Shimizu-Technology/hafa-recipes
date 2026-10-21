@@ -28,6 +28,8 @@ vi.mock("@/lib/outbox", () => import("./outbox"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
+vi.mock("../lib/stock-share-scope", () => ({ stockShareScope: { allow: () => true } }));
+vi.mock("@/lib/use-share-session", () => ({ useShareSession: vi.fn() }));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/files", () => ({ preserveFile: scope.copy, removeLocal: scope.remove }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
@@ -38,10 +40,10 @@ vi.mock("@/modules/hafa-baby-share/src", () => ({
 }));
 vi.mock("@/components/ui", () => ({
   Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field",
-  Loading: "Loading", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => scope.toast,
+  Loading: "Loading", Notice: "Notice", Screen: ({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) => React.createElement("Screen", null, children, footer), Section: "Section", useToast: () => scope.toast,
 }));
 import Edit from "../app/edit";
-import { ShareCapture } from "../components/share-capture";
+import { ShareCapture, sharedSourceTitle } from "../components/share-capture";
 let renderer: ReactTestRenderer | undefined;
 function held<T>() { let release!: (value: T) => void; const promise = new Promise<T>((resolve) => { release = resolve; }); return { promise, release }; }
 function setup() {
@@ -59,6 +61,7 @@ function setup() {
         account.state = { ...account.state, drafts };
       }); return writes;
     }),
+    refresh: vi.fn(),
     holdCommit: (gate: Promise<void>) => { commitGate = gate; }, sync: vi.fn(), retire: () => { active = false; }, drain: () => writes,
   };
   scope.account = account;
@@ -72,12 +75,8 @@ async function press(text: string) {
   expect(button, text).toBeDefined();
   await act(async () => { button.props.onPress(); });
 }
-async function alertPress(title: string, text: string) {
-  const alert = [...scope.alerts].reverse().find((item) => item.title === title);
-  expect(alert, title).toBeDefined();
-  await act(async () => { alert!.buttons.find((item) => item.text === text)!.onPress?.(); });
-}
-const payload = (token = "capture-A", files: unknown[] = []) => ({ token, url: "https://example.test/advice", text: "Saved tip", files });
+const payload = (token = "capture-A", files: unknown[] = []) => ({ token, capture_id: token, record_id: token,
+  scope: "disposable-local-parent:1", occurred_at: "2026-10-21T07:50:00.123Z", url: "https://example.test/advice", text: "Saved tip", files });
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); scope.alerts = []; scope.native = true;
   scope.stock = { hasShareIntent: false, shareIntent: { webUrl: "", text: "", files: [] } };
@@ -112,142 +111,111 @@ it("resumes draft protection when the save commit fails", async () => {
   expect(account.state.drafts["new:journal"].body).toBe("Keep this after failure");
   expect(scope.dismiss).not.toHaveBeenCalled();
 });
-it("reoffers a deferred native share on foreground without immediately repeating Later", async () => {
-  setup(); scope.pending.mockResolvedValue(payload()); await mount(ShareCapture);
-  await alertPress("Save this shared source?", "Later"); expect(scope.alerts).toHaveLength(1);
-  await act(async () => scope.foreground?.("active"));
-  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(2);
+it("keeps Unicode caption titles identical to the restricted API creation hash", () => {
+  expect(sharedSourceTitle("  " + "🍼".repeat(101) + "\nMore")).toBe("🍼".repeat(100));
+  expect(sharedSourceTitle("\u0085  First line\u2028Second line ")).toBe("First line");
+  expect(sharedSourceTitle("\ufeffKeep this character")).toBe("\ufeffKeep this character");
 });
-it("waits for the newest native payload before reoffering a deferred capture", async () => {
+it("never adds stale stock-intent URLs to a native text-only capture", async () => {
+  const account = setup(); scope.stock.shareIntent.webUrl = "https://example.test/earlier-account-source";
+  scope.pending.mockResolvedValueOnce({ ...payload(), url: undefined, text: "Text-only capture" });
+  await mount(ShareCapture);
+  const saved = account.state.outbox[0];
+  expect(saved.type === "save" && saved.record.data.url).toBeUndefined();
+  expect(saved.type === "save" && saved.record.data.source_text).toBe("Text-only capture");
+});
+it("automatically saves an ordinary source without a draft, editor, modal or AI", async () => {
   const account = setup(); scope.pending.mockResolvedValueOnce(payload()); await mount(ShareCapture);
-  await alertPress("Save this shared source?", "Later");
-  const newer = held<ReturnType<typeof payload>>(); scope.pending.mockReturnValueOnce(newer.promise);
-  await act(async () => scope.foreground?.("active")); expect(scope.alerts).toHaveLength(1);
-  await act(async () => newer.release(payload("capture-B")));
-  await alertPress("Save this shared source?", "Review source");
-  expect(Object.keys(account.state.drafts)).toEqual(["share:capture-B"]);
-  expect(scope.acknowledge).toHaveBeenCalledWith("capture-B");
+  expect(account.state.outbox).toHaveLength(1);
+  expect(account.state.outbox[0]).toMatchObject({ id: "share-save:capture-A", type: "save", generation: 1,
+    record: { id: "capture-A", kind: "source", title: "Saved tip", body: "", child_id: null,
+      occurred_at: "2026-10-21T07:50:00.123Z", data: { url: "https://example.test/advice", source_text: "Saved tip", status: "saved" } } });
+  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
+  expect(account.state.drafts).toEqual({}); expect(scope.alerts).toEqual([]);
+  expect(scope.push).not.toHaveBeenCalled(); expect(account.sync).toHaveBeenCalled();
 });
-it("reoffers a stock share on foreground too", async () => {
-  setup(); scope.native = false; scope.stock.hasShareIntent = true; scope.stock.shareIntent.text = "A useful tip";
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Later");
-  await act(async () => scope.foreground?.("active")); expect(scope.alerts).toHaveLength(2);
+it("drains every queued native capture in order", async () => {
+  const account = setup(); scope.pending.mockResolvedValueOnce(payload("A")).mockResolvedValueOnce(payload("B"));
+  await mount(ShareCapture);
+  expect(account.state.outbox.map(m => m.id)).toEqual(["share-save:A", "share-save:B"]);
+  expect(scope.acknowledge.mock.calls.map(call => call[0])).toEqual(["A", "B"]);
 });
-it("keeps supported files and URL/text when another attachment is unsupported", async () => {
+it.each([[true, false, 1], [false, true, 1], [true, true, 2]])(
+  "requires both AI permission %s and share opt-in %s before adding automatic work", async (ai, auto, count) => {
+    const account = setup(); Object.assign(account.state.bootstrap!.profile, { ai_consent: ai, auto_process_shares: auto });
+    scope.pending.mockResolvedValueOnce(payload()); await mount(ShareCapture);
+    expect(account.state.outbox).toHaveLength(count);
+    if (count === 2) expect(account.state.outbox[1]).toEqual({ id: "capture-A", generation: 1,
+      type: "import", record_id: "capture-A", files: [], automatic: true, automatic_epoch: 0 });
+  });
+it("does not copy or queue a source with an exact durable server receipt", async () => {
+  const account = setup(); scope.pending.mockResolvedValueOnce({ ...payload(), status: "deferred" });
+  await mount(ShareCapture);
+  expect(account.state.outbox).toEqual([]); expect(scope.copy).not.toHaveBeenCalled();
+  expect(account.state.imports).toEqual([{ id: "capture-A", record_id: "capture-A", status: "deferred" }]);
+  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A"); expect(account.refresh).toHaveBeenCalled();
+});
+it.each(["different-owner:1", "disposable-local-parent:2", undefined])(
+  "never borrows a capture from another or unknown owner/generation %s", async scopeId => {
+    const account = setup(); scope.pending.mockResolvedValueOnce({ ...payload(), scope: scopeId });
+    await mount(ShareCapture);
+    expect(account.state.outbox).toEqual([]); expect(scope.acknowledge).not.toHaveBeenCalled();
+  });
+it("never acknowledges a supported subset when another attachment is refused", async () => {
   const account = setup(); scope.pending.mockResolvedValueOnce(payload("mixed", [
+    { path: "file:///a.png", fileName: "a.png", mimeType: "image/png" },
     { path: "file:///a.zip", fileName: "a.zip", mimeType: "application/zip" },
-    { path: "file:///a.png", fileName: "a.png", mimeType: "image/png" },
-  ]));
-  scope.copy.mockRejectedValueOnce(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
-  expect(account.state.drafts["share:mixed"]).toMatchObject({ body: "Saved tip", data: { url: "https://example.test/advice" } });
-  expect(account.state.drafts["share:mixed"].files).toHaveLength(1);
-  expect(scope.alerts.some((item) => item.title === "Some attachments were left out")).toBe(true);
-  expect(scope.remove).not.toHaveBeenCalled(); expect(scope.acknowledge).toHaveBeenCalledWith("mixed");
-});
-it("cleans uncommitted copies on failed draft persistence and lets the same token retry", async () => {
-  const account = setup(); scope.pending.mockResolvedValue(payload("failed", [{ path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
-  account.saveDraft.mockRejectedValueOnce(Error("Storage full"));
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
-  expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
-  expect(scope.acknowledge).not.toHaveBeenCalled();
-  await alertPress("Your share needs another try", "Try again");
-  await alertPress("Save this shared source?", "Review source");
-  expect(account.state.drafts["share:failed"].files).toHaveLength(1);
-});
-it("never removes files owned by a saved draft when acknowledgement fails", async () => {
-  const account = setup(); scope.pending.mockResolvedValue(payload("saved", [{ path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
-  scope.acknowledge.mockImplementationOnce(() => { throw Error("Native bridge unavailable"); });
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
-  expect(account.state.drafts["share:saved"].files).toHaveLength(1);
-  expect(scope.remove).not.toHaveBeenCalled();
-});
-it("cleans a late private copy after its account retires without saving or acknowledging", async () => {
-  const account = setup(), copying = held<LocalFile>();
-  scope.pending.mockResolvedValue(payload("late", [{ path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
-  scope.copy.mockReturnValueOnce(copying.promise);
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source"); account.retire();
-  await act(async () => copying.release({ id: "a", uri: "file:///private/a.png", name: "a.png", mime_type: "image/png" }));
-  expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
-  expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.acknowledge).not.toHaveBeenCalled();
-});
-it("retains an unsupported-only share rather than acknowledging an empty draft", async () => {
-  const account = setup(); scope.pending.mockResolvedValue({ token: "unsupported", url: "", text: "", files: [{ path: "file:///a.zip" }] });
-  scope.copy.mockRejectedValue(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
-  expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.acknowledge).not.toHaveBeenCalled();
-  expect(scope.alerts.at(-1)?.title).toBe("Your share needs another try");
-});
-
-it("discards unsupported native input without repeating on foreground or touching saved drafts", async () => {
-  const account = setup();
-  account.state.drafts["share:unsupported"] = { id: "saved", kind: "source", title: "Keep", body: "", child_id: null, occurred_at: "2026-10-20", data: {}, files: [{ id: "a", uri: "file:///private/a.png", name: "a.png", mime_type: "image/png" }] };
-  scope.pending.mockResolvedValue({ token: "unsupported", url: "", text: "", files: [{ path: "file:///a.zip" }] });
-  await mount(ShareCapture);
-  // The initial prompt can discard even when a previous review already saved a draft.
-  scope.pending.mockResolvedValue(null);
-  await alertPress("Save this shared source?", "Discard share");
-  await act(async () => scope.foreground?.("active"));
-  expect(scope.acknowledge).toHaveBeenCalledWith("unsupported");
-  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
-  expect(account.state.drafts["share:unsupported"].files).toHaveLength(1);
-  expect(scope.remove).not.toHaveBeenCalled();
-});
-it("discards an unsupported-only native token from the error without a later foreground prompt", async () => {
-  const account = setup(); scope.pending.mockResolvedValue({ token: "unsupported", url: "", text: "", files: [{ path: "file:///a.zip" }] });
-  scope.copy.mockRejectedValue(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
-  scope.pending.mockResolvedValue(null);
-  await alertPress("Your share needs another try", "Discard share");
-  await act(async () => scope.foreground?.("active"));
-  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("unsupported");
-  expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.remove).not.toHaveBeenCalled();
-  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
-});
-it.each(["Discard share", "Review source"])("keeps a newer foreground share when an older %s refresh resolves last", async (action) => {
-  const account = setup(); scope.pending.mockResolvedValueOnce(payload("capture-A"));
-  await mount(ShareCapture);
-  const older = held<ReturnType<typeof payload> | null>(), newer = held<ReturnType<typeof payload> | null>();
-  scope.pending.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
-  await alertPress("Save this shared source?", action);
-  await act(async () => scope.foreground?.("active"));
-  await act(async () => newer.release(payload("capture-B")));
-  await act(async () => older.release(null));
-  await alertPress("Save this shared source?", "Later");
-  // A retained Alert callback alone could still save B after state was erased.
-  // Re-entering readiness must offer the still-current payload again, without a native reload.
-  account.ready = false;
-  await act(async () => renderer!.update(React.createElement(ShareCapture)));
-  account.ready = true;
-  await act(async () => renderer!.update(React.createElement(ShareCapture)));
-  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(3);
-  await alertPress("Save this shared source?", "Review source");
-  expect(account.state.drafts["share:capture-B"]).toBeDefined();
-  expect(scope.acknowledge).toHaveBeenLastCalledWith("capture-B");
-  expect(scope.remove).not.toHaveBeenCalled();
-});
-it("offers discard after unsupported-only validation fails and resets stock input too", async () => {
-  setup(); scope.native = false; scope.stock.hasShareIntent = true;
-  scope.stock.shareIntent.files = [{ path: "file:///a.zip" }];
-  scope.copy.mockRejectedValue(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
-  scope.reset.mockImplementation(() => { scope.stock.hasShareIntent = false; });
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
-  await alertPress("Your share needs another try", "Discard share");
-  await act(async () => scope.foreground?.("active"));
-  expect(scope.reset).toHaveBeenCalledTimes(1); expect(scope.acknowledge).not.toHaveBeenCalled();
-  expect(scope.alerts.filter((item) => item.title === "Save this shared source?")).toHaveLength(1);
-});
-
-it("cleans earlier copies if a later supported file fails to copy", async () => {
-  const account = setup(); scope.pending.mockResolvedValue(payload("partial", [
-    { path: "file:///a.png", fileName: "a.png", mimeType: "image/png" },
-    { path: "file:///b.png", fileName: "b.png", mimeType: "image/png" },
   ]));
   scope.copy.mockResolvedValueOnce({ id: "a", uri: "file:///private/a.png", name: "a.png", mime_type: "image/png" })
-    .mockRejectedValueOnce(Error("Interrupted native copy"));
-  await mount(ShareCapture); await alertPress("Save this shared source?", "Review source");
+    .mockRejectedValueOnce(Object.assign(Error("unsupported"), { code: "unsupported_file" }));
+  await mount(ShareCapture);
+  expect(account.state.outbox).toEqual([]); expect(scope.acknowledge).not.toHaveBeenCalled();
   expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
-  expect(account.saveDraft).not.toHaveBeenCalled(); expect(scope.acknowledge).not.toHaveBeenCalled();
+  expect(scope.alerts.at(-1)?.title).toBe("Your shared source is still on this phone");
+});
+it("retains the native original after failed persistence and retries on foreground", async () => {
+  const account = setup(); scope.pending.mockResolvedValue(payload("retry", [
+    { path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
+  account.commit.mockRejectedValueOnce(Error("Device full")); await mount(ShareCapture);
+  expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
+  expect(scope.acknowledge).not.toHaveBeenCalled();
+  scope.pending.mockResolvedValueOnce(payload("retry", [{ path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }])).mockResolvedValue(null);
+  await act(async () => scope.foreground?.("active"));
+  expect(account.state.outbox).toHaveLength(1); expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("retry");
+});
+it("does not duplicate or remove a durable source after interrupted acknowledgement", async () => {
+  const account = setup(); scope.pending.mockResolvedValueOnce(payload("saved", [
+    { path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
+  scope.acknowledge.mockReturnValueOnce(false); await mount(ShareCapture);
+  expect(account.state.outbox).toHaveLength(1); expect(scope.remove).not.toHaveBeenCalled();
+  expect(account.sync).toHaveBeenCalled();
+  scope.pending.mockResolvedValueOnce(payload("saved", [{ path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
+  await act(async () => scope.foreground?.("active"));
+  expect(account.state.outbox).toHaveLength(1); expect(scope.copy).toHaveBeenCalledTimes(1);
+  expect(scope.remove).not.toHaveBeenCalled(); expect(scope.acknowledge).toHaveBeenCalledTimes(2);
+});
+it("cleans a late private copy after account retirement without saving or acknowledging", async () => {
+  const account = setup(), copying = held<LocalFile>();
+  scope.pending.mockResolvedValueOnce(payload("late", [{ path: "file:///a.png", fileName: "a.png", mimeType: "image/png" }]));
+  scope.copy.mockReturnValueOnce(copying.promise); await mount(ShareCapture); account.retire();
+  await act(async () => copying.release({ id: "a", uri: "file:///private/a.png", name: "a.png", mime_type: "image/png" }));
+  expect(scope.remove).toHaveBeenCalledWith(account.owner, "file:///private/a.png");
+  expect(account.state.outbox).toEqual([]); expect(scope.acknowledge).not.toHaveBeenCalled();
+});
+it("does not acknowledge until serialized durable storage completes", async () => {
+  const account = setup(), gate = held<void>(); account.holdCommit(gate.promise);
+  scope.pending.mockResolvedValueOnce(payload()); await mount(ShareCapture);
+  expect(scope.acknowledge).not.toHaveBeenCalled();
+  await act(async () => { gate.release(); await account.drain(); });
+  expect(account.state.outbox).toHaveLength(1); expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
+});
+it("preserves stock link and text without asking for review", async () => {
+  const account = setup(); scope.native = false; scope.stock.hasShareIntent = true;
+  scope.stock.shareIntent = { webUrl: "https://example.test/original", text: "Caption", files: [] };
+  await mount(ShareCapture);
+  expect(account.state.outbox[0]).toMatchObject({ type: "save", record: { data: { url: "https://example.test/original", source_text: "Caption" } } });
+  expect(scope.reset).toHaveBeenCalledExactlyOnceWith(); expect(scope.alerts).toEqual([]);
+  expect(account.sync).toHaveBeenCalled();
 });
 function chips() {
   return renderer!.root.findAll((node) => String(node.type) === "Chips")[0];
@@ -337,4 +305,31 @@ it("prefills the other breast, returns to Today and offers an Undo that removes 
   expect(saved.type).toBe("save");
   expect(removed.type === "delete" && removed.record.id).toBe(saved.type === "save" && saved.record.id);
   scope.params = { kind: "journal" };
+});
+
+it("keeps a native original without processing when its captured permission epoch is retired", async () => {
+  const account = setup();
+  Object.assign(account.state.bootstrap!.profile, { ai_consent: true, auto_process_shares: true, auto_process_epoch: 2 });
+  scope.pending.mockResolvedValueOnce({ ...payload(), automatic_epoch: 1 });
+  await mount(ShareCapture);
+  expect(account.state.outbox).toHaveLength(1);
+  expect(account.state.outbox[0].type).toBe("save");
+});
+
+it("names a pasted source from its first words and saves the complete original", async () => {
+  const account = setup(); Object.assign(scope.params, { kind: "source" });
+  await mount(Edit);
+  const text = "Changing station checklist\nKeep wipes and a spare outfit nearby.";
+  await act(async () => renderer!.root.findAll(node => String(node.type) === "Field" && node.props.label === "Your notes or pasted source text")[0].props.onChange(text));
+  await press("Save post"); await account.drain();
+  expect(account.state.outbox[0]).toMatchObject({ type: "save", record: { title: "Changing station checklist", body: text, data: { source_text: text } } });
+});
+it("persists queued native progress before acknowledging a durable receipt", async () => {
+  const account = setup(), gate = held<void>(); account.holdCommit(gate.promise);
+  scope.pending.mockResolvedValueOnce({ ...payload(), status: "queued", import_id: "capture-A" });
+  await mount(ShareCapture);
+  expect(scope.acknowledge).not.toHaveBeenCalled();
+  await act(async () => { gate.release(); await account.drain(); });
+  expect(account.state.imports).toEqual([{ id: "capture-A", record_id: "capture-A", status: "queued" }]);
+  expect(scope.acknowledge).toHaveBeenCalledExactlyOnceWith("capture-A");
 });
