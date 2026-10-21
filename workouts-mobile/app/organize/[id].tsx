@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import * as Crypto from "expo-crypto";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Choice, Copy, Field, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { tagsFromText, organizationErrors, type Organization } from "@/lib/organization";
@@ -104,8 +104,8 @@ export default function Organize() {
       setDraft(next);
       setMessage(
         organization.archived
-          ? "Archived. You can restore it here or find it with the archive filter."
-          : "Organization saved. Your workout prescription and historical sessions are unchanged."
+          ? "Archived. Find it with the Archived filter in your library, or unarchive it here."
+          : "Saved."
       );
       await invalidate();
     } catch (e) {
@@ -150,7 +150,8 @@ export default function Organize() {
     }
   }
   return (
-    <Screen back title="Organize" subtitle={workout.data?.title}>
+    <Screen back title="Organize" subtitle={workout.data?.title}
+      footer={draft ? <Button title="Save" busy={busy} onPress={() => { void save(); }} /> : undefined}>
       <QueryState
         loading={!loaded || q.isPending}
         error={q.error}
@@ -160,66 +161,54 @@ export default function Organize() {
       >
         {draft && (
           <>
-            <Card>
+            <Choice
+              label="Favorite"
+              detail="Show it under Favorites in your library."
+              selected={draft.organization.favorite}
+              onPress={() => change({ favorite: !draft.organization.favorite })}
+            />
+            <Choice
+              label="Archive"
+              detail="Hide it from your library without deleting it."
+              selected={draft.organization.archived}
+              onPress={() => change({ archived: !draft.organization.archived })}
+            />
+            <Field
+              label="Tags"
+              value={draft.tags_text}
+              onChange={(value) => {
+                if (!busy) setDraft({ ...draft, tags_text: value });
+              }}
+              placeholder="Strength, quick sessions, basketball"
+              optional
+            />
+            <SectionHeader title="Collections"
+              action={busy ? undefined : { label: collections.data?.length ? "Manage" : "New collection", onPress: () => router.push("/collections") }} />
+            {collections.isSuccess && !collections.data.length && <Copy tone="muted">No collections yet.</Copy>}
+            {collections.data?.map((item) => (
               <Choice
-                label="Favorite"
-                detail="Find it quickly with the Favorites filter."
-                selected={draft.organization.favorite}
-                onPress={() => change({ favorite: !draft.organization.favorite })}
+                key={item.id}
+                label={item.title}
+                selected={draft.organization.collection_ids.includes(item.id)}
+                onPress={() =>
+                  change({
+                    collection_ids: draft.organization.collection_ids.includes(item.id)
+                      ? draft.organization.collection_ids.filter((value) => value !== item.id)
+                      : [...draft.organization.collection_ids, item.id],
+                  })
+                }
               />
-              <Choice
-                label="Archive"
-                detail="Keep it saved while hiding it from your default library."
-                selected={draft.organization.archived}
-                onPress={() => change({ archived: !draft.organization.archived })}
-              />
-              <Field
-                label="Tags"
-                value={draft.tags_text}
-                onChange={(value) => {
-                  if (!busy) setDraft({ ...draft, tags_text: value });
-                }}
-                placeholder="Strength, quick sessions, basketball"
-                optional
-              />
-              <Copy kind="label">Collections</Copy>
-              {!collections.data?.length && <Copy>Create a collection to group your workouts.</Copy>}
-              {collections.data?.map((item) => (
-                <Choice
-                  key={item.id}
-                  label={item.title}
-                  selected={draft.organization.collection_ids.includes(item.id)}
-                  onPress={() =>
-                    change({
-                      collection_ids: draft.organization.collection_ids.includes(item.id)
-                        ? draft.organization.collection_ids.filter((value) => value !== item.id)
-                        : [...draft.organization.collection_ids, item.id],
-                    })
-                  }
-                />
-              ))}
-              {collections.error && <Notice error>{collections.error.message}</Notice>}
-              <Button
-                title="Manage collections"
-                secondary
-                disabled={busy}
-                onPress={() => router.push("/collections")}
-              />
-              <Button
-                title="Save organization"
-                busy={busy}
-                onPress={() => {
-                  void save();
-                }}
-              />
-            </Card>
-            {!!message && <Notice>{message}</Notice>}
+            ))}
+            {collections.error && <Notice error>{collections.error.message}</Notice>}
+            {!!message && <Notice tone="success">{message}</Notice>}
             {!!error && (
               <>
                 <Notice error>{error}</Notice>
                 <Button
-                  title="Reload saved choices and discard these edits"
-                  secondary
+                  title="Discard changes and reload"
+                  variant="ghost"
+                  size="sm"
+                  inline
                   disabled={busy}
                   onPress={() => {
                     void q.refetch().then((result) => {
@@ -232,31 +221,27 @@ export default function Organize() {
                 />
               </>
             )}
-            <Card>
-              <Copy kind="heading">Make your own variation</Copy>
-              <Copy>
-                Duplicate the workout, then edit the private copy. Source prescriptions and past sessions keep their
-                original versions.
-              </Copy>
-              <Button
+            <SectionHeader title="Make it your own" />
+            <ListGroup>
+              <ListRow
+                icon="copy-outline"
                 title={
                   draft.duplicate?.copied_id
-                    ? "Open your saved copy"
+                    ? "Open your copy"
                     : draft.duplicate
-                      ? "Retry creating this copy"
+                      ? "Try making the copy again"
                       : "Duplicate workout"
                 }
-                secondary
-                busy={busy}
-                disabled={!workout.data}
+                detail="Edit a copy. The original and past sessions stay the same."
+                disabled={busy || !workout.data}
                 onPress={() => {
                   void duplicate();
                 }}
               />
-              {!!draft.organization.duplicate_of_workout_id && (
-                <Notice>This workout began as a private duplicate of another saved version.</Notice>
-              )}
-            </Card>
+            </ListGroup>
+            {!!draft.organization.duplicate_of_workout_id && (
+              <Copy kind="small" tone="muted">This workout is a copy of another one you saved.</Copy>
+            )}
           </>
         )}
       </QueryState>
