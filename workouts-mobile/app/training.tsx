@@ -2,7 +2,7 @@ import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useReminders } from "@/components/reminders-provider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, Keyboard, Linking } from "react-native";
+import { Alert, AppState, Keyboard, Linking, View } from "react-native";
 import { router } from "expo-router";
 import {
   Button,
@@ -29,10 +29,11 @@ import {
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
-import { remainingSeconds, summaryOf, previousActual, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
+import { remainingSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
-import { NumberStepper } from "@/components/training/number-stepper";
+import { SetNumberField } from "@/components/training/set-entry";
+import { conventionLabel, defaultConvention, feelSummary, loadConventions, previousSessionSets, setsLine } from "@/lib/set-logging";
 import { LastLogged, RestDone, SetProgress, announce } from "@/components/training/session-parts";
 import {
   activityTypes, blockLabel, distanceMeters, entryValues, parseEntry, exerciseSets, inferActivityType, prefillFor, restPhase, sessionPrevious,
@@ -76,7 +77,10 @@ export default function Training() {
   const operation = useRef<object | null>(null);
   const checkpointing = useRef(false);
   const backgroundPausePending = useRef(false);
-  const [advanced, setAdvanced] = useState(false);
+  // Secondary choices live in sheets, so the logging layout stays the same from set to set.
+  const [feelOpen, setFeelOpen] = useState(false);
+  const [metricOpen, setMetricOpen] = useState(false);
+  const [weightOpen, setWeightOpen] = useState(false);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [more, setMore] = useState(false);
   const [finishReview, setFinishReview] = useState(false);
@@ -119,6 +123,7 @@ export default function Training() {
     return () => sub.remove();
   }, [store, scope, d?.id]);
   useLayoutEffect(() => { setFinishReview(false); setBusy(false); setError(""); setMore(false); setInstructionsOpen(false);
+    setFeelOpen(false); setMetricOpen(false); setWeightOpen(false);
     if (d) setSummary(null);
     guard.current = false; operation.current = null; checkpointing.current = false; backgroundPausePending.current = false;
   }, [scope, d?.id]);
@@ -130,7 +135,6 @@ export default function Training() {
   useEffect(() => {
     const exercise = d?.steps[d.cursor]?.exercise;
     setMetric(exercise?.duration_seconds != null ? "time" : exercise?.distance_meters != null ? "distance" : "reps");
-    setAdvanced(false);
     setMoreInstructions(false);
   }, [scope, d?.id, d?.cursor]);
   function field(key: string, value: string) {
@@ -203,13 +207,17 @@ export default function Training() {
   const structureWarning = draftStructureWarning(d);
   const step = d.steps[d.cursor];
   const e = step?.exercise;
-  const previous = step
-    ? previousActual(d.workout, step, [
-        ...effectiveTrainingHistory(state.history, past.data, enrollment?.generation ?? 0, sessionReadStartedAt(past.data))
-          .map((h) => ({ workout: h.workout, actuals: h.request.actuals })),
-      ])
-    : null;
+  const lastSets = step
+    ? previousSessionSets(d.workout, step,
+      effectiveTrainingHistory(state.history, past.data, enrollment?.generation ?? 0, sessionReadStartedAt(past.data))
+        .map((h) => ({ workout: h.workout, actuals: h.request.actuals })))
+    : [];
+  const previous = lastSets.at(-1) ?? null;
   const prefill = e ? prefillFor(e, sessionPrevious(d.actuals, step) ?? previous, units) : {};
+  // A typed weight counts as the workout's kind of weight (else total) unless another kind was chosen.
+  const convention = (values: Record<string, string>) =>
+    ((values.convention || e?.load_convention || defaultConvention) as NonNullable<ActualSet["load_convention"]>);
+  const amountKey = metric === "time" ? "seconds" : metric;
   const unitOf = (values: Record<string, string>) =>
     values.load_unit === "kg" || values.load_unit === "lb" ? values.load_unit : units === "imperial" ? "lb" : "kg";
   const values = entryValues(prefill, input, metric);
@@ -223,7 +231,10 @@ export default function Training() {
       throw Error("This session changed. Review the current session before logging.");
     const submitted = inputRef.current;
     // A logged set saves the values shown (typed or cleared values win); a skip keeps only what was typed.
-    const entry = completed ? entryValues(prefill, submitted, metric) : submitted;
+    const shown = entryValues(prefill, submitted, metric);
+    // Only the measure on screen is saved, so reps typed before switching to time are not logged as well.
+    const hidden = (["reps", "seconds", "distance"] as const).filter((key) => key !== amountKey);
+    const entry = Object.fromEntries(Object.entries(completed ? shown : submitted).filter(([key]) => !hidden.includes(key as never)));
     const optional = (key: string) => parseEntry(entry[key]);
     const load = optional("load");
     const actual: ActualSet = {
@@ -237,8 +248,9 @@ export default function Training() {
       duration_seconds: optional("seconds"),
       distance_meters: distanceMeters(entry, submitted, prefill, units),
       load,
-      load_unit: load == null ? null : unitOf(entry),
-      load_convention: load == null ? null : (entry.convention as ActualSet["load_convention"]) || null,
+      // Unit and kind always match what the weight field shows, including on a skipped set.
+      load_unit: load == null ? null : unitOf(shown),
+      load_convention: load == null ? null : convention(shown),
       difficulty: (submitted.difficulty as ActualSet["difficulty"]) || null,
       effort: optional("effort"),
       pain_reported: submitted.pain === "yes" ? true : submitted.pain === "no" ? false : null,
@@ -305,24 +317,24 @@ export default function Training() {
           : null,
         e.duration_seconds != null ? `${e.duration_seconds}s` : null,
         e.distance_meters != null ? `${e.distance_meters}m` : null,
-      ].filter(Boolean).join(" · ") || "Reps not specified"
-    : "";
-  const details = e
-    ? [
-        e.load != null ? `Load ${e.load}${e.load_unit ? ` ${e.load_unit}` : ""}${e.load_convention ? ` ${e.load_convention.replaceAll("_", " ")}` : ""}` : null,
+        e.load != null ? `${e.load}${e.load_unit ? ` ${e.load_unit}` : ""}${e.load_convention && e.load_convention !== "total" ? ` ${conventionLabel(e.load_convention).toLowerCase()}` : ""}` : null,
         e.tempo ? `Tempo ${e.tempo}` : null,
         e.effort ? `Effort ${e.effort}` : null,
       ].filter(Boolean).join(" · ")
     : "";
+  const lastTime = setsLine(lastSets, units);
   const position = setPosition(d.steps, d.cursor, !!timed);
   const group = step ? blockLabel(step.block_label, step.grouping, d.workout.blocks.length) : null;
   const last = d.actuals.at(-1);
   const lastName = last && d.workout.blocks.find((b) => b.id === last.block_id)?.exercises[last.exercise_index]?.name;
   const canUndo = timed ? d.actuals.length > 0 : d.undo.length > 0;
-  const loadStepper = (
-    <NumberStepper label={`Actual load · ${unit}`} value={values.load ?? ""} decimal step={unit === "kg" ? 2.5 : 5}
-      onChange={(v) => field("load", v)} />
-  );
+  const feel = feelSummary(input);
+  const restAlertsOff = !!reminders.state.error || (reminders.state.settings.rest_enabled && reminders.state.permission !== "granted");
+  const amountField = {
+    reps: { label: "Reps", key: "reps", step: 1, decimal: false },
+    time: { label: "Time · sec", key: "seconds", step: 5, decimal: false },
+    distance: { label: `Distance · ${units === "imperial" ? "mi" : "m"}`, key: "distance", step: units === "imperial" ? 0.1 : 100, decimal: true },
+  }[metric];
   const discard = () =>
     Alert.alert("Discard this session?", "Recorded sets and unsaved notes will be removed from this device.", [
       { text: "Keep training", style: "cancel" },
@@ -340,8 +352,8 @@ export default function Training() {
   return (
     <Screen
       back
-      eyebrow={`${recorded} ${timed ? (recorded === 1 ? "entry" : "entries") : (recorded === 1 ? "set" : "sets")} recorded · saved on this device`}
-      title={d.workout.title}
+      title={e?.name ?? d.workout.title}
+      subtitle={e ? [d.workout.title, group].filter(Boolean).join(" · ") : undefined}
       action={
         <Row gap={8}>
           <IconButton
@@ -362,7 +374,7 @@ export default function Training() {
             onPress={() => { void run(() => finish("completed")); }} />
         ) : step && e ? (
           <Button
-            title={step.side ? `Log ${step.side} side` : timed ? "Log this exercise" : "Log this set"}
+            title={step.side ? `Log ${step.side} side` : timed ? "Log exercise" : "Log set"}
             icon="checkmark"
             size="lg"
             busy={busy}
@@ -405,7 +417,7 @@ export default function Training() {
         </>
       )}
       {timed && <Card compact tone="accent">
-        <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} source time cap</Copy>
+        <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} time cap</Copy>
         <Copy kind="heading">{formatClock(capRemaining ?? 0)}</Copy>
         <Copy kind="small">Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
         {capReached && <Notice>Time’s up. Log any final exercise, then save your session.</Notice>}
@@ -415,12 +427,8 @@ export default function Training() {
         {timedComplete && <ActivityPicker value={activity} onChange={chooseActivity} />}
       </Card>}
       {d.paused && !capReached && (
-        <Notice tone="warning">
-          Your session is paused. Restored sessions resume from the last saved checkpoint; time away is not counted as
-          active training.
-        </Notice>
+        <Notice tone="warning">Paused. Time away isn’t counted as training.</Notice>
       )}
-      {past.error && <Notice>Previous performance could not be refreshed. Any last result shown comes from saved history.</Notice>}
       {phase === "resting" && (
         <Card>
           <RestTimer
@@ -432,6 +440,7 @@ export default function Training() {
               void run(() => store.timer("rest", 0));
             }}
           />
+          {restAlertsOff && <Copy kind="small" tone="muted" align="center">Rest alerts are off on this device. This timer still works.</Copy>}
         </Card>
       )}
       {phase === "done" && (
@@ -450,169 +459,85 @@ export default function Training() {
       )}
       {step && e ? (
         <>
-          <Card compact>
-            <Copy kind="title">{e.name}</Copy>
-            {!!position && <Copy kind="numericSmall">{position}</Copy>}
-            {!!group && <Copy kind="small" tone="muted">{group}</Copy>}
+          <Row gap={12} wrap>
+            {!!position && <Copy kind="label">{position}</Copy>}
             {!timed && <SetProgress sets={exerciseSets(d.steps, d.cursor, d.actuals)} />}
-            <Copy kind="subheading">{target}</Copy>
-            {!!details && <Copy tone="muted">{details}</Copy>}
-            {previous && <Copy tone="muted">Last time · {summaryOf(previous)}</Copy>}
-            {!!e.instructions && (
-              <>
-                <Copy tone="muted" numberOfLines={moreInstructions ? undefined : 2}>{e.instructions}</Copy>
-                {e.instructions.length > 90 && (
-                  <Button title={moreInstructions ? "Less" : "More"} variant="ghost" size="sm" inline
-                    onPress={() => setMoreInstructions(!moreInstructions)} />
-                )}
-              </>
-            )}
-            <Button title="Workout instructions" variant="ghost" onPress={() => setInstructionsOpen(true)} />
-          </Card>
+          </Row>
+          {(!!target || !!lastTime) && (
+            <View style={{ gap: 2 }}>
+              {!!target && <Copy tone="muted">Goal · {target}</Copy>}
+              {!!lastTime && <Copy tone="muted">Last time · {lastTime}{past.error ? " (saved on this device)" : ""}</Copy>}
+            </View>
+          )}
+          <Row gap={12} align="stretch">
+            <SetNumberField
+              label={amountField.label}
+              labelHint="Choose whether to record reps, time or distance"
+              onLabelPress={() => setMetricOpen(true)}
+              step={amountField.step}
+              decimal={amountField.decimal}
+              value={values[amountField.key] ?? ""}
+              onChange={(v) => field(amountField.key, v)}
+            />
+            <SetNumberField
+              label={`Weight · ${unit}`}
+              labelHint="Change kg or lb, or how the weight is counted"
+              onLabelPress={() => setWeightOpen(true)}
+              note={values.load?.trim() && convention(values) !== "total" ? conventionLabel(convention(values)) : undefined}
+              step={unit === "kg" ? 2.5 : 5}
+              decimal
+              value={values.load ?? ""}
+              onChange={(v) => field("load", v)}
+            />
+          </Row>
+          {metric === "time" && (d.interval_started_at != null ? (
+            <Row gap={12}>
+              <Copy kind="numericSmall">{formatClock(interval)}</Copy>
+              <Button
+                title="Use this time"
+                icon="stop-circle-outline"
+                variant="secondary"
+                size="sm"
+                inline
+                disabled={d.paused || !!structureWarning}
+                onPress={() => {
+                  field("seconds", String(interval));
+                  void run(() => store.timer("interval", 0));
+                }}
+              />
+            </Row>
+          ) : (
+            <Button
+              title="Start timer"
+              variant="secondary"
+              size="sm"
+              inline
+              icon="timer-outline"
+              disabled={d.paused || !!structureWarning}
+              onPress={() => {
+                void run(() => store.timer("interval"));
+              }}
+            />
+          ))}
+          <ListRow icon="create-outline" title="Notes & feel" detail={feel ?? "Effort, how it felt, any pain"} onPress={() => setFeelOpen(true)} />
+          {!!e.instructions && (
+            <View style={{ gap: 4 }}>
+              <Copy tone="muted" numberOfLines={moreInstructions ? undefined : 2}>{e.instructions}</Copy>
+              {e.instructions.length > 90 && (
+                <Button title={moreInstructions ? "Less" : "More"} variant="ghost" size="sm" inline
+                  onPress={() => setMoreInstructions(!moreInstructions)} />
+              )}
+            </View>
+          )}
+          <Button title="Workout instructions" variant="ghost" size="sm" inline icon="book-outline" onPress={() => setInstructionsOpen(true)} />
           {e.sets == null && !timed && (
-            <Notice>The source does not specify sets. Log what you do; add another set if you choose additional work.</Notice>
+            <Copy kind="small" tone="muted">No set count given. Log what you do, and add sets from the ··· menu.</Copy>
           )}
           {!!next && (
             <Copy kind="small" tone="muted">
               Up next · {next.name} · set {nextStep!.target_set}
               {nextStep!.side ? ` · ${nextStep!.side} side` : ""}
             </Copy>
-          )}
-          <SectionHeader title="What you actually did" />
-          <Segmented<typeof metric>
-            label="What to record"
-            value={metric}
-            onChange={setMetric}
-            options={[
-              { value: "reps", label: "Reps" },
-              { value: "time", label: "Time" },
-              { value: "distance", label: "Distance" },
-            ]}
-          />
-          {metric === "reps" && (
-            <NumberStepper label="Actual reps" step={1} value={values.reps ?? ""} onChange={(v) => field("reps", v)} />
-          )}
-          {metric === "time" && (
-            <>
-              <NumberStepper label="Actual time · seconds" step={5} value={values.seconds ?? ""}
-                onChange={(v) => field("seconds", v)} />
-              {d.interval_started_at != null ? (
-                <Card tone="sunken" compact>
-                  <Copy kind="numeric">{formatClock(interval)}</Copy>
-                  <Button
-                    title="Use elapsed seconds and stop timer"
-                    secondary
-                    disabled={d.paused || !!structureWarning}
-                    onPress={() => {
-                      field("seconds", String(interval));
-                      void run(() => store.timer("interval", 0));
-                    }}
-                  />
-                </Card>
-              ) : (
-                <Button
-                  title="Start interval timer"
-                  secondary
-                  icon="timer-outline"
-                  disabled={d.paused || !!structureWarning}
-                  onPress={() => {
-                    void run(() => store.timer("interval"));
-                  }}
-                />
-              )}
-            </>
-          )}
-          {metric === "distance" && (
-            <NumberStepper label={`Actual distance · ${units === "imperial" ? "miles" : "metres"}`} decimal
-              step={units === "imperial" ? 0.1 : 100} value={values.distance ?? ""} onChange={(v) => field("distance", v)} />
-          )}
-          {prefill.load != null && loadStepper}
-          <Button
-            title={advanced ? "Hide load and feedback" : "Add load or feedback"}
-            variant="ghost"
-            icon={advanced ? "chevron-up" : "add"}
-            onPress={() => setAdvanced(!advanced)}
-          />
-          {advanced && (
-            <Card>
-              {prefill.load == null && loadStepper}
-              <Segmented<"kg" | "lb">
-                label="Load unit"
-                value={unit}
-                onChange={(value) => field("load_unit", value)}
-                options={[
-                  { value: "kg", label: "kg" },
-                  { value: "lb", label: "lb" },
-                ]}
-              />
-              {!!values.load?.trim() && (
-                <>
-                  <Copy kind="label">How is that load measured?</Copy>
-                  <ChipRow wrap>
-                    {(["total", "per_hand", "added", "assistance"] as const).map((value) => (
-                      <Chip
-                        key={value}
-                        label={
-                          {
-                            total: "Total external load",
-                            per_hand: "Per hand",
-                            added: "Added to bodyweight",
-                            assistance: "Assistance weight",
-                          }[value]
-                        }
-                        selected={values.convention === value}
-                        onPress={() => field("convention", value)}
-                      />
-                    ))}
-                  </ChipRow>
-                </>
-              )}
-              <Field
-                label="Effort · 0 to 10"
-                optional
-                numeric
-                value={input.effort ?? ""}
-                onChange={(v) => field("effort", v)}
-              />
-              <Copy kind="small" tone="muted">
-                0 = no effort · 10 = maximum effort. Leave blank if you prefer.
-              </Copy>
-              <Copy kind="label">How did the set feel?</Copy>
-              <ChipRow wrap>
-                {(["easy", "manageable", "hard"] as const).map((value) => (
-                  <Chip
-                    key={value}
-                    label={value}
-                    selected={input.difficulty === value}
-                    onPress={() => field("difficulty", input.difficulty === value ? "" : value)}
-                  />
-                ))}
-              </ChipRow>
-              <Copy kind="label">Any pain during this set?</Copy>
-              <ChipRow wrap>
-                {(["yes", "no"] as const).map((value) => (
-                  <Chip
-                    key={value}
-                    label={value === "yes" ? "Yes, pain reported" : "No pain reported"}
-                    selected={input.pain === value}
-                    onPress={() => field("pain", input.pain === value ? "" : value)}
-                  />
-                ))}
-              </ChipRow>
-              {input.pain === "yes" && (
-                <Notice tone="warning">
-                  Stop any movement that causes pain. Save a partial session if needed, and follow your professional
-                  guidance.
-                </Notice>
-              )}
-              <Field
-                label="Set notes"
-                optional
-                multiline
-                value={input.notes ?? ""}
-                onChange={(v) => field("notes", v)}
-              />
-            </Card>
           )}
         </>
       ) : (
@@ -628,15 +553,9 @@ export default function Training() {
         </>
       )}
       {!step && <Button title="Workout instructions" variant="ghost" onPress={() => setInstructionsOpen(true)} />}
-      {!!reminders.state.error && (
-        <Notice>Optional rest alert could not be updated. The in-app timer still works. {reminders.state.error}</Notice>
-      )}
-      {reminders.state.settings.rest_enabled && reminders.state.permission !== "granted" && (
-        <Notice>Device rest alerts are unavailable or not permitted. Your in-app timer still works.</Notice>
-      )}
       {!!d.actuals.length && (
         <>
-          <SectionHeader title="Recorded work" />
+          <SectionHeader title="Logged so far" />
           <Card compact>
             {d.actuals.map((a, i) => (
               <SetRow
@@ -670,6 +589,84 @@ export default function Training() {
         )}
         <WorkoutInstructions instructions={d.workout.instructions} />
         {timed && <Copy kind="small" tone="muted">Repeat the circuit until the time cap. Log each exercise as you go; pause when you need to step away.</Copy>}
+      </Sheet>
+      <Sheet visible={metricOpen} onClose={() => setMetricOpen(false)} title="What to record">
+        <Segmented<typeof metric>
+          label="What to record"
+          value={metric}
+          onChange={(value) => { setMetric(value); setMetricOpen(false); }}
+          options={[
+            { value: "reps", label: "Reps" },
+            { value: "time", label: "Time" },
+            { value: "distance", label: "Distance" },
+          ]}
+        />
+        <Copy kind="small" tone="muted">Starts from what this exercise asks for. Changing it applies to this set.</Copy>
+      </Sheet>
+      <Sheet visible={weightOpen} onClose={() => setWeightOpen(false)} title="Weight">
+        <Segmented<"kg" | "lb">
+          label="Weight unit"
+          value={unit}
+          onChange={(value) => field("load_unit", value)}
+          options={[
+            { value: "kg", label: "kg" },
+            { value: "lb", label: "lb" },
+          ]}
+        />
+        <Copy kind="label">How is it counted?</Copy>
+        <ChipRow wrap>
+          {loadConventions.map((option) => (
+            <Chip
+              key={option.value}
+              label={option.label}
+              selected={convention(values) === option.value}
+              onPress={() => field("convention", option.value)}
+            />
+          ))}
+        </ChipRow>
+        {!!values.load?.trim() && (
+          <Button title="No weight for this set" variant="ghost" icon="close-circle-outline" onPress={() => { field("load", ""); setWeightOpen(false); }} />
+        )}
+        <Button title="Done" onPress={() => setWeightOpen(false)} />
+      </Sheet>
+      <Sheet visible={feelOpen} onClose={() => setFeelOpen(false)} title="Notes & feel">
+        <Copy kind="label">How did it feel?</Copy>
+        <ChipRow wrap>
+          {(["easy", "manageable", "hard"] as const).map((value) => (
+            <Chip
+              key={value}
+              label={value.charAt(0).toUpperCase() + value.slice(1)}
+              selected={input.difficulty === value}
+              onPress={() => field("difficulty", input.difficulty === value ? "" : value)}
+            />
+          ))}
+        </ChipRow>
+        <Field
+          label="Effort · 0 to 10"
+          optional
+          numeric
+          value={input.effort ?? ""}
+          onChange={(v) => field("effort", v)}
+        />
+        <Copy kind="small" tone="muted">0 is no effort and 10 is your hardest.</Copy>
+        <Copy kind="label">Any pain?</Copy>
+        <ChipRow wrap>
+          {(["no", "yes"] as const).map((value) => (
+            <Chip
+              key={value}
+              label={value === "yes" ? "Yes" : "No"}
+              selected={input.pain === value}
+              onPress={() => field("pain", input.pain === value ? "" : value)}
+            />
+          ))}
+        </ChipRow>
+        {input.pain === "yes" && (
+          <Notice tone="warning">
+            Stop any movement that causes pain. Save a partial session if needed, and follow your professional guidance.
+          </Notice>
+        )}
+        <Field label="Set notes" optional multiline value={input.notes ?? ""} onChange={(v) => field("notes", v)} />
+        <Button title="Done" onPress={() => setFeelOpen(false)} />
       </Sheet>
       <Sheet visible={more} onClose={() => setMore(false)} title="Session">
         {step && e && (

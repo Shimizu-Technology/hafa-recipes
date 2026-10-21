@@ -17,7 +17,7 @@ vi.mock("@/lib/context", async () => {
       ready: true, error: "", retry() {} }) };
 });
 vi.mock("@/components/reminders-provider", () => ({ useReminders: () => ({ state: { error: "", settings: { rest_enabled: false } } }) }));
-vi.mock("react-native", () => ({ Alert: { alert: vi.fn() }, Linking: { openURL: vi.fn() }, Keyboard: { dismiss: fixture.dismiss }, AppState: {
+vi.mock("react-native", () => ({ View: "View", Alert: { alert: vi.fn() }, Linking: { openURL: vi.fn() }, Keyboard: { dismiss: fixture.dismiss }, AppState: {
   addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.listeners.add(listener); return { remove: () => fixture.listeners.delete(listener) };
   },
@@ -29,6 +29,7 @@ vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy"
   formatClock: (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`,
   ListGroup: "ListGroup", Stack: "Stack", haptics: { light() {}, tick() {}, success: fixture.success } }));
 vi.mock("@/components/training/number-stepper", () => ({ NumberStepper: "NumberStepper" }));
+vi.mock("@/components/training/set-entry", () => ({ SetNumberField: "SetNumberField" }));
 vi.mock("@/components/training/session-parts", () => ({ LastLogged: "LastLogged", RestDone: "RestDone", SetProgress: "SetProgress",
   announce: fixture.announce }));
 import Training from "../app/training";
@@ -59,7 +60,7 @@ beforeEach(async () => {
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); vi.useRealTimers(); });
 
 it("shows the typed cap and explicitly pauses once on background without counting time away", async () => {
-  expect(text()).toContain("20:00 source time cap"); expect(footer().props.title).toBe("Log this exercise");
+  expect(text()).toContain("20:00 time cap"); expect(footer().props.title).toBe("Log exercise");
   const pause = vi.spyOn(fixture.store!, "pause");
   await act(async () => { fixture.listeners.forEach((listener) => { listener("inactive"); listener("background"); }); }); await settle();
   expect(pause).toHaveBeenCalledTimes(1); expect(fixture.store!.snapshot().active!.paused).toBe(true);
@@ -70,7 +71,7 @@ it("shows the typed cap and explicitly pauses once on background without countin
 
 it("expiry does not imply completion; actual work enables an explicit cap save and preserves the original source", async () => {
   await act(async () => {
-    const reps = renderer!.root.findAllByType("NumberStepper" as never).find((node) => node.props.label === "Actual reps")!;
+    const reps = renderer!.root.findAllByType("SetNumberField" as never).find((node) => node.props.label === "Reps")!;
     reps.props.onChange("10");
   }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
@@ -89,42 +90,45 @@ it("expiry does not imply completion; actual work enables an explicit cap save a
 
 it("an expired empty circuit still asks for actual work instead of offering a completed save", async () => {
   await act(async () => { vi.setSystemTime(1210000); await fixture.store!.checkpoint(); }); await settle();
-  expect(footer().props.title).toBe("Log this exercise"); expect(footer().props.disabled).toBe(false);
+  expect(footer().props.title).toBe("Log exercise"); expect(footer().props.disabled).toBe(false);
   expect(fixture.store!.snapshot().history).toEqual([]);
 });
 
 
 it("a cap cannot silently discard an entered final exercise", async () => {
-  const reps = () => renderer!.root.findAllByType("NumberStepper" as never).find((node) => node.props.label === "Actual reps")!;
+  const reps = () => renderer!.root.findAllByType("SetNumberField" as never).find((node) => node.props.label === "Reps")!;
   await act(async () => { reps().props.onChange("10"); }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
   await act(async () => { reps().props.onChange("8"); }); await settle();
   await act(async () => { vi.setSystemTime(1210000); await fixture.store!.checkpoint(); }); await settle();
-  expect(footer().props.title).toBe("Log this exercise");
+  expect(footer().props.title).toBe("Log exercise");
   expect(fixture.store!.snapshot().history).toEqual([]);
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.actuals.map((actual) => actual.reps)).toEqual([10, 8]);
   expect(footer().props.title).toBe("Finish at time cap and save");
 });
 
-const field = (label: string) => [...renderer!.root.findAllByType("Field" as never), ...renderer!.root.findAllByType("NumberStepper" as never)]
+const field = (label: string) => [...renderer!.root.findAllByType("Field" as never), ...renderer!.root.findAllByType("SetNumberField" as never)]
   .find(node => node.props.label === label)!;
 const done = () => renderer!.root.findByType("Screen" as never).props.footer;
 const action = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
 const partial = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Finish as partial session")!;
+const notesAndFeel = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Notes & feel")!;
+const sheet = (title: string) => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === title)!;
 const finishSheet = () => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Keep your current entry?")!;
 async function recordedThenTyped() {
-  await act(async () => { field("Actual reps").props.onChange("10"); }); await settle();
+  await act(async () => { field("Reps").props.onChange("10"); }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
-  await act(async () => { action("Add load or feedback").props.onPress(); }); await settle();
-  await act(async () => { field("Actual reps").props.onChange("8"); field("Set notes").props.onChange("Last effort"); }); await settle();
+  await act(async () => { notesAndFeel().props.onPress(); }); await settle();
+  expect(sheet("Notes & feel").props.visible).toBe(true);
+  await act(async () => { field("Reps").props.onChange("8"); field("Set notes").props.onChange("Last effort"); }); await settle();
 }
 it("asks for the missing activity in the partial-save sheet even without an unlogged entry", async () => {
   await act(async () => {
     await fixture.store!.discard();
     await fixture.store!.start(workout, { workout_id: "source", workout_revision: 1 }, "new-client");
   }); await settle();
-  await act(async () => { field("Actual reps").props.onChange("10"); }); await settle();
+  await act(async () => { field("Reps").props.onChange("10"); }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
   await act(async () => { partial().props.onPress(); }); await settle();
   expect(renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Save partial session")!.props.visible).toBe(true);
@@ -141,7 +145,7 @@ it("offers deliberate partial-finish choices and keeps typed details when traini
   expect(fixture.store!.snapshot().history).toEqual([]);
   await act(async () => { action("Keep training").props.onPress(); }); await settle();
   expect(finishSheet().props.visible).toBe(false);
-  expect(field("Actual reps").props.value).toBe("8");
+  expect(field("Reps").props.value).toBe("8");
   expect(fixture.store!.snapshot().active!.input).toMatchObject({ reps: "8", notes: "Last effort" });
 });
 
@@ -153,7 +157,7 @@ it("opens instructions directly after the final set without transitioning betwee
     await fixture.store!.discard();
     await fixture.store!.start(fixed, { workout_id: "source", workout_revision: 1 }, "fixed-client");
   }); await settle();
-  await act(async () => { field("Actual reps").props.onChange("8"); }); await settle();
+  await act(async () => { field("Reps").props.onChange("8"); }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.cursor).toBe(1);
   await act(async () => { action("Workout instructions").props.onPress(); }); await settle();
@@ -190,21 +194,21 @@ it("finishes without the unlogged entry only after explicit choice and retains i
   expect(fixture.store!.snapshot().history[0].request.actuals[0].reps).toBe(10);
 });
 it("catches a same-turn typed value before the partial-finish handler or state render can lag", async () => {
-  await act(async () => { field("Actual reps").props.onChange("10"); }); await settle();
+  await act(async () => { field("Reps").props.onChange("10"); }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
   const finish = partial().props.onPress;
-  await act(async () => { field("Actual reps").props.onChange("9"); finish(); }); await settle();
+  await act(async () => { field("Reps").props.onChange("9"); finish(); }); await settle();
   expect(finishSheet().props.visible).toBe(true);
   expect(fixture.store!.snapshot().history).toEqual([]);
 });
 
 it("keeps invalid unlogged actuals available to correct instead of finishing or discarding them", async () => {
   await recordedThenTyped();
-  await act(async () => { field("Actual reps").props.onChange("-1"); partial().props.onPress(); }); await settle();
+  await act(async () => { field("Reps").props.onChange("-1"); partial().props.onPress(); }); await settle();
   await act(async () => { action("Log and finish").props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().history).toEqual([]);
   expect(fixture.store!.snapshot().active!.actuals).toHaveLength(1);
-  expect(field("Actual reps").props.value).toBe("-1");
+  expect(field("Reps").props.value).toBe("-1");
   expect(finishSheet().props.visible).toBe(true);
 });
 
@@ -226,7 +230,7 @@ it.each(["account", "session"] as const)("an old partial finish cannot navigate 
   if (changed === "account") { fixture.owner = "other"; fixture.storage = { isCurrent: () => true }; }
   fixture.store = replacement;
   await act(async () => { renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Training))); }); await settle();
-  expect(field("Actual reps").props.value).toBe("6");
+  expect(field("Reps").props.value).toBe("6");
   await act(async () => { release(); }); await settle();
   expect(fixture.replace).not.toHaveBeenCalled(); expect(oldSync).not.toHaveBeenCalled();
   expect(replacement.snapshot().active!.input).toEqual({ reps: "6" });
@@ -248,9 +252,9 @@ it("an old logged entry acknowledgement cannot clear a newer same-store session 
     await store.start(workout, { workout_id: "source", workout_revision: 1 }, "replacement-after-log");
     await store.input({ reps: "6", notes: "New session entry" });
   }); await settle();
-  expect(field("Actual reps").props.value).toBe("6");
+  expect(field("Reps").props.value).toBe("6");
   await act(async () => { release(); }); await settle();
-  expect(field("Actual reps").props.value).toBe("6");
+  expect(field("Reps").props.value).toBe("6");
   expect(store.snapshot().active!.input).toEqual({ reps: "6", notes: "New session entry" });
   expect(store.snapshot().active!.actuals).toEqual([]);
   expect(fixture.replace).not.toHaveBeenCalled(); expect(fixture.saveSession).not.toHaveBeenCalled();
@@ -267,11 +271,12 @@ it("a delayed log acknowledgement preserves the next cursor's edited reps and no
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(store.snapshot().active!.id).toBe(session);
   expect(store.snapshot().active!.cursor).toBe(cursor + 1);
-  await act(async () => { action("Add load or feedback").props.onPress(); }); await settle();
-  await act(async () => { field("Actual reps").props.onChange("6"); field("Set notes").props.onChange("Next cursor entry"); }); await settle();
+  await act(async () => { notesAndFeel().props.onPress(); }); await settle();
+  expect(sheet("Notes & feel").props.visible).toBe(true);
+  await act(async () => { field("Reps").props.onChange("6"); field("Set notes").props.onChange("Next cursor entry"); }); await settle();
   expect(store.snapshot().active!.input).toMatchObject({ reps: "6", notes: "Next cursor entry" });
   await act(async () => { release(); }); await settle();
-  expect(field("Actual reps").props.value).toBe("6");
+  expect(field("Reps").props.value).toBe("6");
   expect(field("Set notes").props.value).toBe("Next cursor entry");
   expect(store.snapshot().active!.input).toMatchObject({ reps: "6", notes: "Next cursor entry" });
   // Use the retained UI ref on the next real log, not merely persisted state.
@@ -291,7 +296,7 @@ async function startSquats() {
 const restDone = () => renderer!.root.findAllByType("RestDone" as never);
 it("logs the prescribed reps in one tap, then confirms, rests, signals rest done once and can undo", async () => {
   await startSquats();
-  expect(field("Actual reps").props.value).toBe("8");
+  expect(field("Reps").props.value).toBe("8");
   expect(text()).toContain("Set 1 of 2");
   expect(fixture.store!.snapshot().active!.input ?? {}).toEqual({});
   await act(async () => { footer().props.onPress(); }); await settle();
@@ -300,7 +305,7 @@ it("logs the prescribed reps in one tap, then confirms, rests, signals rest done
   expect(fixture.announce).toHaveBeenCalledWith("Logged Squat. 8 reps");
   expect(renderer!.root.findByType("LastLogged" as never).props.title).toBe("Logged · Squat, set 1");
   expect(renderer!.root.findAllByType("RestTimer" as never)).toHaveLength(1);
-  expect(field("Actual reps").props.value).toBe("8");
+  expect(field("Reps").props.value).toBe("8");
   await act(async () => { vi.advanceTimersByTime(61000); }); await settle();
   expect(renderer!.root.findAllByType("RestTimer" as never)).toHaveLength(0);
   expect(restDone()).toHaveLength(1);
@@ -322,8 +327,8 @@ it("logs the prescribed reps in one tap, then confirms, rests, signals rest done
 });
 it("keeps a cleared value blank instead of restoring the prefill", async () => {
   await startSquats();
-  await act(async () => { field("Actual reps").props.onChange(""); }); await settle();
-  expect(field("Actual reps").props.value).toBe("");
+  await act(async () => { field("Reps").props.onChange(""); }); await settle();
+  expect(field("Reps").props.value).toBe("");
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.actuals).toEqual([]);
   expect(renderer!.root.findByType("Screen" as never).props.footer.props.children[0].props.children)
@@ -332,7 +337,7 @@ it("keeps a cleared value blank instead of restoring the prefill", async () => {
 it("saves a finished session with the inferred activity and summarises it before Progress", async () => {
   await startSquats();
   await act(async () => { footer().props.onPress(); }); await settle();
-  await act(async () => { field("Actual reps").props.onChange("9"); }); await settle();
+  await act(async () => { field("Reps").props.onChange("9"); }); await settle();
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(footer().props.title).toBe("Finish and save session");
   expect(renderer!.root.findAllByType("Chip" as never).find((chip) => chip.props.selected)!.props.label).toBe("Strength training");
@@ -356,7 +361,7 @@ it("ending rest early stays silent", async () => {
 it("a partial finish saves only logged sets, never the untouched prefill, and a failed finish stores no activity", async () => {
   await startSquats();
   await act(async () => { footer().props.onPress(); }); await settle();
-  expect(field("Actual reps").props.value).toBe("8");
+  expect(field("Reps").props.value).toBe("8");
   await act(async () => { partial().props.onPress(); }); await settle();
   expect(renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Save partial session")!.props.visible).toBe(true);
   fixture.writeFailure = true;
@@ -380,7 +385,7 @@ it("offers another round only for open-ended sessions, both mid-session and at t
   await act(async () => { rows("Add another round")[0].props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.steps.map(step => step.round_index)).toEqual([1, 1, 2, 2]);
   for (const reps of ["10", "5", "10", "5"]) {
-    await act(async () => { field("Actual reps").props.onChange(reps); }); await settle();
+    await act(async () => { field("Reps").props.onChange(reps); }); await settle();
     await act(async () => { footer().props.onPress(); }); await settle();
   }
   await act(async () => { action("Add another round").props.onPress(); }); await settle();
@@ -408,4 +413,91 @@ it("the start sheet logs as you go, starts a bounded round count, or opens the e
   expect(rows("Edit workout")[0].props.detail).toBe("Split the timed parts first");
   expect(text()).toContain("more than one timed part");
   await act(async () => renderer!.unmount()); renderer = undefined;
+});
+const kettlebell: Workout = { ...workout, provenance: "user", blocks: [{ id: "main", label: "Main", grouping: "sequential",
+  exercises: [{ name: "Goblet squat", sets: 3, reps_min: 10, load: 16, load_unit: "kg", load_convention: "total" }] }] };
+async function startKettlebell() {
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(kettlebell, { workout_id: "source", workout_revision: 1 }, `kb-${++squatSession}`);
+  }); await settle();
+}
+it("shows reps and weight side by side on every set, with no expansion to repeat", async () => {
+  await startKettlebell();
+  expect(renderer!.root.findByType("Screen" as never).props.title).toBe("Goblet squat");
+  expect(field("Reps").props.value).toBe("10"); expect(field("Weight · kg").props.value).toBe("16");
+  await act(async () => { field("Weight · kg").props.onChange("20"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(footer().props.title).toBe("Log set");
+  expect(fixture.store!.snapshot().active!.actuals[0]).toMatchObject({ reps: 10, load: 20, load_unit: "kg", load_convention: "total" });
+  // The next set keeps the weight on screen, prefilled from the set just logged.
+  expect(field("Weight · kg").props.value).toBe("20");
+  expect(text()).toContain("Set 2 of 3");
+});
+it("logs typed weight on a bodyweight exercise as total weight unless another kind is chosen", async () => {
+  await startSquats();
+  expect(field("Weight · kg").props.value).toBe("");
+  await act(async () => { field("Weight · kg").props.onLabelPress(); }); await settle();
+  expect(sheet("Weight").props.visible).toBe(true);
+  await act(async () => { field("Weight · kg").props.onChange("12"); }); await settle();
+  const perHand = renderer!.root.findAllByType("Chip" as never).find((chip) => chip.props.label === "Per hand")!;
+  await act(async () => { perHand.props.onPress(); }); await settle();
+  expect(field("Weight · kg").props.note).toBe("Per hand");
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[0]).toMatchObject({ reps: 8, load: 12, load_convention: "per_hand" });
+});
+it("changes what to record from the field label instead of a switch on every set", async () => {
+  await startSquats();
+  expect(renderer!.root.findAllByType("Segmented" as never).filter((node) => node.props.label === "What to record")
+    .every((node) => sheet("What to record").findAllByType("Segmented" as never).includes(node))).toBe(true);
+  await act(async () => { field("Reps").props.onLabelPress(); }); await settle();
+  expect(sheet("What to record").props.visible).toBe(true);
+  const segmented = sheet("What to record").findByType("Segmented" as never);
+  await act(async () => { segmented.props.onChange("time"); }); await settle();
+  expect(sheet("What to record").props.visible).toBe(false);
+  await act(async () => { field("Time · sec").props.onChange("45"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[0]).toMatchObject({ duration_seconds: 45, reps: null });
+});
+it("asks about pain plainly in Notes & feel and saves the answers with the set", async () => {
+  await startSquats();
+  await act(async () => { notesAndFeel().props.onPress(); }); await settle();
+  expect(text()).toContain("Any pain?");
+  const chip = (label: string) => sheet("Notes & feel").findAllByType("Chip" as never).find((node) => node.props.label === label)!;
+  expect(chip("Yes")).toBeDefined(); expect(chip("No")).toBeDefined();
+  await act(async () => { chip("Yes").props.onPress(); chip("Hard").props.onPress(); field("Effort · 0 to 10").props.onChange("8"); }); await settle();
+  expect(notesAndFeel().props.detail).toBe("Effort 8/10 · Hard · Pain");
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[0]).toMatchObject({ pain_reported: true, difficulty: "hard", effort: 8 });
+  expect(notesAndFeel().props.detail).toBe("Effort, how it felt, any pain");
+});
+it("shows every set from last time on one line", async () => {
+  await startKettlebell();
+  for (const reps of ["10", "10", "8"]) {
+    await act(async () => { field("Reps").props.onChange(reps); }); await settle();
+    await act(async () => { footer().props.onPress(); }); await settle();
+  }
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().history).toHaveLength(1);
+  await act(async () => { await fixture.store!.start(kettlebell, { workout_id: "source", workout_revision: 1 }, "kb-again"); }); await settle();
+  expect(text()).toContain("Last time · 10, 10, 8 @ 16 kg");
+});
+it("saves only the measure on screen and keeps the weight kind on skipped sets", async () => {
+  const dumbbells: Workout = { ...workout, provenance: "user", blocks: [{ id: "main", label: "Main", grouping: "sequential",
+    exercises: [{ name: "Curl", sets: 3, reps_min: 10, load_convention: "per_hand" }] }] };
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(dumbbells, { workout_id: "source", workout_revision: 1 }, "dumbbells");
+  }); await settle();
+  await act(async () => { field("Reps").props.onChange("12"); field("Weight · kg").props.onChange("10"); }); await settle();
+  expect(field("Weight · kg").props.note).toBe("Per hand");
+  await act(async () => { field("Reps").props.onLabelPress(); }); await settle();
+  await act(async () => { sheet("What to record").findByType("Segmented" as never).props.onChange("time"); }); await settle();
+  await act(async () => { field("Time · sec").props.onChange("40"); }); await settle();
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[0]).toMatchObject({ reps: null, duration_seconds: 40, load: 10, load_convention: "per_hand" });
+  await act(async () => { field("Weight · kg").props.onChange("12"); }); await settle();
+  const skip = renderer!.root.findAllByType("ListRow" as never).find((row) => row.props.title === "Skip this set")!;
+  await act(async () => { skip.props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[1]).toMatchObject({ completed: false, load: 12, load_unit: "kg", load_convention: "per_hand" });
 });
