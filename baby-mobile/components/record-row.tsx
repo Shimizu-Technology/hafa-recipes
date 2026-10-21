@@ -4,6 +4,7 @@ import { kindName } from "@/lib/models";
 import { careSummary, friendlyTime, isCare } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
 import { Row, type IconName } from "./ui";
+import { SavedPostRow } from "./saved-post-row";
 export const kindIcon: Record<Kind, IconName> = {
   source: "bookmark-outline",
   journal: "book-outline",
@@ -28,6 +29,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
   ]
     .filter(Boolean)
     .join(" · ");
+  if (record.kind === "source") return <SavedPostRow record={record} pending={pending} />;
   return (
     <Row
       title={care ? careSummary(record.kind, record.data, record.occurred_at, now) : label || kindName[record.kind]}

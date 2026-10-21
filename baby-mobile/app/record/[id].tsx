@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
-import { Alert, Linking, View } from "react-native";
+import { Alert, View } from "react-native";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime } from "@/lib/care-format";
-import { kindName, messageFor, sourceProcessingNotes, sourceEvidenceItems, type BabyRecord } from "@/lib/models";
+import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { inheritedFiles, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { Button, Card, Chips, Choice, Copy, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
+import { SourceContent } from "@/components/source-content";
+import { Disclosure } from "@/components/disclosure";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -73,8 +75,6 @@ export default function RecordDetail() {
     );
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
     data = record.data,
-    processingNotes = sourceProcessingNotes(data.coverage_notes),
-    evidence = sourceEvidenceItems(data.evidence),
     localFiles = inheritedFiles(b.state, record.id).filter(
       (file) => !file.uploaded_id || !data.attachment_ids?.includes(file.uploaded_id)
     );
@@ -92,96 +92,7 @@ export default function RecordDetail() {
         <Notice>This device has a partial offline copy. Reconnect to load the complete source before editing.</Notice>
       )}
       {pending && <Notice>Saved on this device. Your latest changes will sync when a connection is available.</Notice>}
-      {record.kind === "source" && (
-        <>
-          <Card tone="hero">
-            <Copy kind="heading">Your saved source</Copy>
-            <Copy tone="muted">
-              Ideas from this source are its creator’s claims. Keep the original context close and choose what is useful
-              to you.
-            </Copy>
-            {data.url && (
-              <Button
-                secondary
-                title="Open original source"
-                icon="open-outline"
-                onPress={() => {
-                  try {
-                    const url = new URL(data.url!);
-                    if (!["http:", "https:"].includes(url.protocol)) throw Error();
-                    void Linking.openURL(url.toString()).catch(() => setError("Could not open the original link."));
-                  } catch {
-                    setError("This source has an invalid website link. Edit it to correct the address.");
-                  }
-                }}
-              />
-            )}
-            {data.status && (
-              <Copy kind="small" tone="muted">
-                Status: {data.status}
-              </Copy>
-            )}
-          </Card>
-          {processingNotes.length > 0 && (
-            <Section title="Processing notes">
-              <Card tone="soft">
-                {processingNotes.map((note, i) => (
-                  <Copy key={i}>{note}</Copy>
-                ))}
-              </Card>
-            </Section>
-          )}
-          {(data.topics ?? []).length > 0 && (
-            <Copy kind="small" tone="muted">
-              {data.topics!.join(" · ")}
-            </Copy>
-          )}
-          {data.summary && (
-            <Section title="Source summary">
-              <Card>
-                <Copy>{data.summary}</Copy>
-              </Card>
-            </Section>
-          )}
-          {evidence.length > 0 && (
-            <Section title="What was found">
-              {evidence.map((e, i) => (
-                <Card key={i} tone="soft">
-                  <Copy>{e.text}</Copy>
-                  {e.location && (
-                    <Copy kind="small" tone="muted">
-                      {e.location}
-                    </Copy>
-                  )}
-                  {e.timestamp && (
-                    <Copy kind="small" tone="muted">
-                      At {e.timestamp}
-                    </Copy>
-                  )}
-                  {e.source && (
-                    <Copy kind="small" tone="muted">
-                      {e.source}
-                    </Copy>
-                  )}
-                </Card>
-              ))}
-            </Section>
-          )}
-          {data.source_text && (
-            <Section title="Extracted source text">
-              <Card>
-                <Copy>{data.source_text}</Copy>
-              </Card>
-            </Section>
-          )}
-          {!data.summary && !data.source_text && !evidence.length && (
-            <Notice>
-              No extracted summary or transcript is available. Your original link, attachments, and notes are still
-              kept.
-            </Notice>
-          )}
-        </>
-      )}
+      {record.kind === "source" && <SourceContent data={data} onError={setError} />}
       {record.kind === "feeding" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
@@ -212,7 +123,7 @@ export default function RecordDetail() {
           <Copy kind="heading">{careSummary("diaper", data, record.occurred_at)}</Copy>
         </Card>
       )}
-      {!!record.body && (
+      {!!record.body && !(record.kind === "source" && record.body === data.source_text && !data.summary) && (
         <Section
           title={
             record.kind === "source" ? "Your notes" : record.kind === "question" ? "Your question & notes" : "Notes"
@@ -297,7 +208,7 @@ export default function RecordDetail() {
         icon="pencil-outline"
         onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
       />
-      {record.kind === "source" && (
+      {record.kind === "source" && <Disclosure title="Process this post again">
         <Button
           secondary
           title="Process original with AI"
@@ -324,7 +235,7 @@ export default function RecordDetail() {
               .catch((e) => setError(messageFor(e)));
           }}
         />
-      )}
+      </Disclosure>}
       <Button
         secondary
         title="Ask about this entry"

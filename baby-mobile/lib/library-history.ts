@@ -8,6 +8,7 @@ export interface LibraryView {
   query: string;
   collectionId?: string;
   topic?: string;
+  uncategorized?: boolean;
   pageSize?: number;
 }
 export function libraryViewKey(view: LibraryView) {
@@ -18,6 +19,7 @@ export function libraryViewKey(view: LibraryView) {
     view.collectionId ?? "",
     view.topic ?? "",
     view.pageSize ?? 30,
+    view.uncategorized ?? false,
   ]);
 }
 /** One sequential, filtered cursor per focused view. Every refresh starts at
@@ -63,6 +65,7 @@ export function createLibraryPager(load: (filters: RecordFilters, current: () =>
             q: view.query || undefined,
             collection_id: view.collectionId || undefined,
             topic: view.topic || undefined,
+            uncategorized: view.uncategorized || undefined,
             limit: view.pageSize ?? 30,
             offset: start,
           },
@@ -103,12 +106,19 @@ export function libraryRows(
   const members = retainedMembers ?? (editedCollection || remote === null ? collection?.data.record_ids : undefined);
   const memberSet = members === undefined ? null : new Set(members);
   const cachedMembers = new Set(collection?.data.record_ids ?? []);
+  const localCategories = new Set(state.outbox.flatMap(m => m.type === "save" && m.record.kind === "collection" ? [m.record.id] : []));
+  const categorized = new Set(rows.filter((row) => row.kind === "collection" && (remote === null || localCategories.has(row.id)))
+    .flatMap((row) => row.data.record_ids ?? []));
+  const newSources = new Set(state.outbox.flatMap((m) =>
+    m.type === "save" && m.record.kind === "source" && !m.record.revision ? [m.record.id] : []));
   const persistedMembers = new Set(state.records.find((row) => row.id === view.collectionId)?.data.record_ids ?? []);
   const added = new Set([...retainedAdded, ...(members ?? []).filter((id) => !persistedMembers.has(id))]);
   return rows
     .filter((row) => row.kind === view.kind)
     .filter((row) => !view.childId || !row.child_id || row.child_id === view.childId)
     .filter((row) => !view.topic || row.data.topics?.includes(view.topic))
+    .filter((row) => !view.uncategorized || (!categorized.has(row.id) &&
+      (remote === null || remote.has(row.id) || newSources.has(row.id))))
     .filter(
       (row) =>
         !view.collectionId ||

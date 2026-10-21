@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from "react";
-import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { useBaby } from "@/lib/context";
 import { messageFor } from "@/lib/models";
@@ -12,8 +12,9 @@ import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 export default function Journal() {
+  const params = useLocalSearchParams<{ filter?: string }>();
   const b = useBaby(),
-    [filter, setFilter] = useState("all"),
+    [filter, setFilter] = useState("journal"),
     [q, setQ] = useState(""),
     [selected, setSelected] = useState<string[]>([]),
     [preparing, setPreparing] = useState(false),
@@ -22,6 +23,9 @@ export default function Journal() {
     [loading, setLoading] = useState(false),
     [historyError, setHistoryError] = useState(""),
     [page, setPage] = useState<{ key: string; ticket: number; ids: string[] | null; more: boolean } | null>(null);
+  useEffect(() => {
+    if (params.filter && ["all", "journal", "care", "question"].includes(params.filter)) setFilter(params.filter);
+  }, [params.filter]);
   const latest = useRef(b);
   latest.current = b;
   const view = { filter, childId: b.state.selectedChild, query: q },
@@ -93,9 +97,9 @@ export default function Journal() {
   return (
     <Screen
       title="Journal"
-      subtitle="Thoughts, memories and everyday care."
+      subtitle="Your thoughts and memories."
       action={
-        records.length > 0 && <Button
+        <Button
           secondary
           title="Write"
           icon="add"
