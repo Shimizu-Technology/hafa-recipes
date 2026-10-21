@@ -5,7 +5,6 @@ import { router } from "expo-router";
 import {
   AccountButton,
   Button,
-  Card,
   Chip,
   ChipRow,
   Choice,
@@ -26,7 +25,7 @@ import {
 import { CollectionTile, LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
 import { LibrarySearch } from "@/components/library-search";
 import { spacing } from "@/constants/theme";
-import { useTraining, useOfflineTraining } from "@/lib/context";
+import { useTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
 import { collectionCovers, useLibraryView, workoutCardBadge, workoutCardMeta, workoutCountLabel } from "@/lib/library-view";
@@ -36,7 +35,6 @@ const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", sess
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
   const c = useColors();
-  const { state: training, ready: trainingReady } = useOfflineTraining();
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
   const [view, setView] = useLibraryView(storage, owner);
@@ -151,11 +149,6 @@ export default function Library() {
   const header = (screenHeader: ReactNode) => (
     <View style={{ gap: spacing.md, paddingBottom: spacing.xs }}>
       {screenHeader}
-      {trainingReady && training.active && <Card compact>
-        <Copy kind="caption" tone="muted">Session in progress</Copy>
-        <Copy kind="subheading">{training.active.workout.title}</Copy>
-        <Button title="Resume session" secondary icon="play-outline" onPress={() => router.push("/training")} />
-      </Card>}
       {selecting ? (
         <Row justify="space-between">
           <Button title="Done" variant="ghost" size="sm" inline disabled={bulkBusy}
