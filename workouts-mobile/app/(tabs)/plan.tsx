@@ -17,6 +17,7 @@ import {
   Notice,
   Row,
   Screen,
+  SectionHeader,
   Sheet,
   useColors,
 } from "@/components/ui";
@@ -24,7 +25,7 @@ import { radii } from "@/constants/theme";
 import { Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { CalendarDate } from "@/components/calendar-date";
-import { QueryState } from "@/components/query-state";
+import { TrainToday } from "@/components/train-today";
 import { PrescriptionPreview } from "@/components/program-preview";
 import { isISODate } from "@/lib/sharing";
 import { dateInTimezone } from "@/lib/training";
@@ -34,6 +35,7 @@ import type { Program, ScheduledSession } from "@/lib/models";
 import { programMoveError } from "@/lib/plans";
 import { formatPlanDate, nextPlannedSession } from "@/lib/plan-presentation";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
+import { groupPlanWeeks } from "@/lib/plan-weeks";
 function DateBadge({ date, done }: { date: string; done: boolean }) {
   const c = useColors();
   const at = new Date(`${date}T12:00:00Z`);
@@ -76,7 +78,26 @@ function SessionRow({ date, title, detail, tone, done, onPress, testID }: {
         <Copy kind="label" numberOfLines={2}>{title}</Copy>
         <Copy kind="small" tone={tone} numberOfLines={1}>{detail}</Copy>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={c.muted} />
+      <Ionicons name={done ? "checkmark-circle" : "chevron-forward"} size={done ? 22 : 18} color={done ? c.success : c.muted} />
+    </Pressable>
+  );
+}
+/** A week heading that folds its sessions away: "Week 2 · Oct 27 – Nov 2 · 1 of 3 done". */
+function WeekHeader({ label, summary, open, onPress }: { label: string; summary: string; open: boolean; onPress(): void }) {
+  const c = useColors();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. ${summary}`}
+      accessibilityState={{ expanded: open }}
+      onPress={onPress}
+      style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, opacity: pressed ? 0.7 : 1 })}
+    >
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Copy kind="label">{label}</Copy>
+        <Copy kind="small" tone="muted">{summary}</Copy>
+      </View>
+      <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={c.muted} />
     </Pressable>
   );
 }
@@ -105,6 +126,7 @@ export default function Plan() {
   }, [editor]);
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [opened, setOpened] = useState<{ programId: string; sessionId: string } | null>(null);
+  const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
   useLayoutEffect(() => {
     liveScope.current = scope;
     setRenaming(null); setRemoving(null); setMenu(null); setEditing(null); setDate(""); setInspecting(null); setOpened(null); setError(""); setBusy(false);
@@ -270,170 +292,149 @@ export default function Plan() {
     if (busy) return;
     setOpened(null); setEditing(null); setRemoving(null);
   }
+  /** Why a session can't start right now; shown beside the disabled button. */
+  function startBlocked(p: Program) {
+    if (offline.state.active) return "Finish your current session first.";
+    if (p.status !== "ready") return "Review this plan before training.";
+    if (p.schedule_state?.status === "paused") return "This plan is paused. Plan your return first.";
+    if (!offline.ready) return "Getting this device ready to record your session…";
+    return "";
+  }
   function startButton(p: Program, s: ScheduledSession, status: string | undefined) {
     const again = status === "partial" || status === "completed";
+    const blocked = startBlocked(p);
     return (
-      <Button
-        title={again ? "Start session again" : "Start session"}
-        icon="play"
-        variant={status === "completed" ? "secondary" : "primary"}
-        disabled={!!offline.state.active || !offline.ready || p.status !== "ready" || p.schedule_state?.status === "paused"}
-        busy={busy}
-        onPress={() => {
-          void start(p, s);
-        }}
-      />
+      <>
+        {!!blocked && <Copy kind="small" tone="muted">{blocked}</Copy>}
+        <Button
+          title={again ? "Start session again" : "Start session"}
+          icon="play"
+          variant={status === "completed" ? "secondary" : "primary"}
+          disabled={!!blocked}
+          busy={busy}
+          onPress={() => {
+            void start(p, s);
+          }}
+        />
+      </>
     );
+  }
+  const archivedCount = q.data?.filter((p) => !!p.schedule_state?.archived_at).length ?? 0;
+  // Loading and errors show once, in the Today section above.
+  const loaded = !!enrollment?.enrolled && q.isSuccess && actuals.isSuccess && profile.isSuccess;
+  function openSessionSheet(p: Program, s: ScheduledSession) {
+    if (current()) { setError(""); setEditing(null); setRemoving(null); setOpened({ programId: p.id, sessionId: s.id }); }
+  }
+  function sessionRows(p: Program, sessions: ScheduledSession[]) {
+    return sessions.map((s, index) => {
+      const { status, done, missed } = sessionState(p, s);
+      const minutes = s.workout.estimated_minutes ? `${s.workout.estimated_minutes} min` : null;
+      // Today's session starts from the top of the screen; a later one can start here.
+      const inlineStart = next?.p.id === p.id && next.s.id === s.id && s.date !== today && !offline.state.active;
+      return (
+        <View key={s.id} style={{ gap: 8, paddingBottom: inlineStart ? 8 : 0, borderTopWidth: index ? 1 : 0, borderTopColor: colors.border }}>
+          <SessionRow
+            testID={`plan-session-${s.id}`}
+            date={s.date}
+            title={s.workout.title}
+            done={done}
+            tone={done ? "success" : missed ? "warning" : "muted"}
+            detail={done ? "Done · nice work" : status === "partial" ? "Partly recorded" : status === "skipped" ? "No sets recorded"
+              : missed ? "Missed · choose a new date or train it now" : [s.date === today ? "Today" : null, minutes, s.purpose].filter(Boolean).join(" · ")}
+            onPress={() => openSessionSheet(p, s)}
+          />
+          {inlineStart && startButton(p, s, status)}
+        </View>
+      );
+    });
+  }
+  function planWeeks(p: Program) {
+    const weeks = groupPlanWeeks(p.sessions, today);
+    const firstAhead = weeks.find((w) => !w.past && w.key !== "other");
+    const secondAhead = weeks.find((w) => !w.past && w.key !== "other" && w !== firstAhead);
+    return weeks.map((w) => {
+      const states = w.items.map((s) => sessionState(p, s));
+      const done = states.filter((x) => x.done).length;
+      const missedCount = states.filter((x) => x.missed).length;
+      const key = `${p.id}:${w.key}`;
+      // Past weeks fold away unless something there still needs a new date.
+      const open = openWeeks[key] ?? (w.key === "other" || missedCount > 0 || w === firstAhead || (firstAhead?.current === true && w === secondAhead));
+      const summary = [`${w.items.length} ${w.items.length === 1 ? "session" : "sessions"}`,
+        done ? `${done} done` : null, missedCount ? `${missedCount} missed` : null].filter(Boolean).join(" · ");
+      return (
+        <View key={w.key} style={{ gap: 4 }}>
+          <WeekHeader label={w.label} summary={summary} open={open} onPress={() => setOpenWeeks((f) => ({ ...f, [key]: !open }))} />
+          {open && <View>{sessionRows(p, w.items)}</View>}
+        </View>
+      );
+    });
   }
   return (
     <Screen
-      title="Plan"
+      title="Train"
+      subtitle={new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
-      action={
-        <Row gap={8}>
-          {enrollment?.enrolled && (
-            <IconButton icon="add" label="Build a training program" variant="primary" onPress={() => router.push("/build-plan")} />
-          )}
-          <AccountButton />
-        </Row>
-      }
+      action={<AccountButton />}
     >
-      <ListRow icon="sunny-outline" title="Today · start a workout" detail="Your daily plan, quick start and activity log" onPress={() => router.push("/(tabs)")} />
-      {offline.state.active && (
-        <Card tone="hero" compact>
-          <Copy kind="subheading">{offline.state.active.workout.title}</Copy>
-          <Button title="Resume active session" icon="play" onPress={() => router.push("/training")} />
-        </Card>
-      )}
-      {!enrollment?.enrolled ? (
-        <Empty
-          icon="calendar-outline"
-          title="Set your training foundation"
-          description="Join Workouts before saving a program."
-          action={<Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
+      <TrainToday />
+      {loaded && (!!shownPrograms?.length || view === "archived" || archivedCount > 0) && (
+        <SectionHeader
+          title={view === "archived" ? "Archived plans" : "Your plans"}
+          action={view === "archived" ? { label: "Current plans", onPress: () => setView("active") }
+            : archivedCount ? { label: `Archived (${archivedCount})`, onPress: () => setView("archived") } : undefined}
         />
-      ) : (
-        <QueryState
-          loading={q.isPending || actuals.isPending || profile.isPending}
-          loadingLabel="Loading your plan"
-          error={q.error ?? actuals.error ?? profile.error}
-          retry={() => {
-            void q.refetch();
-            void actuals.refetch();
-            void profile.refetch();
-          }}
-        >
-          <Row gap={10}>
-            <Button title="Active plans" inline size="sm" secondary={view !== "active"} onPress={() => setView("active")} />
-            <Button title="Archived plans" inline size="sm" secondary={view !== "archived"} onPress={() => setView("archived")} />
-          </Row>
-          {!shownPrograms?.length ? (
-            <Empty
-              icon="calendar-outline"
-              title={view === "archived" ? "No archived plans" : "Give your plan a foundation"}
-              description={view === "archived" ? "Plans you archive stay here with their original instructions and history." :
-                "Review your goal, equipment and available days, then build a program that fits your week."}
-              action={
-                <>
-                  <Button title="Build a training program" icon="add" onPress={() => router.push("/build-plan")} />
-                  <Button title="Review training profile" variant="ghost" onPress={() => router.push("/profile")} />
-                </>
-              }
-            />
-          ) : (
-            shownPrograms.map((p) => (
-              <Card key={p.id}>
-                <Row gap={12} align="flex-start">
-                  <Grow>
-                    <Copy kind="heading">{p.title}</Copy>
-                    <Copy kind="small" tone="muted">
-                      {p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0)} {p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0) === 1 ? "session" : "sessions"} saved
-                    </Copy>
-                  </Grow>
-                  {p.schedule_state?.archived_at ? (
-                    <Chip label="Archived" tone="accent" />
-                  ) : p.schedule_state?.status === "paused" ? (
-                    <Chip label="Paused" tone="accent" />
-                  ) : p.status !== "ready" ? (
-                    <Chip label="Needs review" tone="accent" />
-                  ) : null}
-                  <IconButton icon="ellipsis-horizontal" label={`More actions for ${p.title}`} size={40} onPress={() => setMenu(p)} />
-                </Row>
-                {p.schedule_state?.archived_at && <>
-                  <Notice>Archived. Workout instructions and recorded training stay saved. Restoring keeps the original dates;
-                    a previously paused plan still needs a return review.</Notice>
-                  <Button title="Restore plan" secondary busy={busy} onPress={() => void archive(p, false)} />
-                </>}
-                {p.schedule_state?.status === "paused" && !p.schedule_state.archived_at && (
-                  <>
-                    <Notice>
-                      This plan is paused. Its future queue remains saved in order and needs a fresh return review
-                      before training resumes.
-                    </Notice>
-                    <Button
-                      title="Review returning to this plan"
-                      secondary
-                      onPress={() =>
-                        router.push({ pathname: "/coach", params: { program_id: p.id, revision: String(p.revision) } })
-                      }
-                    />
-                  </>
-                )}
-                {p.schedule_state?.paused_sessions?.map((s, index) => (
-                  <View key={`paused:${s.id}`} style={{ gap: 6 }}>
-                    <Row gap={14}>
-                      <DateBadge date={s.date} done={false} />
-                      <Grow style={{ gap: 2 }}>
-                        <Copy kind="label">{s.workout.title}</Copy>
-                        <Copy kind="small" tone="muted">Saved queue · original order {index + 1} · {s.purpose}</Copy>
-                      </Grow>
-                    </Row>
-                    <Button title={inspecting === `queued:${p.id}:${s.id}` ? "Hide queued instructions" : "Inspect queued instructions"}
-                      variant="ghost" size="sm" inline onPress={() => setInspecting(inspecting === `queued:${p.id}:${s.id}` ? null : `queued:${p.id}:${s.id}`)} />
-                    {inspecting === `queued:${p.id}:${s.id}` && <PrescriptionPreview workout={s.workout} />}
-                  </View>
-                ))}
-                {p.status !== "ready" && !p.schedule_state?.archived_at && (
-                  <>
-                    <Notice tone="warning">
-                      {p.questions.join(" ") || p.warnings.join(" ") || "Review this plan before training."}
-                    </Notice>
-                    <Button
-                      title="Review this plan for my current constraints"
-                      secondary
-                      onPress={() => router.push({ pathname: "/review-plan", params: { program_id: p.id } })}
-                    />
-                  </>
-                )}
-                {!!p.sessions.length && <View>
-                  {[...p.sessions].sort((a, b) => a.date.localeCompare(b.date)).map((s, index) => {
-                    const { status, done, missed } = sessionState(p, s);
-                    const minutes = s.workout.estimated_minutes ? `${s.workout.estimated_minutes} min` : null;
-                    const isNext = next?.p.id === p.id && next.s.id === s.id;
-                    return (
-                      <View key={s.id} style={{ gap: 8, paddingBottom: isNext ? 8 : 0, borderTopWidth: index ? 1 : 0, borderTopColor: colors.border }}>
-                        <SessionRow
-                          testID={`plan-session-${s.id}`}
-                          date={s.date}
-                          title={s.workout.title}
-                          done={done}
-                          tone={done ? "success" : missed ? "warning" : "muted"}
-                          detail={done ? "Done · nice work" : status === "partial" ? "Partly recorded" : status === "skipped" ? "No sets recorded"
-                            : missed ? "Missed · choose a new date or train it now" : [isNext && s.date === today ? "Today" : null, minutes, s.purpose].filter(Boolean).join(" · ")}
-                          onPress={() => { if (current()) { setError(""); setEditing(null); setRemoving(null); setOpened({ programId: p.id, sessionId: s.id }); } }}
-                        />
-                        {isNext && startButton(p, s, status)}
-                      </View>
-                    );
-                  })}
-                </View>}
-              </Card>
-            ))
-          )}
-        </QueryState>
       )}
+      {loaded && view === "archived" && !shownPrograms?.length && (
+        <Empty icon="archive-outline" title="No archived plans" description="Plans you archive stay here with their original instructions and history." />
+      )}
+      {loaded && shownPrograms?.map((p) => {
+        const total = p.sessions.length + (p.schedule_state?.paused_sessions?.length ?? 0);
+        const status = p.schedule_state?.archived_at ? "Archived" : p.schedule_state?.status === "paused" ? "Paused" : p.status !== "ready" ? "Needs review" : null;
+        return (
+          <Card key={p.id}>
+            <Row gap={12} align="flex-start">
+              <Grow>
+                <Copy kind="heading">{p.title}</Copy>
+                <Copy kind="small" tone="muted">{total} {total === 1 ? "session" : "sessions"}</Copy>
+              </Grow>
+              {!!status && <Chip label={status} />}
+              <IconButton icon="ellipsis-horizontal" label={`More actions for ${p.title}`} size={44} onPress={() => setMenu(p)} />
+            </Row>
+            {p.schedule_state?.archived_at && <>
+              <Notice>Archived. Workout instructions and recorded training stay saved. Restoring keeps the original dates;
+                a paused plan stays paused until you plan your return.</Notice>
+              <Button title="Restore plan" secondary busy={busy} onPress={() => void archive(p, false)} />
+            </>}
+            {p.schedule_state?.status === "paused" && !p.schedule_state.archived_at && <>
+              <Notice>Paused. Your upcoming sessions stay saved in order. Check in with your coach before picking back up.</Notice>
+              <Button title="Plan your return with coach" secondary
+                onPress={() => router.push({ pathname: "/coach", params: { program_id: p.id, revision: String(p.revision) } })} />
+            </>}
+            {p.schedule_state?.paused_sessions?.map((s) => (
+              <View key={`paused:${s.id}`} style={{ gap: 6 }}>
+                <Row gap={14}>
+                  <DateBadge date={s.date} done={false} />
+                  <Grow style={{ gap: 2 }}>
+                    <Copy kind="label">{s.workout.title}</Copy>
+                    <Copy kind="small" tone="muted">On hold · {s.purpose}</Copy>
+                  </Grow>
+                </Row>
+                <Button title={inspecting === `held:${p.id}:${s.id}` ? "Hide workout" : "Show workout"} variant="ghost" size="sm" inline
+                  onPress={() => setInspecting(inspecting === `held:${p.id}:${s.id}` ? null : `held:${p.id}:${s.id}`)} />
+                {inspecting === `held:${p.id}:${s.id}` && <PrescriptionPreview workout={s.workout} />}
+              </View>
+            ))}
+            {p.status !== "ready" && !p.schedule_state?.archived_at && <>
+              <Notice tone="warning">{p.questions.join(" ") || p.warnings.join(" ") || "Review this plan before training."}</Notice>
+              <Button title="Review this plan" secondary onPress={() => router.push({ pathname: "/review-plan", params: { program_id: p.id } })} />
+            </>}
+            {planWeeks(p)}
+          </Card>
+        );
+      })}
       {!!error && <Notice error>{error}</Notice>}
+      <Copy kind="small" tone="muted" align="center">Free during beta. Completed work counts; rest is part of the plan.</Copy>
       <Sheet visible={!!sheet} onClose={closeSession} title={removingOpen ? "Remove planned session?" : sheet?.s.workout.title ?? "Session"}>
         {!!sheet && (removingOpen ? <>
           <Copy>Remove {sheet.s.workout.title} on {formatPlanDate(sheet.s.date)} from {sheet.p.title}?</Copy>
@@ -465,6 +466,8 @@ export default function Plan() {
             <Button title="Keep original date" variant="ghost" disabled={busy} onPress={() => setEditing(null)} />
           </> : <>
             {startButton(sheet.p, sheet.s, sheet.status)}
+            {!sheet.status && sheet.p.schedule_state?.status === "paused" &&
+              <Copy kind="small" tone="muted">Paused plans keep their dates until you plan your return.</Copy>}
             {!sheet.status && <Button
               title={sheet.missed ? "Choose a new date" : "Move this session"}
               secondary
@@ -476,7 +479,7 @@ export default function Plan() {
             />}
             {removable(sheet.p, sheet.s) && <Button title="Remove from plan" variant="ghost" disabled={busy}
               onPress={() => { if (current()) { setError(""); setRemoving({ program: sheet.p, session: sheet.s }); } }} />}
-            <Button title={inspecting === sheet.key ? "Hide session instructions" : "Inspect session instructions"} variant="ghost"
+            <Button title={inspecting === sheet.key ? "Hide workout details" : "Show workout details"} variant="ghost"
               onPress={() => setInspecting(inspecting === sheet.key ? null : sheet.key)} />
             {inspecting === sheet.key && <PrescriptionPreview workout={sheet.s.workout} />}
           </>}
@@ -488,6 +491,7 @@ export default function Plan() {
             <ListRow
               icon="chatbubble-ellipses-outline"
               title="Chat about this plan"
+              detail={menu.schedule_state?.archived_at ? "Restore this plan to chat about it" : undefined}
               disabled={!!menu.schedule_state?.archived_at}
               onPress={() => {
                 setMenu(null);
@@ -504,13 +508,18 @@ export default function Plan() {
             />}
             <ListRow
               icon="share-outline"
-              title="Share this program"
+              title="Share this plan"
+              detail={menu.schedule_state?.archived_at ? "Restore this plan to share it"
+                : menu.schedule_state?.status === "paused" ? "Plan your return to share it" : undefined}
               disabled={menu.schedule_state?.status === "paused"}
               onPress={() => {
                 setMenu(null);
                 router.push({ pathname: "/share", params: { id: menu.id, kind: "program" } });
               }}
             />
+            <ListRow icon="add-circle-outline" title="Build a new plan" onPress={() => { setMenu(null); router.push("/build-plan"); }} />
+            <ListRow icon="person-outline" title="Edit training profile" detail="Goal, equipment and free days"
+              onPress={() => { setMenu(null); router.push("/profile"); }} />
           </>
         )}
       </Sheet>
