@@ -59,7 +59,7 @@ const fixture = vi.hoisted(() => ({
   removeFailureScope: "",
   appState: "active", photoFocus: false, routeFocused: true, routeListeners: new Set<(focused: boolean) => void>(),
   foreground: new Set<(state: string) => void>(),
-  os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn()
+  os: "android", nativeSharing: false, nativeCaptures: vi.fn(), nativeAck: vi.fn(), clipboard: vi.fn()
 }));
 vi.mock("@/lib/context", () => {
   const storage = {
@@ -138,6 +138,7 @@ vi.mock("@/lib/context", () => {
 });
 vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
+  KeyboardAvoidingView: "KeyboardAvoidingView",
   Platform: { get OS() { return fixture.os; } },
   View: "View",
   Image: "Image",
@@ -167,6 +168,9 @@ vi.mock("@/lib/capture-io", () => ({
   sourceFor: fixture.sourceFor
 }));
 vi.mock("@/components/import-list", () => ({ ImportList: "ImportList" }));
+vi.mock("@/components/recent-imports", () => ({ RecentImports: "RecentImports" }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
+vi.mock("expo-clipboard", () => ({ getStringAsync: fixture.clipboard }));
 vi.mock("expo-router", () => ({
   Redirect: "Redirect",
   router: { push: fixture.push, replace: fixture.replace, dismissTo: fixture.dismissTo },
@@ -186,7 +190,8 @@ vi.mock("expo-image", () => ({ Image: "CoachImage" }));
 vi.mock("expo-file-system/legacy", () => ({ cacheDirectory: "file:///cache/", getInfoAsync: fixture.photoInfo, readAsStringAsync: fixture.photoRead, EncodingType: { Base64: "base64" } }));
 vi.mock("@/components/ui", () => ({
   Screen: ({ children, footer }: PropsWithChildren<{ footer?: ReactNode }>) => createElement("Screen", null, children, footer),
-  useColors: () => ({ background: "#000" }),
+  useColors: () => ({ background: "#000", success: "#0f0" }),
+  useReducedMotion: () => false,
   Sheet: ({ visible, children }: { visible: boolean; children: import("react").ReactNode }) => visible ? createElement("Sheet", null, children) : null,
   Card: "Card",
   Copy: "Copy",
@@ -881,8 +886,7 @@ it("a newer mounted shared source proceeds while the superseded replacement call
 
 it("mounted capture cleans an exact late picker result after its owner retires, without registering or transmitting it", async () => {
   await mount(Capture);
-  await click("Other ways to add a workout");
-  const choice = nodes("Choice").find((n) => n.props.label === "Photos or screenshots")!;
+  const choice = nodes("ListRow").find((n) => n.props.title === "Photos or screenshots")!;
   await act(async () => choice.props.onPress());
   await settle();
   const pending = deferred<import("./capture").CaptureFile[]>();
@@ -908,19 +912,20 @@ it("mounted source import freezes its request UUID/source through lost acknowled
   await mount(Capture);
   await act(async () =>
     nodes("Field")
-      .find((n) => n.props.label === "Source link")!
+      .find((n) => n.props.label === "Workout link")!
       .props.onChange("https://example.test/original")
   );
-  const stale = nodes("Field").find((n) => n.props.label === "Source link")!.props.onChange;
+  const stale = nodes("Field").find((n) => n.props.label === "Workout link")!.props.onChange;
   fixture.startImport.mockRejectedValueOnce(Error("lost acknowledgment"));
-  await click("Extract workout");
+  await click("Import workout");
   await act(async () => stale("https://example.test/new-intent"));
   const original = fixture.startImport.mock.calls[0];
   await unmount();
   await mount(Capture);
   expect(nodes("Field")[0].props.value).toBe("https://example.test/original");
+  expect(button("Retry import").props.disabled).toBe(false);
   fixture.startImport.mockResolvedValueOnce({ id: "saved-import" });
-  await click("Retry extraction");
+  await click("Retry import");
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "saved-import")))!)).toMatchObject({
     pending_import: true,
@@ -934,7 +939,7 @@ it("mounted source import checks owner retirement again after asynchronous conse
   await act(async () => nodes("Field")[0].props.onChange("https://example.test/original"));
   const consent = deferred<void>();
   fixture.setAiConsent.mockReturnValueOnce(consent.promise);
-  await click("Agree and extract");
+  await click("Agree and import");
   fixture.current = false;
   await act(async () => consent.resolve());
   await settle();
@@ -1729,8 +1734,8 @@ it("a public link accepts the disclosure before admitting extraction and remembe
   fixture.capabilities.mockResolvedValue(serverCaps); fixture.publishingRequired = true;
   fixture.startImport.mockResolvedValue({ id: "public-job" });
   await mount(Capture);
-  await act(async () => nodes("Field").find(node => node.props.label === "Source link")!.props.onChange("https://example.test/source"));
-  await click("Extract workout");
+  await act(async () => nodes("Field").find(node => node.props.label === "Workout link")!.props.onChange("https://example.test/source"));
+  await click("Import workout");
   expect(fixture.acceptPublishingDisclosure).toHaveBeenCalledWith(1);
   expect(fixture.acceptPublishingDisclosure.mock.invocationCallOrder[0]).toBeLessThan(fixture.startImport.mock.invocationCallOrder[0]);
   expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: true, is_public: true });
@@ -1740,8 +1745,8 @@ it("declining publication still extracts and saves privately with the original s
   fixture.capabilities.mockResolvedValue(serverCaps); fixture.publishingRequired = true; fixture.publishingAgreed = false;
   fixture.startImport.mockResolvedValue({ id: "private-job" });
   await mount(Capture);
-  await act(async () => nodes("Field").find(node => node.props.label === "Source link")!.props.onChange("https://example.test/source"));
-  await click("Extract workout");
+  await act(async () => nodes("Field").find(node => node.props.label === "Workout link")!.props.onChange("https://example.test/source"));
+  await click("Import workout");
   expect(fixture.acceptPublishingDisclosure).not.toHaveBeenCalled();
   expect(fixture.startImport.mock.calls[0][3]).toEqual({ auto_save: true, is_public: false });
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "private-job")))!)).toMatchObject({ is_public: false, pending_import: true });
@@ -1752,7 +1757,7 @@ it("server-save retry preserves the original private policy after a lost acknowl
   fixture.capabilities.mockResolvedValue(serverCaps); fixture.startImport.mockRejectedValueOnce(Error("lost acknowledgement"));
   await mount(Capture); const original = fixture.startImport.mock.calls[0]; await unmount();
   fixture.capabilities.mockResolvedValue({ ...serverCaps, discover: false }); fixture.startImport.mockResolvedValue({ id: "recovered" });
-  await mount(Capture); await click("Retry extraction");
+  await mount(Capture); await click("Retry import");
   expect(fixture.startImport.mock.calls[1]).toEqual(original);
 });
 
@@ -1798,7 +1803,7 @@ it.each([
     expect(nodes("Field")[0].props.value).toBe("https://example.test/warm-share");
     expect(nodes("Button").some(node => node.props.title === "Load saved source")).toBe(false);
     expect(fixture.startImport).not.toHaveBeenCalled();
-    if (!consent) expect(button("Agree and extract")).toBeDefined();
+    if (!consent) expect(button("Agree and import")).toBeDefined();
   }
   expect(fixture.setAiConsent).not.toHaveBeenCalled();
 });
@@ -1824,7 +1829,8 @@ it("a first shared link waits for one explicit AI disclosure action", async () =
   fixture.startImport.mockResolvedValue({ id: "first-job" });
   await mount(Capture);
   expect(fixture.startImport).not.toHaveBeenCalled();
-  await click("Agree and extract");
+  expect(button("Agree and import").props.disabled).toBe(false);
+  await click("Agree and import");
   expect(fixture.setAiConsent).toHaveBeenCalledWith(true, 1);
   expect(fixture.startImport).toHaveBeenCalledTimes(1);
 });
@@ -1839,10 +1845,10 @@ it("a stale accepted consent display cannot silently re-enable revoked AI consen
     .mockResolvedValue({ accepted: false, disclosure_version: 1 });
   await mount(Capture);
   await act(async () => nodes("Field")[0].props.onChange("https://example.test/source"));
-  await click("Extract workout");
+  await click("Import workout");
   expect(fixture.setAiConsent).not.toHaveBeenCalled();
   expect(fixture.startImport).not.toHaveBeenCalled();
-  expect(button("Agree and extract")).toBeDefined();
+  expect(button("Agree and import")).toBeDefined();
 });
 
 async function mountRealWorkoutEditor(content: AuthoredWorkout, disabled = false) {
@@ -2013,7 +2019,9 @@ it("photo imports keep an explicit review step even when extraction succeeds", a
     kind: "images", source_url: "", text: "", files: [{ uri: "file:///cache/qa.jpg", name: "QA image", mime_type: "image/jpeg", owned: true }],
     created_at: "2026-10-13T00:00:00Z" }));
   fixture.startImport.mockResolvedValue({ id: "photo-job" });
-  await mount(Capture); await click("Extract workout");
+  await mount(Capture);
+  expect(button("Import workout").props.disabled).toBe(false);
+  await click("Import workout");
   const captured = JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "photo-job")))!);
   expect(captured.auto_save).toBe(false);
   const references = JSON.parse(fixture.map.get(draftKey(fixture.owner, "imports:1"))!);
@@ -2193,7 +2201,7 @@ it("cold restored acknowledged source opens an editable composer and retains exa
     created_at: "2026-10-14T00:00:00Z", job_id: "queued-job", pending_import: true, is_public: false };
   fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify(original));
   await mount(Capture);
-  expect(nodes("Field")[0].props).toMatchObject({ label: "Source link", value: "", disabled: false });
+  expect(nodes("Field")[0].props).toMatchObject({ label: "Workout link", value: "", disabled: false });
   const archiveKey = draftKey(fixture.owner, submittedCaptureScope(1, "queued-job"));
   expect(JSON.parse(fixture.map.get(archiveKey)!)).toMatchObject(original);
   expect(fixture.cleanup).not.toHaveBeenCalled();
@@ -2243,7 +2251,7 @@ it("acknowledged imports release the composer after each request without losing 
   await mount(Capture);
   for (const url of ["https://example.test/first", "https://example.test/second"]) {
     await act(async () => nodes("Field")[0].props.onChange(url)); await settle();
-    await click("Extract workout");
+    await click("Import workout");
     expect(nodes("Field")[0].props).toMatchObject({ value: "", disabled: false });
   }
   const first = JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "first-job")))!);
@@ -2297,7 +2305,7 @@ it("native deferred sharing keeps both sources, continues the current draft and 
   await act(async () => actions[1].onPress()); await settle();
   expect(fixture.push).toHaveBeenLastCalledWith("/capture");
   expect(fixture.nativeCaptures).toHaveBeenCalledTimes(1); expect(fixture.cleanup).not.toHaveBeenCalled();
-  fixture.startImport.mockResolvedValueOnce({ id: "source-A-job" }); await click("Extract workout");
+  fixture.startImport.mockResolvedValueOnce({ id: "source-A-job" }); await click("Import workout");
   expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, submittedCaptureScope(1, "source-A-job")))!)).toMatchObject(current);
   const clonedB = { uri: "file:///cache/hafa-workouts-capture/intake-B.jpg", name: "B", mime_type: "image/jpeg", owned: true };
   fixture.normalizeImages.mockResolvedValueOnce([clonedB]);
@@ -3092,15 +3100,68 @@ it("failed quiet confirmation keeps photo selection retryable without requesting
 });
 
 
-it("keeps Extract input and its unfinished hub together without clearing a draft when toggled", async () => {
+it("keeps the Add composer, in-progress imports and recent imports together without a toggle", async () => {
   await mount(Capture);
-  await act(async () => nodes("Field").find(node => node.props.label === "Source link")!.props.onChange("https://example.test/keep-this-source"));
+  await act(async () => nodes("Field").find(node => node.props.label === "Workout link")!.props.onChange("https://example.test/keep-this-source"));
   expect(nodes("ImportList")).toHaveLength(1);
-  await click("Hide unfinished imports");
-  expect(nodes("ImportList")).toHaveLength(0);
-  expect(nodes("Field").find(node => node.props.label === "Source link")!.props.value).toBe("https://example.test/keep-this-source");
-  await click("View processing and unfinished imports");
-  expect(nodes("ImportList")).toHaveLength(1);
+  expect(nodes("RecentImports")).toHaveLength(1);
+  expect(nodes("Button").some(node => /unfinished imports/i.test(node.props.title))).toBe(false);
+  expect(nodes("Field").find(node => node.props.label === "Workout link")!.props.value).toBe("https://example.test/keep-this-source");
+});
+
+it("keeps Import workout disabled until a complete link is entered", async () => {
+  await mount(Capture);
+  expect(button("Import workout").props.disabled).toBe(true);
+  for (const partial of ["youtube", "https://", "https://youtube"]) {
+    await act(async () => nodes("Field")[0].props.onChange(partial)); await settle();
+    expect(button("Import workout").props.disabled).toBe(true);
+    expect(JSON.stringify(renderer!.toJSON())).toContain("starting with https://");
+  }
+  await act(async () => nodes("Field")[0].props.onChange("https://www.youtube.com/watch?v=qa")); await settle();
+  expect(button("Import workout").props.disabled).toBe(false);
+});
+
+it("pastes the link from copied caption text and explains an empty clipboard", async () => {
+  await mount(Capture);
+  fixture.clipboard.mockResolvedValueOnce("");
+  await click("Paste");
+  expect(nodes("Field")[0].props.value).toBe("");
+  expect(JSON.stringify(renderer!.toJSON())).toContain("Nothing to paste");
+  fixture.clipboard.mockResolvedValueOnce("Leg day 🔥 https://www.instagram.com/reel/qa/ #fitness");
+  await click("Paste");
+  expect(nodes("Field")[0].props.value).toBe("https://www.instagram.com/reel/qa/");
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!).source_url).toBe("https://www.instagram.com/reel/qa/");
+  expect(button("Import workout").props.disabled).toBe(false);
+});
+
+it("moves visibility and extra instructions into one settings sheet", async () => {
+  fixture.capabilities.mockResolvedValue(serverCaps);
+  await mount(Capture);
+  const settings = () => nodes("ListRow").find(node => node.props.title.startsWith("Public") || node.props.title.startsWith("Private"))!;
+  expect(settings().props.title).toBe("Public · No extra notes");
+  expect(nodes("Choice")).toHaveLength(0);
+  await act(async () => settings().props.onPress());
+  await act(async () => nodes("Choice").find(node => node.props.label === "Private")!.props.onPress()); await settle();
+  await act(async () => nodes("Field").find(node => node.props.label === "Extra instructions")!.props.onChange("Only the second circuit")); await settle();
+  expect(fixture.nativePreference).toHaveBeenCalledWith(expect.anything(), fixture.owner, false, expect.any(Function));
+  expect(JSON.parse(fixture.map.get(draftKey(fixture.owner, "capture:1"))!)).toMatchObject({ is_public: false, text: "Only the second circuit" });
+  await click("Done");
+  expect(settings().props.title).toBe("Private · Extra notes added");
+});
+
+it("routes every other way to add to its existing mode or screen", async () => {
+  await mount(Capture);
+  const row = (title: string) => nodes("ListRow").find(node => node.props.title === title)!;
+  await act(async () => row("Paste workout text").props.onPress()); await settle();
+  expect(nodes("Field").find(node => node.props.label === "Workout text")).toBeDefined();
+  await act(async () => row("PDF or text document").props.onPress()); await settle();
+  expect(button("Choose PDF or text document")).toBeDefined();
+  await click("Use a link instead");
+  expect(nodes("Field")[0].props.label).toBe("Workout link");
+  await act(async () => row("Write your own").props.onPress());
+  expect(fixture.push).toHaveBeenLastCalledWith("/add-workout");
+  await act(async () => row("Ask the coach").props.onPress());
+  expect(fixture.push).toHaveBeenLastCalledWith("/coach");
 });
 
 it("forwards legacy capture links and native share parameters into Extract", async () => {
