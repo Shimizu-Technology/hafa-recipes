@@ -274,6 +274,11 @@ export function createWorkoutsApi(
     throw new ApiError("This library is too large to load at once. Contact support.", 0);
   }
   return {
+    async onboard(installationId: string) {
+      return (await request<{ status: "created" | "existing"; app_user_id: string }>(
+        "/api/auth/clerk-transition/onboard", "POST",
+        { installation_id: installationId, intent: "create_account" })).data;
+    },
     async activityLog(generation: number, offset = 0, from?: string, to?: string) {
       const result = (
         await request<ActivityPage>(`/activity-log?${activityQuery(offset, from, to)}`, "GET", undefined, {
