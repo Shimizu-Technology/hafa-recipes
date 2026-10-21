@@ -501,3 +501,20 @@ it("saves only the measure on screen and keeps the weight kind on skipped sets",
   await act(async () => { skip.props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.actuals[1]).toMatchObject({ completed: false, load: 12, load_unit: "kg", load_convention: "per_hand" });
 });
+
+it.each([
+  ["circuit", 5, undefined, false],
+  ["circuit", 1, undefined, false],
+  ["superset", 3, undefined, false],
+  ["sequential", undefined, 3, false],
+  ["sequential", undefined, undefined, true],
+  ["circuit", undefined, undefined, true],
+] as const)("shows the open-ended hint only without sets or rounds (%s, %s, %s)", async (grouping, rounds, sets, showHint) => {
+  const fixed: Workout = { ...workout, blocks: [{ id: "main", label: "Work", grouping, rounds,
+    exercises: [{ name: "Squat", sets, reps_min: 8 }] }] };
+  await act(async () => {
+    await fixture.store!.discard();
+    await fixture.store!.start(fixed, { workout_id: "source", workout_revision: 1 }, "fixed-client", Date.now(), { log_as_you_go: true });
+  }); await settle();
+  expect(text().includes("No set count given")).toBe(showHint);
+});

@@ -530,7 +530,7 @@ export default function Training() {
             </View>
           )}
           <Button title="Workout instructions" variant="ghost" size="sm" inline icon="book-outline" onPress={() => setInstructionsOpen(true)} />
-          {e.sets == null && !timed && (
+          {e.sets == null && !timed && d.workout.blocks.find(block => block.id === step?.block_id)?.rounds == null && (
             <Copy kind="small" tone="muted">No set count given. Log what you do, and add sets from the ··· menu.</Copy>
           )}
           {!!next && (
