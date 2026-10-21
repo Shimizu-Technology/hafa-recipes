@@ -1,17 +1,54 @@
 import { ActivityWeek } from "@/components/activity-week";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Pressable, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import { AccountButton, Button, Card, Copy, Empty, IconButton, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton } from "@/components/ui";
+import { AccountButton, Button, Card, Copy, Empty, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
+import { ProgressRecords } from "@/components/progress-records";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { canRecoverResult } from "@/lib/result-recovery";
-import { summaryOf } from "@/lib/training";
+import { ApiError } from "@/lib/api";
+import { isTransientSyncError } from "@/lib/training";
+import { exerciseLines, exerciseRecords, friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
+import type { SessionRequest, Workout } from "@/lib/models";
 import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
+/** The top of a session card: date, title, totals and what was done. Tappable when the session is saved to the account. */
+function SessionSummary({ title, when, request, workout, onOpen }: {
+  title: string; when: string; request: SessionRequest; workout: Workout; onOpen?: () => void;
+}) {
+  const c = useColors();
+  const { units } = useTraining();
+  const sets = request.actuals.filter((a) => a.completed).length, skipped = request.actuals.length - sets;
+  const minutes = Math.round((request.active_seconds ?? 0) / 60);
+  const lines = exerciseLines(request, workout, units);
+  const body = <>
+    <Row justify="space-between">
+      <Copy kind="caption" tone="muted">{when}</Copy>
+      {!!onOpen && <Ionicons name="chevron-forward" size={18} color={c.muted} />}
+    </Row>
+    <Copy kind="heading">{title}</Copy>
+    <Copy kind="small" tone="muted">
+      {[`${sets} ${sets === 1 ? "set" : "sets"}`, skipped ? `${skipped} skipped` : null, minutes ? `${minutes} min` : null].filter(Boolean).join(" · ")}
+    </Copy>
+    {lines.slice(0, 3).map((line, index) => <Copy kind="small" key={index} numberOfLines={1}>{line}</Copy>)}
+    {lines.length > 3 && <Copy kind="small" tone="muted">+{lines.length - 3} more</Copy>}
+  </>;
+  if (!onOpen) return <View style={{ gap: 4 }}>{body}</View>;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${title}, ${when}. View session`} onPress={onOpen}
+      style={({ pressed }) => ({ gap: 4, opacity: pressed ? 0.7 : 1 })}>
+      {body}
+    </Pressable>
+  );
+}
+const openSession = (id: string) => router.push({ pathname: "/session/[id]", params: { id } });
 export default function Progress() {
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, units } = useTraining();
+  const cache = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
   const offline = useOfflineTraining();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -35,6 +72,19 @@ export default function Progress() {
   const visibleLocal = local.slice(0, visibleCount);
   const visibleRemote = remote.slice(0, Math.max(0, visibleCount - visibleLocal.length));
   useEffect(() => setVisibleCount(20), [owner, generation]);
+  // Records and trends only use accepted sessions, and wait for edit history so a corrected result is not double counted.
+  const records = ancestryReady ? exerciseRecords(selected.effective, units) : [];
+  const weekSessions = selected.effective.map(({ request }) => ({ started_at: request.started_at,
+    recorded: request.actuals.some((a) => a.completed), active_seconds: request.active_seconds }));
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([q.refetch(), cache.invalidateQueries({ queryKey: [owner, "activity-week"] }),
+        needsAncestry ? ancestry.refetch() : null]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
   async function sync(before?: () => Promise<void>) {
     if (!offline.store) return;
     setBusy(true);
@@ -44,7 +94,9 @@ export default function Progress() {
       await offline.store.sync(api.saveSession);
       await q.refetch();
     } catch (e) {
-      setError((e as Error).message);
+      // Connection and server trouble gets a calm retry message; the device store's own guidance is shown as written.
+      setError(!(e instanceof Error) || e instanceof TypeError || (e instanceof ApiError && isTransientSyncError(e.status))
+        ? "Couldn’t sync right now. Your sessions are safe on this device; try again when you’re online." : e.message);
     } finally {
       setBusy(false);
     }
@@ -53,30 +105,28 @@ export default function Progress() {
     Alert.alert("Discard this result?", "It is removed from this device only. Nothing saved to your account changes.", [
       { text: "Keep", style: "cancel" },
       { text: "Discard", style: "destructive", onPress: () => {
-        void offline.store?.dismiss(id).catch((e: Error) => setError(e.message));
+        void offline.store?.dismiss(id).catch(() => setError("Couldn’t remove that result. Try again."));
       } },
     ]);
   }
   return (
     <Screen
       title="Progress"
-      action={
-        <Row gap={8}>
-          <IconButton icon="add" label="Log completed activity" variant="primary" onPress={() => router.push("/activity")} />
-          <AccountButton />
-        </Row>
-      }
+      refreshing={refreshing}
+      onRefresh={() => { void refresh(); }}
+      action={<AccountButton />}
     >
       {historyLoading ? <Card><Skeleton height={24} width="70%" /><Skeleton height={18} width="50%" /><Copy>Loading your training history…</Copy></Card> : q.error && !q.data ?
-        <Card><Copy>Totals will show once your history loads.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={selected.sessions} /> : <Card>
+        <Card><Copy>Totals will show once your history loads.</Copy></Card> : ancestryReady ? <ActivityWeek sessions={weekSessions} /> : <Card>
         <Copy>{ancestry.isPending ? "Checking your edited sessions…" :
           "Totals are paused so no workout is counted twice."}</Copy>
         {!ancestry.isPending && <Button title="Try again" secondary onPress={() => { void ancestry.refetch(); }} />}
       </Card>}
       <ListGroup>
-        <ListRow icon="add-circle-outline" title="Log completed activity" onPress={() => router.push("/activity")} />
-        <ListRow icon="walk-outline" title="Runs, walks & other activity history" onPress={() => router.push("/activity-log")} />
+        <ListRow icon="add-circle-outline" title="Log a completed activity" detail="A run, walk, game or class" onPress={() => router.push("/activity")} />
+        <ListRow icon="walk-outline" title="Runs, walks & other activity" onPress={() => router.push("/activity-log")} />
       </ListGroup>
+      <ProgressRecords records={records} />
       {!!offline.error && <>
         <Notice error>{offline.error}</Notice>
         <Button title="Retry restoring saved sessions" secondary onPress={offline.retry} />
@@ -91,8 +141,8 @@ export default function Progress() {
         />
       )}
       {q.error && <>
-        <Notice error>{q.error.message} Training saved on this device remains visible below.</Notice>
-        <Button title="Retry loading training history" secondary busy={q.isFetching} onPress={() => { void q.refetch(); }} />
+        <Notice error>Your training history couldn’t load. Sessions saved on this device are still shown.</Notice>
+        <Button title="Try again" variant="secondary" size="sm" inline icon="refresh" busy={q.isFetching} onPress={() => { void q.refetch(); }} />
       </>}
       {!historyLoading && !q.error && !offline.error && !remote.length && !local.length ? (
         <Empty
@@ -106,23 +156,10 @@ export default function Progress() {
       {visibleLocal
         .map((h) => (
           <Card key={h.request.client_session_id}>
-            <Copy kind="caption" tone="muted">
-              {new Date(h.request.started_at).toLocaleDateString()} · {sessionStatusLabel(h.request.status)} ·{" "}
-              {h.state === "synced" ? "Synced" : h.state === "blocked" ? "Needs review" : "Saved on device"}
-            </Copy>
-            <Copy kind="heading">{h.workout.title}</Copy>
-            <Copy kind="numericSmall">
-              {h.request.actuals.filter((a) => a.completed).length} completed sets ·{" "}
-              {h.request.actuals.filter((a) => !a.completed).length} skipped
-            </Copy>
-            {h.request.actuals
-              .filter((a) => a.completed)
-              .map((a, index) => (
-                <Copy kind="small" tone="muted" key={index}>
-                  {h.workout.blocks.find((b) => b.id === a.block_id)?.exercises[a.exercise_index]?.name} ·{" "}
-                  {summaryOf(a)}
-                </Copy>
-              ))}
+            <SessionSummary title={h.workout.title} request={h.request} workout={h.workout}
+              when={[friendlyDate(h.request.started_at), sessionStatusLabel(h.request.status),
+                h.state === "synced" ? null : h.state === "blocked" ? "Needs review" : "Saved on this device"].filter(Boolean).join(" · ")}
+              onOpen={h.synced_id ? () => openSession(h.synced_id!) : undefined} />
             {!!h.problem && <Notice error>{h.problem}</Notice>}
             {!!h.request.supersedes_session_id && <Notice>
               {selected.conflictingQueued.includes(h.request.client_session_id) ?
@@ -178,50 +215,20 @@ export default function Progress() {
             {!!h.recovery_origin && <><Notice>This result was recovered with a private workout copy.</Notice>
               <Button title="View original recording" variant="ghost" size="sm" inline onPress={() => router.push({
                 pathname: "/recover-result/[id]", params: { id: h.recovery_origin!.request.client_session_id } })} /></>}
-            {!!h.synced_id && (
-              <Button
-                title="View saved session"
-                variant="ghost"
-                size="sm"
-                inline
-                icon="chevron-forward"
-                onPress={() => router.push({ pathname: "/session/[id]", params: { id: h.synced_id! } })}
-              />
-            )}
             {!!h.request.supersedes_session_id && <Button title="View original saved session" variant="ghost" size="sm" inline
-              onPress={() => router.push({ pathname: "/session/[id]", params: { id: h.request.supersedes_session_id! } })} />}
+              onPress={() => openSession(h.request.supersedes_session_id!)} />}
           </Card>
         ))}
       {visibleRemote.map((s) => (
         <Card key={s.id}>
-          <Copy kind="caption" tone="muted">
-            {new Date(s.started_at).toLocaleDateString()} · {sessionStatusLabel(s.status)}
-          </Copy>
-          <Copy kind="heading">{s.title}</Copy>
-          <Copy kind="numericSmall">{s.content.actuals.filter((a) => a.completed).length} completed sets</Copy>
-          <Button
-            title="View saved session"
-            variant="ghost"
-            size="sm"
-            inline
-            icon="chevron-forward"
-            onPress={() => router.push({ pathname: "/session/[id]", params: { id: s.id } })}
-          />
+          <SessionSummary title={s.title} request={s.content} workout={s.content.prescription_snapshot}
+            when={`${friendlyDate(s.started_at)} · ${sessionStatusLabel(s.status)}`} onOpen={() => openSession(s.id)} />
           {!!s.content.supersedes_session_id && <Button title="View previous saved result" variant="ghost" size="sm" inline
-            onPress={() => router.push({ pathname: "/session/[id]", params: { id: s.content.supersedes_session_id! } })} />}
+            onPress={() => openSession(s.content.supersedes_session_id!)} />}
         </Card>
       ))}
       {local.length + remote.length > visibleCount && <Button title="Show more sessions" secondary
         onPress={() => setVisibleCount((count) => count + 20)} />}
-      <Button
-        title="Refresh training history"
-        variant="ghost"
-        icon="refresh"
-        busy={busy || q.isFetching}
-        onPress={() => {
-          void q.refetch();
-        }}
-      />
       {!!error && <Notice error>{error}</Notice>}
     </Screen>
   );

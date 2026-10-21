@@ -1,15 +1,17 @@
 import { AppState } from "react-native";
 import { useCallback, useEffect } from "react";
-import { useFocusEffect, router } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Copy, ListRow, Notice, Skeleton } from "./ui";
+import { Button, Card, Copy, Notice, Skeleton } from "./ui";
 import { useTraining } from "@/lib/context";
 import { activityFrequency, weekActivity } from "@/lib/activity-log";
+import { dateInTimezone } from "@/lib/training";
+import { weekStreak } from "@/lib/progress-insights";
 function shortDate(iso?: string) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso ?? "";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${iso}T00:00:00Z`));
 }
-export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: string; recorded: boolean }> }) {
+export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: string; recorded: boolean; active_seconds?: number }> }) {
   const { api, owner, enrollment } = useTraining();
   const generation = enrollment?.generation ?? 0;
   const q = useQuery({
@@ -30,6 +32,13 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
   );
   if (!enrollment?.enrolled) return null;
   const summary = q.data ? activityFrequency(q.data.items, sessions, q.data.timezone, q.data.from, q.data.to) : null;
+  // Weeks in a row with training, in the account timezone. Shown from two weeks so it reads as encouragement, not pressure.
+  const streak = q.data ? weekStreak(sessions, new Date(), q.data.timezone) : 0;
+  const minutes = q.data ? Math.round(sessions.reduce((total, s) => {
+    if (!s.recorded || !s.active_seconds || !Number.isFinite(Date.parse(s.started_at))) return total;
+    const date = dateInTimezone(new Date(s.started_at), q.data!.timezone);
+    return date >= q.data!.from && date <= q.data!.to ? total + s.active_seconds : total;
+  }, 0) / 60) : 0;
   return (
     <Card>
       {q.isPending ? (
@@ -39,9 +48,9 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
         </>
       ) : q.error ? (
         <>
-          <Notice error>{q.error.message}</Notice>
+          <Notice error>This week’s activity couldn’t load.</Notice>
           <Button
-            title="Retry weekly activity"
+            title="Try again"
             secondary
             onPress={() => {
               void q.refetch();
@@ -56,17 +65,17 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
               {q.data?.complete ? "" : "+"} {summary.days === 1 && q.data?.complete ? "day" : "days"} with training
             </Copy>
             <Copy tone="muted">
-              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {summary.activities}
+              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {minutes} min · {summary.activities}
               {q.data?.complete ? "" : "+"} {summary.activities === 1 && q.data?.complete ? "activity" : "activities"}
             </Copy>
             <Copy kind="small" tone="muted">
               Last 7 days · {shortDate(q.data?.from)} – {shortDate(q.data?.to)}
             </Copy>
+            {streak >= 2 && <Copy kind="label" tone="accent">Active {streak} weeks in a row</Copy>}
             {!q.data?.complete && <Notice>Showing the first page of activity, so the real count may be higher.</Notice>}
           </>
         )
       )}
-      <ListRow icon="list-outline" title="See all activity" onPress={() => router.push("/activity-log")} />
     </Card>
   );
 }

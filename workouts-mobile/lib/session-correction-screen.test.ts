@@ -14,7 +14,8 @@ vi.mock("expo-router", () => ({ router: { replace: fixture.replace }, useLocalSe
 vi.mock("expo-crypto", () => ({ randomUUID: () => "correction-client" }));
 vi.mock("@/components/health-export", () => ({ HealthExport: () => null }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
-vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Choice: "Choice", Field: "Field", Notice: "Notice", Button: "Button" }));
+vi.mock("@/components/session-table", () => ({ SessionTable: "SessionTable" }));
+vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Choice: "Choice", Field: "Field", Notice: "Notice", Button: "Button", IconButton: "IconButton" }));
 import SessionDetail from "../app/session/[id]";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
@@ -91,4 +92,14 @@ it("clears selected difficulty and pain choices on a second tap and saves blank 
   expect(fixture.store!.snapshot().history[0].request.actuals[0]).toMatchObject({
     difficulty: null, pain_reported: null, notes: null,
   });
+});
+
+it("reads as a compact table per exercise with the chat action in the header", async () => {
+  await act(async () => button("Keep original results").props.onPress());
+  const table = renderer!.root.findByType("SessionTable" as never);
+  expect(table.props).toMatchObject({ actuals: saved.content.actuals, units: "imperial" });
+  expect(renderer!.root.findAllByType("Field" as never)).toHaveLength(0);
+  const screen = renderer!.root.findByType("Screen" as never);
+  expect(screen.props.subtitle).toMatch(/· Completed · 30 min$/);
+  expect(screen.props.action.props.label).toBe("Chat about this session");
 });

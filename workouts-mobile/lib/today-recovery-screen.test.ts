@@ -38,7 +38,7 @@ vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "
     fixture.appListeners.add(listener); return { remove: () => fixture.appListeners.delete(listener) };
   } } }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
-vi.mock("@/constants/theme", () => ({ radii: { md: 12 } }));
+vi.mock("@/constants/theme", () => ({ radii: { md: 12 }, spacing: { xs: 8, sm: 12 } }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
 vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
@@ -251,8 +251,9 @@ it.each(["populated", "zero and absent"] as const)("saved-result correction expo
   const before = JSON.stringify(original);
   fixture.session.mockResolvedValue(original);
   await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))); }); await settle();
-  expect(text()).toContain(feedback === "populated" ? "Effort · 7/10" : "Effort · 0/10");
-  expect(text()).toContain("No pain reported");
+  // The session table summarises each set's answers on one line under the exercise.
+  expect(text()).toContain(feedback === "populated" ? "Effort 7/10" : "Effort 0/10");
+  expect(text()).toContain("No pain");
   if (feedback === "populated") {
     expect(text()).toContain("Felt hard");
     expect(text()).toContain("Original cue");
