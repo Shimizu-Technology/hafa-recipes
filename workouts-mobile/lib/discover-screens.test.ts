@@ -33,6 +33,7 @@ const fixture = vi.hoisted(() => ({
   asked: 0,
   push: vi.fn(),
   replace: vi.fn(),
+  back: vi.fn(),
   toast: vi.fn(),
   map: new Map<string, string>(),
   focus: false,
@@ -122,7 +123,7 @@ vi.mock("react-native", () => ({
 vi.mock("expo-router", async () => {
   const { useEffect } = await import("react");
   return ({
-  router: { push: fixture.push, replace: fixture.replace, back: vi.fn(), navigate: vi.fn() },
+  router: { push: fixture.push, replace: fixture.replace, back: fixture.back, canGoBack: () => true, navigate: vi.fn() },
   useFocusEffect(callback: () => (() => void) | void) { useEffect(() => fixture.focus ? callback() : undefined, [callback, fixture.focus]); },
   useLocalSearchParams: () => fixture.params,
 }); });
@@ -158,6 +159,7 @@ import DiscoverWorkout from "../app/discover/[id]";
 import ImportReview from "../app/import/[id]";
 import Library from "../app/(tabs)/library";
 import Collections from "../app/collections";
+import CollectionDetail from "../app/collection/[id]";
 import { ImportList } from "../components/import-list";
 import { PrescriptionPreview } from "../components/program-preview";
 import { SharedSnapshot } from "../components/shared-snapshot";
@@ -189,6 +191,8 @@ it("a saved workout enters planning with that workout selected", async () => {
 const choice = (label: string) => nodes("Choice").find((n) => n.props.label === label);
 const listRow = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const libraryCard = (title: string) => nodes("LibraryCard").find((n) => n.props.title === title);
+const filterChoice = (label: string) => nodes("Sheet").find((n) => n.props.title === "Filter workouts")!
+  .findAll((n) => String(n.type) === "Choice" && n.props.label === label)[0];
 async function settle() {
   for (let i = 0; i < 6; i++) await act(async () => void (await new Promise((done) => setTimeout(done, 5))));
 }
@@ -220,7 +224,7 @@ beforeEach(() => {
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
     fixture.importJob, fixture.importSource, fixture.acceptImport, fixture.publishingDisclosure, fixture.acceptPublishingDisclosure,
-    fixture.push, fixture.replace, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
+    fixture.push, fixture.replace, fixture.back, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
     fixture.unpublishWorkout, fixture.announce, fixture.start]) mock.mockReset();
   fixture.params = {};
   fixture.focus = false;
@@ -1104,7 +1108,7 @@ it("Library remembers grid or list for this account and covers collections from 
   fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
     organization: { ...emptyOrganization(), collection_ids: ["gym"] } }], total: 1, has_more: false });
   await mount(Library);
-  expect(nodes("CollectionTile")[0].props).toMatchObject({ title: "Gym days", count: 1, cover: "https://example.test/cover.jpg" });
+  expect(nodes("CollectionTile")[0].props).toMatchObject({ title: "Gym days", count: 1, covers: ["https://example.test/cover.jpg"] });
   expect(nodes("FlatList")[0].props.numColumns).toBe(2);
   await act(async () => listRow("Show as a list")!.props.onPress()); await settle();
   expect(nodes("FlatList")[0].props.numColumns).toBe(1);
@@ -1118,8 +1122,66 @@ it("surfaces collection filters and management directly beside library search", 
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await mount(Library);
   expect(listRow("Manage collections")).toBeDefined();
-  await act(async () => nodes("CollectionTile").find(node => node.props.title === "Gym days")!.props.onPress()); await settle();
+  await act(async () => nodes("CollectionTile").find(node => node.props.title === "Gym days")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/collection/[id]", params: { id: "gym" } });
+  await act(async () => filterChoice("Gym days").props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("gym");
+  await act(async () => nodes("Chip").find(node => node.props.label === "Up to 15 min")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ collection_id: "gym", max_minutes: 15 });
+  expect(nodes("LibrarySearch")[0].props.filterCount).toBe(2);
+});
+it("collection tiles prefer server cover previews over loaded workout covers", async () => {
+  const previews = ["https://example.test/1.jpg", "https://example.test/2.jpg", "https://example.test/3.jpg", "https://example.test/4.jpg"];
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 4, preview_thumbnail_urls: previews },
+    { id: "home", title: "Home", workout_count: 0, preview_thumbnail_urls: [] }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
+    organization: { ...emptyOrganization(), collection_ids: ["gym"] } }], total: 1, has_more: false });
+  await mount(Library);
+  expect(nodes("CollectionTile").map(node => node.props.covers)).toEqual([previews, []]);
+});
+const gym = { id: "gym", title: "Gym days", revision: 3, workout_count: 1 };
+const sheet = (title: string) => nodes("Sheet").find(node => node.props.title === title)!;
+it("a collection opens its own workouts and renames from its options", async () => {
+  fixture.params = { id: "gym" }; fixture.collections.mockResolvedValue([gym]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  fixture.renameCollection.mockRejectedValueOnce(new ApiError("Collection changed; refresh before saving", 409)).mockResolvedValue({});
+  await mount(CollectionDetail);
+  expect(nodes("Screen")[0].props.title).toBe("Gym days");
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toEqual({ collection_id: "gym" });
+  expect(nodes("LibraryCard")).toHaveLength(1);
+  await act(async () => nodes("Screen")[0].props.action.props.onPress());
+  await act(async () => listRow("Rename collection")!.props.onPress());
+  expect(sheet("Rename collection").props.visible).toBe(true);
+  await act(async () => nodes("Field").find(node => node.props.label === "Collection name")!.props.onChange("Leg days"));
+  await act(async () => button("Save name")!.props.onPress()); await settle();
+  expect(sheet("Rename collection").props.visible).toBe(true);
+  expect(nodes("Notice").some(node => JSON.stringify(node.props).includes("Collection changed"))).toBe(true);
+  await act(async () => button("Save name")!.props.onPress()); await settle();
+  expect(fixture.renameCollection).toHaveBeenLastCalledWith("gym", "Leg days", 3, 1);
+  expect(sheet("Rename collection").props.visible).toBe(false);
+});
+it("removing a collection confirms first, keeps its workouts and goes back", async () => {
+  fixture.params = { id: "gym" }; fixture.collections.mockResolvedValue([gym]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  fixture.removeCollection.mockResolvedValue(undefined);
+  await mount(CollectionDetail);
+  await act(async () => listRow("Remove collection")!.props.onPress());
+  expect(fixture.removeCollection).not.toHaveBeenCalled();
+  expect(sheet("Remove collection?").props.visible).toBe(true);
+  const searches = fixture.searchLibrary.mock.calls.length;
+  fixture.collections.mockResolvedValue([]);
+  await act(async () => button("Remove collection")!.props.onPress()); await settle();
+  expect(fixture.removeCollection).toHaveBeenCalledExactlyOnceWith("gym", 3, 1);
+  expect(fixture.back).toHaveBeenCalled();
+  expect(fixture.searchLibrary.mock.calls.length).toBe(searches); // The deleted collection is never searched again.
+  expect(fixture.collections.mock.calls.length).toBeGreaterThan(1); // The library's collection list refreshes.
+});
+it("a removed collection explains itself instead of loading", async () => {
+  fixture.params = { id: "gone" }; fixture.collections.mockResolvedValue([gym]);
+  await mount(CollectionDetail);
+  expect(nodes("Empty")[0].props.title).toBe("This collection was removed");
+  expect(fixture.searchLibrary).not.toHaveBeenCalled();
+  expect(nodes("Screen")[0].props.action).toBeUndefined();
 });
 it("bulk organization keeps only failed workouts selected and retries only those", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
@@ -1212,7 +1274,7 @@ it("freezes a pending bulk target and selection despite captured controls and ch
   const doneSelecting = button("Done")!.props.onPress;
   await act(async () => button("Add to collection")!.props.onPress());
   await act(async () => { selectSecond(); chooseHome(); doneSelecting(); });
-  await act(async () => nodes("CollectionTile").find(node => node.props.title === "Home")!.props.onPress()); await settle();
+  await act(async () => filterChoice("Home").props.onPress()); await settle();
   await act(async () => resolve(emptyOrganization())); await settle();
   expect(fixture.saveOrganization).toHaveBeenCalledExactlyOnceWith(saved.id, { expected_revision: 0, collection_ids: ["gym"] }, 1);
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("home");
