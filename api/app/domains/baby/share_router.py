@@ -168,6 +168,7 @@ async def admit_capture(db, capture, member):
     """Caller holds the stable account lock. No original is removed on refusal."""
     if capture.status != "deferred":
         return
+    capture.last_attempt_at = now()
     if not (member.profile.get("ai_consent") and member.profile.get("auto_process_shares")):
         # Revocation is final for already pending automatic work. A later opt-in
         # does not retroactively send previously saved private originals to AI.
@@ -189,6 +190,8 @@ async def admit_capture(db, capture, member):
             raise
         await db.rollback()
         await db.refresh(capture)
+        capture.last_attempt_at = now()
+        await db.commit()
         return
     # Admission commits its durable import before this optional receipt update.
     # Replay sees the same import UUID after an interrupted receipt update.
@@ -207,7 +210,9 @@ async def drain_deferred_captures(db, *, limit=20):
                     BabyShareCapture.id, BabyShareCapture.app_user_id, BabyShareCapture.generation
                 )
                 .where(BabyShareCapture.status == "deferred")
-                .order_by(BabyShareCapture.created_at)
+                .order_by(
+                    BabyShareCapture.last_attempt_at.asc().nullsfirst(), BabyShareCapture.created_at
+                )
                 .limit(limit)
             )
         ).all()
@@ -289,7 +294,11 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
         "capture_id": str(capture.id),
         "record_id": str(capture.record_id),
         "generation": capture.generation,
-        "status": "queued" if job else capture.status,
+        "status": "queued"
+        if job and job.status in {"queued", "processing"}
+        else "saved"
+        if job
+        else capture.status,
         "import_id": str(job.id) if job else None,
         "replayed": replayed,
     }

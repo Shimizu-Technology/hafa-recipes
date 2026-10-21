@@ -32,6 +32,11 @@ async def run_migration(*, configured=None, migration_engine=None):
             await connection.run_sync(lambda sync: model.__table__.create(sync, checkfirst=True))
         await connection.execute(
             text(
+                "ALTER TABLE baby_share_captures ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ"
+            )
+        )
+        await connection.execute(
+            text(
                 "INSERT INTO schema_migrations(version,name) VALUES (51,'Baby native sharing') ON CONFLICT(version) DO NOTHING"
             )
         )

@@ -31,4 +31,5 @@ class BabyShareCapture(Base):
     request = Column(JSONB, nullable=False)
     record_id = Column(UUID(as_uuid=True), nullable=False)
     status = Column(String(16), nullable=False)
+    last_attempt_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), nullable=False)

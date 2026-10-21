@@ -242,3 +242,35 @@ async def test_expiry_exact_revocation_generation_and_missing_additive_schema(ba
 def test_private_links_refused(url):
     with pytest.raises(ValueError):
         CaptureRequest(**capture(url=url))
+
+
+async def test_blocked_old_owner_cannot_starve_a_later_owner(baby_api):
+    c = baby_api.client
+    for owner in ["owner", "other"]:
+        await c.patch(
+            "/api/v1/baby/profile",
+            headers={**shared.GEN, "X-Test-Owner": owner},
+            json={"ai_consent": True, "auto_process_shares": True},
+        )
+    first = await session(c)
+    second = await session(c, **{"X-Test-Owner": "other"})
+    for _ in range(5):
+        await c.post("/api/v1/baby/share/captures", headers=first, json=capture())
+        await c.post("/api/v1/baby/share/captures", headers=second, json=capture())
+    for _ in range(20):
+        result = await c.post("/api/v1/baby/share/captures", headers=first, json=capture())
+        assert result.json()["status"] == "deferred"
+    later = capture()
+    assert (await c.post("/api/v1/baby/share/captures", headers=second, json=later)).json()[
+        "status"
+    ] == "deferred"
+    async with baby_api.sessions() as db:
+        for job in await db.scalars(select(BabyImport).where(BabyImport.app_user_id == "other")):
+            job.status = "ready"
+        await db.commit()
+        # The oldest bounded batch is blocked. Persisted attempt ordering must
+        # advance past it even across session/worker restarts, without raising caps.
+        assert await drain_deferred_captures(db, limit=20) == 0
+    async with baby_api.sessions() as restarted:
+        assert await drain_deferred_captures(restarted, limit=20) == 1
+        assert await restarted.get(BabyImport, later["capture_id"]) is not None
