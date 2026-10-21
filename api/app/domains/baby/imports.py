@@ -26,14 +26,25 @@ def import_response(row):
 
 @router.post("/imports")
 async def create_import(body: ImportCreate, user: User, db: Database, generation: Generation):
-    return await admit_import(body, user, db, generation, automatic=getattr(body, "automatic", False))
+    return await admit_import(
+        body, user, db, generation, automatic=getattr(body, "automatic", False)
+    )
 
 
 async def admit_import(body, user, db, generation, *, automatic=False):
     member = await membership_for(db, user.id, generation=generation, write=True)
-    if automatic and not (member.profile.get("ai_consent") and member.profile.get("auto_process_shares")):
+    if automatic and not (
+        member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
+    ):
         raise HTTPException(403, "Automatic processing permission is off; the original stays saved")
+    if automatic and getattr(body, "automatic_epoch", 0) != member.profile.get(
+        "auto_process_epoch", 0
+    ):
+        raise HTTPException(403, "Automatic permission changed; the original stays saved")
     request = body.model_dump(mode="json")
+    request.pop("automatic_epoch", None)
+    if automatic and getattr(body, "automatic_epoch", 0):
+        request["automatic_epoch"] = body.automatic_epoch
     request.pop("automatic", None)
     if automatic:
         request["automatic"] = True
@@ -100,6 +111,10 @@ async def admit_import(body, user, db, generation, *, automatic=False):
         await validate_relations(
             db, user.id, generation, source.child_id, {"attachment_ids": request["attachment_ids"]}
         )
+        original_text = (source.data.get("source_text") or "").strip()
+        caption_title = original_text.splitlines()[0][:100] if original_text else "Saved source"
+        if automatic and source.revision == 1 and source.title in {"Saved source", caption_title}:
+            request["automatic_title"] = source.title
         source.data = {**source.data, "status": "queued"}
         source.revision, source.updated_at = source.revision + 1, now()
     else:
@@ -149,10 +164,33 @@ async def admit_import(body, user, db, generation, *, automatic=False):
     return import_response(row)
 
 
+async def pending_capture(db, owner, generation, identifier):
+    from app.domains.baby.share_models import BabyShareCapture
+    from app.domains.baby.share_router import share_schema_available
+
+    if await share_schema_available(db):
+        capture = await db.get(BabyShareCapture, identifier)
+        if capture and capture.app_user_id == owner and capture.generation == generation:
+            return capture
+    raise HTTPException(404, "Saved processing request not found")
+
+
+def capture_progress(capture):
+    return {
+        "id": str(capture.id),
+        "record_id": str(capture.record_id),
+        "status": "deferred" if capture.status == "deferred" else "saved",
+        "error": None,
+    }
+
+
 @router.get("/imports/{identifier}")
 async def get_import(identifier: UUID, user: User, db: Database):
-    member = await membership_for(db, user.id)
-    return import_response(await owned(db, BabyImport, user.id, member.generation, identifier))
+    # Observe admission and its optional receipt under the same owner-first lock.
+    member = await membership_for(db, user.id, write=True)
+    if await db.get(BabyImport, identifier) is not None:
+        return import_response(await owned(db, BabyImport, user.id, member.generation, identifier))
+    return capture_progress(await pending_capture(db, user.id, member.generation, identifier))
 
 
 @router.post("/imports/{identifier}/retry")
@@ -171,6 +209,13 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
         source.child_id,
         {"attachment_ids": row.request.get("attachment_ids", [])},
     )
+    # Retry is an explicit request, independent of automatic-share permission.
+    if row.request.get("automatic"):
+        row.request = {
+            key: value
+            for key, value in row.request.items()
+            if key not in {"automatic", "automatic_epoch", "automatic_title"}
+        }
     row.status, row.error, row.consent_epoch = "queued", None, member.consent_epoch
     row.lease_token, row.lease_until, row.updated_at = None, None, now()
     source.data = {**source.data, "status": "queued"}
@@ -185,6 +230,11 @@ async def retry_import(identifier: UUID, user: User, db: Database, generation: G
 @router.post("/imports/{identifier}/cancel")
 async def cancel_import(identifier: UUID, user: User, db: Database, generation: Generation):
     await membership_for(db, user.id, generation=generation, write=True)
+    if await db.get(BabyImport, identifier) is None:
+        capture = await pending_capture(db, user.id, generation, identifier)
+        capture.status = "saved"
+        await db.commit()
+        return capture_progress(capture)
     row = await owned(db, BabyImport, user.id, generation, identifier)
     if row.status in {"queued", "processing"}:
         row.status, row.error, row.lease_token, row.lease_until, row.updated_at = (

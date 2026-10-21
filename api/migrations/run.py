@@ -46,7 +46,7 @@ OPTIONAL_MIGRATIONS = (
     "migrations.048_add_workouts_cover_upload",
     "migrations.049_add_workouts_coach_attachments",
 )
-BABY_MIGRATIONS = ("migrations.050_add_baby_domain",)
+BABY_MIGRATIONS = ("migrations.050_add_baby_domain", "migrations.051_add_baby_share")
 
 
 async def run_migrations() -> None:

@@ -154,6 +154,13 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
         profile = Profile.model_validate(values)
     except ValidationError:
         raise HTTPException(422, "Choose valid profile settings") from None
+    if not profile.ai_consent:
+        profile.auto_process_shares = False
+    previous_automatic = bool(
+        member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
+    )
+    if previous_automatic != bool(profile.ai_consent and profile.auto_process_shares):
+        profile.auto_process_epoch += 1
     if profile.ai_consent != bool(member.profile.get("ai_consent")):
         member.consent_epoch += 1
         if not profile.ai_consent:
@@ -181,6 +188,46 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
                     source.data = {**source.data, "status": "cancelled"}
                     source.revision, source.updated_at = source.revision + 1, now()
     member.profile, member.updated_at = profile.model_dump(), now()
+    if not profile.auto_process_shares:
+        from app.domains.baby.share_models import BabyShareCapture
+        from app.domains.baby.share_router import share_schema_available
+
+        if await share_schema_available(db):
+            deferred = await db.scalars(
+                select(BabyShareCapture).where(
+                    BabyShareCapture.app_user_id == user.id,
+                    BabyShareCapture.generation == generation,
+                    BabyShareCapture.status == "deferred",
+                )
+            )
+            for receipt in deferred:
+                receipt.status = "saved"
+        # Turning off automatic processing does not revoke a deliberately
+        # requested manual import. Fence only automatic jobs, including leases.
+        automatic_jobs = await db.scalars(
+            select(BabyImport).where(
+                BabyImport.app_user_id == user.id,
+                BabyImport.generation == generation,
+                BabyImport.status.in_(["queued", "processing"]),
+                BabyImport.request["automatic"].as_boolean().is_(True),
+            )
+        )
+        for job in automatic_jobs:
+            job.status, job.error, job.lease_token, job.lease_until = (
+                "cancelled",
+                "Automatic processing was turned off. Your original is saved.",
+                None,
+                None,
+            )
+            source = await db.get(BabyRecord, job.record_id)
+            if (
+                source
+                and source.app_user_id == user.id
+                and source.generation == generation
+                and source.deleted_at is None
+            ):
+                source.data = {**source.data, "status": "cancelled"}
+                source.revision, source.updated_at = source.revision + 1, now()
     await db.commit()
     return member.profile
 

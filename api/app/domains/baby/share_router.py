@@ -87,7 +87,7 @@ class SessionRequest(DomainModel):
 @router.post("/session", status_code=201)
 async def provision(body: SessionRequest, user: User, db: Database, generation: Generation):
     await require_schema(db)
-    await membership_for(db, user.id, generation=generation, write=True)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     installation = token_hash(str(body.installation_id))
     row = await db.scalar(
         select(BabyShareCredential).where(
@@ -123,6 +123,7 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
         "credential_id": str(row.id),
         "token": f"hfbs_v1.{row.id}.{secret}",
         "generation": generation,
+        "auto_process_epoch": member.profile.get("auto_process_epoch", 0),
         "expires_at": row.expires_at,
     }
 
@@ -135,6 +136,7 @@ async def revoke(db: Database, credential: Credential):
 
 
 class CaptureRequest(DomainModel):
+    automatic_epoch: Annotated[int, Field(strict=True, ge=0)] = 0
     capture_id: UUID
     occurred_at: AwareDatetime
     url: str | None = Field(default=None, max_length=2000)
@@ -169,7 +171,9 @@ async def admit_capture(db, capture, member):
     if capture.status != "deferred":
         return
     capture.last_attempt_at = now()
-    if not (member.profile.get("ai_consent") and member.profile.get("auto_process_shares")):
+    if not (
+        member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
+    ) or capture.request.get("automatic_epoch", 0) != member.profile.get("auto_process_epoch", 0):
         # Revocation is final for already pending automatic work. A later opt-in
         # does not retroactively send previously saved private originals to AI.
         capture.status = "saved"
@@ -180,7 +184,11 @@ async def admit_capture(db, capture, member):
         capture.status = "saved"
         await db.commit()
         return
-    body = ImportCreate(id=capture.id, record_id=capture.record_id)
+    body = ImportCreate(
+        id=capture.id,
+        record_id=capture.record_id,
+        automatic_epoch=member.profile.get("auto_process_epoch", 0),
+    )
     try:
         await admit_import(
             body, SimpleNamespace(id=capture.app_user_id), db, capture.generation, automatic=True
@@ -238,7 +246,10 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
     member = await membership_for(
         db, credential.app_user_id, generation=credential.generation, write=True
     )
-    fingerprint = digest(body.model_dump(mode="json"))
+    immutable = body.model_dump(mode="json")
+    if not body.automatic_epoch:
+        immutable.pop("automatic_epoch", None)
+    fingerprint = digest(immutable)
     capture = await db.get(BabyShareCapture, body.capture_id)
     replayed = capture is not None
     if capture:
@@ -278,7 +289,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             generation=credential.generation,
             record_id=body.capture_id,
             creation_hash=fingerprint,
-            request={},
+            request={"automatic_epoch": body.automatic_epoch},
             created_at=now(),
             status="deferred"
             if member.profile.get("ai_consent") and member.profile.get("auto_process_shares")

@@ -31,6 +31,7 @@ class Profile(DomainModel):
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False
     auto_process_shares: StrictBool = False
+    auto_process_epoch: Annotated[int, Field(strict=True, ge=0)] = 0
 
     @field_validator("timezone")
     @classmethod
@@ -243,6 +244,8 @@ class RecordPatch(DomainModel):
 
 
 class ImportCreate(DomainModel):
+    automatic: StrictBool = False
+    automatic_epoch: Annotated[int, Field(strict=True, ge=0)] = 0
     record_id: UUID | None = None
     id: UUID
     url: str | None = Field(default=None, max_length=2000)
