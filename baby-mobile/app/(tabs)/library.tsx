@@ -58,18 +58,17 @@ export default function Library() {
     action={<Button variant="ghost" title={selecting ? "Cancel" : "Select"}
       disabled={listingCategories || !history.rows.length} onPress={() => { setSelecting(!selecting); setSelected([]); }} />}
     footer={selecting ? <Button title={`Choose category · ${selected.length} selected`} disabled={!selected.length}
-      onPress={() => setOrganizing(true)} /> : undefined}>
+      onPress={() => setOrganizing(true)} /> : lastChange ? <Card tone="soft">
+      <Copy lines={2}>Saved to {lastChange.record.title}.</Copy>
+      {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
+      <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
+    </Card> : undefined}>
     <SyncStatus />
     <Field label="Search saved posts" value={q} onChange={setQ} placeholder="Hospital bag, sleep, things to remember…" />
     <ChildFilter />
     <Chips value={view} label="Saved posts" options={[
       { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" }, { label: "Categories", value: "categories" },
     ]} onChange={chooseView} />
-    {lastChange && <Card tone="soft">
-      <Copy>Saved to {lastChange.record.title}.</Copy>
-      {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
-      <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
-    </Card>}
     {!!error && <Notice error>{error}</Notice>}
     {listingCategories ? <>
       {categories.rows.map((r) => <Row key={r.id} title={r.title} detail={`${r.data.record_ids?.length ?? 0} saved posts`}
