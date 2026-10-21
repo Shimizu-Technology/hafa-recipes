@@ -100,6 +100,15 @@ async def erase_account_data(db, owner):
     prefixes = await owned_cleanup_prefixes(db, owner)
     if prefixes:
         db.add(cleanup_job(owner, prefixes))
+    # Sharing is additive/optional during rolling deployment. Product erasure
+    # retires its capabilities and receipts as well as the original records.
+    from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
+
+    for model in (BabyShareCapture, BabyShareCredential):
+        if await db.scalar(
+            text("SELECT to_regclass(:name) IS NOT NULL"), {"name": "public." + model.__tablename__}
+        ):
+            await db.execute(delete(model).where(model.app_user_id == owner))
     for model in (BabyMessage, BabyConversation, BabyImport, BabyRecord, BabyChild, BabyAttachment):
         await db.execute(delete(model).where(model.app_user_id == owner))
 

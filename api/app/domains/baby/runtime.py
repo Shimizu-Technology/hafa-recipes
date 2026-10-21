@@ -86,8 +86,11 @@ async def schema_complete(connection):
             text("""SELECT EXISTS(SELECT 1 FROM pg_constraint
             WHERE conrelid=to_regclass(:table) AND contype='f' AND convalidated
             AND pg_get_constraintdef(oid)=:definition)"""),
-            {"table": "public." + table.name,
-             "definition": "FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE " + owner_delete_action},
+            {
+                "table": "public." + table.name,
+                "definition": "FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE "
+                + owner_delete_action,
+            },
         ):
             return False
     return True
@@ -161,6 +164,10 @@ class BabyWorker:
             )
             if not acquired:
                 return False
+            from app.domains.baby.share_router import drain_deferred_captures
+
+            async with self.sessions() as deferred:
+                await drain_deferred_captures(deferred)
             # Transaction-scoped ownership is released by the shielded session
             # close even if shutdown is cancelled repeatedly; never leak a
             # session advisory lock back into the pool.
@@ -206,7 +213,12 @@ class BabyWorker:
                 await self.finish_source(db, row)
                 await db.commit()
                 return True
-            if row.consent_epoch != member.consent_epoch:
+            if row.consent_epoch != member.consent_epoch or (
+                row.request.get("automatic")
+                and not (
+                    member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
+                )
+            ):
                 row.status, row.error = (
                     "cancelled",
                     "Your processing permission changed. Retry deliberately.",
@@ -237,6 +249,13 @@ class BabyWorker:
                     member.consent_epoch != epoch
                     or current.status != "processing"
                     or current.lease_token != token
+                    or (
+                        request.get("automatic")
+                        and not (
+                            member.profile.get("ai_consent")
+                            and member.profile.get("auto_process_shares")
+                        )
+                    )
                 ):
                     raise HTTPException(409, "Capture no longer active")
 
@@ -282,7 +301,13 @@ class BabyWorker:
                     return True
                 if source.revision == baseline_revision:
                     # Preserve the editable body, child and original attachments.
-                    if result.get("title") and not request.get("record_id"):
+                    if result.get("title") and (
+                        not request.get("record_id")
+                        or (
+                            request.get("automatic")
+                            and source.title == request.get("automatic_title")
+                        )
+                    ):
                         source.title = result["title"]
                     source.data = {**source.data, **result["data"]}
                     source.revision, source.updated_at = source.revision + 1, now()
