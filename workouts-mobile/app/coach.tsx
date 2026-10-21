@@ -119,6 +119,7 @@ export default function Coach() {
       await api.setReadiness(readiness, generation);
       if (!current()) return;
       await checkIn.refetch();
+      if (current()) { setOptions(false); setShowCheckIn(false); }
     } catch (e) {
       if (current()) setError((e as Error).message);
     } finally {
@@ -419,7 +420,7 @@ export default function Coach() {
       if (current() && stoppingRef.current === operation) { stoppingRef.current = null; setStopping(null); }
     }
   }
-  async function send(text = message) {
+  async function send(text = message, requestFocus = focus) {
     if (guard.current || stoppingRef.current || !currentDelivery() || !loaded) return;
     if (pendingRef.current?.stop_requested) return; // A lost Stop acknowledgement must never resend.
     if (voice.preparing) return;
@@ -428,7 +429,7 @@ export default function Coach() {
         photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now()))) {
       setError("Finish uploading or removing the photo before sending."); return;
     }
-    const problems = coachFocusErrors(focus);
+    const problems = coachFocusErrors(requestFocus);
     if (!pending && (!text.trim() || text.length > 4000)) problems.push("Write a message of 1–4000 characters.");
     if (!consent.data?.accepted) problems.push("Accept the separate AI sharing disclosure first.");
     if (problems.length) {
@@ -447,7 +448,7 @@ export default function Coach() {
         request_id: Crypto.randomUUID(),
         message: text.trim(),
         generation,
-        focus,
+        focus: requestFocus,
         ...(photos.photo?.attachment_id ? { attachment_id: photos.photo.attachment_id } : {}),
         created_at: new Date().toISOString(),
       };
@@ -775,6 +776,11 @@ export default function Coach() {
             </Card>}
           </>}
           {item.actions.map((action) => <CoachSuggestionCard key={action.proposal_id} item={action} generation={item.generation}
+            recovery={{ focus: item.focus, disabled: sendDisabled || busy || !!pending || !!message.trim() || !!photos.photo,
+              blockedReason: message.trim() ? "Send or clear your unsent message to continue." : photos.photo ? "Send or remove your attached photo to continue." : undefined,
+              checkIn: () => { if (currentConversation()) { setClearConfirm(false); setShowCheckIn(true); setOptions(true); } },
+              askAgain: () => { if (currentConversation() && !sendDisabled && !busy && !pending && !message.trim() && !photos.photo) void send(item.user_message, item.focus); },
+            }}
             notify={(text, undo) => { if (currentConversation()) setSnack({ id: Date.now(), text, ...(undo ? { action: { label: "Undo", onPress: () => { setSnack(null); undo(); } } } : {}) }); }} />)}
         </View>
       ))}

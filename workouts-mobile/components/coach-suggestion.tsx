@@ -4,8 +4,9 @@ import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Copy, Notice, Row } from "./ui";
 import { useTraining } from "@/lib/context";
-import { canApplyCoach, needsReturnConfirmation, type CoachSummary } from "@/lib/coach";
+import { canApplyCoach, needsReturnConfirmation, type CoachSummary, type CoachFocus } from "@/lib/coach";
 import { describeChange, type ChangeSummary } from "@/lib/coach-changes";
+import { coachRecovery, coachReturnParams } from "@/lib/coach-recovery";
 import { coachActionNoun } from "@/lib/labels";
 
 /**
@@ -93,15 +94,29 @@ export function CoachChangeRows({ summary }: { summary: ChangeSummary }) {
 }
 
 /** Inline card under a coach reply: what changes, then Apply / Not now; Undo after applying. */
-export function CoachSuggestionCard({ item, generation, notify }: {
+export function CoachSuggestionCard({ item, generation, notify, recovery }: {
   item: CoachSummary; generation: number;
   notify(text: string, undo?: () => void): void;
+  recovery?: { focus: CoachFocus; disabled: boolean; blockedReason?: string; checkIn(): void; askAgain(): void };
 }) {
   const s = useCoachSuggestion(item.proposal_id, generation, item.state);
   const [hidden, setHidden] = useState(false);
   const details = () => router.push({ pathname: "/coach-action/[id]", params: { id: item.proposal_id, generation: String(generation), state: s.state } });
   const undo = async () => { if (await s.undo()) notify("Change undone"); };
   const p = s.action.data?.proposal;
+  const { api, owner } = useTraining();
+  const needsInfo = s.state === "proposed" && p?.status === "needs_information";
+  const profile = useQuery({ queryKey: [owner, "profile", generation, "snapshot"], queryFn: api.profileSnapshot, enabled: s.current && needsInfo });
+  const checkIn = useQuery({ queryKey: [owner, "readiness", generation], queryFn: api.readiness, enabled: s.current && needsInfo });
+  const help = needsInfo && !profile.error && !checkIn.error && s.action.data && profile.data?.profile && checkIn.data
+    ? coachRecovery(s.action.data, profile.data.profile, profile.data.revision, checkIn.data) : null;
+  function recover() {
+    if (!recovery || recovery.disabled || !s.current || !help) return;
+    if (help.next === "profile") router.push({ pathname: "/profile", params: { return_to: "coach", ...coachReturnParams(recovery.focus) } });
+    else if (help.next === "check-in") recovery.checkIn();
+    else if (help.next === "ask") recovery.askAgain();
+    else details();
+  }
   const title = s.summary?.title ?? `Suggested ${coachActionNoun(item.kind)} change`;
   if (hidden && s.state === "proposed") return <Row gap={4}>
     <Copy kind="small" tone="muted" style={{ flexShrink: 1 }}>Suggestion hidden: {title}</Copy>
@@ -109,18 +124,26 @@ export function CoachSuggestionCard({ item, generation, notify }: {
   </Row>;
   return <Card compact>
     <Copy kind="caption" tone="muted">
-      {s.state === "accepted" ? "Applied" : s.state === "undone" ? "Undone" : p && !s.ready && p.status === "ready" ? "Expired" : "Suggested change"}
+      {s.state === "accepted" ? "Applied" : s.state === "undone" ? "Undone" : p && !s.ready && p.status === "ready" ? "Expired" : needsInfo ? "More information needed" : "Suggested change"}
     </Copy>
-    <Copy kind="label">{title}</Copy>
+    <Copy kind="label">{needsInfo ? "Coach needs a little more" : title}</Copy>
     {!s.current && <Copy kind="small" tone="muted">From an earlier Workouts setup. It can’t be applied now.</Copy>}
     {s.current && s.action.isPending && <Copy kind="small" tone="muted">Loading what this changes…</Copy>}
     {!!s.action.error && <Notice error>{s.action.error.message}</Notice>}
-    {s.state === "proposed" && s.summary && <CoachChangeRows summary={s.summary} />}
-    {s.state === "proposed" && p && p.status !== "ready" && <Copy kind="small" tone="muted">
-      {p.questions?.[0] ?? p.warnings?.[0] ?? "Coach needs more information before this can be applied."} Reply in the chat to continue.
+    {s.state === "proposed" && !needsInfo && s.summary && <CoachChangeRows summary={s.summary} />}
+    {s.state === "proposed" && p && p.status !== "ready" && !needsInfo && <Copy kind="small" tone="muted">
+      {p.questions?.[0] ?? p.warnings?.[0] ?? "Coach needs more information before this can be applied."}
     </Copy>}
+    {needsInfo && s.current && <>
+      {help ? help.lines.map(line => <Copy key={line} kind="small" tone="muted">{line}</Copy>) : !profile.error && !checkIn.error && <Copy kind="small" tone="muted">Checking your saved profile and today’s check-in…</Copy>}
+      {(profile.error || checkIn.error) && <Notice error>Could not check your saved information. Try again.</Notice>}
+      {(profile.error || checkIn.error) && <Button title="Try again" onPress={() => { void profile.refetch(); void checkIn.refetch(); }} />}
+    </>}
+    {needsInfo && recovery?.disabled && !!recovery.blockedReason && <Copy kind="small" tone="muted">{recovery.blockedReason}</Copy>}
     {!!s.error && <Notice error>{s.error}</Notice>}
     <Row wrap gap={4}>
+      {s.current && help && recovery && <Button title={help.title} inline disabled={recovery.disabled}
+        accessibilityHint={help.next === "ask" ? "Sends your original request again using your saved information" : undefined} onPress={recover} />}
       {s.state === "proposed" && s.ready && (s.needsFullReview
         ? <Button title="Review and apply" size="sm" inline onPress={details} />
         : <Button title="Apply" icon="checkmark" size="sm" inline busy={s.busy}

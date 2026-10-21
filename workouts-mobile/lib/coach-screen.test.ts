@@ -1270,3 +1270,25 @@ it("uses retry for a consent load failure before offering consent review", async
   expect(button("Review AI sharing")).toBeDefined();
   expect(button("Plan my week").props.disabled).toBe(true);
 });
+
+it("re-asks a needs-information request with its original focus and a fresh request ID", async () => {
+  const item = { ...reply("original"), user_message: "Make this workout shorter, about 10 minutes.", focus: { context_workout_id: "workout", context_revision: 3 },
+    actions: [{ proposal_id: "needs-info", kind: "adaptation" as const, status: "needs_information", state: "proposed" as const }] };
+  f.history = [item]; f.send.mockResolvedValueOnce(reply("request-1")); await mount();
+  await act(async () => suggestion("needs-info")!.props.recovery.askAgain()); await settle();
+  expect(f.send.mock.calls[0].slice(0, 4)).toEqual(["request-1", item.user_message, item.focus, 1]);
+});
+it("opens the existing daily check-in from a needs-information card and returns to chat after save", async () => {
+  f.history = [{ ...reply("original"), actions: [{ proposal_id: "needs-info", kind: "adaptation", status: "needs_information", state: "proposed" }] }];
+  await mount(); await act(async () => suggestion("needs-info")!.props.recovery.checkIn()); await settle();
+  const ready = nodes("Chip").find(n => n.props.label === "Ready to train")!;
+  await act(async () => ready.props.onPress()); await click("Save today’s check-in");
+  expect(f.readiness).toHaveBeenCalledWith("ready", 1); expect(button("Save today’s check-in")).toBeUndefined();
+});
+it("does not overwrite an unsent draft when re-asking a needs-information request", async () => {
+  f.history = [{ ...reply("original"), actions: [{ proposal_id: "needs-info", kind: "adaptation", status: "needs_information", state: "proposed" }] }];
+  await mount(); await type("Keep my new question");
+  expect(suggestion("needs-info")!.props.recovery.disabled).toBe(true);
+  await act(async () => suggestion("needs-info")!.props.recovery.askAgain()); await settle();
+  expect(f.send).not.toHaveBeenCalled(); expect(nodes("Field")[0].props.value).toBe("Keep my new question");
+});

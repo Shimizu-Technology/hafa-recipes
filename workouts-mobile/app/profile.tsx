@@ -202,7 +202,7 @@ export default function Profile() {
         {value ? (
           <>
             <View pointerEvents={busy ? "none" : "auto"}>
-              <ProfileForm value={value} baseline={q.data?.profile} update={update} disabled={busy || !!command || resolved} />
+              <ProfileForm expandDetails={params.return_to === "coach"} value={value} baseline={q.data?.profile} update={update} disabled={busy || !!command || resolved} />
             </View>
             {((q.data?.profile?.weight_kg != null && value.weight_kg == null) ||
               (q.data?.profile?.height_cm != null && value.height_cm == null)) && (

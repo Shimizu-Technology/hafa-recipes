@@ -253,4 +253,5 @@ it.each([
   await mount();
   await click("Save profile");
   expect(f.replace).toHaveBeenCalledWith({ pathname: params.return_to === "coach" ? "/coach" : "/build-plan", params: params.return_to === "coach" ? { workout_id: "saved-workout", revision: "3" } : { include: "saved-workout" } });
+  expect(node("ProfileForm").props.expandDetails).toBe(params.return_to === "coach");
 });
