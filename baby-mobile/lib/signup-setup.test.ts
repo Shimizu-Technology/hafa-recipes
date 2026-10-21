@@ -118,6 +118,19 @@ it("retries transient provisioning without flashing an error or changing its ins
   expect(gate.opened).toHaveBeenCalled(); expect(gate.onboard).toHaveBeenCalledTimes(2);
   expect(new Set(gate.onboard.mock.calls.map(([id]) => id)).size).toBe(1);
 });
+it("keeps a replacement session closed until its own setup finishes even without a parent remount", async () => {
+  const { setup } = fixture(); prepareGate(setup); await mountGate();
+  gate.opened.mockClear();
+  await setup.begin("session_B", "user_B");
+  gate.auth.sessionId = "session_B"; gate.auth.userId = "user_B";
+  gate.clerk.session = { id: "session_B", user: { id: "user_B" } };
+  let release!: (value: unknown) => void;
+  gate.onboard.mockReturnValue(new Promise(yes => { release = yes; }));
+  await act(async () => renderer!.update(React.createElement(SignupGate, null, React.createElement(PrivateData))));
+  expect(gate.opened).not.toHaveBeenCalled();
+  await act(async () => release({ status: "created", app_user_id: "owner_B" }));
+  expect(gate.opened).toHaveBeenCalled();
+});
 it("holds actual private-provider children until explicit signup is provisioned, including effect replay", async () => {
   const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
   let release!: (value: unknown) => void;

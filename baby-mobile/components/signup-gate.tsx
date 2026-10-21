@@ -14,13 +14,13 @@ export function SignupGate({ children }: PropsWithChildren) {
   const sessionReady = isLoaded && sessionLoaded && !!sessionId && !!userId &&
     session?.id === sessionId && session.user.id === userId &&
     clerk.session?.id === sessionId && clerk.session.user.id === userId;
-  const [ready, setReady] = useState(configuration.clerkEnvironment !== "production"),
+  const [readyFor, setReadyFor] = useState<string | null>(null),
     [busy, setBusy] = useState(configuration.clerkEnvironment === "production"), [error, setError] = useState(""),
     [hasIntent, setHasIntent] = useState(false), [needsFinish, setNeedsFinish] = useState(false);
   const retry = useRef(async (_finish = false) => {}), leave = useRef(async () => {});
   useEffect(() => {
     if (configuration.clerkEnvironment !== "production") return;
-    if (!sessionReady) { setReady(false); setBusy(true); setError(""); return; }
+    if (!sessionReady) { setReadyFor(null); setBusy(true); setError(""); return; }
     let active = true, working = false;
     const current = () => active && !!sessionId && !!userId &&
       clerk.session?.id === sessionId && clerk.session.user.id === userId;
@@ -50,7 +50,7 @@ export function SignupGate({ children }: PropsWithChildren) {
         setNeedsFinish(false);
         if (pending) await openingAccount(
           () => signupSetup.complete(sessionId, userId, api.onboard, current), current);
-        if (current()) setReady(true);
+        if (current()) setReadyFor(`${sessionId}:${userId}`);
       } catch (failure) {
         if (active) setError(failure instanceof ApiError && failure.status === 409
           ? "This Håfa account needs recovery. Sign in to your existing account or contact support."
@@ -79,7 +79,8 @@ export function SignupGate({ children }: PropsWithChildren) {
     void run();
     return () => { active = false; };
   }, [sessionId, userId, sessionReady]);
-  if (ready && (configuration.clerkEnvironment !== "production" || sessionReady)) return children;
+  if (configuration.clerkEnvironment !== "production" ||
+    (sessionReady && readyFor === `${sessionId}:${userId}`)) return children;
   return <Screen title={needsFinish ? "Finish account setup" : "Getting your account ready"}>
     {busy && <Loading />}
     {!!error && <Notice error>{error}</Notice>}
