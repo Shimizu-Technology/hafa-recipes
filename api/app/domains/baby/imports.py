@@ -26,8 +26,17 @@ def import_response(row):
 
 @router.post("/imports")
 async def create_import(body: ImportCreate, user: User, db: Database, generation: Generation):
+    return await admit_import(body, user, db, generation, automatic=getattr(body, "automatic", False))
+
+
+async def admit_import(body, user, db, generation, *, automatic=False):
     member = await membership_for(db, user.id, generation=generation, write=True)
+    if automatic and not (member.profile.get("ai_consent") and member.profile.get("auto_process_shares")):
+        raise HTTPException(403, "Automatic processing permission is off; the original stays saved")
     request = body.model_dump(mode="json")
+    request.pop("automatic", None)
+    if automatic:
+        request["automatic"] = True
     fingerprint = digest(request)
     prior = await db.get(BabyImport, body.id)
     if prior:

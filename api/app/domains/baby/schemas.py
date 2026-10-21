@@ -30,6 +30,7 @@ class Profile(DomainModel):
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False
+    auto_process_shares: StrictBool = False
 
     @field_validator("timezone")
     @classmethod
@@ -45,6 +46,7 @@ class ProfilePatch(DomainModel):
     display_name: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
+    auto_process_shares: StrictBool | None = None
 
 
 class ChildCreate(DomainModel):

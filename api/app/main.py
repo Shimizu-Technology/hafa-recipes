@@ -13,6 +13,7 @@ from app.database_invariants import verify_database_invariants
 from app.deletion_cleanup import deletion_cleanup_worker
 from app.domains.baby.router import router as baby_router
 from app.domains.baby.runtime import start_baby_worker, stop_baby_worker, verify_baby_schema
+from app.domains.baby.share_router import router as baby_share_router
 from app.domains.workouts.activity_log_router import router as workouts_activity_log_router
 from app.domains.workouts.automation_router import imports_router as workouts_imports_router
 from app.domains.workouts.automation_router import router as workouts_automation_router
@@ -124,6 +125,7 @@ app.include_router(health_router)
 app.include_router(import_health_router)
 app.include_router(platform_router)
 app.include_router(baby_router)
+app.include_router(baby_share_router)
 app.include_router(workouts_library_router)
 app.include_router(workouts_measurements_router)
 app.include_router(workouts_router)
