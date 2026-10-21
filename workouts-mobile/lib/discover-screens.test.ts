@@ -1,6 +1,6 @@
 import WorkoutDetail from "../app/workout/[id]";
 import { WorkoutSource } from "../components/workout-source";
-import { createElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
+import { createElement, Fragment, type ComponentType, type PropsWithChildren, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -104,6 +104,14 @@ vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator",
   View: "View",
   Image: "Image",
+  ScrollView: "ScrollView",
+  // Renders every row so tests see the cards; the real list virtualizes.
+  FlatList: ({ data, renderItem, keyExtractor, ListHeaderComponent, ListEmptyComponent, ListFooterComponent, ...props }: {
+    data: Array<{ id: string }>; renderItem(row: { item: unknown; index: number }): ReactNode; keyExtractor(item: unknown): string;
+    ListHeaderComponent?: ReactNode; ListEmptyComponent?: ReactNode; ListFooterComponent?: ReactNode;
+  }) => createElement("FlatList", props, ListHeaderComponent, data.length
+    ? data.map((item, index) => createElement(Fragment, { key: keyExtractor(item) }, renderItem({ item, index }))) : ListEmptyComponent,
+  ListFooterComponent),
   useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
   AppState: { get currentState() { return fixture.appState; }, addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.appStateListeners.add(listener); return { remove() { fixture.appStateListeners.delete(listener); } };
@@ -123,9 +131,10 @@ vi.mock("@/components/ui", () => {
   const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "IconButton",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])),
-    Screen: ({ children, footer, ...props }: PropsWithChildren<{ footer?: ReactNode; [key: string]: unknown }>) =>
-      createElement("Screen", props, createElement("ScreenAction", null, props.action as ReactNode), children, footer),
-    useToast: () => fixture.toast, useColors: () => new Proxy({}, { get: (_target, key) => String(key) }) };
+    Screen: ({ children, footer, list, ...props }: PropsWithChildren<{ footer?: ReactNode; list?: (body: object) => ReactNode; [key: string]: unknown }>) =>
+      createElement("Screen", props, createElement("ScreenAction", null, props.action as ReactNode), list?.({ header: null, contentContainerStyle: {} }), children, footer),
+    haptics: { tick() {} }, useColors: () => new Proxy({}, { get: (_target, key) => String(key) }),
+    useToast: () => fixture.toast };
 });
 vi.mock("@/components/discover-card", () => ({
   DiscoverCardView: "DiscoverCardView",
@@ -134,6 +143,8 @@ vi.mock("@/components/discover-card", () => ({
   CreditLine: "CreditLine",
 }));
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
+vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionTile: "CollectionTile", LIBRARY_GRID_GAP: 12 }));
+vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ children }: { children: unknown }) => children }));
 vi.mock("@/components/workout-editor", () => ({ WorkoutEditor: "WorkoutEditor" }));
 vi.mock("@/components/source-image", () => ({ SourceImage: "SourceImage" }));
@@ -176,6 +187,8 @@ it("a saved workout enters planning with that workout selected", async () => {
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/build-plan", params: { include: "saved-1" } });
 });
 const choice = (label: string) => nodes("Choice").find((n) => n.props.label === label);
+const listRow = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
+const libraryCard = (title: string) => nodes("LibraryCard").find((n) => n.props.title === title);
 async function settle() {
   for (let i = 0; i < 6; i++) await act(async () => void (await new Promise((done) => setTimeout(done, 5))));
 }
@@ -420,7 +433,7 @@ it("refreshes a warm empty inbox and saved library after sharing while the focus
   fixture.focus = true; fixture.capabilities.mockResolvedValue({ ...caps(false), server_auto_save: true });
   fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
   await mount(() => createElement("Flow", null, createElement(Library), createElement(ImportList)));
-  expect(fixture.importJobs).toHaveBeenCalledTimes(1); expect(nodes("MediaCard")).toHaveLength(0);
+  expect(fixture.importJobs).toHaveBeenCalledTimes(1); expect(nodes("LibraryCard")).toHaveLength(0);
   const change = async (state: string) => {
     fixture.appState = state;
     await act(async () => { for (const listener of [...fixture.appStateListeners]) listener(state); });
@@ -438,7 +451,7 @@ it("refreshes a warm empty inbox and saved library after sharing while the focus
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await change("active");
   expect(fixture.importJobs).toHaveBeenCalledTimes(3);
-  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2); expect(nodes("MediaCard")).toHaveLength(1);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2); expect(nodes("LibraryCard")).toHaveLength(1);
   expect(button("View progress")).toBeUndefined();
 });
 it("reloads device imports on foreground only for the current account on legacy servers", async () => {
@@ -536,7 +549,7 @@ it("Library refreshes stale results on return and by pulling down, without refet
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await foreground();
   clock.mockRestore();
-  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2); expect(nodes("MediaCard")).toHaveLength(1);
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2); expect(nodes("LibraryCard")).toHaveLength(1);
   await act(async () => nodes("Screen")[0].props.onRefresh()); await settle();
   expect(fixture.searchLibrary).toHaveBeenCalledTimes(3); expect(nodes("Screen")[0].props.refreshing).toBe(false);
 });
@@ -545,8 +558,7 @@ it("Library cards retain the source cover and creator while marking unresolved s
   fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
     source_creator: "Creator", extraction_warnings: ["Rest unknown"] }], total: 1, has_more: false });
   await mount(Library);
-  expect(nodes("MediaCard")[0].props).toMatchObject({ image: "https://example.test/cover.jpg", badge: "Check details" });
-  expect(nodes("MediaCard")[0].props.footer.props.children).toContain("Creator");
+  expect(nodes("LibraryCard")[0].props).toMatchObject({ image: "https://example.test/cover.jpg", badge: "Check details", creator: "Creator" });
 });
 it("Discover detail keeps the real cover instead of replacing it with generic artwork", async () => {
   fixture.params = { id: card.id };
@@ -561,7 +573,8 @@ it("a saved source copy stays recognizable as a source in Library and detail wit
   const copy = { ...saved, provenance: "user" as const, source_url: "https://example.test/video", source_creator: "Original creator" };
   fixture.searchLibrary.mockResolvedValue({ items: [copy], total: 1, has_more: false });
   await mount(Library);
-  expect(nodes("MediaCard")[0].props.meta).toContain("Saved from the web");
+  await act(async () => listRow("Show as a list")!.props.onPress());
+  expect(nodes("LibraryCard")[0].props).toMatchObject({ view: "list", meta: expect.stringContaining("Saved from the web") });
   await act(async () => renderer!.unmount()); cache.clear(); fixture.params = { id: copy.id }; fixture.workout.mockResolvedValue(copy);
   await mount(WorkoutDetail);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
@@ -1049,13 +1062,63 @@ it("serializes deletion and suppresses navigation after an account change", asyn
   expect(fixture.toast).not.toHaveBeenCalled();
 });
 
+it("Library shows the favorite heart even when a workout still needs a check", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, extraction_warnings: ["Rest unknown"],
+    organization: { ...emptyOrganization(), favorite: true } }], total: 1, has_more: false });
+  await mount(Library);
+  expect(libraryCard(saved.title)!.props).toMatchObject({ favorite: true, badge: "Check details", view: "grid" });
+  expect(nodes("Copy").some(node => node.props.children === "1 workout")).toBe(true);
+});
+it("Library long-press starts selecting that workout, and Select all covers every loaded workout", async () => {
+  const second = { ...saved, id: "copy-2", title: "Second workout" };
+  fixture.searchLibrary.mockResolvedValue({ items: [saved, second], total: 2, has_more: false });
+  await mount(Library);
+  expect(button("Add selected to collection")).toBeUndefined();
+  await act(async () => libraryCard(second.title)!.props.onLongPress());
+  expect(libraryCard(second.title)!.props.selected).toBe(true); expect(libraryCard(saved.title)!.props.selected).toBe(false);
+  expect(libraryCard(second.title)!.props.onLongPress).toBeUndefined();
+  await act(async () => button("Select all")!.props.onPress());
+  expect(nodes("LibraryCard").every(node => node.props.selected)).toBe(true);
+  await act(async () => button("Clear selection")!.props.onPress());
+  expect(nodes("LibraryCard").some(node => node.props.selected)).toBe(false);
+  expect(button("Add selected to collection")!.props.disabled).toBe(true);
+  await act(async () => button("Done")!.props.onPress());
+  expect(libraryCard(saved.title)!.props.selected).toBeUndefined(); expect(button("Add selected to collection")).toBeUndefined();
+  await act(async () => libraryCard(saved.title)!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: saved.id } });
+});
+it("Library loads the next page as the list nears its end", async () => {
+  const second = { ...saved, id: "copy-2", title: "Second workout" };
+  fixture.searchLibrary.mockResolvedValueOnce({ items: [saved], total: 2, has_more: true, next_cursor: "next" })
+    .mockResolvedValueOnce({ items: [second], total: 2, has_more: false, next_cursor: null });
+  await mount(Library);
+  expect(nodes("LibraryCard")).toHaveLength(1);
+  await act(async () => nodes("FlatList")[0].props.onEndReached()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![1]).toBe("next");
+  expect(nodes("LibraryCard")).toHaveLength(2);
+  await act(async () => nodes("FlatList")[0].props.onEndReached()); await settle();
+  expect(fixture.searchLibrary).toHaveBeenCalledTimes(2);
+});
+it("Library remembers grid or list for this account and covers collections from loaded workouts", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 1 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
+    organization: { ...emptyOrganization(), collection_ids: ["gym"] } }], total: 1, has_more: false });
+  await mount(Library);
+  expect(nodes("CollectionTile")[0].props).toMatchObject({ title: "Gym days", count: 1, cover: "https://example.test/cover.jpg" });
+  expect(nodes("FlatList")[0].props.numColumns).toBe(2);
+  await act(async () => listRow("Show as a list")!.props.onPress()); await settle();
+  expect(nodes("FlatList")[0].props.numColumns).toBe(1);
+  expect(fixture.map.get("hafa-workouts:v1:owner:library-view")).toBe("list");
+  // A fresh launch reads the saved choice from this account's device storage.
+  await act(async () => renderer!.unmount()); cache.clear(); await mount(Library);
+  expect(libraryCard(saved.title)!.props.view).toBe("list");
+});
 it("surfaces collection filters and management directly beside library search", async () => {
   fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 2 }]);
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await mount(Library);
-  expect(button("Manage collections")).toBeDefined();
-  const chips = nodes("ChipRow").find(node => node.props.label === "Collections")!;
-  await act(async () => chips.findAllByType("Chip" as never).find(node => node.props.label === "Gym days")!.props.onPress()); await settle();
+  expect(listRow("Manage collections")).toBeDefined();
+  await act(async () => nodes("CollectionTile").find(node => node.props.title === "Gym days")!.props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("gym");
 });
 it("bulk organization keeps only failed workouts selected and retries only those", async () => {
@@ -1068,17 +1131,17 @@ it("bulk organization keeps only failed workouts selected and retries only those
     if (id === second.id && fail) { fail = false; throw Error("Temporary save failure"); }
     return { ...emptyOrganization(), revision: 4, collection_ids: body.collection_ids };
   });
-  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
-  await act(async () => { choice(saved.title)!.props.onPress(); choice(second.title)!.props.onPress(); });
+  await mount(Library); await act(async () => listRow("Select workouts")!.props.onPress());
+  await act(async () => { libraryCard(saved.title)!.props.onPress(); libraryCard(second.title)!.props.onPress(); });
   await act(async () => button("Add selected to collection")!.props.onPress());
   const press = button("Add to collection")!.props.onPress;
   await act(async () => { press(); press(); }); await settle();
   expect(fixture.saveOrganization).toHaveBeenCalledTimes(2);
-  expect(choice(saved.title)!.props.selected).toBe(false); expect(choice(second.title)!.props.selected).toBe(true);
+  expect(libraryCard(saved.title)!.props.selected).toBe(false); expect(libraryCard(second.title)!.props.selected).toBe(true);
   await act(async () => button("Retry remaining workouts")!.props.onPress()); await settle();
   expect(fixture.saveOrganization.mock.calls.map(([id]) => id)).toEqual([saved.id, second.id, second.id]);
   expect(fixture.saveOrganization.mock.calls[2][1]).toEqual({ expected_revision: 3, collection_ids: ["existing", "gym"] });
-  expect(button("Select workouts")).toBeDefined();
+  expect(libraryCard(saved.title)!.props.selected).toBeUndefined();
 });
 it("a direct favorite reads its current private revision and preserves memberships, tags and archive state", async () => {
   fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
@@ -1101,8 +1164,8 @@ it("a retired account cannot continue a held bulk add", async () => {
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
   fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
-  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  await mount(Library); await act(async () => listRow("Select workouts")!.props.onPress());
+  await act(async () => libraryCard(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
   await act(async () => button("Add to collection")!.props.onPress()); fixture.current = false;
   await act(async () => resolve(emptyOrganization())); await settle();
   expect(fixture.saveOrganization).not.toHaveBeenCalled();
@@ -1124,13 +1187,13 @@ it("a new enrollment resets private bulk selection and fences an old in-flight r
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
   fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
-  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  await mount(Library); await act(async () => listRow("Select workouts")!.props.onPress());
+  await act(async () => libraryCard(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
   await act(async () => button("Add to collection")!.props.onPress());
   fixture.generation = 2; fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
   await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Library)))); await settle();
   await act(async () => resolve(emptyOrganization())); await settle();
-  expect(fixture.saveOrganization).not.toHaveBeenCalled(); expect(button("Select workouts")).toBeDefined();
+  expect(fixture.saveOrganization).not.toHaveBeenCalled(); expect(button("Add selected to collection")).toBeUndefined();
   expect(nodes("Sheet").find(node => node.props.title === "Add workouts to a collection")!.props.visible).toBe(false);
 });
 
@@ -1141,15 +1204,15 @@ it("freezes a pending bulk target and selection despite captured controls and ch
   let resolve!: (organization: ReturnType<typeof emptyOrganization>) => void;
   fixture.organization.mockImplementationOnce(() => new Promise(done => { resolve = done; })).mockResolvedValue(emptyOrganization());
   fixture.saveOrganization.mockImplementation(async (_id, body) => ({ ...emptyOrganization(), revision: 1, collection_ids: body.collection_ids }));
-  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
-  const selectSecond = choice(second.title)!.props.onPress;
-  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
-  const chooseHome = choice("Home")!.props.onPress;
-  const doneSelecting = button("Done selecting")!.props.onPress;
+  await mount(Library); await act(async () => listRow("Select workouts")!.props.onPress());
+  const selectSecond = libraryCard(second.title)!.props.onPress;
+  await act(async () => libraryCard(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  const bulkSheet = nodes("Sheet").find(node => node.props.title === "Add workouts to a collection")!;
+  const chooseHome = bulkSheet.findAll(node => String(node.type) === "Choice" && node.props.label === "Home")[0].props.onPress;
+  const doneSelecting = button("Done")!.props.onPress;
   await act(async () => button("Add to collection")!.props.onPress());
   await act(async () => { selectSecond(); chooseHome(); doneSelecting(); });
-  const chips = nodes("ChipRow").find(node => node.props.label === "Collections")!;
-  await act(async () => chips.findAllByType("Chip" as never).find(node => node.props.label === "Home")!.props.onPress()); await settle();
+  await act(async () => nodes("CollectionTile").find(node => node.props.title === "Home")!.props.onPress()); await settle();
   await act(async () => resolve(emptyOrganization())); await settle();
   expect(fixture.saveOrganization).toHaveBeenCalledExactlyOnceWith(saved.id, { expected_revision: 0, collection_ids: ["gym"] }, 1);
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("home");
@@ -1162,10 +1225,10 @@ it("keeps an organization conflict pending until the user explicitly retries the
     .mockResolvedValue({ ...emptyOrganization(), revision: 2, favorite: true, collection_ids: ["concurrent"] });
   fixture.saveOrganization.mockRejectedValueOnce(new ApiError("Organization changed. Review and retry.", 409))
     .mockResolvedValue({ ...emptyOrganization(), revision: 3, collection_ids: ["concurrent", "gym"] });
-  await mount(Library); await act(async () => button("Select workouts")!.props.onPress());
-  await act(async () => choice(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
+  await mount(Library); await act(async () => listRow("Select workouts")!.props.onPress());
+  await act(async () => libraryCard(saved.title)!.props.onPress()); await act(async () => button("Add selected to collection")!.props.onPress());
   await act(async () => button("Add to collection")!.props.onPress()); await settle();
-  expect(choice(saved.title)!.props.selected).toBe(true);
+  expect(libraryCard(saved.title)!.props.selected).toBe(true);
   expect(fixture.saveOrganization).toHaveBeenCalledTimes(1); expect(fixture.organization).toHaveBeenCalledTimes(1);
   expect(button("Retry remaining workouts")).toBeDefined();
   await act(async () => button("Retry remaining workouts")!.props.onPress()); await settle();
