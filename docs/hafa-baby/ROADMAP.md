@@ -162,6 +162,14 @@ in `.codex/qa/` during execution. No screenshots/test counts substitute for jour
 
 ## Release boundaries
 
+Google uses one continuation from either account screen: existing accounts sign
+in; a verified new Google email proceeds to explicit account creation and adult
+confirmation without repeating OAuth. A new shared owner is provisioned before
+private Baby queries begin. Session hydration and bounded transient startup
+retries stay in the loading state; authentication/conflict failures remain closed
+with deliberate recovery. A completed provider callback alone never authorizes
+silently creating an owner or merging another account's library.
+
 The shared API domain and separate native app use the existing Recipes/Workouts
 Clerk production instance. Baby has its own bundle, App Group and private data;
 enrolling in Baby does not copy another product's private context.

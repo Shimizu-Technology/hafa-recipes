@@ -3,10 +3,11 @@ import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
 const gate = vi.hoisted(() => ({
   onboard: vi.fn(), opened: vi.fn(),
-  auth: { sessionId: "session_A", userId: "user_A", getToken: async () => "token" },
+  auth: { isLoaded: true, sessionId: "session_A", userId: "user_A", getToken: async () => "token" },
   clerk: { session: { id: "session_A", user: { id: "user_A" } }, signOut: vi.fn() },
 }));
-vi.mock("@clerk/expo", () => ({ useAuth: () => gate.auth, useClerk: () => gate.clerk }));
+vi.mock("@clerk/expo", () => ({ useAuth: () => gate.auth, useClerk: () => gate.clerk,
+  useSession: () => ({ isLoaded: gate.auth.isLoaded, session: gate.clerk.session }) }));
 vi.mock("./config", () => ({ configuration: { clerkEnvironment: "production", apiBase: "https://service.example" } }));
 vi.mock("./api", async (original) => ({ ...(await original<object>()), createBabyApi: () => ({ onboard: gate.onboard }) }));
 vi.mock("../components/ui", () => ({ Button: "Button", Loading: "Loading", Notice: "Notice", Screen: "Screen" }));
@@ -16,6 +17,7 @@ vi.mock("expo-crypto", () => ({}));
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 import { SignupGate } from "../components/signup-gate";
 import { signupSetup, createSignupSetup } from "./signup-setup";
+import { ApiError } from "./api";
 function fixture() {
   const data = new Map<string, string>();
   const storage = {
@@ -74,7 +76,7 @@ it("a late successful response after account switch cannot clear the pending ret
 });
 
 let renderer: ReactTestRenderer | undefined;
-afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.restoreAllMocks(); });
+afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.restoreAllMocks(); vi.useRealTimers(); });
 function prepareGate(setup: ReturnType<typeof createSignupSetup>) {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -94,6 +96,43 @@ async function mountGate() {
   await act(async () => { renderer = TestRenderer.create(React.createElement(React.StrictMode, null,
     React.createElement(SignupGate, null, React.createElement(PrivateData)))); });
 }
+it("waits quietly for the exact Clerk session to finish loading before provisioning", async () => {
+  const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
+  gate.clerk.session = null as any;
+  gate.onboard.mockResolvedValue({ status: "created", app_user_id: "app_owner" });
+  await mountGate();
+  expect(gate.onboard).not.toHaveBeenCalled(); expect(gate.opened).not.toHaveBeenCalled();
+  expect(renderer!.root.findAll(n => String(n.type) === "Notice")).toHaveLength(0);
+  gate.clerk.session = { id: "session_A", user: { id: "user_A" } };
+  await act(async () => renderer!.update(React.createElement(React.StrictMode, null,
+    React.createElement(SignupGate, null, React.createElement(PrivateData)))));
+  expect(gate.onboard).toHaveBeenCalledTimes(1); expect(gate.opened).toHaveBeenCalled();
+});
+it("retries transient provisioning without flashing an error or changing its installation identity", async () => {
+  vi.useFakeTimers();
+  const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
+  gate.onboard.mockRejectedValueOnce(new ApiError("Unavailable", 503))
+    .mockResolvedValueOnce({ status: "existing", app_user_id: "app_owner" });
+  await mountGate();
+  expect(gate.opened).not.toHaveBeenCalled(); expect(renderer!.root.findAll(n => String(n.type) === "Notice")).toHaveLength(0);
+  await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+  expect(gate.opened).toHaveBeenCalled(); expect(gate.onboard).toHaveBeenCalledTimes(2);
+  expect(new Set(gate.onboard.mock.calls.map(([id]) => id)).size).toBe(1);
+});
+it("keeps a replacement session closed until its own setup finishes even without a parent remount", async () => {
+  const { setup } = fixture(); prepareGate(setup); await mountGate();
+  gate.opened.mockClear();
+  await setup.begin("session_B", "user_B");
+  gate.auth.sessionId = "session_B"; gate.auth.userId = "user_B";
+  gate.clerk.session = { id: "session_B", user: { id: "user_B" } };
+  let release!: (value: unknown) => void;
+  gate.onboard.mockReturnValue(new Promise(yes => { release = yes; }));
+  await act(async () => renderer!.update(React.createElement(React.StrictMode, null,
+    React.createElement(SignupGate, null, React.createElement(PrivateData)))));
+  expect(gate.opened).not.toHaveBeenCalled();
+  await act(async () => release({ status: "created", app_user_id: "owner_B" }));
+  expect(gate.opened).toHaveBeenCalled();
+});
 it("holds actual private-provider children until explicit signup is provisioned, including effect replay", async () => {
   const { setup } = fixture(); await setup.begin("session_A", "user_A"); prepareGate(setup);
   let release!: (value: unknown) => void;
