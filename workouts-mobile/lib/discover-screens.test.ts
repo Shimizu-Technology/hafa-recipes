@@ -13,6 +13,8 @@ const fixture = vi.hoisted(() => ({
   params: {} as Record<string, string>,
   capabilities: vi.fn(),
   discover: vi.fn(),
+  discoverRandom: vi.fn(),
+  discoverContributors: vi.fn(),
   discoverWorkout: vi.fn(),
   saveDiscovered: vi.fn(),
   blockDiscoverContributor: vi.fn(),
@@ -58,6 +60,8 @@ vi.mock("@/lib/context", () => {
   const api = {
     capabilities: fixture.capabilities,
     discover: fixture.discover,
+    discoverRandom: fixture.discoverRandom,
+    discoverContributors: fixture.discoverContributors,
     discoverWorkout: fixture.discoverWorkout,
     saveDiscovered: fixture.saveDiscovered,
     blockDiscoverContributor: fixture.blockDiscoverContributor,
@@ -253,6 +257,8 @@ beforeEach(() => {
     fixture.push, fixture.replace, fixture.back, fixture.toast, fixture.cancelImport, fixture.deleteWorkout, fixture.blockDiscoverContributor,
     fixture.unpublishWorkout, fixture.announce, fixture.start, fixture.publishWorkout, fixture.navigate, fixture.share]) mock.mockReset();
   fixture.params = {};
+  fixture.discoverRandom.mockReset();
+  fixture.discoverContributors.mockReset().mockResolvedValue([]);
   fixture.focus = false;
   fixture.active = null;
   fixture.appState = "active"; fixture.appStateListeners.clear();
@@ -395,6 +401,51 @@ it("the share picker keeps reading pages until it finds a private workout", asyn
   expect(fixture.searchLibrary).toHaveBeenCalledTimes(2);
   expect(nodes("ListRow").map((n) => n.props.title)).toEqual(["Private one"]);
   expect(nodes("Notice")).toHaveLength(0);
+});
+
+it("Surprise me opens a random shared workout that matches the filters, and says so when nothing does", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page());
+  fixture.discoverRandom.mockResolvedValueOnce(card).mockRejectedValueOnce(new ApiError("No shared workouts match yet", 404));
+  await mount(Discover);
+  await act(async () => nodes("Chip").find((n) => n.props.label === "No equipment")!.props.onPress());
+  await settle();
+  await act(async () => button("Surprise me")!.props.onPress());
+  await settle();
+  expect(fixture.discoverRandom).toHaveBeenCalledWith(expect.objectContaining({ equipment: "none" }));
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/discover/[id]", params: { id: "pub-1" } });
+  await act(async () => button("Surprise me")!.props.onPress());
+  await settle();
+  expect(fixture.toast).toHaveBeenCalledWith("Nothing matches these filters yet", "info");
+  expect(fixture.push).toHaveBeenCalledTimes(1);
+  fixture.discoverRandom.mockRejectedValueOnce(new ApiError("socket hang up 0x1f", 0));
+  await act(async () => button("Surprise me")!.props.onPress());
+  await settle();
+  expect(fixture.toast).toHaveBeenLastCalledWith("Couldn’t pick a workout. Check your connection and try again.", "error");
+});
+
+it("shows who is sharing and narrows the feed to one person, removable like any filter", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.discover.mockResolvedValue(page());
+  fixture.discoverContributors.mockResolvedValue([
+    { contributor_id: "chef_leon1234", display_name: "Leon", workout_count: 4, is_you: false },
+    { contributor_id: "chef_mine5678", display_name: "Me", workout_count: 1, is_you: true },
+  ]);
+  await mount(Discover);
+  const strip = () => nodes("ChipRow").find((n) => n.props.label === "Show workouts from one person")!;
+  const people = () => strip().findAll((n) => String(n.type) === "Chip");
+  expect(people().map((n) => n.props.label)).toEqual(["Leon (4)", "You (1)"]);
+  await act(async () => people()[0].props.onPress());
+  await settle();
+  expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ contributor: "chef_leon1234" });
+  const summary = nodes("ChipRow").find((n) => n.props.label === "Active filters")!;
+  const chip = summary.findAll((n) => String(n.type) === "Chip")[0];
+  expect(chip.props.label).toBe("by Leon");
+  expect(people()[0].props.selected).toBe(true);
+  await act(async () => chip.props.onPress());
+  await settle();
+  expect(nodes("ChipRow").find((n) => n.props.label === "Active filters")).toBeUndefined();
+  expect(people()[0].props.selected).toBe(false);
 });
 
 it("switches between grid and list and remembers the choice for this account", async () => {
