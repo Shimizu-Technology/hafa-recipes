@@ -1,11 +1,11 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Notice } from "@/components/ui";
+import { ListRow, Notice } from "@/components/ui";
 import { useTraining } from "@/lib/context";
 import type { Workout } from "@/lib/models";
 import type { Organization } from "@/lib/organization";
 
+/** A list row for the workout menu. */
 export function WorkoutFavorite({ workout }: { workout: Workout }) {
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
@@ -36,9 +36,10 @@ export function WorkoutFavorite({ workout }: { workout: Workout }) {
       if (current()) setError(error instanceof Error ? error.message : "Could not change this favorite. Try again.");
     } finally { if (scope.lock === token) scope.lock = null; if (current()) setBusy(false); }
   }
-  return <View style={{ flex: 1, minWidth: 160, gap: 8 }}>
-    <Button title={workout.organization?.favorite ? "Remove favorite" : "Favorite workout"}
-      icon={workout.organization?.favorite ? "heart" : "heart-outline"} secondary size="sm" inline busy={busy} onPress={() => void toggle()} />
+  const favorite = !!workout.organization?.favorite;
+  return <>
+    <ListRow icon={favorite ? "heart" : "heart-outline"} title={favorite ? "Remove favorite" : "Favorite workout"}
+      disabled={busy} onPress={() => void toggle()} />
     {!!error && <Notice error>{error}</Notice>}
-  </View>;
+  </>;
 }
