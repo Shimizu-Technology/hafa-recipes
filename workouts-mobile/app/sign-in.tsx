@@ -13,7 +13,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import { useSignIn, useSignUp } from "@clerk/expo/legacy";
 import { useSSO } from "@clerk/expo";
 import * as WebBrowser from "expo-web-browser";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
 import { callbackUrl, socialSignIn } from "@/lib/social";
 import { configuration } from "@/lib/config";
 import { signupSetup } from "@/lib/signup-setup";
@@ -32,7 +32,6 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [verification, setVerification] = useState<Verification | null>(null);
-  const [adult, setAdult] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -134,10 +133,6 @@ export default function SignIn() {
       setError("Enter your email and password.");
       return;
     }
-    if (mode === "signup" && !adult) {
-      setError("Confirm you are 18 or older to create your account.");
-      return;
-    }
     if (verification && !validVerificationCode(code)) {
       setError("Enter exactly six digits from the newest verification code.");
       return;
@@ -184,10 +179,6 @@ export default function SignIn() {
   }
   async function provider(strategy: "oauth_google" | "oauth_apple") {
     if (!signIn) {setError("Sign-in is still loading. Try again in a moment.");return;}
-    if (mode === "signup" && !adult) {
-      setError("Confirm you are 18 or older first.");
-      return;
-    }
     await run(async () => {
       if (mode === "signup") {
         const result = await startSSOFlow({ strategy, redirectUrl: callbackUrl });
@@ -215,15 +206,6 @@ export default function SignIn() {
         <Copy tone="muted">Save workouts from anywhere and train your way. Free while in beta.</Copy>
         <Copy tone="muted">Use Håfa Recipes? Sign in the same way.</Copy>
       </Card>
-      {mode === "signup" && (
-        <Choice
-          selected={adult}
-          disabled={busy || !!verification}
-          onPress={() => setAdult(!adult)}
-          label="I am 18 or older"
-          detail="Håfa Workouts supports adult general fitness."
-        />
-      )}
       {!verification && mode !== "recover" && (
         <View style={{ gap: 12 }}>
           {/* Existing-account sign-in on iOS is native, so it gets Apple's own button. Joining still uses the browser flow. */}

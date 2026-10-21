@@ -1,12 +1,51 @@
 import { useRef, useState } from "react";
+import { Alert, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { useAuth, useClerk } from "@clerk/expo";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Button, Copy, ListGroup, ListRow, Notice, Screen, SectionHeader } from "@/components/ui";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { Copy, ListGroup, ListRow, Notice, Screen, SectionHeader, useColors } from "@/components/ui";
+import { radii, spacing, typography } from "@/constants/theme";
+import { useAccountIdentity } from "@/components/account-identity";
 import { suspendNativeSharing } from "@/lib/native-share-session";
 import { useTraining } from "@/lib/context";
 import { configuration } from "@/lib/config";
 import { logoutBinding } from "@/lib/logout-recovery";
+
+const avatarSize = 56;
+
+/** Who is signed in: photo or initial, name, and email. */
+function IdentityCard() {
+  const c = useColors();
+  const account = useAccountIdentity();
+  const identity = { ...account, name: account?.name || account?.email?.split("@")[0] || "Your account" };
+  return (
+    <View
+      accessible
+      accessibilityLabel={identity.email ? `Signed in as ${identity.name}, ${identity.email}` : `Signed in as ${identity.name}`}
+      style={{
+        flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md,
+        backgroundColor: c.surface, borderRadius: radii.xl - 4, borderWidth: 1, borderColor: c.border,
+      }}
+    >
+      <View style={{ width: avatarSize, height: avatarSize, borderRadius: radii.full, backgroundColor: c.actionSoft,
+        alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        {identity.imageUrl ? (
+          <Image source={{ uri: identity.imageUrl }} style={{ width: avatarSize, height: avatarSize }} accessibilityIgnoresInvertColors />
+        ) : identity.initial ? (
+          <Text maxFontSizeMultiplier={1.2} style={[typography.heading, { color: c.onActionSoft }]}>{identity.initial}</Text>
+        ) : (
+          <Ionicons name="person-outline" size={26} color={c.onActionSoft} />
+        )}
+      </View>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <Copy kind="subheading" numberOfLines={1}>{identity.name}</Copy>
+        {!!identity.email && <Copy kind="small" tone="muted" numberOfLines={1}>{identity.email}</Copy>}
+      </View>
+    </View>
+  );
+}
 
 export default function Settings() {
   const clerk = useClerk();
@@ -39,30 +78,43 @@ export default function Settings() {
       setBusy(false);
     }
   }
+  function confirmSignOut() {
+    if (signingOut.current) return;
+    Alert.alert(
+      "Sign out?",
+      "Your private drafts stay on this device for this account. Signing in to another account does not load them.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign out", style: "destructive", onPress: () => { void signOut(); } },
+      ],
+    );
+  }
   return (
-    <Screen back title="Your Håfa account">
-      <SectionHeader title="Your training" />
+    <Screen back title="Settings">
+      <IdentityCard />
+      <SectionHeader title="Training" />
       <ListGroup>
-        <ListRow title="Edit training profile" icon="person-outline" onPress={() => router.push("/profile")} />
-        <ListRow title="Measurement history" icon="analytics-outline" onPress={() => router.push("/measurements")} />
+        <ListRow title="Training profile" icon="person-outline" onPress={() => router.push("/profile")} />
+        <ListRow title="Measurements" icon="analytics-outline" onPress={() => router.push("/measurements")} />
         <ListRow title="Reminders and rest alerts" icon="notifications-outline" onPress={() => router.push("/reminders")} />
       </ListGroup>
       <SectionHeader title="Connections" />
-      <Copy kind="small" tone="muted">Health access, AI use, and Recipes connections each have their own choices.</Copy>
       <ListGroup>
         <ListRow title="Health connections" icon="heart-outline" onPress={() => router.push("/connections")} />
-        <ListRow title="AI sharing preferences" icon="sparkles-outline" onPress={() => router.push("/ai-preferences")} />
+        <ListRow title="AI preferences" icon="sparkles-outline" onPress={() => router.push("/ai-preferences")} />
         <ListRow title="Håfa apps" icon="apps-outline" detail="Recipes and Workouts, one account" onPress={() => router.push("/hafa-apps")} />
       </ListGroup>
-      <SectionHeader title="Privacy and saved data" />
+      <SectionHeader title="Privacy" />
       <ListGroup>
         <ListRow title="Safety Center" icon="shield-checkmark-outline" detail="Manage blocked contributors" onPress={() => router.push("/safety")} />
-        <ListRow title="Manage sharing links" icon="link-outline" onPress={() => router.push("/sharing-links")} />
+        <ListRow title="Sharing links" icon="link-outline" onPress={() => router.push("/sharing-links")} />
         <ListRow title="Account data and deletion" icon="shield-outline" onPress={() => router.push("/account-data")} />
       </ListGroup>
       {!!error && <Notice error>{error}</Notice>}
-      <Button title="Sign out" variant="destructive" icon="log-out-outline" busy={busy} onPress={() => { void signOut(); }} />
-      <Copy kind="small" tone="muted">Your private drafts stay on this device for this account. Signing in to another account does not load them.</Copy>
+      <ListGroup>
+        <ListRow title={busy ? "Signing out…" : "Sign out"} icon="log-out-outline" destructive trailing="none"
+          disabled={busy} onPress={confirmSignOut} />
+      </ListGroup>
     </Screen>
   );
 }

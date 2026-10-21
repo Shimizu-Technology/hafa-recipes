@@ -7,6 +7,12 @@ const revoke = vi.hoisted(() => vi.fn(async () => undefined));
 const resume = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/native-share-session", () => ({ suspendNativeSharing: () => ({ clear: revoke(), resume }) }));
 vi.mock("@clerk/expo", () => ({ useClerk: () => clerk, useAuth: () => ({ userId: "subject", sessionId: "original-session" }) }));
+vi.mock("@/components/account-identity", () => ({ useAccountIdentity: () => ({ initial: "L", name: "Leon Shimizu", email: "leon@example.com" }) }));
+type AlertButton = { text: string; style?: string; onPress?(): void };
+const alert = vi.hoisted(() => vi.fn());
+vi.mock("react-native", () => ({ Alert: { alert }, Text: "Text", View: "View" }));
+vi.mock("expo-image", () => ({ Image: "Image" }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: "owner" }) }));
 vi.mock("@/lib/config", () => ({ configuration: { clerkEnvironment: "production", clerkKey: "pk_live_synthetic" } }));
 const navigation = vi.hoisted(() => ({ push: vi.fn() }));
@@ -18,8 +24,9 @@ vi.mock("@/components/ui", () => ({
   Notice: ({ children }: PropsWithChildren) => createElement("notice", null, children),
   Button: ({ title, onPress }: { title: string; onPress(): void }) => createElement("button", { onClick: onPress }, title),
   ListGroup: ({ children }: PropsWithChildren) => createElement("list", null, children),
-  ListRow: ({ title, onPress }: { title: string; onPress(): void }) => createElement("row", { onClick: onPress }, title),
+  ListRow: ({ title, onPress, destructive }: { title: string; onPress(): void; destructive?: boolean }) => createElement("row", { onClick: onPress, destructive }, title),
   SectionHeader: ({ title }: { title: string }) => createElement("section", null, title),
+  useColors: () => ({}),
 }));
 import Settings from "../app/settings";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -31,7 +38,20 @@ it("keeps cached account data after a failed sign-out and clears it only after s
   await act(async () => { tree = create(createElement(QueryClientProvider, { client: cache }, createElement(Settings))); });
   tree!.root.findAll((node) => String(node.type) === "row").find((node) => node.children.join("") === "Safety Center")!.props.onClick();
   expect(navigation.push).toHaveBeenLastCalledWith("/safety");
-  const signOut = () => tree.root.findAll((node) => node.type === "button").find((node) => node.children.join("") === "Sign out")!;
+  const text = JSON.stringify(tree!.toJSON());
+  expect(text).toContain("Leon Shimizu");
+  expect(text).toContain("leon@example.com");
+  const signOutRow = () => tree.root.findAll((node) => String(node.type) === "row").find((node) => node.children.join("") === "Sign out")!;
+  expect(signOutRow().props.destructive).toBe(true);
+  // Signing out asks first; cancelling does nothing.
+  await act(async () => { signOutRow().props.onClick(); });
+  expect(clerk.signOut).not.toHaveBeenCalled();
+  const choices = alert.mock.lastCall![2] as AlertButton[];
+  expect(choices.map((choice) => choice.text)).toEqual(["Cancel", "Sign out"]);
+  const signOut = () => ({ props: { onClick: () => {
+    signOutRow().props.onClick();
+    (alert.mock.lastCall![2] as AlertButton[]).find((choice) => choice.style === "destructive")!.onPress!();
+  } } });
   clerk.signOut.mockRejectedValueOnce(Error("offline"));
   await act(async () => { signOut().props.onClick(); });
   expect(revoke).toHaveBeenCalled();
