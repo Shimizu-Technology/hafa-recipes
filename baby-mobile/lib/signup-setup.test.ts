@@ -104,7 +104,8 @@ it("waits quietly for the exact Clerk session to finish loading before provision
   expect(gate.onboard).not.toHaveBeenCalled(); expect(gate.opened).not.toHaveBeenCalled();
   expect(renderer!.root.findAll(n => String(n.type) === "Notice")).toHaveLength(0);
   gate.clerk.session = { id: "session_A", user: { id: "user_A" } };
-  await act(async () => renderer!.update(React.createElement(SignupGate, null, React.createElement(PrivateData))));
+  await act(async () => renderer!.update(React.createElement(React.StrictMode, null,
+    React.createElement(SignupGate, null, React.createElement(PrivateData)))));
   expect(gate.onboard).toHaveBeenCalledTimes(1); expect(gate.opened).toHaveBeenCalled();
 });
 it("retries transient provisioning without flashing an error or changing its installation identity", async () => {
@@ -126,7 +127,8 @@ it("keeps a replacement session closed until its own setup finishes even without
   gate.clerk.session = { id: "session_B", user: { id: "user_B" } };
   let release!: (value: unknown) => void;
   gate.onboard.mockReturnValue(new Promise(yes => { release = yes; }));
-  await act(async () => renderer!.update(React.createElement(SignupGate, null, React.createElement(PrivateData))));
+  await act(async () => renderer!.update(React.createElement(React.StrictMode, null,
+    React.createElement(SignupGate, null, React.createElement(PrivateData)))));
   expect(gate.opened).not.toHaveBeenCalled();
   await act(async () => release({ status: "created", app_user_id: "owner_B" }));
   expect(gate.opened).toHaveBeenCalled();
