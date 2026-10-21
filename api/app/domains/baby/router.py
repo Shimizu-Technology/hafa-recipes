@@ -308,9 +308,17 @@ async def record_list(
     include_general=False,
     collection_id=None,
     topic=None,
+    uncategorized=False,
 ):
     if kind is not None and kinds is not None:
         raise HTTPException(422, "Choose kind or kinds, not both")
+    if uncategorized:
+        if collection_id is not None:
+            raise HTTPException(422, "Choose a collection or Uncategorized, not both")
+        if (kind is not None and kind != "source") or (
+            kinds and any(value != "source" for value in kinds)
+        ):
+            raise HTTPException(422, "Uncategorized contains sources; choose source records")
     record_ids = None
     if collection_id is not None:
         collection = await owned(db, BabyRecord, owner, generation, collection_id)
@@ -335,6 +343,7 @@ async def record_list(
         q=q,
         record_ids=record_ids,
         topic=topic,
+        uncategorized=uncategorized,
     )
     if kinds:
         query = query.where(BabyRecord.kind.in_(kinds))
@@ -360,6 +369,7 @@ async def records(
     child_id: UUID | None = None,
     include_general: bool = False,
     collection_id: UUID | None = None,
+    uncategorized: bool = False,
     topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     q: Annotated[str | None, Query(max_length=300)] = None,
     limit: Limit = 30,
@@ -379,6 +389,7 @@ async def records(
         include_general=include_general,
         collection_id=collection_id,
         topic=topic,
+        uncategorized=uncategorized,
     )
 
 
@@ -392,6 +403,7 @@ async def search(
     child_id: UUID | None = None,
     include_general: bool = False,
     collection_id: UUID | None = None,
+    uncategorized: bool = False,
     topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     limit: Limit = 30,
     offset: Offset = 0,
@@ -410,6 +422,7 @@ async def search(
         include_general=include_general,
         collection_id=collection_id,
         topic=topic,
+        uncategorized=uncategorized,
     )
 
 

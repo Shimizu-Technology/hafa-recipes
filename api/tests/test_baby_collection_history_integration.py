@@ -207,3 +207,96 @@ async def test_old_generation_collection_and_members_cannot_return_after_new_gen
             "total": 0,
             "has_more": False,
         }
+
+
+@pytest.mark.parametrize("path", ["/records", "/search"])
+async def test_uncategorized_full_history_scoped_membership_before_paging(baby_api, path):
+    c = baby_api.client
+    child = (await c.post("/api/v1/baby/children", headers=shared.GEN, json={"name": "Child"})).json()["id"]
+    old = [source(index, child_id=UUID(child)) for index in range(33)]
+    newer = [source(index + 1000) for index in range(125)]
+    # Collections can themselves be outside any recent bootstrap page. Duplicate
+    # same-owner memberships must not duplicate rows or affect the count.
+    groups = [collection(newer), collection(newer[:1])]
+    foreign = collection(old, owner="other")
+    stale = collection(old, generation=2)
+    deleted_group = collection(old)
+    deleted_group.deleted_at = datetime.now(UTC)
+    wrong_kind = fixture_record("journal", 500)
+    wrong_kind.data = {"record_ids": [str(row.id) for row in old]}
+    deleted_source = source(500)
+    deleted_source.deleted_at = datetime.now(UTC)
+    async with baby_api.sessions() as db:
+        db.add_all(old + newer + groups + [foreign, stale, deleted_group, wrong_kind,
+                                         source(10, owner="other"), source(11, generation=2), deleted_source])
+        await db.commit()
+    params = {"uncategorized": True, "q": "packing", "topic": "Labor", "limit": 10}
+    ids = []
+    for offset in range(0, 40, 10):
+        result = await c.get("/api/v1/baby" + path, params={**params, "offset": offset})
+        assert result.status_code == 200, result.text
+        page = result.json()
+        assert page["total"] == 33 and page["has_more"] is (offset < 30)
+        ids.extend(row["id"] for row in page["items"])
+    assert len(ids) == len(set(ids)) == 33
+    assert set(ids) == {str(row.id) for row in old}
+    child_page = await c.get("/api/v1/baby" + path, params={**params, "child_id": child})
+    assert child_page.json()["total"] == 33
+    assert (await c.get("/api/v1/baby" + path, params={**params, "topic": "Other"})).json()["total"] == 0
+    ordinary = await c.get("/api/v1/baby" + path, params={**params, "uncategorized": False})
+    assert ordinary.json()["total"] == 158
+
+
+@pytest.mark.parametrize("path", ["/records", "/search"])
+async def test_uncategorized_rejects_conflicts_and_composes_general(baby_api, path):
+    c = baby_api.client
+    child = (await c.post("/api/v1/baby/children", headers=shared.GEN, json={"name": "Child"})).json()["id"]
+    assigned, general = source(1, child_id=UUID(child)), source(2)
+    group = collection([])
+    async with baby_api.sessions() as db:
+        db.add_all([assigned, general, group, fixture_record("journal", 3)])
+        await db.commit()
+    base = [("uncategorized", "true"), ("q", "packing")]
+    for conflict in [[("collection_id", str(group.id))], [("kind", "journal")],
+                     [("kinds", "source"), ("kinds", "journal")]]:
+        result = await c.get("/api/v1/baby" + path, params=base + conflict)
+        assert result.status_code == 422
+    for kinds in [[("kind", "source")], [("kinds", "source")], []]:
+        result = await c.get("/api/v1/baby" + path, params=base + kinds + [("child_id", child)])
+        assert result.json()["total"] == 1 and result.json()["items"][0]["id"] == str(assigned.id)
+        together = await c.get("/api/v1/baby" + path, params=base + kinds + [
+            ("child_id", child), ("include_general", "true"),
+        ])
+        assert together.json()["total"] == 2
+
+
+async def test_collection_bulk_patch_is_atomic_revision_checked_and_updates_inbox(baby_api):
+    import asyncio
+
+    c = baby_api.client
+    rows = []
+    for _ in range(3):
+        result = await c.post("/api/v1/baby/records", headers=shared.GEN, json=shared.payload("source"))
+        rows.append(result.json()["id"])
+    group = (await c.post("/api/v1/baby/records", headers=shared.GEN,
+                         json=shared.payload("collection", data={"record_ids": [rows[0]]}))).json()
+    url = "/api/v1/baby/records/" + group["id"]
+    results = await asyncio.gather(*(
+        c.patch(url, headers=shared.GEN, json={"revision": 1, "data": {"record_ids": rows[:count]}})
+        for count in [2, 3]
+    ))
+    assert sorted(result.status_code for result in results) == [200, 409]
+    latest = (await c.get(url)).json()
+    assert latest["revision"] == 2
+    # Client rereads after 409 and unions its selection into the complete latest
+    # collection, preserving the other editor's members.
+    union = list(dict.fromkeys([*latest["data"]["record_ids"], *rows]))
+    saved = await c.patch(url, headers=shared.GEN,
+                          json={"revision": latest["revision"], "data": {"record_ids": union}})
+    assert saved.status_code == 200 and saved.json()["data"]["record_ids"] == rows
+    failed = await c.patch(url, headers=shared.GEN,
+                           json={"revision": 3, "data": {"record_ids": [*rows, str(uuid4())]}})
+    assert failed.status_code == 404
+    assert (await c.get(url)).json() == saved.json()
+    inbox = await c.get("/api/v1/baby/records", params={"uncategorized": True})
+    assert inbox.json() == {"items": [], "total": 0, "has_more": False}

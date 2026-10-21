@@ -195,7 +195,100 @@ async def test_partial_acquisition_is_retryable_but_sampling_notes_are_not_error
         {"url": "https://example.com/video", "text": "User annotation"},
         [], SimpleNamespace(enabled=False), may_use_ai=False, gate=gate,
     )
-    assert result["status"] == "incomplete"
+    assert result["status"] == ("incomplete" if acquisition_failed else "ready")
     assert result["data"]["source_text"] == "User annotation\n\nCreator caption"
     assert bool(result["error"]) is acquisition_failed
     assert "TIMEOUT" not in str(result)
+
+
+@pytest.mark.parametrize("notes,expected", [
+    (["image:0 sampled at 1.5s; samples do not cover every frame."], "ready"),
+    (["Audio unavailable; available captions/frames remain usable."], "incomplete"),
+    (["Visual frames unavailable; visual-only instructions may be missing."], "incomplete"),
+    (["Video frames are samples.", "Audio could not be read; speech may be missing."], "incomplete"),
+    (["Caption text was truncated to the extraction limit."], "incomplete"),
+])
+async def test_coverage_disclosures_do_not_hide_missing_channels(monkeypatch, notes, expected):
+    from unittest.mock import AsyncMock
+
+    bundle = SourceBundle(
+        SourceMetadata(
+            creator="Creator", platform="instagram", thumbnail_url="https://cdn.example.com/a.jpg",
+            coverage_notes=notes,
+        ), parts=[SourcePart("caption", "The creator's original words")],
+    )
+    monkeypatch.setattr(processing.ProductionSourceAcquirer, "acquire", AsyncMock(return_value=bundle))
+    provider = SimpleNamespace(enabled=True, extract=AsyncMock(return_value=ExtractionOutput(
+        title="Packing", summary="The creator recommends preparing a bag.",
+        key_points=["The creator suggests keeping the bag by the door."],
+        steps=["Put the bag by the door."],
+    )))
+    result = await processing.process_capture(
+        {"url": "https://example.com/post"}, [], provider, may_use_ai=True, gate=AsyncMock(),
+    )
+    assert result["status"] == expected
+    assert result["data"]["coverage_notes"] == notes
+    assert result["data"]["creator"] == "Creator"
+    assert result["data"]["platform"] == "instagram"
+    assert result["data"]["thumbnail_url"] == "https://cdn.example.com/a.jpg"
+    assert result["data"]["key_points"] == ["The creator suggests keeping the bag by the door."]
+    assert result["data"]["steps"] == ["Put the bag by the door."]
+    assert result["data"]["evidence"] == [{"location": "caption", "text": "The creator's original words"}]
+
+
+@pytest.mark.parametrize("thumbnail", [
+    "file:///tmp/frame.jpg", "localfile://private/image.jpg", "data:image/png;base64,private",
+    "https://localhost/frame", "http://127.0.0.1/frame", "http://192.168.1.1/frame",
+    "http://[::1]/frame", "https://host.local/frame", "https://user:secret@example.com/frame",
+])
+def test_private_thumbnail_metadata_is_omitted(thumbnail):
+    assert processing.safe_metadata(SourceMetadata(thumbnail_url=thumbnail))["thumbnail_url"] is None
+
+
+async def test_extraction_prompt_requires_explicit_source_steps(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.domains.baby.provider import BabyProvider
+
+    call = AsyncMock(return_value=ExtractionOutput(title="Promotion"))
+    monkeypatch.setattr(BabyProvider, "json_call", call)
+    result = await BabyProvider().extract(SourceBundle(SourceMetadata()))
+    assert result.key_points == result.steps == []
+    prompt = call.call_args.kwargs["instructions"]
+    assert "ONLY when explicitly given in the source" in prompt
+    assert "Never invent medical or care instructions" in prompt
+    assert "attributed to the source/creator" in prompt
+
+
+@pytest.mark.parametrize("frame_failure", [True, False])
+async def test_uploaded_video_sampling_retains_missing_frame_warning(monkeypatch, frame_failure):
+    from io import BytesIO
+    from unittest.mock import AsyncMock
+
+    from PIL import Image
+
+    from app.domains.baby import media
+
+    image = BytesIO()
+    Image.new("RGB", (8, 8), "white").save(image, format="JPEG")
+
+    async def frame(path, output, timestamp):
+        if frame_failure and timestamp > 0:
+            raise ValueError("frame unavailable")
+        output.write_bytes(image.getvalue())
+
+    monkeypatch.setattr(media, "probe", AsyncMock(return_value=4.0))
+    monkeypatch.setattr(media, "audio_track", AsyncMock())
+    monkeypatch.setattr(media, "frame", frame)
+    monkeypatch.setattr(processing, "read_bytes", AsyncMock(return_value=b"video fixture"))
+    provider = SimpleNamespace(enabled=True, transcribe=AsyncMock(return_value="Creator's spoken words"),
+                               extract=AsyncMock(return_value=ExtractionOutput(title="Video")))
+    result = await processing.process_capture(
+        {}, [SimpleNamespace(mime_type="video/mp4")], provider, may_use_ai=True, gate=AsyncMock(),
+    )
+    assert result["status"] == ("incomplete" if frame_failure else "ready")
+    notes = result["data"]["coverage_notes"]
+    assert any("Video frames are samples" in note for note in notes)
+    assert any("Some visual frames could not be read" in note for note in notes) is frame_failure
+    assert result["data"]["platform"] == "upload"
+    assert result["data"]["evidence"][0]["text"] == "Creator's spoken words"
