@@ -384,3 +384,13 @@ it("uploads cover multipart with exact frozen identity and account headers, whil
     "X-Workouts-Generation": "7", "Idempotency-Key": "frozen-uuid" });
   expect(result.cover_origin).toBe("user"); expect(result.revision).toBe(5);
 });
+
+it("explicit account onboarding uses the shared authenticated endpoint without enrollment headers", async () => {
+  const transport = vi.fn(async () => Response.json({ status: "created", app_user_id: "app_owner" }));
+  const api = createWorkoutsApi("https://service.example", async () => "token", transport);
+  await expect(api.onboard("cmi_" + "a".repeat(64))).resolves.toEqual({ status: "created", app_user_id: "app_owner" });
+  expect(transport).toHaveBeenCalledWith("https://service.example/api/auth/clerk-transition/onboard", expect.objectContaining({
+    method: "POST", body: JSON.stringify({ installation_id: "cmi_" + "a".repeat(64), intent: "create_account" }),
+    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+  }));
+});

@@ -18,6 +18,7 @@ import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
 import { Screen, Copy, Notice, Button, ToastProvider, useColors } from "@/components/ui";
 import { LogoutRecoveryBoundary } from "@/components/logout-recovery-boundary";
+import { SignupGate } from "@/components/signup-gate";
 import { AccountIdentityProvider } from "@/components/account-identity";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
@@ -45,7 +46,7 @@ function AccountLogoutRecovery() {
   ><Routes /></LogoutRecoveryBoundary>;
 }
 function Routes() {
-  const { isLoaded, isSignedIn, userId } = useAuth();
+  const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
   const c = useColors();
   const previousOwner = useRef<string | null>(null);
   useEffect(() => {
@@ -112,14 +113,14 @@ function Routes() {
     </Stack>
   );
   return isSignedIn ? (
-    <TrainingProvider key={userId}>
+    <SignupGate key={sessionId}><TrainingProvider key={userId}>
       <AccountIdentityProvider>
         <RemindersProvider>
           <ShareCapture />
           {stack}
         </RemindersProvider>
       </AccountIdentityProvider>
-    </TrainingProvider>
+    </TrainingProvider></SignupGate>
   ) : (
     stack
   );

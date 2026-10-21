@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
   setActive: vi.fn(),
   signup: vi.fn(),
   sso: vi.fn(),
+  begin: vi.fn(), verify: vi.fn(), prepare: vi.fn(),
 }));
 vi.mock("expo-apple-authentication", () => ({
   AppleAuthenticationScope: { FULL_NAME: 0, EMAIL: 1 },
@@ -21,9 +22,11 @@ vi.mock("expo-apple-authentication", () => ({
 vi.mock("expo-crypto", () => ({ randomUUID: fixture.nonce }));
 vi.mock("@clerk/expo/legacy", () => ({
   useSignIn: () => ({ isLoaded: true, signIn: { create: fixture.create }, setActive: fixture.setActive }),
-  useSignUp: () => ({ isLoaded: true, signUp: { create: fixture.signup } }),
+  useSignUp: () => ({ isLoaded: true, signUp: { create: fixture.signup, attemptEmailAddressVerification: fixture.verify, prepareEmailAddressVerification: fixture.prepare } }),
 }));
 vi.mock("@clerk/expo", () => ({ useSSO: () => ({ startSSOFlow: fixture.sso }) }));
+vi.mock("./signup-setup", () => ({ signupSetup: { begin: fixture.begin } }));
+vi.mock("./config", () => ({ configuration: { clerkEnvironment: "production" } }));
 vi.mock("expo-web-browser", () => ({ maybeCompleteAuthSession: vi.fn(), openAuthSessionAsync: vi.fn() }));
 vi.mock("react-native", () => ({
   View: "View", Platform: { OS: "ios" }, useColorScheme: () => "light",
@@ -144,4 +147,49 @@ it("in recovery the email field's Go key sends the recovery code", async () => {
   await act(async () => field("Email").props.onChange("person@example.test"));
   await act(async () => { field("Email").props.onSubmit(); });
   expect(fixture.create).toHaveBeenCalledExactlyOnceWith({ strategy: "reset_password_email_code", identifier: "person@example.test" });
+});
+
+async function chooseSignup() {
+  await act(async () => { renderer = create(createElement(SignIn)); });
+  await act(async () => renderer!.root.findAll(n => n.props.title === "Create a new account")[0].props.onPress());
+  await act(async () => renderer!.root.findAll(n => n.props.label === "I am 18 or older")[0].props.onPress());
+  await act(async () => renderer!.root.findAll(n => n.props.title === "Join with Google")[0].props.onPress());
+}
+it("new Google signup durably records its verified user and session before activation", async () => {
+  const activate = vi.fn(async () => undefined);
+  fixture.sso.mockResolvedValue({ createdSessionId: "new_session", setActive: activate,
+    signUp: { createdSessionId: "new_session", createdUserId: "new_user" } });
+  await chooseSignup();
+  expect(fixture.begin).toHaveBeenCalledWith("new_session", "new_user");
+  expect(fixture.begin.mock.invocationCallOrder[0]).toBeLessThan(activate.mock.invocationCallOrder[0]);
+});
+it("an existing Google account encountered during signup activates without new-owner intent", async () => {
+  const activate = vi.fn(async () => undefined);
+  fixture.sso.mockResolvedValue({ createdSessionId: "existing_session", setActive: activate,
+    signIn: { createdSessionId: "existing_session" } });
+  await chooseSignup();
+  expect(activate).toHaveBeenCalledWith({ session: "existing_session" });
+  expect(fixture.begin).not.toHaveBeenCalled();
+});
+it("a guessed or mismatched signup session cannot create intent or activate", async () => {
+  const activate = vi.fn();
+  fixture.sso.mockResolvedValue({ createdSessionId: "new_session", setActive: activate,
+    signUp: { createdSessionId: "another_session", createdUserId: "new_user" } });
+  await chooseSignup(); expect(fixture.begin).not.toHaveBeenCalled(); expect(activate).not.toHaveBeenCalled();
+});
+
+it("verified email signup persists exact identity before activating its session", async () => {
+  fixture.verify.mockResolvedValue({ status: "complete", createdSessionId: "email_session", createdUserId: "email_user" });
+  await act(async () => { renderer = create(createElement(SignIn)); });
+  await act(async () => renderer!.root.findAll(n => n.props.title === "Create a new account")[0].props.onPress());
+  await act(async () => {
+    renderer!.root.findAll(n => n.props.label === "I am 18 or older")[0].props.onPress();
+    renderer!.root.findAll(n => n.props.label === "Email")[0].props.onChange("new@example.test");
+    renderer!.root.findAll(n => n.props.label === "New password")[0].props.onChange("synthetic-password");
+  });
+  await act(async () => renderer!.root.findAll(n => n.props.title === "Create my Håfa account")[0].props.onPress());
+  await act(async () => renderer!.root.findAll(n => n.props.label === "Verification code")[0].props.onChange("123456"));
+  await act(async () => renderer!.root.findAll(n => n.props.title === "Verify and continue")[0].props.onPress());
+  expect(fixture.begin).toHaveBeenCalledWith("email_session", "email_user");
+  expect(fixture.begin.mock.invocationCallOrder[0]).toBeLessThan(fixture.setActive.mock.invocationCallOrder[0]);
 });
