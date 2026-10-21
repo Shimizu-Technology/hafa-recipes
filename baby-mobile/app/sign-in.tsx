@@ -252,9 +252,13 @@ export default function SignIn() {
       {!!error && <Notice error>{error}</Notice>}
       <Button title="Create account and continue" onPress={() => void createGoogleAccount()} busy={busy}
         disabled={!signupLoaded} />
-      <Button title="Use a different account" secondary disabled={busy} onPress={() => {
+      <Button title="Use a different account" secondary disabled={busy} onPress={() => void run(async () => {
+        const completed = googleAccount.current;
+        // Keep this exact user's unfinished setup recoverable when leaving.
+        if (completed && completed.attempt === googleSignup)
+          await signupSetup.begin(completed.session, completed.user);
         setGoogleSignup(null); googleAccount.current = null; setAdult(false); setError(""); setMode("signin");
-      }} />
+      })} />
     </Screen>
   );
   return (

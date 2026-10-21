@@ -94,3 +94,14 @@ it("an existing Google account also works from the email signup screen", async (
   await press("Continue with Google");
   expect(m.activate).toHaveBeenCalledWith({ session: "session_existing" }); expect(m.begin).not.toHaveBeenCalled();
 });
+it("cannot discard completed signup recovery when secure setup storage is unavailable", async () => {
+  await press("Continue with Google"); await adult();
+  m.begin.mockRejectedValueOnce(Error("Locked storage")).mockRejectedValueOnce(Error("Still locked"));
+  await press("Create account and continue"); await press("Use a different account");
+  expect(view.root.findByType("Screen" as any).props.title).toBe("Create your Håfa account");
+  expect(m.activate).not.toHaveBeenCalled();
+  await press("Use a different account");
+  expect(m.begin).toHaveBeenLastCalledWith("session_new", "user_new");
+  expect(view.root.findByType("Screen" as any).props.title).toBe("Håfa adai");
+  expect(m.signUp.create).toHaveBeenCalledTimes(1);
+});
