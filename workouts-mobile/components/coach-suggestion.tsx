@@ -110,8 +110,10 @@ export function CoachSuggestionCard({ item, generation, notify, recovery }: {
   const checkIn = useQuery({ queryKey: [owner, "readiness", generation], queryFn: api.readiness, enabled: s.current && needsInfo });
   const help = needsInfo && !profile.error && !checkIn.error && s.action.data && profile.data?.profile && checkIn.data
     ? coachRecovery(s.action.data, profile.data.profile, profile.data.revision, checkIn.data) : null;
+  // Opening details never sends anything, so a draft message or photo only blocks the other recovery steps.
+  const recoveryBlocked = !!recovery?.disabled && help?.next !== "details";
   function recover() {
-    if (!recovery || recovery.disabled || !s.current || !help) return;
+    if (!recovery || recoveryBlocked || !s.current || !help) return;
     if (help.next === "profile") router.push({ pathname: "/profile", params: { return_to: "coach", ...coachReturnParams(recovery.focus) } });
     else if (help.next === "check-in") recovery.checkIn();
     else if (help.next === "ask") recovery.askAgain();
@@ -139,10 +141,10 @@ export function CoachSuggestionCard({ item, generation, notify, recovery }: {
       {(profile.error || checkIn.error) && <Notice error>Could not check your saved information. Try again.</Notice>}
       {(profile.error || checkIn.error) && <Button title="Try again" onPress={() => { void profile.refetch(); void checkIn.refetch(); }} />}
     </>}
-    {needsInfo && recovery?.disabled && !!recovery.blockedReason && <Copy kind="small" tone="muted">{recovery.blockedReason}</Copy>}
+    {needsInfo && recoveryBlocked && !!recovery?.blockedReason && <Copy kind="small" tone="muted">{recovery.blockedReason}</Copy>}
     {!!s.error && <Notice error>{s.error}</Notice>}
     <Row wrap gap={4}>
-      {s.current && help && recovery && <Button title={help.title} inline disabled={recovery.disabled}
+      {s.current && help && recovery && <Button title={help.title} inline disabled={recoveryBlocked}
         accessibilityHint={help.next === "ask" ? "Sends your original request again using your saved information" : undefined} onPress={recover} />}
       {s.state === "proposed" && s.ready && (s.needsFullReview
         ? <Button title="Review and apply" size="sm" inline onPress={details} />

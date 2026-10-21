@@ -96,7 +96,7 @@ const adultQuestion = "Confirm adult eligibility/readiness and resolve any free-
 const equipmentQuestion = "Confirm available equipment, including any stable supports or anchors.";
 const needsInfo = (questions = [adultQuestion, equipmentQuestion]): CoachAction => ({ ...proposal("move"), kind: "adaptation", target_id: "workout", proposal: { status: "needs_information", questions } });
 const recovery = { focus: { context_workout_id: "workout", context_revision: 3 }, disabled: false, checkIn: vi.fn(), askAgain: vi.fn() };
-const recoveryCard = () => mount(createElement(CoachSuggestionCard, { item: { proposal_id: "proposal", kind: "adaptation", status: "needs_information", state: "proposed" }, generation: 1, notify, recovery }));
+const recoveryCard = (overrides: Partial<typeof recovery> & { blockedReason?: string } = {}) => mount(createElement(CoachSuggestionCard, { item: { proposal_id: "proposal", kind: "adaptation", status: "needs_information", state: "proposed" }, generation: 1, notify, recovery: { ...recovery, ...overrides } }));
 
 it("names missing equipment and offers a profile review with the original coach context", async () => {
   f.action = needsInfo(); f.profile = { profile: { ...initialProfile(), adult_confirmed: true }, revision: 1 };
@@ -147,6 +147,15 @@ it("shows an unfamiliar question once and offers a single way to its details", a
   f.readiness = { state: "ready", expires_at: "2999-01-01T00:00:00Z" }; await recoveryCard();
   expect(JSON.stringify(view!.toJSON()).split("Coach needs more details before it can offer a change").length - 1).toBe(1);
   expect(button("Review details")).toBeDefined(); expect(button("Details")).toBeUndefined();
+});
+
+it("keeps details reachable while a draft message blocks sending", async () => {
+  f.action = needsInfo(["Something new A."]);
+  f.readiness = { state: "ready", expires_at: "2999-01-01T00:00:00Z" };
+  await recoveryCard({ disabled: true, blockedReason: "Send or clear your unsent message to continue." });
+  expect(button("Review details")!.props.disabled).toBe(false);
+  expect(JSON.stringify(view!.toJSON())).not.toContain("Send or clear your unsent message");
+  await press("Review details"); expect(f.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/coach-action/[id]" }));
 });
 
 it("advances the same card from profile review to check-in to Ask again as saves update the cache", async () => {
