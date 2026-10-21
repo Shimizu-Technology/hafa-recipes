@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -639,3 +640,65 @@ async def test_duplicate_concurrent_replay_and_no_organization_copy(organization
             await db.scalar(select(func.count()).select_from(WorkoutLibraryDuplicateReceipt)) == 1
         )
         assert await db.scalar(select(func.count()).select_from(WorkoutRecord)) == 2
+
+
+async def test_collection_previews_newest_active_covers_owner_scoped(organization_api):
+    api = organization_api
+    collection = await make_collection(api)
+    empty = await make_collection(api, "Empty")
+    rows = [await create(api, f"Workout {index}") for index in range(7)]
+    other_collection = await make_collection(api, "Theirs", other=True)
+    async with api.sessions() as db:
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        for index, row in enumerate(rows):
+            record = await db.get(WorkoutRecord, UUID(row["id"]))
+            cover = None if index == 0 else f"https://example.test/{index}.jpg"
+            record.content = {**record.content, "source_thumbnail_url": cover}
+            record.created_at = base + timedelta(minutes=index)
+        await db.commit()
+    for row in rows:
+        await change(api, row, collection_ids=[collection["id"]])
+    await change(api, rows[6], archived=True)
+    listed = (await api.client.get(PREFIX + "/collections", headers=GENERATION)).json()
+    by_id = {item["id"]: item for item in listed}
+    # Newest first, archived and coverless workouts skipped, capped at four.
+    assert by_id[collection["id"]]["preview_thumbnail_urls"] == [
+        f"https://example.test/{index}.jpg" for index in (5, 4, 3, 2)
+    ]
+    assert by_id[collection["id"]]["workout_count"] == 7
+    assert by_id[empty["id"]]["preview_thumbnail_urls"] == []
+    assert other_collection["id"] not in by_id
+    renamed = await api.client.put(
+        f"{PREFIX}/collections/{collection['id']}",
+        json={"title": "Renamed", "expected_revision": collection["revision"]},
+        headers=GENERATION,
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["preview_thumbnail_urls"][0] == "https://example.test/5.jpg"
+    theirs = await api.client.get(
+        PREFIX + "/collections", headers={**GENERATION, "X-Test-User": "other"}
+    )
+    assert theirs.json()[0]["preview_thumbnail_urls"] == []
+
+
+async def test_search_max_minutes_filters_and_keeps_existing_cursors(organization_api):
+    api = organization_api
+    rows = [await create(api, f"Timed {index}") for index in range(3)]
+    async with api.sessions() as db:
+        for row, minutes in zip(rows, (15, 45, None), strict=True):
+            record = await db.get(WorkoutRecord, UUID(row["id"]))
+            record.content = {**record.content, "estimated_minutes": minutes}
+        await db.commit()
+    short = await search(api, max_minutes=20)
+    assert [item["id"] for item in short["items"]] == [rows[0]["id"]]
+    assert (await search(api, max_minutes=60))["total"] == 2
+    first = await search(api, limit=1)
+    assert first["has_more"]
+    # Cursors without the new filter keep their original digest.
+    assert (await search(api, limit=1, cursor=first["next_cursor"]))["items"]
+    response = await api.client.get(
+        PREFIX + "/library/search",
+        params={"limit": 1, "cursor": first["next_cursor"], "max_minutes": 20},
+        headers=GENERATION,
+    )
+    assert response.status_code == 409

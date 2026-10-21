@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import Field, StrictBool, field_validator, model_validator
-from sqlalchemy import String, cast, delete, exists, func, or_, select, update
+from sqlalchemy import String, case, cast, delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONPATH
 
 from app.domains.workouts.library_organization_models import (
@@ -33,6 +33,7 @@ from app.domains.workouts.models import WorkoutRecord, WorkoutVersion
 from app.domains.workouts.router import Database, Generation, User, bounded_content
 from app.domains.workouts.schemas import DomainModel
 from app.domains.workouts.security import WorkoutsRoute
+from app.services.storage import storage_service
 
 router = APIRouter(prefix="/api/v1/workouts", tags=["workouts-library"], route_class=WorkoutsRoute)
 
@@ -112,6 +113,55 @@ async def collection(db, owner, generation, identifier):
     return row
 
 
+PREVIEW_LIMIT = 4
+
+
+async def collection_previews(db, owner, generation, collection_ids):
+    """Up to four recent active cover URLs per collection, in one owner-scoped query."""
+    if not collection_ids:
+        return {}
+    member = WorkoutLibraryCollectionMember
+    cover = WorkoutRecord.content["source_thumbnail_url"].astext
+    ranked = (
+        select(
+            member.collection_id,
+            cover.label("cover"),
+            func.row_number()
+            .over(
+                partition_by=member.collection_id,
+                order_by=(WorkoutRecord.created_at.desc(), WorkoutRecord.id.desc()),
+            )
+            .label("rank"),
+        )
+        .join(
+            WorkoutRecord,
+            (WorkoutRecord.id == member.workout_id)
+            & (WorkoutRecord.app_user_id == member.app_user_id)
+            & (WorkoutRecord.generation == member.generation),
+        )
+        .where(
+            member.app_user_id == owner,
+            member.generation == generation,
+            member.collection_id.in_(collection_ids),
+            cover.is_not(None),
+            cover != "",
+            active_library_condition(),
+        )
+        .subquery()
+    )
+    rows = await db.execute(
+        select(ranked.c.collection_id, ranked.c.cover)
+        .where(ranked.c.rank <= PREVIEW_LIMIT)
+        .order_by(ranked.c.collection_id, ranked.c.rank)
+    )
+    previews = {}
+    for collection_id, url in rows:
+        delivered = storage_service.thumbnail_delivery_url(url, variant="list")
+        if delivered:
+            previews.setdefault(collection_id, []).append(delivered)
+    return previews
+
+
 async def collection_response(db, row):
     count = await db.scalar(
         select(func.count())
@@ -122,16 +172,19 @@ async def collection_response(db, row):
             WorkoutLibraryCollectionMember.generation == row.generation,
         )
     )
-    return collection_payload(row, count)
+    previews = await collection_previews(db, row.app_user_id, row.generation, [row.id])
+    return collection_payload(row, count, previews.get(row.id, []))
 
 
-def collection_payload(row, count):
+def collection_payload(row, count, previews=()):
     return {
         "id": row.id,
         "generation": row.generation,
         "revision": row.revision,
         "title": row.title,
         "workout_count": count,
+        # Newest active covers first; empty when no member has a cover.
+        "preview_thumbnail_urls": list(previews),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -169,8 +222,9 @@ async def list_collections(user: User, db: Database, generation: Generation):
             .order_by(WorkoutLibraryCollection.title_key, WorkoutLibraryCollection.id)
         )
     ).all()
-    # One grouped query; the write cap keeps this intentional list bounded.
-    return [collection_payload(row, count) for row, count in rows]
+    # One grouped query plus one preview query; the write cap keeps this list bounded.
+    previews = await collection_previews(db, user.id, generation, [row.id for row, _ in rows])
+    return [collection_payload(row, count, previews.get(row.id, [])) for row, count in rows]
 
 
 @router.post("/collections", status_code=201)
@@ -357,6 +411,7 @@ async def search_library(
     archived_only: bool = False,
     collection_id: UUID | None = None,
     tags: list[str] = Query(default=[], max_length=20),
+    max_minutes: int | None = Query(default=None, ge=1, le=1440),
     limit: int = Query(default=25, ge=1, le=50),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     cursor: str | None = Query(default=None, max_length=512),
@@ -394,6 +449,12 @@ async def search_library(
         )
     if kind:
         conditions.append(WorkoutRecord.content["kind"].astext == kind)
+    if max_minutes:
+        minutes = WorkoutRecord.content["estimated_minutes"]
+        conditions.append(
+            case((func.jsonb_typeof(minutes) == "number", minutes.as_float()), else_=None)
+            <= max_minutes
+        )
     if equipment:
         equipment = equipment.strip()
         escaped_equipment = equipment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -437,6 +498,8 @@ async def search_library(
             "archived_only": archived_only,
             "collection": str(collection_id) if collection_id else None,
             "tags": tags,
+            # Only present when used, so cursors issued before this filter stay valid.
+            **({"max_minutes": max_minutes} if max_minutes else {}),
         },
     )
     total = await db.scalar(select(func.count()).select_from(WorkoutRecord).where(*conditions))
