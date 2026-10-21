@@ -51,7 +51,7 @@ export function sourceChoiceErrors(ids: string[], minutes: Record<string, string
 export function sourceDayErrors(workout: Workout, start_date: string, days: SourceProgramDay[]) {
   const errors: string[] = [];
   if (!isISODate(start_date)) errors.push("Choose a valid calendar start date.");
-  if (!days.length || days.length > 366) errors.push("Add at least one day assignment, up to 366 sessions.");
+  if (!days.length || days.length > 366) errors.push("Add at least one session, up to 366.");
   const ids = new Set(workout.blocks.map((block) => block.id));
   for (const day of days) {
     if (
@@ -64,13 +64,13 @@ export function sourceDayErrors(workout: Workout, start_date: string, days: Sour
       day.duration_minutes < 5 ||
       day.duration_minutes > 180
     )
-      errors.push("Each session needs a day offset from 0 to 365, a label and 5–180 whole minutes.");
+      errors.push("Each session needs a date within a year of the start, a name, and 5–180 whole minutes.");
     if (
       !day.block_ids.length ||
       new Set(day.block_ids).size !== day.block_ids.length ||
       day.block_ids.some((id) => !ids.has(id))
     )
-      errors.push("Choose valid original source blocks once per session.");
+      errors.push("Pick at least one part of the workout for each session.");
   }
   return [...new Set(errors)];
 }

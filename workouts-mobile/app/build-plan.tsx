@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, type ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen, Segmented, useReducedMotion } from "@/components/ui";
+import { Button, Choice, Copy, Field, Notice, Screen, Segmented, useReducedMotion } from "@/components/ui";
+import { ReadinessPicker, type Readiness } from "@/components/readiness-picker";
 import { CalendarDate } from "@/components/calendar-date";
 import { ProgramPreview } from "@/components/program-preview";
 import { useTraining } from "@/lib/context";
@@ -46,7 +47,8 @@ export default function BuildPlan() {
     receipt: null,
   });
   const [loaded, setLoaded] = useState(false);
-  const [readiness, setReadiness] = useState<"ready" | "limited" | "unknown">("unknown");
+  const [readiness, setReadiness] = useState<Readiness>("unknown");
+  const [showSources, setShowSources] = useState(!!include);
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -83,6 +85,7 @@ export default function BuildPlan() {
         if (active) {
           const restored = value?.generation === generation ? value : null;
           if (restored) setDraft({ ...restored, weeks: planWeeks(restored.weeks) });
+          if (restored?.selected.length) setShowSources(true);
           if (include && !(restored?.selected ?? []).includes(include))
             setDraft((current) => ({ ...current, selected: [...current.selected, include], receipt: null }));
           setLoaded(true);
@@ -132,8 +135,10 @@ export default function BuildPlan() {
     if (!Number.isInteger(count) || count < 1 || count > 12 || !isISODate(draft.date))
       problems.push("Choose 1–12 weeks and a valid start date.");
     if (draft.source_mode === "selected" && !draft.selected.length)
-      problems.push("Choose saved sessions for a source-only plan.");
+      problems.push("Pick at least one saved workout, or choose Mix with suggestions.");
     if (problems.length) {
+      // Open the saved-workouts section when that's where the problem is.
+      if (draft.selected.length || draft.source_mode === "selected") setShowSources(true);
       setError(problems.join(" "));
       return;
     }
@@ -171,72 +176,62 @@ export default function BuildPlan() {
     <Screen
       back
       title="Build a plan"
-      subtitle="Uses your saved workouts, equipment and available days."
+      subtitle="Uses your goal, equipment and the days you can train."
       scrollRef={scroller}
     >
       {q.error && <Notice error>{q.error.message}</Notice>}
       {!q.data?.profile && (
         <Button title="Set up training profile" secondary onPress={() => router.push({ pathname: "/profile", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
       )}
-      <Field label="Plan name" value={draft.title} onChange={(title) => update({ title })} />
       <CalendarDate label="Start date" value={draft.date} disabled={busy} onChange={(date) => update({ date: date ?? "" })} />
-      <Copy kind="label">Plan length · weeks</Copy>
+      <Copy kind="label">How many weeks</Copy>
       <Segmented
         label="Plan length in weeks"
         value={draft.weeks}
         options={planWeekOptions(draft.weeks).map((weeks) => ({ value: weeks, label: weeks }))}
         onChange={(weeks) => update({ weeks })}
       />
-      <Card>
-        <Copy kind="heading">What should your plan use?</Copy>
-        <Choice
-          label="Blend selected sessions with suitable generated training"
-          selected={draft.source_mode === "mixed"}
-          onPress={() => update({ source_mode: "mixed" })}
-        />
-        <Choice
-          label="Use only the saved sessions I select"
-          selected={draft.source_mode === "selected"}
-          onPress={() => update({ source_mode: "selected" })}
-        />
-        <Copy>Select up to 10 sessions. Missing source targets or equipment remain questions for review.</Copy>
-        <SavedSourcePicker
-          selected={draft.selected}
-          minutes={draft.minutes}
-          change={(selected, minutes) => update({ selected, minutes })}
-          disabled={busy}
-        />
-        <Choice
-          label="I reviewed any custom routines I selected"
-          detail="Confirm the instructions are appropriate for you; this does not provide medical or fitness clearance."
-          selected={draft.custom_reviewed}
-          onPress={() => update({ custom_reviewed: !draft.custom_reviewed })}
-        />
-      </Card>
-      <Copy kind="heading">Quick check-in for today</Copy>
-      {(["ready", "limited", "unknown"] as const).map((value) => (
-        <Choice
-          key={value}
-          label={
-            value === "ready"
-              ? "Ready for general training"
-              : value === "limited"
-                ? "I need to take it easier"
-                : "Prefer not to say / unsure"
-          }
-          selected={readiness === value}
-          onPress={() => {
-            if (!busy) {
-              setReadiness(value);
-              setDraft({ ...draft, receipt: null });
-              setReviewed(false);
-            }
-          }}
-        />
-      ))}
-      <Copy kind="small" tone="muted">This check-in applies to today only and doesn’t change your profile.</Copy>
       <Button
-        title="Review a proposed program"
+        title={showSources ? "Hide saved workouts" : draft.selected.length ? `Saved workouts · ${draft.selected.length} selected` : "Include my saved workouts"}
+        variant="ghost" size="sm" inline icon={showSources ? "chevron-up" : "chevron-down"} disabled={busy}
+        onPress={() => setShowSources(!showSources)}
+      />
+      {showSources && (
+        <>
+          <Segmented
+            label="What the plan uses"
+            value={draft.source_mode}
+            options={[{ value: "mixed", label: "Mix with suggestions" }, { value: "selected", label: "Only these" }]}
+            onChange={(source_mode) => update({ source_mode })}
+          />
+          <Copy kind="small" tone="muted">Pick up to 10. Anything missing, like sets or equipment, shows up as a question in the proposal.</Copy>
+          <SavedSourcePicker
+            selected={draft.selected}
+            minutes={draft.minutes}
+            change={(selected, minutes) => update({ selected, minutes })}
+            disabled={busy}
+          />
+          <Choice
+            label="These workouts are right for me"
+            detail="You've checked the instructions. This isn't medical or fitness clearance."
+            selected={draft.custom_reviewed}
+            onPress={() => update({ custom_reviewed: !draft.custom_reviewed })}
+          />
+        </>
+      )}
+      <ReadinessPicker
+        value={readiness}
+        onChange={(value) => {
+          if (!busy) {
+            setReadiness(value);
+            setDraft({ ...draft, receipt: null });
+            setReviewed(false);
+          }
+        }}
+      />
+      <Button
+        title={draft.receipt ? "Make a new proposal" : "Propose my plan"}
+        variant={draft.receipt ? "secondary" : "primary"}
         busy={busy}
         disabled={!loaded || !q.data?.profile || !enrollment?.enrolled}
         onPress={() => {
@@ -249,13 +244,14 @@ export default function BuildPlan() {
           <ProgramPreview receipt={draft.receipt} />
           {draft.receipt.proposal.status === "ready" ? (
             <>
+              <Field label="Plan name" value={draft.title} onChange={(title) => update({ title })} />
               <Choice
-                label="I reviewed all session prescriptions, assumptions and warnings"
+                label="I've looked over these sessions and notes"
                 selected={reviewed}
                 onPress={() => setReviewed(!reviewed)}
               />
               <Button
-                title="Add this program to my plan"
+                title="Add to my plan"
                 busy={busy}
                 disabled={!reviewed || !draft.title.trim()}
                 onPress={() => {
@@ -272,8 +268,10 @@ export default function BuildPlan() {
         <>
           <Notice error>{error}</Notice>
           <Button
-            title="Refresh saved profile context"
-            secondary
+            title="Reload my profile"
+            variant="ghost"
+            size="sm"
+            inline
             disabled={busy}
             onPress={() => {
               void q.refetch();

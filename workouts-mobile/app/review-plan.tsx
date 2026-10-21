@@ -2,17 +2,20 @@ import { isISODate } from "@/lib/sharing";
 import { useEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Choice, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, ListGroup, ListRow, Notice, Screen } from "@/components/ui";
+import { ReadinessPicker, type Readiness } from "@/components/readiness-picker";
+import { daysBetween, nextOffset, sessionDate } from "@/lib/plan-dates";
 import { ProgramPreview, PrescriptionPreview } from "@/components/program-preview";
 import { QueryState } from "@/components/query-state";
 import { CalendarDate } from "@/components/calendar-date";
-import { formatPlanDate } from "@/lib/plan-presentation";
 import { useTraining } from "@/lib/context";
 import { dateInTimezone } from "@/lib/training";
 import { sourceDayErrors, type ProgramReceipt } from "@/lib/plans";
 import { goalLabels } from "@/lib/models";
 interface DayDraft {
   day_offset: string;
+  /** The chosen calendar date; older drafts only have `day_offset`. */
+  date?: string;
   block_ids: string[];
   label: string;
   duration_minutes: string;
@@ -54,7 +57,7 @@ export default function ReviewPlan() {
   });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [readiness, setReadiness] = useState<"ready" | "limited" | "unknown">("unknown");
+  const [readiness, setReadiness] = useState<Readiness>("unknown");
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -123,13 +126,23 @@ export default function ReviewPlan() {
   }
   async function propose() {
     if (!draft) return;
-    if (isSource && draft.days.some((day) => !day.day_offset.trim())) {
-      setError("Specify the day offset for each session.");
+    if (isSource && !isISODate(draft.date)) {
+      setError("Choose a start date.");
       return;
     }
-    const days = draft.days.map((day) => ({
-      ...day,
-      day_offset: Number(day.day_offset),
+    const offsets = draft.days.map((day) => day.date != null ? daysBetween(draft.date, day.date) : sessionDate(draft.date, day.day_offset) ? Number(day.day_offset) : null);
+    if (isSource && offsets.some((offset) => offset == null)) {
+      setError("Choose a date for each session.");
+      return;
+    }
+    if (offsets.some((offset) => offset != null && offset < 0)) {
+      setError("Session dates can't be before the start date.");
+      return;
+    }
+    const days = draft.days.map((day, index) => ({
+      label: day.label,
+      block_ids: day.block_ids,
+      day_offset: offsets[index] ?? NaN,
       duration_minutes: Number(day.duration_minutes),
     }));
     if (isSource && source.data) {
@@ -147,7 +160,7 @@ export default function ReviewPlan() {
       (value) => value.trim() && (!Number.isInteger(Number(value)) || Number(value) < 5 || Number(value) > 180)
     );
     if (invalid) {
-      setError("Reviewed session times must be whole minutes from 5 to 180.");
+      setError("Session lengths must be whole minutes from 5 to 180.");
       return;
     }
     await run(async () => {
@@ -190,15 +203,14 @@ export default function ReviewPlan() {
     });
   }
   const current = profile.data?.profile;
+  const dayDate = (day: DayDraft) => day.date ?? (draft ? sessionDate(draft.date, day.day_offset) : null) ?? "";
+  const changeDay = (index: number, patch: Partial<DayDraft>) =>
+    draft && update({ days: draft.days.map((value, i) => (i === index ? { ...value, ...patch } : value)) });
   return (
     <Screen
       back
-      title={isSource ? "Give this source a schedule." : "Review this copied plan for you."}
-      subtitle={
-        isSource
-          ? "Assign the original blocks to days explicitly."
-          : "A private copy needs your current constraints before it can become active."
-      }
+      title={isSource ? "Schedule this workout" : "Fit this plan to you"}
+      subtitle={isSource ? "Choose which parts happen on which days." : "Check the dates and times before it becomes active."}
     >
       <QueryState
         loading={!loaded || (isSource ? source.isPending : program.isPending) || profile.isPending}
@@ -211,103 +223,73 @@ export default function ReviewPlan() {
       >
         {draft && (
           <>
-            <Card>
-              <Copy kind="heading">Your current planning context</Copy>
-              <Copy>
-                {current ? goalLabels[current.primary_goal] : "Training profile not set"} ·{" "}
-                {current?.session_minutes ?? "unspecified"} minutes
-              </Copy>
-              <Copy>
-                Available equipment ·{" "}
-                {current?.equipment?.join(", ") || (current?.equipment?.length === 0 ? "Bodyweight" : "Unknown")}
-              </Copy>
-              <Copy>Profile timezone · {current?.timezone ?? "Unknown"}</Copy>
-              <Button title="Inspect training profile" secondary onPress={() => router.push("/profile")} />
-            </Card>
-            <Field label="Plan title" value={draft.title} onChange={(title) => update({ title })} />
+            <ListGroup>
+              <ListRow
+                icon="person-outline"
+                title="Training profile"
+                detail={current
+                  ? [goalLabels[current.primary_goal], current.session_minutes ? `${current.session_minutes} min` : null,
+                    current.equipment?.join(", ") || (current.equipment?.length === 0 ? "Bodyweight" : null)].filter(Boolean).join(" · ")
+                  : "Not set up yet"}
+                onPress={() => router.push("/profile")}
+              />
+            </ListGroup>
             {isSource && source.data ? (
               <>
-                <Notice>
-                  No day assignments, missing targets, loads or equipment are guessed from a creator’s program. Inspect
-                  the original instructions and assign each session deliberately.
-                </Notice>
+                <Copy kind="small" tone="muted">Nothing is guessed from the creator's program. Missing sets, weights or equipment stay blank.</Copy>
                 <PrescriptionPreview workout={source.data} />
-                <CalendarDate label="First day" value={draft.date} disabled={busy} onChange={(date) => update({ date: date ?? "" })} />
+                <CalendarDate label="Start date" value={draft.date} disabled={busy} onChange={(date) => update({ date: date ?? "" })} />
                 {draft.days.map((day, index) => (
                   <Card key={index}>
+                    <Field label="Session name" value={day.label} onChange={(label) => changeDay(index, { label })} />
+                    <CalendarDate label={`Date for ${day.label.trim() || `session ${index + 1}`}`} value={dayDate(day)} min={draft.date} disabled={busy}
+                      onChange={(date) => changeDay(index, { date: date ?? "" })} />
                     <Field
-                      label={`Session ${index + 1} label`}
-                      value={day.label}
-                      onChange={(label) =>
-                        update({ days: draft.days.map((value, i) => (i === index ? { ...value, label } : value)) })
-                      }
-                    />
-                    <Field
-                      label="Days after the first day · 0 is the first day"
-                      numeric
-                      value={day.day_offset}
-                      onChange={(day_offset) =>
-                        update({ days: draft.days.map((value, i) => (i === index ? { ...value, day_offset } : value)) })
-                      }
-                    />
-                    <Field
-                      label="Reviewed approximate session duration · minutes"
+                      label="Session length · minutes"
                       numeric
                       value={day.duration_minutes}
-                      onChange={(duration_minutes) =>
-                        update({
-                          days: draft.days.map((value, i) => (i === index ? { ...value, duration_minutes } : value)),
-                        })
-                      }
+                      onChange={(duration_minutes) => changeDay(index, { duration_minutes })}
                     />
-                    <Copy kind="label">Original source blocks in this session</Copy>
+                    <Copy kind="label">Parts of the workout</Copy>
                     {source.data!.blocks.map((block) => (
                       <Choice
                         key={block.id}
                         label={block.label}
                         detail={block.exercises.map((e) => e.name).join(", ")}
                         selected={day.block_ids.includes(block.id)}
-                        onPress={() =>
-                          update({
-                            days: draft.days.map((value, i) =>
-                              i === index
-                                ? {
-                                    ...value,
-                                    block_ids: value.block_ids.includes(block.id)
-                                      ? value.block_ids.filter((id) => id !== block.id)
-                                      : [...value.block_ids, block.id],
-                                  }
-                                : value
-                            ),
-                          })
-                        }
+                        onPress={() => changeDay(index, {
+                          block_ids: day.block_ids.includes(block.id)
+                            ? day.block_ids.filter((id) => id !== block.id)
+                            : [...day.block_ids, block.id],
+                        })}
                       />
                     ))}
                     <Button
-                      title="Remove this day assignment"
-                      secondary
+                      title={`Remove ${day.label || "this session"}`}
+                      variant="ghost"
+                      size="sm"
+                      inline
+                      icon="trash-outline"
                       disabled={busy}
                       onPress={() => update({ days: draft.days.filter((_, i) => i !== index) })}
                     />
                   </Card>
                 ))}
                 <Button
-                  title="Add a day assignment"
+                  title="Add a session"
+                  icon="add"
                   secondary
                   disabled={busy || draft.days.length >= 366}
-                  onPress={() =>
+                  onPress={() => {
+                    const day_offset = nextOffset(draft.days.map((day) => day.date != null ? String(daysBetween(draft.date, day.date) ?? "") : day.day_offset));
                     update({
                       days: [
                         ...draft.days,
-                        {
-                          day_offset: "0",
-                          label: `Session ${draft.days.length + 1}`,
-                          duration_minutes: "",
-                          block_ids: [],
-                        },
+                        // New sessions get a real date, the day after the latest one.
+                        { day_offset, date: sessionDate(draft.date, day_offset) ?? undefined, label: `Session ${draft.days.length + 1}`, duration_minutes: "", block_ids: [] },
                       ],
-                    })
-                  }
+                    });
+                  }}
                 />
               </>
             ) : (
@@ -315,69 +297,48 @@ export default function ReviewPlan() {
                 {program.data?.questions.map((question, index) => (
                   <Notice key={index}>{question}</Notice>
                 ))}
+                <Copy kind="small" tone="muted">Change only what you need. Dates are checked against the days you can train and your recovery.</Copy>
                 {program.data?.sessions.map((session) => (
                   <Card key={session.id}>
-                    <Copy kind="heading">
-                      {formatPlanDate(session.date)} · {session.workout.title}
-                    </Copy>
+                    <Copy kind="heading">{session.workout.title}</Copy>
                     <PrescriptionPreview workout={session.workout} />
                     <CalendarDate
-                      label="Planned date"
+                      label="Date"
                       value={draft.dates?.[session.id] ?? session.date}
                       disabled={busy}
                       onChange={(date) => update({ dates: { ...draft.dates, [session.id]: date ?? "" } })}
                     />
-                    <Copy kind="small">
-                      Only dates you edit are overridden. The proposed calendar will be checked against your
-                      availability and recovery.
-                    </Copy>
                     <Field
-                      label="Reviewed approximate session duration · minutes"
+                      label="Session length · minutes"
                       value={draft.minutes[session.id] ?? ""}
                       onChange={(value) => update({ minutes: { ...draft.minutes, [session.id]: value } })}
                       numeric
                       optional
-                      placeholder={
-                        session.workout.estimated_minutes
-                          ? String(session.workout.estimated_minutes)
-                          : "Source time not specified"
-                      }
+                      placeholder={session.workout.estimated_minutes ? String(session.workout.estimated_minutes) : "Not specified"}
                     />
                   </Card>
                 ))}
-                <Notice>
-                  This review can change future prescriptions for your own constraints. Source versions and copied
-                  attribution remain intact. Actual recorded sessions keep their original snapshots.
-                </Notice>
+                <Copy kind="small" tone="muted">The original and its credit stay as they are. Sessions you've already done don't change.</Copy>
               </>
             )}
             <Choice
-              label="I reviewed the custom source routines for my own use"
+              label="These workouts are right for me"
+              detail="You've checked the instructions. This isn't medical or fitness clearance."
               selected={draft.custom_reviewed}
               onPress={() => update({ custom_reviewed: !draft.custom_reviewed })}
             />
-            <Copy kind="heading">Quick check-in for today</Copy>
-            {(["ready", "limited", "unknown"] as const).map((value) => (
-              <Choice
-                key={value}
-                label={
-                  value === "ready"
-                    ? "Ready for general training"
-                    : value === "limited"
-                      ? "I need to take it easier"
-                      : "Prefer not to say / unsure"
+            <ReadinessPicker
+              value={readiness}
+              onChange={(value) => {
+                if (!busy) {
+                  setReadiness(value);
+                  update({});
                 }
-                selected={readiness === value}
-                onPress={() => {
-                  if (!busy) {
-                    setReadiness(value);
-                    update({});
-                  }
-                }}
-              />
-            ))}
+              }}
+            />
             <Button
-              title="Review a proposal using my current constraints"
+              title={draft.receipt ? "Make a new proposal" : "Propose my plan"}
+              variant={draft.receipt ? "secondary" : "primary"}
               busy={busy}
               disabled={!current}
               onPress={() => {
@@ -389,13 +350,14 @@ export default function ReviewPlan() {
                 <ProgramPreview receipt={draft.receipt} />
                 {draft.receipt.proposal.status === "ready" && (
                   <>
+                    <Field label="Plan name" value={draft.title} onChange={(title) => update({ title })} />
                     <Choice
-                      label="I reviewed all proposed prescriptions, changes and warnings"
+                      label="I've looked over these sessions and changes"
                       selected={reviewed}
                       onPress={() => setReviewed(!reviewed)}
                     />
                     <Button
-                      title={isSource ? "Save this dated program" : "Apply this review to my copied program"}
+                      title={isSource ? "Save this plan" : "Use this plan"}
                       busy={busy}
                       disabled={!reviewed || !draft.title.trim()}
                       onPress={() => {
@@ -413,8 +375,10 @@ export default function ReviewPlan() {
         <>
           <Notice error>{error}</Notice>
           <Button
-            title="Reload current context after reviewing the saved source"
-            secondary
+            title="Reload and try again"
+            variant="ghost"
+            size="sm"
+            inline
             busy={busy}
             onPress={() => {
               void run(async () => {
