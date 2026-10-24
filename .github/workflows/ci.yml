@@ -10,12 +10,20 @@ on:
     paths:
       - api/**
       - render.yaml
+      # API tests also read these files.
+      - infra/**
+      - scripts/setup-dev.sh
+      - .github/workflows/import-health.yml
       - .github/workflows/ci.yml
   push:
     branches: [main]
     paths:
       - api/**
       - render.yaml
+      # API tests also read these files.
+      - infra/**
+      - scripts/setup-dev.sh
+      - .github/workflows/import-health.yml
       - .github/workflows/ci.yml
 
 permissions:
