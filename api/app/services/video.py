@@ -1057,9 +1057,17 @@ class VideoService:
                 )
             _media_log(f"✅ Audio downloaded: {audio_file}")
             
-            # Try to get duration using ffprobe
+            # The download filter admits an unknown source duration, so the
+            # measured duration is the only enforcement of the limit.
             duration = await self._get_audio_duration(audio_file)
-            if duration and duration > settings.video_max_duration_seconds:
+            if not duration:
+                return AudioExtractionResult(
+                    success=False,
+                    error="Downloaded audio duration could not be measured",
+                    error_code="AUDIO_DURATION_UNVERIFIED",
+                    friendly_error="We couldn't read this video's audio. Please try again.",
+                )
+            if duration > settings.video_max_duration_seconds:
                 return AudioExtractionResult(
                     success=False,
                     error="Video duration exceeds the configured limit",
@@ -1267,12 +1275,16 @@ class VideoService:
             code, _ = get_friendly_video_error(str(error), self.detect_platform(url))
             if not session_in_use or code not in INSTAGRAM_SESSION_FAILURE_CODES:
                 raise
+            session_error = error
         _media_log("🔁 Retrying Instagram without the configured session")
         for leftover in Path(temp_dir).glob("source.*"):
             leftover.unlink(missing_ok=True)
-        result = await self._download_video_for_frames_once(
-            url, temp_dir, use_instagram_session=False,
-        )
+        try:
+            result = await self._download_video_for_frames_once(
+                url, temp_dir, use_instagram_session=False,
+            )
+        except DownloaderFailed:
+            raise session_error from None
         _bypass_rejected_instagram_session()
         return result
 

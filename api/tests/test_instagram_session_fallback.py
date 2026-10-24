@@ -124,10 +124,8 @@ async def test_failed_anonymous_retry_keeps_the_session_and_original_error(insta
 
     succeeded, code = await run(kind)
 
-    assert not succeeded
+    assert not succeeded and code == "SOURCE_RESPONSE_INVALID"
     assert len(commands) == 2 and not video._instagram_session_bypassed()
-    if kind != "frames":
-        assert code == "SOURCE_RESPONSE_INVALID"
 
 
 @pytest.mark.asyncio
@@ -137,4 +135,18 @@ async def test_unconfigured_session_runs_once(instagram, monkeypatch):
     state["anonymous_error"] = REJECTED
 
     assert await run("audio") == (False, "SOURCE_RESPONSE_INVALID")
+    assert len(commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_audio_without_a_measured_duration_is_rejected(instagram, monkeypatch):
+    # The fixture's scripted downloader stays in place; only ffprobe changes.
+    _, commands, _, state = instagram
+    state["session_error"] = None
+    service = video.VideoService()
+    monkeypatch.setattr(service, "_get_audio_duration", AsyncMock(return_value=None))
+
+    result = await service.download_audio(URL)
+
+    assert not result.success and result.error_code == "AUDIO_DURATION_UNVERIFIED"
     assert len(commands) == 1
