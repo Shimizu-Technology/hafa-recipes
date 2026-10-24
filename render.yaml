@@ -6,6 +6,8 @@ services:
     branch: main
     # Deploy main only after its checks pass. CI runs only the checks for the
     # surfaces a commit changes, so API deploys wait on the API checks.
+    # Render skips a commit with no checks, so .github/workflows/ci.yml must
+    # keep api/** in its paths. rootDir limits auto-deploys to api/ changes.
     autoDeployTrigger: checksPass
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     # Existing production schema is verified at startup. Apply new migrations
