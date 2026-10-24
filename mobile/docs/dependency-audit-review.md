@@ -91,3 +91,69 @@ error; it is not claimed passed or diagnosed here. Native builds and share,
 OAuth and navigation acceptance remain release gates. UI 57.0.25 includes an
 [Android TextInput placeholder style fix](https://github.com/expo/expo/blob/396da4641605bb19c1e6b3efff1cafaab8890a29/packages/expo-ui/CHANGELOG.md#57025--2026-10-15),
 so installed binaries must be rebuilt to exercise that native change.
+
+
+## Dependency review renewal — 2026-10-24
+
+Reviewed `mobile/package-lock.json` from `fca37f99` with the audit-policy renewal.
+Acceptance requires a fresh Node 22.22.2 install, tests, typecheck, Doctor and
+runtime audit; Workouts and Baby also require all-platform export and native
+bundle checks. This review changes no dependency versions or native-module pins.
+Expo 57.0.31, Router 57.0.29 and notifications 57.0.24 are the preceding patch
+update; Expo CLI is now 57.0.32. The temporary review window starts October 24
+and expires **2026-11-17T00:00:00Z** (24 days).
+
+### Zod and signing-tool reachability
+
+Fresh `npm ls zod --omit=dev` and `npm audit --omit=dev --json` identify Zod
+3.25.76 and high advisory `zod:1243066`
+([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)).
+Oversized failing collections can accumulate validation issues and exhaust memory.
+The advisory fixes 4.x at 4.6.6; no 3.x fix is published, and npm reports no
+compatible fix for this tree. A blind major override is not accepted.
+
+The installed paths are Expo 57.0.31 → CLI 57.0.32 → Zod, and Clerk Expo 4.5.2
+→ Clerk JS 6.29.3 → Base account 2.0.1 → ox 0.6.9 / viem 2.55.19
+→ abitype 1.3.0 / 1.2.3 → Zod. Clerk also declares Coinbase wallet SDK
+4.3.7, another viem parent. Both hoisted and viem-nested ox/abitype copies
+are part of the reviewed tree. App source has no Zod, ABI, Base/Coinbase wallet,
+viem or ox imports and no wallet authentication calls. App sign-in uses Clerk's
+native email/social flows. Installed `clerk.native.js` keeps wallet SDK loading
+behind wallet-provider operations; these flows never request those operations.
+No app-used runtime path supplies untrusted input to these Zod schemas.
+
+CLI's Zod imports are in `DevToolsPlugin.schema.js` and
+`createMCPDevToolsExtensionSchema.js`: local devtools plugin metadata/output
+and command schemas, outside the shipped app. Only trusted installed plugins
+and local development tooling are covered; this does not accept arbitrary
+untrusted plugin output or claim the vulnerable parser is fixed.
+
+High `node-forge:1240912` remains at 1.4.0
+([GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv)).
+CLI 57.0.32 and `@expo/code-signing-certificates` 0.0.6 declare it for development
+certificates/signing. App code does not import it or expose certificate verification;
+signing uses owned material. The registry still lists 1.4.0 as latest and the
+advisory lists no patch. This is a temporary reachability exception, not a fix.
+
+The Recipes policy renews CLI's exact version/integrity for node-forge and adds
+Zod using the existing package/declaration review. It pins every wallet-chain
+version/integrity and declaring parent/range/kind, including both reviewed nested
+copies. Unreviewed copies, changed metadata/edges and expiry still fail closed.
+Regression tests exercise those rejection paths. Native Clerk is the same
+6.29.3 source selected by the fresh Workouts bundles; Recipes app source has no
+wallet entry points. No fresh Recipes device or export test is claimed here.
+
+The current production audit reports 22 findings, zero critical, and these direct
+advisories: node-forge 1.4.0 (`1240912`), stream-json 1.9.1 (`1164823`, `1241262`,
+`1241263`), uuid 8.3.2 (`1119441`), and Zod 3.25.76 (`1243066`). Existing
+image-size, PostCSS and braces allowlist entries are retained; the current registry
+report does not emit those advisories. Their prior trust constraints still apply.
+The stream-json review window is renewed with the unchanged Clerk/Solana tree;
+app code still does not invoke its socket/JSON filtering path.
+
+Validation on 2026-10-24 under Node 22.22.2: `npm ci`, `npm test` (1,122),
+`npm run typecheck`, `npm run doctor` (21/21), and `npm run audit:runtime`
+all exit 0. Workouts and Baby `npm run export:all` and
+`npm run check:native-bundles` also exit 0. The extra repository-wide
+`./scripts/check.sh` exits 1 during API test setup because `TEST_DATABASE_URL`
+is unset (2,099 passed, 698 skipped, 244 setup errors); its later stages do not run.

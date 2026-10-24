@@ -4,11 +4,11 @@ import { createHash } from "node:crypto";
 
 // Exact reviewed dependency tree: any lock change requires renewed reachability
 // assessment. These are temporary documented exceptions, not security fixes.
-const reviewedLock = "e626ed7e2eb925dcb26462aba600cf184267d9407814c6346ec9e3368f6d0b23";
-const reviewed = new Set(["braces:1240992", "decode-uri-component:1147955", "node-forge:1240912", "stream-json:1164823", "stream-json:1241262", "stream-json:1241263"]);
+const reviewedLock = "b642369988a63a06a1e819305b98b3f470575b1f8d06576fcdcf0cc2fbca3686";
+const reviewed = new Set(["braces:1240992", "decode-uri-component:1147955", "node-forge:1240912", "zod:1243066", "stream-json:1164823", "stream-json:1241262", "stream-json:1241263"]);
 const lock = readFileSync(new URL("../package-lock.json", import.meta.url));
 const now = Date.now();
-if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-10T00:00:00Z") || now >= Date.parse("2026-11-03T00:00:00Z")) {
+if (createHash("sha256").update(lock).digest("hex") !== reviewedLock || now < Date.parse("2026-10-24T00:00:00Z") || now >= Date.parse("2026-11-17T00:00:00Z")) {
   throw new Error("Workouts dependency review changed or expired; renew NATIVE_DEPENDENCY_REACHABILITY.md before accepting inherited findings.");
 }
 const result = spawnSync("npm", ["audit", "--omit=dev", "--json"], { encoding: "utf8", maxBuffer: 20*1024*1024 });
@@ -22,4 +22,4 @@ for (const [name, finding] of Object.entries(report.vulnerabilities)) {
   }
 }
 if (report.metadata.vulnerabilities.critical || unexpected.length) throw new Error(`Unexpected dependency advisories: ${unexpected.join("; ")}`);
-console.log(`Workouts audit: ${report.metadata.vulnerabilities.total} inherited findings; ${reviewed.size} reviewed advisories;0 unexpected. Temporary reachability exceptions expire2026-11-03.`);
+console.log(`Workouts audit: ${report.metadata.vulnerabilities.total} inherited findings; ${reviewed.size} reviewed advisories;0 unexpected. Temporary reachability exceptions expire2026-11-17.`);
