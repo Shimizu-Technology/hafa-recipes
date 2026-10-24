@@ -9,6 +9,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
+import sentry_sdk
 from PIL import Image
 
 from app.ai_governance import current_ai_context
@@ -44,6 +46,54 @@ def _media_log(message):
 
 class MediaCapacityExceeded(Exception):
     """The bounded local media process pool did not become available in time."""
+
+
+class DownloaderFailed(RuntimeError):
+    """yt-dlp exited unsuccessfully; the message is its redacted stderr."""
+
+
+# Instagram can invalidate the shared session without changing the cookie's
+# expiry. Every authenticated request then gets an empty or login response,
+# while anonymous requests through the same proxy still work. One anonymous
+# retry tells the two apart; a confirmed rejection skips the session for a
+# while instead of paying for a failing request on every import.
+INSTAGRAM_SESSION_FAILURE_CODES = frozenset({
+    "SOURCE_RESPONSE_INVALID",
+    "INSTAGRAM_AUTH_REQUIRED",
+    "INSTAGRAM_ERROR",
+})
+INSTAGRAM_SESSION_BYPASS_SECONDS = 30 * 60
+_instagram_session_bypass_until = 0.0
+
+
+def _instagram_session_bypassed() -> bool:
+    return time.monotonic() < _instagram_session_bypass_until
+
+
+def _bypass_rejected_instagram_session() -> None:
+    global _instagram_session_bypass_until
+    already_bypassed = _instagram_session_bypassed()
+    _instagram_session_bypass_until = time.monotonic() + INSTAGRAM_SESSION_BYPASS_SECONDS
+    if already_bypassed:
+        return
+    _media_log("⚠️ Instagram rejected the configured session; using anonymous access. Refresh INSTAGRAM_COOKIES.")
+    sentry_sdk.capture_message(
+        "Instagram rejected the configured session cookies",
+        level="warning",
+        tags={"platform": "instagram"},
+    )
+
+
+def _duration_filter(platform: str, limit: int) -> str:
+    """Build the yt-dlp duration filter for a download.
+
+    Anonymous Instagram responses omit duration, which a strict filter skips
+    silently. Instagram alone admits an unknown duration and relies on the
+    post-download measurement; live streams stay excluded everywhere.
+    """
+    if platform == "instagram":
+        return f"duration <=? {limit} & !is_live"
+    return f"duration <= {limit}"
 
 
 def _redact_sensitive_values(text: str) -> str:
@@ -856,10 +906,39 @@ class VideoService:
                 _media_log(f"⚠️ Instagram cookies file not found: {cookies}")
                 return None
 
+    def _instagram_session_in_use(self, url: str) -> bool:
+        return (
+            self.detect_platform(url) == "instagram"
+            and self.instagram_cookies_configured
+            and not _instagram_session_bypassed()
+        )
+
+    def _instagram_credential(self, use_session: bool) -> Optional[CredentialFile]:
+        if not use_session or _instagram_session_bypassed():
+            return None
+        return self._create_instagram_cookies_file()
+
+    async def _with_instagram_session_fallback(self, url, attempt, failure_code):
+        """Retry once anonymously when the configured session looks rejected."""
+        session_in_use = self._instagram_session_in_use(url)
+        result = await attempt(True)
+        if not session_in_use or failure_code(result) not in INSTAGRAM_SESSION_FAILURE_CODES:
+            return result
+        _media_log("🔁 Retrying Instagram without the configured session")
+        retry = await attempt(False)
+        if failure_code(retry) is None:
+            _bypass_rejected_instagram_session()
+            return retry
+        return result
+
     async def download_audio(self, url: str) -> AudioExtractionResult:
         try:
             async with self._media_slot():
-                return await self._download_audio(url)
+                return await self._with_instagram_session_fallback(
+                    url,
+                    lambda use_session: self._download_audio(url, use_instagram_session=use_session),
+                    lambda result: None if result.success else result.error_code,
+                )
         except MediaCapacityExceeded:
             return AudioExtractionResult(
                 success=False,
@@ -868,7 +947,9 @@ class VideoService:
                 friendly_error="Video processing is busy. Please try again shortly.",
             )
 
-    async def _download_audio(self, url: str) -> AudioExtractionResult:
+    async def _download_audio(
+        self, url: str, *, use_instagram_session: bool = True,
+    ) -> AudioExtractionResult:
         """
         Download audio from video using yt-dlp.
         
@@ -896,7 +977,7 @@ class VideoService:
                 "--output", output_template,
                 "--no-playlist",
                 "--max-filesize", str(settings.audio_max_bytes),
-                "--match-filter", f"duration <= {settings.video_max_duration_seconds}",
+                "--match-filter", _duration_filter(platform, settings.video_max_duration_seconds),
                 "--quiet",
             ]
             
@@ -915,12 +996,12 @@ class VideoService:
                     _media_log("🔄 Using residential proxy for Instagram extraction")
                     command.extend(["--proxy", settings.youtube_proxy])
                 
-                credential_file = self._create_instagram_cookies_file()
+                credential_file = self._instagram_credential(use_instagram_session)
                 if credential_file:
                     command.extend(["--cookies", credential_file.path])
                     _media_log("🍪 Using configured Instagram credentials")
                 else:
-                    _media_log("⚠️ Instagram extraction may fail without cookies")
+                    _media_log("⚠️ Instagram extraction is running without cookies")
             
             # URL must be last argument
             command.append(url)
@@ -986,9 +1067,17 @@ class VideoService:
                 )
             _media_log(f"✅ Audio downloaded: {audio_file}")
             
-            # Try to get duration using ffprobe
+            # Instagram downloads may have no source duration, so the measured
+            # duration is the enforcement of the limit.
             duration = await self._get_audio_duration(audio_file)
-            if duration and duration > settings.video_max_duration_seconds:
+            if not duration:
+                return AudioExtractionResult(
+                    success=False,
+                    error="Downloaded audio duration could not be measured",
+                    error_code="AUDIO_DURATION_UNVERIFIED",
+                    friendly_error="We couldn't read this video's audio. Please try again.",
+                )
+            if duration > settings.video_max_duration_seconds:
                 return AudioExtractionResult(
                     success=False,
                     error="Video duration exceeds the configured limit",
@@ -1189,6 +1278,34 @@ class VideoService:
     ) -> tuple[str, float]:
         """Download a capped, low-resolution video into a caller-owned directory."""
 
+        session_in_use = self._instagram_session_in_use(url)
+        try:
+            return await self._download_video_for_frames_once(url, temp_dir)
+        except DownloaderFailed as error:
+            code, _ = get_friendly_video_error(str(error), self.detect_platform(url))
+            if not session_in_use or code not in INSTAGRAM_SESSION_FAILURE_CODES:
+                raise
+            session_error = error
+        _media_log("🔁 Retrying Instagram without the configured session")
+        for leftover in Path(temp_dir).glob("source.*"):
+            leftover.unlink(missing_ok=True)
+        try:
+            result = await self._download_video_for_frames_once(
+                url, temp_dir, use_instagram_session=False,
+            )
+        except DownloaderFailed:
+            raise session_error from None
+        _bypass_rejected_instagram_session()
+        return result
+
+    async def _download_video_for_frames_once(
+        self,
+        url: str,
+        temp_dir: str,
+        *,
+        use_instagram_session: bool = True,
+    ) -> tuple[str, float]:
+        """Run one capped downloader attempt, optionally without the session."""
         platform = self.detect_platform(url)
         credential_file: Optional[CredentialFile] = None
         process: Optional[asyncio.subprocess.Process] = None
@@ -1207,7 +1324,7 @@ class VideoService:
                 "--max-filesize",
                 str(settings.video_frame_max_bytes),
                 "--match-filter",
-                f"duration <= {settings.video_frame_max_duration_seconds}",
+                _duration_filter(platform, settings.video_frame_max_duration_seconds),
                 "--quiet",
             ]
             if platform == "youtube" and settings.youtube_proxy:
@@ -1220,7 +1337,7 @@ class VideoService:
             if platform == "instagram":
                 if settings.youtube_proxy:
                     command.extend(["--proxy", settings.youtube_proxy])
-                credential_file = self._create_instagram_cookies_file()
+                credential_file = self._instagram_credential(use_instagram_session)
                 if credential_file:
                     command.extend(["--cookies", credential_file.path])
             command.append(url)
@@ -1245,7 +1362,7 @@ class VideoService:
                         credential_file.path,
                         "<credential-file>",
                     )
-                raise RuntimeError(error_text)
+                raise DownloaderFailed(error_text)
 
             video_files = [
                 path
@@ -1564,12 +1681,20 @@ class VideoService:
     async def get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
         try:
             async with self._media_slot():
-                return await self._get_video_metadata_ytdlp(url)
+                return await self._with_instagram_session_fallback(
+                    url,
+                    lambda use_session: self._get_video_metadata_ytdlp(
+                        url, use_instagram_session=use_session,
+                    ),
+                    lambda metadata: metadata.error_code,
+                )
         except MediaCapacityExceeded:
             _media_log("⚠️ Media process capacity unavailable for video metadata")
             return VideoMetadata(error_code="MEDIA_BUSY")
 
-    async def _get_video_metadata_ytdlp(self, url: str) -> VideoMetadata:
+    async def _get_video_metadata_ytdlp(
+        self, url: str, *, use_instagram_session: bool = True,
+    ) -> VideoMetadata:
         """Get video metadata using yt-dlp (no download)."""
         platform = self.detect_platform(url)
         credential_file: Optional[CredentialFile] = None
@@ -1594,7 +1719,7 @@ class VideoService:
                 if settings.youtube_proxy:
                     command.extend(["--proxy", settings.youtube_proxy])
                 
-                credential_file = self._create_instagram_cookies_file()
+                credential_file = self._instagram_credential(use_instagram_session)
                 if credential_file:
                     command.extend(["--cookies", credential_file.path])
             
