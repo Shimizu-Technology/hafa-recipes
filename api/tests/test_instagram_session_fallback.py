@@ -150,3 +150,22 @@ async def test_audio_without_a_measured_duration_is_rejected(instagram, monkeypa
 
     assert not result.success and result.error_code == "AUDIO_DURATION_UNVERIFIED"
     assert len(commands) == 1
+
+
+@pytest.mark.parametrize("platform,expected", [
+    ("instagram", "duration <=? 600 & !is_live"),
+    ("youtube", "duration <= 600"),
+    ("tiktok", "duration <= 600"),
+])
+def test_only_instagram_admits_an_unknown_duration(platform, expected):
+    assert video._duration_filter(platform, 600) == expected
+
+
+def test_instagram_filter_skips_live_and_long_videos_but_not_unknown_duration():
+    from yt_dlp.utils import match_filter_func
+
+    allows = match_filter_func([video._duration_filter("instagram", 600)])
+    assert allows({"id": "unknown"}) is None
+    assert allows({"id": "short", "duration": 30}) is None
+    assert allows({"id": "live", "is_live": True}) is not None
+    assert allows({"id": "long", "duration": 7200}) is not None

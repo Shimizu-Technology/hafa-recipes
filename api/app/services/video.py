@@ -84,6 +84,18 @@ def _bypass_rejected_instagram_session() -> None:
     )
 
 
+def _duration_filter(platform: str, limit: int) -> str:
+    """Build the yt-dlp duration filter for a download.
+
+    Anonymous Instagram responses omit duration, which a strict filter skips
+    silently. Instagram alone admits an unknown duration and relies on the
+    post-download measurement; live streams stay excluded everywhere.
+    """
+    if platform == "instagram":
+        return f"duration <=? {limit} & !is_live"
+    return f"duration <= {limit}"
+
+
 def _redact_sensitive_values(text: str) -> str:
     """Remove configured secret values from logs/errors."""
     if not text:
@@ -965,9 +977,7 @@ class VideoService:
                 "--output", output_template,
                 "--no-playlist",
                 "--max-filesize", str(settings.audio_max_bytes),
-                # Anonymous Instagram responses omit duration; a strict filter
-                # silently skips them. ffprobe enforces the limit after download.
-                "--match-filter", f"duration <=? {settings.video_max_duration_seconds}",
+                "--match-filter", _duration_filter(platform, settings.video_max_duration_seconds),
                 "--quiet",
             ]
             
@@ -1057,8 +1067,8 @@ class VideoService:
                 )
             _media_log(f"✅ Audio downloaded: {audio_file}")
             
-            # The download filter admits an unknown source duration, so the
-            # measured duration is the only enforcement of the limit.
+            # Instagram downloads may have no source duration, so the measured
+            # duration is the enforcement of the limit.
             duration = await self._get_audio_duration(audio_file)
             if not duration:
                 return AudioExtractionResult(
@@ -1295,7 +1305,7 @@ class VideoService:
         *,
         use_instagram_session: bool = True,
     ) -> tuple[str, float]:
-
+        """Run one capped downloader attempt, optionally without the session."""
         platform = self.detect_platform(url)
         credential_file: Optional[CredentialFile] = None
         process: Optional[asyncio.subprocess.Process] = None
@@ -1314,7 +1324,7 @@ class VideoService:
                 "--max-filesize",
                 str(settings.video_frame_max_bytes),
                 "--match-filter",
-                f"duration <=? {settings.video_frame_max_duration_seconds}",
+                _duration_filter(platform, settings.video_frame_max_duration_seconds),
                 "--quiet",
             ]
             if platform == "youtube" and settings.youtube_proxy:
