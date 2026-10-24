@@ -4,7 +4,9 @@ services:
     runtime: python
     rootDir: api
     branch: main
-    autoDeployTrigger: commit
+    # Deploy main only after its checks pass. CI runs only the checks for the
+    # surfaces a commit changes, so API deploys wait on the API checks.
+    autoDeployTrigger: checksPass
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     # Existing production schema is verified at startup. Apply new migrations
     # separately after a recovery point; never replay historical data repairs.
