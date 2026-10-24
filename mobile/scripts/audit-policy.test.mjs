@@ -48,8 +48,9 @@ describe('mobile runtime audit policy', () => {
   });
 });
 
-const reviewedAt = Date.parse('2026-10-09T12:00:00Z');
+const reviewedAt = Date.parse('2026-10-24T12:00:00Z');
 const buildToolAdvisories = [
+  { packageName: 'zod', source: 1243066, parent: 'node_modules/abitype' },
   { packageName: 'braces', source: 1240992, parent: 'node_modules/micromatch' },
   { packageName: 'node-forge', source: 1240912, parent: 'node_modules/@expo/cli' },
 ];
@@ -61,11 +62,11 @@ describe.each(buildToolAdvisories)('$packageName temporary build-tool review', (
 
   it('accepts only the reviewed tree before its existing expiry', () => {
     expect(accepted()).toBe(true);
-    expect(accepted(lockfile, Date.parse('2026-11-02T23:59:59.999Z'))).toBe(true);
+    expect(accepted(lockfile, Date.parse('2026-11-16T23:59:59.999Z'))).toBe(true);
   });
 
   it('rejects expiry, dates before review, and invalid clocks', () => {
-    for (const now of [Date.parse('2026-11-03T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), NaN]) {
+    for (const now of [Date.parse('2026-11-17T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), NaN]) {
       expect(accepted(lockfile, now)).toBe(false);
     }
   });
@@ -99,13 +100,14 @@ describe.each(buildToolAdvisories)('$packageName temporary build-tool review', (
 
   it('rejects changed dependency ranges and dependency kinds', () => {
     const rangeChanged = structuredClone(lockfile);
-    rangeChanged.packages[advisory.parent].dependencies[advisory.packageName] = '*';
+    const kind = advisory.packageName === 'zod' ? 'peerDependencies' : 'dependencies';
+    rangeChanged.packages[advisory.parent][kind][advisory.packageName] = '*';
     expect(accepted(rangeChanged)).toBe(false);
     const kindChanged = structuredClone(lockfile);
     kindChanged.packages[advisory.parent].optionalDependencies = {
-      [advisory.packageName]: kindChanged.packages[advisory.parent].dependencies[advisory.packageName],
+      [advisory.packageName]: kindChanged.packages[advisory.parent][kind][advisory.packageName],
     };
-    delete kindChanged.packages[advisory.parent].dependencies[advisory.packageName];
+    delete kindChanged.packages[advisory.parent][kind][advisory.packageName];
     expect(accepted(kindChanged)).toBe(false);
   });
 
@@ -125,13 +127,13 @@ it('rejects a newly declared micromatch runtime path for the braces exception', 
 
 
 describe.each([1164823, 1241262, 1241263])('stream-json advisory %s constrained review', (source) => {
-  const now = Date.parse('2026-10-09T12:00:00Z');
+  const now = Date.parse('2026-10-24T12:00:00Z');
   const accepted = (candidate = lockfile, clock = now) => isAcceptedAdvisory({ packageName: 'stream-json', source, lockfile: candidate, now: clock });
 
   it('accepts the exact reviewed native wallet path and expires without renewal', () => {
     expect(accepted()).toBe(true);
-    expect(accepted(lockfile, Date.parse('2026-11-03T00:00:00Z'))).toBe(false);
-    expect(accepted(lockfile, Date.parse('2026-10-08T23:59:59Z'))).toBe(false);
+    expect(accepted(lockfile, Date.parse('2026-11-17T00:00:00Z'))).toBe(false);
+    expect(accepted(lockfile, Date.parse('2026-10-23T23:59:59Z'))).toBe(false);
     expect(accepted(lockfile, NaN)).toBe(false);
   });
 
@@ -158,6 +160,27 @@ describe.each([1164823, 1241262, 1241263])('stream-json advisory %s constrained 
     duplicate.packages['node_modules/new-parent/node_modules/stream-json'] = structuredClone(duplicate.packages['node_modules/stream-json']);
     expect(accepted(duplicate)).toBe(false);
   });
+});
+
+
+describe('Zod wallet and CLI parent constraints', () => {
+  const accepted = (candidate) => isAcceptedAdvisory({ packageName: 'zod', source: 1243066,
+    lockfile: candidate, now: Date.parse('2026-10-24T12:00:00Z') });
+  it.each(['expo', '@expo/cli', '@clerk/expo', '@clerk/clerk-js', '@base-org/account', '@coinbase/wallet-sdk',
+    'ox', 'viem', 'abitype', 'viem/node_modules/abitype', 'viem/node_modules/ox'])(
+    'rejects changed intermediate metadata for %s', (name) => {
+      for (const field of ['version', 'integrity']) {
+        const changed = structuredClone(lockfile);
+        changed.packages[`node_modules/${name}`][field] += '-changed';
+        expect(accepted(changed)).toBe(false);
+      }
+    });
+  it.each(['expo', '@expo/cli', '@clerk/expo', '@clerk/clerk-js', '@base-org/account', '@coinbase/wallet-sdk', 'ox', 'viem', 'abitype'])(
+    'rejects new declarations of intermediate %s', (name) => {
+      const changed = structuredClone(lockfile);
+      changed.packages['node_modules/new-runtime-parent'] = { dependencies: { [name]: '*' } };
+      expect(accepted(changed)).toBe(false);
+    });
 });
 
 
