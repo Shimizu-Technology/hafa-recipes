@@ -74,12 +74,17 @@ async def import_health(platform: str, request: Request):
                     stage = "metadata"
                     metadata = await video_service.get_video_metadata_ytdlp(url)
                     code = metadata.error_code
+                    # Anonymous Instagram metadata omits duration, as it does for
+                    # imports; the audio stage below still requires a measured one.
+                    duration_optional = platform == "instagram" and not metadata.duration
                     if not code and not (
-                        (metadata.title or metadata.description) and metadata.duration
-                        and math.isfinite(metadata.duration) and metadata.duration > 0
+                        (metadata.title or metadata.description) and (duration_optional or (
+                            metadata.duration and math.isfinite(metadata.duration)
+                            and metadata.duration > 0
+                        ))
                     ):
                         code = "NO_METADATA"
-                    if not code and metadata.duration > min(
+                    if not code and not duration_optional and metadata.duration > min(
                         get_settings().video_max_duration_seconds,
                         get_settings().video_frame_max_duration_seconds,
                     ):

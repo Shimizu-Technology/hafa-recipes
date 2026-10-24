@@ -198,8 +198,27 @@ async def test_monitor_requires_evidence_not_just_no_provider_error(monitor, sta
     method = {"metadata": "get_video_metadata_ytdlp", "audio": "download_audio",
               "frames": "extract_video_frames"}[stage]
     setattr(getattr(monitor.service, method).return_value, field, value)
-    response = await monitor.client.post("/internal/import-health/instagram")
+    # Instagram may omit metadata duration; the other canaries must report one.
+    platform = "youtube" if (stage, field, value) == ("metadata", "duration", 0) else "instagram"
+    response = await monitor.client.post(f"/internal/import-health/{platform}")
     assert response.status_code == 503 and response.json()["error_code"] == code
+
+
+@pytest.mark.parametrize("duration", [0, None])
+async def test_monitor_accepts_instagram_metadata_without_duration(monitor, duration):
+    """Anonymous Instagram metadata has no duration."""
+    monitor.service.get_video_metadata_ytdlp.return_value.duration = duration
+    response = await monitor.client.post("/internal/import-health/instagram")
+    assert response.status_code == 200 and response.json()["stage"] == "complete"
+
+
+async def test_monitor_still_requires_measured_audio_without_metadata_duration(monitor):
+    monitor.service.get_video_metadata_ytdlp.return_value.duration = None
+    monitor.service.download_audio.return_value.duration = None
+    assert monitor.parent.joinpath("audio.mp3").is_file()
+    response = await monitor.client.post("/internal/import-health/instagram")
+    assert response.status_code == 503
+    assert response.json()["stage"] == "audio" and response.json()["error_code"] == "NO_AUDIO"
 
 
 @pytest.mark.parametrize("cancel", [False, True])
