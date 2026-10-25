@@ -206,9 +206,19 @@ export default function Edit() {
       if (!["https:", "http:"].includes(url.protocol)) throw Error("Use a website link beginning with https://.");
     }
   }
-  async function save(process = false, consented = false) {
+  async function save(process = false) {
+    if (!draft) return;
+    await run(() => persist(process));
+  }
+  /** Consent and the save share one busy guard, so another tap can't save first and drop the processing. */
+  async function saveWithAi() {
     if (!draft) return;
     await run(async () => {
+      if (!(await ensureAiConsent(b))) return;
+      await persist(true, true);
+    });
+  }
+  async function persist(process: boolean, consented = false) {
       const d = latest.current!;
       validate(d);
       const generation = b.state.bootstrap!.generation;
@@ -284,7 +294,6 @@ export default function Edit() {
       );
       void b.sync();
       router.dismissTo(shouldProcess ? "/(tabs)/library" : { pathname: "/record/[id]", params: { id: d.id } });
-    });
   }
   // Journal entries and doctor questions open on the writing area; other kinds keep notes after their details.
   const writing = !!draft && (draft.kind === "journal" || draft.kind === "question" || draft.kind === "source");
@@ -630,11 +639,7 @@ export default function Edit() {
             title="Process & organize with AI"
             icon="sparkles-outline"
             busy={busy}
-            onPress={() =>
-              void ensureAiConsent(b)
-                .then((allowed) => (allowed ? save(true, true) : undefined))
-                .catch((e) => setError(messageFor(e)))
-            }
+            onPress={() => void saveWithAi()}
           />
           <Copy kind="small" tone="muted">
             Optional processing sends this source to our AI provider. Originals and your notes are kept even when

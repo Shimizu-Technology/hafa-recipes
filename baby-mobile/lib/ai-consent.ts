@@ -3,7 +3,9 @@ import type { useBaby } from "./context";
 
 export const AI_CONSENT_TITLE = "Allow optional AI processing?";
 export const AI_CONSENT_BODY =
-  "OpenAI will process the sources and personal context described in Settings when you use imports or Ask. You can turn this off at any time in Settings.";
+  "When you process a post, OpenAI receives its text, images, audio or sampled video frames. " +
+  "When you use Ask, OpenAI receives your question, relevant Baby records and recent conversation. " +
+  "Recipes and Workouts data are not included. You can turn this off at any time in Settings.";
 
 /** Ask in place instead of sending people to Settings. Resolves true only on "Allow processing". */
 export function confirmAiConsent(): Promise<boolean> {
