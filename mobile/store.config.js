@@ -45,19 +45,15 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = `A calmer, clearer Håfa Recipes, with easier importing.
+const RELEASE_NOTES = `Recipes from more websites, and clearer account controls.
 
-• Share recipe links to Håfa and the import runs in the background. Queue another recipe while one is processing.
-• A cleaner import page with clearer progress, and imports that recover if something goes wrong.
-• New imports default to Public in Discover after the publishing notice. Choose Private whenever you prefer. Choices made in import settings are remembered.
-• Nutrition estimates when the source leaves them out, with clearer portions.
-• Tab headers name the screen you're on. The Shop tab is now Grocery, and My Recipes is now Library.
-• Actions confirm with a quick message instead of a pop-up you have to dismiss.
-• Recipes opened from your lists show their photo and title right away, and recipe photos are larger.
-• Dark mode is easier to read, and Cook Mode uses gentler step changes and clearer colours.
-• Better VoiceOver labels for recipe cards and grocery items.
+• Recipe links from more websites import, including popular sites that used to block Håfa.
+• When a website can't be read, Håfa tells you why and suggests pasting the recipe or importing a screenshot.
+• Delete Account now explains that one Håfa account works across Håfa apps.
+• Signing in with email is quicker: the return key moves from Email to Password and then signs you in.
+• Better VoiceOver labels on sign-in and Discover.
 
-Includes accessibility and reliability improvements.`;
+Includes reliability improvements.`;
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
