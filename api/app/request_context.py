@@ -32,20 +32,23 @@ class RequestContextMiddleware:
         request_id = supplied if SAFE_REQUEST_ID.fullmatch(supplied) else uuid4().hex
 
         reported = False
+        response_status = None
 
-        def report(status):
+        def report(status, *, client_status=None):
             nonlocal reported
             if reported:
                 return
             reported = True
             try:
-                report_private_failure(scope, status)
+                report_private_failure(scope, status, response_status=client_status)
             except Exception:
                 # Diagnostics must never replace the original response/failure.
                 pass
 
         async def send_with_context(message: Message) -> None:
+            nonlocal response_status
             if message["type"] == "http.response.start":
+                response_status = message["status"]
                 if message["status"] >= 400:
                     report(message["status"])
                 message = dict(message)
@@ -61,5 +64,6 @@ class RequestContextMiddleware:
                 await self.app(scope, receive, send_with_context)
             except Exception as error:
                 scope["private_failure_code"] = "timeout" if isinstance(error, TimeoutError) else "unexpected_error"
-                report(500)
+                client_status = response_status if response_status is not None and response_status < 400 else None
+                report(500, client_status=client_status)
                 raise

@@ -47,6 +47,9 @@ def _diagnostic_tags(tags):
     status = tags.get("http_status")
     if re.fullmatch(r"[45][0-9]{2}", str(status)):
         clean["http_status"] = str(status)
+    response_status = tags.get("response_status")
+    if re.fullmatch(r"[1-3][0-9]{2}", str(response_status)):
+        clean["response_status"] = str(response_status)
     correlation = tags.get("correlation_id")
     if isinstance(correlation, str) and re.fullmatch(r"[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}", correlation):
         clean["correlation_id"] = correlation
@@ -79,23 +82,25 @@ class PrivateFailureRoute(APIRoute):
         return handler
 
 
-def report_private_failure(scope, status):
+def report_private_failure(scope, status, *, response_status=None):
     """Use only a registered template, never the raw ASGI path or response body."""
     route = getattr(scope.get("route"), "path", None)
     if route not in _PRIVATE_ROUTES:
         return
     product = "baby" if _baby_path(route) else "workouts"
     tags = _diagnostic_tags({"route": route, "http_status": status,
+        "response_status": response_status,
         "error_code": scope.get("private_failure_code", "http_error"),
         "stage": "request", "correlation_id": uuid4().hex}) | {"product": product}
     release = get_settings().app_release_id
     # Deployment configuration, never a request-provided release label.
     release = release if re.fullmatch(r"[A-Za-z0-9._-]{1,100}", release) else "unknown"
-    logger.warning("private_request_failed product=%s route=%s http_status=%s error_code=%s stage=%s release=%s correlation_id=%s",
-        product, tags["route"], tags["http_status"], tags.get("error_code", "unknown"), tags["stage"],
-        release, tags["correlation_id"])
-    sentry_sdk.capture_event({"message": "Private request failed", "level": "error" if status >= 500 else "warning",
-        "release": release, "tags": tags, "request": {"url": route}})
+    logger.warning("private_request_failed product=%s route=%s http_status=%s response_status=%s error_code=%s stage=%s release=%s correlation_id=%s",
+        product, tags["route"], tags["http_status"], tags.get("response_status", "unknown"),
+        tags.get("error_code", "unknown"), tags["stage"], release, tags["correlation_id"])
+    if status >= 500:
+        sentry_sdk.capture_event({"message": "Private request failed", "level": "error",
+            "release": release, "tags": tags, "request": {"url": route}})
 
 
 def _workouts_path(value):
@@ -159,11 +164,15 @@ def redact_workouts_event(event, hint=None):
     product = _private_product(event)
     if product is None:
         return event
-    return {
+    tags = {"product": product} | _diagnostic_tags(event.get("tags") or {})
+    redacted = {
         key: event[key]
         for key in ("event_id", "timestamp", "level", "platform", "release", "environment", "type")
         if key in event
-    } | {"message": f"{'Baby' if product == 'baby' else 'Workouts'} request failed", "tags": {"product": product} | _diagnostic_tags(event.get("tags") or {})}
+    } | {"message": f"{'Baby' if product == 'baby' else 'Workouts'} request failed", "tags": tags}
+    if "route" in tags:
+        redacted["fingerprint"] = [product, tags["route"], tags.get("http_status", "unknown"), tags.get("error_code", "unknown")]
+    return redacted
 
 
 def redact_workouts_transaction(event, hint=None):
