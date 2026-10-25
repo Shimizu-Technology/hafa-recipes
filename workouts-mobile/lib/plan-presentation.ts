@@ -1,3 +1,4 @@
+import { formatSeconds } from "./discover";
 import type { ExercisePrescription, Program, ScheduledSession, Workout } from "./models";
 
 /** Plan lengths offered when building a plan. The API accepts 1–12 weeks. */
@@ -65,20 +66,20 @@ export function workoutMeta({
     .join(" · ");
 }
 
-/** "3 sets · 8–12 reps · each side · 90s rest" for compact plan previews. */
+/** "3 sets · 8–12 reps · each side · 90s rest" for compact plan previews. Unknown targets are left out. */
 export function exerciseTargets(e: ExercisePrescription, omitSets = false) {
   return [
-    omitSets ? null : e.sets == null ? "Sets not specified" : `${e.sets} sets`,
+    omitSets || e.sets == null ? null : `${e.sets} ${e.sets === 1 ? "set" : "sets"}`,
     e.reps_min == null
-      ? e.duration_seconds == null && e.distance_meters == null ? "Reps not specified" : null
+      ? null
       : e.reps_max != null && e.reps_max !== e.reps_min
         ? `${e.reps_min}–${e.reps_max} reps`
-        : `${e.reps_min} reps`,
+        : `${e.reps_min} ${e.reps_min === 1 ? "rep" : "reps"}`,
     e.per_side ? "each side" : null,
-    e.duration_seconds != null ? `${e.duration_seconds}s target time` : null,
-    e.distance_meters != null ? `${e.distance_meters}m target distance` : null,
+    e.duration_seconds != null ? formatSeconds(e.duration_seconds) : null,
+    e.distance_meters != null ? `${e.distance_meters} m` : null,
     e.load != null
-      ? `${e.load} ${e.load_unit ?? "unit not specified"} ${e.load_convention?.replaceAll("_", " ") ?? "· load convention not specified"}`
+      ? [e.load, e.load_unit, e.load_convention?.replaceAll("_", " ")].filter((part) => part != null).join(" ")
       : null,
     e.rest_seconds != null ? `${e.rest_seconds}s rest` : null,
     e.tempo ? `Tempo ${e.tempo}` : null,

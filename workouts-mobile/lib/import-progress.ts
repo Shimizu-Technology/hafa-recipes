@@ -16,7 +16,7 @@ export function importProgressState(job: ImportJob, now = Date.now()) {
     reading_document: ["Reading the document", "Finding workout instructions in your document"],
     listening_video: ["Listening to the video", "Reading spoken workout instructions"],
     reading_frames: ["Reading video frames", "Checking the workout shown in the video"],
-    extracting_workout: ["Extracting the workout", "Putting the exercises and instructions together"],
+    extracting_workout: ["Building your workout", "Putting the exercises and instructions together"],
     saving_workout: ["Saving the result", "Keeping your import ready to review"],
   };
   const stage = job.status === "processing" && job.current_stage ? stages[job.current_stage] : null;

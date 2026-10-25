@@ -142,10 +142,12 @@ it("explains source timing separately from missing profile information", async (
   await press("Review details"); expect(f.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/coach-action/[id]" }));
 });
 
-it("shows an unfamiliar question once and offers a single way to its details", async () => {
-  f.action = needsInfo(["Something new A.", "Something new B.", "Something new C."]);
+it("shows current questions as asked, summarises the rest and offers a single way to its details", async () => {
+  f.action = needsInfo(["Something new A?", "Something new B?", "Something new C?", "Something new D?"]);
   f.readiness = { state: "ready", expires_at: "2999-01-01T00:00:00Z" }; await recoveryCard();
-  expect(JSON.stringify(view!.toJSON()).split("Coach needs more details before it can offer a change").length - 1).toBe(1);
+  const text = JSON.stringify(view!.toJSON());
+  expect(text).toContain("Something new A?"); expect(text).toContain("Something new B?");
+  expect(text).not.toContain("Something new C?"); expect(text).toContain("2 more questions in Details.");
   expect(button("Review details")).toBeDefined(); expect(button("Details")).toBeUndefined();
 });
 
@@ -170,6 +172,16 @@ it("advances the same card from profile review to check-in to Ask again as saves
 it("preserves program and session context when returning from profile review", () => {
   expect(coachReturnParams({ context_program_id: "plan", context_revision: 7 })).toEqual({ program_id: "plan", revision: "7" });
   expect(coachReturnParams({ context_session_id: "session" })).toEqual({ session_id: "session" });
+});
+it.each([
+  "Choose movements to avoid from your profile options before changing this workout.",
+  "Select recognized movement exclusions before adapting this workout.",
+])("keeps a movement gate (%s) until a profile edit has been saved", (gate) => {
+  const action = needsInfo([gate]);
+  const profile = { ...initialProfile(), adult_confirmed: true, equipment: [] };
+  const checkIn = { state: "ready", expires_at: "2999-01-01T00:00:00Z" };
+  expect(coachRecovery(action, profile, 1, checkIn).next).toBe("profile");
+  expect(coachRecovery(action, profile, 2, checkIn).next).toBe("ask");
 });
 it("keeps an unrecognized movement gate until a profile edit has been saved", () => {
   const action = needsInfo(["Select recognized movement exclusions before adapting this workout."]);

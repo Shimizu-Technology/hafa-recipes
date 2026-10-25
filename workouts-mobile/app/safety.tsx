@@ -88,7 +88,7 @@ export default function SafetyCenter() {
       </QueryState>
       {!!message && <Notice>{message}</Notice>}
       <Sheet visible={!!selected} title={`Unblock ${contributorName(selected?.display_name)}?`} onClose={() => { if (!busy) setSelected(null); }}>
-        <Copy>Their public workouts and recipes can appear in Discover and search again in both Håfa apps.</Copy>
+        <Copy>Their public workouts and recipes can appear in Discover and search again in Håfa Workouts and Håfa Recipes.</Copy>
         {!!error && <Notice error>{error}</Notice>}
         <Button title="Unblock" busy={busy} onPress={() => { void unblock(); }} />
         <Button title="Keep blocked" variant="ghost" disabled={busy} onPress={() => setSelected(null)} />

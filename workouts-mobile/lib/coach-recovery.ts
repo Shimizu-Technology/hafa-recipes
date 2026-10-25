@@ -1,10 +1,22 @@
 import type { CoachAction, CoachFocus } from "./coach";
 import type { TrainingProfile } from "./models";
 
-// Exact legacy API strings also cover suggestions saved by earlier app builds.
-const profileGate = "Confirm adult eligibility/readiness and resolve any free-text restrictions before personal adaptation.";
-const movementsGate = "Select recognized movement exclusions before adapting this workout.";
-const equipmentGate = "Confirm available equipment, including any stable supports or anchors.";
+// Exact API strings, current and legacy (suggestions saved before the
+// plain-language rewrite keep the old wording).
+const profileGates = [
+  "Confirm you're 18 or older and ready to train, and clarify any movements you need to avoid.",
+  "Confirm adult eligibility/readiness and resolve any free-text restrictions before personal adaptation.",
+];
+const movementsGates = [
+  "Choose movements to avoid from your profile options before changing this workout.",
+  "Select recognized movement exclusions before adapting this workout.",
+];
+const equipmentGates = [
+  "What equipment do you have, including any stable supports or anchors?",
+  "Confirm available equipment, including any stable supports or anchors.",
+];
+const gates = [...profileGates, ...movementsGates, ...equipmentGates];
+const has = (questions: string[], options: string[]) => questions.some(q => options.includes(q));
 export function coachReturnParams(focus: CoachFocus) {
   return {
     ...(focus.context_workout_id ? { workout_id: focus.context_workout_id } : {}),
@@ -18,29 +30,37 @@ export function coachRecovery(action: CoachAction, profile: TrainingProfile, rev
   const questions = action.proposal.questions ?? [];
   const lines: string[] = [];
   let reviewProfile = false;
-  if (questions.includes(profileGate)) {
+  if (has(questions, profileGates)) {
     if (!profile.adult_confirmed) { lines.push("Confirm you are 18 or older in your training profile."); reviewProfile = true; }
     if (profile.limitations.some(value => value.trim())) {
       lines.push("Your saved limitations need review. Keep any instructions you still follow; Coach may be unable to change this workout safely.");
       reviewProfile = true;
     }
   }
-  if (questions.includes(equipmentGate) && profile.equipment === null) {
+  if (has(questions, equipmentGates) && profile.equipment === null) {
     lines.push("Choose your equipment, or choose Bodyweight / no equipment, in your training profile."); reviewProfile = true;
   }
-  if (questions.includes(movementsGate) && revision <= action.profile_revision) {
+  if (has(questions, movementsGates) && revision <= action.profile_revision) {
     lines.push("Review the movements you need to avoid in your training profile. Coach could not match them to known exercises."); reviewProfile = true;
   }
-  const other = questions.filter(q => ![profileGate, movementsGate, equipmentGate].includes(q));
+  const other = questions.filter(q => !gates.includes(q));
+  const unfamiliar: string[] = [];
   for (const question of other) {
-    lines.push(question.startsWith("Review block durations")
+    const legacy = question.startsWith("Review block durations")
       ? "Review this workout’s timing and which exercises can be left out before making it shorter."
       : question.startsWith("How many sets/rounds") ? "This workout is missing the number of sets or rounds. Review its exercise details."
       : question.startsWith("What repetition, time or distance") ? "This workout is missing exercise targets. Review its reps, time or distance."
       : question.startsWith("Confirm the movement/equipment") ? "Coach could not match an exercise to a known movement. Review the workout’s exercises and equipment."
       : question.startsWith("Review timed blocks") ? "Review this workout’s timed sections separately before asking Coach to change them."
-      : "Coach needs more details before it can offer a change. Open Details to review what is missing.");
+      : null;
+    if (legacy) lines.push(legacy);
+    else unfamiliar.push(question);
   }
+  // Current API questions are written for people: show a couple as asked and
+  // leave the rest to Details rather than a wall of bullets.
+  lines.push(...unfamiliar.slice(0, 2));
+  const more = unfamiliar.length - 2;
+  if (more > 0) lines.push(`${more} more ${more === 1 ? "question" : "questions"} in Details.`);
   if (!questions.length) lines.push("Open Details to review what Coach still needs.");
   const ready = checkIn.state === "ready" && !!checkIn.expires_at && Date.parse(checkIn.expires_at) > now;
   if (!ready) lines.push(checkIn.state === "limited"

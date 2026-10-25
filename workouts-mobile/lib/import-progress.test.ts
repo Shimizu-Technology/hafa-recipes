@@ -32,7 +32,7 @@ it("recovers from caption alone and rejects invalid source requests before trans
 it.each([
   ["reading_source", "Reading the source"], ["reading_images", "Reading images"],
   ["reading_document", "Reading the document"], ["listening_video", "Listening to the video"],
-  ["reading_frames", "Reading video frames"], ["extracting_workout", "Extracting the workout"], ["saving_workout", "Saving the result"],
+  ["reading_frames", "Reading video frames"], ["extracting_workout", "Building your workout"], ["saving_workout", "Saving the result"],
 ] as const)("presents the actual %s stage without a percentage", (current_stage, phase) => {
   const progress = importProgressState({ ...job, current_stage });
   expect(progress.phase).toBe(phase); expect(progress).not.toHaveProperty("percentage");

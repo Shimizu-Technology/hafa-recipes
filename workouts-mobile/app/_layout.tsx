@@ -189,7 +189,7 @@ export default function Root() {
       ) : error ? (
         <Screen title="Håfa Workouts">
           <Notice>{error} Ask support for the configured build.</Notice>
-          <Copy>Two apps. One Håfa account. Your recipe and training data stay separate unless you connect them.</Copy>
+          <Copy>One Håfa account for Recipes, Workouts, and Baby. Each app’s data stays separate unless you connect them.</Copy>
         </Screen>
       ) : (
         <ShareIntentProvider

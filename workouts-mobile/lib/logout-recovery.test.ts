@@ -105,7 +105,7 @@ it("mounted real AccountData acknowledges deletion once, clears private queries,
   app = mount(f, sdk); const tree = await app.start();
   expect(tree.root.findAll((node) => String(node.type) === "private-route")).toHaveLength(1);
   await act(async () => { button(tree, "Review whole-account deletion").props.onClick(); });
-  await act(async () => { button(tree, "I understand my Recipes and Workouts data will both be erased.").props.onClick(); });
+  await act(async () => { button(tree, "I understand my data in every Håfa app will be erased.").props.onClick(); });
   await act(async () => { button(tree, "Delete my whole Håfa account").props.onClick(); }); await settle();
   expect(f.deleted).toHaveBeenCalledOnce(); expect(sdk).toHaveBeenCalledWith({ sessionId: "session-A" });
   expect(tree.root.findAll((node) => String(node.type) === "private-route")).toHaveLength(0);

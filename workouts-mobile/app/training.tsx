@@ -166,7 +166,7 @@ export default function Training() {
         title={summary.partial ? "Partial session saved" : "Session saved"}
         footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/(tabs)/progress")} />}
       >
-        <Copy tone="muted">Saved on this device. It uploads to your history when you are online.</Copy>
+        <Copy tone="muted">Saved to your history. If you’re offline, it uploads when you reconnect.</Copy>
         <Row gap={12} wrap>
           <StatTile value={summary.sets} label={summary.sets === 1 ? "Set logged" : "Sets logged"} icon="checkmark-done" />
           <StatTile value={summary.exercises} label={summary.exercises === 1 ? "Exercise" : "Exercises"} icon="barbell-outline" />

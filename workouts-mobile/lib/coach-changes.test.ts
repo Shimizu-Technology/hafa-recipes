@@ -60,3 +60,12 @@ it("names a new workout copy and a new plan without inventing a before state", (
   const plan = describeChange(action("program", { status: "ready", sessions: [session("s1", "2026-11-02", before)] }), {});
   expect(plan).toEqual({ title: "Add a new training plan", rows: [{ label: "Sessions", after: `1 · starts ${formatPlanDate("2026-11-02")}` }] });
 });
+
+it("lists a shortened workout's plain-language changes and titles an unfinished adjustment as the workout", () => {
+  const before = workout("Bodyweight", [squat(3, 10)], 20), after = workout("Bodyweight", [squat(2, 10)], 10);
+  const shorter = describeChange(action("adaptation", { status: "ready", workout: after,
+    changes: ["Do 2 rounds instead of 3; keep the same exercises and rest."] }), { workout: before });
+  expect(shorter.changes).toEqual(["Do 2 rounds instead of 3; keep the same exercises and rest."]);
+  const pending = describeChange(action("adaptation", { status: "needs_information", questions: ["Which exercises are these?"] }), { workout: before });
+  expect(pending).toEqual({ title: "Adjust Bodyweight", rows: [] });
+});

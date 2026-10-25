@@ -3,7 +3,8 @@ export default function Privacy() {
   return (
     <Screen back title="Privacy" subtitle="What each feature uses, and how to control it.">
       <Copy>
-        Håfa Workouts uses one Håfa account with Recipes. Product data stays separate unless you explicitly connect it.
+        Håfa Recipes, Håfa Workouts, and Håfa Baby share one Håfa account.
+        Product data stays separate unless you explicitly connect it.
         The app supports adult general fitness and user-declared limitations.
       </Copy>
       <Copy>
@@ -26,9 +27,9 @@ export default function Privacy() {
         analytics payloads.
       </Copy>
       <Copy>
-        Whole-Håfa-account deletion, including that operation in older Recipes versions, removes both products and the
-        shared login. Removing one product’s data preserves the other app and the login. System Health records require
-        their own on-device controls.
+        Deleting your whole Håfa account, from any Håfa app, removes your data in every Håfa app and the shared login.
+        Removing only your Workouts data keeps the other apps and your login. System Health records require their own
+        on-device controls.
       </Copy>
       <Notice>
         Use the published privacy policy and support website for the full policy and requests. This screen explains the

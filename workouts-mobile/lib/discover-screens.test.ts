@@ -1203,13 +1203,13 @@ it.each(["import", "plan", "shared workout", "shared program", "discover"] as co
     if (surface === "plan" || surface.startsWith("shared")) expect(text()).toContain("2 sets");
   });
 
-it.each([true, false])("plan previews keep explicit sets and only omit unspecified sets for AMRAP=%s", async timed => {
+it.each([true, false])("plan previews keep explicit sets and leave unspecified sets out for AMRAP=%s", async timed => {
   const workout: Workout = { ...saved, blocks: [{ id: "flow", label: "Main", grouping: "circuit",
     ...(timed ? { execution: { mode: "amrap" as const, time_cap_seconds: 1200 } } : {}),
     exercises: [{ name: "Swings", reps_min: 10, sets: 2 }, { name: "Squat", reps_min: 10 }] }] };
   await mount(() => createElement(PrescriptionPreview, { workout }));
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
-  expect(text).toContain("2 sets"); expect(text.includes("Sets not specified")).toBe(!timed);
+  expect(text).toContain("2 sets"); expect(text).not.toContain("not specified");
 });
 
 it("deletes only after explicit confirmation and returns to the library", async () => {

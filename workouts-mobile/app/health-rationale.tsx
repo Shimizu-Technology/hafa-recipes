@@ -2,9 +2,9 @@ import { Linking } from "react-native";
 import { useState } from "react";
 import { router } from "expo-router";
 import { Button, Card, Copy, Notice, Screen } from "@/components/ui";
+import { PRIVACY_POLICY_URL } from "@/lib/config";
 export default function HealthRationale() {
   const [error, setError] = useState("");
-  const website = process.env.EXPO_PUBLIC_WORKOUTS_WEBSITE_URL;
   return (
     <Screen back title="Health access" subtitle="Why Håfa Workouts asks for exercise access.">
       <Card>
@@ -34,17 +34,15 @@ export default function HealthRationale() {
         permissions; on Android, use Health Connect settings.
       </Copy>
       <Button title="Read in-app privacy information" secondary onPress={() => router.push("/privacy")} />
-      {!!website && (
-        <Button
-          title="Open full privacy policy"
-          secondary
-          onPress={() => {
-            void Linking.openURL(new URL("/privacy", website).toString()).catch(() =>
-              setError("Could not open the policy. In-app privacy information remains available.")
-            );
-          }}
-        />
-      )}
+      <Button
+        title="Open full privacy policy"
+        secondary
+        onPress={() => {
+          void Linking.openURL(PRIVACY_POLICY_URL).catch(() =>
+            setError("Could not open the policy. In-app privacy information remains available.")
+          );
+        }}
+      />
       {!!error && <Notice error>{error}</Notice>}
     </Screen>
   );
