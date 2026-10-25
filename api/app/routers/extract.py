@@ -1355,10 +1355,35 @@ async def list_extraction_jobs(
         .order_by(ExtractionJob.created_at.desc(), ExtractionJob.id.desc())
         .limit(limit)
     )
-    return [
-        _job_status_response(job, linked_recipe)
-        for job, linked_recipe in result.all()
-    ]
+    visible_jobs = []
+    later_saved_sources = {}
+    for job, linked_recipe in result.all():
+        # Exact-key recovery must still find the original attempt, including
+        # its failure. Activity suppression never changes the durable job.
+        if idempotency_key is None and job.job_kind == "extract":
+            source_key = canonicalize_source(job.url).key
+            if (
+                source_key
+                and job.status in {"failed", "expired"}
+                and job.recipe_id is None
+                and source_key in later_saved_sources
+                and later_saved_sources[source_key] > job.created_at
+            ):
+                continue
+            if (
+                source_key
+                and job.status == "completed"
+                and linked_recipe is not None
+                and linked_recipe.user_id == user.id
+                and linked_recipe.extraction_method != "source-draft"
+                and linked_recipe.review_state != "source_incomplete"
+                and canonicalize_source(linked_recipe.source_url).key == source_key
+            ):
+                later_saved_sources.setdefault(source_key, job.created_at)
+        visible_jobs.append(_job_status_response(job, linked_recipe))
+    # The window is newest-first, so any later success that could supersede a
+    # failure is already in this window. Suppression may return fewer than limit.
+    return visible_jobs
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)

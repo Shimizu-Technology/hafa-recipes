@@ -17,6 +17,7 @@ from app.models.identity import AppUser
 from app.models.recipe import ExtractionJob, Recipe
 from app.routers.extract import (
     cancel_job,
+    get_job_status,
     list_extraction_jobs,
     run_extraction_job,
     save_failed_extraction_as_draft,
@@ -326,3 +327,129 @@ async def test_request_key_recovery_is_exact_and_owner_scoped(cancellation_sessi
         assert [job.id for job in recovered] == [own.id]
         assert recovered[0].status == status
         assert await list_extraction_jobs(idempotency_key="share:missing", db=db, user=owner) == []
+
+
+def _saved_retry_recipe(owner_id, url, **kwargs):
+    return Recipe(
+        source_url=url, source_type="website", user_id=owner_id, is_public=False,
+        extracted={"title": "Saved retry", "ingredients": [], "steps": []},
+        extraction_method="website-jsonld", review_state="needs_review", **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "expired"])
+@pytest.mark.parametrize("failed_url,saved_url", [
+    ("https://www.instagram.com/reel/F4retry/?igshid=old", "https://instagram.com/reel/F4retry/"),
+    ("https://youtu.be/f4retry123?si=old", "https://www.youtube.com/watch?v=f4retry123"),
+    ("https://example.test/recipe/?utm_source=old", "https://example.test/recipe"),
+])
+async def test_successful_retry_suppresses_only_activity_not_durable_recovery(
+    cancellation_sessions, status, failed_url, saved_url,
+):
+    owner = _user("cancel_owner")
+    now = datetime.now(UTC)
+    async with cancellation_sessions() as db:
+        failed = ExtractionJob(
+            url=failed_url, user_id=owner.id, status=status, job_kind="extract",
+            notes="Keep my source notes", idempotency_key="share:original-failure",
+            created_at=now - timedelta(hours=1),
+        )
+        db.add(failed)
+        await db.commit()
+        assert [job.id for job in await list_extraction_jobs(db=db, user=owner)] == [failed.id]
+
+        recipe = _saved_retry_recipe(owner.id, saved_url)
+        db.add(recipe)
+        await db.flush()
+        success = ExtractionJob(
+            url=saved_url, user_id=owner.id, status="completed", job_kind="extract",
+            recipe_id=recipe.id, created_at=now, completed_at=now,
+        )
+        db.add(success)
+        await db.commit()
+        for limit in (1, 8, 20):
+            visible = await list_extraction_jobs(
+                limit=limit, job_kind="extract", include_cancelled=False, db=db, user=owner,
+            )
+            assert [job.id for job in visible] == [success.id]
+            assert visible[0].recipe_id == recipe.id
+            assert visible[0].review_state == "needs_review"
+        recovered = await list_extraction_jobs(
+            idempotency_key="share:original-failure", db=db, user=owner,
+        )
+        assert [job.id for job in recovered] == [failed.id]
+        direct = await get_job_status(failed.id, db=db, user=owner)
+        assert direct.status == status and direct.can_save_draft
+        assert direct.notes == "Keep my source notes"
+        await db.refresh(failed)
+        assert failed.status == status and failed.recipe_id is None
+        assert await db.scalar(select(func.count()).select_from(Recipe)) == 1
+        await db.refresh(recipe)
+        assert recipe.extracted["title"] == "Saved retry" and recipe.is_public is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preserve_reason", [
+    "older_success", "same_time", "different_source", "foreign_success", "foreign_recipe",
+    "missing_recipe", "wrong_recipe_source", "source_draft", "incomplete_recipe",
+    "reextraction", "completed_without_success", "saved_failure", "active_import",
+    "failed_reextraction", "unkeyed_source",
+])
+async def test_retry_activity_preserves_unsuperseded_attempts(cancellation_sessions, preserve_reason):
+    owner = _user("cancel_owner")
+    now = datetime.now(UTC)
+    url = "https://example.test/recipe"
+    async with cancellation_sessions() as db:
+        recipe = _saved_retry_recipe(owner.id, url)
+        failed = ExtractionJob(
+            url=url, user_id=owner.id, status="failed", job_kind="extract",
+            created_at=now - timedelta(hours=1),
+        )
+        success = ExtractionJob(
+            url=url, user_id=owner.id, status="completed", job_kind="extract",
+            created_at=now, completed_at=now,
+        )
+        if preserve_reason == "older_success":
+            success.created_at = now - timedelta(hours=2)
+        elif preserve_reason == "same_time":
+            success.created_at = failed.created_at
+        elif preserve_reason == "different_source":
+            failed.url = "https://example.test/another-recipe"
+        elif preserve_reason == "foreign_success":
+            success.user_id = recipe.user_id = "cancel_other"
+        elif preserve_reason == "foreign_recipe":
+            recipe.user_id = "cancel_other"
+        elif preserve_reason == "wrong_recipe_source":
+            recipe.source_url = "https://example.test/another-recipe"
+        elif preserve_reason == "source_draft":
+            recipe.extraction_method = "source-draft"
+        elif preserve_reason == "incomplete_recipe":
+            recipe.review_state = "source_incomplete"
+        elif preserve_reason == "reextraction":
+            success.job_kind = "reextract"
+        elif preserve_reason == "completed_without_success":
+            success.status = "processing"
+        elif preserve_reason == "active_import":
+            failed.status = "processing"
+        elif preserve_reason == "failed_reextraction":
+            failed.job_kind = "reextract"
+        elif preserve_reason == "unkeyed_source":
+            failed.url = success.url = recipe.source_url = "manual://recipe"
+        db.add(recipe)
+        await db.flush()
+        if preserve_reason != "missing_recipe":
+            success.recipe_id = recipe.id
+        if preserve_reason == "saved_failure":
+            failed.recipe_id = recipe.id
+        db.add_all([failed, success])
+        await db.commit()
+
+        visible = await list_extraction_jobs(db=db, user=owner)
+        assert failed.id in [job.id for job in visible]
+        if preserve_reason == "active_import":
+            active = await list_extraction_jobs(active_only=True, db=db, user=owner)
+            assert [job.id for job in active] == [failed.id]
+        await db.refresh(failed)
+        assert failed.status == ("processing" if preserve_reason == "active_import" else "failed")
+        assert await db.scalar(select(func.count()).select_from(Recipe)) == 1
