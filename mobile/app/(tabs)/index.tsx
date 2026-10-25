@@ -864,7 +864,7 @@ export default function ExtractScreen() {
               <RNView style={{ flex: 1 }}>
                 <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
                 <Text style={[styles.hint, { color: entry.error ? colors.error : colors.textMuted }]}>
-                  {entry.error || (entry.ownerId === null ? 'Choose an account to finish importing' : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
+                  {entry.error || (entry.ownerId === null ? (isSignedIn ? 'Tap Finish to import it into your library' : 'Sign in to finish importing') : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
                 </Text>
               </RNView>
               {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting} onPress={() => {

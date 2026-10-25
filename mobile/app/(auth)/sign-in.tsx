@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import type { TextInput as TextInputHandle } from 'react-native';
 import {
   StyleSheet,
   KeyboardAvoidingView,
@@ -57,6 +58,7 @@ export default function SignInScreen() {
   } | null>(null);
   const [verificationCode, setVerificationCode] = useState('');
   const busyRef = useRef(false);
+  const passwordRef = useRef<TextInputHandle>(null);
 
   const prepareVerification = async (factor: CodeFactor, factors: CodeFactor[]) => {
     if (!signIn) return;
@@ -392,10 +394,14 @@ export default function SignInScreen() {
                 value={email}
                 onChangeText={(text) => { setEmail(text); clearError(); }}
                 placeholder="you@example.com"
+                accessibilityLabel="Email"
+                textContentType="emailAddress"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
               />
             </RNView>
 
@@ -405,7 +411,12 @@ export default function SignInScreen() {
                 <Input
                   value={password}
                   onChangeText={(text) => { setPassword(text); clearError(); }}
-                  placeholder="••••••••"
+                  inputRef={passwordRef}
+                  placeholder="Your password"
+                  accessibilityLabel="Password"
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={() => { void handleEmailSignIn(); }}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}

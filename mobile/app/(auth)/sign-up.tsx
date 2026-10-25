@@ -437,7 +437,7 @@ export default function SignUpScreen() {
                 <Input
                   value={password}
                   onChangeText={(text) => { setPassword(text); clearError(); }}
-                  placeholder="••••••••"
+                  placeholder="At least 8 characters"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -463,7 +463,7 @@ export default function SignUpScreen() {
               <Input
                 value={confirmPassword}
                 onChangeText={(text) => { setConfirmPassword(text); clearError(); }}
-                placeholder="••••••••"
+                placeholder="Type it again"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}

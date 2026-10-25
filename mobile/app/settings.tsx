@@ -179,7 +179,7 @@ export default function SettingsScreen() {
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account',
-      'Are you sure you want to permanently delete your account? This will delete all your recipes, grocery list items, and saved data. This action cannot be undone.',
+      'This permanently deletes your Håfa account: your recipes, grocery lists, meal plans and saved data. One Håfa account works across Håfa apps, so anything you saved in another Håfa app with this account (such as Håfa Workouts or Håfa Baby) is deleted too. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -188,7 +188,7 @@ export default function SettingsScreen() {
           onPress: () => {
             Alert.alert(
               'Final Confirmation',
-              'This is permanent. All your data will be deleted forever.',
+              'This is permanent. Your data in every Håfa app will be deleted forever.',
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -698,9 +698,6 @@ export default function SettingsScreen() {
               </Text>
               <Text style={[styles.techItem, { color: colors.textSecondary }]}>
                 • Safety-aware recipe and cooking help
-              </Text>
-              <Text style={[styles.techItem, { color: colors.textSecondary }]}>
-                • FastAPI + React Native
               </Text>
             </RNView>
           </Card>
