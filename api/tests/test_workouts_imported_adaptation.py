@@ -61,8 +61,9 @@ def test_shortening_unknown_import_reduces_rounds_preserves_content_and_parent()
     assert [item.exercise_id for item in suggestion.blocks[0].exercises] == [
         None, "bodyweight_squat", "pushup", "glute_bridge", "dead_bug", None, None]
     assert all(item.duration_seconds == 40 and item.rest_seconds == 20 and item.sets is None
-               and item.reps_min is None and item.instructions == "Source cue"
+               and item.reps_min is None and item.instructions.startswith("Shortened by Coach:")
                and item.provenance == "suggestion" for item in suggestion.blocks[0].exercises)
+    assert "Source cue" in suggestion.instructions[1]
     assert suggestion.blocks[0].exercises[0].load is None
     assert [e.field for e in suggestion.blocks[0].exercises[0].evidence] == ["duration_seconds"]
     assert source.instructions[0] in suggestion.instructions[1]
@@ -110,8 +111,10 @@ def shortening_case(kind):
     directions = "Repeat for 3 rounds."
     if kind == "sets":
         source.blocks[0].rounds = None
+        source.estimated_minutes = 20
         for item in source.blocks[0].exercises:
             item.sets = 4
+            item.reps_min, item.duration_seconds = 8, None
         directions = "Do 4 sets of each exercise."
     elif kind == "timed":
         source.title = "20-Minute Bodyweight Workout for Beginners (No Repeats)"
@@ -127,6 +130,9 @@ def shortening_case(kind):
         source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
         directions = "20-minute AMRAP."
     source.instructions = [directions]
+    for item in source.blocks[0].exercises:
+        item.instructions = ("Do 4 sets of 8 reps. " if kind == "sets" else directions + " ") + "Keep your usual controlled form."
+        item.evidence = [Evidence(field="instructions", wording=item.instructions, location="caption")]
     source.blocks[0].label = directions
     source.blocks[0].evidence = [
         Evidence(field="workout_instructions", wording=directions, location="caption"),
@@ -154,6 +160,16 @@ def test_shortened_directions_separate_coach_plan_from_unchanged_original(kind, 
     assert all(text in saved.instructions[1] for text in source.instructions)
     assert f"Original block: {source.blocks[0].label}" in saved.instructions[1]
     assert saved.blocks[0].label == "Shortened by Coach"
+    for index, item in enumerate(saved.blocks[0].exercises):
+        original = source.blocks[0].exercises[index]
+        assert f"Original exercise directions for {original.name}:\n{original.instructions}" in saved.instructions[1]
+        assert item.instructions.startswith("Shortened by Coach:")
+        assert "listed for this exercise" in item.instructions
+        assert "full-workout directions" in item.instructions
+        assert original.instructions not in item.instructions
+        assert all(entry.field != "instructions" for entry in item.evidence)
+        if kind == "sets":
+            assert item.sets == 2 and item.reps_min == 8
     assert saved.blocks[0].evidence == [
         entry for entry in source.blocks[0].evidence if entry.field == "workout_instructions"]
     assert all("Coach" not in entry.wording for entry in saved.blocks[0].evidence)
@@ -169,6 +185,23 @@ def test_shortened_directions_separate_coach_plan_from_unchanged_original(kind, 
         ]
     elif kind == "amrap":
         assert result.changes == ["Reduce the circuit time limit to 10 minutes; keep the same exercises."]
+
+
+@pytest.mark.parametrize("cue", [None, "", "x" * 2000])
+def test_shortened_exercise_directions_preserve_missing_and_maximum_length_source(cue):
+    source = shortening_case("sets")
+    source.blocks[0].exercises[0].instructions = cue
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, profile(), 10)
+    assert result.status == "ready", result.questions
+    saved = WorkoutContent.model_validate_json(result.workout.model_dump_json())
+    item = saved.blocks[0].exercises[0]
+    if cue:
+        assert cue in saved.instructions[1]
+        assert item.instructions.startswith("Shortened by Coach:")
+    else:
+        assert item.instructions == cue
+    assert source.model_dump(mode="json") == before
 
 
 def test_block_only_directions_are_retained_as_original_text():

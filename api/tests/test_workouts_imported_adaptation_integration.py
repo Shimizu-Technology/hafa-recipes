@@ -35,6 +35,14 @@ async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_a
         assert suggested["instructions"][0] == "Shortened by Coach: " + " ".join(proposal.content["changes"])
         assert payload["instructions"][0] in suggested["instructions"][1]
         assert suggested["blocks"][0]["label"] == "Shortened by Coach"
+        for index, item in enumerate(suggested["blocks"][0]["exercises"]):
+            source_item = payload["blocks"][0]["exercises"][index]
+            assert f"Original exercise directions for {source_item['name']}:\n{source_item['instructions']}" in suggested["instructions"][1]
+            assert item["instructions"].startswith("Shortened by Coach:")
+            assert "listed for this exercise" in item["instructions"]
+            assert source_item["instructions"] not in item["instructions"]
+            if kind == "sets":
+                assert item["sets"] == 2 and item["reps_min"] == 8
         expected_count = 8 if kind == "timed" else len(payload["blocks"][0]["exercises"])
         assert [item["name"] for item in suggested["blocks"][0]["exercises"]] == [
             item["name"] for item in payload["blocks"][0]["exercises"][:expected_count]]

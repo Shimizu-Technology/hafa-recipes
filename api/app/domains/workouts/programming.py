@@ -515,6 +515,16 @@ def _shortened_directions(workout: WorkoutContent, block: WorkoutBlock, changes:
           if entry.field in {"workout_instructions", "workout_notes"}),
     ]))
     original.append(f"Original block: {block.label}")
+    # Exercise cues can also prescribe the old sets, rounds or time cap. Keep
+    # their exact text with the full-workout directions, not as an active cue.
+    for item in block.exercises:
+        if item.instructions:
+            original.append(f"Original exercise directions for {item.name}:\n{item.instructions}")
+            item.instructions = (
+                "Shortened by Coach: Follow the sets, reps, time and rest listed for this exercise. "
+                "The creator's original exercise directions are in the full-workout directions."
+            )
+            item.evidence = [entry for entry in item.evidence if entry.field != "instructions"]
     workout.instructions = [
         "Shortened by Coach: " + " ".join(changes),
         "The creator's original directions below describe the full workout.\n\n"
