@@ -948,6 +948,7 @@ export default function DiscoverScreen() {
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search recipes or @username..."
+              accessibilityLabel="Search community recipes"
             />
           </RNView>
           <TouchableOpacity
@@ -987,6 +988,8 @@ export default function DiscoverScreen() {
             }}
             disabled={isRandomLoading}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Surprise Me"
           >
             {isRandomLoading ? (
               <ActivityIndicator size="small" color={colors.warning} />
@@ -1007,6 +1010,8 @@ export default function DiscoverScreen() {
               router.push('/ingredient-search');
             }}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="What Can I Make?"
           >
             <Ionicons name="nutrition-outline" size={18} color={colors.actionText} />
             <Text style={[styles.discoveryButtonText, { color: colors.actionText }]}>

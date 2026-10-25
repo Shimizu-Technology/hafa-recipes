@@ -20,6 +20,8 @@ export function BrandMark({ size = 64, variant = 'mark', style, imageStyle }: Br
 
   return (
     <RNView
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       style={[
         styles.container,
         {
@@ -31,8 +33,11 @@ export function BrandMark({ size = 64, variant = 'mark', style, imageStyle }: Br
         style,
       ]}
     >
+      {/* Decorative: screen readers announced the bundled file path. */}
       <Image
         source={source}
+        accessible={false}
+        accessibilityIgnoresInvertColors
         resizeMode="contain"
         style={[
           {

@@ -130,6 +130,9 @@ interface InputProps {
   onFocus?: () => void;
   onBlur?: () => void;
   returnKeyType?: 'done' | 'go' | 'next' | 'search' | 'send';
+  textContentType?: 'emailAddress' | 'password' | 'newPassword' | 'oneTimeCode' | 'none';
+  /** Focus target for keyboard "next" chaining between fields. */
+  inputRef?: React.Ref<DefaultTextInput>;
 }
 
 export function Input({
@@ -152,6 +155,8 @@ export function Input({
   onFocus,
   onBlur,
   returnKeyType,
+  textContentType,
+  inputRef,
 }: InputProps) {
   const colors = useColors();
   const showClear = showClearButton && value.length > 0 && editable && !multiline;
@@ -159,6 +164,8 @@ export function Input({
   return (
     <DefaultView style={{ position: 'relative' }}>
       <DefaultTextInput
+        ref={inputRef}
+        textContentType={textContentType}
         accessibilityLabel={accessibilityLabel}
         maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
         value={value}
