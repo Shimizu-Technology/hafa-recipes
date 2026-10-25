@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import re
 from copy import deepcopy
 from datetime import timedelta
@@ -9,6 +10,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
+import sentry_sdk
 from fastapi import HTTPException
 from pydantic import Field, model_validator
 from sqlalchemy import String, cast, delete, func, select, text, update
@@ -45,6 +47,8 @@ from app.domains.workouts.router import content_digest, owned_record
 from app.domains.workouts.schemas import DomainModel
 from app.domains.workouts.source_context import without_source_context
 from app.models.ai import AIInvocation
+
+logger = logging.getLogger(__name__)
 
 MAX_MESSAGES_PER_DAY = 50
 MAX_CONTEXT_BYTES = 60000
@@ -126,6 +130,22 @@ class CoachRequest(DomainModel):
 
 class CoachFailure(Exception):
     """Safe error code only; never include provider payloads or private context."""
+
+    @property
+    def diagnostic_code(self):
+        allowed = {
+            "empty_response", "invalid_provider_output", "invalid_tool_call",
+            "provider_disabled", "provider_incomplete", "provider_input_limit",
+            "provider_output_limit", "provider_refusal", "provider_unavailable",
+            "uninspected_source", "uninspected_target",
+            "workouts_ai_attempt_cap_exceeded", "workouts_ai_attempt_reused",
+            "workouts_ai_budget_authority_unconfigured", "workouts_ai_budget_configuration_invalid",
+            "workouts_ai_budget_disabled", "workouts_ai_budget_exceeded",
+            "workouts_ai_budget_unavailable", "workouts_ai_budget_unconfigured",
+            "workouts_ai_capability_unsupported", "workouts_ai_diagnostics_invalid",
+            "workouts_ai_envelope_unsupported", "workouts_ai_model_unpriced", "workouts_ai_usage_invalid",
+        }
+        return self.args[0] if self.args and isinstance(self.args[0], str) and self.args[0] in allowed else "coach_failure"
 
 
 def normalize_usage(data):
@@ -721,6 +741,7 @@ class WorkoutCoach:
         async def delta(text):
             await emit("delta", text=text)
 
+        prepared_actions = []
         try:
             # Medical diagnosis/rehabilitation and emergencies are outside this general-fitness coach.
             medical = re.search(
@@ -768,35 +789,34 @@ class WorkoutCoach:
                             _, _ = await self.guard(
                                 db, user_id, generation, message_id, token, fingerprint, consent_at
                             )
-                            prepared = [
-                                await prepare_action(
-                                    db,
-                                    user_id,
-                                    generation,
-                                    name,
-                                    arguments,
-                                    compose_library_program=self.compose_library_program,
-                                )
-                                for _, name, arguments in calls
-                            ]
-                            await db.commit()
                             items.extend(
                                 result["output"]
                             )  # Includes reasoning items required by Responses.
-                            for (identifier, _, _), action in zip(calls, prepared):
-                                items.append(
-                                    {
-                                        "type": "function_call_output",
-                                        "call_id": identifier,
-                                        "output": json.dumps(
-                                            {
-                                                "preview": without_source_context(action["content"]),
-                                                "status": "proposed_only",
-                                                "acceptance_required": True,
-                                            }
-                                        ),
+                            for identifier, name, arguments in calls:
+                                try:
+                                    prepared = await prepare_action(
+                                        db, user_id, generation, name, arguments,
+                                        compose_library_program=self.compose_library_program,
+                                    )
+                                except HTTPException as rejection:
+                                    if not 400 <= rejection.status_code < 500:
+                                        raise
+                                    # Only tool validation is recoverable. Lease,
+                                    # consent and context guards remain turn-fatal.
+                                    output = {"status": "rejected", "reason": rejection.detail}
+                                else:
+                                    prepared_actions.append(prepared)
+                                    output = {
+                                        "preview": without_source_context(prepared["content"]),
+                                        "status": "proposed_only",
+                                        "acceptance_required": True,
                                     }
-                                )
+                                items.append({
+                                    "type": "function_call_output",
+                                    "call_id": identifier,
+                                    "output": json.dumps(output),
+                                })
+                            await db.commit()
                             guarded, _ = await self.guard(
                                 db, user_id, generation, message_id, token, fingerprint, consent_at
                             )
@@ -816,15 +836,7 @@ class WorkoutCoach:
                 db, user_id, generation, message_id, token, fingerprint, consent_at
             )
             receipts = []
-            for _, name, arguments in calls:
-                prepared = await prepare_action(
-                    db,
-                    user_id,
-                    generation,
-                    name,
-                    arguments,
-                    compose_library_program=self.compose_library_program,
-                )
+            for prepared in prepared_actions:
                 receipts.append(await save_prepared(db, user_id, generation, prepared))
             row.assistant_message = answer
             row.proposals = {
@@ -837,6 +849,32 @@ class WorkoutCoach:
             await db.commit()
             return message_response(row)
         except BaseException as error:
+            diagnostics = {
+                "exception_class": type(error).__name__,
+                "error_code": (
+                    "http_error" if isinstance(error, HTTPException) else
+                    "cancelled" if isinstance(error, asyncio.CancelledError) else
+                    error.diagnostic_code if isinstance(error, CoachFailure) else
+                    "timeout" if isinstance(error, TimeoutError) else "unexpected_error"
+                ),
+                "http_status": error.status_code if isinstance(error, HTTPException) else 503,
+                "request_id": str(request.request_id),
+            }
+            # Exception messages, traceback locals and provider payloads can
+            # contain private training content. Emit only fixed diagnostic fields.
+            logger.error(
+                "workouts_coach_turn_failed exception_class=%s error_code=%s http_status=%s request_id=%s",
+                *diagnostics.values(), extra=diagnostics,
+            )
+            if isinstance(error, Exception) and (
+                not isinstance(error, HTTPException) or error.status_code >= 500
+            ):
+                sentry_sdk.capture_event({
+                    "message": "Workouts Coach turn failed",
+                    "level": "error",
+                    "tags": diagnostics,
+                    "request": {"url": "/api/v1/workouts/coach/messages"},
+                })
             # Finalizing failure is best effort, not permission to outlive the
             # request indefinitely behind another transaction's owner lock.
             # On timeout the existing pending UUID remains replay-safe: no second
