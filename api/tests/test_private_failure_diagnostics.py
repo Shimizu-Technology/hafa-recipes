@@ -16,6 +16,56 @@ from app.domains.workouts.security import WorkoutsImportRoute, WorkoutsRoute
 from app.request_context import RequestContextMiddleware
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_release(monkeypatch):
+    monkeypatch.delenv('RENDER_GIT_COMMIT', raising=False)
+
+
+@pytest.mark.parametrize('path', ['/api/v1/workouts/profile', '/api/v1/baby/bootstrap'])
+@pytest.mark.parametrize('status', [401, 503])
+@pytest.mark.parametrize('runtime,configured,expected', [
+    ('b' * 40, 'd' * 40, 'b' * 40),
+    (None, 'synthetic-release', 'synthetic-release'),
+    ('', 'synthetic-release', 'synthetic-release'),
+    ('a' * 100, 'synthetic-release', 'a' * 100),
+    ('a' * 101, 'synthetic-release', 'unknown'),
+    ('release\nPRIVATE', 'synthetic-release', 'unknown'),
+    ('https://private.invalid/?token=PRIVATE', 'synthetic-release', 'unknown'),
+    (None, 'release\nPRIVATE', 'unknown'),
+    (None, 'a' * 101, 'unknown'),
+])
+async def test_private_failure_release_matches_running_code_and_stays_bounded(
+    monkeypatch, caplog, path, status, runtime, configured, expected,
+):
+    monkeypatch.setattr(privacy, 'get_settings', lambda: SimpleNamespace(app_release_id=configured))
+    if runtime is not None:
+        monkeypatch.setenv('RENDER_GIT_COMMIT', runtime)
+    events = []
+    monkeypatch.setattr(privacy.sentry_sdk, 'capture_event', events.append)
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+    router = APIRouter(route_class=privacy.PrivateFailureRoute)
+
+    @router.get(path)
+    async def endpoint():
+        raise HTTPException(status, 'PRIVATE response')
+
+    app.include_router(router)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url='https://api.invalid') as client:
+        response = await client.get(path)
+    assert response.status_code == status
+    assert response.json() == {'detail': 'PRIVATE response'}
+    diagnostics = [record for record in caplog.records if record.name == privacy.__name__]
+    assert len(diagnostics) == 1
+    assert f' release={expected} ' in diagnostics[0].getMessage()
+    assert len(events) == (1 if status >= 500 else 0)
+    if events:
+        assert events[0]['release'] == expected
+        assert privacy.redact_workouts_event(events[0])['release'] == expected
+    assert 'PRIVATE' not in repr(events) + repr(diagnostics[0].args)
+
+
 @pytest.mark.parametrize('product,route_class', [('baby', BabyRoute), ('workouts', WorkoutsRoute)])
 @pytest.mark.parametrize('failure,status,code', [
     ('typed', 503, 'provider_unavailable'), ('private', 409, 'unknown'),
