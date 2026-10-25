@@ -4,18 +4,20 @@
 
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 
 from app.domains.workouts.automation_models import WorkoutProposal
 from app.domains.workouts.models import WorkoutRecord, WorkoutVersion
 from tests.test_workouts_coach_integration import action, coach_api, send  # noqa: F401
 from tests.test_workouts_data_integration import GENERATION, data_api  # noqa: F401
-from tests.test_workouts_imported_adaptation import NAMES, imported
+from tests.test_workouts_imported_adaptation import shortening_case
 
 
-async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_api):
+@pytest.mark.parametrize("kind", ["rounds", "sets", "timed", "amrap"])
+async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_api, kind):
     api = coach_api
-    payload = imported().model_dump(mode="json", exclude={"id", "version", "parent_version_id"})
+    payload = shortening_case(kind).model_dump(mode="json", exclude={"id", "version", "parent_version_id"})
     payload["capture_kind"] = "text"
     created = await api.client.post("/api/v1/workouts/library", headers=GENERATION, json=payload)
     assert created.status_code == 201, created.text
@@ -30,8 +32,12 @@ async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_a
     async with api.sessions() as db:
         proposal = await db.get(WorkoutProposal, UUID(receipt["proposal_id"]))
         suggested = proposal.content["workout"]
-        assert suggested["blocks"][0]["rounds"] == 1
-        assert [item["name"] for item in suggested["blocks"][0]["exercises"]] == NAMES
+        assert suggested["instructions"][0] == "Shortened by Coach: " + " ".join(proposal.content["changes"])
+        assert payload["instructions"][0] in suggested["instructions"][1]
+        assert suggested["blocks"][0]["label"] == "Shortened by Coach"
+        expected_count = 8 if kind == "timed" else len(payload["blocks"][0]["exercises"])
+        assert [item["name"] for item in suggested["blocks"][0]["exercises"]] == [
+            item["name"] for item in payload["blocks"][0]["exercises"][:expected_count]]
         assert suggested["parent_version_id"] == original["content"]["id"] and suggested["provenance"] == "suggestion"
         assert (await db.get(WorkoutRecord, UUID(original["id"]))).content == original["content"]
         assert len((await db.scalars(select(WorkoutRecord))).all()) == 1

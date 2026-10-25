@@ -25,7 +25,7 @@ from app.domains.workouts.schemas import (
     WorkoutContent,
 )
 
-RULE_VERSION = "hafa-general-2026-10-25.1"
+RULE_VERSION = "hafa-general-2026-10-25.2"
 SOURCES = {
     "cdc-adults": "https://www.cdc.gov/physical-activity-basics/guidelines/adults.html",
     "hhs-gradual": "https://www.niddk.nih.gov/-/media/Files/Diet-Nutrition/Physical_Activity_Guidelines_2nd_edition.pdf",
@@ -506,6 +506,27 @@ def build_program(profile: TrainingProfile, start_date: date, weeks: int = 4) ->
     return ProgramProposal(status=status, sessions=sessions, **base)
 
 
+def _shortened_directions(workout: WorkoutContent, block: WorkoutBlock, changes: list[str]) -> None:
+    # Blocks have no instructions field. Imports store their original directions
+    # in block evidence and project them into workout.instructions.
+    original = list(dict.fromkeys([
+        *workout.instructions,
+        *(entry.wording for entry in block.evidence
+          if entry.field in {"workout_instructions", "workout_notes"}),
+    ]))
+    original.append(f"Original block: {block.label}")
+    workout.instructions = [
+        "Shortened by Coach: " + " ".join(changes),
+        "The creator's original directions below describe the full workout.\n\n"
+        + "\n\n".join(original),
+    ]
+    block.label = "Shortened by Coach"
+    # Retained instruction quotes support only the original section above.
+    # No source evidence is created for Coach's new directions or estimate.
+    block.evidence = [entry for entry in block.evidence
+                      if entry.field not in {"label", "estimated_minutes"}]
+
+
 def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list[str]:
     """Reduce explicit volume in one block; never infer reps or remove recovery blocks."""
     if len(workout.blocks) != 1 or not workout.blocks[0].exercises:
@@ -518,7 +539,9 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
         block.execution.time_cap_seconds = minutes * 60
         block.evidence = [e for e in block.evidence if not e.field.startswith("execution")]
         workout.estimated_minutes = minutes
-        return [f"Reduce the circuit time limit to {minutes} minutes; keep the same exercises."]
+        changes = [f"Reduce the circuit time limit to {minutes} minutes; keep the same exercises."]
+        _shortened_directions(workout, block, changes)
+        return changes
     rounds = block.rounds or 1
     if rounds > 1:
         fitting = math.floor(rounds * ratio)
@@ -527,7 +550,8 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
         block.rounds = fitting
         block.evidence = [e for e in block.evidence if e.field != "rounds"]
         fraction = fitting / rounds
-        changes = [f"Do {fitting} rounds instead of {rounds}; keep the same exercises and rest."]
+        unit = "round" if fitting == 1 else "rounds"
+        changes = [f"Do {fitting} {unit} instead of {rounds}; keep the same exercises and rest."]
     elif all(item.sets is not None and item.sets > 1 for item in block.exercises):
         counts = [math.floor(item.sets * ratio) for item in block.exercises]
         if min(counts) < 1:
@@ -535,7 +559,8 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
         fraction = max(count / item.sets for item, count in zip(block.exercises, counts))
         changes = []
         for item, count in zip(block.exercises, counts):
-            changes.append(f"Do {count} sets of {item.name} instead of {item.sets}; keep the same reps and rest.")
+            unit = "set" if count == 1 else "sets"
+            changes.append(f"Do {count} {unit} of {item.name} instead of {item.sets}; keep the same reps and rest.")
             item.sets = count
             item.evidence = [e for e in item.evidence if e.field != "sets"]
     elif block.grouping == "circuit" and all(
@@ -556,7 +581,9 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
     else:
         return []
     workout.estimated_minutes = math.ceil(source_minutes * fraction)
-    return changes + ["The shorter time is an estimate based on less work; take the rest you need."]
+    changes.append("The shorter time is an estimate based on less work; take the rest you need.")
+    _shortened_directions(workout, block, changes)
+    return changes
 
 
 def adapt_workout(

@@ -65,7 +65,9 @@ def test_shortening_unknown_import_reduces_rounds_preserves_content_and_parent()
                and item.provenance == "suggestion" for item in suggestion.blocks[0].exercises)
     assert suggestion.blocks[0].exercises[0].load is None
     assert [e.field for e in suggestion.blocks[0].exercises[0].evidence] == ["duration_seconds"]
-    assert suggestion.instructions == source.instructions and suggestion.notes == source.notes
+    assert source.instructions[0] in suggestion.instructions[1]
+    assert suggestion.instructions[0].startswith("Shortened by Coach: Do 1 round instead of 3;")
+    assert suggestion.notes == source.notes
     assert suggestion.estimated_minutes <= 10 and any("estimate" in c for c in result.changes)
     assert source.model_dump(mode="json") == before
 
@@ -101,6 +103,80 @@ def test_shorter_amrap_keeps_unknown_moves_and_repetition_targets():
     assert result.workout.blocks[0].rounds is None
     assert [item.name for item in result.workout.blocks[0].exercises] == NAMES
     assert source.blocks[0].execution.time_cap_seconds == 1200
+
+
+def shortening_case(kind):
+    source = imported()
+    directions = "Repeat for 3 rounds."
+    if kind == "sets":
+        source.blocks[0].rounds = None
+        for item in source.blocks[0].exercises:
+            item.sets = 4
+        directions = "Do 4 sets of each exercise."
+    elif kind == "timed":
+        source.title = "20-Minute Bodyweight Workout for Beginners (No Repeats)"
+        source.estimated_minutes = 20
+        block = source.blocks[0]
+        block.rounds = 1
+        block.exercises = [block.exercises[0].model_copy(deep=True, update={
+            "name": f"Move {index}", "duration_seconds": 45, "rest_seconds": 15,
+        }) for index in range(1, 17)]
+        directions = "16 Bodyweight Beginner Exercises. Work for 45 seconds, rest for 15 seconds."
+    elif kind == "amrap":
+        source.blocks[0].rounds = None
+        source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
+        directions = "20-minute AMRAP."
+    source.instructions = [directions]
+    source.blocks[0].label = directions
+    source.blocks[0].evidence = [
+        Evidence(field="workout_instructions", wording=directions, location="caption"),
+        Evidence(field="label", wording=directions, location="caption"),
+        Evidence(field="estimated_minutes", wording="20 minutes", location="caption"),
+    ]
+    return source
+
+
+@pytest.mark.parametrize("kind", ["rounds", "sets", "timed", "amrap"])
+@pytest.mark.parametrize("instruction_count", [0, 1, 100])
+def test_shortened_directions_separate_coach_plan_from_unchanged_original(kind, instruction_count):
+    source = shortening_case(kind)
+    source.instructions = [source.instructions[0]] * instruction_count
+    if instruction_count == 0:
+        source.blocks[0].label = "Circuit"
+        source.blocks[0].evidence = []
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, profile(), 10)
+    assert result.status == "ready", result.questions
+    saved = WorkoutContent.model_validate_json(result.workout.model_dump_json())
+    assert saved.instructions[0] == "Shortened by Coach: " + " ".join(result.changes)
+    assert saved.instructions[1].startswith(
+        "The creator's original directions below describe the full workout.\n\n")
+    assert all(text in saved.instructions[1] for text in source.instructions)
+    assert f"Original block: {source.blocks[0].label}" in saved.instructions[1]
+    assert saved.blocks[0].label == "Shortened by Coach"
+    assert saved.blocks[0].evidence == [
+        entry for entry in source.blocks[0].evidence if entry.field == "workout_instructions"]
+    assert all("Coach" not in entry.wording for entry in saved.blocks[0].evidence)
+    assert source.model_dump(mode="json") == before
+    assert all(change.endswith(".") for change in result.changes)
+    assert not any(term in " ".join(result.changes)
+                   for term in ("D03", "catalog", "source_minutes", "execution", "provenance"))
+    if kind == "timed":
+        assert len(saved.blocks[0].exercises) == 8 and saved.estimated_minutes == 10
+        assert result.changes == [
+            "Leave out the final 8 exercises: Move 9, Move 10, Move 11, Move 12, Move 13, Move 14, Move 15, Move 16. Keep the remaining moves and rest.",
+            "The shorter time is an estimate based on less work; take the rest you need.",
+        ]
+    elif kind == "amrap":
+        assert result.changes == ["Reduce the circuit time limit to 10 minutes; keep the same exercises."]
+
+
+def test_block_only_directions_are_retained_as_original_text():
+    source = shortening_case("rounds")
+    source.instructions = []
+    result = adapt_workout(source, profile(), 10)
+    assert "Repeat for 3 rounds." in result.workout.instructions[1]
+    assert result.workout.blocks[0].evidence[0] == source.blocks[0].evidence[0]
 
 
 @pytest.mark.parametrize("minutes,changes", [(None, {}), (10, {"movement_exclusions": ["impact"]})])
