@@ -77,6 +77,7 @@ class WorkoutsImportRoute(WorkoutsRoute):
             # Preserve disabled404 before parsing/auth/DB, even while another upload runs.
             return await super().handle(scope, receive, send)
         if not _import_ingress.acquire(blocking=False):
+            scope["private_failure_code"] = "workouts_import_busy"
             await JSONResponse(
                 {"detail": "workouts_import_busy"},
                 status_code=429,
@@ -104,6 +105,7 @@ class WorkoutsImportRoute(WorkoutsRoute):
                 if started:
                     # Abort partial response; never append another JSON/status to it.
                     raise
+                scope["private_failure_code"] = "workouts_import_timeout"
                 await JSONResponse(
                     {"detail": "workouts_import_timeout"},
                     status_code=408,

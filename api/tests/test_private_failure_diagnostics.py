@@ -1,5 +1,7 @@
 """Private request failures remain useful without retaining private content."""
 
+import asyncio
+import threading
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -10,7 +12,7 @@ from starlette.responses import JSONResponse
 
 from app.domains.baby.security import BabyRoute
 from app.domains.workouts import privacy
-from app.domains.workouts.security import WorkoutsRoute
+from app.domains.workouts.security import WorkoutsImportRoute, WorkoutsRoute
 from app.request_context import RequestContextMiddleware
 
 
@@ -78,6 +80,66 @@ async def test_private_route_failure_is_content_free_and_preserves_response(
     diagnostic = [record.getMessage() for record in caplog.records if record.name == privacy.__name__]
     assert len(diagnostic) == 1 and 'PRIVATE' not in diagnostic[0]
     assert 'request' not in clean and 'exception' not in clean
+
+
+@pytest.mark.parametrize('busy,status,code', [
+    (True, 429, 'workouts_import_busy'), (False, 408, 'workouts_import_timeout'),
+])
+async def test_real_import_route_early_failures_keep_fixed_private_diagnostics(
+    monkeypatch, caplog, busy, status, code,
+):
+    from app.domains.workouts import security
+
+    settings = SimpleNamespace(workouts_api_enabled=True, app_release_id='synthetic-release')
+    for module in (privacy, security):
+        monkeypatch.setattr(module, 'get_settings', lambda: settings)
+    gate = threading.Lock()
+    if busy:
+        gate.acquire()
+    monkeypatch.setattr(security, '_import_ingress', gate)
+    monkeypatch.setattr(security, 'IMPORT_INGRESS_SECONDS', 0.03)
+    events = []
+    monkeypatch.setattr(privacy.sentry_sdk, 'capture_event', events.append)
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+    router = APIRouter(prefix='/api/v1/workouts', route_class=WorkoutsImportRoute)
+
+    @router.post('/imports/{record_id}')
+    async def endpoint(record_id: str, payload: dict):
+        pytest.fail('Early import rejection must precede the endpoint')
+
+    app.include_router(router)
+
+    async def body():
+        assert not busy, 'Busy ingress must not consume the body'
+        yield b'{"source":"PRIVATE"'
+        await asyncio.Event().wait()
+
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url='https://api.invalid') as client:
+            response = await client.post('/api/v1/workouts/imports/PRIVATE?secret=PRIVATE',
+                                         content=body(), headers={'X-Request-ID': 'PRIVATE',
+                                                                 'X-Hafa-Account-ID': 'PRIVATE'})
+        assert response.status_code == status
+        assert response.json() == {'detail': code}
+        assert response.headers['Retry-After'] == '2'
+        assert response.headers['Cache-Control'] == 'no-store'
+        assert gate.locked() == busy
+        assert len(events) == 1
+        clean = privacy.redact_workouts_event(events[0])
+        tags = clean['tags']
+        assert tags == {'product': 'workouts', 'route': '/api/v1/workouts/imports/{record_id}',
+                        'http_status': str(status), 'error_code': code, 'stage': 'request',
+                        'correlation_id': tags['correlation_id']}
+        assert UUID(tags['correlation_id']).version == 4
+        assert 'PRIVATE' not in repr(events) + repr(clean)
+        diagnostic = [record.getMessage() for record in caplog.records if record.name == privacy.__name__]
+        assert len(diagnostic) == 1 and f'error_code={code}' in diagnostic[0]
+        assert 'PRIVATE' not in diagnostic[0]
+    finally:
+        if gate.locked():
+            gate.release()
 
 
 def test_coach_compatibility_keeps_only_allowlisted_tags():
