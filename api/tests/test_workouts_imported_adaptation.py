@@ -117,7 +117,7 @@ def shortening_case(kind):
             item.sets = 4
             item.reps_min, item.duration_seconds = 8, None
         directions = "Do 4 sets of each exercise."
-    elif kind == "timed":
+    elif kind in {"timed", "timed_sequential"}:
         source.title = "20-Minute Bodyweight Workout for Beginners (No Repeats)"
         source.estimated_minutes = 20
         block = source.blocks[0]
@@ -126,6 +126,10 @@ def shortening_case(kind):
             "name": f"Move {index}", "duration_seconds": 45, "rest_seconds": 15,
         }) for index in range(1, 17)]
         directions = "16 Bodyweight Beginner Exercises. Work for 45 seconds, rest for 15 seconds."
+        if kind == "timed_sequential":
+            block.grouping, block.rounds = "sequential", None
+            for item in block.exercises:
+                item.sets = 1
     elif kind == "amrap":
         source.blocks[0].rounds = None
         source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
@@ -141,6 +145,67 @@ def shortening_case(kind):
         Evidence(field="estimated_minutes", wording="20 minutes", location="caption"),
     ]
     return source
+
+
+def test_sequential_single_pass_keeps_first_eight_prescriptions_and_source_cues():
+    source = shortening_case("timed_sequential")
+    for item in source.blocks[0].exercises:
+        item.evidence += [Evidence(field="duration_seconds", wording="45 seconds"),
+                          Evidence(field="rest_seconds", wording="15 seconds")]
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, profile(), 10)
+    assert result.status == "ready", result.questions
+    saved = WorkoutContent.model_validate_json(result.workout.model_dump_json())
+    block = saved.blocks[0]
+    assert saved.estimated_minutes == 10 and len(block.exercises) == 8
+    assert block.grouping == "sequential" and block.rounds is None
+    assert block.rest_between_rounds_seconds == source.blocks[0].rest_between_rounds_seconds
+    assert saved.parent_version_id == source.id and saved.version == source.version + 1
+    for item, original in zip(block.exercises, source.blocks[0].exercises[:8], strict=True):
+        expected = original.model_dump(exclude={"instructions", "evidence", "provenance"})
+        assert item.model_dump(exclude={"instructions", "evidence", "provenance"}) == expected
+        assert item.evidence == [entry for entry in original.evidence if entry.field != "instructions"]
+    originals = original_directions(saved)
+    assert all(f"Original exercise directions for {item.name}:\n{item.instructions}" in originals
+               for item in source.blocks[0].exercises)
+    assert block.evidence == [entry for entry in source.blocks[0].evidence
+                              if entry.field == "workout_instructions"]
+    assert source.model_dump(mode="json") == before
+    assert adapt_workout(source, profile(), 10).workout == result.workout
+
+
+@pytest.mark.parametrize("change", ["duration", "rest", "reps", "distance", "sets", "recovery", "execution",
+                                    "exclusions", "substitution", "interval", "superset"])
+def test_sequential_tail_reduction_keeps_ambiguous_and_unsupported_cases_gated(change):
+    source = shortening_case("timed_sequential")
+    item = source.blocks[0].exercises[0]
+    training_profile = profile()
+    if change == "duration":
+        item.duration_seconds, item.reps_min = None, 8
+    elif change == "rest":
+        item.rest_seconds = None
+    elif change == "reps":
+        item.reps_min = 8
+    elif change == "distance":
+        item.distance_meters = 100
+    elif change == "sets":
+        item.sets = None
+    elif change == "recovery":
+        source.blocks.append(WorkoutBlock(id="cooldown", label="Cooldown", rounds=1,
+                                         exercises=[item.model_copy(deep=True)]))
+    elif change == "execution":
+        source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
+    elif change == "exclusions":
+        training_profile = profile(movement_exclusions=["impact"])
+    elif change == "substitution":
+        item.name = "Push Ups"
+        training_profile = profile(equipment=["wall"], movement_exclusions=["floor"])
+    else:
+        source.blocks[0].grouping = change
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, training_profile, 10)
+    assert result.status in {"needs_information", "conflicts"} and result.workout is None
+    assert source.model_dump(mode="json") == before
 
 
 def original_directions(workout):

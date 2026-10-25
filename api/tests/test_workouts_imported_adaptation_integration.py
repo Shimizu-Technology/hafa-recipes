@@ -19,8 +19,8 @@ from tests.test_workouts_imported_adaptation import (
 )
 
 
-@pytest.mark.parametrize("kind", ["rounds", "sets", "timed", "amrap", "long_cues"])
-async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_api, kind):
+@pytest.mark.parametrize("kind", ["rounds", "sets", "timed", "timed_sequential", "amrap", "long_cues"])
+async def test_coach_shortens_imported_workout_and_accepts_separate_copy(coach_api, kind):
     api = coach_api
     source = shortening_case("sets" if kind == "long_cues" else kind)
     if kind == "long_cues":
@@ -34,7 +34,8 @@ async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_a
     api.provider.action = "adapt_saved_workout", {
         "workout_id": original["id"], "expected_revision": 1, "minutes": 10,
     }
-    response = await send(api, "Make my imported circuit shorter")
+    response = await send(api, "Shorten to 10 minutes; keep the first 8 moves at 45 seconds work and 15 rest, leaving out the final 8."
+                          if kind == "timed_sequential" else "Make my imported circuit shorter")
     assert response.status_code == 200, response.text
     receipt = response.json()["actions"][0]
     assert receipt["status"] == "ready"
@@ -53,7 +54,7 @@ async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_a
             assert source_item["instructions"] not in item["instructions"]
             if kind == "sets":
                 assert item["sets"] == 2 and item["reps_min"] == 8
-        expected_count = 8 if kind == "timed" else len(payload["blocks"][0]["exercises"])
+        expected_count = 8 if kind in {"timed", "timed_sequential"} else len(payload["blocks"][0]["exercises"])
         assert [item["name"] for item in suggested["blocks"][0]["exercises"]] == [
             item["name"] for item in payload["blocks"][0]["exercises"][:expected_count]]
         assert suggested["parent_version_id"] == original["content"]["id"] and suggested["provenance"] == "suggestion"
@@ -76,6 +77,15 @@ async def test_coach_shortens_imported_circuit_and_accepts_separate_copy(coach_a
         assert saved_content[field] == suggested[field]
     assert saved_content["parent_version_id"] == str(parent_version)
     assert saved_content["version"] == 1 and saved_content["id"] == accepted.json()["record_id"]
+    if kind == "timed_sequential":
+        assert saved_content["estimated_minutes"] == 10
+        block = saved_content["blocks"][0]
+        assert block["grouping"] == "sequential" and block["rounds"] is None
+        for item, source_item in zip(block["exercises"], payload["blocks"][0]["exercises"][:8], strict=True):
+            for field in ("name", "sets", "reps_min", "reps_max", "duration_seconds", "rest_seconds", "per_side", "exercise_id"):
+                assert item[field] == source_item[field]
+        async with api.sessions() as db:
+            assert len((await db.scalars(select(WorkoutRecord))).all()) == 2
     unchanged = await api.client.get(f"/api/v1/workouts/library/{original['id']}")
     assert unchanged.json() == original
 

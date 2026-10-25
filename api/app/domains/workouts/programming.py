@@ -25,7 +25,7 @@ from app.domains.workouts.schemas import (
     WorkoutContent,
 )
 
-RULE_VERSION = "hafa-general-2026-10-25.2"
+RULE_VERSION = "hafa-general-2026-10-25.3"
 SOURCES = {
     "cdc-adults": "https://www.cdc.gov/physical-activity-basics/guidelines/adults.html",
     "hhs-gradual": "https://www.niddk.nih.gov/-/media/Files/Diet-Nutrition/Physical_Activity_Guidelines_2nd_edition.pdf",
@@ -584,7 +584,15 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
             changes.append(f"Do {count} {unit} of {item.name} instead of {item.sets}; keep the same reps and rest.")
             item.sets = count
             item.evidence = [e for e in item.evidence if e.field != "sets"]
-    elif block.grouping == "circuit" and all(
+    elif (block.grouping == "circuit" or (
+        # A single timed pass can keep its prefix without inventing optional
+        # work. Mixed rep/distance targets or unknown rest still need review.
+        block.grouping == "sequential" and all(
+            item.rest_seconds is not None and item.reps_min is None
+            and item.reps_max is None and item.distance_meters is None
+            for item in block.exercises
+        )
+    )) and all(
         item.duration_seconds is not None and item.sets in (None, 1)
         for item in block.exercises
     ):
