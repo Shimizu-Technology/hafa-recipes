@@ -43,7 +43,8 @@ def conversation_response(row):
 
 def clean_assistant_message(message):
     """Structured citation cards carry references; model control glyphs never do."""
-    message = re.sub(r"\ue200cite\ue202.*?(?:\ue201|$)", "", message, flags=re.S)
+    # A marker is cite + ID(s); an unterminated one must not swallow the answer after it.
+    message = re.sub(r"\ue200cite(?:\ue202[^\s\ue200-\ue2ff]*)+\ue201?", "", message)
     message = re.sub(r"[\ue200-\ue2ff]", "", message)
     message = re.sub(r"[ \t]+([,.;:!?])", r"\1", message)
     return re.sub(r"[ \t]{2,}", " ", message).strip()

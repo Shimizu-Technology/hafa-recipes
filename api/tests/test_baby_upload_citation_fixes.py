@@ -55,6 +55,7 @@ async def test_heif_normalizes_to_metadata_free_webp_without_changing_other_call
         ),
         ("Keep \ue2ffwords\ue201, please.", "Keep words, please."),
         ("First line\nSecond \ue200cite\ue202unfinished", "First line\nSecond"),
+        ("Back \ue200cite\ue202abc-123 sleep is safest.", "Back sleep is safest."),
     ],
 )
 def test_clean_assistant_citations_and_stored_response(raw, expected):
