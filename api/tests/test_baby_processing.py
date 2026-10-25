@@ -292,3 +292,23 @@ async def test_uploaded_video_sampling_retains_missing_frame_warning(monkeypatch
     assert any("Some visual frames could not be read" in note for note in notes) is frame_failure
     assert result["data"]["platform"] == "upload"
     assert result["data"]["evidence"][0]["text"] == "Creator's spoken words"
+
+
+async def test_extraction_contract_requires_and_returns_a_source_title(monkeypatch):
+    from pydantic import ValidationError
+
+    from app.domains.baby.provider import BabyProvider
+
+    provider = BabyProvider()
+
+    async def json_call(**kwargs):
+        assert kwargs["output_model"] is ExtractionOutput
+        assert "{title,summary" in kwargs["instructions"]
+        assert "never a generic placeholder" in kwargs["instructions"]
+        with pytest.raises(ValidationError):
+            kwargs["output_model"].model_validate({"summary": "Title was omitted"})
+        return kwargs["output_model"].model_validate({"title": "Recognizing feeding cues"})
+
+    monkeypatch.setattr(provider, "json_call", json_call)
+    result = await provider.extract(SourceBundle(SourceMetadata(), parts=[SourcePart("text", "Feeding cues")]))
+    assert result.title == "Recognizing feeding cues"

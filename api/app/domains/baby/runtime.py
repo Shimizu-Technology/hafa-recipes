@@ -21,6 +21,7 @@ from app.domains.baby.models import (
 )
 from app.domains.baby.processing import process_capture
 from app.domains.baby.provider import BabyProvider
+from app.domains.baby.schemas import DEFAULT_SOURCE_TITLE
 
 logger = logging.getLogger("hafa.baby.worker")
 WORKER_LOCK = 7340050
@@ -303,6 +304,7 @@ class BabyWorker:
                     # Preserve the editable body, child and original attachments.
                     if result.get("title") and (
                         not request.get("record_id")
+                        or (not request.get("automatic") and source.title == DEFAULT_SOURCE_TITLE)
                         or (
                             request.get("automatic")
                             and source.title == request.get("automatic_title")

@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.lifecycle import digest, membership_for, now, owned, validate_relations
 from app.domains.baby.models import BabyImport, BabyRecord
-from app.domains.baby.schemas import ImportCreate, SourceData
+from app.domains.baby.schemas import DEFAULT_SOURCE_TITLE, ImportCreate, SourceData
 from app.domains.baby.security import BabyRoute
 
 router = APIRouter(tags=["baby"], route_class=BabyRoute)
@@ -112,8 +112,8 @@ async def admit_import(body, user, db, generation, *, automatic=False):
             db, user.id, generation, source.child_id, {"attachment_ids": request["attachment_ids"]}
         )
         original_text = (source.data.get("source_text") or "").strip()
-        caption_title = original_text.splitlines()[0][:100] if original_text else "Saved source"
-        if automatic and source.revision == 1 and source.title in {"Saved source", caption_title}:
+        caption_title = original_text.splitlines()[0][:100] if original_text else DEFAULT_SOURCE_TITLE
+        if automatic and source.revision == 1 and source.title in {DEFAULT_SOURCE_TITLE, caption_title}:
             request["automatic_title"] = source.title
         source.data = {**source.data, "status": "queued"}
         source.revision, source.updated_at = source.revision + 1, now()
@@ -132,7 +132,7 @@ async def admit_import(body, user, db, generation, *, automatic=False):
             app_user_id=user.id,
             generation=generation,
             kind="source",
-            title=title_text.splitlines()[0][:100] if title_text else "Saved source",
+            title=title_text.splitlines()[0][:100] if title_text else DEFAULT_SOURCE_TITLE,
             body="",
             child_id=body.child_id,
             occurred_at=now(),

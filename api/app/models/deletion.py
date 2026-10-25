@@ -3,6 +3,7 @@
 import uuid
 
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -43,6 +44,10 @@ class DeletionCleanupJob(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
+        CheckConstraint(
+            "kind IN ('account','recipe','workout_media','baby_media')",
+            name="ck_deletion_cleanup_kind",
+        ),
         Index(
             "uq_deletion_cleanup_account_user",
             "app_user_id",

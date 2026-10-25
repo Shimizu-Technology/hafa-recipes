@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from typing import Iterator, Mapping
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
+
+register_heif_opener(thumbnails=False)
 
 MAX_IMAGE_DIMENSION = 12_000
 MAX_IMAGE_PIXELS = 40_000_000
@@ -18,6 +21,7 @@ ALLOWED_IMAGE_FORMATS = {
     "PNG": "image/png",
     "GIF": "image/gif",
     "WEBP": "image/webp",
+    "HEIF": "image/heif",
 }
 
 
@@ -224,8 +228,9 @@ def validate_image_bytes(
     *,
     max_bytes: int,
     declared_content_type: str | None = None,
+    allow_heif: bool = False,
 ) -> ValidatedImage:
-    """Validate byte size, real MIME type, dimensions, and decompression risk."""
+    """Validate bytes and dimensions; HEIF callers opt in and normalize before AI use."""
     if not image_data:
         raise ImageValidationError("Image data is required")
     if len(image_data) > max_bytes:
@@ -237,7 +242,7 @@ def validate_image_bytes(
             with Image.open(io.BytesIO(image_data)) as image:
                 image_format = (image.format or "").upper()
                 content_type = ALLOWED_IMAGE_FORMATS.get(image_format)
-                if not content_type:
+                if not content_type or (image_format == "HEIF" and not allow_heif):
                     raise ImageValidationError("Unsupported image format")
 
                 width, height = image.size
@@ -257,6 +262,8 @@ def validate_image_bytes(
         raise ImageValidationError("Image data is corrupt or unsupported") from exc
 
     normalized_declared_type = (declared_content_type or "").split(";", 1)[0].lower()
+    if normalized_declared_type == "image/heic":
+        normalized_declared_type = "image/heif"
     if normalized_declared_type == "image/jpg":
         normalized_declared_type = "image/jpeg"
     if normalized_declared_type and normalized_declared_type != content_type:

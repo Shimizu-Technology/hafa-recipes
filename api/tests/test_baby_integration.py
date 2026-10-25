@@ -55,6 +55,9 @@ async def baby_api(monkeypatch):
             baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20
         )
         await migration.run_migration(configured=settings, migration_engine=engine)
+        await importlib.import_module("migrations.052_allow_baby_media_cleanup").run_migration(
+            configured=settings, migration_engine=engine
+        )
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         async with sessions() as db:
             db.add_all([AppUser(id="owner"), AppUser(id="other")])
@@ -348,7 +351,7 @@ async def test_grounded_chat_history_idempotency_proposal_and_consent(baby_api, 
         calls.append(kwargs)
         await self.gate()
         return AnswerOutput(
-            message="Your saved reference mentions passports.",
+            message=f"Your saved reference mentions passports \ue200cite\ue202{source['id']}\ue201.",
             citation_ids=[source["id"]],
             proposal={
                 "kind": "question",
@@ -370,6 +373,15 @@ async def test_grounded_chat_history_idempotency_proposal_and_consent(baby_api, 
     response = await c.post("/api/v1/baby/chat", headers=GEN, json=body)
     assert response.status_code == 200, response.text
     value = response.json()
+    assert value["message"] == "Your saved reference mentions passports."
+    async with baby_api.sessions() as db:
+        from app.domains.baby.models import BabyMessage
+
+        saved_answer = await db.scalar(select(BabyMessage).where(BabyMessage.role == "assistant"))
+        assert saved_answer.content["message"] == value["message"]
+        # Simulate an answer saved before the sanitizer was deployed.
+        saved_answer.content = {**saved_answer.content, "message": value["message"] + " \ue200cite\ue202old-id\ue201"}
+        await db.commit()
     assert value["citations"] == [
         {
             "id": source["id"],
@@ -381,9 +393,11 @@ async def test_grounded_chat_history_idempotency_proposal_and_consent(baby_api, 
     assert value["proposal"]["kind"] == "question"
     replay = await c.post("/api/v1/baby/chat", headers=GEN, json=body)
     assert replay.status_code == 200 and len(calls) == 1
+    assert replay.json()["message"] == value["message"]
     assert (await c.get("/api/v1/baby/records")).json()["total"] == 1  # Proposal is not saved.
     history = (await c.get(f"/api/v1/baby/conversations/{value['conversation_id']}")).json()
     assert [item["role"] for item in history["messages"]] == ["user", "assistant"]
+    assert history["messages"][1]["content"] == value["message"]
     assert (
         await c.get(
             f"/api/v1/baby/conversations/{value['conversation_id']}",
@@ -408,14 +422,15 @@ async def test_deleted_record_and_child_ids_cannot_resurrect_by_offline_replay(b
     assert (await c.get("/api/v1/baby/children")).json()["items"] == []
 
 
-async def test_process_existing_source_preserves_one_record(baby_api):
+@pytest.mark.parametrize("title,edit_during", [("Saved source", False), ("My chosen title", False), ("Saved source", True)])
+async def test_process_existing_source_preserves_one_record(baby_api, title, edit_during):
     c = baby_api.client
     created = (
         await c.post(
             "/api/v1/baby/records",
             headers=GEN,
             json=payload(
-                "source", body="My own note", data={"source_text": "Existing source text"}
+                "source", title=title, body="My own note", data={"source_text": "Existing source text"}
             ),
         )
     ).json()
@@ -427,6 +442,13 @@ async def test_process_existing_source_preserves_one_record(baby_api):
     assert response.status_code == 200 and response.json()["record_id"] == created["id"]
 
     async def processor(*args, **kwargs):
+        if edit_during:
+            current = (await c.get(f"/api/v1/baby/records/{created['id']}")).json()
+            edited = await c.patch(
+                f"/api/v1/baby/records/{created['id']}", headers=GEN,
+                json={"revision": current["revision"], "title": "Edited while processing"},
+            )
+            assert edited.status_code == 200
         return {
             "title": "Organized",
             "data": {
@@ -441,6 +463,10 @@ async def test_process_existing_source_preserves_one_record(baby_api):
     records = (await c.get("/api/v1/baby/records")).json()
     assert records["total"] == 1
     assert records["items"][0]["body"] == "My own note"
+    expected = "Edited while processing" if edit_during else ("Organized" if title == "Saved source" else title)
+    assert records["items"][0]["title"] == expected
+    if edit_during:
+        assert records["items"][0]["data"]["status"] == "incomplete"
 
 
 async def test_local_private_storage_and_durable_budget_fence(baby_api, monkeypatch, tmp_path):
