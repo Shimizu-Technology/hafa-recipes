@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PropsWithChildren, type ReactNode, type Ref } from "react";
-import { AccessibilityInfo, Animated, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewProps, type ViewStyle } from "react-native";
+import { AccessibilityInfo, Animated, Dimensions, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewProps, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Copy, IconButton, useColors, useReducedMotion } from "./ui";
@@ -25,7 +25,12 @@ export function CoachChatShell({ children, title = "Coach", menu, banner, footer
   const sheet = Platform.OS === "ios";
   const root = useRef<View | null>(null);
   const [offset, setOffset] = useState(0);
-  const measure = () => root.current?.measureInWindow?.((_x, y) => setOffset(Math.max(0, y)));
+  // The keyboard frame is in screen coordinates. Inside an iOS page sheet,
+  // measureInWindow reports the sheet's own origin (0), which left the composer
+  // behind the keyboard; a page sheet is bottom-anchored, so its top gap is the
+  // screen height minus the sheet's height.
+  const measure = () => root.current?.measureInWindow?.((_x, y, _width, height) => setOffset(
+    sheet && height > 0 ? Math.max(0, Dimensions.get("screen").height - height) : Math.max(0, y)));
   // Measure again once the sheet has finished sliding in; the first layout can land mid-animation.
   useEffect(() => { const timer = setTimeout(measure, 600); return () => clearTimeout(timer); }, []);
   const column: ViewStyle = { width: "100%", maxWidth: contentWidth, alignSelf: "center" };

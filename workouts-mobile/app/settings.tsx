@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, Linking, Text, View } from "react-native";
+import Constants from "expo-constants";
 import { Image } from "expo-image";
 import { useAuth, useClerk } from "@clerk/expo";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,7 @@ import { radii, spacing, typography } from "@/constants/theme";
 import { useAccountIdentity } from "@/components/account-identity";
 import { suspendNativeSharing } from "@/lib/native-share-session";
 import { useTraining } from "@/lib/context";
-import { configuration } from "@/lib/config";
+import { configuration, PRIVACY_POLICY_URL, SUPPORT_URL } from "@/lib/config";
 import { logoutBinding } from "@/lib/logout-recovery";
 
 const avatarSize = 56;
@@ -55,6 +56,14 @@ export default function Settings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const signingOut = useRef(false);
+  async function openLink(url: string) {
+    setError("");
+    try {
+      await Linking.openURL(url);
+    } catch {
+      setError(`Could not open ${url}. Try again from a browser.`);
+    }
+  }
   async function signOut() {
     if (signingOut.current) return;
     if (!sessionId || !userId) { setError("Your sign-in session is still loading. Try signing out again."); return; }
@@ -109,12 +118,18 @@ export default function Settings() {
         <ListRow title="Safety Center" icon="shield-checkmark-outline" detail="Manage blocked contributors" onPress={() => router.push("/safety")} />
         <ListRow title="Sharing links" icon="link-outline" onPress={() => router.push("/sharing-links")} />
         <ListRow title="Account data and deletion" icon="shield-outline" onPress={() => router.push("/account-data")} />
+        <ListRow title="How Workouts uses your data" icon="document-text-outline" onPress={() => router.push("/privacy")} />
+        <ListRow title="Privacy policy" icon="open-outline" onPress={() => { void openLink(PRIVACY_POLICY_URL); }} />
+        <ListRow title="Help and support" icon="help-circle-outline" onPress={() => { void openLink(SUPPORT_URL); }} />
       </ListGroup>
       {!!error && <Notice error>{error}</Notice>}
       <ListGroup>
         <ListRow title={busy ? "Signing out…" : "Sign out"} icon="log-out-outline" destructive trailing="none"
           disabled={busy} onPress={confirmSignOut} />
       </ListGroup>
+      <Copy kind="small" tone="muted" align="center">
+        Håfa Workouts {Constants.expoConfig?.version ?? ""}
+      </Copy>
     </Screen>
   );
 }

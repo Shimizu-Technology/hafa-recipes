@@ -1,5 +1,5 @@
 import { useState, type PropsWithChildren, type Ref } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
+import { ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { Image } from "expo-image";
@@ -376,6 +376,7 @@ export function Segmented<T extends string>({
   );
 }
 
+let accessoryCount = 0;
 export function Field({
   label,
   value,
@@ -414,6 +415,11 @@ export function Field({
 }) {
   const c = useColors();
   const [focused, setFocused] = useState(false);
+  const traits = inputTraits(purpose, Platform.OS, numeric);
+  // iOS number pads have no return key; without a Done bar the keyboard hides
+  // the button below the field (Verify, Save set).
+  const pad = Platform.OS === "ios" && (traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad");
+  const [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (
     <View style={{ gap: 8, flexGrow: 1 }}>
       <Copy kind="label">
@@ -423,7 +429,8 @@ export function Field({
       <TextInput
         key={purpose ?? "general"}
         ref={inputRef}
-        {...inputTraits(purpose, Platform.OS, numeric)}
+        {...traits}
+        inputAccessoryViewID={pad ? accessory : undefined}
         returnKeyType={returnKeyType}
         onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
         submitBehavior={onSubmit && returnKeyType === "next" ? "submit" : undefined}
@@ -457,6 +464,17 @@ export function Field({
           },
         ]}
       />
+      {pad && (
+        <InputAccessoryView nativeID={accessory}>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", backgroundColor: c.surface,
+            borderTopWidth: 1, borderColor: c.border, paddingHorizontal: 12 }}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={() => Keyboard.dismiss()}
+              style={{ minHeight: touch.min, paddingHorizontal: 12, justifyContent: "center" }}>
+              <Copy kind="label" color={c.action}>Done</Copy>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      )}
     </View>
   );
 }

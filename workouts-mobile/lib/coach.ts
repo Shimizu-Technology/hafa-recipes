@@ -40,7 +40,8 @@ export interface CoachProposal {
   sessions?: ScheduledSession[];
   workout?: Workout;
   profile?: TrainingProfile;
-  changes?: Record<string, unknown>;
+  /** Profile/plan proposals map field → value; workout adjustments list plain-language sentences. */
+  changes?: Record<string, unknown> | string[];
   program?: {
     title: string;
     proposal: Omit<Program, "id" | "title" | "revision" | "generation" | "schedule_state">;

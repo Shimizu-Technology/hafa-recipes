@@ -10,11 +10,15 @@ vi.mock("@clerk/expo", () => ({ useClerk: () => clerk, useAuth: () => ({ userId:
 vi.mock("@/components/account-identity", () => ({ useAccountIdentity: () => ({ initial: "L", name: "Leon Shimizu", email: "leon@example.com" }) }));
 type AlertButton = { text: string; style?: string; onPress?(): void };
 const alert = vi.hoisted(() => vi.fn());
-vi.mock("react-native", () => ({ Alert: { alert }, Text: "Text", View: "View" }));
+vi.mock("react-native", () => ({ Alert: { alert }, Linking: { openURL: vi.fn(async () => true) }, Text: "Text", View: "View" }));
+vi.mock("expo-constants", () => ({ default: { expoConfig: { version: "1.0.0" } } }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: "owner" }) }));
-vi.mock("@/lib/config", () => ({ configuration: { clerkEnvironment: "production", clerkKey: "pk_live_synthetic" } }));
+vi.mock("@/lib/config", () => ({
+  configuration: { clerkEnvironment: "production", clerkKey: "pk_live_synthetic" },
+  PRIVACY_POLICY_URL: "https://example.com/privacy", SUPPORT_URL: "https://example.com/support",
+}));
 const navigation = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("expo-router", () => ({ router: navigation }));
 vi.mock("@/components/ui", () => ({

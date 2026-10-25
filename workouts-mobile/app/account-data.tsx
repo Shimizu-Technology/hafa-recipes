@@ -168,7 +168,7 @@ export default function AccountData() {
     <Screen
       back
       title="Account and data"
-      subtitle="Workouts and Recipes share one Håfa sign-in. Choose what to remove carefully."
+      subtitle="One Håfa account works across Håfa apps. Choose what to remove carefully."
     >
       <Card>
         <Copy kind="heading">Export saved Workouts records</Copy>
@@ -255,9 +255,9 @@ export default function AccountData() {
       <Card>
         <Copy kind="heading">Delete the whole Håfa account</Copy>
         <Copy>
-          Erases local Workouts drafts first, then requests deletion of your data in both Workouts and Recipes and signs
-          you out. Whole-account deletion also clears the remaining content-free import allowance records. External login and uploaded-file cleanup may continue after server data is erased. Previously
-          distributed copies remain independent.
+          Deletes your account and everything saved with it in every Håfa app, including Håfa Recipes and Håfa Baby,
+          then signs you out. Sign-in records and uploaded files may take a little longer to clear. Copies you already
+          shared with other people stay with them.
         </Copy>
         <Button
           title="Review whole-account deletion"
@@ -291,7 +291,7 @@ export default function AccountData() {
             label={
               mode === "workouts"
                 ? "I understand my saved training and device drafts will be erased."
-                : "I understand my Recipes and Workouts data will both be erased."
+                : "I understand my data in every Håfa app will be erased."
             }
             selected={confirmed}
             disabled={exportBusy}

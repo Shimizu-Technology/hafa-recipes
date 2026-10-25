@@ -17,9 +17,10 @@ describe("plan presentation", () => {
   });
   it("lists exercise targets compactly and keeps unknowns honest", () => {
     expect(exerciseTargets({ name: "Row", sets: 3, reps_min: 8, reps_max: 12, rest_seconds: 90 })).toBe("3 sets · 8–12 reps · 90s rest");
-    expect(exerciseTargets({ name: "Plank", duration_seconds: 30 })).toBe("Sets not specified · 30s target time");
+    expect(exerciseTargets({ name: "Plank", duration_seconds: 30 })).toBe("30s");
+    expect(exerciseTargets({ name: "Walk", sets: 1, duration_seconds: 600 })).toBe("1 set · 10 min");
     expect(exerciseTargets({ name: "Swing", reps_min: 10 }, true)).toBe("10 reps");
-    expect(exerciseTargets({ name: "Squat" })).toBe("Sets not specified · Reps not specified");
+    expect(exerciseTargets({ name: "Squat" })).toBe("");
   });
   it("shows effort once only when every exercise in the proposal shares it", () => {
     const steady = "Controlled, manageable repetitions; stop before form breaks down. Load is not inferred.";

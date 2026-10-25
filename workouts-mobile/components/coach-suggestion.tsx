@@ -88,7 +88,10 @@ export function CoachChangeRows({ summary }: { summary: ChangeSummary }) {
       <Copy kind="caption" tone="muted">{row.label}</Copy>
       <Copy kind="small">{row.before ? `${row.before} → ${row.after}` : row.after}</Copy>
     </View>)}
-    {!summary.rows.length && <Copy kind="small" tone="muted">Open details to see everything this changes.</Copy>}
+    {!!summary.changes?.length && <View style={{ gap: 4 }}>
+      {summary.changes.map((change, index) => <Copy key={`${index}:${change}`} kind="small">• {change}</Copy>)}
+    </View>}
+    {!summary.rows.length && !summary.changes?.length && <Copy kind="small" tone="muted">Open details to see everything this changes.</Copy>}
     {!!summary.note && <Copy kind="small" tone="muted">{summary.note}</Copy>}
   </View>;
 }

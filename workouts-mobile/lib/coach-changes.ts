@@ -5,7 +5,7 @@ import { exerciseTargets, formatPlanDate } from "./plan-presentation";
 
 /** One line of a suggested change: what it is now and what it becomes. */
 export interface ChangeRow { label: string; before?: string; after: string }
-export interface ChangeSummary { title: string; rows: ChangeRow[]; note?: string }
+export interface ChangeSummary { title: string; rows: ChangeRow[]; note?: string; changes?: string[] }
 /** What the change is applied to, read fresh so "before" is today's record. */
 export interface ChangeContext { profile?: TrainingProfile | null; workout?: Workout | null; program?: Program | null }
 
@@ -72,18 +72,25 @@ function sessionRows(before: ScheduledSession[], after: ScheduledSession[], ids:
 export function describeChange(action: CoachAction, context: ChangeContext): ChangeSummary {
   const p = action.proposal;
   if (action.kind === "profile") {
-    const rows = Object.entries(p.changes ?? {}).map(([key, value]) => ({
+    const rows = Object.entries(Array.isArray(p.changes) ? {} : p.changes ?? {}).map(([key, value]) => ({
       label: changeLabel(key), before: context.profile ? changeValue(key, profileValue(context.profile, key)) : undefined, after: changeValue(key, value),
     }));
     return { title: "Update your training preferences", rows };
   }
+  // Workout adjustments explain themselves as plain sentences ("Do 2 rounds instead of 3").
+  const explained = Array.isArray(p.changes) ? p.changes.filter((item): item is string => typeof item === "string") : [];
   if ((action.kind === "adaptation" || action.kind === "progression") && p.workout) {
     return {
       title: action.kind === "progression" ? `Progress ${p.workout.title}` : `Adjust ${context.workout?.title ?? p.workout.title}`,
       rows: workoutRows(context.workout, p.workout),
       // Both kinds save a new workout linked to the original (see accept_action in the API).
       note: "Saved as a new copy. Your original workout stays as it is.",
+      ...(explained.length ? { changes: explained } : {}),
     };
+  }
+  if (action.kind === "adaptation" || action.kind === "progression") {
+    // Still needs information: there is no workout yet, and it isn't a plan change.
+    return { title: `Adjust ${context.workout?.title ?? "this workout"}`, rows: [], ...(explained.length ? { changes: explained } : {}) };
   }
   const after = p.program?.proposal.sessions ?? p.sessions ?? [];
   if (action.kind === "program") {
