@@ -6,6 +6,7 @@ Extracts recipes from recipe blog/website URLs using:
 2. AI extraction from main content - fallback for sites without structured data
 """
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -15,10 +16,11 @@ from urllib.parse import urljoin, urlparse
 import httpx
 import sentry_sdk
 from bs4 import BeautifulSoup
+from curl_cffi.requests.exceptions import RequestException as CurlRequestError
 from fastapi import HTTPException
 
 from app.http_limits import MAX_HTML_BYTES, ResponseTooLarge, get_limited
-from app.security import PublicHTTPTransport, assert_public_http_url
+from app.security import PublicCurlSession, PublicHTTPTransport, assert_public_http_url
 
 try:
     import extruct
@@ -46,19 +48,90 @@ class WebsiteExtractionResult:
     low_confidence: bool = False  # Website extractions are typically high confidence
     confidence_warning: Optional[str] = None
 
+    @property
+    def friendly_error(self) -> Optional[str]:
+        """The user-facing failure message (``error`` already holds it)."""
+        return self.error
+
+    @property
+    def error_code(self) -> Optional[str]:
+        """Job error code; only timeouts are worth an automatic retry."""
+        if self.success:
+            return None
+        return ERROR_CODES.get(self.error_type or "", "EXTRACTION_FAILED")
+
 
 # User-friendly error messages
 ERROR_MESSAGES = {
     "fetch_too_large": "This page is too large to import. Try a direct link to the recipe page.",
-    "fetch_failed": "We couldn't reach this website. It may be temporarily unavailable or blocking automated access.",
-    "fetch_403": "This website is blocking our access. We've been notified and will work on adding support.",
+    "fetch_failed": "We couldn't reach this website. Try again later, or copy the recipe and use Paste text.",
+    "fetch_403": "This website doesn't allow apps to read its recipes. Copy the ingredients and steps and use Paste text, or import a screenshot.",
     "fetch_404": "This page doesn't exist or has been moved.",
     "fetch_timeout": "The website took too long to respond. Please try again later.",
-    "no_content": "We couldn't find recipe content on this page. Make sure the URL links directly to a recipe.",
+    "no_content": "We couldn't find a recipe on this page. Check that the link opens the recipe itself, or copy it and use Paste text.",
     "ai_failed": "We couldn't extract the recipe from this page. The format may be unusual - we've been notified.",
     "parse_error": "Something went wrong while processing this recipe. We've been notified.",
     "invalid_url": "This URL is not supported.",
 }
+
+
+# Job error codes the extraction worker understands. TIMEOUT is retryable;
+# the rest are final so a blocked or missing page fails once, clearly.
+ERROR_CODES = {
+    "fetch_too_large": "WEBSITE_TOO_LARGE",
+    "fetch_failed": "WEBSITE_UNAVAILABLE",
+    "fetch_403": "WEBSITE_BLOCKED",
+    "fetch_404": "WEBSITE_NOT_FOUND",
+    "fetch_timeout": "TIMEOUT",
+    "no_content": "NO_RECIPE_FOUND",
+    "ai_failed": "WEBSITE_EXTRACTION_FAILED",
+    "parse_error": "WEBSITE_EXTRACTION_FAILED",
+    "invalid_url": "INVALID_URL",
+}
+
+# Bot walls (Cloudflare and similar) reject httpx's TLS fingerprint even from
+# a home connection. A browser-impersonating fetch gets through for most
+# recipe publishers; Safari works where Chrome is challenged.
+IMPERSONATION_TARGETS = ("safari", "safari_ios", "chrome")
+BLOCKED_STATUSES = {403, 429, 503}
+REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+def _impersonated_get(url: str, impersonate: str) -> tuple[int, str]:
+    """GET through a pinned public connection with a browser TLS fingerprint.
+
+    Each hop is validated and pinned by ``PublicCurlSession``; the body is
+    capped at ``MAX_HTML_BYTES`` exactly like the httpx path.
+    """
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    current = url
+    for _ in range(6):
+        session = PublicCurlSession(current)
+        try:
+            response = session.request(
+                "GET", headers=headers, data=None, timeout=30, impersonate=impersonate
+            )
+            location = response.headers.get("Location")
+            if response.status_code in REDIRECT_STATUSES and location:
+                current = urljoin(current, location)
+                continue
+            body = bytearray()
+            for chunk in response.iter_content():
+                body.extend(chunk)
+                if len(body) > MAX_HTML_BYTES:
+                    raise ResponseTooLarge(MAX_HTML_BYTES)
+            charset = response.charset_encoding or "utf-8"
+            try:
+                text = body.decode(charset, errors="replace")
+            except LookupError:
+                text = body.decode("utf-8", errors="replace")
+            return response.status_code, text
+        finally:
+            session.close()
+    raise httpx.TooManyRedirects(f"Too many redirects fetching {url}")
 
 
 def _get_domain(url: str) -> str:
@@ -354,32 +427,9 @@ class WebsiteService:
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
             
-            # If 403, try without some security headers (some sites don't like them)
-            if status == 403:
-                print("⚠️ Got 403, retrying with minimal headers...")
-                try:
-                    minimal_headers = {
-                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.9",
-                    }
-                    async with httpx.AsyncClient(
-                        timeout=30.0,
-                        transport=PublicHTTPTransport(),
-                    ) as client:
-                        response = await cls._get_with_safe_redirects(client, url, minimal_headers)
-                        response.raise_for_status()
-                        return response.text, None
-                except HTTPException as e2:
-                    print(f"❌ Retry blocked unsupported URL: {e2.detail}")
-                    return None, "invalid_url"
-                except ResponseTooLarge:
-                    print(f"❌ Page exceeded {MAX_HTML_BYTES} bytes: {url}")
-                    return None, "fetch_too_large"
-                except Exception as e2:
-                    print(f"❌ Retry also failed: {e2}")
-                    return None, "fetch_403"
-            
+            if status in BLOCKED_STATUSES:
+                return await cls._fetch_impersonated(url, status)
+
             if status == 404:
                 print(f"❌ Page not found: {url}")
                 return None, "fetch_404"
@@ -403,6 +453,33 @@ class WebsiteService:
             print(f"❌ Failed to fetch {url}: {e}")
             return None, "fetch_failed"
     
+    @classmethod
+    async def _fetch_impersonated(
+        cls, url: str, status: int
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Retry a bot-walled page with browser fingerprints; see IMPERSONATION_TARGETS."""
+        for target in IMPERSONATION_TARGETS:
+            try:
+                status, html = await asyncio.to_thread(_impersonated_get, url, target)
+            except HTTPException as e:
+                print(f"❌ Blocked unsupported URL while fetching {url}: {e.detail}")
+                return None, "invalid_url"
+            except ResponseTooLarge:
+                print(f"❌ Page exceeded {MAX_HTML_BYTES} bytes: {url}")
+                return None, "fetch_too_large"
+            except (CurlRequestError, httpx.TooManyRedirects, ValueError) as e:
+                print(f"⚠️ Browser-fingerprint fetch ({target}) failed: {type(e).__name__}")
+                continue
+            if status < 400:
+                print(f"✅ Fetched {_get_domain(url)} with {target} fingerprint")
+                return html, None
+            if status == 404:
+                return None, "fetch_404"
+            print(f"⚠️ Browser-fingerprint fetch ({target}) got HTTP {status}")
+        # Only a refusal means "blocked"; a 429/503 that persists is a site
+        # that is down or overloaded, so say so instead.
+        return None, "fetch_403" if status == 403 else "fetch_failed"
+
     @classmethod
     async def _fetch_html(cls, url: str) -> Optional[str]:
         """Fetch HTML content from URL (legacy method)."""
