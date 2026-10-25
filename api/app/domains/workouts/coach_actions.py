@@ -131,7 +131,7 @@ TOOLS = {
     ),
     "adapt_saved_workout": (
         AdaptAction,
-        "Prepare a separate adapted copy of an inspected workout.",
+        "Prepare a separate adapted copy of an inspected workout. Supply minutes to shorten it while keeping its exercises. Whole exercise names may be matched automatically; unknown moves need clarification for swaps or movement exclusions.",
     ),
     "update_training_preferences": (
         PreferencesAction,
