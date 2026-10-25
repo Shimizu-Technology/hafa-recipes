@@ -230,7 +230,7 @@ export default function Settings() {
       <Copy align="center" kind="small" tone="muted">
         Håfa Baby · {Constants.expoConfig?.version ?? "1.0.0"}
         {Constants.nativeBuildVersion ? " (" + Constants.nativeBuildVersion + ")" : ""}
-        {"\n"}Created for Kami and our growing family.
+        {"\n"}A private space for your growing family.
       </Copy>
     </Screen>
   );
