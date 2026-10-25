@@ -12,6 +12,7 @@ import { Button, Card, Chips, Choice, Copy, Loading, Notice, Row, Screen, Sectio
 import { RecordRow } from "@/components/record-row";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
+import { ensureAiConsent } from "../../lib/ai-consent";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -214,11 +215,7 @@ export default function RecordDetail() {
           title="Process original with AI"
           icon="sparkles-outline"
           onPress={() => {
-            if (!b.state.bootstrap!.profile.ai_consent) {
-              setError("Enable optional AI processing in Settings first.");
-              return;
-            }
-            void b
+            void ensureAiConsent(b).then((allowed) => !allowed ? undefined : b
               .queue({
                 id: Crypto.randomUUID(),
                 type: "import",
@@ -231,7 +228,7 @@ export default function RecordDetail() {
                 child_id: record.child_id,
                 topics: data.topics,
               })
-              .then(() => toast("Original preserved. Processing is queued."))
+              .then(() => toast("Original preserved. Processing is queued.")))
               .catch((e) => setError(messageFor(e)));
           }}
         />

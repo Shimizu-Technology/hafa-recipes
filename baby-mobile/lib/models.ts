@@ -306,3 +306,8 @@ export function sourceEvidenceItems(value: unknown) {
       : [];
   });
 }
+
+/** "1 pending change" / "3 pending changes". */
+export function pendingChanges(count: number) {
+  return `${count} pending ${count === 1 ? "change" : "changes"}`;
+}
