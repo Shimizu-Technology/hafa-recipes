@@ -9,6 +9,7 @@ Extracts recipes from recipe blog/website URLs using:
 import asyncio
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
@@ -17,6 +18,7 @@ import httpx
 import sentry_sdk
 from bs4 import BeautifulSoup
 from curl_cffi.requests.exceptions import RequestException as CurlRequestError
+from curl_cffi.requests.exceptions import Timeout as CurlTimeout
 from fastapi import HTTPException
 
 from app.http_limits import MAX_HTML_BYTES, ResponseTooLarge, get_limited
@@ -95,13 +97,21 @@ ERROR_CODES = {
 IMPERSONATION_TARGETS = ("safari", "safari_ios", "chrome")
 BLOCKED_STATUSES = {403, 429, 503}
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+# One budget for every fingerprint and hop, enforced by libcurl, so a slow or
+# trickling host can't hold a worker thread (to_thread can't be cancelled).
+IMPERSONATION_DEADLINE_SECONDS = 45
 
 
-def _impersonated_get(url: str, impersonate: str) -> tuple[int, str]:
+class FetchDeadlineExceeded(Exception):
+    """The browser-fingerprint fetch ran out of its total time budget."""
+
+
+def _impersonated_get(url: str, impersonate: str, deadline: float) -> tuple[int, str]:
     """GET through a pinned public connection with a browser TLS fingerprint.
 
     Each hop is validated and pinned by ``PublicCurlSession``; the body is
-    capped at ``MAX_HTML_BYTES`` exactly like the httpx path.
+    capped at ``MAX_HTML_BYTES`` exactly like the httpx path. Error pages
+    return their status without reading the body, which is never used.
     """
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -109,15 +119,20 @@ def _impersonated_get(url: str, impersonate: str) -> tuple[int, str]:
     }
     current = url
     for _ in range(6):
-        session = PublicCurlSession(current)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise FetchDeadlineExceeded(url)
+        session = PublicCurlSession(current, total_timeout=remaining)
         try:
             response = session.request(
-                "GET", headers=headers, data=None, timeout=30, impersonate=impersonate
+                "GET", headers=headers, data=None, timeout=min(30, remaining), impersonate=impersonate
             )
             location = response.headers.get("Location")
             if response.status_code in REDIRECT_STATUSES and location:
                 current = urljoin(current, location)
                 continue
+            if response.status_code >= 400:
+                return response.status_code, ""
             body = bytearray()
             for chunk in response.iter_content():
                 body.extend(chunk)
@@ -458,24 +473,38 @@ class WebsiteService:
         cls, url: str, status: int
     ) -> tuple[Optional[str], Optional[str]]:
         """Retry a bot-walled page with browser fingerprints; see IMPERSONATION_TARGETS."""
+        deadline = time.monotonic() + IMPERSONATION_DEADLINE_SECONDS
+        answered = timed_out = False
         for target in IMPERSONATION_TARGETS:
             try:
-                status, html = await asyncio.to_thread(_impersonated_get, url, target)
+                attempt, html = await asyncio.to_thread(_impersonated_get, url, target, deadline)
             except HTTPException as e:
                 print(f"❌ Blocked unsupported URL while fetching {url}: {e.detail}")
                 return None, "invalid_url"
             except ResponseTooLarge:
                 print(f"❌ Page exceeded {MAX_HTML_BYTES} bytes: {url}")
                 return None, "fetch_too_large"
+            except FetchDeadlineExceeded:
+                timed_out = True
+                break
+            except CurlTimeout:
+                timed_out = True
+                continue
             except (CurlRequestError, httpx.TooManyRedirects, ValueError) as e:
                 print(f"⚠️ Browser-fingerprint fetch ({target}) failed: {type(e).__name__}")
                 continue
+            except Exception as e:  # never let the fallback turn into parse_error
+                print(f"❌ Browser-fingerprint fetch ({target}) failed unexpectedly: {type(e).__name__}")
+                return None, "fetch_failed"
+            answered, status = True, attempt
             if status < 400:
                 print(f"✅ Fetched {_get_domain(url)} with {target} fingerprint")
                 return html, None
             if status == 404:
                 return None, "fetch_404"
             print(f"⚠️ Browser-fingerprint fetch ({target}) got HTTP {status}")
+        if timed_out and not answered:
+            return None, "fetch_timeout"  # retryable, like a plain timeout
         # Only a refusal means "blocked"; a 429/503 that persists is a site
         # that is down or overloaded, so say so instead.
         return None, "fetch_403" if status == 403 else "fetch_failed"

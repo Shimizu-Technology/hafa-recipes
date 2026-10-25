@@ -1,13 +1,20 @@
 """Bot-walled recipe sites and the job errors a failed website import reports."""
 
+import time
+
 import httpx
 import pytest
+from curl_cffi.requests.exceptions import Timeout as CurlTimeout
 from fastapi import HTTPException
 
 from app.http_limits import ResponseTooLarge
 from app.job_worker import should_retry_extraction_error
 from app.services import website as website_module
 from app.services.website import ERROR_MESSAGES, WebsiteExtractionResult, WebsiteService
+
+
+def far_future():
+    return time.monotonic() + 60
 
 
 def blocked(request):
@@ -59,7 +66,7 @@ def test_successful_results_have_no_error_code():
 async def test_blocked_page_is_retried_with_a_browser_fingerprint(monkeypatch, httpx_blocked):
     calls = []
 
-    def fake_get(url, impersonate):
+    def fake_get(url, impersonate, deadline):
         calls.append(impersonate)
         if impersonate == "safari":
             return 403, "challenge"
@@ -75,7 +82,7 @@ async def test_blocked_page_is_retried_with_a_browser_fingerprint(monkeypatch, h
 
 @pytest.mark.asyncio
 async def test_still_blocked_after_every_fingerprint(monkeypatch, httpx_blocked):
-    monkeypatch.setattr(website_module, "_impersonated_get", lambda url, imp: (403, "no"))
+    monkeypatch.setattr(website_module, "_impersonated_get", lambda url, imp, deadline: (403, "no"))
 
     assert await WebsiteService._fetch_html_with_error("https://example.com/r") == (
         None,
@@ -89,7 +96,7 @@ async def test_a_site_that_stays_unavailable_is_not_reported_as_blocking(monkeyp
         "app.services.website.PublicHTTPTransport",
         lambda: httpx.MockTransport(lambda request: httpx.Response(503)),
     )
-    monkeypatch.setattr(website_module, "_impersonated_get", lambda url, imp: (503, "down"))
+    monkeypatch.setattr(website_module, "_impersonated_get", lambda url, imp, deadline: (503, "down"))
 
     assert await WebsiteService._fetch_html_with_error("https://example.com/r") == (
         None,
@@ -106,7 +113,7 @@ async def test_a_site_that_stays_unavailable_is_not_reported_as_blocking(monkeyp
     ],
 )
 async def test_fingerprint_fetch_keeps_url_and_size_guards(monkeypatch, httpx_blocked, raised, error):
-    def fake_get(url, impersonate):
+    def fake_get(url, impersonate, deadline):
         raise raised
 
     monkeypatch.setattr(website_module, "_impersonated_get", fake_get)
@@ -128,9 +135,19 @@ class FakeResponse:
 class FakeSession:
     responses: list = []
     opened: list = []
+    sessions: list = []
+    private: set = set()
 
-    def __init__(self, url):
+    @classmethod
+    def reset(cls, responses):
+        cls.responses, cls.opened, cls.sessions, cls.private = responses, [], [], set()
+
+    def __init__(self, url, total_timeout=None):
+        if url in FakeSession.private:
+            raise HTTPException(status_code=400, detail="This URL is not supported")
         FakeSession.opened.append(url)
+        FakeSession.sessions.append(self)
+        self.total_timeout = total_timeout
         self.closed = False
 
     def request(self, method, *, headers, data, timeout, impersonate):
@@ -143,14 +160,13 @@ class FakeSession:
 def test_impersonated_get_validates_each_redirect_hop(monkeypatch):
     # Each hop opens a new pinned session, so a redirect to a private address
     # is validated (and refused) by PublicCurlSession before connecting.
-    FakeSession.opened = []
-    FakeSession.responses = [
+    FakeSession.reset([
         FakeResponse(301, {"Location": "/recipe"}),
         FakeResponse(200, chunks=[b"<html>", "café".encode("latin-1")], charset="latin-1"),
-    ]
+    ])
     monkeypatch.setattr(website_module, "PublicCurlSession", FakeSession)
 
-    status, text = website_module._impersonated_get("https://example.com/old", "safari")
+    status, text = website_module._impersonated_get("https://example.com/old", "safari", far_future())
 
     assert status == 200
     assert text == "<html>café"
@@ -158,10 +174,63 @@ def test_impersonated_get_validates_each_redirect_hop(monkeypatch):
 
 
 def test_impersonated_get_caps_the_body(monkeypatch):
-    FakeSession.opened = []
-    FakeSession.responses = [FakeResponse(200, chunks=[b"x" * 10, b"y" * 10])]
+    FakeSession.reset([FakeResponse(200, chunks=[b"x" * 10, b"y" * 10])])
     monkeypatch.setattr(website_module, "PublicCurlSession", FakeSession)
     monkeypatch.setattr(website_module, "MAX_HTML_BYTES", 16)
 
     with pytest.raises(ResponseTooLarge):
-        website_module._impersonated_get("https://example.com/r", "safari")
+        website_module._impersonated_get("https://example.com/r", "safari", far_future())
+
+
+def test_impersonated_get_refuses_a_redirect_to_a_private_address(monkeypatch):
+    FakeSession.reset([FakeResponse(302, {"Location": "http://169.254.169.254/latest"})])
+    FakeSession.private = {"http://169.254.169.254/latest"}
+    monkeypatch.setattr(website_module, "PublicCurlSession", FakeSession)
+
+    with pytest.raises(HTTPException):
+        website_module._impersonated_get("https://example.com/r", "safari", far_future())
+    assert FakeSession.sessions[0].closed
+
+
+def test_error_pages_are_not_downloaded(monkeypatch):
+    # A huge 403 body must not turn "blocked" into "too large".
+    FakeSession.reset([FakeResponse(403, chunks=[b"x" * 100])])
+    monkeypatch.setattr(website_module, "PublicCurlSession", FakeSession)
+    monkeypatch.setattr(website_module, "MAX_HTML_BYTES", 16)
+
+    assert website_module._impersonated_get("https://example.com/r", "safari", far_future()) == (403, "")
+
+
+def test_each_hop_gets_the_remaining_budget_and_an_expired_one_stops(monkeypatch):
+    FakeSession.reset([FakeResponse(200, chunks=[b"<html>"])])
+    monkeypatch.setattr(website_module, "PublicCurlSession", FakeSession)
+
+    website_module._impersonated_get("https://example.com/r", "safari", time.monotonic() + 20)
+    assert 0 < FakeSession.sessions[0].total_timeout <= 20
+    with pytest.raises(website_module.FetchDeadlineExceeded):
+        website_module._impersonated_get("https://example.com/r", "safari", time.monotonic() - 1)
+
+
+@pytest.mark.asyncio
+async def test_browser_timeouts_stay_retryable(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.website.PublicHTTPTransport",
+        lambda: httpx.MockTransport(lambda request: httpx.Response(429)),
+    )
+
+    def fake_get(url, impersonate, deadline):
+        raise CurlTimeout("timed out")
+
+    monkeypatch.setattr(website_module, "_impersonated_get", fake_get)
+
+    assert await WebsiteService._fetch_html_with_error("https://example.com/r") == (None, "fetch_timeout")
+
+
+@pytest.mark.asyncio
+async def test_unexpected_fallback_errors_report_unavailable(monkeypatch, httpx_blocked):
+    def fake_get(url, impersonate, deadline):
+        raise MemoryError("connect policy")
+
+    monkeypatch.setattr(website_module, "_impersonated_get", fake_get)
+
+    assert await WebsiteService._fetch_html_with_error("https://example.com/r") == (None, "fetch_failed")
