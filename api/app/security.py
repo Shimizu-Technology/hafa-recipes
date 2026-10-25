@@ -253,7 +253,7 @@ class PublicCurlSession:
     not build CONNECT_TO slists, so own the native list through stream closure.
     """
 
-    def __init__(self, url, *, proxy=None, cookies=None):
+    def __init__(self, url, *, proxy=None, cookies=None, total_timeout=None):
         # Match the exact ASCII hostname given to libcurl's CONNECT_TO matcher.
         # A Unicode/trailing-dot parser difference must not let curl fall back
         # to a second hostname lookup outside the validated destination.
@@ -285,6 +285,10 @@ class PublicCurlSession:
             CurlOpt.PROXY_SSL_VERIFYPEER: 1, CurlOpt.PROXY_SSL_VERIFYHOST: 2,
             CurlOpt.PROXY_CAINFO: certifi.where(),
         }
+        if total_timeout is not None:
+            # Streamed requests otherwise only have connect/low-speed limits, so
+            # a trickling host could hold the worker thread indefinitely.
+            options[CurlOpt.TIMEOUT_MS] = max(1, int(total_timeout * 1000))
         try:
             self.session = curl_requests.Session(cookies=cookies, trust_env=False, curl_options=options)
         except BaseException:
