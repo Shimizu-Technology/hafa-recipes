@@ -1,6 +1,7 @@
 """Keep private workouts and shared media monitor contents out of telemetry."""
 
 import logging
+import os
 import re
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -92,8 +93,9 @@ def report_private_failure(scope, status, *, response_status=None):
         "response_status": response_status,
         "error_code": scope.get("private_failure_code", "http_error"),
         "stage": "request", "correlation_id": uuid4().hex}) | {"product": product}
-    release = get_settings().app_release_id
-    # Deployment configuration, never a request-provided release label.
+    # Render identifies the running code even when configured APP_RELEASE_ID is stale.
+    release = os.environ.get("RENDER_GIT_COMMIT") or get_settings().app_release_id
+    # Deployment metadata only, bounded before either diagnostic sink.
     release = release if re.fullmatch(r"[A-Za-z0-9._-]{1,100}", release) else "unknown"
     logger.warning("private_request_failed product=%s route=%s http_status=%s response_status=%s error_code=%s stage=%s release=%s correlation_id=%s",
         product, tags["route"], tags["http_status"], tags.get("response_status", "unknown"),
