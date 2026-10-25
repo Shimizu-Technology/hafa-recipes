@@ -122,7 +122,7 @@ def test_g02_optional_measurements_not_required():
     result = build_program(profile(), START)
     assert result.status == "ready" and result.sessions
     assert len(result.sessions) == 12
-    assert any("150-minute" in warning for warning in result.warnings)
+    assert any("150 minutes" in warning for warning in result.warnings)
 
 
 def test_g03_unknown_equipment_is_not_none_equipment():
@@ -329,7 +329,7 @@ def test_g20_body_composition_does_not_infer_weight_outcome():
         1,
     )
     assert result.status == "ready" and "cdc-weight" in result.source_ids
-    assert any("no calorie deficit" in warning for warning in result.warnings)
+    assert any("does not set a calorie target" in warning for warning in result.warnings)
 
 
 def test_g21_older_adult_balance_coverage():
@@ -507,10 +507,14 @@ def test_unknown_movement_and_missing_sets_remain_reviewable():
     assert adapt_workout(content, profile()).status == "needs_information"
 
 
-def test_shortening_does_not_infer_reps_from_minutes():
+def test_shortening_reduces_rounds_without_inferring_reps_from_minutes():
     original = source_workout()
     result = adapt_workout(original, profile(equipment=["dumbbell"]), 10)
-    assert result.status == "needs_information" and result.workout is None
+    assert result.status == "ready"
+    assert result.workout.blocks[0].rounds == 1
+    item = result.workout.blocks[0].exercises[0]
+    assert (item.reps_min, item.reps_max, item.sets) == (8, 12, None)
+    assert item.duration_seconds is None
 
 
 def test_substitutions_need_actual_supports_and_same_purpose():

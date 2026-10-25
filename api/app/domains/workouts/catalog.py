@@ -1,5 +1,7 @@
 """Original, versioned general-fitness reference; no rehosted third-party media."""
 
+import re
+import unicodedata
 from dataclasses import dataclass
 
 
@@ -12,9 +14,10 @@ class Exercise:
     purpose: str
     instruction: str
     alternatives: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
 
 
-CATALOG_VERSION = "hafa-general-2026-10-10"
+CATALOG_VERSION = "hafa-general-2026-10-25"
 EXERCISES = {
     exercise.id: exercise
     for exercise in (
@@ -35,6 +38,7 @@ EXERCISES = {
             "squat",
             "Stand comfortably, lower with control, and return upright. Use a range you can control.",
             ("sit_to_stand", "goblet_squat"),
+            aliases=("Bodyweight squats",),
         ),
         Exercise(
             "goblet_squat",
@@ -53,6 +57,7 @@ EXERCISES = {
             "hip_extension",
             "Lie on your back with feet supported on the floor. Raise and lower your hips with control.",
             ("dumbbell_rdl",),
+            aliases=("Glute bridges",),
         ),
         Exercise(
             "dumbbell_rdl",
@@ -80,6 +85,7 @@ EXERCISES = {
             "push",
             "Lower and raise your body with control. Choose a variation you can repeat without losing form.",
             ("wall_pushup",),
+            aliases=("Push ups", "Pushup", "Pushups"),
         ),
         Exercise(
             "band_row",
@@ -106,6 +112,7 @@ EXERCISES = {
             frozenset({"trunk", "floor"}),
             "trunk",
             "Lie on your back and slowly move opposite arm and leg while keeping the trunk controlled.",
+            aliases=("Dead bugs",),
         ),
         Exercise(
             "split_squat",
@@ -142,6 +149,19 @@ EXERCISES = {
         ),
     )
 }
+
+
+def match_exercise(name: str) -> Exercise | None:
+    """Whole names/explicit aliases only; ambiguity and compound moves stay unknown."""
+    def normalized(value):
+        return re.sub(r"[\s_\-‐‑–—]+", " ", unicodedata.normalize("NFKC", value).casefold()).strip()
+
+    key = normalized(name)
+    matches = {
+        exercise.id: exercise for exercise in EXERCISES.values()
+        if any(normalized(label) == key for label in (exercise.name, *exercise.aliases))
+    }
+    return next(iter(matches.values())) if len(matches) == 1 else None
 
 
 def compatible(exercise: Exercise, equipment: list[str], exclusions: list[str]) -> bool:
