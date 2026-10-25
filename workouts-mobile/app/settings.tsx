@@ -111,7 +111,7 @@ export default function Settings() {
       <ListGroup>
         <ListRow title="Health connections" icon="heart-outline" onPress={() => router.push("/connections")} />
         <ListRow title="AI preferences" icon="sparkles-outline" onPress={() => router.push("/ai-preferences")} />
-        <ListRow title="Håfa apps" icon="apps-outline" detail="Recipes and Workouts, one account" onPress={() => router.push("/hafa-apps")} />
+        <ListRow title="Håfa apps" icon="apps-outline" detail="Recipes, Workouts, and Baby, one account" onPress={() => router.push("/hafa-apps")} />
       </ListGroup>
       <SectionHeader title="Privacy" />
       <ListGroup>

@@ -26,7 +26,7 @@ export default function HafaApps() {
     <Screen
       back
       title="Håfa apps"
-      subtitle="One account for Recipes and Workouts."
+      subtitle="One account for Recipes, Workouts, and Baby."
     >
       <Card tone="sunken">
         <Row gap={20} justify="center">
@@ -44,6 +44,7 @@ export default function HafaApps() {
         </Copy>
         <Copy tone="muted" align="center">
           Recipes organizes your cooking inspiration. Workouts turns training inspiration into a routine you can follow.
+          Baby helps you track pregnancy and baby care.
         </Copy>
       </Card>
       <ListGroup>
@@ -64,13 +65,13 @@ export default function HafaApps() {
         <ListRow icon="download-outline" title="Export or remove account data" onPress={() => router.push("/account-data")} />
       </ListGroup>
       <Notice>
-        Sharing an account does not share your training profile, health information, or recipe library. Any data
+        Your Recipes, Workouts, and Baby data stay separate even though they share an account. Any data
         connection needs your separate permission.
       </Notice>
       <Copy kind="subheading">You're in control</Copy>
       <Copy tone="muted">
-        Deleting the whole Håfa account erases both apps’ data. Removing only one product’s data preserves your login
-        and the other product.
+        Deleting the whole Håfa account erases your data in every Håfa app, including Recipes, Workouts, and Baby.
+        Removing only Workouts data preserves your login and your Recipes and Baby data.
       </Copy>
       {!!error && <Notice error>{error}</Notice>}
     </Screen>

@@ -123,7 +123,7 @@ export default function AccountData() {
       );
     setPendingCleanup(null);
     setMessage(
-      "Workouts data was removed. Your Håfa login and Recipes data remain available. Old queued training is retired."
+      "Workouts data was removed. You keep your Håfa login and your Recipes and Baby data. Old queued training is retired."
     );
     setMode("none");
     setConfirmed(false);
@@ -237,8 +237,8 @@ export default function AccountData() {
         <Copy kind="heading">Remove only Workouts data</Copy>
         <Copy>
           Erases local private drafts, pending commands and reminders first, then requests deletion of saved training.
-          If the connection fails, device drafts remain erased and you can retry saved-data deletion. Your Håfa login
-          and Recipes data stay available. Public Workouts sharing links stop working. Existing copies saved by other
+          If the connection fails, device drafts remain erased and you can retry saved-data deletion. You keep your Håfa login
+          and your Recipes and Baby data. Public Workouts sharing links stop working. Existing copies saved by other
           people stay theirs. Content-free import allowance records remain for up to 48 hours to protect the shared beta;
           they contain no source text, images or workout content.
         </Copy>
@@ -285,7 +285,7 @@ export default function AccountData() {
       {mode !== "none" && !pendingCleanup && (
         <Card>
           <Copy kind="heading">
-            {mode === "workouts" ? "Confirm Workouts-only removal" : "Confirm deletion of both Håfa apps"}
+            {mode === "workouts" ? "Confirm Workouts-only removal" : "Confirm deletion of your whole Håfa account"}
           </Copy>
           <Choice
             label={
