@@ -2410,3 +2410,126 @@ async def test_photo_capability_accepts_explicit_development_key_and_permission_
         monkeypatch.setattr(module, "get_settings", lambda: configured)
     assert (await api.client.get("/api/v1/workouts/capabilities")).json()["coach_images"] is True
     assert not api.provider.sent
+
+
+async def test_rejected_schedule_tool_completes_explanation_without_receipt(coach_api, monkeypatch):
+    api = coach_api
+    api.provider.action = plan_action()
+    accepted, _ = await action(api)
+    program_id = accepted.json()["record_id"]
+    async with api.sessions() as db:
+        program = await db.get(WorkoutsProgram, UUID(program_id))
+        before = json.loads(json.dumps(program.content))
+        session = before["proposal"]["sessions"][0]
+        proposals_before = await db.scalar(select(func.count()).select_from(WorkoutProposal))
+    # The fixture trains Monday/Wednesday/Friday; Tuesday is unavailable.
+    from datetime import date
+
+    monday = date.fromisoformat(session["date"])
+    tuesday = monday + timedelta(days=(1 - monday.weekday()) % 7)
+    api.provider.action = "edit_future_schedule", {
+        "program_id": program_id, "expected_revision": 1, "session_id": session["id"],
+        "operation": "move", "target_date": tuesday.isoformat(),
+    }
+    original = api.provider.respond
+    explanation = "Tuesday isn't one of your training days. Would Wednesday work?"
+
+    async def respond(items, *, tools):
+        if not tools:
+            api.provider.sent.append(items)
+            output = json.loads(items[-1]["output"])
+            assert items[-1]["call_id"] == "call1"
+            assert output == {
+                "status": "rejected",
+                "reason": "Training availability or another activity conflicts with this date",
+            }
+            return answer(explanation)
+        return await original(items, tools=tools)
+
+    monkeypatch.setattr(api.provider, "respond", respond)
+    request_id = uuid4()
+    response = await send(api, "Move Monday's session to Tuesday", request_id)
+    assert response.status_code == 200, response.text
+    assert response.json()["state"] == "completed"
+    assert response.json()["assistant_message"] == explanation
+    assert response.json()["actions"] == []
+    assert (await send(api, "Move Monday's session to Tuesday", request_id)).json() == response.json()
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == proposals_before
+        assert (await db.get(WorkoutsProgram, UUID(program_id))).content == before
+
+
+async def test_mixed_tool_rejections_save_only_the_previewed_success_once(coach_api, monkeypatch):
+    api = coach_api
+    workout = await create_workout(api)
+    composed = []
+
+    async def compose(profile, start_date, weeks, sources):
+        composed.append(sources)
+        return build_program(profile, start_date, weeks)
+
+    api.coach.compose_library_program = compose
+    name, arguments = plan_action()
+    arguments["source_workout_ids"] = [workout["id"]]
+
+    async def respond(items, *, tools):
+        if tools:
+            return {"status": "completed", "output": [
+                {"type": "function_call", "name": "update_training_preferences", "call_id": "reject",
+                 "arguments": json.dumps({key: None for key in (
+                     "primary_goal", "experience", "equipment", "available_days", "session_minutes")})},
+                {"type": "function_call", "name": name, "call_id": "success",
+                 "arguments": json.dumps(arguments)},
+            ]}
+        outputs = {item["call_id"]: json.loads(item["output"]) for item in items
+                   if item.get("type") == "function_call_output"}
+        assert outputs["reject"] == {"status": "rejected", "reason": "Choose at least one preference to update"}
+        assert outputs["success"]["status"] == "proposed_only"
+        api.preview = outputs["success"]["preview"]
+        return answer()
+
+    monkeypatch.setattr(api.provider, "respond", respond)
+    response = await send(api)
+    assert response.status_code == 200, response.text
+    assert len(response.json()["actions"]) == len(composed) == 1
+    async with api.sessions() as db:
+        proposal = await db.scalar(select(WorkoutProposal))
+        assert proposal.kind == "program" and proposal.content == api.preview
+        assert (await db.get(WorkoutsProfile, "owner")).revision == 1
+
+
+@pytest.mark.parametrize("failure,error_code", [
+    (RuntimeError("PRIVATE TRAINING CONTENT"), "unexpected_error"),
+    (HTTPException(500, "Service unavailable"), "http_error"),
+    (coach.CoachFailure("provider_unavailable"), "provider_unavailable"),
+    (coach.CoachFailure("PRIVATE TRAINING CONTENT"), "coach_failure"),
+])
+async def test_unexpected_preparation_failure_is_safe_and_logged(coach_api, monkeypatch, caplog, failure, error_code):
+    api = coach_api
+    api.provider.action = plan_action()
+    events = []
+
+    async def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(coach, "prepare_action", fail)
+    monkeypatch.setattr(coach.sentry_sdk, "capture_event", events.append)
+    request_id = uuid4()
+    response = await send(api, "PRIVATE MESSAGE", request_id)
+    assert response.status_code == (500 if isinstance(failure, HTTPException) else 503)
+    records = [record for record in caplog.records if record.name == coach.__name__]
+    assert len(records) == 1
+    record = records[0]
+    assert record.exception_class == type(failure).__name__
+    assert record.request_id == str(request_id)
+    assert record.http_status == response.status_code
+    assert record.error_code == error_code
+    assert record.exc_info is None and "PRIVATE" not in record.getMessage()
+    assert len(events) == 1
+    assert "PRIVATE" not in json.dumps(events)
+    assert len(api.provider.sent) == 1
+    async with api.sessions() as db:
+        message = await db.scalar(select(WorkoutCoachMessage))
+        assert message.proposals["state"] == "failed" and message.proposals["actions"] == []
+        assert "PRIVATE" not in message.assistant_message
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0

@@ -141,7 +141,12 @@ async def test_pause_and_return_requires_fresh_readiness_and_direct_confirmation
             "start_date": (now() + timedelta(days=7)).date().isoformat(),
         },
     )
-    assert (await send(api)).status_code == 409
+    rejected = await send(api)
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["state"] == "completed" and rejected.json()["actions"] == []
+    output = next(item for item in reversed(api.provider.sent[-1])
+                  if item.get("type") == "function_call_output")
+    assert '"status": "rejected"' in output["output"]
     assert (
         await api.client.put(
             "/api/v1/workouts/readiness", headers=GENERATION, json={"state": "ready"}
@@ -342,7 +347,12 @@ async def test_recorded_freeze_has_no_latest_thirty_gap(coach_api):
             "target_date": None,
         },
     )
-    assert (await send(api)).status_code == 409
+    rejected = await send(api)
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["state"] == "completed" and rejected.json()["actions"] == []
+    output = next(item for item in reversed(api.provider.sent[-1])
+                  if item.get("type") == "function_call_output")
+    assert '"status": "rejected"' in output["output"]
 
 
 async def test_pause_is_available_when_readiness_unknown(coach_api):
