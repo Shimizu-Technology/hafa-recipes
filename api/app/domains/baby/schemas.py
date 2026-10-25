@@ -16,6 +16,9 @@ from pydantic import (
     model_validator,
 )
 
+# Matches the mobile source kind label; keep API capture and processing defaults together.
+DEFAULT_SOURCE_TITLE = "Saved source"
+
 Kind = Literal[
     "source", "journal", "feeding", "sleep", "diaper", "routine", "question", "collection"
 ]

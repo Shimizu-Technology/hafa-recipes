@@ -16,7 +16,13 @@ from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.imports import admit_import
 from app.domains.baby.lifecycle import digest, membership_for, now
 from app.domains.baby.models import BabyImport, BabyRecord
-from app.domains.baby.schemas import DomainModel, ImportCreate, RecordCreate, SourceData
+from app.domains.baby.schemas import (
+    DEFAULT_SOURCE_TITLE,
+    DomainModel,
+    ImportCreate,
+    RecordCreate,
+    SourceData,
+)
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
 from app.security import is_public_http_url
@@ -156,7 +162,7 @@ class CaptureRequest(DomainModel):
             kind="source",
             title=(self.text or "").strip().splitlines()[0][:100]
             if (self.text or "").strip()
-            else "Saved source",
+            else DEFAULT_SOURCE_TITLE,
             body="",
             child_id=None,
             occurred_at=self.occurred_at,

@@ -199,7 +199,7 @@ def test_citation_excerpt_does_not_repeat_title_and_stays_bounded():
         {"summary": "Pack documents early", "topics": ["labor", "packing"]},
         title="Hospital bag",
     )
-    assert source == "Pack documents early\n\nlabor, packing"
+    assert source == "Pack documents early"
     assert shown("journal", {}, title="Long", body="x" * 5000) == "x" * 1000
     assert shown("collection", {"record_ids": []}, title="Saved") == ""
 

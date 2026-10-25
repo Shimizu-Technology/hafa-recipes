@@ -41,12 +41,22 @@ def conversation_response(row):
     }
 
 
+def clean_assistant_message(message):
+    """Structured citation cards carry references; model control glyphs never do."""
+    # A marker is cite + ID(s); an unterminated one must not swallow the answer after it.
+    message = re.sub(r"\ue200cite(?:\ue202[^\s\ue200-\ue2ff]*)+\ue201?", "", message)
+    message = re.sub(r"[\ue200-\ue2ff]", "", message)
+    message = re.sub(r"[ \t]+([,.;:!?])", r"\1", message)
+    return re.sub(r"[ \t]{2,}", " ", message).strip()
+
+
 def message_response(row):
     return {
         "id": row.id,
         "conversation_id": row.conversation_id,
         "role": row.role,
-        "content": row.content.get("message", ""),
+        "content": clean_assistant_message(row.content.get("message", ""))
+        if row.role == "assistant" else row.content.get("message", ""),
         "citations": row.content.get("citations", []),
         "proposal": row.content.get("proposal"),
         "created_at": row.created_at,
@@ -236,7 +246,11 @@ def without_title(text, title):
 def display_excerpt(record, terms, *, limit=1000):
     """Citation text shown beside the record title, so it never repeats that title."""
     summary = care_summary(record) if record.kind in SCOPE_KINDS["care"] else ""
-    body = without_title(record_text(record, include_title=False), record.title)
+    text = record_text(record, include_title=False)
+    if record.kind == "source":
+        organized = [record.data.get("summary"), *record.data.get("key_points", [])]
+        text = "\n\n".join(part.strip() for part in organized if part and part.strip()) or text
+    body = without_title(text, record.title)
     return bounded("\n\n".join(filter(None, [summary, body])), terms, 7000).strip()[:limit]
 
 
@@ -372,7 +386,10 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
             raise HTTPException(409, "This question identity was used with different content")
         answer = await db.get(BabyMessage, answer_id)
         if answer:
-            return {"conversation_id": answer.conversation_id, **answer.content}
+            return {
+                "conversation_id": answer.conversation_id, **answer.content,
+                "message": clean_assistant_message(answer.content.get("message", "")),
+            }
         lease = prior.content.get("lease_until")
         if lease and lease > now().isoformat():
             raise HTTPException(
@@ -514,7 +531,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
             for identifier in dict.fromkeys(result.citation_ids)
         ]
         proposal = reviewed_proposal(result.proposal)
-        payload = {"message": result.message, "citations": citations, "proposal": proposal}
+        payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
         current = await membership_for(db, user.id, generation=generation, write=True)
         if current.consent_epoch != epoch or not current.profile.get("ai_consent"):
             raise HTTPException(

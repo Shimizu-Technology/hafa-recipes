@@ -30,6 +30,8 @@ MAX_BYTES = 25 * 1024 * 1024
 MAX_TOTAL_BYTES = 250 * 1024 * 1024
 ALLOWED = {
     "image/jpeg",
+    "image/heic",
+    "image/heif",
     "image/png",
     "image/webp",
     "image/gif",
@@ -257,7 +259,8 @@ async def validate_payload(payload, mime):
     if mime.startswith("image/"):
         try:
             valid = await asyncio.to_thread(
-                validate_image_bytes, payload, max_bytes=8 * 1024 * 1024, declared_content_type=mime
+                validate_image_bytes, payload, max_bytes=8 * 1024 * 1024,
+                declared_content_type=mime, allow_heif=True
             )
             image = await asyncio.to_thread(normalize_thumbnail_image, valid, max_dimension=2000)
             return image.data, "image/webp"
