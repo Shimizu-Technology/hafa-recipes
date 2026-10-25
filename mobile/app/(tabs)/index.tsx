@@ -192,7 +192,10 @@ export default function ExtractScreen() {
   }, [router, sharedUrl, sharedReceiptId, inbox.ownerId, isAuthLoaded, isSignedIn, legacyShareRetryVersion]);
 
   const openCapturedEntry = async (entry: ImportInboxEntry) => {
-    if (!inbox.ownerId) { router.push('/(auth)/sign-in'); return; }
+    if (!inbox.ownerId) {
+      if (!isSignedIn) router.push('/(auth)/sign-in');
+      return;
+    }
     const owner = inbox.ownerId;
     if (entry.submissionClaimed || entry.state === 'submitting') {
       if (!(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`)) {
@@ -867,7 +870,7 @@ export default function ExtractScreen() {
                   {entry.error || (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
                 </Text>
               </RNView>
-              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting} onPress={() => {
+              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting || Boolean(isSignedIn && !inbox.ownerId)} onPress={() => {
                 void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
               }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
               {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
