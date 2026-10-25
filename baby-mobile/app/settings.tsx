@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import Constants from "expo-constants";
 import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
-import { messageFor } from "@/lib/models";
+import { messageFor, pendingChanges } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Choice, Copy, Field, Notice, Row, Screen, Section, useToast } from "@/components/ui";
@@ -130,7 +130,7 @@ export default function Settings() {
       <Section title="Your device">
         <Row
           title="Saved changes & recovery"
-          detail={`${b.state.outbox.length} pending changes · ${b.online ? "Online" : "Offline"}`}
+          detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />

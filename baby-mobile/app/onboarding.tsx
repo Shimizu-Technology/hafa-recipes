@@ -53,7 +53,7 @@ export default function Onboarding() {
     >
       {!!error && <Notice error>{error}</Notice>}
       <Field label="What should we call you?" value={name} onChange={setName} placeholder="Kami" />
-      <Field label="Baby’s name or nickname (optional)" value={child} onChange={setChild} placeholder="Baby Shimizu" />
+      <Field label="Baby’s name or nickname (optional)" value={child} onChange={setChild} placeholder="Their name or a nickname" />
       {!!child.trim() && (
         <>
           <DateField label="Due date (optional)" dateOnly optional value={due} onChange={setDue} />

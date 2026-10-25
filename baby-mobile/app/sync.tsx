@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
-import { messageFor, type BabyRecord, type Mutation } from "@/lib/models";
+import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
 import { replaceRecord } from "@/lib/outbox";
 import { exportFile, removeLocal } from "@/lib/files";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
@@ -60,7 +60,7 @@ export default function Sync() {
         onPress={() => void run(b.sync)}
       />
       {b.state.outbox.length ? (
-        <Section title={`${b.state.outbox.length} pending changes`}>
+        <Section title={pendingChanges(b.state.outbox.length)}>
           {b.state.outbox.map((m) => (
             <Card key={m.id}>
               <Copy kind="heading">

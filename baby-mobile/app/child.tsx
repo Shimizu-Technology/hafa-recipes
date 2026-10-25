@@ -58,7 +58,7 @@ export default function ChildEditor() {
       back
     >
       {!!error && <Notice error>{error}</Notice>}
-      <Field label="Name or nickname" value={name} onChange={setName} placeholder="Baby Shimizu" />
+      <Field label="Name or nickname" value={name} onChange={setName} placeholder="Their name or a nickname" />
       <DateField label="Due date (optional)" value={due} onChange={setDue} dateOnly optional />
       <DateField label="Birth date (optional)" value={birth} onChange={setBirth} dateOnly optional />
       <Button title="Save profile" busy={busy} onPress={() => void save()} />

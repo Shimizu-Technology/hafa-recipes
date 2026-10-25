@@ -16,6 +16,7 @@ import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
 import { keepDraft } from "../lib/draft-content";
+import { ensureAiConsent } from "../lib/ai-consent";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
     id: Crypto.randomUUID(),
@@ -205,13 +206,13 @@ export default function Edit() {
       if (!["https:", "http:"].includes(url.protocol)) throw Error("Use a website link beginning with https://.");
     }
   }
-  async function save(process = false) {
+  async function save(process = false, consented = false) {
     if (!draft) return;
     await run(async () => {
       const d = latest.current!;
       validate(d);
       const generation = b.state.bootstrap!.generation;
-      if (process && !b.state.bootstrap!.profile.ai_consent)
+      if (process && !consented && !b.state.bootstrap!.profile.ai_consent)
         throw Error(
           "Enable optional AI processing in Settings before organizing sources with AI. You can save the source without AI."
         );
@@ -629,7 +630,11 @@ export default function Edit() {
             title="Process & organize with AI"
             icon="sparkles-outline"
             busy={busy}
-            onPress={() => void save(true)}
+            onPress={() =>
+              void ensureAiConsent(b)
+                .then((allowed) => (allowed ? save(true, true) : undefined))
+                .catch((e) => setError(messageFor(e)))
+            }
           />
           <Copy kind="small" tone="muted">
             Optional processing sends this source to our AI provider. Originals and your notes are kept even when
