@@ -7,14 +7,14 @@ from contextlib import AsyncExitStack
 from fastapi import Depends, HTTPException, Request
 from fastapi.dependencies.utils import get_dependant, solve_dependencies
 from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
 from starlette.responses import JSONResponse
 
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
+from app.domains.workouts.privacy import PrivateFailureRoute
 
 
-class BabyRoute(APIRoute):
+class BabyRoute(PrivateFailureRoute):
     max_body_bytes = 512 * 1024
 
     def get_route_handler(self):

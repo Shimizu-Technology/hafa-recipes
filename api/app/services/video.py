@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import io
+import logging
 import os
 import re
 import shutil
@@ -31,9 +32,11 @@ from app.http_limits import (
     get_limited,
 )
 from app.security import PublicHTTPTransport
+from app.services.source_acquisition import TRANSIENT_SOURCE_ERRORS
 from app.source_urls import canonicalize_source
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _media_log(message):
@@ -64,6 +67,20 @@ INSTAGRAM_SESSION_FAILURE_CODES = frozenset({
 })
 INSTAGRAM_SESSION_BYPASS_SECONDS = 30 * 60
 _instagram_session_bypass_until = 0.0
+
+
+def _fallback_diagnostic(stage, session_code, anonymous_code):
+    # Fixed stage names and parsed codes only; never downloader stderr or URLs.
+    allowed = {entry["code"] for entry in VIDEO_ERROR_PATTERNS.values()} | {
+        "SOURCE_RESPONSE_INVALID", "INSTAGRAM_ERROR", "TIMEOUT", "MEDIA_BUSY",
+        "SOURCE_UNAVAILABLE", "SYSTEM_ERROR", "UNKNOWN_ERROR",
+    }
+    logger.warning(
+        "instagram_session_fallback_failed stage=%s session_error_code=%s anonymous_error_code=%s",
+        stage if stage in {"metadata", "audio", "frames"} else "unknown",
+        session_code if session_code in allowed else "UNKNOWN_ERROR",
+        anonymous_code if anonymous_code in allowed else "UNKNOWN_ERROR",
+    )
 
 
 def _instagram_session_bypassed() -> bool:
@@ -918,7 +935,7 @@ class VideoService:
             return None
         return self._create_instagram_cookies_file()
 
-    async def _with_instagram_session_fallback(self, url, attempt, failure_code):
+    async def _with_instagram_session_fallback(self, url, attempt, failure_code, *, stage):
         """Retry once anonymously when the configured session looks rejected."""
         session_in_use = self._instagram_session_in_use(url)
         result = await attempt(True)
@@ -929,7 +946,9 @@ class VideoService:
         if failure_code(retry) is None:
             _bypass_rejected_instagram_session()
             return retry
-        return result
+        retry_code = failure_code(retry)
+        _fallback_diagnostic(stage, failure_code(result), retry_code)
+        return retry if retry_code in TRANSIENT_SOURCE_ERRORS else result
 
     async def download_audio(self, url: str) -> AudioExtractionResult:
         try:
@@ -938,6 +957,7 @@ class VideoService:
                     url,
                     lambda use_session: self._download_audio(url, use_instagram_session=use_session),
                     lambda result: None if result.success else result.error_code,
+                    stage="audio",
                 )
         except MediaCapacityExceeded:
             return AudioExtractionResult(
@@ -1168,7 +1188,8 @@ class VideoService:
             return VideoFrameExtractionResult(
                 success=False,
                 error=_redact_sensitive_values(str(error)),
-                error_code="VIDEO_FRAME_EXTRACTION_FAILED",
+                error_code=(get_friendly_video_error(str(error), self.detect_platform(url))[0]
+                            if isinstance(error, DownloaderFailed) else "VIDEO_FRAME_EXTRACTION_FAILED"),
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1219,7 +1240,8 @@ class VideoService:
             return VideoFrameExtractionResult(
                 success=False,
                 error=_redact_sensitive_values(str(error)),
-                error_code="COVER_FRAME_EXTRACTION_FAILED",
+                error_code=(get_friendly_video_error(str(error), self.detect_platform(url))[0]
+                            if isinstance(error, DownloaderFailed) else "COVER_FRAME_EXTRACTION_FAILED"),
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1266,7 +1288,8 @@ class VideoService:
             return VideoThumbnailResult(
                 success=False,
                 error=_redact_sensitive_values(str(error)),
-                error_code="THUMBNAIL_FRAME_EXTRACTION_FAILED",
+                error_code=(get_friendly_video_error(str(error), self.detect_platform(url))[0]
+                            if isinstance(error, DownloaderFailed) else "THUMBNAIL_FRAME_EXTRACTION_FAILED"),
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1293,7 +1316,14 @@ class VideoService:
             result = await self._download_video_for_frames_once(
                 url, temp_dir, use_instagram_session=False,
             )
-        except DownloaderFailed:
+        except TimeoutError:
+            _fallback_diagnostic("frames", code, "TIMEOUT")
+            raise
+        except DownloaderFailed as anonymous_error:
+            anonymous_code, _ = get_friendly_video_error(str(anonymous_error), "instagram")
+            _fallback_diagnostic("frames", code, anonymous_code)
+            if anonymous_code in TRANSIENT_SOURCE_ERRORS:
+                raise
             raise session_error from None
         _bypass_rejected_instagram_session()
         return result
@@ -1687,6 +1717,7 @@ class VideoService:
                         url, use_instagram_session=use_session,
                     ),
                     lambda metadata: metadata.error_code,
+                    stage="metadata",
                 )
         except MediaCapacityExceeded:
             _media_log("⚠️ Media process capacity unavailable for video metadata")
