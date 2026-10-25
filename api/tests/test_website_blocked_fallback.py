@@ -227,6 +227,29 @@ async def test_browser_timeouts_stay_retryable(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("answered_status,expected", [
+    (None, "fetch_timeout"), (403, "fetch_403"),
+    (429, "fetch_failed"), (503, "fetch_failed"),
+])
+async def test_streamed_timeouts_preserve_answered_status_precedence(
+    monkeypatch, httpx_blocked, answered_status, expected,
+):
+    answered = False
+
+    def fake_get(url, impersonate, deadline):
+        nonlocal answered
+        if answered_status is not None and not answered:
+            answered = True
+            return answered_status, ""
+        raise website_module.CurlRequestError(
+            "stream operation timed out", code=website_module.CurlECode.OPERATION_TIMEDOUT,
+        )
+
+    monkeypatch.setattr(website_module, "_impersonated_get", fake_get)
+    assert await WebsiteService._fetch_html_with_error("https://example.com/r") == (None, expected)
+
+
+@pytest.mark.asyncio
 async def test_unexpected_fallback_errors_report_unavailable(monkeypatch, httpx_blocked):
     def fake_get(url, impersonate, deadline):
         raise MemoryError("connect policy")

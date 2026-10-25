@@ -17,6 +17,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 import sentry_sdk
 from bs4 import BeautifulSoup
+from curl_cffi.const import CurlECode
 from curl_cffi.requests.exceptions import RequestException as CurlRequestError
 from curl_cffi.requests.exceptions import Timeout as CurlTimeout
 from fastapi import HTTPException
@@ -490,7 +491,13 @@ class WebsiteService:
             except CurlTimeout:
                 timed_out = True
                 continue
-            except (CurlRequestError, httpx.TooManyRedirects, ValueError) as e:
+            except CurlRequestError as e:
+                if e.code == CurlECode.OPERATION_TIMEDOUT:
+                    timed_out = True
+                    continue
+                print(f"⚠️ Browser-fingerprint fetch ({target}) failed: {type(e).__name__}")
+                continue
+            except (httpx.TooManyRedirects, ValueError) as e:
                 print(f"⚠️ Browser-fingerprint fetch ({target}) failed: {type(e).__name__}")
                 continue
             except Exception as e:  # never let the fallback turn into parse_error
