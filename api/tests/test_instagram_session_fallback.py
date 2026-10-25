@@ -46,6 +46,8 @@ def instagram(monkeypatch, tmp_path):
             error = state["session_error"]
         else:
             error = state["anonymous_error"]
+        if isinstance(error, Exception):
+            raise error
         if error:
             return DownloadProcess(returncode=1, stderr=error)
         if "--output" in command:
@@ -73,6 +75,8 @@ def instagram(monkeypatch, tmp_path):
         try:
             await service._download_video_for_frames(URL, str(work))
             return True, None
+        except TimeoutError:
+            return False, "TIMEOUT"
         except video.DownloaderFailed as error:
             return False, video.get_friendly_video_error(str(error), "instagram")[0]
 
@@ -169,3 +173,35 @@ def test_instagram_filter_skips_live_and_long_videos_but_not_unknown_duration():
     assert allows({"id": "short", "duration": 30}) is None
     assert allows({"id": "live", "is_live": True}) is not None
     assert allows({"id": "long", "duration": 7200}) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("session_error", [REJECTED, b"HTTP Error 401: Unauthorized"])
+@pytest.mark.parametrize("anonymous_error,code", [
+    (b"HTTP Error 429: Too Many Requests", "RATE_LIMITED"),
+    (TimeoutError(), "TIMEOUT"),
+])
+async def test_anonymous_transient_failure_remains_retryable(
+    instagram, kind, session_error, anonymous_error, code, caplog,
+):
+    run, commands, credential_paths, state = instagram
+    state.update(session_error=session_error, anonymous_error=anonymous_error)
+    assert await run(kind) == (False, code)
+    assert len(commands) == 2 and not video._instagram_session_bypassed()
+    assert not any(video.os.path.exists(path) for path in credential_paths)
+    session_code = video.get_friendly_video_error(session_error.decode(), "instagram")[0]
+    diagnostic = next(record.getMessage() for record in caplog.records
+                      if record.getMessage().startswith("instagram_session_fallback_failed"))
+    assert diagnostic == (f"instagram_session_fallback_failed stage={kind} "
+                          f"session_error_code={session_code} anonymous_error_code={code}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["extract_video_frames", "extract_cover_frames", "extract_thumbnail_frame"])
+async def test_public_frame_results_retain_anonymous_rate_limit(instagram, method):
+    _, commands, _, state = instagram
+    state["anonymous_error"] = b"HTTP Error 429: Too Many Requests"
+    result = await getattr(video.VideoService(), method)(URL)
+    assert not result.success and result.error_code == "RATE_LIMITED"
+    assert len(commands) == 2 and not video._instagram_session_bypassed()

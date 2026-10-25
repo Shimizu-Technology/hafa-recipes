@@ -4,11 +4,11 @@ import asyncio
 import threading
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.routing import APIRoute
 from starlette.responses import JSONResponse
 
 from app.auth import ClerkUser, get_current_user
 from app.config import get_settings
+from app.domains.workouts.privacy import PrivateFailureRoute
 
 MAX_BODY_BYTES = 256 * 1024
 # Shared by all bulk routes in this process, not by replicas. No waiting bodies.
@@ -16,7 +16,7 @@ _import_ingress = threading.Lock()
 IMPORT_INGRESS_SECONDS = 60
 
 
-class WorkoutsRoute(APIRoute):
+class WorkoutsRoute(PrivateFailureRoute):
     max_body_bytes = MAX_BODY_BYTES
 
     def get_route_handler(self):
