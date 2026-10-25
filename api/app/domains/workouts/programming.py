@@ -506,30 +506,39 @@ def build_program(profile: TrainingProfile, start_date: date, weeks: int = 4) ->
     return ProgramProposal(status=status, sessions=sessions, **base)
 
 
-def _shortened_directions(workout: WorkoutContent, block: WorkoutBlock, changes: list[str]) -> None:
+def _direction_entries(heading: str, text: str) -> list[str]:
+    # Every saved text field is capped at 4000 characters. Repeat the heading
+    # on continuations so old prescriptions never look like active Coach cues.
+    size = 4000 - len(heading)
+    return [heading + text[index:index + size] for index in range(0, len(text), size)]
+
+
+def _shortened_directions(
+    workout: WorkoutContent, block: WorkoutBlock, original_block: WorkoutBlock, changes: list[str]
+) -> None:
     # Blocks have no instructions field. Imports store their original directions
     # in block evidence and project them into workout.instructions.
     original = list(dict.fromkeys([
         *workout.instructions,
-        *(entry.wording for entry in block.evidence
+        *(entry.wording for entry in original_block.evidence
           if entry.field in {"workout_instructions", "workout_notes"}),
     ]))
-    original.append(f"Original block: {block.label}")
+    original.append(f"Original block: {original_block.label}")
     # Exercise cues can also prescribe the old sets, rounds or time cap. Keep
     # their exact text with the full-workout directions, not as an active cue.
-    for item in block.exercises:
+    for item in original_block.exercises:
         if item.instructions:
             original.append(f"Original exercise directions for {item.name}:\n{item.instructions}")
+    for item in block.exercises:
+        if item.instructions:
             item.instructions = (
                 "Shortened by Coach: Follow the sets, reps, time and rest listed for this exercise. "
                 "The creator's original exercise directions are in the full-workout directions."
             )
             item.evidence = [entry for entry in item.evidence if entry.field != "instructions"]
-    workout.instructions = [
-        "Shortened by Coach: " + " ".join(changes),
-        "The creator's original directions below describe the full workout.\n\n"
-        + "\n\n".join(original),
-    ]
+    workout.instructions = _direction_entries("Shortened by Coach: ", " ".join(changes)) + _direction_entries(
+        "The creator's original directions below describe the full workout.\n\n", "\n\n".join(original)
+    )
     block.label = "Shortened by Coach"
     # Retained instruction quotes support only the original section above.
     # No source evidence is created for Coach's new directions or estimate.
@@ -542,6 +551,8 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
     if len(workout.blocks) != 1 or not workout.blocks[0].exercises:
         return []
     block = workout.blocks[0]
+    # Capture every source cue before reducing sets, evidence or the exercise list.
+    original_block = block.model_copy(deep=True)
     ratio = minutes / source_minutes
     if is_amrap(block):
         if minutes * 60 >= block.execution.time_cap_seconds:
@@ -550,7 +561,7 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
         block.evidence = [e for e in block.evidence if not e.field.startswith("execution")]
         workout.estimated_minutes = minutes
         changes = [f"Reduce the circuit time limit to {minutes} minutes; keep the same exercises."]
-        _shortened_directions(workout, block, changes)
+        _shortened_directions(workout, block, original_block, changes)
         return changes
     rounds = block.rounds or 1
     if rounds > 1:
@@ -592,7 +603,7 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
         return []
     workout.estimated_minutes = math.ceil(source_minutes * fraction)
     changes.append("The shorter time is an estimate based on less work; take the rest you need.")
-    _shortened_directions(workout, block, changes)
+    _shortened_directions(workout, block, original_block, changes)
     return changes
 
 
@@ -719,6 +730,26 @@ def adapt_workout(
     adapted.id = _id(
         {"parent": adapted.parent_version_id, "content": adapted.model_dump(mode="json")}
     )
+    if shortening:
+        from fastapi import HTTPException
+
+        from app.domains.workouts.router import validated_workout
+
+        try:
+            # Assignment/model_copy skip schema validation. Use the acceptance
+            # validator, including list and UTF-8 record limits, with the UUID
+            # identities and first revision store_workout will actually save.
+            saved = adapted.model_dump(mode="json") | {
+                "id": "00000000-0000-0000-0000-000000000000",
+                "version": 1,
+                "parent_version_id": "00000000-0000-0000-0000-000000000000",
+            }
+            validated_workout(WorkoutContent.model_validate(saved), authored=False)
+        except (ValueError, HTTPException):
+            return AdaptationProposal(
+                status="needs_information", rule_version=RULE_VERSION,
+                questions=["The shortened copy cannot keep all original directions within the saved workout limits. Split this workout into smaller workouts before shortening it."],
+            )
     return AdaptationProposal(
         status="ready",
         rule_version=RULE_VERSION,

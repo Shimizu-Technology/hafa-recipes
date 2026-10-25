@@ -1,5 +1,6 @@
 """Imported names stay honest; reducing volume does not require guessing movements."""
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -130,8 +131,8 @@ def shortening_case(kind):
         source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
         directions = "20-minute AMRAP."
     source.instructions = [directions]
-    for item in source.blocks[0].exercises:
-        item.instructions = ("Do 4 sets of 8 reps. " if kind == "sets" else directions + " ") + "Keep your usual controlled form."
+    for index, item in enumerate(source.blocks[0].exercises, 1):
+        item.instructions = ("Do 4 sets of 8 reps. " if kind == "sets" else directions + " ") + f"Exercise {index}: Keep your usual controlled form."
         item.evidence = [Evidence(field="instructions", wording=item.instructions, location="caption")]
     source.blocks[0].label = directions
     source.blocks[0].evidence = [
@@ -140,6 +141,12 @@ def shortening_case(kind):
         Evidence(field="estimated_minutes", wording="20 minutes", location="caption"),
     ]
     return source
+
+
+def original_directions(workout):
+    heading = "The creator's original directions below describe the full workout.\n\n"
+    return "".join(entry.removeprefix(heading) for entry in workout.instructions
+                   if entry.startswith(heading))
 
 
 @pytest.mark.parametrize("kind", ["rounds", "sets", "timed", "amrap"])
@@ -158,6 +165,8 @@ def test_shortened_directions_separate_coach_plan_from_unchanged_original(kind, 
     assert saved.instructions[1].startswith(
         "The creator's original directions below describe the full workout.\n\n")
     assert all(text in saved.instructions[1] for text in source.instructions)
+    assert all(f"Original exercise directions for {item.name}:\n{item.instructions}"
+               in original_directions(saved) for item in source.blocks[0].exercises)
     assert f"Original block: {source.blocks[0].label}" in saved.instructions[1]
     assert saved.blocks[0].label == "Shortened by Coach"
     for index, item in enumerate(saved.blocks[0].exercises):
@@ -210,6 +219,87 @@ def test_block_only_directions_are_retained_as_original_text():
     result = adapt_workout(source, profile(), 10)
     assert "Repeat for 3 rounds." in result.workout.instructions[1]
     assert result.workout.blocks[0].evidence[0] == source.blocks[0].evidence[0]
+
+
+@pytest.mark.parametrize("size", [700, 2000])
+def test_long_cues_are_bounded_and_preserved_verbatim(size):
+    from app.domains.workouts.router import validated_workout
+
+    source = shortening_case("sets")
+    for index, item in enumerate(source.blocks[0].exercises):
+        item.instructions = f"Cue {index}: " + "x" * (size - 7)
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, profile(), 10)
+    assert result.status == "ready", result.questions
+    saved = WorkoutContent.model_validate(validated_workout(result.workout, authored=False))
+    originals = original_directions(saved)
+    assert all(f"Original exercise directions for {item.name}:\n{item.instructions}" in originals
+               for item in source.blocks[0].exercises)
+    assert len(saved.instructions) <= 100
+    assert all(len(entry) <= 4000 for entry in saved.instructions)
+    assert source.model_dump(mode="json") == before
+
+
+@pytest.mark.parametrize("many_exercises", [False, True])
+def test_maximum_source_fields_and_long_coach_summary_fit_saved_limits(many_exercises):
+    from app.domains.workouts.router import validated_workout
+
+    source = shortening_case("sets")
+    source.capture_kind = "text"
+    if many_exercises:
+        source.blocks[0].exercises = [source.blocks[0].exercises[0].model_copy(deep=True, update={
+            "name": f"Move {index}: " + "n" * (190 - len(str(index))),
+            "instructions": f"Original cue {index}",
+        }) for index in range(100)]
+    else:
+        source.instructions = [f"Direction {index}: " + "x" * 1780 for index in range(100)]
+        source.instructions[0] = "😀" * 4000
+        for item in source.blocks[0].exercises:
+            item.instructions = "y" * 2000
+    validated_workout(WorkoutContent.model_validate(source.model_dump()), authored=False)
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, profile(), 10)
+    assert result.status == "ready", result.questions
+    saved = WorkoutContent.model_validate(validated_workout(result.workout, authored=False))
+    assert len(saved.instructions) <= 100
+    assert all(len(entry) <= 4000 for entry in saved.instructions)
+    coach = "".join(entry.removeprefix("Shortened by Coach: ") for entry in saved.instructions
+                    if entry.startswith("Shortened by Coach: "))
+    assert coach == " ".join(result.changes)
+    originals = original_directions(saved)
+    assert all(text in originals for text in source.instructions)
+    assert all(f"Original exercise directions for {item.name}:\n{item.instructions}" in originals
+               for item in source.blocks[0].exercises)
+    assert source.model_dump(mode="json") == before
+
+
+def near_saved_limit_case(character):
+    from app.domains.workouts.router import validated_workout
+
+    source = shortening_case("sets")
+    source.capture_kind = "text"
+    source.id = "00000000-0000-0000-0000-000000000000"
+    for item in source.blocks[0].exercises:
+        item.instructions = character * 700
+    size = len(json.dumps(validated_workout(source, authored=False), ensure_ascii=False).encode())
+    padding = 240 * 1024 - 256 - size
+    while padding > 4:
+        entry = "x" * min(4000, padding - 4)
+        source.notes.append(entry)
+        padding -= len(entry) + 4  # JSON comma, space and quotation marks.
+    validated_workout(source, authored=False)
+    return source
+
+
+@pytest.mark.parametrize("character", ["x", "😀"])
+def test_saved_byte_limit_never_produces_ready_or_truncates_source(character):
+    source = near_saved_limit_case(character)
+    before = source.model_dump(mode="json")
+    result = adapt_workout(source, profile(), 10)
+    assert result.status == "needs_information" and result.workout is None
+    assert "all original directions" in result.questions[0]
+    assert "Split this workout" in result.questions[0]
+    assert source.model_dump(mode="json") == before
 
 
 @pytest.mark.parametrize("minutes,changes", [(None, {}), (10, {"movement_exclusions": ["impact"]})])
