@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { accountChatStoragePrefix, pendingChatImageCleanupKey, chatStorageGuard } from './chatStorage';
+import { accountChatStoragePrefix, pendingChatImageCleanupKey, chatStorageGuard, commitChatStorage } from './chatStorage';
 
 export interface ChatImageCleanupJob {
   id: string;
@@ -49,11 +49,8 @@ async function readQueue(cleanupKey: string): Promise<ChatImageCleanupJob[]> {
 async function writeQueue(cleanupKey: string, jobs: ChatImageCleanupJob[], guard: () => void): Promise<void> {
   guard();
   if (belongsToDeletedAccount(cleanupKey)) return;
-  if (jobs.length === 0) {
-    await AsyncStorage.removeItem(cleanupKey);
-  } else {
-    await AsyncStorage.setItem(cleanupKey, JSON.stringify(jobs));
-  }
+  await commitChatStorage(cleanupKey, jobs.length ? JSON.stringify(jobs) : null,
+    guard, () => belongsToDeletedAccount(cleanupKey));
 }
 
 /** Drain existing queue mutations and prevent later writes for a deleted account. */

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CHAT_MESSAGE_MAX_CHARS } from './chatComposer';
 import { blockAccountChatImageCleanup } from './chatImageCleanup';
-import { accountChatStoragePrefix, chatDraftStorageKey, chatStorageGuard } from './chatStorage';
+import { accountChatStoragePrefix, chatDraftStorageKey, chatStorageGuard, commitChatStorage } from './chatStorage';
 
 const operationTails = new Map<string, Promise<void>>();
 const deletedAccountPrefixes = new Set<string>();
@@ -48,25 +48,13 @@ export async function readChatDraft(conversationKey: string): Promise<string> {
   ).slice(0, CHAT_MESSAGE_MAX_CHARS));
 }
 
-async function commitValue(key: string, value: string | null, guard: () => void) {
-  const previous = await AsyncStorage.getItem(key); guard();
-  if (value === null) await AsyncStorage.removeItem(key); else await AsyncStorage.setItem(key, value);
-  try { guard(); } catch (error) {
-    if (await AsyncStorage.getItem(key) === value) {
-      if (previous === null || belongsToDeletedAccount(key)) await AsyncStorage.removeItem(key);
-      else await AsyncStorage.setItem(key, previous);
-    }
-    throw error;
-  }
-}
-
 /** Save or remove a bounded account-scoped text draft in invocation order. */
 export async function writeChatDraft(conversationKey: string, text: string, scope = recipeScope()): Promise<void> {
   if (belongsToDeletedAccount(conversationKey)) return;
   await afterPendingDraftWrites(conversationKey, async () => {
     if (belongsToDeletedAccount(conversationKey)) return;
     const key = chatDraftStorageKey(conversationKey);
-    await commitValue(key, text.trim() ? text.slice(0, CHAT_MESSAGE_MAX_CHARS) : null, chatStorageGuard(conversationKey, scope));
+    await commitChatStorage(key, text.trim() ? text.slice(0, CHAT_MESSAGE_MAX_CHARS) : null, chatStorageGuard(conversationKey, scope), () => belongsToDeletedAccount(key));
   }, scope);
 }
 
@@ -75,7 +63,7 @@ export async function writeChatHistory(conversationKey: string, serialized: stri
   if (belongsToDeletedAccount(conversationKey)) return;
   await afterPendingDraftWrites(conversationKey, async () => {
     if (!belongsToDeletedAccount(conversationKey)) {
-      await commitValue(conversationKey, serialized, chatStorageGuard(conversationKey, scope));
+      await commitChatStorage(conversationKey, serialized, chatStorageGuard(conversationKey, scope), () => belongsToDeletedAccount(conversationKey));
     }
   }, scope);
 }

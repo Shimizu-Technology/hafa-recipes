@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { assertRecipeScope, recipeScope } from './recipeQueryScope';
 import type { ChatMessage } from '@/types/recipe';
 
@@ -48,4 +49,17 @@ export function chatStorageGuard(conversationKey: string, scope = recipeScope())
     const owner = JSON.parse(scope)[1] as string | null;
     if (owner && !conversationKey.startsWith(accountChatStoragePrefix(owner))) throw new Error('Chat account changed');
   };
+}
+
+/** Compensate a native storage call that was dispatched before retirement. */
+export async function commitChatStorage(key: string, value: string | null, guard: () => void, blocked: () => boolean) {
+  const previous = await AsyncStorage.getItem(key); guard();
+  if (value === null) await AsyncStorage.removeItem(key); else await AsyncStorage.setItem(key, value);
+  try { guard(); } catch (error) {
+    if (await AsyncStorage.getItem(key) === value) {
+      if (previous === null || blocked()) await AsyncStorage.removeItem(key);
+      else await AsyncStorage.setItem(key, previous);
+    }
+    throw error;
+  }
 }

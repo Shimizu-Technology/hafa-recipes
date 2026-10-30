@@ -39,3 +39,17 @@ it('keeps unassigned staged captures under the existing explicit-claim rule',asy
  await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');
  expect(consumePendingShareCapture(token)).toEqual({kind:'text',text:'unassigned recipe'});await offlineRecipes.clear();
 });
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { enqueueChatImageCleanup, activateChatImageCleanup, processChatImageCleanup, recoverChatImageCleanup } from '../lib/chatImageCleanup';
+it('retires a dispatched chat cleanup journal write and replays it only when A returns',async()=>{
+ await ownerA();const key='hafa.chat.v2.owner-a.cooking',queue=key+'.pending-image-cleanup';
+ await enqueueChatImageCleanup(key,{id:'keep',imageUrls:['https://images.test/a-private.jpg']});
+ let finish!:()=>void,entered!:()=>void;const started=new Promise<void>(r=>{entered=r}),gate=new Promise<void>(r=>{finish=r});
+ const original=AsyncStorage.setItem.bind(AsyncStorage);const spy=vi.spyOn(AsyncStorage,'setItem').mockImplementation(async(k,v)=>{if(k===queue){entered();await gate;}return original(k,v)});
+ const pending=activateChatImageCleanup(key,'keep').catch(()=>undefined),remove=vi.fn(async()=>{});
+ try{await started;await offlineRecipes.verify('subject','owner-b');finish();await pending;expect(JSON.parse(data.get(queue)!)[0].state).toBe('prepared');
+ await processChatImageCleanup(key,remove);expect(remove).not.toHaveBeenCalled();
+ await offlineRecipes.verify('subject','owner-a');await recoverChatImageCleanup(key,false);await processChatImageCleanup(key,remove);expect(remove).toHaveBeenCalledWith(['https://images.test/a-private.jpg']);
+ }finally{finish();spy.mockRestore();await offlineRecipes.clear();}
+});

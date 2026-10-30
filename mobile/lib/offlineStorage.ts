@@ -1,3 +1,4 @@
+import { groceryAccountScope } from './groceryAccountScope';
 import { offlineRecipes } from './offlineRecipes';
 /** Account-scoped grocery snapshots and durable mutation queue. */
 
@@ -113,9 +114,20 @@ async function privateGroceryKeys(): Promise<string[]> {
   return keys.filter((key) => key === ACTIVE_SCOPE_KEY || key === IDENTITY_KEY || key.startsWith(SCOPE_PREFIX) || LEGACY_KEYS.includes(key));
 }
 
-async function clearPrivateGroceryStorage(): Promise<void> {
+async function clearPrivateGroceryStorage(deletedOwner?: string): Promise<void> {
   const keys = await privateGroceryKeys();
-  if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+  const remove = keys.filter(key => !key.startsWith(SCOPE_PREFIX) || !key.endsWith(':queue'));
+  if (deletedOwner) {
+    const accountScope = await groceryAccountScope(deletedOwner);
+    for (const key of keys.filter(key => key.startsWith(SCOPE_PREFIX) && key.endsWith(':queue'))) {
+      const rows = parseQueue(await AsyncStorage.getItem(key));
+      const ownedKey = key.startsWith(`${SCOPE_PREFIX}${encodeURIComponent(deletedOwner)}:`) || key.startsWith(`${SCOPE_PREFIX}${accountScope}:`);
+      const kept = ownedKey ? [] : rows.filter(entry => (queueOwner(entry)) !== deletedOwner);
+      if (!kept.length) remove.push(key);
+      else if (kept.length !== rows.length) await AsyncStorage.setItem(key, JSON.stringify(kept));
+    }
+  }
+  if (remove.length > 0) await AsyncStorage.multiRemove(remove);
 }
 
 /** Clerk is only a local privacy boundary; the API's stable scope owns data. */
@@ -327,7 +339,9 @@ export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<voi
     // A membership request may already have reached the server when Clerk starts
     // rebinding the same account. Wait for that bind, then clean only if this is
     // still the originating identity. A different account must remain untouched.
+    if (lease.recipeScope !== undefined && lease.recipeScope !== offlineRecipes.scope()) return;
     const currentIdentityHash = await AsyncStorage.getItem(IDENTITY_KEY);
+    if (lease.recipeScope !== undefined && lease.recipeScope !== offlineRecipes.scope()) return;
     if (currentIdentityHash !== lease.identityHash) return;
     ++scopeEpoch;
     const scope = await getActiveScopeUnsafe();
@@ -336,13 +350,13 @@ export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<voi
   });
 }
 
-export function clearAllOfflineGroceryData(): Promise<void> {
+export function clearAllOfflineGroceryData(deletedOwner?: string): Promise<void> {
   ++identityEpoch;
   ++scopeEpoch;
   identityReady = false;
   boundIdentityHash = null;
   const recipesCleared = offlineRecipes.clear();
-  return Promise.all([serialized(clearPrivateGroceryStorage), recipesCleared]).then(() => undefined);
+  return Promise.all([serialized(() => clearPrivateGroceryStorage(deletedOwner)), recipesCleared]).then(() => undefined);
 }
 
 // Stable-owner retirement also invalidates Clerk-scoped grocery work. A bootstrap
@@ -359,11 +373,18 @@ offlineRecipes.onRetire(previous => {
 
 function queueEntryBelongsToOwner(entry: PendingGroceryMutation): boolean {
   const owner = JSON.parse(offlineRecipes.scope())[1];
-  const priorOwner = entry.owner ?? (entry.ownerGeneration ? JSON.parse(entry.ownerGeneration)[0] : null);
+  const priorOwner = queueOwner(entry);
   return priorOwner === owner;
 }
 
 function parseQueue(raw: string | null): PendingGroceryMutation[] {
   try { const rows = JSON.parse(raw || '[]'); return Array.isArray(rows) ? rows.filter(entry => entry?.mutation?.mutation_id) : []; }
   catch { return []; }
+}
+
+function queueOwner(entry: PendingGroceryMutation): string | null | undefined {
+  if (entry.owner) return entry.owner;
+  if (!entry.ownerGeneration) return null;
+  try { const parsed = JSON.parse(entry.ownerGeneration); return typeof parsed[0] === 'string' ? parsed[0] : undefined; }
+  catch { return undefined; }
 }

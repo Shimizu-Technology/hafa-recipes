@@ -205,7 +205,7 @@ export default function SettingsScreen() {
                     try {
                       let appUserId = queryClient.getQueryData<{ id: string }>(
                         ['currentUserIdentity', user?.id],
-                      )?.id;
+                      )?.id ?? JSON.parse(creationScope)[1] ?? undefined;
                       if (!appUserId) {
                         try {
                           appUserId = (await api.getCurrentUserIdentity()).id;
@@ -248,7 +248,7 @@ export default function SettingsScreen() {
 
                       // Clear all cached data
                       queryClient.clear();
-                      await clearAllOfflineGroceryData();
+                      await clearAllOfflineGroceryData(appUserId);
             await privateRecipeDrafts.clearAll();
 
                       await signOut();
