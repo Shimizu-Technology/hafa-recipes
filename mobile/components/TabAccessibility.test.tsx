@@ -57,6 +57,7 @@ describe('four-tab chrome', () => {
       const screens = renderer.container.queryAll((instance) => instance.type === 'TabScreen');
       const visible = screens.filter((screen) => screen.props.options.href !== null);
       expect(visible.map((screen) => screen.props.options.title)).toEqual(['Recipes', 'Add', 'Plan', 'Grocery']);
+      expect(visible.map(screen => screen.props.options.tabBarAccessibilityLabel)).toEqual(['Recipes, tab, 1 of 4', 'Add a recipe, tab, 2 of 4', 'Plan, tab, 3 of 4', 'Grocery, tab, 4 of 4']);
       expect(typeof visible[0].props.options.headerTitle).toBe('function');
       expect(tabs.props.tabBar).toBeUndefined();
       await act(async () => renderer.render(tabs.props.screenOptions.headerRight()));

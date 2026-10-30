@@ -67,7 +67,7 @@ export default function TabLayout() {
         headerRightContainerStyle: { paddingRight: 16 },
       }}>
       <Tabs.Screen name="recipes" options={{
-        title: 'Recipes', headerTitle: () => <TabHeaderBrand />,
+        title: 'Recipes', tabBarAccessibilityLabel: 'Recipes, tab, 1 of 4', headerTitle: () => <TabHeaderBrand />,
         tabBarIcon: ({ focused, color }) => <Ionicons name={focused ? 'book' : 'book-outline'} size={24} color={color} />,
       }} />
       <Tabs.Screen name="discover" options={{ href: null }} />
@@ -76,14 +76,14 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Add',
-          tabBarAccessibilityLabel: 'Add a recipe',
+          tabBarAccessibilityLabel: 'Add a recipe, tab, 2 of 4',
           tabBarIcon: ({ focused }) => <ImportTabIcon focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="planner"
         options={{
-          title: 'Plan',
+          title: 'Plan', tabBarAccessibilityLabel: 'Plan, tab, 3 of 4',
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? 'calendar' : 'calendar-outline'}
@@ -96,7 +96,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="grocery"
         options={{
-          title: 'Grocery',
+          title: 'Grocery', tabBarAccessibilityLabel: 'Grocery, tab, 4 of 4',
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
               name={focused ? 'cart' : 'cart-outline'}

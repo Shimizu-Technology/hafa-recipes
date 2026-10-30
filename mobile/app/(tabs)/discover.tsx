@@ -76,11 +76,13 @@ function getContributorId(value: { contributor_id?: string | null; user_id?: str
 export function SaveButton({
   recipeId,
   initialIsSaved,
+  active = true,
   colors,
   isOwner,
 }: {
   recipeId: string;
   initialIsSaved?: boolean | null;
+  active?: boolean;
   colors: ReturnType<typeof useColors>;
   isOwner: boolean;
 }) {
@@ -88,7 +90,7 @@ export function SaveButton({
   // only as a rolling-deploy fallback for an older API response.
   const { isSignedIn } = useAuth();
   const router = useRouter();
-  const shouldFetchSavedStatus = !!isSignedIn && !isOwner && initialIsSaved == null;
+  const shouldFetchSavedStatus = active && !!isSignedIn && !isOwner && initialIsSaved == null;
   const { data: savedStatus, isLoading } = useIsRecipeSaved(
     recipeId,
     shouldFetchSavedStatus,
@@ -174,6 +176,7 @@ function RecipeCard({
   colors,
   currentUserId,
   imagePriority = 'normal',
+  active = true,
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
@@ -181,6 +184,7 @@ function RecipeCard({
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
   imagePriority?: 'normal' | 'high';
+  active?: boolean;
 }) {
   const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
@@ -223,7 +227,7 @@ function RecipeCard({
         {/* Save button overlay */}
         {(
           <RNView style={styles.saveButtonContainer}>
-            <SaveButton
+            <SaveButton active={active}
               recipeId={recipe.id}
               initialIsSaved={recipe.is_saved}
               colors={colors}
@@ -321,6 +325,7 @@ function GridRecipeCard({
   colors,
   currentUserId,
   imagePriority = 'normal',
+  active = true,
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
@@ -328,6 +333,7 @@ function GridRecipeCard({
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
   imagePriority?: 'normal' | 'high';
+  active?: boolean;
 }) {
   // Can filter by this user if they have a user_id and display name, and it's not the current user
   const contributorId = getContributorId(recipe);
@@ -362,7 +368,7 @@ function GridRecipeCard({
           )}
           {showSaveButton && (
             <RNView style={styles.gridSaveButtonContainer}>
-              <SaveButton
+              <SaveButton active={active}
                 recipeId={recipe.id}
                 initialIsSaved={recipe.is_saved}
                 colors={colors}
@@ -400,7 +406,7 @@ function GridRecipeCard({
   );
 }
 
-export function DiscoverScreen() {
+export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -471,7 +477,7 @@ export function DiscoverScreen() {
 
   // Discover is a public community library. Guests can browse; sign-in is only
   // required for saving recipes and personalized actions.
-  const canBrowseDiscover = true;
+  const canBrowseDiscover = active;
   const baseDiscoverQuery = baseDiscoverQueryOptions(
     canBrowseDiscover,
     hasServerFilters,
@@ -593,6 +599,7 @@ export function DiscoverScreen() {
   // high render priority while the remaining optimized derivatives fill the
   // persistent cache for fast scrolling and filter transitions.
   useEffect(() => {
+    if (!active) return;
     const thumbnailUrls = newlyExposedThumbnailUrls(
       displayRecipes ?? [],
       prefetchedThumbnailUrls.current,
@@ -608,7 +615,7 @@ export function DiscoverScreen() {
           thumbnailUrls.forEach((url) => prefetchedThumbnailUrls.current.delete(url));
         });
     }
-  }, [displayRecipes]);
+  }, [displayRecipes, active]);
 
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;
@@ -679,7 +686,7 @@ export function DiscoverScreen() {
       return (
         <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
           <GridRecipeCard
-            recipe={item}
+            recipe={item} active={active}
             colors={colors}
             onPress={() => {
               haptics.light();
@@ -695,7 +702,7 @@ export function DiscoverScreen() {
     return (
       <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
         <RecipeCard
-          recipe={item}
+          recipe={item} active={active}
           colors={colors}
           onPress={() => {
             haptics.light();
@@ -811,7 +818,7 @@ export function DiscoverScreen() {
     <View style={styles.container}>
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet
-        visible={showFilterModal}
+        visible={active && showFilterModal}
         onClose={() => setShowFilterModal(false)}
         onApply={handleApplyFilters}
         initialFilters={{ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter }}
@@ -823,7 +830,7 @@ export function DiscoverScreen() {
 
       {/* Surprise Me Modal */}
       <Modal
-        visible={showSurpriseModal}
+        visible={active && showSurpriseModal}
         transparent
         animationType="fade"
         onRequestClose={() => setShowSurpriseModal(false)}
@@ -1237,7 +1244,7 @@ export function DiscoverScreen() {
 
       {/* All Contributors Modal */}
       <AllContributorsModal
-        visible={showAllContributors}
+        visible={active && showAllContributors}
         onClose={() => setShowAllContributors(false)}
         onSelectContributor={(contributor) => {
           setSelectedExtractor({ id: getContributorId(contributor)!, name: contributor.display_name });

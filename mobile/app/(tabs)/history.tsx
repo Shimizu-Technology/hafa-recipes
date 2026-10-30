@@ -300,7 +300,7 @@ function NewCollectionCard({
   );
 }
 
-export function HistoryScreen() {
+export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -334,7 +334,7 @@ export function HistoryScreen() {
     isError: isCollectionsError,
     isFetching: isFetchingCollections,
     refetch: refetchCollections,
-  } = useCollections(!!isSignedIn);
+  } = useCollections(active && !!isSignedIn);
 
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -355,7 +355,7 @@ export function HistoryScreen() {
   const hasActiveFilters = searchQuery.length > 0 || sourceFilter !== 'all' || timeFilter !== 'all' || selectedTags.length > 0;
 
   // Only fetch when authenticated
-  const isAuthenticated = !!isSignedIn;
+  const isAuthenticated = active && !!isSignedIn;
 
   // Own recipes with infinite scroll
   const {
@@ -858,7 +858,7 @@ export function HistoryScreen() {
     <View style={styles.container}>
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet
-        visible={showFilterModal}
+        visible={active && showFilterModal}
         onClose={() => setShowFilterModal(false)}
         onApply={handleApplyFilters}
         initialFilters={{ sourceFilter, timeFilter, selectedTags, ownershipFilter }}
@@ -868,13 +868,13 @@ export function HistoryScreen() {
 
       {/* Create Collection Modal */}
       <CreateCollectionModal
-        visible={showCreateCollectionModal}
+        visible={active && showCreateCollectionModal}
         onClose={() => setShowCreateCollectionModal(false)}
       />
 
       {/* Bulk Add to Collection Modal */}
       <BulkAddToCollectionModal
-        visible={showBulkAddModal}
+        visible={active && showBulkAddModal}
         onClose={() => setShowBulkAddModal(false)}
         recipeIds={Array.from(selectedRecipeIds)}
         onComplete={handleBulkAddComplete}
