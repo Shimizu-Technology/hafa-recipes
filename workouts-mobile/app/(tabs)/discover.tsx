@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
+import { largeText } from "@/lib/readable-layout";
 import {
   AccountButton,
   Button,
@@ -72,6 +73,7 @@ function useDiscoverView() {
 
 export default function Discover() {
   const { api, owner, enrollment } = useTraining();
+  const { fontScale } = useWindowDimensions();
   const [search, setSearch] = useState("");
   const [settledSearch, setSettledSearch] = useState("");
   const [equipment, setEquipment] = useState<string>();
@@ -122,11 +124,12 @@ export default function Discover() {
   function clearFilter(key: DiscoverFilterKey) {
     ({ duration: setDuration, equipment: setEquipment, platform: setPlatform, contributor: setContributor })[key](undefined);
   }
-  /** The Filters sheet's own choices; a person filter is cleared from its chip. */
+  /** Every filter, including People, uses the same live sheet. */
   function clearSheetFilters() {
     setEquipment(undefined);
     setDuration(undefined);
     setPlatform(undefined);
+    setContributor(undefined);
   }
   function clearFilters() {
     clearSheetFilters();
@@ -189,37 +192,23 @@ export default function Discover() {
         </Stack>
       ) : (
         <>
-          <Field label="Search Discover" value={search} onChange={setSearch} placeholder="Workout, exercise or creator" />
-          <Row gap={8} wrap>
-            <Button
-                title={active.length ? `Filters · ${active.length}` : "Filters"}
-                icon="options-outline"
-                variant="secondary"
-                size="sm"
-                inline
-                accessibilityHint={active.length ? `${active.length} active` : "Time, equipment and source"}
-                onPress={() => setFiltersOpen(true)}
-              />
-            {!(feed.isSuccess && !cards.length) && (
-              <Button
-                title="Surprise me"
-                icon="shuffle"
-                variant="secondary"
-                size="sm"
-                inline
-                busy={surprising}
-                accessibilityHint="Opens a random shared workout that matches your filters"
-                onPress={() => void surprise()}
-              />
-            )}
-            <View style={{ marginLeft: "auto" }}>
-              <IconButton
-              icon={view === "grid" ? "list-outline" : "grid-outline"}
-                label={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"}
-                onPress={toggleView}
-              />
-            </View>
-          </Row>
+          <Stack gap={8}>
+            <Row gap={8} wrap>
+              <View style={{ flex: 1, minWidth: 0, flexBasis: largeText(fontScale) ? "100%" : undefined }}>
+                <Field label="Search Discover" hideLabel value={search} onChange={setSearch} placeholder="Search workouts or creators" returnKeyType="search" />
+              </View>
+              <Button title={active.length ? `Filters · ${active.length}` : "Filters"} icon="options-outline"
+                variant="secondary" size="sm" inline accessibilityHint="Time, equipment, source and people"
+                onPress={() => setFiltersOpen(true)} />
+            </Row>
+            {!!cards.length && <Row gap={8} wrap>
+              <Copy kind="small" tone="muted" style={{ flexGrow: 1 }}>{total} {total === 1 ? "workout" : "workouts"}</Copy>
+              <Button title="Share yours" variant="ghost" size="sm" inline disabled={!enrollment?.enrolled}
+                accessibilityHint="Pick a workout from your library to share to Discover" onPress={() => router.push("/discover/share")} />
+              <Button title="Surprise me" icon="shuffle" variant="ghost" size="sm" inline
+                busy={surprising} accessibilityHint="Opens a random shared workout that matches your filters" onPress={() => void surprise()} />
+            </Row>}
+          </Stack>
           {!!active.length && (
             <ChipRow label="Active filters">
               {active.map((filter) => (
@@ -232,28 +221,6 @@ export default function Discover() {
               ))}
               <Button title="Clear all" variant="ghost" size="sm" inline onPress={clearFilters} />
             </ChipRow>
-          )}
-          {!settledSearch.trim() && people.length > 1 && (
-            <Stack gap={8}>
-              <Copy kind="label">People sharing</Copy>
-              <ChipRow label="Show workouts from one person">
-                {people.map((person) => (
-                  <Chip
-                    key={person.contributor_id}
-                    label={contributorChip(person)}
-                    icon="person-circle-outline"
-                    selected={contributor?.id === person.contributor_id}
-                    onPress={() =>
-                      setContributor(
-                        contributor?.id === person.contributor_id
-                          ? undefined
-                          : { id: person.contributor_id!, name: person.is_you ? "you" : person.display_name }
-                      )
-                    }
-                  />
-                ))}
-              </ChipRow>
-            </Stack>
           )}
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
@@ -300,21 +267,6 @@ export default function Discover() {
             )
           ) : (
             <>
-              <Row justify="space-between">
-                <Copy kind="small" tone="muted">
-                  {total} {total === 1 ? "workout" : "workouts"}
-                </Copy>
-                <Button
-                  title="Share yours"
-                  icon="globe-outline"
-                  variant="ghost"
-                  size="sm"
-                  inline
-                  disabled={!enrollment?.enrolled}
-                  accessibilityHint="Pick a workout from your library to share to Discover"
-                  onPress={() => router.push("/discover/share")}
-                />
-              </Row>
               {view === "grid" ? (
                 <DiscoverGrid>
                   {cards.map((card) => (
@@ -343,6 +295,12 @@ export default function Discover() {
       )}
       <Sheet visible={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filters">
         <Stack gap={16}>
+          {!!people.length && <FilterGroup title="People">
+            {people.map(person => <Chip key={person.contributor_id} role="radio" label={contributorChip(person)}
+              icon="person-circle-outline" selected={contributor?.id === person.contributor_id}
+              onPress={() => setContributor(contributor?.id === person.contributor_id ? undefined
+                : { id: person.contributor_id!, name: person.is_you ? "you" : person.display_name })} />)}
+          </FilterGroup>}
           <FilterGroup title="Time">
             {(Object.keys(durationRanges) as DurationRange[]).map((value) => (
               <Chip
@@ -374,8 +332,10 @@ export default function Discover() {
               />
             ))}
           </FilterGroup>
-          <Row gap={8} justify="flex-end">
-            {active.some((filter) => filter.key !== "contributor") && (
+          <Row gap={8} wrap justify="flex-end">
+            <IconButton icon={view === "grid" ? "list-outline" : "grid-outline"}
+              label={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"} onPress={toggleView} />
+            {active.length > 0 && (
               <Button
                 title="Clear all"
                 variant="ghost"

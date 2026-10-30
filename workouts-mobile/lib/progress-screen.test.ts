@@ -25,7 +25,7 @@ vi.mock("expo-crypto", () => ({ randomUUID: () => "recovery-uuid" }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button",
   AccountButton: "AccountButton", Empty: "Empty", IconButton: "IconButton", ListGroup: "ListGroup", ListRow: "ListRow",
   Row: "Row", SectionHeader: "SectionHeader", Skeleton: "Skeleton", useColors: () => ({ muted: "gray" }) }));
-import Progress from "../app/(tabs)/progress";
+import Progress from "../app/history-progress";
 import RecoverResult from "../app/recover-result/[id]";
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const workout: Workout = { id: "workout", generation: 1, revision: 1, title: "Strength", kind: "session", provenance: "user",

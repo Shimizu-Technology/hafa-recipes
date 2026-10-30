@@ -113,6 +113,7 @@ function Routes() {
         <Stack.Screen name="activity" options={{ presentation: "modal" }} />
         <Stack.Screen name="ai-preferences" />
         <Stack.Screen name="session/[id]" />
+        <Stack.Screen name="history-progress" />
       </Stack.Protected>
     </Stack>
   );

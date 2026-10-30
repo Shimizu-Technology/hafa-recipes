@@ -32,14 +32,14 @@ describe("Workouts native share generation", () => {
   it("bounds dismissal after durable promotion without blocking the main actor on enqueue or privacy reads", () => {
     const confirmation = native("CaptureConfirmation.swift");
     const promotion = native("HafaWorkoutsShareStore.swift").split("static func promoteStage")[1].split("static func discardOwner")[0];
-    expect(confirmation).toContain("guard let isPublic = WorkoutsShareStore.promoteStage");
+    expect(confirmation).toContain("writeCapture({ WorkoutsShareStore.promoteStage(key, payload: payload) })");
     expect(promotion).toContain('return capture["isPublic"] as? Bool ?? false');
     expect(confirmation).not.toContain("WorkoutsShareStore.locked");
-    expect(confirmation.indexOf("WorkoutsShareStore.promoteStage")).toBeLessThan(confirmation.indexOf("DispatchQueue.main.asyncAfter"));
+    expect(confirmation).toContain("WorkoutsShareStore.performCaptureWrite(operation) { [weak self] result in");
     expect(confirmation).toContain("DispatchQueue.main.asyncAfter(deadline: .now() + 8)");
     expect(confirmation.indexOf("DispatchQueue.global(qos: .utility).async")).toBeLessThan(confirmation.indexOf("WorkoutsShareStore.enqueue(key)"));
     expect(confirmation).toContain("guard !captureConfirmationFinished else { return }");
-    expect(confirmation).toContain("finished: true, isPublic: isPublic");
+    expect(confirmation).toContain("finished: true)");
   });
   it("fails closed if the pinned upstream redirect template changes", () => {
     expect(() => transform("new upstream implementation")).toThrow(/verified/);
@@ -143,13 +143,19 @@ describe("Workouts native share generation", () => {
         writeFileSync(join(extension, file), plist.build({}));
       return config;
     };
+    const addResourceFile = vi.fn();
     try {
       const config = plugin({ name: "Workouts", slug: "workouts", mods: { ios: { xcodeproj: predecessor } } });
       expect(existsSync(extension)).toBe(false);
-      await config.mods.ios.xcodeproj({ ...config, modResults: {}, modRequest: {
+      await config.mods.ios.xcodeproj({ ...config, modResults: { findTargetKey: (name: string) => name === '"ShareExtension"' ? "extension-target" : null, findPBXGroupKey: () => "extension-group", addResourceFile }, modRequest: {
         platformProjectRoot: directory, projectRoot: new URL("..", import.meta.url).pathname,
       } });
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
+      const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
+      expect(info.UIAppFonts).toEqual(["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"]);
+      for (const font of info.UIAppFonts) expect(existsSync(join(extension, font))).toBe(true);
+      expect(addResourceFile.mock.calls).toEqual(info.UIAppFonts.map((font: string) =>
+        [font, { target: "extension-target" }, "extension-group"]));
       expect(plist.parse(readFileSync(join(extension, "ShareExtension.entitlements"), "utf8"))["keychain-access-groups"])
         .toEqual(["$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share"]);
     } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -274,6 +280,29 @@ try FileManager.default.moveItem(at: savedURL, to: journalURL)
 let retry = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
 assert(retry.dictionary(forKey: refused + ".stage") == nil)
 assert(WorkoutsShareStore.beginStage(refused, retry))
+// Per-item visibility survives journal reopen, never updates the preference,
+// and cannot change after the host takes ownership or import starts.
+let visibilityKey = "hafaworkoutsShareKey.visibility"
+retry.set(["captureId": "visibility", "files": [[String: Any]](), "visibilityPending": true,
+    "isPublic": true, "ownerId": "owner-b", "generation": 4], forKey: visibilityKey + ".capture")
+retry.set([visibilityKey], forKey: WorkoutsShareStore.pending)
+assert(retry.synchronize())
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: false, retry))
+let privacyReopen = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(privacyReopen.dictionary(forKey: visibilityKey + ".capture")?["isPublic"] as? Bool == false)
+assert(privacyReopen.dictionary(forKey: WorkoutsShareStore.sessionKey)?["isPublic"] as? Bool == true)
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: false, privacyReopen))
+assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
+assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
+privacyReopen.set(["captureId": "untouched", "files": [[String: Any]](), "visibilityPending": true,
+    "isPublic": true], forKey: visibilityKey + ".capture")
+assert(privacyReopen.synchronize())
+assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == false)
+privacyReopen.set(["captureId": "confirmed", "files": [[String: Any]](), "visibilityPending": true], forKey: visibilityKey + ".capture")
+assert(privacyReopen.synchronize())
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: true, privacyReopen))
+assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
+assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
 // Existing unreadable/corrupt journals fail closed instead of overwriting
 // queued sources with stale preferences or a new account.
 let beforeCorruption = try Data(contentsOf: journalURL)
@@ -290,5 +319,104 @@ print("Workouts native journal fixtures passed: failed preference flush, migrati
     const binary = join(directory, "test");
     execFileSync("xcrun", ["swiftc", new URL("../modules/hafa-workouts-share/ios/HafaWorkoutsShareStore.swift", import.meta.url).pathname, join(directory, "main.swift"), "-o", binary], { timeout: 60000 });
     expect(execFileSync(binary, { encoding: "utf8", timeout: 10000 })).toContain("Workouts native journal fixtures passed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 90000);
+
+it("refreshes multiline privacy rows for Dynamic Type without retaining the controller in configuration blocks", () => {
+  const confirmation = native("CaptureConfirmation.swift");
+  expect(confirmation).not.toContain("UISegmentedControl");
+  expect(confirmation).toContain("choices.axis = .vertical");
+  expect(confirmation).toContain("style.titleLineBreakMode = .byWordWrapping");
+  expect(confirmation).toContain("brand.numberOfLines = 0");
+  expect(confirmation).toContain("override func traitCollectionDidChange");
+  expect(confirmation).toContain("preferredContentSizeCategory != traitCollection.preferredContentSizeCategory");
+  const transformer = confirmation.split("UIConfigurationTextAttributesTransformer { attributes in")[1].split("button.configuration = style")[0];
+  expect(transformer).toContain("updated.font = font");
+  expect(transformer).not.toMatch(/\bself\b/);
+  expect(confirmation).toContain('close.addTarget(self, action: #selector(finishConfirmation)');
+  expect(confirmation).toContain("guard !captureWriting else { return }");
+  expect(confirmation).toContain("controller.captureIsPublic = requested");
+});
+
+it.skipIf(process.platform !== "darwin")("bounds a contended capture lock off-main, preserves the journal, and serializes retry before confirmation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "hafa-workouts-lock-"));
+  try {
+    writeFileSync(join(directory, "main.swift"), String.raw`import Foundation
+import Darwin
+if CommandLine.arguments.count > 1 {
+  let fd = open(CommandLine.arguments[1], O_CREAT | O_RDWR, mode_t(0o600))
+  precondition(fd >= 0 && flock(fd, LOCK_EX) == 0)
+  FileHandle.standardOutput.write(Data("locked\n".utf8))
+  Thread.sleep(forTimeInterval: 2)
+  flock(fd, LOCK_UN); close(fd)
+  exit(0)
+}
+let container = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+let suite = "hafa-lock-test.\(UUID().uuidString)", key = "capture-test", legacy = "legacy-test"
+let defaults = UserDefaults(suiteName: suite)!
+defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: container) }
+let initial = try WorkoutsShareDefaults(defaults: defaults, container: container)
+initial.set([key, legacy], forKey: WorkoutsShareStore.pending)
+initial.set(["captureId": "capture", "ownerId": "owner", "generation": 1, "isPublic": false,
+  "visibilityPending": true, "files": [[String: Any]]()], forKey: key + ".capture")
+initial.set(["captureId": "legacy", "isPublic": true, "files": [[String: Any]]()], forKey: legacy + ".capture")
+assert(initial.synchronize())
+let journalURL = container.appendingPathComponent(WorkoutsShareDefaults.journalName)
+let before = try Data(contentsOf: journalURL)
+let child = Process(), pipe = Pipe()
+child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+child.arguments = [container.appendingPathComponent("workouts-share.lock").path]; child.standardOutput = pipe
+try child.run()
+assert(pipe.fileHandleForReading.readData(ofLength: 7) == Data("locked\n".utf8))
+var heartbeat = false, completed = false
+let start = ProcessInfo.processInfo.systemUptime
+DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { heartbeat = true }
+WorkoutsShareStore.performCaptureWrite({
+  assert(!Thread.isMainThread)
+  return WorkoutsShareStore.withFileLock(container) {
+    WorkoutsShareStore.withJournal(defaults, container) { state in
+      WorkoutsShareStore.chooseVisibility(key, isPublic: true, confirmed: true, state)
+    } ?? false
+  } ?? false
+}) { saved in
+  assert(Thread.isMainThread && !saved && heartbeat)
+  assert(ProcessInfo.processInfo.systemUptime - start < 0.9)
+  completed = true
+}
+while !completed && ProcessInfo.processInfo.systemUptime - start < 1 {
+  RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+}
+assert(completed && heartbeat)
+let afterTimeout = try Data(contentsOf: journalURL)
+assert(afterTimeout == before) // Timeout never mutates or deletes the capture.
+child.waitUntilExit(); assert(child.terminationStatus == 0)
+var order = [Int]()
+for confirmed in [false, true] {
+  WorkoutsShareStore.performCaptureWrite({
+    assert(!Thread.isMainThread)
+    return WorkoutsShareStore.withFileLock(container) {
+      WorkoutsShareStore.withJournal(defaults, container) { state in
+        WorkoutsShareStore.chooseVisibility(key, isPublic: true, confirmed: confirmed, state)
+      } ?? false
+    } ?? false
+  }) { saved in assert(saved && Thread.isMainThread); order.append(confirmed ? 2 : 1) }
+}
+let retryStart = ProcessInfo.processInfo.systemUptime
+while order.count < 2 && ProcessInfo.processInfo.systemUptime - retryStart < 2 {
+  RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+}
+assert(order == [1, 2])
+let reopened = try WorkoutsShareDefaults(defaults: defaults, container: container)
+assert(reopened.dictionary(forKey: key + ".capture")?["isPublic"] as? Bool == true)
+assert(reopened.dictionary(forKey: key + ".capture")?["visibilityPending"] as? Bool == false)
+assert(reopened.dictionary(forKey: key + ".capture")?["ownerId"] as? String == "owner")
+assert(WorkoutsShareStore.readyCaptures(reopened)?.last?["isPublic"] as? Bool == true) // Older receipts stay readable.
+print("Bounded off-main capture contention and ordered retry passed")
+`);
+    const binary = join(directory, "test");
+    execFileSync("xcrun", ["swiftc", new URL("../modules/hafa-workouts-share/ios/HafaWorkoutsShareStore.swift", import.meta.url).pathname,
+      join(directory, "main.swift"), "-o", binary], { timeout: 60000 });
+    expect(execFileSync(binary, { encoding: "utf8", timeout: 10000 })).toContain("Bounded off-main capture contention and ordered retry passed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }, 90000);
