@@ -1652,8 +1652,23 @@ function useConfirmedRecipeSave(saved: boolean) {
   const mutation = useMutation({
     mutationFn: (recipeId: string) => saved ? api.saveRecipe(recipeId) : api.unsaveRecipe(recipeId),
     // Retain the initiating account for late responses and persistent Retry actions.
-    onMutate: () => ({ subject, authScope: api.getAuthScope() }),
-    onSuccess: (data, recipeId, context) => {
+    onMutate: async (recipeId) => {
+      const context = { subject, authScope: api.getAuthScope() };
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: recipeKeys.discover() }),
+        queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
+      ]);
+      // An account transition while cancellation yields must not start a write.
+      if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) throw new CaptureAccountChangedError();
+      return context;
+    },
+    onSuccess: async (data, recipeId, context) => {
+      if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) return;
+      // Also stop reads started during the write before publishing confirmed state.
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: recipeKeys.discover() }),
+        queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
+      ]);
       if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) return;
       queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
       setDiscoverSavedState(queryClient, recipeId, data.saved);
@@ -1672,10 +1687,14 @@ function useConfirmedRecipeSave(saved: boolean) {
         },
       });
     },
-    onSettled: (_data, _error, _recipeId, context) => {
+    onSettled: (_data, _error, recipeId, context) => {
       if (currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
       void queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
       void queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
+      void queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
+      void queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true });
+      // Search membership cannot be safely patched without every filter's recipe data.
+      if (_data) void queryClient.invalidateQueries({ queryKey: recipeKeys.all });
     },
   });
   return mutation;

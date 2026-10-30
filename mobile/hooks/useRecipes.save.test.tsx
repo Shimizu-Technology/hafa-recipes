@@ -99,3 +99,40 @@ describe('confirmed recipe saving', () => {
     await h.close();
   });
 });
+
+it.each([false, true])('protects confirmed membership from reads before and during the write (initial saved=%s)', async (initial) => {
+  const h = await mount(initial);
+  const key = recipeKeys.discoverFeed(undefined, 'recent', undefined);
+  const oldPage = { pages: [{ items: [{ id: 'recipe-1', is_saved: initial }], total: 1, offset: 0, limit: 20 }], pageParams: [0] };
+  h.client.setQueryData(key, oldPage);
+  const reads: Promise<unknown>[] = [];
+  const pending: { resolve: (v: any) => void }[] = [];
+  const startReads = () => {
+    const discover = deferred<typeof oldPage>(); const status = deferred<{ is_saved: boolean }>();
+    pending.push(discover, status);
+    reads.push(h.client.fetchQuery({ queryKey: key, queryFn: () => discover.promise }).catch(() => {}),
+      h.client.fetchQuery({ queryKey: ['recipeSaved', 'recipe-1'], queryFn: () => status.promise }).catch(() => {}));
+  };
+  startReads();
+  const write = deferred<{ saved: boolean }>(); (initial ? m.unsave : m.save).mockReturnValue(write.promise);
+  await act(async () => h.mutation.mutate('recipe-1'));
+  // Reads begun while the request is in flight need cancellation at success too.
+  startReads();
+  await act(async () => write.resolve({ saved: !initial }));
+  expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: !initial });
+  await act(async () => { pending.forEach((d, i) => d.resolve(i % 2 ? { is_saved: initial } : oldPage)); await Promise.all(reads); });
+  expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: !initial });
+  expect((h.client.getQueryData(key) as any).pages[0].items[0].is_saved).toBe(!initial);
+  expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
+  await h.close();
+});
+
+it('invalidates filtered Library roots after confirmed membership changes', async () => {
+  const h = await mount();
+  const key = recipeKeys.infiniteSearch({ ownership: 'saved', query: 'rice' });
+  h.client.setQueryData(key, { pages: [], pageParams: [] });
+  m.save.mockResolvedValue({ saved: true });
+  await act(async () => { await h.mutation.mutateAsync('recipe-1'); });
+  expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
+  await h.close();
+});
