@@ -36,6 +36,7 @@ import {
   queueRemovedUploads,
   uploadedReferences,
   waitingForEarlier,
+  waitingForImport,
 } from "./outbox";
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
@@ -281,7 +282,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
           continue;
         }
-        if (waitingForEarlier(ref.current.outbox, next)) continue;
+        if (waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
         try {
           let result: BabyRecord | undefined;
           if (next.type === "delete") {
@@ -347,7 +348,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
         } catch (e) {
           if (!alive.current) break;
           if (e instanceof ApiError && e.local) break;
-          const status = e instanceof ApiError ? e.status : 0;
+          const status = e instanceof ApiError ? e.status : -1;
           if (status === 410) {
             await refresh();
             break;
@@ -389,7 +390,14 @@ export function BabyProvider({ children }: PropsWithChildren) {
             await commit((s) => ({ ...s,
               imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)),
               records: row ? replaceRecord(s.records, row) : s.records,
+              // Held edits use the import's final revision. Rejected edits still need review.
+              outbox: row && importFinished(fresh.status)
+                ? s.outbox.map(m => m.type === "save" && !m.error && !m.conflict ? advancePending(m, row!) : m)
+                : s.outbox,
             }));
+            if (row && importFinished(fresh.status) && ref.current.outbox.some(m =>
+              m.type === "save" && m.record.id === row!.id && !m.error && !m.conflict && !m.localOnly))
+              rerun.current = true;
           } catch {
             /* The next foreground attempt retries persisted jobs. */
           }

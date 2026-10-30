@@ -1,4 +1,5 @@
-import type { BabyRecord, DeviceState, Mutation } from "./models";
+import { importFinished } from "./import-status";
+import type { BabyRecord, DeviceState, ImportJob, Mutation } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at)
@@ -109,4 +110,9 @@ export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
 }
 export function retryMutation<T extends Mutation>(change: T): T {
   return { ...change, error: undefined, conflict: false, localOnly: false };
+}
+
+/** Admission is not completion: an import may still replace source fields. */
+export function waitingForImport(imports: ImportJob[], change: Mutation) {
+  return change.type === "save" && imports.some(job => job.record_id === change.record.id && !importFinished(job.status));
 }

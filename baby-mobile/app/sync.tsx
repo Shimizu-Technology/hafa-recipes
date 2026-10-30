@@ -3,7 +3,7 @@ import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { retryMutation, waitingForEarlier } from "@/lib/outbox";
+import { retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
@@ -77,7 +77,7 @@ export default function Sync() {
                   ? "Needs a conflict review"
                   : m.error
                     ? "Needs your attention"
-                    : waitingForEarlier(b.state.outbox, m)
+                    : (waitingForEarlier(b.state.outbox, m) || waitingForImport(b.state.imports, m))
                       ? "Waiting for an earlier change to this entry"
                       : "Safely queued on this device"}
               </Copy>

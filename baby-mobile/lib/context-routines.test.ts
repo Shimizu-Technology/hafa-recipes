@@ -64,6 +64,7 @@ vi.mock("./reminders", () => ({
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
 import { ApiError } from "./api";
+import { uploadFile } from "./files";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
   baby = useBaby();
@@ -529,4 +530,45 @@ describe("independent durable outbox records", () => {
     expect(mock.state?.outbox).toHaveLength(2);
     expect(mock.state?.outbox.every(m => !m.error)).toBe(true);
   });
+});
+
+it("keeps local file preparation failures on that entry while unrelated care syncs", async () => {
+  await mount();
+  vi.mocked(uploadFile).mockRejectedValueOnce(Error("Choose a file smaller than 25 MB."));
+  const file = { id: "photo", uri: "file:///large.jpg", name: "large.jpg", mime_type: "image/jpeg" };
+  await act(async () => { await baby.commit(s => ({ ...s, outbox: [
+    { id: "photo", type: "save", generation: 1, record: { ...row("photo"), kind: "journal" }, files: [file] },
+    { id: "care", type: "save", generation: 1, record: { ...row("diaper"), kind: "diaper" }, files: [] },
+  ] })); });
+  await act(async () => { await baby.sync(); });
+  expect(mock.state?.outbox).toMatchObject([{ id: "photo", error: "Choose a file smaller than 25 MB.", files: [file] }]);
+  expect(mock.api.save.mock.calls.map(([r]: any[]) => r.id)).toEqual(["diaper"]);
+  expect(baby.error).toBe("");
+});
+it("holds source edits until a terminal import and rebases them before sending", async () => {
+  const source = { ...row("source", false, 1), kind: "source" as const };
+  mock.saved = { ...emptyState(), bootstrap, records: [source],
+    imports: [{ id: "job", record_id: source.id, status: "queued" }], outbox: [
+      { id: "edit", type: "save", generation: 1, record: { ...source, body: "My later edit" }, files: [] },
+    ] };
+  mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "processing" }));
+  mock.api.record = vi.fn(async () => ({ ...source, revision: 2 }));
+  await mount();
+  expect(mock.api.save).not.toHaveBeenCalled();
+  expect(baby.state.outbox[0]).toMatchObject({ id: "edit", record: { revision: 1, body: "My later edit" } });
+  mock.api.job.mockResolvedValue({ id: "job", record_id: source.id, status: "ready" });
+  mock.api.record.mockResolvedValue({ ...source, revision: 3, data: { status: "ready" } });
+  await act(async () => { await baby.sync(); await settle(); });
+  expect(mock.api.save).toHaveBeenCalledOnce();
+  expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My later edit" });
+  expect(baby.state.outbox).toEqual([]);
+});
+it("restores phone-only files and errors without submitting them from a cold provider", async () => {
+  const file = { id: "photo", uri: "file:///photo.jpg", name: "photo.jpg", mime_type: "image/jpeg" };
+  mock.saved = { ...emptyState(), bootstrap, outbox: [
+    { id: "kept", type: "save", generation: 1, record: { ...row("photo"), kind: "journal" }, files: [file], localOnly: true, error: "Upload failed" },
+  ] };
+  await mount();
+  expect(baby.state.outbox[0]).toMatchObject({ localOnly: true, error: "Upload failed", files: [file] });
+  expect(mock.api.save).not.toHaveBeenCalled();
 });

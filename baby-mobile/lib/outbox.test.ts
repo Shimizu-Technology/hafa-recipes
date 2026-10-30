@@ -6,6 +6,7 @@ import {
   searchLocal,
   shouldRetry,
   waitingForEarlier,
+  waitingForImport,
   retryMutation,
   inheritedFiles,
   advancePending,
@@ -161,4 +162,13 @@ it("retains failed and phone-only originals through relaunch, including files an
   expect(waitingForEarlier(restored.outbox, restored.outbox[1])).toBe(true);
   expect(pendingRecords(restored)[0].body).toBe("Later edit");
   expect(retryMutation(failed)).toMatchObject({ localOnly: false, error: undefined, conflict: false, files: failed.files });
+});
+
+it("holds saves for active imports but lets deletion cancel the import", () => {
+  const save: Mutation = { id: "save", type: "save", generation: 1, record: row, files: [] };
+  const jobs = [{ id: "job", record_id: row.id, status: "processing" }];
+  expect(waitingForImport(jobs, save)).toBe(true);
+  expect(waitingForImport(jobs, { ...save, record: { ...row, id: "other" } })).toBe(false);
+  expect(waitingForImport(jobs, { id: "delete", type: "delete", generation: 1, record: row })).toBe(false);
+  expect(waitingForImport([{ ...jobs[0], status: "ready" }], save)).toBe(false);
 });
