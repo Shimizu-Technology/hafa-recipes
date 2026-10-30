@@ -143,7 +143,7 @@ export default function RecoverAccountScreen() {
       );
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
         return;
       }
       setErrorMessage(result.status === 'needs_second_factor'

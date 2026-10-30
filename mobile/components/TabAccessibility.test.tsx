@@ -48,67 +48,20 @@ vi.mock('@/lib/tabPrefetch', () => ({ prefetchTabData: vi.fn() }));
 
 import TabLayout from '@/app/(tabs)/_layout';
 
-describe('main tab assistant dock', () => {
-  it.each([
-    { isSignedIn: false, expectedAssistantCount: 0 },
-    { isSignedIn: true, expectedAssistantCount: 1 },
-  ])('shows cooking help only for signed-in users', async ({ isSignedIn, expectedAssistantCount }) => {
-    mocks.isSignedIn = isSignedIn;
+describe('four-tab chrome', () => {
+  it('keeps four visible workflows, the brand and account settings', async () => {
     const renderer = createRoot();
-
-    try {
-      await act(async () => renderer.render(<TabLayout />));
-      const tabs = renderer.container.queryAll((instance) => instance.type === 'Tabs')[0];
-      await act(async () => renderer.render(tabs.props.tabBar({})));
-
-      expect(renderer.container.queryAll((instance) => instance.type === 'AssistantTabBar')[0]
-        .props.isSignedIn).toBe(Boolean(expectedAssistantCount));
-      await act(async () => renderer.render(tabs.props.screenOptions.headerRight()));
-      expect(renderer.container.queryAll(
-        (instance) => instance.type === 'AccountHeaderButton',
-      )).toHaveLength(1);
-    } finally {
-      await act(async () => renderer.unmount());
-    }
-  });
-
-  it('keeps the brand on Discover and names every other tab in its header', async () => {
-    mocks.isSignedIn = true;
-    const renderer = createRoot();
-
     try {
       await act(async () => renderer.render(<TabLayout />));
       const tabs = renderer.container.queryAll((instance) => instance.type === 'Tabs')[0];
       const screens = renderer.container.queryAll((instance) => instance.type === 'TabScreen');
-      const byName = Object.fromEntries(screens.map((screen) => [screen.props.name, screen.props.options]));
-
-      expect(tabs.props.screenOptions.headerTitle).toBeUndefined();
-      expect(tabs.props.screenOptions.headerTitleStyle.fontFamily).toBe('DMSans_600SemiBold');
-      expect(typeof byName.discover.headerTitle).toBe('function');
-      expect(screens.map((screen) => screen.props.options.title))
-        .toEqual(['Discover', 'Library', 'Import', 'Plan', 'Grocery']);
-      for (const name of ['history', 'index', 'planner', 'grocery']) {
-        expect(byName[name].headerTitle).toBeUndefined();
-      }
-    } finally {
-      await act(async () => renderer.unmount());
-    }
+      const visible = screens.filter((screen) => screen.props.options.href !== null);
+      expect(visible.map((screen) => screen.props.options.title)).toEqual(['Recipes', 'Add', 'Plan', 'Grocery']);
+      expect(visible.map(screen => screen.props.options.tabBarAccessibilityLabel)).toEqual(['Recipes, tab, 1 of 4', 'Add a recipe, tab, 2 of 4', 'Plan, tab, 3 of 4', 'Grocery, tab, 4 of 4']);
+      expect(typeof visible[0].props.options.headerTitle).toBe('function');
+      expect(tabs.props.tabBar).toBeUndefined();
+      await act(async () => renderer.render(tabs.props.screenOptions.headerRight()));
+      expect(renderer.container.queryAll((instance) => instance.type === 'AccountHeaderButton')).toHaveLength(1);
+    } finally { await act(async () => renderer.unmount()); }
   });
-});
-
-it('preserves the actual BottomTabItem aria props and large content viewer', async () => {
-  const r = createRoot();
-  await act(async () => r.render(<TabLayout />));
-  const options = r.container.queryAll(n => n.type === 'Tabs')[0].props.screenOptions;
-  // The installed expo-router BottomTabItem supplies these keys, not legacy accessibilityState.
-  const element = options.tabBarButton({ children: 'Import', onPress: vi.fn(), role: 'button',
-    'aria-label': 'Import a recipe', 'aria-selected': true,
-    accessibilityShowsLargeContentViewer: true, accessibilityLargeContentTitle: 'Import' });
-  await act(async () => r.unmount());
-  expect(element.props['aria-selected'] ?? element.props.accessibilityState?.selected).toBe(true);
-  expect(element.props['aria-label'] ?? element.props.accessibilityLabel).toBe('Import a recipe');
-  expect(element.props.role).toBe('button');
-  expect(element.props.accessibilityRole).toBeUndefined();
-  expect(element.props.accessibilityShowsLargeContentViewer).toBe(true);
-  expect(element.props.accessibilityLargeContentTitle).toBe('Import');
 });
