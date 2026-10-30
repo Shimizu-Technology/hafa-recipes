@@ -16,11 +16,11 @@ a:active, button:active { opacity: 0.8; transition-duration: 120ms; }
 img, svg { display: block; max-width: 100%; }
 p { text-wrap: pretty; }
 h1, h2, h3 { text-wrap: balance; }
-h1, h2 { font-family: 'Fraunces', serif; letter-spacing: -0.025em; line-height: 1.06; }
+h1, h2 { font-family: 'Fraunces', serif; letter-spacing: -0.025em; line-height: 1.06; } /* impeccable-disable-line overused-font -- Fraunces is the established Håfa brand face. */
 h2 { font-size: var(--heading); }
 .container { width: min(1440px, calc(100% - 64px)); margin-inline: auto; }
 .navbar .container { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; flex-wrap: wrap; }
-.navbar-brand, .footer-brand { display: flex; align-items: center; gap: 12px; font-family: 'Fraunces', serif; font-size: var(--lead); font-weight: 700; }
+.navbar-brand, .footer-brand { display: flex; align-items: center; gap: 12px; font-family: 'Fraunces', serif; font-size: var(--lead); font-weight: 700; } /* impeccable-disable-line overused-font -- Fraunces is the established Håfa brand face. */
 .navbar-brand { color: var(--ink); text-decoration: none; }
 .navbar-brand img, .footer-brand img { width: 44px; height: 44px; border-radius: 12px; }
 .navbar-links { display: flex; flex-wrap: wrap; align-items: center; gap: 28px; }
