@@ -1555,11 +1555,13 @@ class ApiClient {
     items_added: number;
     items_missing_amount: number;
   }> {
+    const guard = this.recipeWriteGuard();
     const { data } = await this.client.post('/api/meal-plans/to-grocery', {
       ...review,
       start_date: startDate,
       end_date: endDate,
-    });
+    }, { requestGuard: guard } as GuardedRequestConfig);
+    guard();
     return data;
   }
 

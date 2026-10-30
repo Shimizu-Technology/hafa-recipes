@@ -1,6 +1,6 @@
 vi.mock('@/lib/api', () => ({ api: { previewMealPlanGroceries: vi.fn() } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'request-id' }));
-const reviewMocks = vi.hoisted(() => ({ state: {} as any, update: vi.fn(async () => ({})), add: vi.fn(async (_input: any) => ({ items_added: 2, items_missing_amount: 1 })) }));
+const reviewMocks = vi.hoisted(() => ({ session: 'session-a', state: {} as any, update: vi.fn(async () => ({})), add: vi.fn(async (_input: any) => ({ items_added: 2, items_missing_amount: 1 })) }));
 vi.mock('@tanstack/react-query', () => ({ useQuery: () => reviewMocks.state }));
 import React from 'react';
 import { act } from 'react';
@@ -33,7 +33,7 @@ vi.mock('expo-router', () => ({
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
 }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: true }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: reviewMocks.session, sessionId: reviewMocks.session }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
   IconButton: 'IconButton',
@@ -252,6 +252,36 @@ describe('planner loading recovery', () => {
       expect(reviewMocks.add.mock.calls.at(-1)![0]).toEqual(first);
       expect(reviewMocks.add).toHaveBeenCalledWith(expect.objectContaining({ review: expect.objectContaining({ list_id: 'household-a', preview_token: 'review-token', mutation_id: 'request-id' }) }));
     } finally { reviewMocks.state = {}; await act(async () => renderer.unmount()); }
+  });
+  it('clears an ambiguous review when the authenticated account changes', async () => {
+    reviewMocks.add.mockClear();
+    const meal = entry('ready');
+    reviewMocks.add.mockRejectedValueOnce(new Error('Network Error'));
+    const date = new Date().toISOString().slice(0, 10);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
+    vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ mutateAsync: reviewMocks.add } as any);
+    reviewMocks.state = { data: { list_id: 'household-a', preview_token: 'review-token', items_added: 2, items_missing_amount: 1, items_unscaled: 0,
+      totals: [{ name: 'Rice', quantity: '3', unit: 'cup', missing: 1, uncombined: 0 }],
+      items: [{ name: 'Rice', quantity: '3', unit: 'cup', recipe_title: 'Chicken Kelaguen' }] } };
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<PlannerScreen />));
+      expect(reviewMocks.add).not.toHaveBeenCalled();
+      await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Review week groceries')[0].props.onPress());
+      expect(reviewMocks.add).not.toHaveBeenCalled();
+      expect(renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')).toHaveLength(1);
+      await act(async () => renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')[0].props.onPress());
+      const first = reviewMocks.add.mock.calls.at(-1)![0];
+      await act(async () => renderer.container.queryAll(node => node.props.title === 'Close review')[0].props.onPress());
+      reviewMocks.session = 'session-b';
+      reviewMocks.state = { ...reviewMocks.state, data: { ...reviewMocks.state.data, list_id: 'household-b', preview_token: 'changed' } };
+      await act(async () => renderer.render(React.createElement(PlannerScreen)));
+      await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Review week groceries')[0].props.onPress());
+      await act(async () => renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')[0].props.onPress());
+      expect(reviewMocks.add.mock.calls.at(-1)![0]).not.toEqual(first);
+      expect(reviewMocks.add.mock.calls.at(-1)![0].review.list_id).toBe('household-b');
+      expect(reviewMocks.add).toHaveBeenCalledWith(expect.objectContaining({ review: expect.objectContaining({ list_id: 'household-a', preview_token: 'review-token', mutation_id: 'request-id' }) }));
+    } finally { reviewMocks.session = 'session-a'; reviewMocks.state = {}; await act(async () => renderer.unmount()); }
   });
 
   it('keeps cached meals visible after a refresh error and clears the warning on success', async () => {

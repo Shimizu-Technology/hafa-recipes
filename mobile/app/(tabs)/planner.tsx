@@ -326,7 +326,7 @@ export default function PlannerScreen() {
   }>();
   const insets = useSafeAreaInsets();
   const colors = useColors();
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
   // Current week and selected day
   const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(new Date()));
@@ -393,10 +393,14 @@ export default function PlannerScreen() {
   const [reviewMutationId, setReviewMutationId] = useState('');
   const [reviewAdding, setReviewAdding] = useState(false);
   const pendingReview = useRef<Parameters<ReturnType<typeof useAddPlanToGrocery>['mutateAsync']>[0] | null>(null);
-  const review = useQuery({ queryKey: mealPlanKeys.review(weekOfStr),
+  const reviewAccount = `${userId ?? ''}:${sessionId ?? ''}`;
+  const reviewOwner = useRef(reviewAccount);
+  if (reviewOwner.current !== reviewAccount) { pendingReview.current = null; reviewOwner.current = reviewAccount; }
+  const review = useQuery({ queryKey: [...mealPlanKeys.review(weekOfStr), reviewAccount],
     queryFn: () => api.previewMealPlanGroceries(weekOfStr, formatDateForApi(getWeekEnd(currentWeekStart))),
     enabled: reviewVisible && isSignedIn === true,
   });
+  useEffect(() => { setReviewVisible(false); setReviewAdding(false); }, [reviewAccount]);
   const reviewData = pendingReview.current?.review?.review ?? review.data;
   const deleteMeal = useDeleteMeal();
   const addToGrocery = useAddPlanToGrocery();
@@ -524,22 +528,25 @@ export default function PlannerScreen() {
   const confirmGroceries = async () => {
     if (!reviewData || reviewAdding) return;
     setReviewAdding(true);
+    const owner = reviewAccount;
     try {
       pendingReview.current ??= { startDate: weekOfStr, endDate: formatDateForApi(getWeekEnd(currentWeekStart)), review: {
         preview_token: reviewData.preview_token, mutation_id: reviewMutationId, list_id: reviewData.list_id, review: reviewData,
       } };
       const result = await addToGrocery.mutateAsync(pendingReview.current);
+      if (reviewOwner.current !== owner) return;
       pendingReview.current = null;
       setReviewVisible(false); successHaptic();
       showToast({ message: plannerGrocerySuccessMessage(result), tone: 'success', actionLabel: 'View list', onAction: () => router.push('/(tabs)/grocery') });
     } catch (error: any) {
+      if (reviewOwner.current !== owner) return;
       if (error?.response?.status === 409) Alert.alert('Review needed', error.response.data?.detail ?? 'Your plan or household changed.', [
         { text: 'Keep previous request', style: 'cancel' },
         { text: 'Review current list', onPress: () => { pendingReview.current = null; setReviewMutationId(Crypto.randomUUID()); void review.refetch(); } },
       ]);
       else Alert.alert('Couldn’t confirm groceries', 'Retry this addition to reconnect to the same request. Your previous review is kept when you close this screen.');
     }
-    finally { setReviewAdding(false); }
+    finally { if (reviewOwner.current === owner) setReviewAdding(false); }
   };
 
   // View recipe detail
