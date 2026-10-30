@@ -73,9 +73,13 @@ export function savedStateInRecipePages(
 export async function reconcileSavedStateAfterError(
   queryClient: QueryClient,
   recipeId: string,
+  guard: () => void = () => {},
 ): Promise<void> {
+  guard();
+  // Mark stale without launching account-shared reads during an ambiguous write.
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['discover'] }),
-    queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
+    queryClient.invalidateQueries({ queryKey: ['discover'], refetchType: 'none' }),
+    queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true, refetchType: 'none' }),
   ]);
+  guard();
 }

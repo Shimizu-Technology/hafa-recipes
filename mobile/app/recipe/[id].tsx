@@ -159,7 +159,7 @@ export default function RecipeDetailScreen() {
   const [showRecipeAppeal, setShowRecipeAppeal] = useState(false);
   const [androidMenuActions, setAndroidMenuActions] = useState<RecipeMenuAction[] | null>(null);
   const [showIngredientsRef, setShowIngredientsRef] = useState(false); // Collapsed by default
-  const { userId, sessionId } = useAuth();
+  const { userId, sessionId, isLoaded } = useAuth();
   const activeSession = useRef(sessionId);
   activeSession.current = sessionId;
   const { isRefreshingNutrition, nutritionError, refreshNutrition } = useNutritionRefresh(recipe?.id, recipe?.content_revision, userId, refetch);
@@ -181,7 +181,7 @@ export default function RecipeDetailScreen() {
   const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
   
   // Save/bookmark functionality
-  const { data: savedStatus } = useIsRecipeSaved(id);
+  const { data: savedStatus } = useIsRecipeSaved(id, isLoaded && !!userId);
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
   const isSaved = savedStatus?.is_saved ?? false;
@@ -331,18 +331,20 @@ export default function RecipeDetailScreen() {
 
   const requireRecipeAccount = (action: GuestRecipeAction, proceed: () => void) => {
     if (userId) { proceed(); return; }
-    guestRecipeIntent.start(id, action);
+    guestRecipeIntent.start(id, action, action === 'plan' && hasKnownServings ? currentServings : undefined);
     router.push('/(auth)/sign-in');
   };
 
   useEffect(() => {
     if (!recipe || !userId || !sessionId) return;
-    const action = guestRecipeIntent.take(id, sessionId);
+    const intent = guestRecipeIntent.take(id, sessionId);
+    if (!intent) return;
+    const action = intent.action;
     if (action === 'save') saveMutation.mutate(id, { onSuccess: (result) => {
       if (activeSession.current === sessionId && result.saved) showToast({ message: 'Saved to your library', tone: 'success' });
-    } });
+    } }, intent.guard);
     if (action === 'collection') setShowCollectionModal(true);
-    if (action === 'plan') router.push(appRoutes.plannerRecipe(id));
+    if (action === 'plan') router.push(appRoutes.plannerRecipe(id, intent.servings));
     if (action === 'chat') setShowChatModal(true);
   }, [id, recipe, userId, sessionId]);
 

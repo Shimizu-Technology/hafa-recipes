@@ -75,7 +75,7 @@ describe('confirmed recipe saving', () => {
     m.save.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ saved: true });
     const h = await mount();
     await act(async () => { await h.mutation.mutateAsync('recipe-1').catch(() => {}); });
-    expect(m.reconcile).toHaveBeenCalledWith(h.client, 'recipe-1');
+    expect(m.reconcile).toHaveBeenCalledWith(h.client, 'recipe-1', expect.any(Function));
     expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: false });
     expect(m.success).not.toHaveBeenCalled();
     const toast = m.toast.mock.calls[0][0];
@@ -135,4 +135,28 @@ it('invalidates filtered Library roots after confirmed membership changes', asyn
   await act(async () => { await h.mutation.mutateAsync('recipe-1'); });
   expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
   await h.close();
+});
+
+it('freezes Save authority before asynchronous cache cancellation', async () => {
+  const h = await mount(); const pause = deferred<void>();
+  vi.spyOn(h.client, 'cancelQueries').mockReturnValue(pause.promise);
+  const pending = h.mutation.mutateAsync('recipe-1').catch(error => error);
+  m.scope = { userId: 'other', epoch: 1 }; pause.resolve();
+  await act(async () => { await pending; });
+  expect(m.save).not.toHaveBeenCalled(); expect(m.reconcile).not.toHaveBeenCalled();
+  await h.close();
+});
+
+it('carries the same intent guard through dispatch and a labelled Retry', async () => {
+  const { createGuestRecipeIntent } = await import('../lib/guestRecipeIntent');
+  const intent = createGuestRecipeIntent(); intent.start('recipe-1', 'save'); intent.bind('session-a');
+  const consumed = intent.take('recipe-1', 'session-a')!;
+  m.save.mockRejectedValue(new Error('lost response'));
+  const h = await mount();
+  await act(async () => { await h.mutation.mutateAsync('recipe-1', undefined, consumed.guard).catch(() => {}); });
+  const requestGuard = m.save.mock.calls.at(-1)![1]; expect(requestGuard).toBeTypeOf('function');
+  expect(m.toast.mock.calls.at(-1)![0].actionLabel).toBe('Retry');
+  intent.bind('session-b'); expect(() => requestGuard()).toThrow();
+  await act(async () => m.toast.mock.calls.at(-1)![0].onAction());
+  expect(m.save).toHaveBeenCalledOnce(); await h.close();
 });

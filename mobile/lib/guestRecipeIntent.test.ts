@@ -8,7 +8,7 @@ describe('guest recipe intent', () => {
     intent.start('recipe-b', 'save');
     expect(intent.bind('session-a')).toMatchObject({ recipeId: 'recipe-b', action: 'save' });
     expect(intent.take('recipe-a', 'session-a')).toBeNull();
-    expect(intent.take('recipe-b', 'session-a')).toBe('save');
+    expect(intent.take('recipe-b', 'session-a')).toMatchObject({ action: 'save' });
     expect(intent.take('recipe-b', 'session-a')).toBeNull();
     expect(() => intent.start('https://example.com/private-content', 'save')).toThrow();
   });
@@ -28,4 +28,15 @@ describe('guest recipe intent', () => {
     intent.clear();
     expect(intent.bind('session-a')).toBeNull();
   });
+});
+
+it('cancels a consumed lease after switching accounts and expires it during retry', () => {
+  let time = 0; const store = createGuestRecipeIntent(() => time);
+  store.start('recipe', 'plan', 8); store.bind('account-a');
+  const consumed = store.take('recipe', 'account-a')!;
+  expect(consumed.servings).toBe(8); expect(() => consumed.guard()).not.toThrow();
+  store.bind('account-b'); expect(() => consumed.guard()).toThrow();
+  store.start('recipe', 'save'); store.bind('account-b');
+  const retry = store.take('recipe', 'account-b')!; time = 15 * 60_000;
+  expect(() => retry.guard()).toThrow();
 });
