@@ -220,6 +220,7 @@ export default function SettingsScreen() {
                       accountDeleted = true;
                       chatCleanupFailed = !appUserId;
                       if (appUserId) {
+                        await (await import('@/lib/pantryWrites')).clearPendingPantry(appUserId);
                         try {
                           await clearAccountChatStorage(appUserId);
                         } catch (error) {
@@ -234,7 +235,7 @@ export default function SettingsScreen() {
                       }
                       await clearVerifiedAccountOwner();
                       await clearAccountOnboarding();
-                      await clearGroceryWidgetSession(false).catch((error) =>
+                      await clearGroceryWidgetSession(false, appUserId).catch((error) =>
                         captureError(error instanceof Error ? error : new Error(String(error)), {
                           tags: { operation: 'clearGroceryWidgetOnAccountDelete' },
                         }),

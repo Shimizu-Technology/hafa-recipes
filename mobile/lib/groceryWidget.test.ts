@@ -8,6 +8,7 @@ const bridge = vi.hoisted(() => ({
   getSessionStatus: vi.fn(),
   flushPending: vi.fn(),
   clearSession: vi.fn(),
+  retireSession: vi.fn(), restorePending: vi.fn(async () => {}), discardPending: vi.fn(async () => {}),
 }));
 const apiMock = vi.hoisted(() => ({
   getGrocerySnapshot: vi.fn(),
@@ -108,6 +109,7 @@ describe('grocery widget lifecycle', () => {
     bridge.updateSnapshot.mockResolvedValue(undefined);
     bridge.flushPending.mockResolvedValue(undefined);
     bridge.clearSession.mockResolvedValue(true);
+    bridge.retireSession.mockImplementation(async () => { await bridge.clearSession(true); return true; });
     bridge.getSessionStatus.mockResolvedValue({
       available: true,
       hasCredential: false,

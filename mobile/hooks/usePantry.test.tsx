@@ -1,4 +1,6 @@
+vi.mock('@react-native-async-storage/async-storage',()=>{const data=new Map<string,string>();return {default:{getItem:async(k:string)=>data.get(k)??null,setItem:async(k:string,v:string)=>{data.set(k,v)},removeItem:async(k:string)=>{data.delete(k)},getAllKeys:async()=>[...data.keys()],multiRemove:async(ks:string[])=>ks.forEach(k=>data.delete(k))}}});
 import React from 'react';
+import { offlineRecipes } from '@/lib/offlineRecipes';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,7 +32,8 @@ const snapshot = (revision: number): PantrySnapshot => ({
 });
 
 describe('usePantryWrite', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await offlineRecipes.bindSubject('clerk-alice'); await offlineRecipes.verify('clerk-alice', 'owner-a');
     mocks.getPantrySnapshot.mockReset();
     mocks.syncPantryMutation.mockReset();
     mocks.getPantrySnapshot.mockResolvedValue(snapshot(5));

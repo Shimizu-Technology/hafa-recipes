@@ -1,8 +1,9 @@
+import { recipeScope } from './recipeQueryScope';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CHAT_MESSAGE_MAX_CHARS } from './chatComposer';
 import { blockAccountChatImageCleanup } from './chatImageCleanup';
-import { accountChatStoragePrefix, chatDraftStorageKey } from './chatStorage';
+import { accountChatStoragePrefix, chatDraftStorageKey, chatStorageGuard } from './chatStorage';
 
 const operationTails = new Map<string, Promise<void>>();
 const deletedAccountPrefixes = new Set<string>();
@@ -15,14 +16,20 @@ function belongsToDeletedAccount(conversationKey: string): boolean {
 async function afterPendingDraftWrites<T>(
   conversationKey: string,
   operation: () => Promise<T>,
+  scope = recipeScope(),
 ): Promise<T> {
+  const guard = chatStorageGuard(conversationKey, scope);
+  guard();
   const previous = operationTails.get(conversationKey) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => { release = resolve; });
   operationTails.set(conversationKey, current);
   await previous.catch(() => undefined);
   try {
-    return await operation();
+    guard();
+    const result = await operation();
+    guard();
+    return result;
   } finally {
     release();
     if (operationTails.get(conversationKey) === current) {
@@ -41,25 +48,36 @@ export async function readChatDraft(conversationKey: string): Promise<string> {
   ).slice(0, CHAT_MESSAGE_MAX_CHARS));
 }
 
+async function commitValue(key: string, value: string | null, guard: () => void) {
+  const previous = await AsyncStorage.getItem(key); guard();
+  if (value === null) await AsyncStorage.removeItem(key); else await AsyncStorage.setItem(key, value);
+  try { guard(); } catch (error) {
+    if (await AsyncStorage.getItem(key) === value) {
+      if (previous === null || belongsToDeletedAccount(key)) await AsyncStorage.removeItem(key);
+      else await AsyncStorage.setItem(key, previous);
+    }
+    throw error;
+  }
+}
+
 /** Save or remove a bounded account-scoped text draft in invocation order. */
-export async function writeChatDraft(conversationKey: string, text: string): Promise<void> {
+export async function writeChatDraft(conversationKey: string, text: string, scope = recipeScope()): Promise<void> {
   if (belongsToDeletedAccount(conversationKey)) return;
   await afterPendingDraftWrites(conversationKey, async () => {
     if (belongsToDeletedAccount(conversationKey)) return;
     const key = chatDraftStorageKey(conversationKey);
-    if (text.trim()) await AsyncStorage.setItem(key, text.slice(0, CHAT_MESSAGE_MAX_CHARS));
-    else await AsyncStorage.removeItem(key);
-  });
+    await commitValue(key, text.trim() ? text.slice(0, CHAT_MESSAGE_MAX_CHARS) : null, chatStorageGuard(conversationKey, scope));
+  }, scope);
 }
 
 /** Serialize history writes with drafts so account deletion can drain both. */
-export async function writeChatHistory(conversationKey: string, serialized: string): Promise<void> {
+export async function writeChatHistory(conversationKey: string, serialized: string, scope = recipeScope()): Promise<void> {
   if (belongsToDeletedAccount(conversationKey)) return;
   await afterPendingDraftWrites(conversationKey, async () => {
     if (!belongsToDeletedAccount(conversationKey)) {
-      await AsyncStorage.setItem(conversationKey, serialized);
+      await commitValue(conversationKey, serialized, chatStorageGuard(conversationKey, scope));
     }
-  });
+  }, scope);
 }
 
 /** Remove this account's locally stored conversations after server deletion. */

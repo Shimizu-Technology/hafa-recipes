@@ -204,7 +204,7 @@ describe('account-scoped offline grocery storage', () => {
   });
 });
 
-it('invalidates in-flight grocery leases and discards queued private recipe payloads on stable-owner change', async () => {
+it('invalidates grocery leases, isolates pending work from B and restores it when A returns', async () => {
   const { offlineRecipes } = await import('./offlineRecipes');
   await offlineRecipes.bindSubject('same-subject'); await offlineRecipes.verify('same-subject', 'owner-a');
   await bindOfflineGroceryIdentity('same-subject');
@@ -216,7 +216,20 @@ it('invalidates in-flight grocery leases and discards queued private recipe payl
   expect(() => assertGroceryStorageLease(a)).toThrow();
   const b = getGroceryStorageLease(); await cacheGrocerySnapshot(snapshot('account-b', 'list-b'), b);
   expect(await getPendingSyncQueue(b)).toEqual([]);
-  expect(JSON.stringify([...storage.values.values()])).not.toContain('A family secret');
+  expect(JSON.stringify(await getCachedGrocerySnapshot(b))).not.toContain('A family secret');
+  await offlineRecipes.verify('same-subject', 'owner-a');
+  const returned = getGroceryStorageLease();
+  await cacheServerGrocerySnapshot(snapshot(), returned);
+  expect((await getPendingSyncQueue(returned))[0].mutation.item?.recipe_title).toBe('A family secret');
   await expect(addToSyncQueue(privateAdd, a)).rejects.toThrow();
   await offlineRecipes.clear();
+});
+
+it('migrates generation-stamped pending groceries only to their proven stable owner',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');await bindOfflineGroceryIdentity('subject');
+ const legacy='@hafa_grocery_scope_v2:account-a:list-a:queue';
+ storage.values.set(legacy,JSON.stringify([{mutation:mutation(),queued_at:'now',ownerGeneration:JSON.stringify(['owner-a','prior-generation'])},{mutation:{...mutation(),mutation_id:'b',item:{name:'B secret'}},queued_at:'now',ownerGeneration:JSON.stringify(['owner-b','old-b'])}]));
+ const a=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),a);expect((await getPendingSyncQueue(a)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);
+ await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),b);expect((await getPendingSyncQueue(b)).map(entry=>entry.mutation.mutation_id)).toEqual(['b']);
+ await offlineRecipes.verify('subject','owner-a');const returned=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),returned);expect((await getPendingSyncQueue(returned)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);await offlineRecipes.clear();
 });

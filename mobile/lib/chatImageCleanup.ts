@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { accountChatStoragePrefix, pendingChatImageCleanupKey } from './chatStorage';
+import { accountChatStoragePrefix, pendingChatImageCleanupKey, chatStorageGuard } from './chatStorage';
 
 export interface ChatImageCleanupJob {
   id: string;
@@ -46,7 +46,8 @@ async function readQueue(cleanupKey: string): Promise<ChatImageCleanupJob[]> {
   return parsed.filter(validJob);
 }
 
-async function writeQueue(cleanupKey: string, jobs: ChatImageCleanupJob[]): Promise<void> {
+async function writeQueue(cleanupKey: string, jobs: ChatImageCleanupJob[], guard: () => void): Promise<void> {
+  guard();
   if (belongsToDeletedAccount(cleanupKey)) return;
   if (jobs.length === 0) {
     await AsyncStorage.removeItem(cleanupKey);
@@ -67,14 +68,19 @@ export async function blockAccountChatImageCleanup(appUserId: string): Promise<v
 }
 
 /** Serialize read-modify-write operations for one conversation cleanup queue. */
-async function mutateQueue<T>(cleanupKey: string, operation: () => Promise<T>): Promise<T> {
+async function mutateQueue<T>(cleanupKey: string, operation: (guard: () => void) => Promise<T>): Promise<T> {
+  const guard = chatStorageGuard(cleanupKey);
+  guard();
   const previous = mutationTails.get(cleanupKey) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => { release = resolve; });
   mutationTails.set(cleanupKey, current);
   await previous.catch(() => undefined);
   try {
-    return await operation();
+    guard();
+    const result = await operation(guard);
+    guard();
+    return result;
   } finally {
     release();
     if (mutationTails.get(cleanupKey) === current) mutationTails.delete(cleanupKey);
@@ -87,10 +93,10 @@ export async function enqueueChatImageCleanup(
   job: Omit<ChatImageCleanupJob, 'state'>,
 ): Promise<void> {
   const cleanupKey = pendingChatImageCleanupKey(conversationKey);
-  await mutateQueue(cleanupKey, async () => {
+  await mutateQueue(cleanupKey, async guard => {
     const jobs = await readQueue(cleanupKey);
     if (jobs.some((existing) => existing.id === job.id)) return;
-    await writeQueue(cleanupKey, [...jobs, { ...job, state: 'prepared' }]);
+    await writeQueue(cleanupKey, [...jobs, { ...job, state: 'prepared' }], guard);
   });
 }
 
@@ -100,14 +106,14 @@ export async function activateChatImageCleanup(
   jobId: string,
 ): Promise<void> {
   const cleanupKey = pendingChatImageCleanupKey(conversationKey);
-  await mutateQueue(cleanupKey, async () => {
+  await mutateQueue(cleanupKey, async guard => {
     const jobs = await readQueue(cleanupKey);
     if (!jobs.some((job) => job.id === jobId)) {
       throw new Error('The prepared chat image cleanup job is missing');
     }
     await writeQueue(cleanupKey, jobs.map((job) => (
       job.id === jobId ? { ...job, state: 'ready' as const } : job
-    )));
+    )), guard);
   });
 }
 
@@ -117,12 +123,12 @@ export async function recoverChatImageCleanup(
   conversationExists: boolean,
 ): Promise<void> {
   const cleanupKey = pendingChatImageCleanupKey(conversationKey);
-  await mutateQueue(cleanupKey, async () => {
+  await mutateQueue(cleanupKey, async guard => {
     const jobs = await readQueue(cleanupKey);
     const recovered = conversationExists
       ? jobs.filter((job) => job.state === 'ready')
       : jobs.map((job) => ({ ...job, state: 'ready' as const }));
-    await writeQueue(cleanupKey, recovered);
+    await writeQueue(cleanupKey, recovered, guard);
   });
 }
 
@@ -132,9 +138,9 @@ export async function removeChatImageCleanup(
   jobId: string,
 ): Promise<void> {
   const cleanupKey = pendingChatImageCleanupKey(conversationKey);
-  await mutateQueue(cleanupKey, async () => {
+  await mutateQueue(cleanupKey, async guard => {
     const jobs = await readQueue(cleanupKey);
-    await writeQueue(cleanupKey, jobs.filter((job) => job.id !== jobId));
+    await writeQueue(cleanupKey, jobs.filter((job) => job.id !== jobId), guard);
   });
 }
 
@@ -155,9 +161,10 @@ export function processChatImageCleanup(
   conversationKey: string,
   deleteImages: DeleteImages,
 ): Promise<void> {
+  const guard = chatStorageGuard(conversationKey);
   const existing = activeProcessors.get(conversationKey);
   if (existing) {
-    return existing.then(() => processChatImageCleanup(conversationKey, deleteImages));
+    return existing.then(() => { guard(); return processChatImageCleanup(conversationKey, deleteImages); });
   }
 
   const cleanupKey = pendingChatImageCleanupKey(conversationKey);
@@ -175,7 +182,9 @@ export function processChatImageCleanup(
       if (!job) return;
 
       try {
+        guard();
         await deleteImages(job.imageUrls);
+        guard();
         await removeChatImageCleanup(conversationKey, job.id);
       } catch {
         return;

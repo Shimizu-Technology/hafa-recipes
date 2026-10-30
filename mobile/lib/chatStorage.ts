@@ -1,3 +1,4 @@
+import { assertRecipeScope, recipeScope } from './recipeQueryScope';
 import type { ChatMessage } from '@/types/recipe';
 
 const STORAGE_PREFIX = 'hafa.chat.v2';
@@ -38,4 +39,13 @@ export function persistedChatImageUrls(messages: ChatMessage[]): string[] {
   return [...new Set(messages.flatMap((message) => (
     message.image_url?.startsWith('https://') ? [message.image_url] : []
   )))];
+}
+
+/** A conversation key is durable; an operation on it is generation-bound. */
+export function chatStorageGuard(conversationKey: string, scope = recipeScope()) {
+  return () => {
+    assertRecipeScope(scope);
+    const owner = JSON.parse(scope)[1] as string | null;
+    if (owner && !conversationKey.startsWith(accountChatStoragePrefix(owner))) throw new Error('Chat account changed');
+  };
 }

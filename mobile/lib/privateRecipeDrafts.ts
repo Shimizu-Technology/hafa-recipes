@@ -1,7 +1,9 @@
+import { assertRecipeScope, recipeScope } from './recipeQueryScope';
+import { offlineRecipes } from './offlineRecipes';
 import { IMPORT_INBOX_STORAGE_KEY } from './importInboxStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 export type RecipeDraftKind = 'manual' | 'paste' | 'scan' | 'recovery';
-export type DraftLease = { owner: string; epoch: number };
+export type DraftLease = { owner: string; epoch: number; scope: string };
 const PREFIX = 'hafa_private_recipe_draft_v1:';
 
 /** Serialize writes/deletes; invalidated leases cannot resurrect signed-out data. */
@@ -13,7 +15,8 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
   let tail: Promise<unknown> = Promise.resolve();
   const run = <T,>(job: () => Promise<T>) => { const next = tail.then(job); tail = next.catch(() => undefined); return next; };
   const key = (lease: DraftLease, kind: RecipeDraftKind) => `${PREFIX}${encodeURIComponent(lease.owner)}:${kind}`;
-  const valid = (lease: DraftLease) => { if (lease.epoch !== epoch) throw new Error('Account changed. Reopen this draft.'); };
+  const valid = (lease: DraftLease) => { assertRecipeScope(lease.scope); const owner = JSON.parse(lease.scope)[1]; if (owner && owner !== lease.owner) throw new Error('Account changed. Reopen this draft.'); if (lease.epoch !== epoch) throw new Error('Account changed. Reopen this draft.'); };
+  offlineRecipes.onRetire(emit);
   return {
     assert: valid,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
@@ -33,7 +36,7 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
       try { new File(uri).copy(file); check(); return file.uri; }
       catch (error) { if (file.exists) file.delete(); throw error; }
     }),
-    lease: (owner: string): DraftLease => ({ owner, epoch }),
+    lease: (owner: string): DraftLease => ({ owner, epoch, scope: recipeScope() }),
     read: (lease: DraftLease, kind: RecipeDraftKind) => run(async () => {
       valid(lease); const raw = await storage.getItem(key(lease, kind)); valid(lease);
       return raw ? JSON.parse(raw) : null;
@@ -51,7 +54,16 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
         }
         const raw = JSON.stringify(value);
         if (raw.length > 500_000) throw new Error('This draft is too large to save on this device.');
-        await storage.setItem(key(lease, kind), raw); valid(lease); emit();
+        const target = key(lease, kind), previous = await storage.getItem(target); valid(lease);
+        await storage.setItem(target, raw);
+        try { valid(lease); } catch (error) {
+          // An already dispatched native write cannot be cancelled; retire its result.
+          if (await storage.getItem(target) === raw) {
+            if (previous === null) await storage.removeItem(target); else await storage.setItem(target, previous);
+          }
+          throw error;
+        }
+        emit();
       }).finally(() => pendingWrites.delete(pending));
     },
     remove: (lease: DraftLease, kind: RecipeDraftKind, expected?: unknown) => run(async () => {

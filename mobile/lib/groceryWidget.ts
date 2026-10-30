@@ -1,3 +1,5 @@
+import { offlineRecipes } from './offlineRecipes';
+import { assertRecipeScope, recipeScope } from './recipeQueryScope';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 
@@ -24,6 +26,7 @@ const SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
 };
 
 export interface StoredGroceryWidgetSession {
+  owner?: string | null;
   version: 1;
   clerkUserId: string;
   credentialId: string;
@@ -63,10 +66,14 @@ export interface WidgetGrocerySnapshot {
 }
 
 let widgetStateQueue: Promise<unknown> = Promise.resolve();
+let retirement: Promise<unknown> = Promise.resolve();
 const refreshListeners = new Set<() => void>();
 
-function serializeWidgetState<T>(operation: () => Promise<T>): Promise<T> {
-  const result = widgetStateQueue.then(operation, operation);
+function serializeWidgetState<T>(operation: (guard: () => void) => Promise<T>): Promise<T> {
+  const scope = recipeScope();
+  const guard = () => assertRecipeScope(scope);
+  const run = async () => { guard(); await retirement; guard(); const result = await operation(guard); guard(); return result; };
+  const result = widgetStateQueue.then(run, run);
   widgetStateQueue = result.then(
     () => undefined,
     () => undefined,
@@ -184,13 +191,14 @@ async function deleteStoredSession(): Promise<void> {
   await SecureStore.deleteItemAsync(SESSION_METADATA_KEY);
 }
 
-async function bindIdentityUnsafe(clerkUserId: string | null): Promise<void> {
+async function bindIdentityUnsafe(clerkUserId: string | null, guard: () => void): Promise<void> {
   if (!HafaWidgetBridge.isAvailable) return;
   const [stored, status] = await Promise.all([
     loadStoredSession(),
     HafaWidgetBridge.getSessionStatus(),
   ]);
-  const belongsToCurrentUser = stored?.clerkUserId === clerkUserId;
+  guard();
+  const belongsToCurrentUser = stored?.clerkUserId === clerkUserId && (stored.owner ?? null) === JSON.parse(recipeScope())[1];
   const hasNativeState = status.hasCredential || status.listId !== null;
   const hasCompleteMatchingSession =
     Boolean(clerkUserId) &&
@@ -210,7 +218,7 @@ async function bindIdentityUnsafe(clerkUserId: string | null): Promise<void> {
 }
 
 export function bindGroceryWidgetIdentity(clerkUserId: string | null): Promise<void> {
-  return serializeWidgetState(() => bindIdentityUnsafe(clerkUserId));
+  return serializeWidgetState(guard => bindIdentityUnsafe(clerkUserId, guard));
 }
 
 async function revokeBearerToken(
@@ -257,6 +265,7 @@ async function provisionSession(
 
   const stored: StoredGroceryWidgetSession = {
     version: 1,
+    owner: JSON.parse(recipeScope())[1],
     clerkUserId,
     credentialId: credential.credential_id,
     accountScopeId: credential.account_scope_id,
@@ -270,6 +279,10 @@ async function provisionSession(
       API_BASE_URL,
       JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
     );
+    if (isCurrent()) {
+      const owner = JSON.parse(recipeScope())[1];
+      if (owner) await HafaWidgetBridge.restorePending(owner);
+    }
     if (!isCurrent()) {
       await HafaWidgetBridge.clearSession(true);
       return;
@@ -279,6 +292,7 @@ async function provisionSession(
       JSON.stringify(stored),
       SECURE_STORE_OPTIONS,
     );
+    if (!isCurrent()) await deleteStoredSession();
   } catch (error) {
     await HafaWidgetBridge.clearSession(true).catch(() => false);
     await revokeBearerToken(credential.token);
@@ -291,18 +305,22 @@ export function synchronizeGroceryWidget(
   clerkUserId: string,
   isCurrent: () => boolean = () => true,
 ): Promise<void> {
-  return serializeWidgetState(async () => {
+  const authority = recipeScope(), current = isCurrent;
+  isCurrent = () => authority === recipeScope() && current();
+  return serializeWidgetState(async guard => {
     if (!HafaWidgetBridge.isAvailable || !isCurrent()) return;
-    await bindIdentityUnsafe(clerkUserId);
+    await bindIdentityUnsafe(clerkUserId, guard);
     if (!isCurrent()) return;
 
     let stored = await loadStoredSession();
     let status = await HafaWidgetBridge.getSessionStatus();
+    guard();
     if (
       stored?.clerkUserId === clerkUserId &&
       status.hasCredential &&
       !status.requiresReconnect
     ) {
+      guard();
       await HafaWidgetBridge.flushPending();
       if (!isCurrent()) return;
       stored = await loadStoredSession();
@@ -322,7 +340,8 @@ export function synchronizeGroceryWidget(
       !shouldRenewGroceryWidgetSession(stored);
 
     if (canReuseSession) {
-      await HafaWidgetBridge.updateSnapshot(
+      guard();
+    await HafaWidgetBridge.updateSnapshot(
         JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
       );
       return;
@@ -332,9 +351,10 @@ export function synchronizeGroceryWidget(
 }
 
 export function publishConfirmedGrocerySnapshot(snapshot: GrocerySnapshot): Promise<void> {
-  return serializeWidgetState(async () => {
+  return serializeWidgetState(async guard => {
     if (!HafaWidgetBridge.isAvailable) return;
     const stored = await loadStoredSession();
+    guard();
     if (
       !stored ||
       stored.accountScopeId !== snapshot.account_scope_id ||
@@ -344,16 +364,20 @@ export function publishConfirmedGrocerySnapshot(snapshot: GrocerySnapshot): Prom
       requestGroceryWidgetRefresh();
       return;
     }
+    guard();
     await HafaWidgetBridge.updateSnapshot(
       JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
     );
   });
 }
 
-export function clearGroceryWidgetSession(revokeWithApp = false): Promise<void> {
-  return serializeWidgetState(async () => {
+export function clearGroceryWidgetSession(revokeWithApp = false, deletedOwner?: string): Promise<void> {
+  return serializeWidgetState(async guard => {
     if (!HafaWidgetBridge.isAvailable) return;
     const stored = await loadStoredSession();
+    guard();
+    if (deletedOwner) await HafaWidgetBridge.discardPending(deletedOwner);
+    guard();
     if (revokeWithApp && stored) {
       await api.revokeGroceryWidgetCredential(stored.credentialId).catch(() => undefined);
     }
@@ -370,3 +394,11 @@ export function subscribeToGroceryWidgetRefresh(listener: () => void): () => voi
 export function requestGroceryWidgetRefresh(): void {
   refreshListeners.forEach((listener) => listener());
 }
+
+// Native revocation scrubs the rendered list before its best-effort network await.
+// Start retirement immediately, ahead of any blocked JS synchronization queue.
+offlineRecipes.onRetire(previous => {
+  if (!previous || !HafaWidgetBridge.isAvailable) return;
+  const scrub = HafaWidgetBridge.retireSession(previous.owner).catch(() => undefined);
+  retirement = Promise.all([retirement, scrub]).then(() => deleteStoredSession()).catch(() => undefined);
+});

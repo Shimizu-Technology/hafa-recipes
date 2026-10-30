@@ -438,6 +438,45 @@ final class HafaWidgetStore {
     }
   }
 
+  // Pending user intent survives capability retirement, isolated by stable owner.
+  private func pendingURL(_ owner: String) throws -> URL {
+    let name = owner.utf8.map { String(format: "%02x", $0) }.joined()
+    return try containerURL().appendingPathComponent("grocery-pending-owner-\(name).json")
+  }
+
+  func archivePending(owner: String) throws {
+    try withFileLock {
+      let pending = try readUnlocked().pending
+      let url = try pendingURL(owner)
+      let existing = (try? decoder.decode([HafaWidgetPendingMutation].self, from: Data(contentsOf: url))) ?? []
+      let ids = Set(pending.map { $0.id })
+      try encoder.encode(existing.filter { !ids.contains($0.id) } + pending).write(to: url, options: [.atomic])
+      try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: S_IRUSR | S_IWUSR), .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
+    }
+  }
+
+  func restorePending(owner: String) throws {
+    try withFileLock {
+      let url = try pendingURL(owner)
+      guard FileManager.default.fileExists(atPath: url.path) else { return }
+      let pending = try decoder.decode([HafaWidgetPendingMutation].self, from: Data(contentsOf: url))
+      var state = try readUnlocked()
+      let ids = Set(state.pending.map { $0.id })
+      state.pending += pending.filter { $0.listID == state.snapshot?.list.id && !ids.contains($0.id) }
+      if let snapshot = state.snapshot { state.snapshot = applying(state.pending, to: snapshot) }
+      try writeUnlocked(state)
+      // Keep entries for another list until that owner's list is active again.
+      try encoder.encode(pending.filter { $0.listID != state.snapshot?.list.id }).write(to: url, options: [.atomic])
+    }
+  }
+
+  func discardPending(owner: String) throws {
+    try withFileLock {
+      let url = try pendingURL(owner)
+      if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
+  }
+
   func clearSession() throws {
     var firstError: Error?
     do {
@@ -555,17 +594,27 @@ actor HafaWidgetSyncClient {
     return URLSession(configuration: configuration)
   }()
 
+  private func isCurrent(_ request: URLRequest, _ state: HafaWidgetState, token: String?) -> Bool {
+    guard let token, token == HafaWidgetCredentialStore.shared.read(),
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)",
+          let current = try? HafaWidgetStore.shared.readState() else { return false }
+    return current.accountScopeID == state.accountScopeID && current.snapshot?.list.id == state.snapshot?.list.id
+  }
+
   func setChecked(listID: String, itemID: String, checked: Bool) async {
+    let token = HafaWidgetCredentialStore.shared.read()
     do {
       _ = try HafaWidgetStore.shared.enqueue(
         listID: listID,
         itemID: itemID,
         checked: checked
       )
+      guard token == HafaWidgetCredentialStore.shared.read() else { return }
       await flushPending()
     } catch {
       HafaWidgetStore.shared.recordRetryableError("Open Håfa Recipes to reconnect.")
     }
+    guard token == HafaWidgetCredentialStore.shared.read() else { return }
     // Network acknowledgement may approach the request timeout. Refresh the
     // cache window immediately before the intent returns so WidgetKit's
     // guaranteed interaction reload never starts a second round trip.
@@ -576,6 +625,7 @@ actor HafaWidgetSyncClient {
 
   func flushPending() async {
     for _ in 0..<20 {
+      let token = HafaWidgetCredentialStore.shared.read()
       let state: HafaWidgetState
       do {
         state = try HafaWidgetStore.shared.readState()
@@ -600,8 +650,10 @@ actor HafaWidgetSyncClient {
         return
       }
 
+      guard isCurrent(request, state, token: token) else { return }
       do {
         let (data, response) = try await session.data(for: request)
+        guard isCurrent(request, state, token: token) else { return }
         guard let http = response as? HTTPURLResponse else {
           throw HafaWidgetError.invalidResponse
         }
@@ -633,6 +685,7 @@ actor HafaWidgetSyncClient {
           throw HafaWidgetError.server(http.statusCode)
         }
       } catch {
+        guard isCurrent(request, state, token: token) else { return }
         HafaWidgetStore.shared.recordRetryableError("Will sync when the connection returns.")
         return
       }
@@ -640,7 +693,9 @@ actor HafaWidgetSyncClient {
   }
 
   func refreshSnapshot(flushFirst: Bool = true) async {
+    let token = HafaWidgetCredentialStore.shared.read()
     if flushFirst { await flushPending() }
+    guard token == HafaWidgetCredentialStore.shared.read() else { return }
     let state: HafaWidgetState
     do {
       state = try HafaWidgetStore.shared.readState()
@@ -654,8 +709,10 @@ actor HafaWidgetSyncClient {
       body: nil
     ) else { return }
 
+    guard isCurrent(request, state, token: token) else { return }
     do {
       let (data, response) = try await session.data(for: request)
+        guard isCurrent(request, state, token: token) else { return }
       guard let http = response as? HTTPURLResponse else {
         throw HafaWidgetError.invalidResponse
       }
@@ -670,11 +727,12 @@ actor HafaWidgetSyncClient {
         throw HafaWidgetError.server(http.statusCode)
       }
     } catch {
+      guard isCurrent(request, state, token: token) else { return }
       HafaWidgetStore.shared.recordRetryableError("Showing the last saved list.")
     }
   }
 
-  func revokeAndClearSession() async throws -> Bool {
+  func revokeAndClearSession(onClear: (() -> Void)? = nil) async throws -> Bool {
     let state = try? HafaWidgetStore.shared.readState()
     let request = state.flatMap {
       makeRequest(
@@ -688,6 +746,7 @@ actor HafaWidgetSyncClient {
     // a best-effort network revocation. The already-built request retains only
     // the in-memory capability needed to revoke itself.
     try HafaWidgetStore.shared.clearSession()
+    onClear?()
     guard let request else { return false }
     do {
       let (_, response) = try await session.data(for: request)
