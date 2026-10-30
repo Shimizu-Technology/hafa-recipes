@@ -95,6 +95,7 @@ function Routes() {
         {/* Coach opens as a sheet over whatever you were looking at. */}
         <Stack.Screen name="coach" options={{ presentation: "modal" }} />
         <Stack.Screen name="coach-action/[id]" />
+        <Stack.Screen name="schedule-once" options={{ presentation: "modal" }} />
         <Stack.Screen name="build-plan" />
         <Stack.Screen name="review-plan" />
         <Stack.Screen name="share" />

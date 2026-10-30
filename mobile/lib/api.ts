@@ -186,6 +186,7 @@ class ApiClient {
           const token = await this.getAuthTokenWithRetry(
             config.url || 'unknown',
             config.signal as AbortSignal | undefined,
+            (config as GuardedRequestConfig).requestGuard,
           );
           if (token) {
             config.headers.Authorization = `Bearer ${token}`;
@@ -313,18 +314,22 @@ class ApiClient {
   private async getAuthTokenWithRetry(
     endpoint: string,
     signal?: AbortSignal,
+    guard?: RequestGuard,
   ): Promise<string | null> {
     if (!this.getTokenFn) return null;
     let lastError: unknown;
     for (let attempt = 1; attempt <= AUTH_TOKEN_MAX_ATTEMPTS; attempt += 1) {
+      guard?.();
       try {
         const token = await waitForTokenResult(this.getTokenFn(), signal);
+        guard?.();
         if (token) return token;
         lastError = new Error('Token unavailable');
       } catch (error) {
         if (isChatAbortError(error, signal)) throw error;
         lastError = error;
       }
+      guard?.();
       if (attempt < AUTH_TOKEN_MAX_ATTEMPTS) {
         console.warn(`Token fetch attempt ${attempt} failed, retrying...`);
         addBreadcrumb('auth', `Token fetch attempt ${attempt} failed, retrying`, {
@@ -1347,18 +1352,24 @@ class ApiClient {
   // Saved/Bookmarked Recipes
   // ============================================================
 
-  async saveRecipe(recipeId: string): Promise<{ saved: boolean; message: string }> {
-    const { data } = await this.client.post(`/api/recipes/${recipeId}/save`);
+  async saveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
+    const guard = this.recipeWriteGuard(requestGuard);
+    const { data } = await this.client.post(`/api/recipes/${recipeId}/save`, undefined, { requestGuard: guard } as GuardedRequestConfig);
+    guard();
     return data;
   }
 
-  async unsaveRecipe(recipeId: string): Promise<{ saved: boolean; message: string }> {
-    const { data } = await this.client.delete(`/api/recipes/${recipeId}/save`);
+  async unsaveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
+    const guard = this.recipeWriteGuard(requestGuard);
+    const { data } = await this.client.delete(`/api/recipes/${recipeId}/save`, { requestGuard: guard } as GuardedRequestConfig);
+    guard();
     return data;
   }
 
-  async checkRecipeSaved(recipeId: string): Promise<{ is_saved: boolean }> {
-    const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`);
+  async checkRecipeSaved(recipeId: string, requestGuard?: RequestGuard): Promise<{ is_saved: boolean }> {
+    const guard = this.recipeWriteGuard(requestGuard);
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`, { requestGuard: guard } as GuardedRequestConfig);
+    guard();
     return data;
   }
 

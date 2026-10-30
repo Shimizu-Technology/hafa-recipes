@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  sessionId: 'session-a',
   isLoaded: true,
   isSignedIn: false,
   replace: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('react-native', () => ({ TouchableOpacity: 'TouchableOpacity' }));
 vi.mock('@clerk/expo', () => ({
-  useAuth: () => ({ isLoaded: mocks.isLoaded, isSignedIn: mocks.isSignedIn }),
+  useAuth: () => ({ isLoaded: mocks.isLoaded, isSignedIn: mocks.isSignedIn, sessionId: mocks.sessionId }),
 }));
 vi.mock('expo-router', () => ({
   useRouter: () => ({ replace: mocks.replace }),
@@ -24,9 +25,11 @@ vi.mock('expo-router', () => ({
 
 import { TouchableOpacity } from 'react-native';
 import { AuthProtection } from './AuthProtection';
+import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 
 describe('AuthProtection', () => {
   beforeEach(() => {
+    guestRecipeIntent.clear();
     mocks.isLoaded = true;
     mocks.isSignedIn = false;
     mocks.replace.mockReset();
@@ -65,6 +68,25 @@ describe('AuthProtection', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('returns authentication to the requested recipe and clears the intent on guest cancellation', async () => {
+    const renderer = createRoot();
+    try {
+      guestRecipeIntent.start('recipe-a', 'save');
+      mocks.segments = ['(auth)'];
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      mocks.isSignedIn = true;
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-a');
+      guestRecipeIntent.clear();
+      mocks.isSignedIn = false;
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      guestRecipeIntent.start('recipe-b', 'save');
+      mocks.segments = ['(tabs)'];
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      expect(guestRecipeIntent.bind('session-a')).toBeNull();
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('redirects signed-out users away from authenticated capture', async () => {

@@ -1,5 +1,5 @@
 import { useState, type PropsWithChildren, type Ref } from "react";
-import { ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
+import { Text, ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { Image } from "expo-image";
@@ -217,7 +217,7 @@ export function AccountButton() {
       {image ? (
         <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: 40, height: 40 }} accessibilityIgnoresInvertColors />
       ) : identity?.initial ? (
-        <Copy kind="label" color={c.onActionSoft} style={{ fontSize: 17 }}>{identity.initial}</Copy>
+        <Text allowFontScaling={false} style={{ color: c.onActionSoft, fontSize: 17, fontFamily: typography.label.fontFamily }}>{identity.initial}</Text>
       ) : (
         <Ionicons name="person" size={19} color={c.onActionSoft} />
       )}

@@ -1,3 +1,9 @@
+vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: vi.fn(async () => undefined) } }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'capture-id' }));
+vi.mock('@/hooks/useRecipes', () => ({ invalidateCreatedRecipeQueries: (client: any, id: string) => { client.invalidateQueries({ queryKey: ['recipes'] }); client.invalidateQueries({ queryKey: ['discover'] }); } }));
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'stable-a', entries: [{ id: 'capture-id', ownerId: 'stable-a' }] }) }));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), leave: vi.fn(async () => undefined), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5,7 +11,7 @@ import type { Recipe } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const mocks = vi.hoisted(() => ({
-  editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
+  captureSave: vi.fn(async (_input: unknown) => ({ id: 'saved-capture' })), replace: vi.fn(), editRecipe: vi.fn(), close: vi.fn(), alert: vi.fn(), setQueryData: vi.fn(), invalidateQueries: vi.fn(),
   mutationOptions: [] as Array<{ onSuccess?: (recipe: Recipe) => void }>,
   editorRecipe: null as Recipe | null, editorSubmit: vi.fn(), owner: 'owner-a', routeId: 'r1',
 }));
@@ -33,14 +39,14 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.owner, isLoaded:
 vi.mock('expo-router', async () => {
   const ReactModule = await import('react');
   return {
-    useRouter: () => ({ back: mocks.close }), useLocalSearchParams: () => ({ id: mocks.routeId }),
+    useRouter: () => ({ back: mocks.close, replace: mocks.replace }), useLocalSearchParams: () => ({ id: mocks.routeId }),
     Stack: { Screen: ({ options }: any) => ReactModule.createElement('StackScreen', {}, options.headerRight?.()) },
   };
 });
 vi.mock('expo-image-picker', () => ({}));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
 vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () => ({ requestPublishing: vi.fn(), isCheckingDisclosure: false }) }));
-vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe } }));
+vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe, saveCapturedRecipe: mocks.captureSave } }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
@@ -51,7 +57,7 @@ vi.mock('@/components/Themed', async () => {
   };
 });
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
-import EditRecipeScreen from '../app/edit-recipe/[id]';
+import EditRecipeScreen, { EditRecipeForm } from '../app/edit-recipe/[id]';
 
 describe('recipe editor draft preservation', () => {
   it('keeps unsaved scalar, ingredient, and step edits when a foreground refetch replaces the recipe object', async () => {
@@ -271,5 +277,68 @@ it.each(['tbsp', ''])('requires explicit source unit %j before replacing an AI a
   const edit = mocks.editRecipe.mock.calls[0][1];
   expect(edit.components[0].ingredients[1]).toMatchObject({ quantity: '1', unit: unit || null, quantityEstimate: null });
   expect(edit.verified_paths).toEqual(unit ? [path, 'components.0.ingredients.1.unit'] : [path]);
+  await act(async () => tree.unmount());
+});
+
+it('saves a rejected multi-component capture through the canonical editor with its original capture ID', async () => {
+  const captured = structuredClone(recipe);
+  captured.is_public = false;
+  captured.extraction_evidence = undefined;
+  captured.extracted.components = [1, 2, 3].map(i => ({ name: `Part ${i}`, notes: `Family note ${i}`, ingredients: [{ name: `Ingredient ${i}`, quantity: '1', unit: 'cup', notes: `Note ${i}` }], steps: [`Cook ${i}`] }));
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<EditRecipeForm owner="subject-a" capture={{ id: 'capture-id', ownerId: 'stable-a', recipe: captured, guard: vi.fn() }} />); });
+  const save = tree.root.findAllByType('TouchableOpacity' as any).find(node => node.findAllByType('Text' as any).some(text => text.props.children === 'Save'));
+  // Invoke the immutable snapshot through the existing mutation harness.
+  await act(async () => save!.props.onPress());
+  const snapshot = mocks.editorSubmit.mock.calls.at(-1)![0];
+  const options = mocks.mutationOptions.find((option: any) => option.mutationFn) as any;
+  await act(async () => options.mutationFn(snapshot));
+  expect(mocks.captureSave.mock.calls.at(-1)![0]).toMatchObject({ capture_id: 'capture-id', extracted: { components: captured.extracted.components } });
+  expect(mocks.editRecipe).not.toHaveBeenCalled();
+  await act(async () => tree.unmount());
+});
+
+it('keeps the exact Private capture request through a failed save and relaunched Retry', async () => {
+  const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
+  const captured = structuredClone(recipe);
+  captured.is_public = true; captured.extraction_evidence = undefined;
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<EditRecipeForm owner="subject-a" capture={{ id: 'capture-id', ownerId: 'stable-a', recipe: captured, guard: vi.fn() }} />); });
+  try {
+    await act(async () => host(tree, 'TouchableOpacity', props => props.accessibilityLabel === 'Shared to library. Tap to make private.')[0].props.onPress());
+    await act(async () => mocks.alert.mock.calls.at(-1)![2].find((button: any) => button.text === 'Make private').onPress());
+    const save = tree.root.findAllByType('TouchableOpacity' as any).find(node => node.findAllByType('Text' as any).some(text => text.props.children === 'Save'));
+    await act(async () => save!.props.onPress());
+    const snapshot = mocks.editorSubmit.mock.calls.at(-1)![0];
+    expect(snapshot.data.is_public).toBe(false);
+    const options = mocks.mutationOptions.at(-2) as any;
+    await act(async () => options.mutationFn(snapshot));
+    expect((mocks.captureSave.mock.calls.at(-1)![0] as any).is_public).toBe(false);
+    await act(async () => options.onError(new Error('Network Error'), snapshot));
+    const stored = vi.mocked(privateRecipeDrafts.write).mock.calls.at(-1)![2] as any;
+    expect(stored.recipe.is_public).toBe(false);
+    expect(stored.request).toMatchObject({ capture_id: 'capture-id', is_public: false, source_type: captured.source_type === 'text' ? 'text' : 'photo' });
+    const { requestGuard, ...attempt } = mocks.captureSave.mock.calls.at(-1)![0] as any;
+    expect(stored.request).toEqual(attempt);
+    const { saveCaptureOrRecover } = await import('@/lib/captureSave');
+    const saved = new Map();
+    const retry = vi.fn(async (request: any) => { saved.set(request.capture_id, request); return { id: 'one-recipe' }; });
+    await saveCaptureOrRecover(stored.request, 'Guam', retry);
+    await saveCaptureOrRecover(stored.request, 'Guam', retry);
+    expect([...saved.values()]).toHaveLength(1);
+    expect([...saved.values()][0].is_public).toBe(false);
+  } finally { await act(async () => tree.unmount()); }
+});
+it('invalidates library and picker queries and acknowledges the inbox after canonical capture confirmation', async () => {
+  const { importInbox } = await import('@/lib/importInbox');
+  mocks.mutationOptions.length = 0; mocks.invalidateQueries.mockClear();
+  const captured = { ...structuredClone(recipe), is_public: false, extraction_evidence: undefined };
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<EditRecipeForm owner="subject-a" capture={{ id: 'capture-id', ownerId: 'stable-a', recipe: captured, guard: vi.fn() }} />); });
+  const options = mocks.mutationOptions.find((option: any) => option.mutationFn) as any;
+  await act(async () => options.onSuccess({ id: 'saved-capture' }));
+  expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['recipes'] });
+  expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['discover'] });
+  expect(importInbox.patch).toHaveBeenCalledWith('capture-id', expect.objectContaining({ state: 'accepted', recipeId: 'saved-capture' }));
   await act(async () => tree.unmount());
 });

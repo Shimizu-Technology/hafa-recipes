@@ -62,26 +62,28 @@ async function fetchAndCacheSnapshot(
   void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
     console.warn('[Grocery Widget] Failed to publish snapshot:', error),
   );
-  return cacheServerGrocerySnapshot(serverSnapshot, lease);
+  return cacheServerGrocerySnapshot({ ...serverSnapshot, serverConfirmedAt: new Date().toISOString(), freshness: 'confirmed' } as FreshSnapshot, lease);
 }
+
+type FreshSnapshot = GrocerySnapshot & { serverConfirmedAt?: string; freshness?: 'confirmed' | 'offline' | 'stale' };
 
 function useSnapshotQuery(isSignedIn: boolean) {
   const { isApiReachable } = useNetworkStatus();
-  return useQuery({
+  const query = useQuery<FreshSnapshot>({
     queryKey: groceryKeys.snapshot(),
     queryFn: () =>
       serializeGroceryMutation(async () => {
         const lease = getGroceryStorageLease();
         if (isApiReachable === false) {
           const cached = await getCachedGrocerySnapshot(lease);
-          if (cached) return cached;
+          if (cached) return { ...cached, freshness: 'offline' as const };
           throw new Error('Your grocery list has not been saved for offline use yet.');
         }
         try {
           return await fetchAndCacheSnapshot(lease);
         } catch (error) {
           const cached = await getCachedGrocerySnapshot(lease);
-          if (cached) return cached;
+          if (cached) return { ...cached, freshness: 'stale' as const };
           throw error;
         }
       }),
@@ -91,6 +93,7 @@ function useSnapshotQuery(isSignedIn: boolean) {
     refetchOnReconnect: true,
     refetchOnMount: 'always',
   });
+  return { ...query, serverConfirmedAt: query.data?.serverConfirmedAt, freshness: isApiReachable === false ? 'offline' : isApiReachable === null || query.isFetching ? 'checking' : query.data?.freshness ?? 'checking' };
 }
 
 export function useGroceryList(includeChecked = true, isSignedIn = true) {
@@ -404,12 +407,12 @@ export function useGrocerySync(enabled = true) {
   };
 }
 
-export function usePendingGrocerySync() {
+export function usePendingGrocerySync(enabled = true) {
   const { isOnline } = useNetworkStatus();
   return useQuery({
     queryKey: groceryKeys.pending(),
     queryFn: () => hasPendingSync(getGroceryStorageLease()),
-    enabled: !isOnline,
+    enabled,
     refetchInterval: !isOnline ? 5_000 : false,
   });
 }

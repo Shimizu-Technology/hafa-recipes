@@ -6,6 +6,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  signedIn: true,
+  push: vi.fn(),
+  save: vi.fn(),
   searchArgs: [] as unknown[],
 }));
 
@@ -30,10 +33,10 @@ vi.mock('react-native', async () => {
   };
 });
 vi.mock('expo-linear-gradient', () => ({ LinearGradient: () => null }));
-vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'user-1', isSignedIn: true }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.signedIn ? 'user-1' : null, isSignedIn: mocks.signedIn }) }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => (props: Record<string, unknown>) =>
@@ -115,7 +118,7 @@ vi.mock('@/hooks/useRecipes', () => {
     },
     usePublicRecipeCount: () => ({ data: { count: 12 } }),
     useIsRecipeSaved: () => ({ data: false }),
-    useSaveRecipe: () => ({ mutate: vi.fn() }),
+    useSaveRecipe: () => ({ mutate: mocks.save }),
     useUnsaveRecipe: () => ({ mutate: vi.fn() }),
     usePopularTags: () => ({ data: [] }),
     useTopContributors: () => ({ data: [] }),
@@ -123,6 +126,8 @@ vi.mock('@/hooks/useRecipes', () => {
   };
 });
 
+import { guestRecipeIntent } from '../lib/guestRecipeIntent';
+import { SaveButton } from '../app/(tabs)/discover';
 import DiscoverScreen from '../app/(tabs)/discover';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 
@@ -238,4 +243,19 @@ describe('FilterBottomSheet accessibility', () => {
     expect(pressables.length).toBeGreaterThan(0);
     for (const pressable of pressables) expect(pressable.props.accessible).toBe(false);
   });
+});
+
+it('shows a guest Save action and records only the recipe intent before authentication', async () => {
+  mocks.signedIn = false;
+  mocks.push.mockClear(); mocks.save.mockClear(); guestRecipeIntent.clear();
+  let renderer!: ReactTestRenderer;
+  try {
+    await act(async () => { renderer = create(<SaveButton recipeId="recipe-a" isOwner={false}
+      colors={{ text: '#111', textMuted: '#666' } as React.ComponentProps<typeof SaveButton>['colors']} />); });
+    await act(async () => renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Save recipe')!.props.onPress());
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.push).toHaveBeenCalledWith('/(auth)/sign-in');
+    expect(guestRecipeIntent.bind('session-a')).toMatchObject({ recipeId: 'recipe-a', action: 'save' });
+  } finally { mocks.signedIn = true; guestRecipeIntent.clear(); await act(async () => renderer.unmount()); }
 });

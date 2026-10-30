@@ -1,7 +1,7 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RecipeListItem } from '@/types/recipe';
 
@@ -34,9 +34,18 @@ vi.mock('@/components/Themed', () => ({
     text: '#111', textMuted: '#666', tint: '#155c52', warning: '#8a5a00',
   }),
 }));
+const mocks = vi.hoisted(() => ({
+  search: vi.fn(), fetchNextPage: vi.fn(), refetch: vi.fn(),
+  error: false, loading: false, more: true,
+}));
 vi.mock('@/hooks/useRecipes', () => ({
-  useInfiniteDiscoverRecipes: vi.fn(), usePopularTags: vi.fn(),
-  useRecipes: vi.fn(), useSavedRecipes: vi.fn(),
+  usePlannerRecipeSearch: (...args: unknown[]) => {
+    mocks.search(...args);
+    return { data: { pages: [{ items: [] }] }, isError: mocks.error, isLoading: mocks.loading,
+      hasNextPage: mocks.more, isFetchingNextPage: false, fetchNextPage: mocks.fetchNextPage,
+      isFetching: false, refetch: mocks.refetch };
+  },
+  usePopularTags: () => ({ data: [] }),
 }));
 vi.mock('@/constants/Colors', () => ({
   fontSize: { xs: 12, sm: 14, md: 16, lg: 18 },
@@ -61,7 +70,7 @@ vi.mock('@/components/RecipeTrustBadge', async () => {
   };
 });
 
-import { RecipePickerRow } from './RecipePickerModal';
+import RecipePickerModal, { RecipePickerRow } from './RecipePickerModal';
 
 const colors = {
   background: '#fff', border: '#ddd', card: '#fff', cardBorder: '#ddd',
@@ -126,5 +135,40 @@ describe('recipe picker readiness', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+});
+
+describe('planner scoped recipe search', () => {
+  beforeEach(() => { vi.useRealTimers(); mocks.search.mockClear(); mocks.fetchNextPage.mockClear(); mocks.refetch.mockClear(); mocks.error = false; });
+  it('searches beyond loaded pages, paginates Saved and remembers scope/query between slots', async () => {
+    vi.useFakeTimers();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<RecipePickerModal visible onClose={vi.fn()} onSelect={vi.fn()} />));
+      expect(mocks.search).toHaveBeenLastCalledWith('all', expect.objectContaining({ query: '' }), true);
+      const saved = renderer.container.queryAll(node => node.type === 'Chip' && node.props.label === 'Saved')[0];
+      await act(async () => saved.props.onPress());
+      await act(async () => renderer.container.queryAll(node => node.type === 'TextInput')[0].props.onChangeText('Kelaguen'));
+      await act(async () => vi.advanceTimersByTime(250));
+      expect(mocks.search).toHaveBeenLastCalledWith('saved', expect.objectContaining({ query: 'Kelaguen' }), true);
+      await act(async () => renderer.container.queryAll(node => node.type === 'FlatList')[0].props.onEndReached());
+      expect(mocks.fetchNextPage).toHaveBeenCalledOnce();
+      await act(async () => renderer.render(<RecipePickerModal visible={false} onClose={vi.fn()} onSelect={vi.fn()} />));
+      expect(mocks.search).toHaveBeenLastCalledWith('saved', expect.objectContaining({ query: 'Kelaguen' }), false);
+      await act(async () => renderer.render(<RecipePickerModal visible title="Add dinner" onClose={vi.fn()} onSelect={vi.fn()} />));
+      expect(mocks.search).toHaveBeenLastCalledWith('saved', expect.objectContaining({ query: 'Kelaguen' }), true);
+    } finally { await act(async () => renderer.unmount()); vi.useRealTimers(); }
+  });
+  it('shows scope-specific errors and Retry, without triggering pagination after failure', async () => {
+    mocks.error = true;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<RecipePickerModal visible onClose={vi.fn()} onSelect={vi.fn()} />));
+      const retry = renderer.container.queryAll(node => node.props.accessibilityLabel === 'Retry recipe search')[0];
+      await act(async () => retry.props.onPress());
+      expect(mocks.refetch).toHaveBeenCalledOnce();
+      await act(async () => renderer.container.queryAll(node => node.type === 'FlatList')[0].props.onEndReached());
+      expect(mocks.fetchNextPage).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
   });
 });

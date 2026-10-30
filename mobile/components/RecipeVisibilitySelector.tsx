@@ -61,7 +61,7 @@ export function RecipeVisibilitySelector({
       <RNView style={[styles.options, compact && { flexDirection: 'row', gap: spacing.sm }]} accessibilityRole="radiogroup">
         {options.map((option) => {
           const selected = value === option.value;
-          const selectedColor = option.value === 'public' ? colors.tint : colors.textSecondary;
+          const selectedColor = colors.textSecondary;
 
           return (
             <TouchableOpacity

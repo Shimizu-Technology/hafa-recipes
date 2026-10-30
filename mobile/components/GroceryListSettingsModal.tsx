@@ -1,5 +1,5 @@
 /**
- * Grocery List Settings Modal
+ * Grocery Share household Modal
  * 
  * Allows users to share their grocery list with others.
  */
@@ -64,7 +64,7 @@ export default function GroceryListSettingsModal({
       
       // Keep it simple - make the code prominent and easy to copy
       await Share.share({
-        message: `Join my household groceries and pantry on Håfa Recipes!\n\nYour invite code:\n\n${invite.invite_code}\n\nOpen the app → Grocery → Settings → "Join a List" → Enter the code above`,
+        message: `Join my household groceries and pantry on Håfa Recipes!\n\nOpen your invite:\n${invite.deep_link}\n\nOr enter this code: ${invite.invite_code}\n\nOpen the app → Grocery → Settings → "Join a List" → Enter the code above`,
       });
     } catch (error) {
       console.error('Error creating invite:', error);
@@ -186,9 +186,9 @@ export default function GroceryListSettingsModal({
               {/* Header */}
               <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.headerTitle, { color: colors.text }]}>
-                  List Settings
+                  Share household
                 </Text>
-                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                <TouchableOpacity onPress={handleClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close household settings">
                   <Ionicons name="close" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </RNView>
