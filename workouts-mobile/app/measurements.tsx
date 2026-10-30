@@ -68,7 +68,7 @@ export default function Measurements() {
         </Card>
       )}
       {trends.error && <Notice error>{trends.error.message} History stays available below.</Notice>}
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
         retry={() => {

@@ -6,6 +6,7 @@ import { Button, Notice, SkeletonCard } from "./ui";
  */
 export function QueryState({
   loading,
+  hasData = false,
   error,
   retry,
   loadingLabel = "Loading your training",
@@ -13,17 +14,20 @@ export function QueryState({
   children,
 }: PropsWithChildren<{
   loading: boolean;
+  /** A successful cached response exists, including an empty list or null profile. */
+  hasData?: boolean;
   error: Error | null;
   retry(): void;
   loadingLabel?: string;
   errorMessage?: string;
 }>) {
-  if (loading) return <SkeletonCard lines={3} label={loadingLabel} />;
+  if (loading && !hasData) return <SkeletonCard lines={3} label={loadingLabel} />;
   if (error)
     return (
       <>
-        <Notice error>{errorMessage ?? error.message}</Notice>
-        <Button title="Try again" secondary onPress={retry} />
+        <Notice error>{hasData ? "Couldn’t refresh. Showing your saved content." : errorMessage ?? error.message}</Notice>
+        <Button title="Try again" secondary size={hasData ? "sm" : undefined} onPress={retry} />
+        {hasData && children}
       </>
     );
   return children;

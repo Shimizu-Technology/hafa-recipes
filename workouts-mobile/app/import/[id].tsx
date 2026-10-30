@@ -389,7 +389,7 @@ export default function ImportReview() {
           setError(""); setRestoreAttempt((value) => value + 1); void q.refetch();
         }} />}
       </>}>
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending}
         error={q.data && ["queued", "processing"].includes(q.data.status) ? null : q.error}
         retry={() => {

@@ -63,7 +63,7 @@ export default function SessionDetail() {
       action={q.data ? <IconButton icon="chatbubble-ellipses-outline" label="Chat about this session"
         onPress={() => router.push({ pathname: "/coach", params: { session_id: q.data!.id } })} /> : undefined}
     >
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending}
         error={q.error}
         errorMessage="This session couldn’t load. Check your connection and try again."

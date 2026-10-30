@@ -24,3 +24,16 @@ it("shows a labelled skeleton while loading, then the content, then a retryable 
   await act(async () => renderer!.root.findByType("Button" as never).props.onPress());
   expect(retry).toHaveBeenCalledTimes(1);
 });
+
+
+it("keeps loaded content and retry visible during a refetch failure, including an empty result", async () => {
+  const retry = vi.fn();
+  await act(async () => { renderer = create(createElement(QueryState, { loading: true, hasData: true, error: Error("offline"), retry }, createElement("CachedEmptyList"))); });
+  expect(types()).toContain("CachedEmptyList");
+  expect(types()).not.toContain("SkeletonCard");
+  expect(renderer!.root.findByType("Notice" as never).props.children).toBe("Couldn’t refresh. Showing your saved content.");
+  await act(async () => renderer!.root.findByType("Button" as never).props.onPress());
+  expect(retry).toHaveBeenCalledOnce();
+  await act(async () => renderer!.update(createElement(QueryState, { loading: false, hasData: true, error: null, retry }, createElement("FreshList"))));
+  expect(types()).toEqual(["FreshList"]);
+});

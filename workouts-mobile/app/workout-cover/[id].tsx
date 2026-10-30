@@ -134,7 +134,7 @@ function WorkoutCover({ id }: { id: string }) {
   const preview = input?.image ? `data:image/jpeg;base64,${input.image}` : q.data?.source_thumbnail_url;
   return <Screen back title="Workout cover photo">
     {!!error && <Notice error>{error}</Notice>}
-    <QueryState loading={q.isPending || capabilities.isPending} error={q.error ?? capabilities.error}
+    <QueryState hasData={q.data !== undefined && capabilities.data !== undefined} loading={q.isPending || capabilities.isPending} error={q.error ?? capabilities.error}
       retry={() => { if (active()) { void q.refetch(); void capabilities.refetch(); } }}>
       {!supported ? <Empty icon="image-outline" title="Cover photos are getting ready" description="Your saved workout remains available. Try again after cover uploads are enabled." /> : <>
         {preview && <SourceImage uri={preview} label={input ? "Selected cover photo" : "Workout cover photo"} />}
