@@ -5,8 +5,12 @@ import {
   pendingRecords,
   searchLocal,
   shouldRetry,
+  waitingForEarlier,
+  waitingForImport,
+  retryMutation,
   inheritedFiles,
   advancePending,
+  advanceAfterImport,
   queueRemovedUploads,
 } from "./outbox";
 import { emptyState, optimisticRecord, type Mutation } from "./models";
@@ -68,7 +72,7 @@ describe("offline care and source recovery", () => {
     expect(searchLocal(row, "birth")).toBe(true);
     expect(searchLocal(row, "missing")).toBe(false);
   });
-  it("automatically retries transient failures and requires review for conflicts or denied access", () => {
+  it("allows transient startup failures to recover the cached account", () => {
     expect([0, 408, 429, 503].every(shouldRetry)).toBe(true);
     expect([401, 403, 409, 410, 422].some(shouldRetry)).toBe(false);
   });
@@ -137,4 +141,63 @@ it("quarantines ownerless stock shares and fences account and generation changes
   expect(scope.allow(signedIn, "stable-A", 2)).toBe(false);
   scope.observe(signedIn, "issuer:account-B");
   expect(scope.allow(signedIn, "stable-B", 1)).toBe(false);
+});
+
+it("holds later saves, imports and deletes behind any unresolved operation on the same record", () => {
+  const failed: Mutation = { id: "failed", type: "save", generation: 1, record: row, files: [], error: "Upload failed" };
+  const edit: Mutation = { ...failed, id: "edit", error: undefined };
+  const imported: Mutation = { id: "import", type: "import", generation: 1, record_id: row.id, files: [] };
+  const deleted: Mutation = { id: "delete", type: "delete", generation: 1, record: row };
+  const unrelated: Mutation = { ...edit, id: "other", record: { ...row, id: "different" } };
+  const queue = [failed, edit, imported, deleted, unrelated];
+  expect(queue.map(m => waitingForEarlier(queue, m))).toEqual([false, true, true, true, false]);
+  expect(waitingForEarlier([imported, edit], edit)).toBe(true);
+});
+it("retains failed and phone-only originals through relaunch, including files and latest visible edits", () => {
+  const failed: Mutation = { id: "failed", type: "save", generation: 1, record: row,
+    files: [{ id: "photo", uri: "file:///photo.jpg", name: "photo.jpg", mime_type: "image/jpeg" }],
+    error: "Upload failed", localOnly: true };
+  const edit: Mutation = { ...failed, id: "edit", record: { ...row, body: "Later edit" }, localOnly: undefined, error: undefined };
+  const restored = JSON.parse(JSON.stringify({ ...emptyState(), outbox: [failed, edit] }));
+  expect(restored.outbox[0]).toEqual(failed);
+  expect(waitingForEarlier(restored.outbox, restored.outbox[1])).toBe(true);
+  expect(pendingRecords(restored)[0].body).toBe("Later edit");
+  expect(retryMutation(failed)).toMatchObject({ localOnly: false, error: undefined, conflict: false, files: failed.files });
+});
+
+it("holds saves for active imports but lets deletion cancel the import", () => {
+  const save: Mutation = { id: "save", type: "save", generation: 1, record: row, files: [] };
+  const jobs = [{ id: "job", record_id: row.id, status: "processing" }];
+  expect(waitingForImport(jobs, save)).toBe(true);
+  expect(waitingForImport(jobs, { ...save, record: { ...row, id: "other" } })).toBe(false);
+  expect(waitingForImport(jobs, { id: "delete", type: "delete", generation: 1, record: row })).toBe(false);
+  expect(waitingForImport([{ ...jobs[0], status: "ready" }], save)).toBe(true);
+  expect(waitingForImport([{ ...jobs[0], status: "ready", reconciled: true }], save)).toBe(false);
+  // A deferred native receipt saved only an original; no worker owns the record.
+  expect(waitingForImport([{ ...jobs[0], status: "deferred" }], save)).toBe(false);
+});
+
+it("keeps import metadata while applying the later user's editable source fields", () => {
+  const edit: Mutation = { id: "edit", type: "save", generation: 1, files: [],
+    record: { ...row, body: "My note", title: "My title", data: { source_text: "My original", topics: ["My topic"], status: "queued" } } };
+  const terminal = { ...row, revision: row.revision + 2, data: { summary: "Organized", status: "ready", creator: "Example creator", source_text: "Acquired text" } };
+  const job = { id: "job", status: "ready", baseline: row };
+  expect(advanceAfterImport(edit, terminal, job)).toMatchObject({ record: { revision: terminal.revision, title: "My title", body: "My note",
+    data: { source_text: "My original", topics: ["My topic"], summary: "Organized", status: "ready", creator: "Example creator" } } });
+  expect(advanceAfterImport({ ...edit, record: { ...edit.record, title: "Saved source" } }, terminal,
+    { ...job, baseline: { ...row, title: "Saved source" } }))
+    .toMatchObject({ record: { title: terminal.title } });
+  expect(advanceAfterImport({ ...edit, record: { ...edit.record, data: row.data } }, terminal, job))
+    .toMatchObject({ record: { data: { source_text: "Acquired text" } } });
+  expect(advanceAfterImport(edit, terminal)).toMatchObject({ conflict: true, record: { revision: row.revision } });
+});
+
+it("applies the edit's attachment additions and removals to the terminal import list", () => {
+  const baseline = { ...row, data: { attachment_ids: ["keep", "remove"] } };
+  const edit: Mutation = { id: "edit", type: "save", generation: 1, files: [],
+    record: { ...baseline, data: { attachment_ids: ["keep", "local-addition"] } } };
+  const result = { ...baseline, revision: baseline.revision + 2,
+    data: { attachment_ids: ["keep", "remove", "import-addition"] } };
+  expect(advanceAfterImport(edit, result, { id: "job", status: "ready", baseline }))
+    .toMatchObject({ record: { data: { attachment_ids: ["keep", "import-addition", "local-addition"] } } });
 });
