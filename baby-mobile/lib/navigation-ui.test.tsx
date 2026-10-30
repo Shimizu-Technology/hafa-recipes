@@ -6,7 +6,7 @@ const mock = vi.hoisted(() => ({
   exportVisit: vi.fn(async (_text: string, _owner: string) => {}),
 }));
 vi.mock("react-native", () => ({
-  View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
+  RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
   Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn() }, Alert: { alert: vi.fn() },
   useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: 1, height: 844 }),
@@ -55,6 +55,14 @@ vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
 vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
 vi.mock("@/lib/source-title", () => import("./source-title"));
+vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: ({ kind }: { kind: string }) => ({
+  rows: mock.baby.records.filter((record: any) => record.kind === kind), loading: false, error: "", more: false,
+  refresh: () => {}, loadMore: async () => {},
+}) }));
+vi.mock("@/lib/categories", () => import("./categories"));
+vi.mock("@/components/category-picker", () => ({ CategoryPicker: () => null }));
+vi.mock("@/components/import-updates", () => ({ ImportUpdates: () => null }));
+import Library from "../app/(tabs)/library";
 import Journal, { JournalContent } from "../app/(tabs)/journal";
 import RecordDetail from "../app/record/[id]";
 import AskEntry from "../app/ask-entry";
@@ -135,4 +143,16 @@ it("keeps care-only history pushed with Back and disclosed care search", async (
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.placeholder).toBe("Search care logs");
   await press("Go back");
   expect(mock.stack.at(-1)).toEqual({ pathname: "/(tabs)" });
+});
+
+it("keeps untitled sources distinguishable when selecting posts for categories", async () => {
+  const record = mock.baby.records.find((entry: any) => entry.kind === "source");
+  record.title = "Saved source";
+  record.body = "Pack spare diapers before leaving home. A second sentence stays in the original.";
+  await mount(<Library />);
+  await press("Select");
+  const choices = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType)
+    .filter(node => node.props.accessibilityRole === "checkbox");
+  expect(choices.map(node => node.props.accessibilityLabel)).toEqual(["Pack spare diapers before leaving home."]);
+  expect(record.title).toBe("Saved source");
 });

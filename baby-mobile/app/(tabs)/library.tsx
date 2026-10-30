@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
+import { sourceTitle } from "@/lib/source-title";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
@@ -85,7 +86,7 @@ export default function Library() {
         <Button secondary title="Try loading posts again" onPress={history.refresh} busy={history.loading} /></>}
       {history.loading && !history.rows.length ? <Loading label="Loading saved posts…" /> : history.rows.length ? (
         <Section title={selecting ? "Choose posts to organize" : category?.title || (view === "inbox" ? "Ready to organize" : "Your saved posts")}>
-          {history.rows.map((record) => selecting ? <Choice key={record.id} label={record.title}
+          {history.rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
             : <RecordRow key={record.id} record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />)}
         </Section>

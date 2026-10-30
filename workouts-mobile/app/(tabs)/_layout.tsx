@@ -5,10 +5,9 @@ import { WorkoutsTabBar } from "@/components/workouts-tab-bar";
 import { TabRootContext } from "@/components/tab-chrome";
 import { fonts } from "@/constants/theme";
 
-const visible = ["Discover", "Library", "Add", "Train", "Progress"];
+const visible = ["Discover", "Library", "Add", "Train"];
 
-// Mirrors Håfa Recipes: Discover, Library, a filled center Add, then Train and Progress.
-// Today (`index`) stays deep-linkable; its content lives at the top of Train.
+// Legacy Today, Plan and Progress routes remain available without adding tabs.
 export default function Layout() {
   const c = useColors();
   const tab = (title: string, route: Parameters<typeof TabIcon>[0]["route"], label = title) => ({
@@ -44,8 +43,9 @@ export default function Layout() {
           tabBarIcon: ({ focused }: { focused: boolean }) => <AddTabIcon focused={focused} />,
         }}
       />
-      <Tabs.Screen name="plan" options={tab("Train", "plan")} />
-      <Tabs.Screen name="progress" options={tab("Progress", "progress")} />
+      <Tabs.Screen name="train" options={tab("Train", "plan")} />
+      <Tabs.Screen name="plan" options={{ href: null }} />
+      <Tabs.Screen name="progress" options={{ href: null }} />
     </Tabs>
     </TabRootContext.Provider>
   );
