@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Modal,
@@ -64,6 +64,7 @@ export interface FilterState {
   sortOrder?: SortOption;
   hideMyRecipes?: boolean;
   mealTypeFilter?: MealTypeFilter;
+  ownershipFilter?: OwnershipFilter;
 }
 
 interface FilterBottomSheetProps {
@@ -74,8 +75,6 @@ interface FilterBottomSheetProps {
   popularTags?: { tag: string; count: number }[];
   // Ownership filter (My Recipes page)
   showOwnershipFilter?: boolean;
-  ownershipFilter?: OwnershipFilter;
-  onOwnershipFilterChange?: (value: OwnershipFilter) => void;
   // Discover-specific options
   showSortOption?: boolean;
   showHideMyRecipes?: boolean;
@@ -90,8 +89,6 @@ export default function FilterBottomSheet({
   initialFilters,
   popularTags = [],
   showOwnershipFilter = false,
-  ownershipFilter = 'all',
-  onOwnershipFilterChange,
   showSortOption = false,
   showHideMyRecipes = false,
   showMealTypeFilter = false,
@@ -106,10 +103,16 @@ export default function FilterBottomSheet({
   const [sortOrder, setSortOrder] = useState<SortOption>(initialFilters.sortOrder || 'recent');
   const [hideMyRecipes, setHideMyRecipes] = useState<boolean>(initialFilters.hideMyRecipes || false);
   const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>(initialFilters.mealTypeFilter || 'all');
+  
+  const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>(initialFilters.ownershipFilter || 'all');
+  const incomingFilters = useRef(initialFilters);
+  incomingFilters.current = initialFilters;
 
-  // Reset local state when modal opens
+  // Snapshot once per opening. Background refetches must not erase an open draft.
   useEffect(() => {
     if (visible) {
+      const initialFilters = incomingFilters.current;
+      setOwnershipFilter(initialFilters.ownershipFilter || 'all');
       setSourceFilter(initialFilters.sourceFilter);
       setTimeFilter(initialFilters.timeFilter);
       setSelectedTags(initialFilters.selectedTags);
@@ -117,8 +120,8 @@ export default function FilterBottomSheet({
       setHideMyRecipes(initialFilters.hideMyRecipes || false);
       setMealTypeFilter(initialFilters.mealTypeFilter || 'all');
     }
-  }, [visible, initialFilters]);
-
+  }, [visible]);
+  
   const toggleTag = (tag: string) => {
     setSelectedTags(prev => 
       prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
@@ -126,11 +129,12 @@ export default function FilterBottomSheet({
   };
 
   const handleApply = () => {
-    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter });
+    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter, ownershipFilter });
     onClose();
   };
 
   const handleClear = () => {
+    setOwnershipFilter('all');
     setSourceFilter('all');
     setTimeFilter('all');
     setSelectedTags([]);
@@ -140,6 +144,7 @@ export default function FilterBottomSheet({
   };
 
   const activeFilterCount = 
+    (ownershipFilter !== 'all' ? 1 : 0) +
     (sourceFilter !== 'all' ? 1 : 0) + 
     (timeFilter !== 'all' ? 1 : 0) + 
     selectedTags.length +
@@ -436,7 +441,7 @@ export default function FilterBottomSheet({
                             borderColor: isSelected ? colors.text : colors.border,
                           }
                         ]}
-                        onPress={() => onOwnershipFilterChange?.(filter.key)}
+                        onPress={() => setOwnershipFilter(filter.key)}
                         accessibilityLabel={filter.label}
                         accessibilityRole="radio"
                         accessibilityState={{ selected: isSelected, checked: isSelected }}
