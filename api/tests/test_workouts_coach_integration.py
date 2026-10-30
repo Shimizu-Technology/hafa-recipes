@@ -2649,3 +2649,78 @@ async def test_quick_today_undo_after_midnight_preserves_snapshot_and_recording_
     from datetime import date
     with pytest.raises(HTTPException):
         quick_training.today_guard(row["content"], row["content"], {"today"}, {"today"}, date.fromisoformat(tomorrow.date().isoformat()), restoring=True)
+
+
+async def test_source_only_coach_without_profile_keeps_context_bounded_and_consent_current(coach_api):
+    from sqlalchemy import delete
+    api = coach_api
+    selected = await create_workout(api)
+    unrelated = await create_workout(api)
+    async with api.sessions() as db:
+        await db.execute(delete(WorkoutsProfile).where(WorkoutsProfile.app_user_id == "owner"))
+        source = await db.get(WorkoutRecord, UUID(selected["id"]))
+        source.content = source.content | {"notes": ["Private secret note"], "source_url": "https://example.test/private", "source_title": "Selected source", "source_thumbnail_url": "https://private.test/thumbnail?token=secret"}
+        other = await db.get(WorkoutRecord, UUID(unrelated["id"]))
+        other.content = other.content | {"title": "Unrelated private workout"}
+        await db.commit()
+    original = api.provider.respond
+    async def no_tools(items, *, tools):
+        assert tools == []
+        return await original(items, tools=tools)
+    api.provider.respond = no_tools
+    body = {"request_id": str(uuid4()), "message": "What does this workout mean?", "context_workout_id": selected["id"], "context_revision": 1}
+    result = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()["actions"] == []
+    sent = json.dumps(api.provider.sent)
+    assert "source_only" in sent and "Selected source" in sent
+    assert "Unrelated private workout" not in sent and "Private secret note" not in sent
+    assert "https://example.test/private" not in sent and '"profile"' not in sent
+    assert "source_thumbnail_url" not in sent and "private.test/thumbnail" not in sent
+    assert "ask only for the specific missing" in sent
+    stale = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
+                                  json=body | {"request_id": str(uuid4()), "context_revision": 2})
+    assert stale.status_code == 409
+    await consent(api, False)
+    blocked = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION, json=body | {"request_id": str(uuid4())})
+    assert blocked.status_code == 403
+    assert len(api.provider.sent) == 1
+
+
+async def test_source_only_coach_cannot_read_another_owners_source(coach_api):
+    from sqlalchemy import delete
+    api = coach_api
+    selected = await create_workout(api)
+    await enroll(api, other=True)
+    response = await api.client.put("/api/v1/workouts/ai-consent", headers=GENERATION | {"X-Test-User": "other"}, json={"accepted": True, "disclosure_version": 1})
+    assert response.status_code == 200, response.text
+    async with api.sessions() as db:
+        await db.execute(delete(WorkoutsProfile).where(WorkoutsProfile.app_user_id == "owner"))
+        await db.commit()
+    result = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION | {"X-Test-User": "other"},
+                                  json={"request_id": str(uuid4()), "message": "Explain", "context_workout_id": selected["id"]})
+    assert result.status_code == 404
+    assert not api.provider.sent
+
+
+async def test_source_only_delivery_stops_when_current_consent_is_revoked(coach_api):
+    from sqlalchemy import delete
+    api = coach_api
+    selected = await create_workout(api)
+    async with api.sessions() as db:
+        await db.execute(delete(WorkoutsProfile).where(WorkoutsProfile.app_user_id == "owner"))
+        await db.commit()
+    started, release = asyncio.Event(), asyncio.Event()
+    async def blocked():
+        started.set()
+        await release.wait()
+    api.provider.before_response = blocked
+    pending = asyncio.create_task(api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
+                                  json={"request_id": str(uuid4()), "message": "Explain this source", "context_workout_id": selected["id"]}))
+    await asyncio.wait_for(started.wait(), 10)
+    await consent(api, False)
+    release.set()
+    response = await pending
+    assert response.status_code in {403, 409}, response.text
+    async with api.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0

@@ -343,8 +343,23 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                 and focused.revision != focus["context_revision"]
             ):
                 raise HTTPException(409, "The selected context changed; refresh before chatting")
-    profile, revision = await effective_profile(db, user_id, generation)
     stored = await db.get(WorkoutsProfile, user_id, populate_existing=True)
+    if focused_model is WorkoutRecord and (stored is None or stored.generation != generation):
+        def clean_source(value):
+            if isinstance(value, dict):
+                return {k: clean_source(v) for k, v in value.items()
+                        if k not in {"source_url", "source_thumbnail_url", "source_context", "evidence", "notes", "parent_version_id"}}
+            if isinstance(value, list):
+                return [clean_source(v) for v in value]
+            return value
+        item = {"id": str(focused.id), "revision": focused.revision, "content": clean_source(focused.content)}
+        fit_source_flow_context(item, focused.content)
+        context = {"scope": "source_only", "focus": focus, "library": [item],
+                   "programs": [], "actuals": [], "manual_activities": [], "history": []}
+        if len(json.dumps(context).encode()) > MAX_CONTEXT_BYTES:
+            raise HTTPException(409, "This workout is too large for source explanation")
+        return context, content_digest({"context": context, "consent_at": consent.accepted_at.isoformat()})
+    profile, revision = await effective_profile(db, user_id, generation)
     boundary = max(stored.updated_at, consent.accepted_at)
     profile = profile.model_copy(
         update={
@@ -392,7 +407,7 @@ async def build_context(db, user_id, generation, consent, *, focus=None):
                         return {
                             key: clean(item)
                             for key, item in value.items()
-                            if key not in {"source_url", "source_context", "evidence", "notes", "parent_version_id"}
+                            if key not in {"source_url", "source_thumbnail_url", "source_context", "evidence", "notes", "parent_version_id"}
                         }
                     if isinstance(value, list):
                         return [clean(item) for item in value]
@@ -749,6 +764,7 @@ class WorkoutCoach:
                 request.message,
                 re.I,
             )
+            source_only = context.get("scope") == "source_only"
             items = [
                 {
                     "role": "developer",
@@ -760,6 +776,8 @@ class WorkoutCoach:
                 },
                 {"role": "user", "content": request.message},
             ]
+            if source_only:
+                items.insert(1, {"role": "developer", "content": "This is source-only explanation. Explain only the inspected saved workout and its uncertainties. No personal training profile, results, other workouts or conversation history was shared. Do not imply personal suitability or apply changes. If a personal change is requested, ask only for the specific missing time, equipment, experience or current readiness needed for that request; never demand a complete training profile for a source explanation. No mutation tools are available."})
             guarded, _ = await self.guard(
                 db, user_id, generation, message_id, token, fingerprint, consent_at
             )
@@ -781,9 +799,9 @@ class WorkoutCoach:
                         await emit("reset", turn=1)
                         result = await respond_while_current(
                             self.provider, self.sessions, user_id, generation, message_id, token, consent_at,
-                            items, tools=tool_definitions(), on_text_delta=delta if on_event is not None else None,
+                            items, tools=[] if source_only else tool_definitions(), on_text_delta=delta if on_event is not None else None,
                         )
-                        answer, calls = response_parts(result, allow_tools=True)
+                        answer, calls = response_parts(result, allow_tools=not source_only)
                         if calls:
                             validate_inspected_ids(calls, context)
                             _, _ = await self.guard(
