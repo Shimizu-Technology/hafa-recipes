@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ActivityRecord } from "./activity-log";
 
@@ -209,4 +209,16 @@ it("checks a lost successful save without creating a replacement command", async
  f.today = "2026-10-11";
  await act(async () => button("Start a new completed activity").props.onPress()); await settle();
  expect(nodes("CalendarDate")[0].props.value).toBe("2026-10-11");
+});
+
+it("can save an editable draft while React Query is paused offline", async () => {
+ onlineManager.setOnline(false);
+ try {
+   await mount();
+   expect(nodes("CalendarDate")).toHaveLength(1);
+   await act(async () => nodes("Field")[0].props.onChange("60"));
+   await act(async () => button("Save activity").props.onPress()); await settle();
+   expect(f.saveActivity).not.toHaveBeenCalled();
+   expect(nodes("CalendarDate")[0].props.disabled).toBe(false);
+ } finally { onlineManager.setOnline(true); }
 });
