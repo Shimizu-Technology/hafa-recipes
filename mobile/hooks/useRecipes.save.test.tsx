@@ -136,3 +136,25 @@ it('invalidates filtered Library roots after confirmed membership changes', asyn
   expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
   await h.close();
 });
+
+// Creation must invalidate the same scoped pages the picker consumes.
+it('invalidates cached planner search pages after capture creation', async () => {
+  const { invalidateCreatedRecipeQueries } = await import('./useRecipes');
+  const client = new QueryClient();
+  const key = ['recipes', 'plannerSearch', 'all', { query: 'rice' }];
+  client.setQueryData(key, { pages: [] });
+  invalidateCreatedRecipeQueries(client, 'created');
+  expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+});
+
+it('invalidates a previously opened Saved planner page after Save and Unsave', async () => {
+  for (const initial of [false, true]) {
+    const h = await mount(initial);
+    const key = [...recipeKeys.all, 'plannerSearch', 'saved', { query: 'rice' }];
+    h.client.setQueryData(key, { pages: [] });
+    (initial ? m.unsave : m.save).mockResolvedValueOnce({ saved: !initial });
+    await act(async () => { await h.mutation.mutateAsync('recipe-1'); });
+    expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
+    await h.close();
+  }
+});
