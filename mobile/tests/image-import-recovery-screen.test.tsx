@@ -677,8 +677,8 @@ describe('classified image recovery', () => {
     await act(async () => mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === 'Discard').onPress());
     mocks.preferences.ready = true; mocks.preferences.isPublic = false;
     await act(async () => renderer.update(<ExtractScreen />));
-    expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
-      .some(node => node.props.children === 'Private recipe')).toBe(true);
+    expect(renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .some(node => node.props.accessibilityLabel === 'Private' && node.props.accessibilityState?.checked)).toBe(true);
     await act(async () => renderer.unmount());
   });
 
