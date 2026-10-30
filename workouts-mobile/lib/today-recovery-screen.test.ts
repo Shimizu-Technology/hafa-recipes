@@ -22,7 +22,7 @@ vi.mock("@/lib/context", async () => {
       const member = { enrolled: fixture.enrolled, generation: fixture.generation,
         adult_confirmed: true, shared_account_deletion_acknowledged: true, disclosure_version: 1, enrolled_at: null };
       const enrollmentQuery = useQuery({ queryKey: [owner, "enrollment"], queryFn: fixture.enrollment, initialData: member });
-      const storage = useMemo(() => ({ isCurrent: () => fixture.epoch === epoch }), [owner, fixture.generation, epoch]);
+      const storage = useMemo(() => ({ isCurrent: () => fixture.epoch === epoch, getItem: async (key: string) => fixture.drafts.get(key) ?? null, setItem: async (key: string, value: string) => { fixture.drafts.set(key, value); }, removeItem: async (key: string) => { fixture.drafts.delete(key); } }), [owner, fixture.generation, epoch]);
       return { api, owner, units: fixture.units, enrollment: member, enrollmentQuery,
         isCurrentAccount: () => fixture.current && fixture.owner === owner, storage };
     },
@@ -796,4 +796,13 @@ it("partly recorded work today settles the hero instead of offering a second Sta
   expect(buttons("Start")).toHaveLength(0);
   expect(text()).toContain("Done for today");
   expect(text()).not.toContain("a new date. Tap one below");
+});
+
+it("keeps a saved missed-session receipt reachable after all missed sessions have moved", async () => {
+  const { dayAdjustments } = await import("./day-adjustments");
+  const p = { id: "shifted", title: "Shifted plan", revision: 2, generation: 1, sessions: [], status: "ready" } as unknown as Program;
+  await dayAdjustments({ isCurrent: () => true, getItem: async key => fixture.drafts.get(key) ?? null, setItem: async (key, value) => { fixture.drafts.set(key, value); }, removeItem: async key => { fixture.drafts.delete(key); } }, fixture.owner, 1).save({ owner: fixture.owner, generation: 1, program: p, proposal: { id: "shift-receipt", proposal: { state: "accepted", status: "ready", session_ids: [], questions: [], before: { proposal: { sessions: [] } }, program: { proposal: { sessions: [] } } } }, state: "accepted", pending: null });
+  fixture.available = true; await mount();
+  expect(buttons("Missed sessions")).toHaveLength(0);
+  expect(buttons("Review saved adjustment · Shifted plan")).toHaveLength(1);
 });
