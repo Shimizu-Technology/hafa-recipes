@@ -1,6 +1,6 @@
-import { Redirect } from "expo-router";
+import { Redirect, useLocalSearchParams } from "expo-router";
 
-/** Today now lives at the top of Train; older links to the Today tab land there. */
-export default function TodayRedirect() {
-  return <Redirect href="/(tabs)/plan" />;
+export default function LegacyDestination() {
+  const params = useLocalSearchParams();
+  return <Redirect href={{ pathname: "/(tabs)/train", params }} />;
 }
