@@ -542,11 +542,15 @@ it("shows the frozen exercise timer with an explicit reset and resumes from its 
 });
 
 
-it("allows Use this time for a frozen timed exercise at the cap without logging automatically", async () => {
+it.each(["manual", "background"])("allows Use this time at the cap after late %s pause without logging automatically", async mode => {
   const timed: Workout = { ...workout, blocks: [{ id: "main", label: "Hold", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 60 }, exercises: [{ name: "Plank", duration_seconds: 30 }] }] };
   await act(async () => { await fixture.store!.discard(); await fixture.store!.start(timed, { workout_id: "source", workout_revision: 1 }, "cap-hold"); }); await settle();
   await act(async () => { action("Start timer").props.onPress(); }); await settle();
-  await act(async () => { vi.setSystemTime(80000); await fixture.store!.pause(true); }); await settle();
+  await act(async () => {
+    vi.setSystemTime(80000);
+    if (mode === "background") fixture.listeners.forEach(listener => listener("background"));
+    else await fixture.store!.pause(true);
+  }); await settle();
   expect(text()).toContain("1:00");
   expect(action("Use this time").props.disabled).toBe(false);
   await act(async () => { action("Use this time").props.onPress(); }); await settle();
