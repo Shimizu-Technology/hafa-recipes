@@ -422,7 +422,7 @@ export default function Capture() {
         if (fromShare || !agree) {
           await aiConsent.refetch();
           current();
-          setError("AI preferences changed. Review the disclosure before extracting.");
+          setError("AI preferences changed. Review the disclosure before importing.");
           return;
         }
         await updateNativeSharingConsent(() => api.setAiConsent(true, generation));

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
 
-vi.mock("../components/ui", () => ({ Button: "Button", Notice: "Notice", SkeletonCard: "SkeletonCard" }));
+vi.mock("../components/ui", () => ({ Button: "Button", Copy: "Copy", Notice: "Notice", SkeletonCard: "SkeletonCard" }));
 import { QueryState } from "../components/query-state";
 
 let renderer: ReactTestRenderer | undefined;
@@ -20,8 +20,8 @@ it("shows a labelled skeleton while loading, then the content, then a retryable 
   await act(async () => renderer!.update(view(false, null)));
   expect(types()).toEqual(["Content"]);
   await act(async () => renderer!.update(view(false, Error("Plans are unavailable."))));
-  expect(renderer!.root.findByType("Notice" as never).props.children).toBe("Plans are unavailable.");
-  await act(async () => renderer!.root.findByType("Button" as never).props.onPress());
+  expect(renderer!.root.findByType("Notice" as never).props.children).toBe("We couldn’t load this right now. Check your connection and try again.");
+  await act(async () => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Try again")!.props.onPress());
   expect(retry).toHaveBeenCalledTimes(1);
 });
 
@@ -32,8 +32,15 @@ it("keeps loaded content and retry visible during a refetch failure, including a
   expect(types()).toContain("CachedEmptyList");
   expect(types()).not.toContain("SkeletonCard");
   expect(renderer!.root.findByType("Notice" as never).props.children).toBe("Couldn’t refresh. Showing your saved content.");
-  await act(async () => renderer!.root.findByType("Button" as never).props.onPress());
+  await act(async () => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Try again")!.props.onPress());
   expect(retry).toHaveBeenCalledOnce();
   await act(async () => renderer!.update(createElement(QueryState, { loading: false, hasData: true, error: null, retry }, createElement("FreshList"))));
   expect(types()).toEqual(["FreshList"]);
+});
+
+it("keeps technical errors hidden until details are requested", async () => {
+  await act(async () => { renderer = create(createElement(QueryState, { loading: false, error: Error("Network request failed: ECONNREFUSED"), retry() {} })); });
+  expect(renderer!.root.findAllByType("Copy" as never)).toHaveLength(0);
+  await act(async () => { renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Show details")!.props.onPress(); });
+  expect(renderer!.root.findByType("Copy" as never).props.children).toBe("Network request failed: ECONNREFUSED");
 });

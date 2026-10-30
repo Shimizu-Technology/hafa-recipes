@@ -238,7 +238,7 @@ export default function ImportReview() {
           isIncomplete(e) && sharing && /discover|shar/i.test((e as { detail?: string }).detail ?? "")
             ? INCOMPLETE_MESSAGE
             : conflict
-              ? "Your saved workout changed while you reviewed this import. Its newer edit is safe. You can keep this extraction as a separate private workout."
+              ? "Your saved workout changed while you reviewed this import. Its newer edit is safe. You can keep this import as a separate private workout."
               : (e as Error).message
         );
       }
@@ -346,7 +346,7 @@ export default function ImportReview() {
         ? `We couldn’t finish checking this source. Your workout is saved. ${reviewAction}`
         : "We couldn’t finish checking this source. Your source stays saved. Try again later, or add the exercises manually."
       : q.data?.status === "incomplete"
-        ? hasExercises ? `We couldn’t confirm all workout details. ${reviewAction}` : "No exercises were extracted. Check the source, retry with instructions, or add exercises manually."
+        ? hasExercises ? `We couldn’t confirm all workout details. ${reviewAction}` : "No exercises were imported. Check the source, retry with instructions, or add exercises manually."
         : result?.warnings.length
           ? `Some workout details may need checking. ${reviewAction}`
           : null;
@@ -378,7 +378,7 @@ export default function ImportReview() {
   const savedDraft = savedId && q.data?.status === "incomplete";
   return (
     <Screen back title={savedDraft ? "Draft saved" : savedId ? "Workout saved" : "Workout"}
-      subtitle={savedDraft ? "Saved privately in your library. Review the workout before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : q.data && ["queued", "processing"].includes(q.data.status) ? "Reading your source. You can leave and check back in Extract." : "Check the result and choose your next step."}
+      subtitle={savedDraft ? "Saved privately in your library. Review the workout before training." : savedId ? "Ready in your library. Check or edit the details whenever you need." : busy ? "Saving your workout…" : q.data && ["queued", "processing"].includes(q.data.status) ? "Reading your source. You can leave and check back in Add." : "Check the result and choose your next step."}
       footer={!!error && <>
         <Notice error>{error}</Notice>
         {q.data?.replace_target && attemptedUpdate !== null && hasExercises && !editing && !savedId && <Button
@@ -417,7 +417,7 @@ export default function ImportReview() {
                 ? "This import expired"
                 : q.data.status === "cancelled"
                   ? "Import cancelled"
-                  : usageLimitReached ? "AI importing temporarily paused" : result?.error_code ? "Processing did not finish" : "No workout extracted"
+                  : usageLimitReached ? "AI importing temporarily paused" : result?.error_code ? "Processing did not finish" : "No workout imported"
             }
             description={q.data.status === "cancelled"
               ? "This import was cleared and its source is no longer available here. Your library shows the workouts you’ve kept."
@@ -437,7 +437,7 @@ export default function ImportReview() {
                   <WorkoutEditor value={workout} onChange={update} disabled={busy} />
                 ) : (
                   <>
-                    <SectionHeader title={hasExercises ? workout.title : "No exercises were extracted"} />
+                    <SectionHeader title={hasExercises ? workout.title : "No exercises were imported"} />
                     <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
                     {hasExercises && <ChipRow wrap>
                       {workout.equipment_required?.length ? (

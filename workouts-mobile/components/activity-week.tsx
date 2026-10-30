@@ -69,7 +69,7 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
               {q.data?.complete ? "" : "+"} {summary.days === 1 && q.data?.complete ? "day" : "days"} with training
             </Copy>
             <Copy tone="muted">
-              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {minutes} min · {summary.activities}
+              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {minutes} workout minutes · {summary.activities}
               {q.data?.complete ? "" : "+"} {summary.activities === 1 && q.data?.complete ? "activity" : "activities"}
             </Copy>
             <Copy kind="small" tone="muted">

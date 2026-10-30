@@ -18,15 +18,18 @@ interface Session {
   resolving: boolean;
 }
 type Account = ReturnType<typeof useBaby>;
-export function useAskSession(recordId?: string) {
+interface DraftSession { owner?: symbol; version: number; question: string; requestId?: string }
+const draftSessions = new WeakMap<object, Map<string, DraftSession>>();
+export function useAskSession(recordId?: string, active = true) {
   const [attempt, setAttempt] = useState(0);
   const b = useBaby(),
     key = JSON.stringify([b.owner, b.state.bootstrap?.generation, b.api.lease(),
       b.state.bootstrap?.profile.ai_consent, b.state.selectedChild, recordId ?? null, attempt]);
-  const live = useRef({ b, key });
-  live.current = { b, key };
+  const live = useRef({ b, key, active });
+  live.current = { b, key, active };
   const mounted = useRef(true), sequence = useRef(0), initialized = useRef(false), working = useRef(false), historyRequest = useRef(0),
-    memory = useRef(new Map<string, { question: string; requestId?: string }>());
+    token = useRef(Symbol("Ask screen")),
+    owned = useRef<{ entry: DraftSession; key: string; version: number } | undefined>(undefined);
   const initial: Session = {
     context: { scope: "all", record_id: recordId ?? null, child_id: b.state.selectedChild },
     messages: [], question: "", resolving: !!recordId,
@@ -37,9 +40,33 @@ export function useAskSession(recordId?: string) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const current = useRef(session), activeAccount = useRef(b), activeKey = useRef(key);
-  function update(next: Session) { current.current = next; setSession(next); }
+  function update(next: Session) {
+    const lease = owned.current;
+    if (lease && lease.entry.owner === token.current && lease.key === memoryKey(activeAccount.current, next)) {
+      lease.entry.question = next.question; lease.entry.requestId = next.requestId;
+    }
+    current.current = next; setSession(next);
+  }
   const memoryKey = (account: Account, snapshot: Session) =>
     JSON.stringify([account.owner, account.state.bootstrap?.generation, askDraftKey(snapshot.context, snapshot.conversation)]);
+  function sessions(account: Account) {
+    let entries = draftSessions.get(account.api);
+    if (!entries) { entries = new Map(); draftSessions.set(account.api, entries); }
+    return entries;
+  }
+  function release() {
+    const lease = owned.current;
+    if (lease?.entry.owner === token.current && lease.version === lease.entry.version) lease.entry.owner = undefined;
+    owned.current = undefined;
+  }
+  function claim(snapshot: Session) {
+    const account = live.current.b, key = memoryKey(account, snapshot), entries = sessions(account);
+    const entry = entries.get(key) ?? { version: 0, question: snapshot.question, requestId: snapshot.requestId };
+    if (owned.current?.entry !== entry || entry.owner !== token.current) {
+      release(); entry.owner = token.current; entry.version++; entries.set(key, entry);
+    }
+    owned.current = { entry, key, version: entry.version };
+  }
   function draft(snapshot: Session): EditorDraft | null {
     return snapshot.question.trim() ? {
       id: Crypto.randomUUID(), kind: "journal", title: "Unsent question", body: snapshot.question,
@@ -48,10 +75,16 @@ export function useAskSession(recordId?: string) {
     } : null;
   }
   function save(snapshot: Session, account = activeAccount.current) {
-    memory.current.set(memoryKey(account, snapshot), { question: snapshot.question, requestId: snapshot.requestId });
-    if (!account.current() || account.owner !== live.current.b.owner || account.api !== live.current.b.api ||
-      account.state.bootstrap?.generation !== live.current.b.state.bootstrap?.generation) return Promise.resolve();
-    return account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), draft(snapshot));
+    const lease = owned.current;
+    if (!lease || lease.entry.owner !== token.current || lease.key !== memoryKey(account, snapshot)) return Promise.resolve();
+    // A blur flush may finish after release, but never after a newer owner or
+    // question took over. The provider checks this again inside its write queue.
+    const valid = () => lease.entry.version === lease.version &&
+      (lease.entry.owner === token.current || lease.entry.owner === undefined) &&
+      lease.entry.question === snapshot.question && lease.entry.requestId === snapshot.requestId &&
+      account.current() && account.owner === live.current.b.owner && account.api === live.current.b.api &&
+      account.state.bootstrap?.generation === live.current.b.state.bootstrap?.generation;
+    return valid() ? account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), draft(snapshot), valid) : Promise.resolve();
   }
   function sameAccount(account: Account) {
     return mounted.current && account.current() && account.owner === live.current.b.owner &&
@@ -67,9 +100,9 @@ export function useAskSession(recordId?: string) {
   function restored(context: AskContext, conversation?: string): Pick<Session, "question" | "requestId"> {
     const account = live.current.b,
       snapshot = { ...current.current, context, conversation },
-      cached = memory.current.get(memoryKey(account, snapshot)),
+      cached = sessions(account).get(memoryKey(account, snapshot)),
       saved = account.state.drafts[askDraftKey(context, conversation)];
-    if (cached) return cached;
+    if (cached) return { question: cached.question, requestId: cached.requestId };
     if (saved) return { question: saved.body, requestId: typeof saved.data.request_id === "string" ? saved.data.request_id : undefined };
     // Read old app drafts without reusing an idempotency key with corrected context.
     const legacy = account.state.drafts["chat:" + String(context.record_id ?? conversation ?? context.scope)];
@@ -78,21 +111,35 @@ export function useAskSession(recordId?: string) {
   }
   function ticket(advance = true) {
     const account = live.current.b, capturedKey = live.current.key, lease = account.api.lease(),
-      nonce = advance ? ++sequence.current : sequence.current;
+      nonce = advance ? ++sequence.current : sequence.current, draftLease = owned.current;
     return {
       account,
-      valid: () => mounted.current && nonce === sequence.current && capturedKey === live.current.key &&
+      valid: () => mounted.current && live.current.active && nonce === sequence.current && capturedKey === live.current.key &&
+        (!draftLease || (draftLease.entry.owner === token.current && draftLease.entry.version === draftLease.version)) &&
         account.current() && live.current.b.api === account.api && live.current.b.owner === account.owner &&
         account.api.lease() === lease,
     };
   }
   function activate(context: AskContext, conversation?: string, messages: ChatMessage[] = [], title?: string) {
     activeAccount.current = live.current.b;
-    update({ context, conversation, messages, ...restored(context, conversation), focusedTitle: title, resolving: false });
+    const next = { context, conversation, messages, ...restored(context, conversation), focusedTitle: title, resolving: false };
+    claim(next); update(next);
     working.current = false; setBusy(false); setError("");
   }
   useEffect(() => {
+    if (!active) {
+      stash(); release(); sequence.current++; working.current = false; setBusy(false);
+      if (activeKey.current !== key) initialized.current = false;
+      activeKey.current = key;
+      return;
+    }
+    if (initialized.current && activeKey.current === key && !current.current.resolving) {
+      const prior = current.current;
+      activate(prior.context, prior.conversation, prior.messages, prior.focusedTitle);
+      return;
+    }
     if (initialized.current) stash();
+    release();
     initialized.current = true;
     activeKey.current = key;
     const operation = ticket(), account = operation.account;
@@ -111,9 +158,9 @@ export function useAskSession(recordId?: string) {
       if (operation.valid()) activate({ scope: "all", record_id: row.id, child_id: row.child_id }, undefined, [], row.title);
     }).catch((failure) => { if (operation.valid()) setError(messageFor(failure)); })
       .finally(() => { if (operation.valid()) { working.current = false; setBusy(false); } });
-  }, [key]);
+  }, [key, active]);
   useEffect(() => {
-    if (session.resolving) return;
+    if (!active || session.resolving) return;
     const snapshot = session, account = activeAccount.current;
     const timer = setTimeout(() => {
       void save(snapshot, account).catch(() => {
@@ -121,19 +168,20 @@ export function useAskSession(recordId?: string) {
       });
     }, 400);
     return () => clearTimeout(timer);
-  }, [session.question, session.requestId, session.context, session.conversation, session.resolving]);
+  }, [active, session.question, session.requestId, session.context, session.conversation, session.resolving]);
   useEffect(() => {
     mounted.current = true;
     const listener = AppState.addEventListener("change", (state) => { if (state !== "active") stash(); });
-    return () => { stash(); mounted.current = false; sequence.current++; listener.remove(); };
+    return () => { stash(); release(); mounted.current = false; sequence.current++; listener.remove(); };
   }, []);
   function selectScope(scope: Scope) {
+    if (!live.current.active) return;
     stash(); sequence.current++;
     activate({ scope, record_id: null, child_id: live.current.b.state.selectedChild });
   }
   async function send() {
     const snapshot = current.current, account = live.current.b;
-    if (working.current || snapshot.resolving || !snapshot.question.trim() || activeKey.current !== live.current.key) return;
+    if (!live.current.active || !owned.current || owned.current.entry.owner !== token.current || working.current || snapshot.resolving || !snapshot.question.trim() || activeKey.current !== live.current.key) return;
     if (!account.state.bootstrap?.profile.ai_consent) { setError("Enable optional AI processing in Settings first."); return; }
     const operation = ticket(), requestId = snapshot.requestId ?? Crypto.randomUUID(), text = snapshot.question.trim(),
       sent = { ...snapshot, question: text, requestId };
@@ -145,16 +193,16 @@ export function useAskSession(recordId?: string) {
         record_id: snapshot.context.record_id ?? undefined, conversation_id: snapshot.conversation,
         request_id: requestId, message: text }, account.state.bootstrap!.generation);
       if (!operation.valid()) return;
-      await account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), null);
+      await account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), null, operation.valid);
       if (!operation.valid()) return;
-      memory.current.delete(memoryKey(account, snapshot));
-      update({ ...snapshot, conversation: result.conversation_id, question: "", requestId: undefined,
-        messages: [...snapshot.messages, { role: "user", content: text },
-          { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal }] });
+      const entry = owned.current!.entry; entry.question = ""; entry.requestId = undefined;
+      activate(snapshot.context, result.conversation_id, [...snapshot.messages, { role: "user", content: text },
+        { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal }], snapshot.focusedTitle);
     } catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
     finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function openHistory() {
+    if (!live.current.active) return;
     const number = ++historyRequest.current;
     if (showHistory) { setShowHistory(false); return; }
     const operation = ticket(false);
@@ -163,6 +211,7 @@ export function useAskSession(recordId?: string) {
     catch (failure) { if (operation.valid() && number === historyRequest.current) setError(messageFor(failure)); }
   }
   async function load(id: string) {
+    if (!live.current.active) return;
     stash(); const operation = ticket();
     working.current = true; setBusy(true); setError("");
     try {
@@ -175,15 +224,17 @@ export function useAskSession(recordId?: string) {
     finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
   async function review(proposal: Proposal) {
+    if (!live.current.active) return null;
     const operation = ticket(false), id = Crypto.randomUUID(), key = "proposal:" + id;
     const value: EditorDraft = { id, kind: proposal.kind, title: proposal.title, body: proposal.body,
       child_id: current.current.context.child_id, occurred_at: new Date().toISOString(),
       data: { ...proposal.data, ...(proposal.kind === "routine" ? { enabled: false } : {}) }, files: [] };
-    try { await operation.account.saveDraft(key, value); if (operation.valid()) return { key, kind: proposal.kind }; }
+    try { await operation.account.saveDraft(key, value, operation.valid); if (operation.valid()) return { key, kind: proposal.kind }; }
     catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
     return null;
   }
   function startNew() {
+    if (!live.current.active) return;
     stash();
     const operation = ticket();
     activate(current.current.context, undefined, [], current.current.focusedTitle);
@@ -192,5 +243,5 @@ export function useAskSession(recordId?: string) {
   }
   return { ...session, history, showHistory, busy, error, send, openHistory, load, review, startNew, selectScope,
     retryFocus: () => setAttempt((value) => value + 1),
-    setQuestion: (question: string) => { if (!working.current && !current.current.resolving) update({ ...current.current, question, requestId: undefined }); } };
+    setQuestion: (question: string) => { if (live.current.active && owned.current?.entry.owner === token.current && !working.current && !current.current.resolving) update({ ...current.current, question, requestId: undefined }); } };
 }
