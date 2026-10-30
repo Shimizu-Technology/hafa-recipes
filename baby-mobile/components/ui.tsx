@@ -22,7 +22,8 @@ import {
   type ViewStyle,
   type ColorValue,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { floatingLayout } from "../lib/floating-layout";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -754,6 +755,8 @@ export function useToast() {
   return useContext(ToastContext);
 }
 export function ToastProvider({ children }: PropsWithChildren) {
+  const { fontScale } = useWindowDimensions(), insets = useSafeAreaInsets(),
+    layout = floatingLayout(fontScale, insets.bottom);
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),
     enter = useRef(new Animated.Value(0)).current,
@@ -796,7 +799,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           accessibilityLiveRegion="polite"
           style={{
             position: "absolute",
-            bottom: 105,
+            bottom: layout.toastBottom,
             left: 22,
             right: 22,
             backgroundColor: c.text,
