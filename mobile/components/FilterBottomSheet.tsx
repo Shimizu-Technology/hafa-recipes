@@ -248,12 +248,12 @@ export default function FilterBottomSheet({
                     <Ionicons
                       name={filter.icon as any}
                       size={16}
-                      color={timeFilter === filter.key ? '#FFFFFF' : colors.textMuted}
+                      color={timeFilter === filter.key ? colors.onSuccess : colors.textMuted}
                     />
                     <Text
                       style={[
                         styles.chipText,
-                        { color: timeFilter === filter.key ? '#FFFFFF' : colors.text },
+                        { color: timeFilter === filter.key ? colors.onSuccess : colors.text },
                       ]}
                     >
                       {filter.label}
