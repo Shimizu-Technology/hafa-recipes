@@ -256,15 +256,12 @@ export default function WorkoutDetail() {
                 ))}
               </Card>
             ))}
-            {workout.kind === "session" && exercises > 0 && <ListGroup>
+            {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"
-                title="Add to a plan"
-                // Plans need set or round counts; send people straight to the fix instead of a dead row.
-                detail={timedParts ? "Split its timed parts first" : trackingWarning ? "Add set or round counts first" : "Choose your days and keep this workout selected"}
-                onPress={() => router.push(trackingWarning
-                  ? { pathname: "/edit-workout/[id]", params: { id: workout.id } }
-                  : { pathname: "/build-plan", params: { include: workout.id } })}
+                title="Schedule"
+                detail="Choose a date for this workout"
+                onPress={() => go({ pathname: "/schedule-once", params: { workout_id: workout.id } })}
               />
             </ListGroup>}
             <SectionHeader title="Source" />
@@ -274,7 +271,7 @@ export default function WorkoutDetail() {
               <Copy kind="subheading">Review workout details</Copy>
               <Copy kind="small">Some workout details need checking. Review the source or edit the details before training.</Copy>
               <Row gap={8} wrap>
-                <Button title="Check details" secondary size="sm" inline onPress={edit} />
+                <Button title="Check details" secondary size="sm" inline onPress={() => go({ pathname: "/edit-workout/[id]", params: { id: workout.id, review: "1" } })} />
                 {exercises > 0 && !!(workout.source_url || workout.capture_kind) && <Button
                   title="Recover from caption or source" secondary size="sm" inline icon="refresh-outline"
                   onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />}

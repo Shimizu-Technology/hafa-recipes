@@ -1,3 +1,6 @@
+import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
+import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
+import { privateRecipeDrafts, preserveDraftImage } from '@/lib/privateRecipeDrafts';
 import { useImportInbox } from '@/hooks/useImportInbox';
 import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { NutritionPanel } from '@/components/NutritionPanel';
@@ -32,7 +35,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { View, Text, useColors } from '@/components/Themed';
 import {
   RecipeVisibilitySelector,
-  type RecipeVisibility,
 } from '@/components/RecipeVisibilitySelector';
 import { api } from '@/lib/api';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
@@ -81,11 +83,15 @@ function nutritionFingerprintFor(ingredients: Array<{ name: string; quantity: st
 }
 
 export default function AddRecipeScreen() {
+  const { ownerId } = useImportInbox();
+  return <ManualRecipeForm key={ownerId ?? 'guest'} />;
+}
+function ManualRecipeForm() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
   
   // Get initial data from route params for imported-recipe pre-fill.
   const {
@@ -242,10 +248,20 @@ export default function AddRecipeScreen() {
   latestNutritionFingerprint.current = currentNutritionFingerprint;
   const nutritionMatchesInputs = nutritionFingerprint === currentNutritionFingerprint;
 
+  const draft = usePrivateRecipeDraft(inbox.ownerId, 'manual', {
+    title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic, imageUri, ingredients, steps,
+    sourceNutrition, estimatedNutrition, estimatedNutritionTotal, nutritionBasis, nutritionAssumptions, nutritionFingerprint,
+  }, !!(title.trim() || imageUri || ingredients.some(i => i.name.trim()) || steps.some(s => s.text.trim())), saved => {
+    setTitle(saved.title); setServings(saved.servings); setPrepTime(saved.prepTime); setCookTime(saved.cookTime);
+    setTotalTime(saved.totalTime); setNotes(saved.notes); setTags(saved.tags); setIsPublic(saved.isPublic);
+    setImageUri(saved.imageUri); setIngredients(saved.ingredients); setSteps(saved.steps);
+    setSourceNutrition(saved.sourceNutrition); setEstimatedNutrition(saved.estimatedNutrition); setEstimatedNutritionTotal(saved.estimatedNutritionTotal);
+    setNutritionBasis(saved.nutritionBasis); setNutritionAssumptions(saved.nutritionAssumptions); setNutritionFingerprint(saved.nutritionFingerprint);
+  });
+
   // Create recipe mutation
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const originalOwner = importedSource === 'manual' ? inbox.ownerId : importedOwner.current;
+    mutationFn: async ({ requestedPublic, originalOwner }: { requestedPublic: boolean; originalOwner: string | null }) => {
       const guardOwner = () => {
         if (!originalOwner || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
       };
@@ -294,7 +310,7 @@ export default function AddRecipeScreen() {
           notes: notes.trim() || null,
           tags: tagList.length > 0 ? tagList : null,
           // A source-only recovery remains private until the user completes it.
-          is_public: isStructurallyComplete ? isPublic : false,
+          is_public: isStructurallyComplete ? requestedPublic : false,
           nutrition: nutritionMatchesInputs ? estimatedNutrition : null,
           nutrition_total: nutritionMatchesInputs ? estimatedNutritionTotal : null,
           nutrition_source_serving_size: nutritionMatchesInputs ? sourceNutrition?.sourceServingSize ?? null : null,
@@ -306,10 +322,12 @@ export default function AddRecipeScreen() {
         imageUri, guardOwner
       );
     },
-    onSuccess: (recipe) => {
+    onSuccess: async (recipe) => {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== savingOwner.current) return;
       invalidateCreatedRecipeQueries(queryClient, recipe.id);
       
+      await draft.finish().catch(() => Alert.alert('Recipe saved', 'The on-device draft could not be removed. Discard it before starting another recipe.'));
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== savingOwner.current) return;
       router.replace(`/recipe/${recipe.id}`);
     },
     onError: (error: Error) => {
@@ -318,7 +336,19 @@ export default function AddRecipeScreen() {
     },
   });
 
+  const imageLease = () => {
+    const owner = inbox.ownerId;
+    if (!owner) throw new CaptureAccountChangedError();
+    const lease = privateRecipeDrafts.lease(owner);
+    const guard = () => {
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) throw new CaptureAccountChangedError();
+      privateRecipeDrafts.assert(lease);
+    };
+    return { lease, guard };
+  };
   const handlePickImage = async () => {
+    const { lease, guard } = imageLease();
+    try {
     // Request permissions
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -326,6 +356,7 @@ export default function AddRecipeScreen() {
       return;
     }
 
+    guard();
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -334,17 +365,23 @@ export default function AddRecipeScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      guard();
+      const uri = await preserveDraftImage(lease, result.assets[0].uri, guard);
+      guard(); setImageUri(uri);
     }
+    } catch (error) { if (!(error instanceof CaptureAccountChangedError)) Alert.alert('Photo unavailable', 'Please choose the photo again.'); }
   };
 
   const handleTakePhoto = async () => {
+    const { lease, guard } = imageLease();
+    try {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please grant camera access to take photos.');
       return;
     }
 
+    guard();
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
@@ -352,8 +389,11 @@ export default function AddRecipeScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      guard();
+      const uri = await preserveDraftImage(lease, result.assets[0].uri, guard);
+      guard(); setImageUri(uri);
     }
+    } catch (error) { if (!(error instanceof CaptureAccountChangedError)) Alert.alert('Photo unavailable', 'Please take the photo again.'); }
   };
 
   const showImageOptions = () => {
@@ -422,14 +462,19 @@ export default function AddRecipeScreen() {
       || !steps.some(step => step.text.trim()));
 
   const submitRecipe = async () => {
-    if (isPublic && !isRecoveredIncompleteDraft && !(await requestPublishing(publishPreview()))) {
+    const originalOwner = importedSource === 'manual' ? inbox.ownerId : importedOwner.current;
+    let requestedPublic = isPublic;
+    if (requestedPublic && !isRecoveredIncompleteDraft && !(await requestPublishing(publishPreview()))) {
+      if (!didChoosePrivate()) return;
+      requestedPublic = false;
       setIsPublic(false);
-      return;
     }
-    createMutation.mutate();
+    if (!originalOwner || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
+    createMutation.mutate({ requestedPublic, originalOwner });
   };
 
   const handleSubmit = () => {
+    if (!draft.ready || draft.available) { Alert.alert('Private draft', 'Resume or discard the saved draft before saving a new recipe.'); return; }
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
       return;
@@ -437,15 +482,6 @@ export default function AddRecipeScreen() {
     
 
     void submitRecipe();
-  };
-
-  const handleVisibilityChange = async (visibility: RecipeVisibility) => {
-    if (visibility === 'private') {
-      setIsPublic(false);
-      return;
-    }
-    if (isPublic) return;
-    if (await requestPublishing(publishPreview())) setIsPublic(true);
   };
 
   const handleSuggestTags = async () => {
@@ -512,24 +548,7 @@ export default function AddRecipeScreen() {
       <Stack.Screen
         options={{
           headerTitle: initialData ? 'Edit Recipe' : 'Add Recipe',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={createMutation.isPending}
-              style={styles.saveButton}
-              accessibilityRole="button"
-              accessibilityLabel={createMutation.isPending ? 'Saving recipe' : undefined}
-              accessibilityState={{ disabled: createMutation.isPending, busy: createMutation.isPending }}
-            >
-              {createMutation.isPending ? (
-                <ActivityIndicator size="small" color={colors.actionText} />
-              ) : (
-                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
-                  {isRecoveredIncompleteDraft ? 'Save draft' : (isPublic ? 'Publish' : 'Save private')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          ),
+
         }}
       />
       
@@ -543,6 +562,7 @@ export default function AddRecipeScreen() {
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
             keyboardShouldPersistTaps="handled"
           >
+            <RecipeDraftNotice draft={draft} />
             {/* Image Section */}
             <TouchableOpacity
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}
@@ -844,12 +864,28 @@ export default function AddRecipeScreen() {
               </Text>
             )}
 
-            <RecipeVisibilitySelector
-              value={isPublic ? 'public' : 'private'}
-              onChange={handleVisibilityChange}
-              disabled={createMutation.isPending || isCheckingDisclosure || isRecoveredIncompleteDraft}
-            />
           </ScrollView>
+          <RNView style={{ padding: spacing.md, paddingBottom: insets.bottom + spacing.sm }}>
+            <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
+              onChange={(value) => setIsPublic(value === 'public')}
+              disabled={createMutation.isPending || isCheckingDisclosure || isRecoveredIncompleteDraft} />
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={createMutation.isPending}
+              style={styles.saveButton}
+              accessibilityRole="button"
+              accessibilityLabel={createMutation.isPending ? 'Saving recipe' : undefined}
+              accessibilityState={{ disabled: createMutation.isPending, busy: createMutation.isPending }}
+            >
+              {createMutation.isPending ? (
+                <ActivityIndicator size="small" color={colors.actionText} />
+              ) : (
+                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
+                  {isRecoveredIncompleteDraft ? 'Save draft' : (isPublic ? 'Publish' : 'Save private')}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </RNView>
         </View>
       </KeyboardAvoidingView>
     </>

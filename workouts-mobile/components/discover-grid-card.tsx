@@ -1,3 +1,4 @@
+import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { Children, useState, type PropsWithChildren } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -5,19 +6,14 @@ import { Image } from "expo-image";
 import { Copy, Skeleton, useColors, useReducedMotion } from "@/components/ui";
 import { animatedPressableComponent, usePressScale } from "@/components/design/press";
 import { SourceArtwork } from "@/components/discover-card";
-import { contentWidth, motion, radii, spacing } from "@/constants/theme";
+import { motion, radii, spacing } from "@/constants/theme";
 import { cardMeta, creatorCredit, gridByline, type DiscoverCard } from "@/lib/discover";
 
 const GRID_GAP = spacing.sm;
-/** Screen's horizontal padding on each side (spacing.lg - 4). */
-const SCREEN_GUTTER = (spacing.lg - 4) * 2;
-
 /** Card width: two columns on phones, three when a tablet gives each card enough room. */
 function useGridCell() {
-  const { width } = useWindowDimensions();
-  const inner = Math.min(width, contentWidth) - SCREEN_GUTTER;
-  const columns = inner >= 560 ? 3 : 2;
-  return Math.floor((inner - GRID_GAP * (columns - 1)) / columns);
+  const { width, fontScale } = useWindowDimensions();
+  return workoutGridWidth(width, fontScale, true);
 }
 const gridStyle = { flexDirection: "row", flexWrap: "wrap", columnGap: GRID_GAP, rowGap: GRID_GAP } as const;
 
@@ -86,10 +82,10 @@ export function DiscoverGridCard({ card, onPress }: { card: DiscoverCard; onPres
         )}
       </View>
       <View style={{ padding: spacing.sm, gap: 4 }}>
-        <Copy kind="label" numberOfLines={2} style={{ minHeight: Math.ceil(44 * fontScale) }}>
+        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 2} style={{ minHeight: Math.ceil(44 * fontScale) }}>
           {card.title}
         </Copy>
-        <Copy kind="small" tone="muted" numberOfLines={1}>
+        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>
           {gridByline(card)}
         </Copy>
       </View>

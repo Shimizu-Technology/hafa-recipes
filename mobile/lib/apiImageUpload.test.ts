@@ -582,3 +582,22 @@ describe('bounded multipart editor authentication', () => {
     } finally { api.setAuthContext(null, null); vi.useRealTimers(); }
   });
 });
+
+it('cancels a guest Save if auth changes during token retry before transport', async () => {
+  vi.useFakeTimers();
+  const tokenA = vi.fn().mockResolvedValue(null);
+  const tokenB = vi.fn().mockResolvedValue('token-b');
+  const sent = vi.fn();
+  const interceptor = mocks.client.interceptors.request.use.mock.calls[0][0];
+  mocks.post.mockImplementationOnce(async (url, _body, config) => {
+    await interceptor({ ...config as object, url, headers: {} }); sent(); return { data: { saved: true } };
+  });
+  api.setAuthContext(tokenA, 'owner-a');
+  const pending = api.saveRecipe('recipe-a').then(() => null, error => error);
+  await vi.advanceTimersByTimeAsync(1);
+  api.setAuthContext(tokenB, 'owner-b');
+  await vi.advanceTimersByTimeAsync(AUTH_TOKEN_RETRY_DELAY_MS);
+  expect(await pending).toBeInstanceOf(Error);
+  expect(tokenB).not.toHaveBeenCalled(); expect(sent).not.toHaveBeenCalled();
+  api.setAuthContext(null, null); vi.useRealTimers();
+});

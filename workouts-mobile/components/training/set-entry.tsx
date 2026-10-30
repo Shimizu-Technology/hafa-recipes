@@ -38,12 +38,12 @@ export function SetNumberField({
   };
   const heading = (
     <Row gap={4}>
-      <Copy kind="label" tone="muted" numberOfLines={1}>{label}</Copy>
+      <Copy kind="label" tone="muted" style={{ flexShrink: 1 }}>{label}</Copy>
       {!!onLabelPress && <Ionicons name="chevron-down" size={16} color={c.muted} />}
     </Row>
   );
   return (
-    <View style={{ flex: 1, minWidth: 0, gap: spacing.xs, padding: spacing.sm, borderRadius: radii.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, gap: spacing.xs, padding: spacing.sm, borderRadius: radii.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
       {onLabelPress ? (
         <Pressable accessibilityRole="button" accessibilityLabel={`${label} options`} accessibilityHint={labelHint} hitSlop={8}
           onPress={onLabelPress} style={({ pressed }) => ({ minHeight: 32, justifyContent: "center", opacity: pressed ? 0.6 : 1 })}>
@@ -61,13 +61,12 @@ export function SetNumberField({
         keyboardType={decimal ? "decimal-pad" : "number-pad"}
         returnKeyType="done"
         selectTextOnFocus
-        maxFontSizeMultiplier={1.3}
         style={[typography.numeric, {
           minHeight: 56, textAlign: "center", color: c.text, backgroundColor: c.sunken,
           borderRadius: radii.md, opacity: disabled ? 0.6 : 1,
         }]}
       />
-      {!!note && <Copy kind="small" tone="muted" align="center" numberOfLines={1}>{note}</Copy>}
+      {!!note && <Copy kind="small" tone="muted" align="center" >{note}</Copy>}
       <Row justify="space-between">
         <IconButton icon="remove" label={`Decrease ${label}`} size={44}
           disabled={disabled || !((parseEntry(value) ?? 0) > 0)} onPress={() => change(-step)} />

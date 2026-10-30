@@ -5,8 +5,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { draftKey } from "./drafts";
 import { streamCoachRequest } from "./coach-stream";
 import type { CoachMessage } from "./coach";
+import { ApiError } from "./api";
 import { createCoachVoice, type Recognition } from "./coach-voice";
-const f = vi.hoisted(() => ({ owner: "", generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, prerequisiteError: "", prerequisiteFailures: [] as string[], prerequisiteGate: null as Promise<void> | null, prerequisiteCalls: [] as string[], historyError: "", run: 0, uuid: 0,
+const f = vi.hoisted(() => ({ owner: "", profileStatus: 0, noProfile: false, generation: 1, current: true, profileGate: null as Promise<{ adult_confirmed: boolean }> | null, prerequisiteError: "", prerequisiteFailures: [] as string[], prerequisiteGate: null as Promise<void> | null, prerequisiteCalls: [] as string[], historyError: "", run: 0, uuid: 0,
   voice: null as ReturnType<typeof createCoachVoice> | null, params: {} as Record<string, string>, values: new Map<string, string>(), history: [] as CoachMessage[], historyCalls: [] as number[],
   paramsContext: null as Context<Record<string, string> | null> | null,
   photoStore: null as ReturnType<typeof import("./coach-photos").createCoachPhotoStore> | null, photoBusy: false, photoRemoving: false, photoSweep: vi.fn(), beginPhotoClear: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock("@/lib/context", () => {
     removeItem: async (key: string) => { f.values.delete(key); }, getAllKeys: async () => [...f.values.keys()] };
   const replacementStorage = { ...storage };
   const prerequisite = async (name: string) => { f.prerequisiteCalls.push(name); if (f.prerequisiteGate) await f.prerequisiteGate; if (f.prerequisiteError && (!f.prerequisiteFailures.length || f.prerequisiteFailures.includes(name))) throw Error(f.prerequisiteError); };
-  const api = { profile: async () => { await prerequisite("profile"); return f.profileGate ?? ({ adult_confirmed: true }); }, capabilities: async () => { await prerequisite("capabilities"); return { coach: f.coach, coach_cancellation: f.cancellation, coach_streaming: f.streaming }; },
+  const api = { profile: async () => { await prerequisite("profile"); if (f.profileStatus) throw new ApiError("Profile unavailable", f.profileStatus); return f.noProfile ? null : f.profileGate ?? ({ adult_confirmed: true }); }, capabilities: async () => { await prerequisite("capabilities"); return { coach: f.coach, coach_cancellation: f.cancellation, coach_streaming: f.streaming }; },
     aiConsent: async () => { await prerequisite("consent"); return { accepted: f.consent }; }, readiness: async () => ({}), setReadiness: f.readiness,
     coachHistory: async (offset = 0) => { f.historyCalls.push(offset); if (f.historyError) throw Error(f.historyError); return offset && f.historyGate ? f.historyGate : ({ messages: f.history.slice(offset, offset + f.pageSize), limit: f.pageSize, offset }); }, coachMessage: f.send, coachStream: f.stream, workout: async () => ({ title: "Leg day" }), cancelCoachMessage: f.stop, clearCoach: f.clear };
   return { useTraining: () => ({ api, owner: f.owner, enrollment: { enrolled: true, generation: f.generation }, storage: f.storageVersion ? replacementStorage : storage, isCurrentAccount: () => f.current }) };
@@ -34,7 +35,7 @@ vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoContr
   useCoachPhoto: () => ({ photo: f.photo, loaded: true, busy: f.photoBusy, removing: f.photoRemoving, error: "", handoff: f.handoff,
     beginClear: f.beginPhotoClear, clearAll: () => f.photoStore ? f.photoStore.clearAll(() => {}) : f.clearPhotos(),
     clearAfterConfirmedServerClear: () => f.photoStore ? f.photoStore.clearAfterConfirmedServerClear(() => {}, f.photoSweep) : f.clearPhotos() }) }));
-vi.mock("react-native", () => ({ View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: 1 }), View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
 // Exercise the real Screen wrapper below without loading unrelated native modules.
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
@@ -105,6 +106,7 @@ const draft = () => JSON.parse(f.values.get(draftKey(f.owner, `coach-draft:${f.g
 function reply(id: string, state: CoachMessage["state"] = "completed"): CoachMessage { return { id, request_id: id, generation: f.generation, state, user_message: `Question ${id}`, assistant_message: state === "completed" ? `Reply ${id}` : null, actions: [], created_at: `2026-10-15T00:0${id === "older" ? 0 : 1}:00Z`, focus: {} }; }
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; }
 beforeEach(() => {
+  f.noProfile = false; f.profileStatus = 0;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   f.voice = createCoachVoice(null); f.prerequisiteError = ""; f.prerequisiteFailures = []; f.prerequisiteGate = null; f.prerequisiteCalls = []; f.historyError = ""; f.profileGate = null; f.measureAnchor.mockReset(); f.contentEnabled = false; f.bubble = null;
   f.speak.mockClear(); f.speechStop.mockReset(); f.speechStop.mockResolvedValue(undefined); f.speechQuiet.mockReset(); f.speechQuiet.mockResolvedValue(false);
@@ -1299,4 +1301,35 @@ it("opens the live expiring check-in from the training profile link", async () =
   await mount();
   expect(button("Save today’s check-in")).toBeDefined();
   expect(f.readiness).not.toHaveBeenCalled();
+});
+
+it("opens source explanation without a profile while retaining explicit consent", async () => {
+  f.noProfile = true;
+  f.params = { workout_id: "selected-source", revision: "2" };
+  await mount();
+  const text = nodes("Copy").map(n => n.children.join(" ")).join(" ");
+  expect(text).toContain("Source-only context");
+  expect(text).not.toContain("Set up your training first");
+  expect(nodes("Field")[0].props.disabled).toBe(false);
+});
+
+it("keeps source explanation disabled until current AI consent is accepted", async () => {
+  f.noProfile = true; f.consent = false;
+  f.params = { workout_id: "selected-source", revision: "2" };
+  await mount();
+  expect(button("Review AI sharing")).toBeDefined();
+  expect(button("Send message").props.disabled).toBe(true);
+  expect(f.send).not.toHaveBeenCalled();
+});
+
+it.each([409, 500])("permits stale-profile source context only for 409, preserving other errors (%s)", async status => {
+ f.profileStatus = status; f.params = { workout_id: "selected-source", revision: "2" };
+ await mount();
+ await type("Explain this source");
+ expect(button("Send message").props.disabled).toBe(status !== 409);
+ expect(nodes("Copy").map(n => n.children.join(" ")).join(" ").includes("Source-only context")).toBe(status === 409);
+});
+it("preserves a stale-profile error for general coaching", async () => {
+ f.profileStatus = 409; await mount();
+ expect(button("Send message").props.disabled).toBe(true);
 });

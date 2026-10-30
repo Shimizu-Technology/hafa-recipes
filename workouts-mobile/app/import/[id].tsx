@@ -406,7 +406,7 @@ export default function ImportReview() {
             title="Open saved workout"
             onPress={() => router.replace({ pathname: "/workout/[id]", params: { id: q.data!.accepted_workout_id! } })}
           />
-          <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: savedId! } })} />
+          <Button title="Check details" secondary onPress={() => router.push({ pathname: "/edit-workout/[id]", params: { id: savedId!, review: "1" } })} />
           </>
         )}
         {q.data && (["failed", "expired", "cancelled"].includes(q.data.status) || (q.data.status === "incomplete" && !workout)) && (

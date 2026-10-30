@@ -5,6 +5,7 @@ import type { AuthoredWorkout } from "./models";
 
 vi.mock("react-native", () => ({ View: "View" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field", Notice: "Notice" }));
+vi.mock("@/components/source-playback", () => ({ SourcePlayback: "SourcePlayback" }));
 vi.mock("@/components/workout-source", () => ({ SavedSourceText: "SavedSourceText" }));
 const settings = vi.hoisted(() => ({ units: "metric" as "metric" | "imperial" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ units: settings.units }) }));
@@ -14,10 +15,10 @@ let renderer: ReactTestRenderer | undefined;
 let latest: AuthoredWorkout | undefined;
 const field = (label: string) => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === label);
 const button = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
-async function render(initial: AuthoredWorkout) {
+async function render(initial: AuthoredWorkout, review = false) {
   function Editor() {
     const [value, setValue] = useState(initial);
-    return createElement(WorkoutEditor, { value, onChange(next: AuthoredWorkout) { latest = next; setValue(next); } });
+    return createElement(WorkoutEditor, { review, value, onChange(next: AuthoredWorkout) { latest = next; setValue(next); } });
   }
   await act(async () => { renderer = create(createElement(Editor)); });
 }
@@ -119,4 +120,49 @@ it("keeps oversized workout notes visible for correction even after the disclosu
   expect(field("Private notes · only you")).toBeDefined();
   await act(async () => button("Hide instructions, notes and equipment").props.onPress());
   expect(field("Private notes · only you")).toBeDefined();
+});
+
+it("reviews the exact unknown exercise with source evidence, permits leaving it blank and retains the full editor", async () => {
+  const initial = workout(); initial.blocks[0].grouping = "circuit";
+  initial.blocks[0].exercises.push({ name: "Lunge", evidence: [{ field: "name", wording: "Then lunges", location: "caption" }] });
+  await render(initial, true);
+  expect(field("Exercise name")).toBeUndefined();
+  await act(async () => button("Lunge: reps, time or distance not specified").props.onPress());
+  expect(field("Exercise name")!.props.value).toBe("Lunge");
+  expect(field("Rest · seconds")).toBeDefined();
+  expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children.flat?.() ?? n.props.children).flat().join(" ")).toContain("Then lunges");
+  await act(async () => button("Leave unknown").props.onPress());
+  expect(latest).toBeUndefined();
+  await act(async () => button("Main: rounds not specified").props.onPress());
+  expect(field("Rounds")).toBeDefined();
+  expect(field("Exercise name")).toBeUndefined();
+  await act(async () => field("Rounds")!.props.onChange("3"));
+  expect(latest!.blocks[0].rounds).toBe(3);
+  expect(latest!.blocks[0].exercises[1].reps_min).toBeUndefined();
+  await act(async () => button("Open full editor").props.onPress());
+  expect(renderer!.root.findAllByType("Field" as never).filter(n => n.props.label === "Exercise name")).toHaveLength(2);
+});
+
+it("returns to the review summary after deleting the selected exercise", async () => {
+  const initial = workout(); initial.blocks[0].exercises = [{ name: "First" }, { name: "Next" }];
+  await render(initial, true);
+  await act(async () => button("First: reps, time or distance not specified").props.onPress());
+  await act(async () => button("Remove First").props.onPress());
+  expect(field("Exercise name")).toBeUndefined();
+  expect(button("Next: reps, time or distance not specified")).toBeDefined();
+});
+it("labels evidence by field and exposes a safe original-source action beside unknown controls", async () => {
+  const initial = workout(); initial.source_url = "https://example.com/workout";
+  initial.blocks[0].exercises[0].evidence = [{ field: "rest_seconds", wording: "Rest 30 seconds", location: "caption" }];
+  await render(initial, true);
+  await act(async () => button("Squat: rest not specified").props.onPress());
+  expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children).flat().join(" ")).toContain("rest_seconds");
+  expect(renderer!.root.findByType("SourcePlayback" as never).props.url).toBe(initial.source_url);
+});
+it("explains when no usable original-source link is available", async () => {
+  const initial = workout(); initial.source_url = "javascript:alert(1)";
+  await render(initial, true);
+  await act(async () => button("Squat: rest not specified").props.onPress());
+  expect(renderer!.root.findAllByType("SourcePlayback" as never)).toHaveLength(0);
+  expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children).flat().join(" ")).toContain("Original source link unavailable");
 });
