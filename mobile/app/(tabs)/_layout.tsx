@@ -30,8 +30,8 @@ export default function TabLayout() {
     <Tabs
       tabBar={(props) => <AssistantTabBar {...props} isSignedIn={Boolean(isSignedIn)} />}
       screenOptions={{
-        tabBarButton: ({ children, style, onPress, onLongPress, accessibilityLabel, accessibilityState, testID }) => (
-          <ScalePressable style={style} onPress={onPress} onLongPress={onLongPress} accessibilityRole="tab" accessibilityLabel={accessibilityLabel} accessibilityState={accessibilityState} testID={testID}>{children}</ScalePressable>
+        tabBarButton: ({ href: _href, style, onPress, ...props }) => (
+          <ScalePressable {...props} style={style} onPress={onPress} />
         ),
         tabBarActiveTintColor: colors.tint,
         tabBarInactiveTintColor: colors.tabIconDefault,

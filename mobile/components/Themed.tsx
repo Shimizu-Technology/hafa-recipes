@@ -19,7 +19,7 @@ import Colors, { spacing, radius, fontSize, fontWeight, fontFamily, shadows } fr
 import { useColorScheme } from './useColorScheme';
 import { ScalePressable } from './Animated';
 
-const MAX_UI_FONT_SIZE_MULTIPLIER = 1.6;
+
 
 type ThemeProps = {
   lightColor?: string;
@@ -56,7 +56,7 @@ export function Text(props: TextProps) {
     style,
     lightColor,
     darkColor,
-    maxFontSizeMultiplier = MAX_UI_FONT_SIZE_MULTIPLIER,
+    maxFontSizeMultiplier = 0,
     ...otherProps
   } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
@@ -168,7 +168,7 @@ export function Input({
         ref={inputRef}
         textContentType={textContentType}
         accessibilityLabel={accessibilityLabel}
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -305,9 +305,11 @@ export function Button({
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}
       <DefaultText
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         style={{
           color: getTextColor(),
+          flexShrink: 1,
+          textAlign: 'center',
           fontSize: size === 'lg' ? fontSize.lg : fontSize.md,
           fontFamily: fontFamily.semibold,
         }}
@@ -340,6 +342,7 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
           minHeight: onPress ? 44 : undefined,
           minWidth: onPress ? 44 : undefined,
           flexDirection: 'row',
+          flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'center',
           gap: spacing.xs,
@@ -353,7 +356,7 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
     >
       {icon && <Ionicons name={icon} size={16} color={selected ? colors.background : colors.textMuted} />}
       <DefaultText
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         style={{
           flexShrink: 1,
           color: selected ? colors.background : colors.text,
@@ -419,7 +422,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
   return (
     <DefaultView style={{ marginBottom: spacing.md }}>
       <DefaultText
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         style={{
           fontSize: fontSize.sm,
           fontFamily: fontFamily.semibold,
@@ -431,7 +434,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
       </DefaultText>
       {subtitle && (
         <DefaultText
-          maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+          maxFontSizeMultiplier={0}
           style={{
             fontSize: fontSize.sm,
             color: colors.textSecondary,

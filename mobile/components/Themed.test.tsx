@@ -8,9 +8,18 @@ vi.mock('react-native', () => ({ Text: 'Text', View: 'View', TextInput: 'TextInp
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('./useColorScheme', () => ({ useColorScheme: () => 'dark' }));
 vi.mock('./Animated', () => ({ ScalePressable: 'ScalePressable' }));
-import { Button, Card, Chip, IconButton, Input } from './Themed';
+import { Button, Card, Chip, IconButton, Input, Text } from './Themed';
 
 describe('shared controls', () => {
+  it('allows primary text, inputs, buttons and chips to scale without a cap', async () => {
+    const r = createRoot();
+    await act(async () => r.render(<><Text>Recipe</Text><Input value="" onChangeText={vi.fn()} /><Chip label="A long choice" onPress={vi.fn()} /><Button title="Apply filters" onPress={vi.fn()} /></>));
+    const labels = r.container.queryAll(n => n.type === 'Text' || n.type === 'TextInput');
+    expect(labels.length).toBe(4);
+    labels.forEach(n => expect(n.props.maxFontSizeMultiplier).toBe(0));
+    await act(async () => r.unmount());
+  });
+
   it('keeps short chips and small buttons at least 44pt in both dimensions', async () => {
     const r = createRoot();
     await act(async () => r.render(<><Chip label="A" size="sm" onPress={vi.fn()} /><Button title="+" size="sm" onPress={vi.fn()} /></>));
