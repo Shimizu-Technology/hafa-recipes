@@ -568,10 +568,10 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   expect(metaLine()).toBe("30 min · 1 exercise · Dumbbells, Bench");
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
-  // Recipes-style header: chat, share and everything else in one ··· sheet.
+  // Contextual Coach is labelled in content; share and overflow stay in the header.
   expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "IconButton").map((n) => n.props.label))
-    .toEqual(["Ask the coach about this workout", "Share workout", "More workout actions"]);
-  await act(async () => header("Ask the coach about this workout")!.props.onPress());
+    .toEqual(["Share workout", "More workout actions"]);
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
   await act(async () => header("Share workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/share", params: { id: saved.id, kind: "workout" } });

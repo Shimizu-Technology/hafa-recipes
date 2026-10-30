@@ -185,3 +185,10 @@ it("opens the full form for a bottle or past feed", async () => {
   await pick(2);
   expect(scope.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "feeding" } });
 });
+
+it("renders the initial empty care state without raw text in the screen layout", async () => {
+  setup();
+  await render();
+  const children = React.Children.toArray(find("Screen", () => true)[0].props.children);
+  expect(children.filter(child => typeof child === "string")).toEqual([]);
+});

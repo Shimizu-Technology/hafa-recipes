@@ -6,15 +6,12 @@ import { router } from "expo-router";
 // press, long-press, accessibility and safe-area behavior unchanged (as in Håfa Recipes).
 import { BottomTabBar, type BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
 import { radii, spacing } from "@/constants/theme";
-import { Copy, haptics, useColors } from "./design/foundation";
+import { Copy, useColors } from "./design/foundation";
 import { animatedPressableComponent, usePressScale } from "./design/press";
 import { useOfflineTraining } from "@/lib/context";
 import { setTabOverlayHeight } from "./tab-chrome";
 
-/** Tabs that show the floating coach button. Add has its own capture flow. */
-const coachTabs = new Set(["discover", "library", "train"]);
-
-/** Recipes-style tab bar: a quiet floating coach button and, during a workout, a Resume bar. */
+/** Keeps active training reachable above the tabs. */
 export function WorkoutsTabBar(props: BottomTabBarProps) {
   const c = useColors();
   const offline = useOfflineTraining();
@@ -30,8 +27,7 @@ export function WorkoutsTabBar(props: BottomTabBarProps) {
   const route = props.state.routes[props.state.index]?.name;
   // Train shows its own Resume action at the top, so the floating bar would repeat it.
   const active = route === "train" ? null : offline.state.active;
-  const showCoach = !keyboard && coachTabs.has(route ?? "");
-  const floating = !keyboard && (showCoach || !!active);
+  const floating = !keyboard && !!active;
   useEffect(() => {
     if (!floating) setTabOverlayHeight(0);
   }, [floating]);
@@ -44,50 +40,11 @@ export function WorkoutsTabBar(props: BottomTabBarProps) {
           onLayout={event => setTabOverlayHeight(event.nativeEvent.layout.height + spacing.sm)}
           style={{ position: "absolute", bottom: "100%", left: spacing.md, right: spacing.md, marginBottom: spacing.sm, gap: spacing.sm, alignItems: "flex-end" }}
         >
-          {showCoach && <CoachButton />}
           {active && <ResumeBar title={active.workout.title} />}
         </View>
       )}
       <BottomTabBar {...props} />
     </View>
-  );
-}
-
-function CoachButton() {
-  const c = useColors();
-  const press = usePressScale();
-  const AnimatedPressable = animatedPressableComponent();
-  return (
-    <AnimatedPressable
-      accessibilityRole="button"
-      accessibilityLabel="Ask your coach"
-      accessibilityHint="Opens the coach chat"
-      onPressIn={press.onPressIn}
-      onPressOut={press.onPressOut}
-      onPress={() => {
-        haptics.light();
-        router.push("/coach");
-      }}
-      style={{
-        width: 48,
-        height: 48,
-        borderRadius: radii.full,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: c.elevated,
-        borderWidth: 1,
-        borderColor: c.border,
-        shadowColor: c.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 6,
-        elevation: 2,
-        opacity: press.opacity,
-        transform: [{ scale: press.scale }],
-      }}
-    >
-      <Ionicons name="chatbubble-ellipses" size={22} color={c.onActionSoft} />
-    </AnimatedPressable>
   );
 }
 
