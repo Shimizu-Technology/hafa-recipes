@@ -7,6 +7,7 @@ import * as Crypto from 'expo-crypto';
 import * as Clipboard from 'expo-clipboard';
 import {
   StyleSheet,
+  useWindowDimensions,
   TouchableOpacity,
   Alert,
   Linking,
@@ -51,6 +52,7 @@ import {
 export default function ExtractScreen() {
   const router = useRouter();
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
   const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId } = useLocalSearchParams<{
@@ -345,6 +347,13 @@ export default function ExtractScreen() {
     }
   };
 
+  const moveImage = (index: number, direction: -1 | 1) => setSelectedImages((pages) => {
+    const next = index + direction;
+    if (next < 0 || next >= pages.length) return pages;
+    const ordered = [...pages];
+    [ordered[index], ordered[next]] = [ordered[next], ordered[index]];
+    return ordered;
+  });
   const removeImage = (index: number) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
@@ -358,6 +367,7 @@ export default function ExtractScreen() {
   };
 
   const extractFromImages = async () => {
+    if (recoveryDraft.available) { Alert.alert('Finish your saved draft', 'Resume or discard the recipe recovery before starting another scan.'); return; }
     if (!scanDraft.ready || scanDraft.available || selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
     const originalOwner = inbox.ownerId;
     if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
@@ -686,7 +696,8 @@ export default function ExtractScreen() {
             showsVerticalScrollIndicator={false}
           >
             {selectedImages.map((image, index) => (
-              <RNView key={index} style={styles.galleryImageContainer}>
+              <RNView key={image.uri} style={{ width: fontScale >= 1.3 ? '100%' : '45%', minWidth: 140, flexGrow: 1 }}>
+              <RNView style={[styles.galleryImageContainer, { width: '100%' }]}>
                 <Image source={{ uri: image.uri }} style={styles.galleryImage} />
                 <IconButton
                   icon="close-circle"
@@ -698,6 +709,11 @@ export default function ExtractScreen() {
                 <RNView style={[styles.galleryImageNumber, { backgroundColor: colors.tint }]}>
                   <Text style={styles.galleryImageNumberText}>{index + 1}</Text>
                 </RNView>
+              </RNView>
+              <RNView style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <IconButton icon="arrow-back" accessibilityLabel={`Move page ${index + 1} earlier`} disabled={index === 0} onPress={() => moveImage(index, -1)} />
+                <IconButton icon="arrow-forward" accessibilityLabel={`Move page ${index + 1} later`} disabled={index === selectedImages.length - 1} onPress={() => moveImage(index, 1)} />
+              </RNView>
               </RNView>
             ))}
 

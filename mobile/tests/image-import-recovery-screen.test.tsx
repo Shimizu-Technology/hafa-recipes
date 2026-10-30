@@ -98,6 +98,7 @@ vi.mock('react-native', async () => {
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
+    useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     AccessibilityInfo: { announceForAccessibility: vi.fn() },
     ActivityIndicator: host('ActivityIndicator'),
     Alert: { alert: mocks.alert },
@@ -499,6 +500,8 @@ describe('classified image recovery', () => {
       await chooseAction.onPress();
     });
 
+    const earlier = renderer!.root.findAll(node => node.props.accessibilityLabel === 'Move page 2 earlier')[0];
+    await act(async () => earlier.props.onPress());
     const extractButton = renderer!.root.findAllByType(
       'Button' as unknown as React.ComponentType,
     ).find(node => node.props.children === 'Import Recipe from 2 Images')!;
@@ -506,6 +509,10 @@ describe('classified image recovery', () => {
       await extractButton.props.onPress();
     });
 
+    expect(mocks.extractMultiple).toHaveBeenCalledWith([
+      expect.objectContaining({ uri: 'file:///recipe-back.jpg' }),
+      expect.objectContaining({ uri: 'file:///recipe-front.jpg' }),
+    ], 'Guam');
     const failure = mocks.alert.mock.calls.find(([title]) => title === 'Choose One Recipe');
     const recoverAction = failure?.[2]
       .find((action: { text: string }) => action.text === 'Use Image & Enter Manually');
@@ -522,8 +529,8 @@ describe('classified image recovery', () => {
     expect(renderer!.root.findAllByType(
       'Image' as unknown as React.ComponentType,
     ).map(node => node.props.source.uri)).toEqual([
-      'file:///recipe-front.jpg',
       'file:///recipe-back.jpg',
+      'file:///recipe-front.jpg',
     ]);
   });
 

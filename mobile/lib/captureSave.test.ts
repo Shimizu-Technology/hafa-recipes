@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const drafts = vi.hoisted(() => ({ write: vi.fn(async (): Promise<void> => undefined), remove: vi.fn(async () => undefined), lease: (owner: string) => ({ owner, epoch: 0 }) }));
+vi.mock('./privateRecipeDrafts', () => ({ privateRecipeDrafts: drafts }));
 const uuid = vi.hoisted(() => vi.fn());
 vi.mock('expo-crypto', () => ({ randomUUID: uuid }));
 import { captureSaveFailure, saveCaptureOrRecover } from './captureSave';
@@ -43,4 +45,17 @@ it('carries original pages into save-only recovery without discarding their loca
   const route = await saveCaptureOrRecover({ extracted: {}, source_type: 'photo', is_public: false, original_pages }, 'Guam',
     async () => { throw new Error('Original page storage unavailable'); });
   expect(route).toMatchObject({ params: { originalPages: JSON.stringify(original_pages), saveErrorKind: 'retry' } });
+});
+
+it('persists the exact scan request before making a server write', async () => {
+  let finish!: () => void;
+  drafts.write.mockReturnValueOnce(new Promise<void>((resolve) => { finish = resolve; }));
+  const original_pages = [{ uri: 'file:///private-recipe-drafts/account/page.jpg' }];
+  const save = vi.fn(async () => ({ id: 'saved' }));
+  const pending = saveCaptureOrRecover({ extracted: { title: 'Family' }, source_type: 'photo', is_public: false, expected_owner_id: 'owner', original_pages }, 'Guam', save);
+  await Promise.resolve();
+  expect(save).not.toHaveBeenCalled();
+  expect(drafts.write).toHaveBeenLastCalledWith(expect.objectContaining({ owner: 'owner' }), 'recovery', expect.objectContaining({ request: expect.objectContaining({ original_pages }) }));
+  finish();
+  expect(await pending).toBe('/recipe/saved');
 });

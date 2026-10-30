@@ -26,6 +26,17 @@ export async function saveCaptureOrRecover(
   save: (input: CapturedRecipeSaveInput) => Promise<{ id: string }>,
 ) {
   const request = { ...input, capture_id: input.capture_id ?? randomUUID() };
+  // Persist the exact recipe/page request before the first server write. A
+  // process loss between recipe save and page upload must resume the same ID.
+  if (input.original_pages?.length && input.expected_owner_id) {
+    input.requestGuard?.();
+    await privateRecipeDrafts.write(privateRecipeDrafts.lease(input.expected_owner_id), 'recovery', {
+      captureId: request.capture_id, failure: { kind: 'retry', message: 'Saving was interrupted. Reconnect to finish saving.' },
+      request: { capture_id: request.capture_id, extracted: input.extracted, source_type: input.source_type, is_public: input.is_public, original_pages: input.original_pages },
+      recipe: { id: request.capture_id, extracted: input.extracted, source_type: input.source_type, is_public: input.is_public },
+    });
+    input.requestGuard?.();
+  }
   try {
     const result = await save(request);
     if (!result?.id) throw new Error('Recipe save did not return an ID');
