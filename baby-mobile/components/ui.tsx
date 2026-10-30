@@ -119,9 +119,9 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
   function respond(down: boolean) {
     Animated.parallel([
       Animated.timing(scale, { toValue: down && !reduced ? 0.97 : 1,
-        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: true }),
+        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
       Animated.timing(opacity, { toValue: disabled ? 0.5 : down ? 0.82 : 1,
-        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: true }),
+        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
     ]).start();
   }
   return <AnimatedPressable {...props} ref={ref} disabled={disabled}
