@@ -806,3 +806,19 @@ it("keeps a saved missed-session receipt reachable after all missed sessions hav
   expect(buttons("Missed sessions")).toHaveLength(0);
   expect(buttons("Review saved adjustment · Shifted plan")).toHaveLength(1);
 });
+
+it("Train retains cached plan rows after a refetch error and recovers on retry", async () => {
+  fixture.available = true;
+  const workout: Workout = { id: "workout", revision: 1, generation: 1, title: "Cached workout", kind: "session", provenance: "user", blocks: [] };
+  const program: Program = { id: "cached-plan", title: "Cached plan", generation: 1, revision: 1, status: "ready", questions: [], warnings: [], assumptions: [], source_ids: [], rule_version: "test", sessions: [{ id: "cached-day", date: "2099-01-01", purpose: "Strength", workout }] };
+  fixture.programs.mockResolvedValue([program]);
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); }); await settle();
+  const rows = () => renderer!.root.findAll((n) => String(n.type) === "IconButton" && n.props.label === "More actions for Cached plan");
+  expect(rows()).toHaveLength(1);
+  fixture.programs.mockRejectedValueOnce(Error("Offline"));
+  await act(async () => { await cache.invalidateQueries({ queryKey: [fixture.owner, "programs", 1] }); }); await settle();
+  expect(text()).toContain("Showing your saved content");
+  expect(rows()).toHaveLength(1);
+  await retry();
+  expect(rows()).toHaveLength(1);
+});

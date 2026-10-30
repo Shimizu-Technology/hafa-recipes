@@ -1284,6 +1284,7 @@ it("opens the existing daily check-in from a needs-information card and returns 
   f.history = [{ ...reply("original"), actions: [{ proposal_id: "needs-info", kind: "adaptation", status: "needs_information", state: "proposed" }] }];
   await mount(); await act(async () => suggestion("needs-info")!.props.recovery.checkIn()); await settle();
   const ready = nodes("Chip").find(n => n.props.label === "Ready to train")!;
+  expect(ready.props.role).toBe("radio");
   await act(async () => ready.props.onPress()); await click("Save today’s check-in");
   expect(f.readiness).toHaveBeenCalledWith("ready", 1); expect(button("Save today’s check-in")).toBeUndefined();
 });
