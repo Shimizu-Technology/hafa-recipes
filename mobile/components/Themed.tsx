@@ -289,6 +289,7 @@ export function Button({
       style={[
         {
           minHeight: 44,
+          minWidth: 44,
           backgroundColor: getBackgroundColor(),
           borderRadius: radius.full,
           alignItems: 'center',
@@ -337,6 +338,7 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
         {
           backgroundColor: selected ? colors.text : colors.backgroundSecondary,
           minHeight: onPress ? 44 : undefined,
+          minWidth: onPress ? 44 : undefined,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',

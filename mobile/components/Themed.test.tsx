@@ -11,6 +11,16 @@ vi.mock('./Animated', () => ({ ScalePressable: 'ScalePressable' }));
 import { Button, Card, Chip, IconButton, Input } from './Themed';
 
 describe('shared controls', () => {
+  it('keeps short chips and small buttons at least 44pt in both dimensions', async () => {
+    const r = createRoot();
+    await act(async () => r.render(<><Chip label="A" size="sm" onPress={vi.fn()} /><Button title="+" size="sm" onPress={vi.fn()} /></>));
+    const chip = r.container.queryAll(n => n.type === 'View')[0];
+    const button = r.container.queryAll(n => n.type === 'ScalePressable')[1];
+    expect(chip.props.style[0]).toMatchObject({ minHeight: 44, minWidth: 44 });
+    expect(button.props.style[0]).toMatchObject({ minHeight: 44, minWidth: 44 });
+    await act(async () => r.unmount());
+  });
+
   it('names clear actions, preserves the field label, and clears only that field', async () => {
     const change = vi.fn(); const r = createRoot();
     await act(async () => r.render(<Input value="rice" accessibilityLabel="Search recipes" onChangeText={change} />));
