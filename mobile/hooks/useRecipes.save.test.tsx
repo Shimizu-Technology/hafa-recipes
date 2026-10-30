@@ -5,11 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSaveRecipe, useUnsaveRecipe, recipeKeys } from './useRecipes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ subject: 'viewer', scope: { userId: 'viewer', epoch: 0 }, save: vi.fn(), unsave: vi.fn(), reconcile: vi.fn(), toast: vi.fn(), success: vi.fn() }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: m.subject }) }));
+const m = vi.hoisted(() => ({ loaded: true, checkSaved: vi.fn(async () => ({ is_saved: false })), subject: 'viewer', scope: { userId: 'viewer', epoch: 0 }, save: vi.fn(), unsave: vi.fn(), reconcile: vi.fn(), toast: vi.fn(), success: vi.fn() }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: m.subject, isLoaded: m.loaded }) }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('react-native', () => ({ AppState: {} }));
-vi.mock('../lib/api', () => ({ api: { saveRecipe: m.save, unsaveRecipe: m.unsave, getAuthScope: () => m.scope } }));
+vi.mock('../lib/api', () => ({ api: { checkRecipeSaved: m.checkSaved, saveRecipe: m.save, unsaveRecipe: m.unsave, getAuthScope: () => m.scope } }));
 vi.mock('../lib/recipeCache', async (original) => ({ ...await original<typeof import('../lib/recipeCache')>(), reconcileSavedStateAfterError: m.reconcile }));
 vi.mock('../lib/toast', () => ({ showToast: m.toast }));
 vi.mock('../utils/haptics', () => ({ haptics: { success: m.success } }));
@@ -24,7 +24,7 @@ async function mount(saved = false) {
   await act(async () => r.render(<QueryClientProvider client={client}><Probe /></QueryClientProvider>));
   return { client, r, get mutation() { return mutation; }, async close() { await act(async () => r.unmount()); client.clear(); } };
 }
-beforeEach(() => { vi.clearAllMocks(); m.subject='viewer'; m.scope={ userId: 'viewer', epoch: 0 }; m.reconcile.mockResolvedValue(undefined); });
+beforeEach(() => { vi.clearAllMocks(); m.subject='viewer'; m.loaded=true; m.scope={ userId: 'viewer', epoch: 0 }; m.reconcile.mockResolvedValue(undefined); });
 
 describe('confirmed recipe saving', () => {
   it.each(['success', 'failure'] as const)('ignores a late %s after unmount and an account transition', async (outcome) => {
@@ -75,7 +75,7 @@ describe('confirmed recipe saving', () => {
     m.save.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ saved: true });
     const h = await mount();
     await act(async () => { await h.mutation.mutateAsync('recipe-1').catch(() => {}); });
-    expect(m.reconcile).toHaveBeenCalledWith(h.client, 'recipe-1');
+    expect(m.reconcile).toHaveBeenCalledWith(h.client, 'recipe-1', expect.any(Function), expect.any(Function));
     expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: false });
     expect(m.success).not.toHaveBeenCalled();
     const toast = m.toast.mock.calls[0][0];
@@ -135,4 +135,61 @@ it('invalidates filtered Library roots after confirmed membership changes', asyn
   await act(async () => { await h.mutation.mutateAsync('recipe-1'); });
   expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
   await h.close();
+});
+
+it('freezes Save authority before asynchronous cache cancellation', async () => {
+  const h = await mount(); const pause = deferred<void>();
+  vi.spyOn(h.client, 'cancelQueries').mockReturnValue(pause.promise);
+  const pending = h.mutation.mutateAsync('recipe-1').catch(error => error);
+  m.scope = { userId: 'other', epoch: 1 }; pause.resolve();
+  await act(async () => { await pending; });
+  expect(m.save).not.toHaveBeenCalled(); expect(m.reconcile).not.toHaveBeenCalled();
+  await h.close();
+});
+
+it('carries the same intent guard through dispatch and a labelled Retry', async () => {
+  const { createGuestRecipeIntent } = await import('../lib/guestRecipeIntent');
+  const intent = createGuestRecipeIntent(); intent.start('recipe-1', 'save'); intent.bind('session-a');
+  const consumed = intent.take('recipe-1', 'session-a')!;
+  m.save.mockRejectedValue(new Error('lost response'));
+  const h = await mount();
+  await act(async () => { await h.mutation.mutateAsync('recipe-1', undefined, consumed.guard).catch(() => {}); });
+  const requestGuard = m.save.mock.calls.at(-1)![1]; expect(requestGuard).toBeTypeOf('function');
+  expect(m.toast.mock.calls.at(-1)![0].actionLabel).toBe('Retry');
+  intent.bind('session-b'); expect(() => requestGuard()).toThrow();
+  await act(async () => m.toast.mock.calls.at(-1)![0].onAction());
+  expect(m.save).toHaveBeenCalledOnce(); await h.close();
+});
+
+// Creation must invalidate the same scoped pages the picker consumes.
+it('invalidates cached planner search pages after capture creation', async () => {
+  const { invalidateCreatedRecipeQueries } = await import('./useRecipes');
+  const client = new QueryClient();
+  const key = ['recipes', 'plannerSearch', 'all', { query: 'rice' }];
+  client.setQueryData(key, { pages: [] });
+  invalidateCreatedRecipeQueries(client, 'created');
+  expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+});
+
+it('invalidates a previously opened Saved planner page after Save and Unsave', async () => {
+  for (const initial of [false, true]) {
+    const h = await mount(initial);
+    const key = [...recipeKeys.all, 'plannerSearch', 'saved', { query: 'rice' }];
+    h.client.setQueryData(key, { pages: [] });
+    (initial ? m.unsave : m.save).mockResolvedValueOnce({ saved: !initial });
+    await act(async () => { await h.mutation.mutateAsync('recipe-1'); });
+    expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
+    await h.close();
+  }
+});
+
+it.each(['guest', 'loading'] as const)('does not request private saved status while %s', async state => {
+  const { useIsRecipeSaved } = await import('./useRecipes');
+  m.loaded = state !== 'loading'; m.subject = state === 'guest' ? '' : 'viewer';
+  const client = new QueryClient(); const renderer = createRoot();
+  function Probe() { useIsRecipeSaved('recipe-1'); return null; }
+  try {
+    await act(async () => renderer.render(<QueryClientProvider client={client}><Probe /></QueryClientProvider>));
+    expect(m.checkSaved).not.toHaveBeenCalled();
+  } finally { await act(async () => renderer.unmount()); client.clear(); }
 });

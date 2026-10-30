@@ -1,3 +1,12 @@
+import { importInbox } from '@/lib/importInbox';
+import { useImportInbox } from '@/hooks/useImportInbox';
+import { invalidateCreatedRecipeQueries } from '@/hooks/useRecipes';
+import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
+import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
+import { applyCaptureEdits } from '@/lib/captureRecipeEdits';
+import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
+import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
+import { captureSaveFailure } from '@/lib/captureSaveFailure';
 import { NutritionPanel } from '@/components/NutritionPanel';
 import { hasNutritionValues, normalizeNutritionValues } from '@/lib/nutritionPresentation';
 import type { NutritionEstimateValues } from '@/lib/api';
@@ -72,6 +81,7 @@ interface ComponentInput {
 type EditRecipeData = Parameters<typeof api.editRecipe>[1];
 
 interface EditSnapshot {
+  captureRequest?: Omit<CapturedRecipeSaveInput, "requestGuard">;
   data: EditRecipeData;
   imageUri: string | null;
   publishingPreview: string | null;
@@ -112,7 +122,7 @@ export default function EditRecipeScreen() {
   return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
 }
 
-function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
+export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; resume?: boolean; guard: () => void } }) {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -121,7 +131,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
   const alive = useRef(false);
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const guard = () => { if (!alive.current || !owner) throw new Error('Account changed; reopen this recipe.'); };
+  const guard = () => { if (!alive.current || !owner) throw new Error('Account changed; reopen this recipe.'); capture?.guard(); };
 
   // Form state
   const [title, setTitle] = useState('');
@@ -173,10 +183,10 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   const { data: loadedRecipe, isLoading: isLoadingRecipe, isError, refetch } = useQuery({
     queryKey: ['recipe', id, owner],
     queryFn: ({ signal }) => api.getRecipe(id!, signal, guard),
-    enabled: !!id && !!owner,
+    enabled: !!id && !!owner && !capture,
   });
   const [draftRecipe, setDraftRecipe] = useState<Recipe | null>(null);
-  const recipe = draftRecipe ?? loadedRecipe;
+  const recipe = capture?.recipe ?? draftRecipe ?? loadedRecipe;
   useEffect(() => { if (!draftRecipe && loadedRecipe) setDraftRecipe(loadedRecipe); }, [draftRecipe, loadedRecipe]);
   const newerRecipeAvailable = !!draftRecipe && !!loadedRecipe
     && (draftRecipe.content_revision ?? 1) !== (loadedRecipe.content_revision ?? 1);
@@ -185,7 +195,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   const { data: originalStatus } = useQuery({
     queryKey: ['recipe-original', id, owner],
     queryFn: ({ signal }) => api.checkHasOriginal(id!, signal, guard),
-    enabled: !!id && !!owner,
+    enabled: !!id && !!owner && !capture,
   });
 
   // Pre-populate form when recipe loads
@@ -288,6 +298,19 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
     }
   }, [recipe]);
 
+  const inbox = useImportInbox();
+  const localDraft = usePrivateRecipeDraft(capture?.ownerId ?? null, 'recovery', {
+    recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
+    recipeComponents, ingredients, steps,
+  }, !!capture && !!title, saved => {
+    if (!saved.ingredients) return;
+    setTitle(saved.title); setServings(saved.servings); setPrepTime(saved.prepTime); setCookTime(saved.cookTime);
+    setTotalTime(saved.totalTime); setNotes(saved.notes); setTags(saved.tags); setIsPublic(saved.isPublic);
+    setRecipeComponents(saved.recipeComponents); setIngredients(saved.ingredients); setSteps(saved.steps);
+  });
+
+  useEffect(() => { if (capture && localDraft.available?.captureId === capture.id) localDraft.resume(); }, [capture?.resume, localDraft.available]);
+
   const createEditSnapshot = (): EditSnapshot => {
     // Capture and validate one immutable version of the form. The publishing
     // preview and final mutation must describe the exact same recipe state.
@@ -385,6 +408,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
 
     return {
       data,
+      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
       imageUri: newImageUri,
       publishingPreview: previewRecipe
         ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))
@@ -395,10 +419,23 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
 
   // Edit recipe mutation
   const editMutation = useMutation({
-    mutationFn: ({ data, imageUri }: EditSnapshot) => {
+    mutationFn: ({ data, imageUri, captureRequest }: EditSnapshot) => {
+      guard();
+      if (capture) {
+        if (!captureRequest) throw new Error('Missing capture snapshot');
+        return api.saveCapturedRecipe({ ...captureRequest, requestGuard: guard });
+      }
       return api.editRecipe(id!, data, imageUri, guard);
     },
-    onSuccess: (updatedRecipe) => {
+    onSuccess: async (updatedRecipe) => {
+      if (capture) {
+        guard();
+        invalidateCreatedRecipeQueries(queryClient, updatedRecipe.id);
+        const matching = inbox.entries.find(entry => entry.id === capture.id && entry.ownerId === capture.ownerId);
+        if (matching) { await importInbox.patch(capture.id, { state: 'accepted', recipeId: updatedRecipe.id, error: undefined }); guard(); }
+        await localDraft.finish(); await privateRecipeDrafts.remove(privateRecipeDrafts.lease(capture.ownerId), capture.recipe.source_type === 'text' ? 'paste' : 'scan'); guard(); router.replace(`/recipe/${updatedRecipe.id}`);
+        showToast({ message: 'Recipe saved', tone: 'success' }); return;
+      }
       // Invalidate recipe queries to refresh
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       queryClient.invalidateQueries({ queryKey: ['recipe', id] });
@@ -418,8 +455,21 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
       router.back();
       showToast({ message: 'Recipe updated', tone: 'success' });
     },
-    onError: (error: unknown) => {
+    onError: async (error: unknown, snapshot: EditSnapshot) => {
       if (!alive.current) return;
+      if (capture && captureSaveFailure(error).kind !== 'invalid') {
+        guard();
+        const request = snapshot.captureRequest!;
+        // Stop autosave before queuing the authoritative failed request.
+        await localDraft.leave(); guard();
+        await privateRecipeDrafts.write(privateRecipeDrafts.lease(capture.ownerId), 'recovery', {
+          request, recipe: { ...capture.recipe, extracted: request.extracted, is_public: request.is_public, source_type: request.source_type },
+          captureId: request.capture_id, failure: captureSaveFailure(error),
+        });
+        guard();
+        router.replace({ pathname: '/ocr-review', params: { recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
+        return;
+      }
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));
     },
   });
@@ -474,6 +524,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
   };
 
   const handleSubmit = () => {
+    if (capture && (!localDraft.ready || localDraft.available)) { Alert.alert('Private draft', 'Wait for your draft to load, then Resume or Discard it.'); return; }
     if (newerRecipeAvailable) {
       Alert.alert('Recipe changed', 'Your edits are still here. Reload the latest recipe before saving.');
       return;
@@ -750,7 +801,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
     }
   };
 
-  if (isLoadingRecipe) {
+  if (isLoadingRecipe && !capture) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.actionText} />
@@ -770,7 +821,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
     <>
       <Stack.Screen
         options={{
-          headerTitle: 'Edit Recipe',
+          headerTitle: capture ? 'Edit captured recipe' : 'Edit Recipe',
           headerRight: () => (
             <TouchableOpacity
               onPress={handleSubmit}
@@ -803,6 +854,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           >
+            {capture && <RecipeDraftNotice draft={localDraft} />}
             {newerRecipeAvailable && <RNView style={{ paddingBottom: spacing.md }} accessibilityRole="alert">
               <Text>This recipe changed elsewhere. Your edits are kept.</Text>
               <TouchableOpacity accessibilityLabel="Reload latest recipe" onPress={() => Alert.alert(
@@ -817,7 +869,7 @@ function EditRecipeForm({ owner }: { owner: string | null | undefined }) {
             {/* Image Section */}
             <TouchableOpacity
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}
-              onPress={showImageOptions}
+              onPress={capture ? undefined : showImageOptions}
               activeOpacity={0.7}
             >
               {newImageUri || thumbnailUrl ? (

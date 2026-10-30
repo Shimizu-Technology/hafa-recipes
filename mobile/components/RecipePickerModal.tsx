@@ -6,7 +6,7 @@
  * Includes quick filters for cook time and tags.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   Modal,
@@ -23,14 +23,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Chip, useColors } from '@/components/Themed';
-import { useRecipes, useSavedRecipes, useInfiniteDiscoverRecipes, usePopularTags } from '@/hooks/useRecipes';
+import { usePlannerRecipeSearch, usePopularTags } from '@/hooks/useRecipes';
 import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { lightHaptic } from '@/utils/haptics';
 import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 
-type TabType = 'mine' | 'saved' | 'discover';
+type TabType = 'all' | 'mine' | 'saved' | 'discover';
 
 interface RecipePickerModalProps {
   visible: boolean;
@@ -52,43 +52,6 @@ const TIME_FILTERS = [
   { label: '30-60 min', value: 'medium' },
   { label: '> 60 min', value: 'long' },
 ];
-
-// Helper to parse time string to minutes
-function parseTimeToMinutes(timeStr: string | null): number | null {
-  if (!timeStr) return null;
-  const lower = timeStr.toLowerCase();
-
-  // Parse "X hours Y min" format
-  const hoursMatch = lower.match(/(\d+)\s*(?:hour|hr)/);
-  const minsMatch = lower.match(/(\d+)\s*(?:min|minute)/);
-
-  let totalMinutes = 0;
-  if (hoursMatch) totalMinutes += parseInt(hoursMatch[1]) * 60;
-  if (minsMatch) totalMinutes += parseInt(minsMatch[1]);
-
-  // If no match but has a number, assume minutes
-  if (!hoursMatch && !minsMatch) {
-    const numMatch = lower.match(/(\d+)/);
-    if (numMatch) totalMinutes = parseInt(numMatch[1]);
-  }
-
-  return totalMinutes > 0 ? totalMinutes : null;
-}
-
-// Filter recipe by time
-function matchesTimeFilter(recipe: RecipeListItem, filter: string | null): boolean {
-  if (!filter) return true;
-
-  const minutes = parseTimeToMinutes(recipe.total_time);
-  if (minutes === null) return filter === null; // No time info, show only for "All"
-
-  switch (filter) {
-    case 'quick': return minutes < 30;
-    case 'medium': return minutes >= 30 && minutes <= 60;
-    case 'long': return minutes > 60;
-    default: return true;
-  }
-}
 
 /** Render one recipe choice with its current readiness state. */
 /** Render one selectable recipe in the planner picker. */
@@ -142,91 +105,21 @@ export default function RecipePickerModal({
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<TabType>('mine');
+  const [activeTab, setActiveTab] = useState<TabType>('all');
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Fetch user's recipes
-  const {
-    data: recipesData,
-    isLoading: recipesLoading,
-    fetchNextPage: fetchMoreRecipes,
-    hasNextPage: hasMoreRecipes,
-    isFetchingNextPage: fetchingMoreRecipes,
-  } = useRecipes();
-
-  // Fetch saved recipes
-  const {
-    data: savedData,
-    isLoading: savedLoading,
-  } = useSavedRecipes();
-
-  // Fetch discover recipes
-  const {
-    data: discoverData,
-    isLoading: discoverLoading,
-    fetchNextPage: fetchMoreDiscover,
-    hasNextPage: hasMoreDiscover,
-    isFetchingNextPage: fetchingMoreDiscover,
-  } = useInfiniteDiscoverRecipes();
-
-  // Fetch popular tags for the current tab
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const results = usePlannerRecipeSearch(activeTab, {
+    query: debouncedSearch, timeFilter: timeFilter ?? undefined, tags: selectedTags,
+  }, visible);
+  const filteredRecipes = results.data?.pages.flatMap(page => page.items) ?? [];
   const { data: popularTags } = usePopularTags(activeTab === 'discover' ? 'public' : 'user');
-
-  // Combine all recipes from paginated results
-  const myRecipes = useMemo(() => {
-    if (!recipesData) return [];
-    return recipesData.pages.flatMap((page) => page.items);
-  }, [recipesData]);
-
-  const savedRecipes = useMemo(() => {
-    if (!savedData) return [];
-    return savedData.pages.flatMap((page) => page.items);
-  }, [savedData]);
-
-  const discoverRecipes = useMemo(() => {
-    if (!discoverData) return [];
-    return discoverData.pages.flatMap((page) => page.items);
-  }, [discoverData]);
-
-  // Get source list based on active tab
-  const sourceRecipes = useMemo(() => {
-    switch (activeTab) {
-      case 'mine': return myRecipes;
-      case 'saved': return savedRecipes;
-      case 'discover': return discoverRecipes;
-    }
-  }, [activeTab, myRecipes, savedRecipes, discoverRecipes]);
-
-  // Filter by search, time, and tags
-  const filteredRecipes = useMemo(() => {
-    let filtered = sourceRecipes;
-
-    // Search filter
-    if (search.trim()) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter(
-        (r) =>
-          r.title.toLowerCase().includes(searchLower) ||
-          r.tags.some((t) => t.toLowerCase().includes(searchLower))
-      );
-    }
-
-    // Time filter
-    if (timeFilter) {
-      filtered = filtered.filter((r) => matchesTimeFilter(r, timeFilter));
-    }
-
-    // Tag filter
-    if (selectedTags.length > 0) {
-      filtered = filtered.filter((r) =>
-        selectedTags.some((tag) => r.tags.map((t) => t.toLowerCase()).includes(tag.toLowerCase()))
-      );
-    }
-
-    return filtered;
-  }, [sourceRecipes, search, timeFilter, selectedTags]);
 
   const handleSelect = useCallback(
     (recipe: RecipeListItem) => {
@@ -260,17 +153,11 @@ export default function RecipePickerModal({
     [colors, handleSelect]
   );
 
-  const isLoading = recipesLoading || savedLoading || discoverLoading;
-  const canFetchMore = activeTab === 'mine' ? hasMoreRecipes : activeTab === 'discover' ? hasMoreDiscover : false;
-  const isFetchingMore = activeTab === 'mine' ? fetchingMoreRecipes : activeTab === 'discover' ? fetchingMoreDiscover : false;
-
-  const handleEndReached = useCallback(() => {
-    if (activeTab === 'mine' && hasMoreRecipes && !fetchingMoreRecipes) {
-      fetchMoreRecipes();
-    } else if (activeTab === 'discover' && hasMoreDiscover && !fetchingMoreDiscover) {
-      fetchMoreDiscover();
-    }
-  }, [activeTab, hasMoreRecipes, fetchingMoreRecipes, fetchMoreRecipes, hasMoreDiscover, fetchingMoreDiscover, fetchMoreDiscover]);
+  const isLoading = results.isLoading;
+  const isFetchingMore = results.isFetchingNextPage;
+  const handleEndReached = () => {
+    if (results.hasNextPage && !results.isFetchingNextPage && !results.isError) void results.fetchNextPage();
+  };
 
   return (
     <Modal
@@ -292,7 +179,7 @@ export default function RecipePickerModal({
         >
           <RNView style={styles.headerRow}>
             <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close recipe picker">
               <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
           </RNView>
@@ -308,7 +195,8 @@ export default function RecipePickerModal({
               <Ionicons name="search" size={18} color={colors.textMuted} />
               <TextInput
                 style={[styles.searchInput, { color: colors.text }]}
-                placeholder="Search recipes..."
+                placeholder="Search all recipes in this scope"
+                accessibilityLabel="Search recipes in selected scope"
                 placeholderTextColor={colors.textMuted}
                 value={search}
                 onChangeText={setSearch}
@@ -410,59 +298,23 @@ export default function RecipePickerModal({
             </RNView>
           )}
 
-          {/* Tab Toggle - 3 tabs */}
-          <RNView style={styles.tabRow}>
-            <TouchableOpacity
-              style={[
-                styles.tab,
-                activeTab === 'mine' && { backgroundColor: colors.tint },
-              ]}
-              onPress={() => setActiveTab('mine')}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  { color: activeTab === 'mine' ? '#FFFFFF' : colors.textMuted },
-                ]}
-              >
-                My Recipes
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tab,
-                activeTab === 'saved' && { backgroundColor: colors.tint },
-              ]}
-              onPress={() => setActiveTab('saved')}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  { color: activeTab === 'saved' ? '#FFFFFF' : colors.textMuted },
-                ]}
-              >
-                Saved
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tab,
-                activeTab === 'discover' && { backgroundColor: colors.tint },
-              ]}
-              onPress={() => setActiveTab('discover')}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  { color: activeTab === 'discover' ? '#FFFFFF' : colors.textMuted },
-                ]}
-              >
-                Discover
-              </Text>
-            </TouchableOpacity>
+          <RNView style={styles.tabRow} accessibilityRole="radiogroup">
+            {([['all', 'All library'], ['mine', 'Mine'], ['saved', 'Saved'], ['discover', 'Discover']] as const).map(([scope, label]) => (
+              <Chip key={scope} label={label} selected={activeTab === scope}
+                accessibilityRole="radio" accessibilityLabel={`${label} recipes`}
+                onPress={() => setActiveTab(scope)} />
+            ))}
           </RNView>
+
         </RNView>
 
+        {results.isError && <RNView style={{ padding: spacing.md }}>
+          <Text style={{ color: colors.text }}>Couldn’t load {activeTab === 'all' ? 'your library' : activeTab} recipes. {filteredRecipes.length > 0 ? 'Showing loaded recipes.' : ''}</Text>
+          <TouchableOpacity style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Retry recipe search"
+            disabled={results.isFetching} onPress={() => results.isFetchNextPageError ? results.fetchNextPage() : results.refetch()}>
+            <Text style={{ color: colors.actionText }}>{results.isFetching ? 'Retrying…' : 'Retry'}</Text>
+          </TouchableOpacity>
+        </RNView>}
         {/* Recipe List */}
         {isLoading ? (
           <RNView style={styles.loadingContainer}>
@@ -482,7 +334,7 @@ export default function RecipePickerModal({
               <RNView style={styles.emptyContainer}>
                 <Ionicons name="restaurant-outline" size={48} color={colors.textMuted} />
                 <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-                  {search || hasActiveFilters ? 'No recipes match your filters' : 'No recipes yet'}
+                  {results.isError ? 'Recipes are unavailable' : search || hasActiveFilters ? 'No recipes match in this scope' : 'No recipes in this scope yet'}
                 </Text>
                 {hasActiveFilters && (
                   <TouchableOpacity style={styles.clearFiltersButton} onPress={clearFilters}>
@@ -527,6 +379,9 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   closeButton: {
+    minHeight: 44,
+    minWidth: 44,
+    justifyContent: 'center',
     padding: spacing.xs,
   },
   searchRow: {
@@ -591,6 +446,7 @@ const styles = StyleSheet.create({
   },
   tabRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.xs,
   },
   tab: {
