@@ -225,7 +225,7 @@ index e52b6d0..2a1d56c 100644
 +}
 +// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END
 diff --git a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
-index f1f4b72..74e8c59 100644
+index f1f4b72..e930131 100644
 --- a/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 +++ b/node_modules/expo-share-intent/plugin/build/ios/ShareExtensionViewController.swift
 @@ -4,6 +4,7 @@
@@ -245,7 +245,73 @@ index f1f4b72..74e8c59 100644
    let hideView: Bool = <HIDEVIEW>
    var sharedMedia: [SharedMediaFile] = []
    var sharedWebUrl: [WebUrl] = []
-@@ -490,24 +491,248 @@ class ShareViewController: UIViewController {
+@@ -116,9 +117,7 @@ class ShareViewController: UIViewController {
+           self.sharedText.append(item)
+           // If this is the last item, save sharedText in userDefaults and redirect to host app
+           if index == (content.attachments?.count)! - 1 {
+-            let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-            userDefaults?.set(self.sharedText, forKey: self.sharedKey)
+-            userDefaults?.synchronize()
++
+             self.redirectToHostApp(type: .text)
+           }
+ 
+@@ -139,9 +138,7 @@ class ShareViewController: UIViewController {
+           self.sharedWebUrl.append(WebUrl(url: item.absoluteString, meta: ""))
+           // If this is the last item, save sharedText in userDefaults and redirect to host app
+           if index == (content.attachments?.count)! - 1 {
+-            let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-            userDefaults?.set(self.toData(data: self.sharedWebUrl), forKey: self.sharedKey)
+-            userDefaults?.synchronize()
++
+             self.redirectToHostApp(type: .weburl)
+           }
+ 
+@@ -174,9 +171,7 @@ class ShareViewController: UIViewController {
+               WebUrl(url: results["baseURI"] as! String, meta: results["meta"] as! String))
+             // If this is the last item, save sharedText in userDefaults and redirect to host app
+             if index == (content.attachments?.count)! - 1 {
+-              let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-              userDefaults?.set(self.toData(data: self.sharedWebUrl), forKey: self.sharedKey)
+-              userDefaults?.synchronize()
++
+               self.redirectToHostApp(type: .weburl)
+             }
+           } else {
+@@ -313,9 +308,7 @@ class ShareViewController: UIViewController {
+ 
+           // If this is the last item, save imagesData in userDefaults and redirect to host app
+           if index == (content.attachments?.count)! - 1 {
+-            let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-            userDefaults?.set(self.toData(data: self.sharedMedia), forKey: self.sharedKey)
+-            userDefaults?.synchronize()
++
+             self.redirectToHostApp(type: .media)
+           }
+         }
+@@ -398,9 +391,7 @@ class ShareViewController: UIViewController {
+ 
+           // If this is the last item, save imagesData in userDefaults and redirect to host app
+           if index == (content.attachments?.count)! - 1 {
+-            let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-            userDefaults?.set(self.toData(data: self.sharedMedia), forKey: self.sharedKey)
+-            userDefaults?.synchronize()
++
+             self.redirectToHostApp(type: .media)
+           }
+ 
+@@ -466,9 +457,7 @@ class ShareViewController: UIViewController {
+     }
+ 
+     if index == (content.attachments?.count)! - 1 {
+-      let userDefaults = UserDefaults(suiteName: self.hostAppGroupIdentifier)
+-      userDefaults?.set(self.toData(data: self.sharedMedia), forKey: self.sharedKey)
+-      userDefaults?.synchronize()
++
+       self.redirectToHostApp(type: .file)
+     }
+   }
+@@ -490,24 +479,302 @@ class ShareViewController: UIViewController {
    }
  
    private func redirectToHostApp(type: RedirectType) {
@@ -263,52 +329,84 @@ index f1f4b72..74e8c59 100644
 -            message: "Application not found, invalid url scheme \(shareProtocol)")
 -          return
 -        }
-+    let captureID = UUID().uuidString.lowercased()
++    let payload: Any?
++    switch type {
++    case .text: payload = sharedText
++    case .weburl: payload = toData(data: sharedWebUrl)
++    case .media, .file: payload = toData(data: sharedMedia)
++    }
++    guard let payload else { dismissWithError(message: "Could not read shared recipe"); return }
 +    let captureKey = sharedKey
-+    let saved = HafaShareStore.locked { defaults -> Bool in
-+      guard defaults.object(forKey: captureKey) != nil else { return false }
-+      var metadata: [String: Any] = ["captureId": captureID, "captureKey": captureKey, "submitted": false, "confirmed": false]
++    pendingCapture = (captureKey, UUID().uuidString.lowercased(), payload, "\(shareProtocol)://dataUrl=\(captureKey)#\(type)")
++    captureSource = sharedWebUrl.first.flatMap { URL(string: $0.url)?.host }
++      ?? (type == .media ? "Shared photos" : "Shared recipe")
++    saveCaptureSource()
++  }
++
++  // Immutable operation inputs never retain UIKit. All UI completion is on main.
++  private func writeCapture<T>(_ operation: @escaping () -> T, completion: @escaping (ShareViewController, T) -> Void) {
++    guard !captureWriting, !captureClosed else { return }
++    let id = UUID(); captureWriteID = id; captureWriting = true
++    refreshCaptureControls(); confirmationSpinner?.isHidden = false; confirmationSpinner?.startAnimating()
++    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
++      guard let self, self.captureWriteID == id, !self.captureClosed else { return }
++      self.confirmationDetail?.text = "Saving is taking longer. You can wait and retry; your source is still here."
++    }
++    HafaShareStore.performCaptureWrite(operation) { [weak self] result in
++      guard let self, self.captureWriteID == id, !self.captureClosed else { return }
++      self.captureWriteID = nil; self.captureWriting = false
++      self.confirmationSpinner?.stopAnimating(); self.confirmationSpinner?.isHidden = true
++      completion(self, result); self.refreshCaptureControls()
++    }
++  }
++
++  private func saveCaptureSource() {
++    guard let source = pendingCapture else { return }
++    showCaptureConfirmation(title: "Saving your source", detail: "Keeping the shared recipe on this device.")
++    writeCapture({ HafaShareStore.locked { defaults -> Bool? in
 +      let preferences = HafaShareStore.capturePreferences(
 +        session: defaults.dictionary(forKey: HafaShareStore.sessionKey),
 +        preferences: defaults.dictionary(forKey: HafaShareStore.preferencesKey))
++      var metadata: [String: Any] = ["captureId": source.id, "captureKey": source.key, "submitted": false, "confirmed": false]
 +      metadata.merge(preferences) { _, snapshot in snapshot }
-+      captureVisibility = metadata["requestedIsPublic"] as? Bool ?? false
-+      defaults.set(metadata, forKey: "\(captureKey).meta")
++      defaults.set(source.payload, forKey: source.key)
++      defaults.set(metadata, forKey: "\(source.key).meta")
 +      var pending = defaults.stringArray(forKey: HafaShareStore.pendingKey) ?? []
-+      pending.append("\(shareProtocol)://dataUrl=\(captureKey)#\(type)")
++      if !pending.contains(source.url) { pending.append(source.url) }
 +      defaults.set(pending, forKey: HafaShareStore.pendingKey)
-+      return true
-+    } ?? false
-+    guard saved else { dismissWithError(message: "Could not save shared recipe"); return }
-+    captureSource = sharedWebUrl.first.flatMap { URL(string: $0.url)?.host }
-+      ?? (type == .media ? "Shared photos" : "Shared recipe")
-+    confirmationCaptureKey = captureKey
-+    showCaptureConfirmation(title: "Save this recipe", detail: "Choose who can see this recipe. Original photo pages stay private.")
-+    confirmationSpinner?.stopAnimating()
-+    confirmationSpinner?.isHidden = true
-+    setCaptureButtonTitle("Save recipe")
-+    confirmationDone?.isEnabled = true
-+    updateVisibilityChoices()
++      return metadata["requestedIsPublic"] as? Bool ?? true
++    } ?? nil }) { controller, choice in
++      guard let choice else {
++        controller.showCaptureConfirmation(title: "Try saving source again", detail: "Could not save your source yet. Try again; the source is still here.")
++        controller.setCaptureButtonTitle("Try saving source again"); return
++      }
++      controller.captureDurable = true; controller.pendingCapture = nil
++      controller.captureVisibility = choice; controller.confirmationCaptureKey = source.key
++      controller.showCaptureConfirmation(title: "Save this recipe", detail: "Choose who can see this recipe. Original photo pages stay private.")
++      controller.setCaptureButtonTitle("Save recipe"); controller.updateVisibilityChoices()
++    }
 +  }
 +
 +  @objc private func submitCapture() {
-+    guard !captureSubmitted, let captureKey = confirmationCaptureKey else { return }
-+    let saved = HafaShareStore.locked { defaults -> Bool in
++    guard !captureSubmitted, !captureWriting, !captureClosed else { return }
++    if !captureDurable { saveCaptureSource(); return }
++    guard let captureKey = confirmationCaptureKey else { return }
++    let requested = captureVisibility
++    writeCapture({ HafaShareStore.locked { defaults -> Bool in
 +      guard var metadata = defaults.dictionary(forKey: "\(captureKey).meta") else { return false }
-+      metadata["requestedIsPublic"] = captureVisibility
++      metadata["requestedIsPublic"] = requested
 +      metadata["confirmed"] = true
 +      defaults.set(metadata, forKey: "\(captureKey).meta")
 +      return true
-+    } ?? false
-+    guard saved else { dismissWithError(message: "Could not save the sharing choice"); return }
-+    captureSubmitted = true
-+    visibilityChoices.forEach { $0.isEnabled = false }
-+    confirmationDone?.isEnabled = false
-+    confirmationSpinner?.isHidden = false
-+    confirmationSpinner?.startAnimating()
-+    showCaptureConfirmation(title: "Saving your recipe", detail: "Adding it to Håfa.")
-+    // URLs from Safari/social apps are accepted by the API immediately. Text
-+    // and photos retain their complete native payload for main-app intake.
++    } ?? false }) { controller, saved in
++      guard saved else { controller.confirmationDetail?.text = "Could not save the choice. Try again. Your source and last saved choice are safe."; return }
++      controller.captureSubmitted = true
++      controller.showCaptureConfirmation(title: "Saving your recipe", detail: "Adding it to Håfa.")
++      controller.enqueueCapture(captureKey)
++    }
++  }
++
++  private func enqueueCapture(_ captureKey: String) {
 +    let link: String?
 +    if let web = sharedWebUrl.first { link = web.url }
 +    else {
@@ -320,9 +418,13 @@ index f1f4b72..74e8c59 100644
 +    guard let link, let url = URL(string: link), ["http", "https"].contains(url.scheme ?? "") else {
 +      finishCapture(accepted: false); return
 +    }
-+    HafaShareStore.enqueueLink(captureKey: captureKey, url: link) { accepted in
-+      DispatchQueue.main.async { self.finishCapture(accepted: accepted) }
-+    }
++    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.finishCapture(accepted: false) }
++    HafaShareStore.performCaptureWrite({ [weak self] in
++      HafaShareStore.enqueueLink(captureKey: captureKey, url: link) { [weak self] accepted in
++        DispatchQueue.main.async { [weak self] in self?.finishCapture(accepted: accepted) }
+       }
+-      responder = responder!.next
++    }, completion: { _ in })
 +  }
 +
 +  private var confirmationTitle: UILabel?
@@ -334,6 +436,17 @@ index f1f4b72..74e8c59 100644
 +  private var visibilityChoices: [UIButton] = []
 +  private var captureSource = "Shared recipe"
 +  private var captureSubmitted = false
++  private var captureWriting = false
++  private var captureDurable = false
++  private var captureClosed = false
++  private var captureFinished = false
++  private var captureWriteID: UUID?
++  private var pendingCapture: (key: String, id: String, payload: Any, url: String)?
++
++  private func refreshCaptureControls() {
++    visibilityChoices.forEach { $0.isEnabled = captureDurable && !captureWriting && !captureSubmitted }
++    confirmationDone?.isEnabled = !captureWriting && (!captureSubmitted || captureFinished)
++  }
 +
 +  private func setCaptureButtonTitle(_ title: String) {
 +    guard var configuration = confirmationDone?.configuration else { return }
@@ -356,16 +469,17 @@ index f1f4b72..74e8c59 100644
 +  }
 +
 +  @objc private func changeCaptureVisibility(_ sender: UIButton) {
-+    guard !captureSubmitted else { return }
-+    captureVisibility = sender.tag == 1
-+    if let key = confirmationCaptureKey {
-+      _ = HafaShareStore.locked { defaults in
-+        guard var metadata = defaults.dictionary(forKey: "\(key).meta") else { return }
-+        metadata["requestedIsPublic"] = captureVisibility
-+        defaults.set(metadata, forKey: "\(key).meta")
-+      }
++    guard captureDurable, !captureSubmitted, !captureWriting, let key = confirmationCaptureKey else { return }
++    let requested = sender.tag == 1
++    writeCapture({ HafaShareStore.locked { defaults -> Bool in
++      guard var metadata = defaults.dictionary(forKey: "\(key).meta") else { return false }
++      metadata["requestedIsPublic"] = requested
++      defaults.set(metadata, forKey: "\(key).meta")
++      return true
++    } ?? false }) { controller, saved in
++      if saved { controller.captureVisibility = requested; controller.updateVisibilityChoices() }
++      else { controller.confirmationDetail?.text = "Could not save the choice. Try again. Your source and last saved choice are safe." }
 +    }
-+    updateVisibilityChoices()
 +  }
 +
 +  private func showCaptureConfirmation(title: String, detail: String) {
@@ -427,8 +541,7 @@ index f1f4b72..74e8c59 100644
 +        choice.addTarget(self, action: #selector(changeCaptureVisibility(_:)), for: .touchUpInside)
 +        visibilityChoices.append(choice)
 +        stack.addArrangedSubview(choice)
-       }
--      responder = responder!.next
++      }
 +      updateVisibilityChoices()
 +      let spinner = UIActivityIndicatorView(style: .medium)
 +      spinner.color = UIColor(red: 0.35, green: 0.75, blue: 0.69, alpha: 1)
@@ -448,6 +561,11 @@ index f1f4b72..74e8c59 100644
 +      done.addTarget(self, action: #selector(closeCaptureConfirmation), for: .touchUpInside)
 +      done.isEnabled = false
 +      stack.addArrangedSubview(done)
++      let close = UIButton(type: .system); close.setTitle("Close", for: .normal)
++      close.titleLabel?.font = hafaFont(.body); close.titleLabel?.adjustsFontForContentSizeCategory = true
++      close.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
++      close.addTarget(self, action: #selector(dismissCapture), for: .touchUpInside)
++      stack.addArrangedSubview(close)
 +      NSLayoutConstraint.activate([
 +        scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
 +        scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
@@ -468,13 +586,14 @@ index f1f4b72..74e8c59 100644
 +      confirmationDetail = message
 +      confirmationSpinner = spinner
 +      confirmationDone = done
-     }
--    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
++    }
 +    confirmationTitle?.text = title
 +    confirmationDetail?.text = detail
 +  }
 +
 +  private func finishCapture(accepted: Bool) {
++    guard !captureClosed, !captureFinished else { return }
++    captureFinished = true
 +    showCaptureConfirmation(
 +      title: accepted ? "Import started" : "Saved for later",
 +      detail: accepted
@@ -489,6 +608,10 @@ index f1f4b72..74e8c59 100644
 +
 +  @objc private func closeCaptureConfirmation() {
 +    if !captureSubmitted { submitCapture(); return }
++    dismissCapture()
++  }
++  @objc private func dismissCapture() {
++    captureClosed = true; captureWriteID = nil
 +    extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
 +  }
 +
@@ -497,16 +620,13 @@ index f1f4b72..74e8c59 100644
 +      forSecurityApplicationGroupIdentifier: hostAppGroupIdentifier),
 +      let defaults = UserDefaults(suiteName: hostAppGroupIdentifier)
 +    else { return nil }
-+    let lockPath = container.appendingPathComponent("hafa-share-queue.lock").path
-+    let descriptor = open(lockPath, O_CREAT | O_RDWR, mode_t(0o600))
-+    guard descriptor >= 0 else { return nil }
-+    defer { close(descriptor) }
-+    guard flock(descriptor, LOCK_EX) == 0 else { return nil }
-+    defer { flock(descriptor, LOCK_UN) }
-+    defaults.synchronize()
-+    let result = operation(defaults)
-+    defaults.synchronize()
-+    return result
++    return HafaShareStore.withFileLock(container) {
++      defaults.synchronize()
++      let result = operation(defaults)
++      defaults.synchronize()
++      return result
+     }
+-    extensionContext!.completeRequest(returningItems: [], completionHandler: nil)
    }
  
    enum RedirectType {

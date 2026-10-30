@@ -14,15 +14,35 @@ enum HafaShareStore {
   static func locked<T>(_ operation: (UserDefaults) throws -> T) rethrows -> T? {
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup),
       let defaults = UserDefaults(suiteName: appGroup) else { return nil }
+    return try withFileLock(container) {
+      defaults.synchronize()
+      defer { defaults.synchronize() }
+      return try operation(defaults)
+    }
+  }
+
+  // Timeout must occur before touching any receipt/defaults. Use uptime so a
+  // wall-clock change cannot extend lock acquisition indefinitely.
+  static func withFileLock<T>(_ container: URL, timeout: TimeInterval = 0.25,
+    _ operation: () throws -> T) rethrows -> T? {
     let descriptor = open(container.appendingPathComponent("hafa-share-queue.lock").path, O_CREAT | O_RDWR, mode_t(0o600))
-    guard descriptor >= 0 else { return nil }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else { return nil }
+    guard descriptor >= 0 else { return nil }; defer { close(descriptor) }
+    let deadline = ProcessInfo.processInfo.systemUptime + max(0, timeout)
+    while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+      guard errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR else { return nil }
+      let remaining = deadline - ProcessInfo.processInfo.systemUptime
+      guard remaining > 0 else { return nil }
+      Thread.sleep(forTimeInterval: min(0.01, remaining))
+    }
     defer { flock(descriptor, LOCK_UN) }
-    defaults.synchronize()
-    defer { defaults.synchronize() }
-    let value = try operation(defaults)
-    return value
+    return try operation()
+  }
+  private static let captureWriteQueue = DispatchQueue(label: "com.shimizutechnology.hafa.capture-writes", qos: .utility)
+  static func performCaptureWrite<T>(_ operation: @escaping () -> T, completion: @escaping (T) -> Void) {
+    captureWriteQueue.async {
+      let result = operation()
+      DispatchQueue.main.async { completion(result) }
+    }
   }
 
   static func keychainQuery() -> [String: Any]? {
