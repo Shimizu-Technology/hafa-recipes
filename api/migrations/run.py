@@ -27,6 +27,7 @@ ACTIVE_MIGRATIONS = (
     "migrations.032_add_share_import_credentials",
     "migrations.033_add_nutrition_backfill_audit",
     "migrations.053_add_planned_servings",
+    "migrations.053_add_recipe_source_pages",
 )
 LATEST_MIGRATION = 53
 OPTIONAL_MIGRATIONS = (
