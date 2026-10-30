@@ -1151,3 +1151,25 @@ async def test_append_rejects_final_version_size_before_retention_or_export_muta
     assert (await data_api.client.get(f"/api/v1/workouts/library/{created['id']}")).json() == created
     async with data_api.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(WorkoutVersion)) == 1
+
+
+async def test_single_session_schedule_without_profile_preserves_snapshot_and_retry(data_api):
+    from app.domains.workouts.programming import RULE_VERSION
+
+    await enroll(data_api)
+    payload = {"title": "Basketball warmup", "proposal": {
+        "status": "ready", "rule_version": RULE_VERSION, "source_ids": [],
+        "progression_policy": "One saved workout scheduled once. No automatic progression.",
+        "sessions": [{"id": "one-session", "date": "2026-11-04",
+                      "purpose": "Warmup · 18:30", "workout": WORKOUT}],
+    }}
+    headers = GENERATION | {"Idempotency-Key": str(uuid4())}
+    first = await data_api.client.post("/api/v1/workouts/programs", json=payload, headers=headers)
+    assert first.status_code == 201, first.text
+    replay = await data_api.client.post("/api/v1/workouts/programs", json=payload, headers=headers)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["id"] == first.json()["id"]
+    sessions = first.json()["content"]["proposal"]["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["purpose"] == "Warmup · 18:30"
+    assert sessions[0]["workout"]["blocks"][0]["exercises"][0]["sets"] == 2

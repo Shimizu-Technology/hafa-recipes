@@ -192,16 +192,16 @@ it("omits an empty reference card when source identity is already in the header"
   }, showIdentity: false, showOriginal: false })); });
   expect(nodes("Card")).toHaveLength(0);
 });
-it("a saved workout enters planning with that workout selected", async () => {
+it.each(["session", "exercise", "accessory"] as const)("a saved %s schedules that workout once", async (kind) => {
   fixture.params = { id: "saved-1" };
   fixture.workout.mockResolvedValue({ id: "saved-1", revision: 1, generation: 1, title: "Saved session",
-    kind: "session", provenance: "user", blocks: [{ id: "b", label: "Main", grouping: "sequential",
+    kind, provenance: "user", blocks: [{ id: "b", label: "Main", grouping: "sequential",
       exercises: [{ name: "Squat", sets: 3, reps_min: 8 }] }], equipment_required: [] });
   await mount(WorkoutDetail);
-  const action = nodes("ListRow").find((n) => n.props.title === "Add to a plan");
+  const action = nodes("ListRow").find((n) => n.props.title === "Schedule");
   expect(action).toBeDefined();
   await act(async () => action!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/build-plan", params: { include: "saved-1" } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/schedule-once", params: { workout_id: "saved-1" } });
 });
 /** Finds a Button inside an element passed as a prop (e.g. Empty's action), which the string mocks don't render. */
 function actionButton(element: unknown, title: string): { props: { onPress(): void } } | undefined {
@@ -517,8 +517,8 @@ it("saves from detail, then offers the saved workout and a plan", async () => {
   expect(fixture.saveDiscovered).toHaveBeenCalledWith("pub-1", 1);
   expect(fixture.toast).toHaveBeenCalledWith("Saved to your library");
   expect(nodes("Sheet").find((n) => n.props.title === "Saved to your library")!.props.visible).toBe(true);
-  await act(async () => button("Add to a plan")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/build-plan", params: { include: "copy-1" } });
+  await act(async () => button("Schedule")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/schedule-once", params: { workout_id: "copy-1" } });
   expect(button("Open in your library")).toBeDefined();
 });
 
@@ -608,6 +608,9 @@ it("shows owners their own workout with unpublish and no save, report or block",
   expect(button("Save to library")).toBeUndefined();
   expect(nodes("ListRow").find((n) => n.props.title === "Remove from Discover")).toBeDefined();
   expect(headerActions().map((n) => n.props.label)).toEqual(["Share this workout"]);
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Schedule")!.props.onPress());
+  expect(fixture.saveDiscovered).not.toHaveBeenCalled();
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/schedule-once", params: { workout_id: "pub-1" } });
 });
 
 it("Discover detail leads with the cover, keeps one primary save and tucks report and block into more options", async () => {
@@ -1097,11 +1100,11 @@ it("shows source-wide instructions and review action instead of starting a one-p
   expect(text).toContain("No set counts yet");
   expect(text).not.toContain("tracking prescription");
   expect(text).not.toContain("Review before tracking"); expect(button("Review tracking details")).toBeUndefined();
-  const plan = nodes("ListRow").find(node => node.props.title === "Add to a plan")!;
+  const plan = nodes("ListRow").find(node => node.props.title === "Schedule")!;
   expect(plan.props.disabled).toBeFalsy();
-  expect(plan.props.detail).toBe("Add set or round counts first");
+  expect(plan.props.detail).toBe("Choose a date for this workout");
   await act(async () => plan.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/schedule-once", params: { workout_id: saved.id } });
   // Start is never a dead button: it asks how to track instead.
   const start = button("Start workout")!;
   expect(start.props.disabled).toBe(false);
@@ -1126,7 +1129,7 @@ it("starts a fully specified workout immediately without asking how to track it"
   expect(nodes("WorkoutStartSheet")[0].props.visible).toBe(false);
   expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ id: saved.id }),
     { workout_id: saved.id, workout_revision: saved.revision }, "uuid", undefined, undefined);
-  expect(nodes("ListRow").find(node => node.props.title === "Add to a plan")!.props.detail).toBe("Choose your days and keep this workout selected");
+  expect(nodes("ListRow").find(node => node.props.title === "Schedule")!.props.detail).toBe("Choose a date for this workout");
 });
 
 it("keeps the original overall instructions visible during import review", async () => {
