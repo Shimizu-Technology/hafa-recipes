@@ -378,7 +378,7 @@ class ApiClient {
       return data;
     } catch (error) {
       const status = (error as { response?: { status?: number } }).response?.status;
-      if (lease && status && [401, 403, 404, 410].includes(status)) await offlineRecipes.remove(lease, id);
+      if (lease && status && [401, 403, 404, 410].includes(status)) await offlineRecipes.remove(lease, id).catch(() => undefined);
       throw error;
     }
   }
