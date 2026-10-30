@@ -89,3 +89,20 @@ it('never deletes a page while another draft or pending capture still references
   await drafts.remove(lease, 'recovery');
   expect(media.files.has(uri)).toBe(false);
 });
+
+it('protects a queued retry reference registered after cleanup starts', async () => {
+  const { drafts, storage, data } = fixture(); const lease = drafts.lease('owner-a');
+  const uri = 'file:///private/private-recipe-drafts/owner-a/racing-page.jpg'; media.files.add(uri);
+  await drafts.write(lease, 'scan', { selectedImages: [{ uri }] });
+  let release!: () => void; let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  storage.getAllKeys.mockImplementationOnce(async () => {
+    entered(); await new Promise<void>(resolve => { release = resolve; }); return [...data.keys()];
+  });
+  const removal = drafts.remove(lease, 'scan'); await started;
+  const retry = drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
+  release(); await Promise.all([removal, retry]);
+  expect(media.files.has(uri)).toBe(true);
+  expect(await drafts.read(lease, 'recovery')).not.toBeNull();
+  await drafts.remove(lease, 'recovery'); expect(media.files.has(uri)).toBe(false);
+});
