@@ -11,24 +11,27 @@ vi.mock("react-native", () => ({
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
   Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn() },
   useColorScheme: () => mock.scheme, useWindowDimensions: () => ({ fontScale: mock.fontScale }),
-  AccessibilityInfo: { isReduceMotionEnabled: async () => mock.reduced,
+  AccessibilityInfo: { isReduceMotionEnabled: async () => mock.reduced, isScreenReaderEnabled: async () => false,
     addEventListener: (_: string, callback: (value: boolean) => void) => { mock.listener = callback; return { remove() {} }; } },
-  Easing: { bezier: vi.fn() },
+  Easing: { bezier: vi.fn(), cubic: vi.fn(), out: (value: unknown) => value, in: (value: unknown) => value },
   Animated: {
-    Value: class { value: number; constructor(v: number) { this.value = v; } setValue(v: number) { this.value = v; } stopAnimation() {} },
+    View: "AnimatedView",
+    Value: class { value: number; constructor(v: number) { this.value = v; } setValue(v: number) { this.value = v; } stopAnimation() {} interpolate() { return 0; } },
     createAnimatedComponent: () => "AnimatedPressable",
     timing: (_: unknown, config: any) => { mock.timings.push(config); return { start() {} }; },
     parallel: () => ({ start() {} }),
   },
 }));
-vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView" }));
+vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
-vi.mock("expo-router", () => ({ router: { push: mock.push } }));
+vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
-import { Copy, PressTarget, Row, Chips } from "../components/ui";
+vi.mock("@/components/ui", () => import("../components/ui"));
+import TabLayout from "../app/(tabs)/_layout";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -124,4 +127,20 @@ it.each([false, true])("keeps long choices wrapping or horizontally intrinsic (s
   expect(renderer!.root.findByType("View" as React.ElementType).props.style.flexWrap).toBe(scroll ? "nowrap" : "wrap");
   expect(scrollers).toHaveLength(scroll ? 1 : 0);
   if (scroll) expect(scrollers[0].props.horizontal).toBe(true);
+});
+
+it.each([1, 3.1])("keeps the actual Undo toast above the actual Add hit target at fontScale %s", async fontScale => {
+  mock.fontScale = fontScale;
+  function Trigger() {
+    const toast = useToast();
+    return <Button title="Show toast" onPress={() => toast("Diaper logged", { label: "Undo", onPress() {} })} />;
+  }
+  await mount(<ToastProvider><Trigger /><TabLayout /></ToastProvider>);
+  const controls = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  await act(async () => controls().find(n => n.props.accessibilityLabel === "Show toast")!.props.onPress());
+  const toast = renderer!.root.findByType("AnimatedView" as React.ElementType);
+  const add = controls().find(n => n.props.accessibilityLabel === "Add a source, note, or care log")!;
+  const addStyle = Object.assign({}, ...add.props.style);
+  expect(toast.props.style.bottom).toBeGreaterThanOrEqual(addStyle.bottom + addStyle.height + 12);
+  expect(controls().some(n => n.props.accessibilityLabel === "Undo")).toBe(true);
 });
