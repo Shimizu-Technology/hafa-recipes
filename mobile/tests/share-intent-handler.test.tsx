@@ -201,3 +201,9 @@ describe('durable share intake', () => {
     expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ capture: mocks.action, state: 'waiting' }));
   });
 });
+
+it.each([false, true])('keeps an unconfirmed share waiting and permits an explicitly saved share (%s)', async (confirmed) => {
+  mocks.payload._hafa = { captureKey: 'key-a', captureId: 'capture-a', accountScopeId: 'scope-a', requestedIsPublic: false, confirmed };
+  await render();
+  expect(mocks.add).toHaveBeenCalledWith(expect.objectContaining({ state: confirmed ? 'ready' : 'waiting', preferences: expect.objectContaining({ isPublic: false }) }));
+});

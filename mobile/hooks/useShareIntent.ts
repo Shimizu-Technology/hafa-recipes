@@ -21,6 +21,7 @@ export type NativeCaptureMetadata = {
   jobId?: string | null;
   recipeId?: string | null;
   submitted?: boolean;
+  confirmed?: boolean;
   location?: string;
   requestedIsPublic?: boolean;
 };
@@ -114,7 +115,7 @@ export function useHandleShareIntent() {
           id, ownerId: captureOwner, capture: action as ImportCapture,
           accountScopeId: native?.accountScopeId ?? undefined,
           createdAt: Date.now(),
-          state: submitted ? 'accepted' : captureOwner && action.kind === 'url' ? 'ready' : 'waiting',
+          state: submitted ? 'accepted' : captureOwner && action.kind === 'url' && native?.confirmed !== false ? 'ready' : 'waiting',
           jobId: native?.jobId ?? undefined, recipeId: native?.recipeId ?? undefined,
           preferences: capturedPreferences,
           ...(action.kind === 'url' ? { request: {
