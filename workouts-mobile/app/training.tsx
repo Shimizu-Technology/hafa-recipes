@@ -507,7 +507,7 @@ export default function Training() {
                 variant="secondary"
                 size="sm"
                 inline
-                disabled={d.paused || !!structureWarning}
+                disabled={busy || (d.paused && !capReached) || !!structureWarning}
                 onPress={() => {
                   field("seconds", String(interval));
                   void run(() => store.timer("interval", 0));

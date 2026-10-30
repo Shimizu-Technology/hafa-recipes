@@ -252,6 +252,7 @@ export function summaryOf(actual: ActualSet) {
 }
 /** Freeze subordinate clocks at the same instant as the session clock. */
 function freezeTimers(d: SessionDraft, now: number) {
+  now = effectiveActiveEnd(d, now);
   if (d.rest_until != null) d.rest_remaining_milliseconds = Math.max(0, d.rest_until - now);
   if (d.interval_started_at != null) d.interval_elapsed_milliseconds = Math.max(0, now - d.interval_started_at);
   d.rest_until = null;
@@ -270,11 +271,15 @@ export function exerciseElapsedSeconds(d: SessionDraft, now = Date.now()) {
 export function restRemainingSeconds(d: SessionDraft, now = Date.now()) {
   return d.rest_until == null ? Math.ceil((d.rest_remaining_milliseconds ?? 0) / 1000) : remainingSeconds(d.rest_until, now);
 }
-function closeActive(d: SessionDraft, now: number) {
-  if (d.active_started_at == null) return;
+function effectiveActiveEnd(d: SessionDraft, now: number) {
+  if (d.active_started_at == null) return now;
   const capEnd = d.timed_circuit ? d.active_started_at + Math.max(0,
     d.timed_circuit.time_cap_seconds * 1000 - d.active_milliseconds) : Infinity;
-  const end = Math.max(d.active_started_at, Math.min(now, capEnd));
+  return Math.max(d.active_started_at, Math.min(now, capEnd));
+}
+function closeActive(d: SessionDraft, now: number) {
+  if (d.active_started_at == null) return;
+  const end = effectiveActiveEnd(d, now);
   if (end > d.active_started_at && d.active_intervals)
     d.active_intervals.push({
       started_at: new Date(d.active_started_at).toISOString(),
@@ -310,8 +315,7 @@ export function createTrainingStore(
         const next = work(clone(state));
         next.history = pruneHistory(next.history);
         if (next.active?.timed_circuit && !next.active.paused && circuitRemaining(next.active, clock()) === 0) {
-          const capEnd = (next.active.active_started_at ?? clock()) + Math.max(0, next.active.timed_circuit.time_cap_seconds * 1000 - next.active.active_milliseconds);
-          freezeTimers(next.active, Math.min(clock(), capEnd));
+          freezeTimers(next.active, clock());
           closeActive(next.active, clock());
           next.active.paused = true;
         }

@@ -1038,3 +1038,33 @@ describe("pause keeps subordinate timers", () => {
     expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(7);
   });
 });
+
+
+it.each(["manual", "background", "checkpoint"])("freezes subordinate clocks at the effective cap end on late %s pause", async mode => {
+  const { store, setTime, time } = await timedStore(amrap(1, 60));
+  await store.timer("interval"); await store.timer("rest", 90);
+  setTime(80000);
+  if (mode === "checkpoint") await store.checkpoint();
+  else await store.pause(true, mode === "background" ? time() : undefined);
+  const d = store.snapshot().active!;
+  expect(d.active_milliseconds).toBe(60000);
+  expect(exerciseElapsedSeconds(d, time())).toBe(60);
+  expect(restRemainingSeconds(d, time())).toBe(30);
+  expect(d.active_intervals?.at(-1)?.ended_at).toBe(new Date(70000).toISOString());
+  setTime(100000); await store.pause(true); await store.pause(false); await store.pause(true);
+  expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(60);
+  expect(restRemainingSeconds(store.snapshot().active!, time())).toBe(30);
+});
+it("uses prior active segments and repeated pause/resume when freezing clocks at the cap", async () => {
+  const { store, setTime, time } = await timedStore(amrap(1, 60));
+  await store.timer("interval"); await store.timer("rest", 90);
+  setTime(30000); await store.pause(true); await store.pause(true);
+  setTime(100000); await store.pause(false); await store.pause(false);
+  setTime(110000); await store.pause(true);
+  setTime(200000); await store.pause(false);
+  setTime(240000); await store.pause(true);
+  expect(store.snapshot().active!.active_milliseconds).toBe(60000);
+  expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(60);
+  expect(restRemainingSeconds(store.snapshot().active!, time())).toBe(30);
+  expect(store.snapshot().active!.active_intervals?.at(-1)?.ended_at).toBe(new Date(230000).toISOString());
+});
