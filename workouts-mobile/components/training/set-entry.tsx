@@ -38,7 +38,7 @@ export function SetNumberField({
   };
   const heading = (
     <Row gap={4}>
-      <Copy kind="label" tone="muted" >{label}</Copy>
+      <Copy kind="label" tone="muted" style={{ flexShrink: 1 }}>{label}</Copy>
       {!!onLabelPress && <Ionicons name="chevron-down" size={16} color={c.muted} />}
     </Row>
   );

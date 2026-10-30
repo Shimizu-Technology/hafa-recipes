@@ -544,6 +544,7 @@ export function Sheet({
   children,
 }: PropsWithChildren<{ visible: boolean; onClose(): void; title: string }>) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   return (
@@ -578,7 +579,7 @@ export function Sheet({
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Copy kind="heading">{title}</Copy>
+            <View style={{ flex: 1, minWidth: 0 }}><Copy kind={largeText(fontScale) ? "subheading" : "heading"}>{title}</Copy></View>
             <IconButton icon="close" label={`Close ${title}`} onPress={onClose} size={40} />
           </View>
           <ScrollView contentContainerStyle={{ gap: spacing.xs, paddingBottom: 4 }}>{children}</ScrollView>

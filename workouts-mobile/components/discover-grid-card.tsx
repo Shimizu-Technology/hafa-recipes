@@ -10,9 +10,6 @@ import { motion, radii, spacing } from "@/constants/theme";
 import { cardMeta, creatorCredit, gridByline, type DiscoverCard } from "@/lib/discover";
 
 const GRID_GAP = spacing.sm;
-/** Screen's horizontal padding on each side (spacing.lg - 4). */
-
-
 /** Card width: two columns on phones, three when a tablet gives each card enough room. */
 function useGridCell() {
   const { width, fontScale } = useWindowDimensions();
