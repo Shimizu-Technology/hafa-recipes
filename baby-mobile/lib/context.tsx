@@ -33,8 +33,11 @@ import {
   replaceRecord,
   shouldRetry,
   advancePending,
+  advanceAfterImport,
   queueRemovedUploads,
   uploadedReferences,
+  waitingForEarlier,
+  waitingForImport,
 } from "./outbox";
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
@@ -72,7 +75,7 @@ interface BabyContext {
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
   queue: (m: Mutation) => Promise<void>;
   discardQueued: (id: string, server?: BabyRecord) => Promise<void>;
-  saveDraft: (key: string, draft: EditorDraft | null) => Promise<void>;
+  saveDraft: (key: string, draft: EditorDraft | null, valid?: () => boolean) => Promise<void>;
   getToken: () => Promise<string | null>;
   current: () => boolean;
   signOut: () => Promise<void>;
@@ -267,13 +270,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) setError("");
       if (latest.active === false) return;
       restoreAfterSync = true;
-      let importsDeferred = false;
       for (const pending of [...ref.current.outbox]) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
-        if (next.type === "import" && importsDeferred) continue;
         if (!alive.current || !onlineRef.current) break;
-        if (next.generation !== latest.generation || next.conflict || next.error) continue;
+        if (next.generation !== latest.generation || next.conflict || next.error || next.localOnly) continue;
         if (next.type === "import" && next.automatic &&
           (!(latest.profile.ai_consent && latest.profile.auto_process_shares) ||
             (next.automatic_epoch ?? 0) !== (latest.profile.auto_process_epoch ?? 0))) {
@@ -282,8 +283,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
           continue;
         }
-        if (next.type === "import" && next.record_id &&
-          ref.current.outbox.some((m) => m.type === "save" && m.record.id === next.record_id)) continue;
+        if (waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
         try {
           let result: BabyRecord | undefined;
           if (next.type === "delete") {
@@ -319,6 +319,13 @@ export function BabyProvider({ children }: PropsWithChildren) {
               };
               result = await api.save(value, next.generation);
             } else {
+              // Persist before the request: a lost admission response can replay
+              // an already-completed job after a relaunch.
+              const baseline = next.baseline === undefined
+                ? ref.current.records.find(row => row.id === next.record_id) ?? null : next.baseline;
+              if (next.baseline === undefined) await commit(s => ({ ...s,
+                outbox: s.outbox.map(m => m.id === next.id ? { ...m, baseline } : m),
+              }));
               const job = await api.import(
                 {
                   id: next.id,
@@ -332,7 +339,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 },
                 next.generation
               );
-              await commit((s) => ({ ...s, imports: [job, ...s.imports.filter((j) => j.id !== job.id)] }));
+              await commit((s) => ({ ...s, imports: [{ ...job, baseline, automatic: next.automatic, reconciled: false },
+                ...s.imports.filter((j) => j.id !== job.id)] }));
             }
           }
           await commit((s) => ({
@@ -349,17 +357,12 @@ export function BabyProvider({ children }: PropsWithChildren) {
         } catch (e) {
           if (!alive.current) break;
           if (e instanceof ApiError && e.local) break;
-          const status = e instanceof ApiError ? e.status : 0;
+          const status = e instanceof ApiError ? e.status : -1;
           if (status === 410) {
             await refresh();
             break;
           }
-          if (next.type === "import" && status === 429) {
-            importsDeferred = true;
-            setError(messageFor(e));
-            continue;
-          }
-          if (shouldRetry(status)) {
+          if (status === 0 || status === 401) {
             setError(messageFor(e));
             break;
           }
@@ -381,9 +384,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         }));
       }
       for (const job of [...ref.current.imports])
-        if (!importFinished(job.status)) {
+        if (job.status !== "deferred" && (!importFinished(job.status) || !job.reconciled)) {
           try {
-            const fresh = await api.job(job.id);
+            const fresh = importFinished(job.status) ? job : { ...await api.job(job.id), baseline: job.baseline, automatic: job.automatic };
             let row: BabyRecord | undefined;
             if (fresh.record_id) {
               try { row = await api.record(fresh.record_id); }
@@ -394,9 +397,16 @@ export function BabyProvider({ children }: PropsWithChildren) {
             // A terminal job and its refreshed source become durable together.
             // A failed fetch leaves the previous polling obligation intact.
             await commit((s) => ({ ...s,
-              imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)),
+              imports: s.imports.map((j) => (j.id === fresh.id ? { ...fresh, reconciled: importFinished(fresh.status) } : j)),
               records: row ? replaceRecord(s.records, row) : s.records,
+              // Held edits use the import's final revision. Rejected edits still need review.
+              outbox: row && importFinished(fresh.status)
+                ? s.outbox.map(m => m.type === "save" && !m.error && !m.conflict ? advanceAfterImport(m, row!, fresh) : m)
+                : s.outbox,
             }));
+            if (row && importFinished(fresh.status) && ref.current.outbox.some(m =>
+              m.type === "save" && m.record.id === row!.id && !m.error && !m.conflict && !m.localOnly))
+              rerun.current = true;
           } catch {
             /* The next foreground attempt retries persisted jobs. */
           }
@@ -576,11 +586,13 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => addMutation(s, m));
           void funcs.current.sync();
         },
-        saveDraft: async (key, draft) => {
+        saveDraft: async (key, draft, valid) => {
+          if (valid && !valid()) return;
           const capturedGeneration = state.bootstrap?.generation;
           if (capturedGeneration !== ref.current.bootstrap?.generation || ref.current.bootstrap?.active === false)
             throw Error("This draft belongs to an earlier Baby space.");
           await commit((s) => {
+            if (valid && !valid()) return s;
             const drafts = { ...s.drafts };
             if (draft) drafts[key] = draft;
             else delete drafts[key];

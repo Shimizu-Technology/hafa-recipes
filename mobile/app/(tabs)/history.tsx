@@ -359,7 +359,6 @@ export default function HistoryScreen() {
   // Own recipes with infinite scroll
   const {
     recipes,
-    total: recipesTotal,
     isLoading: isLoadingRecipes,
     isError: isRecipesError,
     refetch: refetchRecipes,
@@ -922,36 +921,36 @@ export default function HistoryScreen() {
         {activeFilterCount > 0 && (
           <RNView style={styles.activeFiltersRow}>
             {sourceFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {sourceFilter}
                 </Text>
               </RNView>
             )}
             {timeFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.success + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.success }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {timeFilter === 'quick' ? '<30 min' : timeFilter === 'medium' ? '30-60 min' : '60+ min'}
                 </Text>
               </RNView>
             )}
             {selectedTags.length > 0 && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {selectedTags.length} tag{selectedTags.length > 1 ? 's' : ''}
                 </Text>
               </RNView>
             )}
             {ownershipFilter === 'own' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   My Recipes
                 </Text>
               </RNView>
             )}
             {ownershipFilter === 'saved' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.error + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.error }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   Saved Only
                 </Text>
               </RNView>
@@ -1259,7 +1258,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     // Subtle shadow for depth
-    ...shadows.card,
   },
   thumbnailContainer: {
     position: 'relative',
@@ -1439,7 +1437,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     borderRadius: radius.lg,
-    ...shadows.card,
   },
   emptyButtonText: {
     color: '#FFFFFF',

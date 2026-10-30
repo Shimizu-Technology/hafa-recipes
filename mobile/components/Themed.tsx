@@ -6,7 +6,7 @@ import {
   Text as DefaultText, 
   View as DefaultView, 
   TextInput as DefaultTextInput,
-  TouchableOpacity,
+  type AccessibilityRole,
   StyleSheet,
   ActivityIndicator,
   type StyleProp,
@@ -17,8 +17,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import Colors, { spacing, radius, fontSize, fontWeight, fontFamily, shadows } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
+import { ScalePressable } from './Animated';
 
-const MAX_UI_FONT_SIZE_MULTIPLIER = 1.6;
+
 
 type ThemeProps = {
   lightColor?: string;
@@ -55,7 +56,7 @@ export function Text(props: TextProps) {
     style,
     lightColor,
     darkColor,
-    maxFontSizeMultiplier = MAX_UI_FONT_SIZE_MULTIPLIER,
+    maxFontSizeMultiplier = 0,
     ...otherProps
   } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
@@ -86,7 +87,7 @@ interface CardProps extends ViewProps {
 
 export function Card({ children, style, noPadding, elevated, ...props }: CardProps) {
   const colors = useColors();
-  const shadowStyle = elevated ? shadows.medium : shadows.card;
+  const shadowStyle = elevated ? shadows.medium : {};
   
   return (
     <DefaultView
@@ -167,7 +168,7 @@ export function Input({
         ref={inputRef}
         textContentType={textContentType}
         accessibilityLabel={accessibilityLabel}
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -190,44 +191,26 @@ export function Input({
             backgroundColor: colors.backgroundElevated,
             borderRadius: radius.lg,
             padding: spacing.md,
-            paddingRight: showClear ? 40 : spacing.md,
+            paddingRight: showClear ? 56 : spacing.md,
             fontSize: fontSize.md,
             color: colors.text,
             fontFamily: fontFamily.medium,
             borderWidth: 1,
             borderColor: colors.border,
-            minHeight: multiline ? 100 : undefined,
+            minHeight: multiline ? 100 : 44,
             textAlignVertical: multiline ? 'top' : 'center',
           },
           style,
         ]}
       />
       {showClear && (
-        <TouchableOpacity
+        <IconButton
+          icon="close-circle"
+          accessibilityLabel={`Clear ${accessibilityLabel || placeholder || 'text'}`}
           onPress={() => onChangeText('')}
-          style={{
-            position: 'absolute',
-            right: spacing.sm,
-            top: 0,
-            bottom: 0,
-            justifyContent: 'center',
-            paddingHorizontal: spacing.xs,
-          }}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <DefaultView
-            style={{
-              backgroundColor: colors.textMuted,
-              borderRadius: 10,
-              width: 20,
-              height: 20,
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <Ionicons name="close" size={14} color={colors.background} />
-          </DefaultView>
-        </TouchableOpacity>
+          disabled={!editable}
+          style={{ position: 'absolute', right: spacing.xs, top: 0, bottom: 0 }}
+        />
       )}
     </DefaultView>
   );
@@ -297,15 +280,16 @@ export function Button({
   };
 
   return (
-    <TouchableOpacity
+    <ScalePressable
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
-      activeOpacity={0.7}
       style={[
         {
+          minHeight: 44,
+          minWidth: 44,
           backgroundColor: getBackgroundColor(),
           borderRadius: radius.full,
           alignItems: 'center',
@@ -316,22 +300,23 @@ export function Button({
         getPadding(),
         variant === 'secondary' && { borderWidth: 1, borderColor: colors.border },
         variant === 'outline' && { borderWidth: 1, borderColor: colors.tint },
-        variant === 'primary' && { shadowColor: colors.tint, ...shadows.card },
         style,
       ]}
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}
       <DefaultText
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         style={{
           color: getTextColor(),
+          flexShrink: 1,
+          textAlign: 'center',
           fontSize: size === 'lg' ? fontSize.lg : fontSize.md,
           fontFamily: fontFamily.semibold,
         }}
       >
         {title}
       </DefaultText>
-    </TouchableOpacity>
+    </ScalePressable>
   );
 }
 
@@ -341,28 +326,40 @@ interface ChipProps {
   selected?: boolean;
   onPress?: () => void;
   size?: 'sm' | 'md';
+  accessibilityLabel?: string;
+  accessibilityRole?: Extract<AccessibilityRole, 'button' | 'radio' | 'checkbox'>;
+  icon?: React.ComponentProps<typeof Ionicons>['name'];
 }
 
-export function Chip({ label, selected, onPress, size = 'md' }: ChipProps) {
+export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel, accessibilityRole = selected === undefined ? 'button' : 'checkbox', icon }: ChipProps) {
   const colors = useColors();
 
   const content = (
     <DefaultView
       style={[
         {
-          backgroundColor: selected ? colors.tint : colors.backgroundSecondary,
+          backgroundColor: selected ? colors.text : colors.backgroundSecondary,
+          minHeight: onPress ? 44 : undefined,
+          minWidth: onPress ? 44 : undefined,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: spacing.xs,
           borderRadius: radius.full,
           paddingVertical: size === 'sm' ? spacing.xs : spacing.sm,
           paddingHorizontal: size === 'sm' ? spacing.sm : spacing.md,
           borderWidth: 1,
-          borderColor: selected ? colors.tint : colors.border,
+          borderColor: selected ? colors.text : colors.border,
         },
       ]}
     >
+      {icon && <Ionicons name={icon} size={16} color={selected ? colors.background : colors.textMuted} />}
       <DefaultText
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         style={{
-          color: selected ? '#FFFFFF' : colors.text,
+          flexShrink: 1,
+          color: selected ? colors.background : colors.text,
           fontSize: size === 'sm' ? fontSize.xs : fontSize.sm,
           fontFamily: selected ? fontFamily.semibold : fontFamily.medium,
         }}
@@ -374,13 +371,43 @@ export function Chip({ label, selected, onPress, size = 'md' }: ChipProps) {
 
   if (onPress) {
     return (
-      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <ScalePressable
+        onPress={onPress}
+        accessibilityRole={accessibilityRole}
+        accessibilityLabel={accessibilityLabel || label}
+        accessibilityState={{ ...(selected === undefined ? {} : { selected }), ...(accessibilityRole === 'checkbox' || accessibilityRole === 'radio' ? { checked: Boolean(selected) } : {}) }}
+      >
         {content}
-      </TouchableOpacity>
+      </ScalePressable>
     );
   }
 
   return content;
+}
+
+// Labelled icon control: a 44pt target even when the glyph is smaller.
+export function IconButton({ icon, accessibilityLabel, onPress, disabled, style, color, size = 22 }: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  accessibilityLabel: string;
+  onPress: () => void;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  color?: string;
+  size?: number;
+}) {
+  const colors = useColors();
+  return (
+    <ScalePressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.5 : 1 }, style]}
+    >
+      <Ionicons name={icon} size={size} color={color || colors.textMuted} />
+    </ScalePressable>
+  );
 }
 
 // Section Header
@@ -395,7 +422,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
   return (
     <DefaultView style={{ marginBottom: spacing.md }}>
       <DefaultText
-        maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+        maxFontSizeMultiplier={0}
         style={{
           fontSize: fontSize.sm,
           fontFamily: fontFamily.semibold,
@@ -407,7 +434,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
       </DefaultText>
       {subtitle && (
         <DefaultText
-          maxFontSizeMultiplier={MAX_UI_FONT_SIZE_MULTIPLIER}
+          maxFontSizeMultiplier={0}
           style={{
             fontSize: fontSize.sm,
             color: colors.textSecondary,
