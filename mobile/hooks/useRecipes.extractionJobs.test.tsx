@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   authScope: { userId: null as string | null, epoch: 0 },
 }));
 
+vi.mock('../utils/haptics', () => ({ haptics: { success: vi.fn() } }));
 vi.mock('expo-router', () => ({ useIsFocused: () => mocks.focused }));
 
 vi.mock('@clerk/expo', () => ({

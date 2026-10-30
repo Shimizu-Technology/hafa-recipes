@@ -13,9 +13,10 @@ import { api, type CaptureSourceType } from '../lib/api';
 import {
   reconcileSavedStateAfterError,
   removeDeletedRecipeFromCache,
-  savedStateInRecipePages,
   updateSavedStateInRecipePages,
 } from '../lib/recipeCache';
+import { showToast } from '../lib/toast';
+import { haptics } from '../utils/haptics';
 import { getApiErrorMessage } from '../lib/apiErrorMessage';
 import { importInbox, importInboxRequest, type ImportInboxEntry } from '../lib/importInbox';
 import {
@@ -150,27 +151,6 @@ function setDiscoverSavedState(
     { queryKey: recipeKeys.discover() },
     (data) => updateSavedStateInRecipePages(data, recipeId, isSaved),
   );
-}
-
-function snapshotDiscoverSavedState(queryClient: QueryClient, recipeId: string) {
-  return queryClient.getQueriesData<InfiniteData<PaginatedRecipes>>({
-    queryKey: recipeKeys.discover(),
-  }).flatMap(([queryKey, data]) => {
-    const snapshot = savedStateInRecipePages(data, recipeId);
-    return snapshot.found ? [{ queryKey, isSaved: snapshot.isSaved }] : [];
-  });
-}
-
-function restoreDiscoverSavedState(
-  queryClient: QueryClient,
-  recipeId: string,
-  snapshots: ReturnType<typeof snapshotDiscoverSavedState>,
-) {
-  snapshots.forEach(({ queryKey, isSaved }) => {
-    queryClient.setQueryData<InfiniteData<PaginatedRecipes>>(queryKey, (data) => (
-      updateSavedStateInRecipePages(data, recipeId, isSaved)
-    ));
-  });
 }
 
 export function invalidateCreatedRecipeQueries(queryClient: QueryClient, recipeId?: string | null) {
@@ -1660,104 +1640,53 @@ export function useIsRecipeSaved(recipeId: string, enabled = true) {
   });
 }
 
-/**
- * Save a recipe (with optimistic update for instant UI feedback)
- */
-export function useSaveRecipe() {
+/** Save state and completion feedback follow the server, including after an ambiguous failure. */
+function useConfirmedRecipeSave(saved: boolean) {
   const queryClient = useQueryClient();
+  const { userId: subject } = useAuth();
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const currentSubject = useRef(subject);
+  currentSubject.current = subject;
 
-  return useMutation({
-    mutationFn: (recipeId: string) => api.saveRecipe(recipeId),
-    // Optimistic update - update UI immediately before server responds
-    onMutate: async (recipeId) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId] });
-      await queryClient.cancelQueries({ queryKey: recipeKeys.discover() });
-      
-      // Snapshot the previous value
-      const previousSaved = queryClient.getQueryData(['recipeSaved', recipeId]);
-      const previousDiscover = snapshotDiscoverSavedState(queryClient, recipeId);
-      
-      // Optimistically update to the new value
-      queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: true });
-      setDiscoverSavedState(queryClient, recipeId, true);
-      
-      // Return context with the snapshot
-      return { previousSaved, previousDiscover, recipeId };
-    },
-    onError: (err, recipeId, context) => {
-      // If the mutation fails, roll back to the previous value
-      if (context?.previousSaved) {
-        queryClient.setQueryData(['recipeSaved', recipeId], context.previousSaved);
-      } else {
-        queryClient.removeQueries({ queryKey: ['recipeSaved', recipeId], exact: true });
-      }
-      if (context) restoreDiscoverSavedState(
-        queryClient,
-        recipeId,
-        context.previousDiscover,
-      );
-    },
-    onSuccess: (data, recipeId) => {
+  const mutation = useMutation({
+    mutationFn: (recipeId: string) => saved ? api.saveRecipe(recipeId) : api.unsaveRecipe(recipeId),
+    // Retain the initiating account for late responses and persistent Retry actions.
+    onMutate: () => ({ subject }),
+    onSuccess: (data, recipeId, context) => {
+      if (currentSubject.current !== context.subject) return;
       queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
       setDiscoverSavedState(queryClient, recipeId, data.saved);
+      if (data.saved === saved) haptics.success();
     },
-    onSettled: async (_data, error, recipeId) => {
-      queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
-      queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
-      if (error) await reconcileSavedStateAfterError(queryClient, recipeId);
+    onError: async (_error, recipeId, context) => {
+      if (currentSubject.current !== context?.subject) return;
+      await reconcileSavedStateAfterError(queryClient, recipeId);
+      if (currentSubject.current !== context?.subject) return;
+      showToast({
+        message: saved ? "Couldn't save. Try again" : "Couldn't remove. Try again",
+        tone: 'error',
+        actionLabel: 'Retry',
+        onAction: () => {
+          if (mounted.current && context?.subject && currentSubject.current === context.subject) mutation.mutate(recipeId);
+        },
+      });
+    },
+    onSettled: (_data, _error, _recipeId, context) => {
+      if (currentSubject.current !== context?.subject) return;
+      void queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
+      void queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
     },
   });
+  return mutation;
 }
 
-/**
- * Unsave a recipe (with optimistic update for instant UI feedback)
- */
-export function useUnsaveRecipe() {
-  const queryClient = useQueryClient();
+export function useSaveRecipe() {
+  return useConfirmedRecipeSave(true);
+}
 
-  return useMutation({
-    mutationFn: (recipeId: string) => api.unsaveRecipe(recipeId),
-    // Optimistic update - update UI immediately before server responds
-    onMutate: async (recipeId) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId] });
-      await queryClient.cancelQueries({ queryKey: recipeKeys.discover() });
-      
-      // Snapshot the previous value
-      const previousSaved = queryClient.getQueryData(['recipeSaved', recipeId]);
-      const previousDiscover = snapshotDiscoverSavedState(queryClient, recipeId);
-      
-      // Optimistically update to the new value
-      queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: false });
-      setDiscoverSavedState(queryClient, recipeId, false);
-      
-      // Return context with the snapshot
-      return { previousSaved, previousDiscover, recipeId };
-    },
-    onError: (err, recipeId, context) => {
-      // If the mutation fails, roll back to the previous value
-      if (context?.previousSaved) {
-        queryClient.setQueryData(['recipeSaved', recipeId], context.previousSaved);
-      } else {
-        queryClient.removeQueries({ queryKey: ['recipeSaved', recipeId], exact: true });
-      }
-      if (context) restoreDiscoverSavedState(
-        queryClient,
-        recipeId,
-        context.previousDiscover,
-      );
-    },
-    onSuccess: (data, recipeId) => {
-      queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
-      setDiscoverSavedState(queryClient, recipeId, data.saved);
-    },
-    onSettled: async (_data, error, recipeId) => {
-      queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
-      queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
-      if (error) await reconcileSavedStateAfterError(queryClient, recipeId);
-    },
-  });
+export function useUnsaveRecipe() {
+  return useConfirmedRecipeSave(false);
 }
 
 // ============================================================
