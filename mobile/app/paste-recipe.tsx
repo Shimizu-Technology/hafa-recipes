@@ -115,10 +115,15 @@ export default function PasteRecipeScreen() {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
     };
     importInFlight.current = true;
-    if (isPublic) {
+    let requestedPublic = isPublic;
+    if (requestedPublic) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
-      if (!allowed) { importInFlight.current = false; if (didChoosePrivate()) setIsPublic(false); return; }
+      if (!allowed) {
+        if (!didChoosePrivate()) { importInFlight.current = false; return; }
+        requestedPublic = false;
+        setIsPublic(false);
+      }
     }
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 
@@ -142,7 +147,7 @@ export default function PasteRecipeScreen() {
       const destination = await saveCaptureOrRecover({
         extracted: result.recipe,
         source_type: 'text',
-        is_public: isPublic,
+        is_public: requestedPublic,
         capture_id: params.inboxCaptureId,
         expected_owner_id: originalOwner, requestGuard: guardOwner,
       }, selectedLocation, saveCapturedRecipe.mutateAsync);
@@ -249,7 +254,7 @@ export default function PasteRecipeScreen() {
             <Text style={[styles.limitError, { color: colors.error }]}>Shorten the pasted text before importing.</Text>
           )}
 
-          <RecipeVisibilitySelector
+          <RecipeVisibilitySelector compact
             value={isPublic ? 'public' : 'private'}
             onChange={(value) => setIsPublic(value === 'public')}
             disabled={isExtracting || isCheckingDisclosure}

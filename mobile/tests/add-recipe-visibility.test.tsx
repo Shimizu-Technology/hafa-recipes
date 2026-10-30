@@ -72,13 +72,13 @@ vi.mock('expo-image-picker', () => ({
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('@tanstack/react-query', () => ({
   useMutation: (options: {
-    mutationFn: () => Promise<unknown>;
+    mutationFn: (variables: { requestedPublic: boolean; originalOwner: string | null }) => Promise<unknown>;
     onSuccess: (result: unknown) => void;
     onError: (error: Error) => void;
   }) => ({
     isPending: mocks.isPending,
-    mutate: () => {
-      void options.mutationFn().then(options.onSuccess).catch(options.onError);
+    mutate: (variables: { requestedPublic: boolean; originalOwner: string | null }) => {
+      void options.mutationFn(variables).then(options.onSuccess).catch(options.onError);
     },
   }),
   useQueryClient: () => ({}),
@@ -134,6 +134,7 @@ vi.mock('@/constants/Colors', () => ({
 vi.mock('@/hooks/usePublishingDisclosure', () => ({
   usePublishingDisclosure: () => ({
     requestPublishing: mocks.requestPublishing,
+    didChoosePrivate: () => true,
     isCheckingDisclosure: false,
   }),
 }));
@@ -202,7 +203,7 @@ describe('AddRecipeScreen visibility', () => {
     await act(async () => visibilityOption(renderer, 'Public in Discover').props.onPress());
     await act(async () => headerAction(renderer, 'Publish').props.onPress());
 
-    expect(mocks.requestPublishing).toHaveBeenCalledTimes(2);
+    expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(
       expect.objectContaining({ is_public: true }),
       null, expect.any(Function),
@@ -214,8 +215,9 @@ describe('AddRecipeScreen visibility', () => {
     const renderer = await renderRecipe();
 
     await act(async () => visibilityOption(renderer, 'Public in Discover').props.onPress());
+    expect(mocks.requestPublishing).not.toHaveBeenCalled();
+    await act(async () => headerAction(renderer, 'Publish').props.onPress());
     expect(visibilityOption(renderer, 'Private').props.accessibilityState.checked).toBe(true);
-    await act(async () => headerAction(renderer, 'Save private').props.onPress());
 
     expect(mocks.requestPublishing).toHaveBeenCalledTimes(1);
     expect(mocks.createManualRecipe).toHaveBeenCalledWith(

@@ -308,6 +308,18 @@ describe('classified image recovery', () => {
     await act(async () => renderer.unmount());
   });
 
+  it('continues a link import privately from the disclosure without a second tap', async () => {
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findAllByType('Input' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Recipe link')!.props.onChangeText('https://example.com/recipe'));
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Import Recipe')!.props.onPress());
+    expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ request: expect.objectContaining({ is_public: false }) }));
+    await act(async () => renderer.unmount());
+  });
+
   it('keeps settings separate from help and retains notes and visibility after closing', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
@@ -683,6 +695,37 @@ describe('classified image recovery', () => {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
       captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
     } });
+  });
+
+it('clears a Keep private link after asynchronous inbox persistence', async () => {
+  mocks.requestPublishing.mockResolvedValueOnce(false);
+  let finishAdd!: () => void;
+  mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>(resolve => { finishAdd = () => resolve(undefined); }));
+  let renderer!: ReactTestRenderer;
+  await act(async () => { renderer = create(<ExtractScreen />); });
+  const link = () => renderer.root.findAllByType('Input' as unknown as React.ComponentType).find(node => node.props.accessibilityLabel === 'Recipe link')!;
+  try {
+    await act(async () => link().props.onChangeText('https://example.com/private-recipe'));
+    await act(async () => { void renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
+    expect(mocks.addInbox).toHaveBeenCalledOnce();
+    await act(async () => finishAdd());
+    expect(link().props.value).toBe('');
+  } finally { await act(async () => renderer.unmount()); }
+});
+  it('keeps newer link edits when an earlier Keep private import finishes', async () => {
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    let finish!: () => void;
+    mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>(resolve => { finish = () => resolve(undefined); }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const link = () => renderer.root.findAllByType('Input' as any).find(node => node.props.accessibilityLabel === 'Recipe link')!;
+    try {
+      await act(async () => link().props.onChangeText('https://example.com/submitted'));
+      await act(async () => { void renderer.root.findAllByType('Button' as any).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
+      await act(async () => link().props.onChangeText('https://example.com/next'));
+      await act(async () => finish());
+      expect(link().props.value).toBe('https://example.com/next');
+    } finally { await act(async () => renderer.unmount()); }
   });
 
 });
