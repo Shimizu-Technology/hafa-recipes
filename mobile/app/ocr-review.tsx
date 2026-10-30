@@ -1,3 +1,4 @@
+import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 /**
@@ -153,6 +154,9 @@ export default function OCRReviewScreen() {
         await importInbox.patch(captureId, { state: 'accepted', recipeId: result.id, error: undefined });
         guardOwner();
       }
+      const lease = privateRecipeDrafts.lease(boundOwner.current!);
+      await privateRecipeDrafts.remove(lease, 'recovery'); guardOwner();
+      await privateRecipeDrafts.remove(lease, sourceType === 'text' ? 'paste' : 'scan'); guardOwner();
       router.replace(`/recipe/${result.id}`);
     } catch (error: unknown) {
       if (error instanceof CaptureAccountChangedError) return;

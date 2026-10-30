@@ -1,4 +1,4 @@
-vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -307,6 +307,18 @@ describe('classified image recovery', () => {
     mocks.extraction.canRetryStart = false; mocks.extraction.jobId = 'draft-job'; mocks.extraction.recipeId = 'saved-draft';
     await act(async () => renderer.update(<ExtractScreen />));
     expect(touchableWithText(renderer, 'Remove unfinished import')).toBeUndefined();
+    await act(async () => renderer.unmount());
+  });
+
+  it('continues a link import privately from the disclosure without a second tap', async () => {
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findAllByType('Input' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Recipe link')!.props.onChangeText('https://example.com/recipe'));
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Import Recipe')!.props.onPress());
+    expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ request: expect.objectContaining({ is_public: false }) }));
     await act(async () => renderer.unmount());
   });
 
@@ -686,6 +698,40 @@ describe('classified image recovery', () => {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
       captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
     } });
+  });
+
+it('clears a Keep private link after asynchronous inbox persistence', async () => {
+  mocks.requestPublishing.mockResolvedValueOnce(false);
+  let finishAdd!: () => void;
+  mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>(resolve => { finishAdd = () => resolve(undefined); }));
+  let renderer!: ReactTestRenderer;
+  await act(async () => { renderer = create(<ExtractScreen />); });
+  const link = () => renderer.root.findAllByType('Input' as unknown as React.ComponentType).find(node => node.props.accessibilityLabel === 'Recipe link')!;
+  try {
+    await act(async () => link().props.onChangeText('https://example.com/private-recipe'));
+    await act(async () => { void renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
+    expect(mocks.addInbox).toHaveBeenCalledOnce();
+    await act(async () => finishAdd());
+    expect(link().props.value).toBe('');
+  } finally { await act(async () => renderer.unmount()); }
+});
+  it('does not copy a picker result that returns after account change', async () => {
+    const { preserveDraftImage } = await import('@/lib/privateRecipeDrafts');
+    vi.mocked(preserveDraftImage).mockClear();
+    let finish!: (value: any) => void;
+    mocks.launchLibrary.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findAllByType('TouchableOpacity' as any).find(node => node.props.accessibilityLabel === 'Scan photos or screenshots')!.props.onPress());
+    // The chooser's photo action opens the asynchronous OS picker.
+    const choices = mocks.alert.mock.calls.at(-1)?.[2];
+    let pending: Promise<void>;
+    await act(async () => { pending = choices.find((button: any) => button.text === 'Choose Screenshots or Photos').onPress(); });
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<ExtractScreen />));
+    await act(async () => { finish({ canceled: false, assets: [{ uri: 'file:///old-private.jpg' }] }); await pending; });
+    expect(preserveDraftImage).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
   });
 
 });

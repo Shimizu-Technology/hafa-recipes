@@ -1,3 +1,4 @@
+vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { lease: (owner: string) => ({ owner }), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: mocks.patchInbox } }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.entries.filter((entry) => entry.state !== 'accepted') }) }));
 import React from 'react';
@@ -364,6 +365,9 @@ describe('OCRReviewScreen visibility', () => {
       capture_id: mocks.params.captureId, is_public: false,
     });
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+    const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
+    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), 'recovery');
+    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), mocks.params.sourceType === 'text' ? 'paste' : 'scan');
   });
 
   it('shows the validation cause and offers Edit instead of retrying a rejected payload', async () => {

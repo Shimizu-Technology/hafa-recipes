@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
-vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' }, Directory: class { exists = false; delete() {} } }));
+const media = vi.hoisted(() => ({ files: new Set<string>(), copied: false }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'copy' }));
+vi.mock('expo-file-system', () => ({
+  Paths: { document: 'file:///private' },
+  Directory: class {
+    uri: string;
+    constructor(...parts: string[]) { this.uri = parts.join('/') + '/'; }
+    get exists() { return [...media.files].some(path => path.startsWith(this.uri)); }
+    create() {}
+    delete() { for (const path of media.files) if (path.startsWith(this.uri)) media.files.delete(path); }
+  },
+  File: class {
+    uri: string;
+    constructor(root: string | { uri: string }, name?: string) { this.uri = typeof root === 'string' ? root : root.uri + name; }
+    get exists() { return media.files.has(this.uri); }
+    copy(file: { uri: string }) { media.files.add(file.uri); media.copied = true; }
+    delete() { media.files.delete(this.uri); }
+  },
+}));
 import { createPrivateRecipeDrafts } from './privateRecipeDrafts';
 function fixture() {
   const data = new Map<string, string>();
@@ -39,4 +57,19 @@ describe('private recipe drafts', () => {
     await expect(drafts.write(drafts.lease('a'), 'paste', { text: 'Rice' })).rejects.toThrow('Disk full');
     await expect(drafts.write(drafts.lease('a'), 'paste', { text: 'x'.repeat(500_001) })).rejects.toThrow('too large');
   });
+});
+
+it('rejects an old picker lease before media copy after sign-out deletion', async () => {
+  const { drafts } = fixture(); const lease = drafts.lease('stable-a');
+  await drafts.clearAll();
+  await expect(drafts.preserveImage(lease, 'file:///private-old.jpg', () => {})).rejects.toThrow('Account changed');
+});
+
+it('removes the exact new media copy if its continuation becomes abandoned', async () => {
+  const { drafts } = fixture(); media.files.clear(); media.copied = false;
+  media.files.add('file:///unrelated.jpg');
+  await expect(drafts.preserveImage(drafts.lease('a'), 'file:///source.jpg', () => {
+    if (media.copied) throw new Error('unmounted');
+  })).rejects.toThrow('unmounted');
+  expect([...media.files]).toEqual(['file:///unrelated.jpg']);
 });

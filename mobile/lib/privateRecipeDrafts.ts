@@ -12,6 +12,18 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
   const valid = (lease: DraftLease) => { if (lease.epoch !== epoch) throw new Error('Account changed. Reopen this draft.'); };
   return {
     assert: valid,
+    preserveImage: (lease: DraftLease, uri: string, guard: () => void) => run(async () => {
+      const check = () => { valid(lease); guard(); };
+      check();
+      const { File, Directory, Paths } = await import('expo-file-system'); check();
+      const { randomUUID } = await import('expo-crypto'); check();
+      const root = new Directory(Paths.document, 'private-recipe-drafts', encodeURIComponent(lease.owner));
+      if (uri.startsWith(root.uri)) return uri;
+      root.create({ idempotent: true, intermediates: true });
+      const file = new File(root, `${randomUUID()}.${uri.split('.').pop()?.match(/^[a-zA-Z0-9]{1,5}$/)?.[0] || 'jpg'}`);
+      try { new File(uri).copy(file); check(); return file.uri; }
+      catch (error) { if (file.exists) file.delete(); throw error; }
+    }),
     lease: (owner: string): DraftLease => ({ owner, epoch }),
     read: (lease: DraftLease, kind: RecipeDraftKind) => run(async () => {
       valid(lease); const raw = await storage.getItem(key(lease, kind)); valid(lease);
@@ -54,16 +66,6 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
 export const privateRecipeDrafts = createPrivateRecipeDrafts(AsyncStorage);
 
 /** Copy picked images out of OS cache before promising a durable draft. */
-export async function preserveDraftImage(owner: string, uri: string): Promise<string> {
-  const lease = privateRecipeDrafts.lease(owner);
-  const { File, Directory, Paths } = await import('expo-file-system');
-  privateRecipeDrafts.assert(lease);
-  const root = new Directory(Paths.document, 'private-recipe-drafts', encodeURIComponent(owner));
-  root.create({ idempotent: true, intermediates: true });
-  if (uri.startsWith(root.uri)) return uri;
-  const { randomUUID } = await import('expo-crypto');
-  privateRecipeDrafts.assert(lease);
-  const file = new File(root, `${randomUUID()}.${uri.split('.').pop()?.match(/^[a-zA-Z0-9]{1,5}$/)?.[0] || 'jpg'}`);
-  new File(uri).copy(file);
-  return file.uri;
+export function preserveDraftImage(lease: DraftLease, uri: string, guard: () => void): Promise<string> {
+  return privateRecipeDrafts.preserveImage(lease, uri, guard);
 }
