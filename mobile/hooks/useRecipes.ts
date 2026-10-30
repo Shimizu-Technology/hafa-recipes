@@ -301,7 +301,7 @@ export function useRecipe(id: string, enabled = true) {
     },
     refetchIntervalInBackground: false,
   });
-  const offline = useOfflineRecipe(id, userId, query.data, query.error, query.dataUpdatedAt, connected === true && !query.error);
+  const offline = useOfflineRecipe(id, userId, query.data, query.error, connected === true && !query.error, query.refetch);
   const deadline = pendingDeadline(query.data);
   const thumbnailPending = deadline > Date.now();
   const hasData = query.data !== undefined;

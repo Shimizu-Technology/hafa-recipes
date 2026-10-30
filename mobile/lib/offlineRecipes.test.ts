@@ -71,3 +71,40 @@ it('retains content freshness when checking saved status and rejects an old stab
   await store.observe(old, recipe('late'));
   expect(await store.list(store.lease('subject')!)).toEqual([]);
 });
+
+it('stores bounded recipes separately from its index and keeps every explicit pin', async () => {
+  const { store, values } = setup();
+  await store.bindSubject('a'); await store.verify('a', 'stable');
+  const lease = store.lease('a')!;
+  for (let i = 0; i < 25; i++) {
+    await store.observe(lease, recipe(String(i)));
+    await store.pin(lease, String(i), true);
+  }
+  expect((await store.list(lease)).filter(row => row.pinned)).toHaveLength(25);
+  const index = [...values.entries()].find(([key]) => !key.endsWith('authority') && !key.includes(':recipe:'))!;
+  expect(JSON.parse(index[1])).toEqual(expect.arrayContaining(['0', '24']));
+  expect(index[1]).not.toContain('ingredients');
+  expect([...values.keys()].filter(key => key.includes(':recipe:'))).toHaveLength(25);
+});
+
+it('a late saved check or recipe response cannot restore a removed offline copy', async () => {
+  const { store } = setup();
+  await store.bindSubject('a'); await store.verify('a', 'stable');
+  const lease = store.lease('a')!;
+  await store.observe(lease, recipe('saved', false)); await store.markSaved(lease, 'saved', true);
+  const stale = store.revision('saved');
+  await store.markSaved(lease, 'saved', false);
+  await store.observe(lease, recipe('saved', false), 1111, stale);
+  await store.markSaved(lease, 'saved', true, stale);
+  expect(await store.read(lease, 'saved')).toBeNull();
+});
+it('retires access before byte cleanup, even when storage deletion fails', async () => {
+  const { store, storage, values } = setup();
+  await store.bindSubject('a'); await store.verify('a', 'stable');
+  const lease = store.lease('a')!;
+  await store.observe(lease, recipe('gone'));
+  (storage as unknown as { multiRemove: () => Promise<void> }).multiRemove = async () => { throw new Error('storage busy'); };
+  await expect(store.remove(lease, 'gone')).rejects.toThrow('storage busy');
+  expect([...values.keys()].some(key => key.endsWith(':recipe:gone'))).toBe(true);
+  expect(await store.read(lease, 'gone')).toBeNull();
+});

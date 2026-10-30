@@ -17,7 +17,7 @@ export default function OfflineRecipesScreen() {
   }, [userId]);
   return <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
     <Stack.Screen options={{ title: 'Available offline' }} />
-    <Text>Recently opened saved and own recipes stay on this device. Mark up to 20 to keep them; the latest 30 others are kept automatically. Offline copies may be out of date. Sign-out clears them.</Text>
+    <Text>Recently opened saved and own recipes stay on this device. Mark recipes to keep them; the latest 30 others are kept automatically. Offline copies may be out of date. Sign-out clears them.</Text>
     {error && <Text>Could not read offline recipes on this device. Reopen Håfa to try again.</Text>}
     {!error && !rows.length && <Text>Open a saved or own recipe while connected to keep an offline copy.</Text>}
     {rows.map(row => <TouchableOpacity key={row.recipe.id} accessibilityRole="button"

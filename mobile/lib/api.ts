@@ -371,10 +371,11 @@ class ApiClient {
   }
 
   async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
+    const revision = offlineRecipes.revision(id);
     const lease = offlineRecipes.lease(this.authScope.userId);
     try {
       const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
-      if (lease) void offlineRecipes.observe(lease, data).catch(() => undefined);
+      if (lease) void offlineRecipes.observe(lease, data, Date.now(), revision).catch(() => undefined);
       return data;
     } catch (error) {
       const status = (error as { response?: { status?: number } }).response?.status;
@@ -1375,10 +1376,11 @@ class ApiClient {
 
   async saveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const revision = offlineRecipes.revision(recipeId);
     const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.post(`/api/recipes/${recipeId}/save`, undefined, { requestGuard: guard } as GuardedRequestConfig);
     guard();
-    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.saved).catch(() => undefined);
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.saved, revision).catch(() => undefined);
     return data;
   }
 
@@ -1393,10 +1395,11 @@ class ApiClient {
 
   async checkRecipeSaved(recipeId: string, requestGuard?: RequestGuard): Promise<{ is_saved: boolean }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const revision = offlineRecipes.revision(recipeId);
     const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`, { requestGuard: guard } as GuardedRequestConfig);
     guard();
-    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.is_saved).catch(() => undefined);
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.is_saved, revision).catch(() => undefined);
     return data;
   }
 

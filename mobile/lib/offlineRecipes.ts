@@ -15,14 +15,40 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   let tail: Promise<unknown> = Promise.resolve();
   const observed = new Map<string, { recipe: Recipe; fetchedAt: number }>();
   const eligible = new Set<string>();
+  const revisions = new Map<string, number>();
+  const revision = (id: string) => revisions.get(id) ?? 0;
   const run = <T,>(job: () => Promise<T>) => { const result = tail.then(job); tail = result.catch(() => undefined); return result; };
   const valid = (lease: Lease) => lease.epoch === epoch && authority?.owner === lease.owner && authority?.generation === lease.generation && subject === lease.subject;
   const key = (lease: Lease) => `${PREFIX}${encodeURIComponent(lease.owner)}:${lease.generation}`;
-  const readAll = async (lease: Lease): Promise<OfflineRecipe[]> => {
+  const recordKey = (lease: Lease, id: string) => `${key(lease)}:recipe:${encodeURIComponent(id)}`;
+  const readIndex = async (lease: Lease): Promise<string[]> => {
     if (!valid(lease)) return [];
     const raw = await storage.getItem(key(lease));
-    if (!valid(lease)) return [];
-    return raw ? JSON.parse(raw) : [];
+    return valid(lease) && raw ? JSON.parse(raw) : [];
+  };
+  const readAll = async (lease: Lease): Promise<OfflineRecipe[]> => {
+    const ids = await readIndex(lease);
+    const values = await Promise.all(ids.map(id => storage.getItem(recordKey(lease, id))));
+    return valid(lease) ? values.flatMap(raw => raw ? [JSON.parse(raw) as OfflineRecipe] : []) : [];
+  };
+  const writeAll = async (lease: Lease, rows: OfflineRecipe[], changedId: string) => {
+    if (!valid(lease)) return;
+    const prior = await readIndex(lease);
+    await Promise.all(rows.filter(row => row.recipe.id === changedId).map(row => storage.setItem(recordKey(lease, row.recipe.id), JSON.stringify(row))));
+    if (!valid(lease)) return;
+    const ids = rows.map(row => row.recipe.id);
+    // Retire IDs before erasing bytes: failed cleanup cannot resurrect a revoked copy.
+    await storage.setItem(key(lease), JSON.stringify(ids));
+    const removed = prior.filter(id => !ids.includes(id)).map(id => recordKey(lease, id));
+    if (removed.length) await storage.multiRemove(removed);
+  };
+  const forget = async (lease: Lease, id: string) => {
+    if (!valid(lease)) return;
+    observed.delete(id); eligible.delete(id);
+    const ids = await readIndex(lease);
+    if (!valid(lease)) return;
+    await storage.setItem(key(lease), JSON.stringify(ids.filter(value => value !== id)));
+    await storage.multiRemove([recordKey(lease, id)]);
   };
   const erase = async () => {
     const keys = (await storage.getAllKeys()).filter(k => k.startsWith(PREFIX));
@@ -33,17 +59,17 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
     const rows = await readAll(lease);
     const previous = rows.find(row => row.recipe.id === recipe.id);
     const next = { recipe: { ...recipe, raw_text: undefined }, savedAt: fetchedAt, pinned: pinned ?? previous?.pinned ?? false };
-    if (JSON.stringify(next).length > 2_000_000) throw new Error('This recipe is too large to keep offline.');
+    if (JSON.stringify(next).length > 500_000) throw new Error('This recipe is too large to keep offline.');
     const remaining = rows.filter(row => row.recipe.id !== recipe.id);
     const all = [next, ...remaining];
     const kept = [...all.filter(row => row.pinned), ...all.filter(row => !row.pinned).slice(0, 30)];
-    if (kept.filter(row => row.pinned).length > 20) throw new Error('Up to 20 recipes can be marked Available offline.');
-    if (valid(lease)) await storage.setItem(key(lease), JSON.stringify(kept));
+    await writeAll(lease, kept, recipe.id);
   };
   return {
+    revision,
     lease: (currentSubject?: string | null): Lease | null => authority && subject && currentSubject === subject ? { ...authority, epoch } : null,
     bindSubject(next: string | null) {
-      epoch++; subject = next; authority = null; observed.clear(); eligible.clear();
+      epoch++; subject = next; authority = null; observed.clear(); eligible.clear(); revisions.clear();
       const currentEpoch = epoch;
       return run(async () => {
         const raw = await storage.getItem(META);
@@ -64,44 +90,51 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
         await storage.setItem(META, JSON.stringify(authority));
       });
     },
-    observe(lease: Lease, recipe: Recipe, fetchedAt = Date.now()) {
+    observe(lease: Lease, recipe: Recipe, fetchedAt = Date.now(), requestedRevision = revision(recipe.id)) {
       return run(async () => {
         if (!valid(lease)) return;
+        if (requestedRevision !== revision(recipe.id)) return;
         observed.set(recipe.id, { recipe, fetchedAt });
         if (observed.size > 64) observed.delete(observed.keys().next().value!);
         if (recipe.is_owner || eligible.has(recipe.id)) await save(lease, recipe, undefined, fetchedAt);
       });
     },
-    markSaved(lease: Lease, id: string, saved: boolean) {
+    markSaved(lease: Lease, id: string, saved: boolean, requestedRevision = revision(id)) {
+      if (!saved && valid(lease)) revisions.set(id, revision(id) + 1);
       return run(async () => {
-        if (!valid(lease)) return;
+        if (!valid(lease) || saved && requestedRevision !== revision(id)) return;
         if (saved) eligible.add(id); else eligible.delete(id);
         const observation = observed.get(id);
         const recipe = observation?.recipe;
         if (recipe && (saved || recipe.is_owner)) await save(lease, recipe, undefined, observation!.fetchedAt);
         else if (!saved) {
-          const rows = await readAll(lease);
-          if (valid(lease)) await storage.setItem(key(lease), JSON.stringify(rows.filter(row => row.recipe.id !== id)));
+          await forget(lease, id);
         }
       });
     },
-    read: (lease: Lease, id: string) => run(async () => (await readAll(lease)).find(row => row.recipe.id === id) ?? null),
+    read: (lease: Lease, id: string) => run(async () => {
+      if (!(await readIndex(lease)).includes(id)) return null;
+      const raw = await storage.getItem(recordKey(lease, id));
+      return valid(lease) && raw ? JSON.parse(raw) as OfflineRecipe : null;
+    }),
     list: (lease: Lease) => run(() => readAll(lease)),
     pin: (lease: Lease, id: string, pinned: boolean) => run(async () => {
       const rows = await readAll(lease);
       const row = rows.find(item => item.recipe.id === id);
+      const observation = observed.get(id);
+      if (!row && valid(lease) && observation && (observation.recipe.is_owner || eligible.has(id))) {
+        await save(lease, observation.recipe, pinned, observation.fetchedAt); return;
+      }
       if (!row || !valid(lease)) throw new Error('Open a saved or own recipe online before marking it Available offline.');
-      if (pinned && rows.filter(item => item.pinned && item.recipe.id !== id).length >= 20) throw new Error('Up to 20 recipes can be marked Available offline.');
       row.pinned = pinned;
-      if (valid(lease)) await storage.setItem(key(lease), JSON.stringify(rows));
+      await writeAll(lease, rows, id);
     }),
-    remove: (lease: Lease, id: string) => run(async () => {
-      observed.delete(id); eligible.delete(id);
-      const rows = await readAll(lease);
-      if (valid(lease)) await storage.setItem(key(lease), JSON.stringify(rows.filter(row => row.recipe.id !== id)));
-    }),
+    remove: (lease: Lease, id: string) => {
+      if (valid(lease)) revisions.set(id, revision(id) + 1);
+      return run(() => forget(lease, id));
+    },
     clear() {
-      epoch++; authority = null; observed.clear(); eligible.clear();
+      epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear();
       return run(erase);
     },
   };
