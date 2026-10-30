@@ -1,6 +1,9 @@
+import { missingDetails, type MissingDetail } from "@/lib/missing-details";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { View } from "react-native";
 import { Button, Card, Choice, Copy, Field } from "./ui";
+import { SourcePlayback } from "./source-playback";
+import { sourceURL } from "@/lib/source-playback";
 import { SavedSourceText } from "./workout-source";
 import { useTraining } from "@/lib/context";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
@@ -43,23 +46,35 @@ export function WorkoutEditor({
   value,
   onChange,
   disabled = false,
-  context = "edit"
+  context = "edit",
+  review = false,
+  onReviewTarget,
 }: {
   value: AuthoredWorkout;
   onChange(value: AuthoredWorkout): void;
   disabled?: boolean;
   context?: "create" | "edit";
+  review?: boolean;
+  onReviewTarget?(): void;
 }) {
   const { units } = useTraining();
+  const [target, setTarget] = useState<MissingDetail | null>(null);
+  const [fullEditor, setFullEditor] = useState(!review);
+  const unknown = missingDetails(value);
+  const reviewing = review && !fullEditor;
+  const targetExercise = target?.block == null || target.exercise == null ? null : value.blocks.find(b => b.id === target.block)?.exercises[target.exercise];
+  function focus(next: MissingDetail | null) { setTarget(next); onReviewTarget?.(); }
+
   const [showMore, setShowMore] = useState(() => hasText(value.instructions) || hasText(value.notes) ||
     !!value.equipment_required?.length || !!value.source_context);
   // Fields with a validation problem stay visible so they can be corrected.
-  const moreOpen = showMore || invalidWorkoutDetails(value);
+  const moreOpen = target?.key === "equipment" || showMore || invalidWorkoutDetails(value);
   const [expandedBlocks, setExpandedBlocks] = useState<string[]>([]);
   const [expandedExercises, setExpandedExercises] = useState<string[]>([]);
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
   function update(next: AuthoredWorkout, removedExercise?: { blockId: string; index: number }) {
     if (disabled) return;
+    if (removedExercise && target?.block === removedExercise.blockId && target.exercise === removedExercise.index) setTarget(null);
     // Keep automatically revealed fields mounted when a correction clears their error.
     setExpandedBlocks(current => retainExpanded(current, value.blocks.filter(invalidBlockSettings).map(block => block.id)));
     setExpandedExercises(current => {
@@ -90,6 +105,21 @@ export function WorkoutEditor({
   }
   return (
     <View style={{ gap: 16 }}>
+      {reviewing && <Card compact>
+        <Copy kind="heading">{target ? target.label : `${unknown.length} things to check`}</Copy>
+        <Copy kind="small">Only add details supported by the source. Unknown values can stay blank.</Copy>
+        {!target ? unknown.map(item => <Button key={item.key} title={item.label} secondary onPress={() => focus(item)} />) : <>
+          <Button title="Back to review summary" secondary onPress={() => focus(null)} />
+          <Copy kind="label">Source evidence</Copy>
+          {targetExercise?.evidence?.map(item => <Copy key={JSON.stringify(item)} kind="small">{item.field}: {item.location ? `${item.location}: ` : ""}{item.wording}</Copy>)}
+          <SavedSourceText context={value.source_context} />
+          {!targetExercise?.evidence?.length && !value.source_context && <Copy kind="small">No saved wording for this detail. Leave it unknown if the source does not say.</Copy>}
+          {sourceURL(value.source_url) ? <SourcePlayback url={value.source_url} title={value.title} /> : <Copy kind="small">Original source link unavailable.</Copy>}
+          <Button title="Leave unknown" secondary onPress={() => focus(null)} />
+        </>}
+        <Button title="Open full editor" secondary onPress={() => { setFullEditor(true); focus(null); }} />
+      </Card>}
+      {(!reviewing || target?.key === "equipment") && <>
       <Field
         disabled={disabled}
         label="Workout title"
@@ -144,8 +174,10 @@ export function WorkoutEditor({
         <Copy kind="small" tone="muted">It's removed when you save. Earlier saves keep their original text.</Copy>
       </Card>}
       </>}
+      </>}
       {value.blocks.map((block, bi) => {
-        const blockExpanded = expandedBlocks.includes(block.id) || invalidBlockSettings(block);
+        if (reviewing && (!target?.block || block.id !== target.block)) return null;
+        const blockExpanded = (reviewing && target?.block === block.id && target.exercise == null) || expandedBlocks.includes(block.id) || invalidBlockSettings(block);
         return (
         <Card key={block.id}>
           <Copy kind="heading">{block.label || "Workout block"}</Copy>
@@ -189,8 +221,9 @@ export function WorkoutEditor({
             onChange={(rest_between_rounds_seconds) => update({ ...value, blocks: value.blocks.map((b, i) => i === bi ? { ...b, rest_between_rounds_seconds } : b) })} />
           </>}
           {block.exercises.map((e, ei) => {
+            if (reviewing && target?.exercise !== ei) return null;
             const key = `${block.id}:${ei}`;
-            const expanded = expandedExercises.includes(key) || invalidExerciseDetails(e);
+            const expanded = (reviewing && target?.exercise === ei) || expandedExercises.includes(key) || invalidExerciseDetails(e);
             const range = e.reps_max != null && e.reps_max !== e.reps_min;
             return (
             <Card key={key} tone="sunken" compact>
@@ -321,7 +354,7 @@ export function WorkoutEditor({
             onPress={() => { if (!disabled) setRemovingBlock(block.id); }} />}
         </Card>
       ); })}
-      <Button
+      {!reviewing && <>      <Button
         disabled={disabled || value.blocks.length >= 100}
         title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
@@ -342,6 +375,7 @@ export function WorkoutEditor({
           });
         }}
       />
+      </>}
     </View>
   );
 }

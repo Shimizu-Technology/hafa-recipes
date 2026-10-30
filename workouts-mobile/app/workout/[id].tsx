@@ -271,7 +271,7 @@ export default function WorkoutDetail() {
               <Copy kind="subheading">Review workout details</Copy>
               <Copy kind="small">Some workout details need checking. Review the source or edit the details before training.</Copy>
               <Row gap={8} wrap>
-                <Button title="Check details" secondary size="sm" inline onPress={edit} />
+                <Button title="Check details" secondary size="sm" inline onPress={() => go({ pathname: "/edit-workout/[id]", params: { id: workout.id, review: "1" } })} />
                 {exercises > 0 && !!(workout.source_url || workout.capture_kind) && <Button
                   title="Recover from caption or source" secondary size="sm" inline icon="refresh-outline"
                   onPress={() => router.push({ pathname: "/recover-workout/[id]", params: { id: workout.id } })} />}
