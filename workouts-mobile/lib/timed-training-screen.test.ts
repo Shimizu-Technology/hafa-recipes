@@ -531,6 +531,47 @@ it.each([
 });
 
 
+it("keeps the rest countdown visible and resettable while the session is paused", async () => {
+  await act(async () => { await fixture.store!.timer("rest", 30); }); await settle();
+  await act(async () => { vi.setSystemTime(15000); await fixture.store!.pause(true); }); await settle();
+  await act(async () => { vi.advanceTimersByTime(60000); }); await settle();
+  expect(renderer!.root.findByType("RestTimer" as never).props.remaining).toBe(25);
+  expect(action("Reset rest")).toBeDefined();
+  expect(fixture.store!.snapshot().active!.actuals).toEqual([]);
+});
+it("shows the frozen exercise timer with an explicit reset and resumes from its value", async () => {
+  const fixed: Workout = { ...workout, provenance: "user", blocks: [{ id: "main", label: "Hold", grouping: "sequential", exercises: [{ name: "Plank", sets: 1, duration_seconds: 30 }] }] };
+  await act(async () => { await fixture.store!.discard(); await fixture.store!.start(fixed, { workout_id: "source", workout_revision: 1 }, "hold"); }); await settle();
+  await act(async () => { action("Start timer").props.onPress(); }); await settle();
+  await act(async () => { vi.setSystemTime(15000); await fixture.store!.pause(true); }); await settle();
+  expect(action("Reset timer")).toBeDefined();
+  expect(text()).toContain("0:05");
+  await act(async () => { action("Reset timer").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.interval_elapsed_milliseconds).toBe(0);
+  await act(async () => { await fixture.store!.pause(false); vi.advanceTimersByTime(2000); }); await settle();
+  expect(text()).toContain("0:02");
+});
+
+
+it.each(["manual", "background"])("allows Use this time at the cap after late %s pause without logging automatically", async mode => {
+  const timed: Workout = { ...workout, blocks: [{ id: "main", label: "Hold", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 60 }, exercises: [{ name: "Plank", duration_seconds: 30 }] }] };
+  await act(async () => { await fixture.store!.discard(); await fixture.store!.start(timed, { workout_id: "source", workout_revision: 1 }, "cap-hold"); }); await settle();
+  await act(async () => { action("Start timer").props.onPress(); }); await settle();
+  await act(async () => {
+    vi.setSystemTime(80000);
+    if (mode === "background") fixture.listeners.forEach(listener => listener("background"));
+    else await fixture.store!.pause(true);
+  }); await settle();
+  expect(text()).toContain("1:00");
+  expect(action("Use this time").props.disabled).toBe(false);
+  await act(async () => { action("Use this time").props.onPress(); }); await settle();
+  expect(field("Time · sec").props.value).toBe("60");
+  expect(fixture.store!.snapshot().active!.actuals).toEqual([]);
+  expect(footer().props.disabled).toBe(false);
+  await act(async () => { footer().props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.actuals[0].duration_seconds).toBe(60);
+});
+
 it("keeps labelled Pause/Resume and Finish beside the main logging action", async () => {
   expect(action("Pause").props.disabled).toBe(false);
   expect(partial().props.disabled).toBe(false);

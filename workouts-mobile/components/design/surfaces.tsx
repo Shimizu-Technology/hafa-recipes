@@ -1,5 +1,7 @@
 import { Children, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactElement, type ReactNode, type Ref } from "react";
 import {
+  AccessibilityInfo,
+  AppState,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -501,8 +503,13 @@ export function Skeleton({ height = 16, width = "100%", radius = radii.sm }: { h
   const c = useColors();
   const reduced = useReducedMotion();
   const pulse = useRef(new Animated.Value(1)).current;
+  const [active, setActive] = useState(AppState.currentState === "active");
   useEffect(() => {
-    if (reduced) return;
+    const sub = AppState.addEventListener("change", state => setActive(state === "active"));
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (reduced || !active) { pulse.setValue(1); return; }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: Platform.OS !== "web" }),
@@ -511,7 +518,7 @@ export function Skeleton({ height = 16, width = "100%", radius = radii.sm }: { h
     );
     loop.start();
     return () => loop.stop();
-  }, [pulse, reduced]);
+  }, [pulse, reduced, active]);
   return (
     <Animated.View
       style={{ height, width, borderRadius: radius, backgroundColor: c.skeleton, opacity: reduced ? 0.8 : pulse }}
@@ -572,7 +579,6 @@ export function Sheet({
             ...elevation.overlay,
           }}
         >
-          <View style={{ alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: c.border }} />
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Copy kind="heading">{title}</Copy>
             <IconButton icon="close" label={`Close ${title}`} onPress={onClose} size={40} />
@@ -601,6 +607,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
   }, []);
   useEffect(() => {
     if (!toast) return;
+    if (Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(toast.text);
     opacity.setValue(reduced ? 1 : 0);
     if (!reduced) Animated.timing(opacity, { toValue: 1, duration: motion.base, useNativeDriver: Platform.OS !== "web" }).start();
     const timer = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), 2800);

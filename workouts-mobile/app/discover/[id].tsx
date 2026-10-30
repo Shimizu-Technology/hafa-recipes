@@ -357,7 +357,7 @@ export default function DiscoverWorkout() {
       <Sheet visible={sheet === "report"} onClose={() => setSheet(null)} title="Report this workout">
         <Copy tone="muted">Reports go to the Håfa team. The person who shared it isn’t told who reported it.</Copy>
         {reportCategories.map((option) => (
-          <Choice
+          <Choice role="radio"
             key={option.value}
             label={option.label}
             detail={option.detail}

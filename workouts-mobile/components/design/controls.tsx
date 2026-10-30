@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
-import { Copy, haptics, useColors, useReducedMotion, useSurface, type Surface } from "./foundation";
+import { Copy, haptics, useColors, useSurface, type Surface } from "./foundation";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
@@ -50,6 +50,7 @@ export function Button({
   inline = false,
   haptic,
   accessibilityHint,
+  disabledReason,
 }: {
   title: string;
   onPress(): void;
@@ -64,19 +65,24 @@ export function Button({
   inline?: boolean;
   haptic?: "tick" | "success";
   accessibilityHint?: string;
+  /** Explain a material blocked action, visibly and to assistive technology. */
+  disabledReason?: string;
 }) {
   const c = useColors();
   const surface = useSurface();
   const kind = variant ?? (secondary ? "secondary" : "primary");
-  const { bg, fg, border } = buttonColors(c, kind, surface);
+  const colors = buttonColors(c, kind, surface);
+  const { bg, fg, border } = disabled || busy
+    ? { bg: c.sunken, fg: c.text, border: c.border } : colors;
   const inactive = disabled || busy;
   const press = usePressScale(inactive);
   const AnimatedPressable = animatedPressableComponent();
   return (
+    <>
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={title}
-      accessibilityHint={accessibilityHint}
+      accessibilityHint={disabled && disabledReason ? disabledReason : accessibilityHint}
       accessibilityState={{ disabled: inactive, busy }}
       aria-disabled={inactive}
       aria-busy={busy}
@@ -96,7 +102,7 @@ export function Button({
         backgroundColor: bg,
         borderWidth: border ? 1 : 0,
         borderColor: border,
-        opacity: inactive ? 0.55 : press.opacity,
+        opacity: press.opacity,
         transform: [{ scale: press.scale }],
         flexDirection: "row",
         alignItems: "center",
@@ -118,6 +124,8 @@ export function Button({
         {title}
       </Copy>
     </AnimatedPressable>
+    {disabled && !!disabledReason && <Copy kind="small" tone="muted">{disabledReason}</Copy>}
+    </>
   );
 }
 
@@ -342,38 +350,23 @@ export function Segmented<T extends string>({
       accessibilityLabel={label}
       style={{ flexDirection: "row", backgroundColor: c.sunken, borderRadius: radii.full, padding: 4, gap: 4 }}
     >
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityRole="radio"
-            accessibilityLabel={option.label}
-            accessibilityState={{ checked: selected }}
-            aria-checked={selected}
-            onPress={() => {
-              if (!selected) haptics.tick();
-              onChange(option.value);
-            }}
-            style={{
-              flex: 1,
-              minHeight: 44,
-              borderRadius: radii.full,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: selected ? c.elevated : "transparent",
-              borderWidth: selected ? 1 : 0,
-              borderColor: c.border,
-            }}
-          >
-            <Copy kind="label" color={selected ? c.text : c.muted} style={{ fontSize: 15 }}>
-              {option.label}
-            </Copy>
-          </Pressable>
-        );
-      })}
+      {options.map((option) => <SegmentOption key={option.value} label={option.label} selected={option.value === value}
+        onPress={() => { if (option.value !== value) haptics.tick(); onChange(option.value); }} />)}
     </View>
   );
+}
+
+function SegmentOption({ label, selected, onPress }: { label: string; selected: boolean; onPress(): void }) {
+  const c = useColors();
+  const press = usePressScale();
+  const AnimatedPressable = animatedPressableComponent();
+  return <AnimatedPressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: selected }}
+    aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}
+    style={{ flex: 1, minHeight: 44, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
+      backgroundColor: selected ? c.elevated : "transparent", borderWidth: selected ? 1 : 0, borderColor: c.border,
+      opacity: press.opacity, transform: [{ scale: press.scale }] }}>
+    <Copy kind="label" color={selected ? c.text : c.muted} style={{ fontSize: 15 }}>{label}</Copy>
+  </AnimatedPressable>;
 }
 
 let accessoryCount = 0;
@@ -487,7 +480,9 @@ export function Choice({
   disabled = false,
   busy = false,
   icon,
+  role = "checkbox",
 }: {
+  role?: "radio" | "checkbox";
   label: string;
   detail?: string;
   selected: boolean;
@@ -498,21 +493,24 @@ export function Choice({
   icon?: IconName;
 }) {
   const c = useColors();
-  const reduced = useReducedMotion();
+  const press = usePressScale(disabled || busy);
+  const AnimatedPressable = animatedPressableComponent();
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={() => {
         haptics.tick();
         onPress();
       }}
-      accessibilityRole="checkbox"
+      accessibilityRole={role}
       accessibilityLabel={label}
       accessibilityState={{ checked: selected, disabled: disabled || busy, busy }}
       aria-checked={selected}
       aria-disabled={disabled || busy}
       aria-busy={busy}
       disabled={disabled || busy}
-      style={({ pressed }) => ({
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={{
         minHeight: 56,
         paddingVertical: 14,
         paddingHorizontal: 16,
@@ -520,12 +518,12 @@ export function Choice({
         borderWidth: selected ? 2 : 1,
         borderColor: selected ? c.onActionSoft : c.border,
         backgroundColor: selected ? c.actionSoft : c.surface,
-        opacity: disabled || busy ? 0.55 : 1,
-        transform: [{ scale: pressed && !reduced ? 0.985 : 1 }],
+        opacity: press.opacity,
+        transform: [{ scale: press.scale }],
         flexDirection: "row",
         gap: 12,
         alignItems: "center",
-      })}
+      }}
     >
       {!!icon && <Ionicons name={icon} size={22} color={selected ? c.onActionSoft : c.muted} />}
       <View style={{ flex: 1, gap: 2 }}>
@@ -545,6 +543,6 @@ export function Choice({
           color={selected ? c.onActionSoft : c.borderStrong}
         />
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
