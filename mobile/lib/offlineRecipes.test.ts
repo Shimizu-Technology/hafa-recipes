@@ -166,7 +166,7 @@ it('enforces aggregate UTF-8 bytes without silently evicting a promised pin', as
   const rows = await store.list(lease);
   expect(rows.every(row => row.pinned)).toBe(true);
   expect(rows.reduce((size, row) => size + new TextEncoder().encode(JSON.stringify(row)).byteLength, 0)).toBeLessThanOrEqual(20 * 1024 * 1024);
-});
+}, 30_000); // fills the 20 MB budget; slow on shared CI runners
 it('prunes the automatic recent limit when existing pins are unpinned', async () => {
   const { store } = setup(); await store.bindSubject('a'); await store.verify('a', 'owner');
   const lease = store.lease('a')!;
