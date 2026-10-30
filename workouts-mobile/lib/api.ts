@@ -1,4 +1,5 @@
 import type { DayProposal } from "@/components/adjust-training";
+import type { ScheduleOnceCommand } from "./schedule-once";
 import { streamCoachRequest } from "./coach-stream";
 import {
   activityQuery,
@@ -1061,6 +1062,10 @@ export function createWorkoutsApi(
     },
     async applyDay(id: string, action: "accept" | "undo", generation: number) {
       return (await request<{ state: string }>(`/quick-training-proposals/${encodeURIComponent(id)}/${action}`, "POST", undefined, { generation })).data;
+    },
+    async scheduleOnce(command: ScheduleOnceCommand, generation: number) {
+      const { request_id, ...body } = command;
+      return (await request<{ id: string }>("/programs", "POST", body, { generation, creationKey: request_id })).data;
     },
     async programs() {
       return (
