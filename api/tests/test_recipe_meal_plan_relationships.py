@@ -75,6 +75,7 @@ def _schema():
         Column("recipe_thumbnail", String(500)),
         Column("notes", String(500)),
         Column("servings", String(20)),
+        Column("planned_servings", Integer),
         Column("created_at", DateTime, nullable=False),
         Column("updated_at", DateTime),
     )
@@ -303,6 +304,7 @@ class _ScalarResult:
 
 
 class _RecordingSession:
+    info = {"planned_servings_supported": False}
     def __init__(self, rows=None):
         self.statement = None
         self.rows = rows or []

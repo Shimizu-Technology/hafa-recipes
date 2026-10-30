@@ -26,8 +26,9 @@ ACTIVE_MIGRATIONS = (
     "migrations.031_add_household_pantry",
     "migrations.032_add_share_import_credentials",
     "migrations.033_add_nutrition_backfill_audit",
+    "migrations.053_add_planned_servings",
 )
-LATEST_MIGRATION = 33
+LATEST_MIGRATION = 53
 OPTIONAL_MIGRATIONS = (
     "migrations.034_add_workouts_domain",
     "migrations.035_add_workouts_automation",

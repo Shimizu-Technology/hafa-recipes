@@ -1,3 +1,6 @@
+import { api } from '@/lib/api';
+import * as Crypto from 'expo-crypto';
+import { useQuery } from '@tanstack/react-query';
 /**
  * Meal Planner Screen
  *
@@ -6,7 +9,7 @@
  * ingredients to their grocery list.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -16,6 +19,8 @@ import {
   Alert,
   Dimensions,
   ActivityIndicator,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +37,8 @@ import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import {
   useMealPlanWeek,
   useAddMeal,
+  mealPlanKeys,
+  useUpdateMeal,
   useDeleteMeal,
   useAddPlanToGrocery,
   formatDateForApi,
@@ -101,7 +108,9 @@ function DayPill({
   isSelected,
   colors,
   onPress,
+  mealTitles,
 }: {
+  mealTitles?: string[];
   date: Date;
   isSelected: boolean;
   colors: ReturnType<typeof useColors>;
@@ -114,6 +123,7 @@ function DayPill({
     <ScalePressable
       style={[
         styles.dayPill,
+        mealTitles && { width: 128 },
         {
           backgroundColor: isSelected ? colors.text : colors.card,
           borderColor: today ? colors.tint : colors.cardBorder,
@@ -121,7 +131,7 @@ function DayPill({
       ]}
       onPress={onPress}
       accessibilityRole="radio"
-      accessibilityLabel={`${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}${today ? ', today' : ''}`}
+      accessibilityLabel={`${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}${today ? ', today' : ''}${mealTitles ? `, ${mealTitles.length} meals, ${mealTitles.join(', ')}` : ''}`}
       accessibilityState={{ selected: isSelected, checked: isSelected }}
     >
       <Text
@@ -140,6 +150,9 @@ function DayPill({
       >
         {label.number}
       </Text>
+      {mealTitles && <Text style={{ color: isSelected ? colors.background : colors.textMuted }} numberOfLines={2}>
+        {mealTitles.length ? `${mealTitles.length} meals · ${mealTitles.join(' · ')}` : 'No meals'}
+      </Text>}
       {today && (
         <RNView
           style={[
@@ -161,6 +174,7 @@ export function MealSlot({
   onAdd,
   onRemove,
   onViewRecipe,
+  onEditServings,
   pendingRecipeTitle,
   isAdding,
   isAddDisabled,
@@ -171,6 +185,7 @@ export function MealSlot({
   onAdd: () => void;
   onRemove: (entryId: string) => void;
   onViewRecipe: (recipeId: string) => void;
+  onEditServings?: (entry: MealPlanEntry) => void;
   pendingRecipeTitle?: string;
   isAdding: boolean;
   isAddDisabled: boolean;
@@ -250,6 +265,10 @@ export function MealSlot({
                   </Text>
                 )}
               </RNView>
+              <TouchableOpacity onPress={() => onEditServings?.(entry)} style={{ minHeight: 44, justifyContent: 'center' }}
+                accessibilityRole="button" accessibilityLabel={`Edit servings for ${entry.recipe_title}`}>
+                <Text style={{ color: colors.actionText }}>{entry.planned_servings ? `${entry.planned_servings} servings` : entry.servings || 'Recipe servings'}</Text>
+              </TouchableOpacity>
               <IconButton
                 icon="close-circle-outline"
                 accessibilityLabel={`Remove ${entry.recipe_title || 'recipe'} from ${mealType}`}
@@ -299,13 +318,15 @@ export default function PlannerScreen() {
   const {
     date: requestedDateParam,
     recipeId: requestedRecipeParam,
+    servings: requestedServings,
   } = useLocalSearchParams<{
     date?: string | string[];
     recipeId?: string | string[];
+    servings?: string;
   }>();
   const insets = useSafeAreaInsets();
   const colors = useColors();
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
   // Current week and selected day
   const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(new Date()));
@@ -336,8 +357,9 @@ export default function PlannerScreen() {
       title: requestedRecipe.extracted.title || 'Untitled recipe',
       thumbnail_url: requestedRecipe.thumbnail_url,
       review_state: requestedRecipe.review_state,
+      servings: Number.isInteger(Number(requestedServings)) && Number(requestedServings) > 0 ? Number(requestedServings) : requestedRecipe.extracted.servings,
     };
-  }, [requestedRecipe]);
+  }, [requestedRecipe, requestedServings]);
   const requestedRecipeHasBlockingError = isRequestedRecipeError && !handoffRecipe;
   const requestedRecipeHandoffIsLoading = !!requestedRecipeId
     && (!isLoaded || isRequestedRecipeLoading);
@@ -364,6 +386,22 @@ export default function PlannerScreen() {
 
   // Mutations
   const addMeal = useAddMeal();
+  const updateMeal = useUpdateMeal();
+  const [editingServings, setEditingServings] = useState<MealPlanEntry | null>(null);
+  const [servingsInput, setServingsInput] = useState('');
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const [reviewMutationId, setReviewMutationId] = useState('');
+  const [reviewAdding, setReviewAdding] = useState(false);
+  const pendingReview = useRef<Parameters<ReturnType<typeof useAddPlanToGrocery>['mutateAsync']>[0] | null>(null);
+  const reviewAccount = `${userId ?? ''}:${sessionId ?? ''}`;
+  const reviewOwner = useRef(reviewAccount);
+  if (reviewOwner.current !== reviewAccount) { pendingReview.current = null; reviewOwner.current = reviewAccount; }
+  const review = useQuery({ queryKey: [...mealPlanKeys.review(weekOfStr), reviewAccount],
+    queryFn: () => api.previewMealPlanGroceries(weekOfStr, formatDateForApi(getWeekEnd(currentWeekStart))),
+    enabled: reviewVisible && isSignedIn === true,
+  });
+  useEffect(() => { setReviewVisible(false); setReviewAdding(false); }, [reviewAccount]);
+  const reviewData = pendingReview.current?.review?.review ?? review.data;
   const deleteMeal = useDeleteMeal();
   const addToGrocery = useAddPlanToGrocery();
 
@@ -486,31 +524,30 @@ export default function PlannerScreen() {
   );
 
   // Handle adding to grocery
-  const handleAddToGrocery = useCallback(async () => {
-    lightHaptic();
+  const handleAddToGrocery = () => { if (!pendingReview.current) setReviewMutationId(Crypto.randomUUID()); setReviewVisible(true); };
+  const confirmGroceries = async () => {
+    if (!reviewData || reviewAdding) return;
+    setReviewAdding(true);
+    const owner = reviewAccount;
     try {
-      const result = await addToGrocery.mutateAsync({
-        startDate: formatDateForApi(currentWeekStart),
-        endDate: formatDateForApi(
-          new Date(
-            currentWeekStart.getFullYear(),
-            currentWeekStart.getMonth(),
-            currentWeekStart.getDate() + 6
-          )
-        ),
-      });
-      successHaptic();
-      showToast({
-        message: plannerGrocerySuccessMessage(result),
-        tone: 'success',
-        actionLabel: 'View list',
-        onAction: () => router.push('/(tabs)/grocery'),
-      });
-    } catch {
-      // User-facing alert is sufficient
-      Alert.alert('Couldn’t add to grocery list', 'Your grocery list wasn’t changed. Please try again.');
+      pendingReview.current ??= { startDate: weekOfStr, endDate: formatDateForApi(getWeekEnd(currentWeekStart)), review: {
+        preview_token: reviewData.preview_token, mutation_id: reviewMutationId, list_id: reviewData.list_id, review: reviewData,
+      } };
+      const result = await addToGrocery.mutateAsync(pendingReview.current);
+      if (reviewOwner.current !== owner) return;
+      pendingReview.current = null;
+      setReviewVisible(false); successHaptic();
+      showToast({ message: plannerGrocerySuccessMessage(result), tone: 'success', actionLabel: 'View list', onAction: () => router.push('/(tabs)/grocery') });
+    } catch (error: any) {
+      if (reviewOwner.current !== owner) return;
+      if (error?.response?.status === 409) Alert.alert('Review needed', error.response.data?.detail ?? 'Your plan or household changed.', [
+        { text: 'Keep previous request', style: 'cancel' },
+        { text: 'Review current list', onPress: () => { pendingReview.current = null; setReviewMutationId(Crypto.randomUUID()); void review.refetch(); } },
+      ]);
+      else Alert.alert('Couldn’t confirm groceries', 'Retry this addition to reconnect to the same request. Your previous review is kept when you close this screen.');
     }
-  }, [addToGrocery, currentWeekStart, router]);
+    finally { if (reviewOwner.current === owner) setReviewAdding(false); }
+  };
 
   // View recipe detail
   const handleViewRecipe = useCallback(
@@ -668,6 +705,7 @@ export default function PlannerScreen() {
           <DayPill
             key={index}
             date={date}
+            mealTitles={weekPlan?.days.find(day => day.date === formatDateForApi(date)) ? MEAL_TYPES.flatMap(type => weekPlan.days.find(day => day.date === formatDateForApi(date))?.[type.type] ?? []).map(entry => entry.recipe_title) : undefined}
             isSelected={formatDateForApi(date) === formatDateForApi(selectedDate)}
             colors={colors}
             onPress={() => {
@@ -744,6 +782,7 @@ export default function PlannerScreen() {
                 onAdd={() => handleAddMeal(mealType.type)}
                 onRemove={handleRemoveMeal}
                 onViewRecipe={handleViewRecipe}
+            onEditServings={(entry) => { setEditingServings(entry); setServingsInput(String(entry.planned_servings ?? entry.servings ?? '')); }}
                 pendingRecipeTitle={handoffRecipe?.title}
                 isAdding={addingMealType === mealType.type}
                 isAddDisabled={addMeal.isPending || requestedRecipeIsPending}
@@ -757,6 +796,7 @@ export default function PlannerScreen() {
                 { backgroundColor: colors.success },
               ]}
               onPress={handleAddToGrocery}
+              accessibilityRole="button" accessibilityLabel="Review week groceries"
               disabled={addToGrocery.isPending}
               activeOpacity={0.8}
             >
@@ -775,6 +815,34 @@ export default function PlannerScreen() {
         )}
       </ScrollView>
 
+      <Modal visible={!!editingServings} onRequestClose={() => setEditingServings(null)} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md }}>
+          <Text>Servings for {editingServings?.recipe_title}</Text>
+          <TextInput accessibilityLabel="Planned servings" keyboardType="number-pad" value={servingsInput} onChangeText={setServingsInput} style={{ minHeight: 44, color: colors.text }} />
+          <Button title="Save servings" disabled={!/^[1-9]\d{0,2}$/.test(servingsInput) || updateMeal.isPending} onPress={async () => {
+            if (!editingServings) return;
+            try { await updateMeal.mutateAsync({ entryId: editingServings.id, update: { planned_servings: Number(servingsInput) } }); setEditingServings(null); }
+            catch { Alert.alert('Couldn’t save servings', 'Your plan was not changed. Try again.'); }
+          }} />
+          <Button title="Cancel" variant="secondary" onPress={() => setEditingServings(null)} />
+        </View>
+      </Modal>
+      <Modal visible={reviewVisible} onRequestClose={() => { if (!reviewAdding) setReviewVisible(false); }} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md }}>
+          <Text>Review this week’s groceries</Text>
+          {review.isLoading && <ActivityIndicator accessibilityLabel="Loading grocery review" />}
+          {review.isError && <Button title="Retry grocery review" onPress={() => review.refetch()} />}
+          {reviewData && <>
+            <Text>{reviewData.items_added} ingredient lines · {reviewData.items_missing_amount} missing amounts · {reviewData.items_unscaled} amounts need checking</Text>
+            <ScrollView>
+              {reviewData.totals.map((total, index) => <Text key={`total:${index}`} style={{ paddingVertical: spacing.sm }}>{total.quantity ?? 'See source amounts'} {total.unit} {total.name}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
+              <Text>By recipe</Text>
+              {reviewData.items.map((item, index) => <Text key={index} style={{ paddingVertical: spacing.sm }}>{item.quantity ?? 'Amount not stated'} {item.unit} {item.name} · {item.recipe_title}</Text>)}</ScrollView>
+            <Button title={reviewAdding ? 'Adding…' : 'Add reviewed groceries'} disabled={reviewAdding || (!pendingReview.current && (review.isFetching || review.isError)) || !reviewData.items_added} onPress={confirmGroceries} />
+          </>}
+          <Button title="Close review" variant="secondary" disabled={reviewAdding} onPress={() => setReviewVisible(false)} />
+        </View>
+      </Modal>
       {/* Recipe Picker Modal */}
       <RecipePickerModal
         visible={pickerVisible}

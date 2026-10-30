@@ -1,23 +1,31 @@
 """Meal planning API endpoints."""
 
+import hashlib
+import json
 from datetime import date, datetime, timedelta
 from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
-from app.models.grocery import GroceryItem
+from app.models.grocery import GroceryItem, GroceryMutationReceipt
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import Recipe
 from app.moderation import accessible_recipe_conditions, is_publicly_viewable
+from app.plan_quantities import format_plan_quantity, parse_plan_quantity, scaled_plan_quantity
+from app.plan_schema import (
+    load_planned_servings,
+    require_planned_servings,
+    supports_planned_servings,
+)
 from app.recipe_review import review_response_fields
-from app.routers.grocery import get_or_create_user_list
+from app.routers.grocery import _lock_grocery_list, get_or_create_user_list
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
 
@@ -35,6 +43,7 @@ class MealPlanEntryCreate(BaseModel):
     recipe_thumbnail: Optional[str] = None
     notes: Optional[str] = None
     servings: Optional[str] = None
+    planned_servings: Optional[int] = Field(default=None, ge=1, le=1000)
 
 
 class MealPlanEntryUpdate(BaseModel):
@@ -43,6 +52,7 @@ class MealPlanEntryUpdate(BaseModel):
     date: Optional[date] = None
     notes: Optional[str] = None
     servings: Optional[str] = None
+    planned_servings: Optional[int] = Field(default=None, ge=1, le=1000)
 
 
 class MealPlanEntryResponse(BaseModel):
@@ -55,6 +65,7 @@ class MealPlanEntryResponse(BaseModel):
     recipe_thumbnail: Optional[str] = None
     notes: Optional[str] = None
     servings: Optional[str] = None
+    planned_servings: Optional[int] = Field(default=None, ge=1, le=1000)
     recipe_review_state: Optional[
         Literal["source_incomplete", "needs_review", "ready"]
     ] = None
@@ -83,6 +94,10 @@ class AddToGroceryRequest(BaseModel):
     """Request to add meal plan ingredients to grocery list."""
     start_date: date
     end_date: date
+    preview_token: Optional[str] = None
+    mutation_id: Optional[UUID] = None
+    list_id: Optional[UUID] = None
+    review: Optional[dict] = None
 
 
 # ============================================================
@@ -238,6 +253,7 @@ async def get_week_plan(
         .order_by(MealPlanEntry.date, MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
     entries = result.all()
+    await load_planned_servings(db, [entry for entry, _ in entries])
     
     # Organize by day
     days = organize_by_day(entries, week_start, week_end)
@@ -273,6 +289,7 @@ async def get_day_plan(
         .order_by(MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
     entries = result.all()
+    await load_planned_servings(db, [entry for entry, _ in entries])
     
     # Organize into meal slots
     meals = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
@@ -308,10 +325,9 @@ async def get_recipe_plan_entries(
     result = await db.execute(
         _recipe_plan_entries_statement(recipe_id, user.id, first_date, limit)
     )
-    return [
-        meal_plan_entry_response(entry, recipe)
-        for entry, recipe in result.all()
-    ]
+    entries = result.all()
+    await load_planned_servings(db, [entry for entry, _ in entries])
+    return [meal_plan_entry_response(entry, recipe) for entry, recipe in entries]
 
 
 @router.post("/", response_model=MealPlanEntryResponse)
@@ -335,6 +351,11 @@ async def add_meal(
 
     recipe_title = recipe.extracted.get("title") if recipe.extracted else entry.recipe_title
 
+    # Creation remains available while code deploys ahead of expansion 053.
+    # The response reports persisted legacy behavior until scaling is supported.
+    planned = None
+    if entry.planned_servings is not None and await supports_planned_servings(db):
+        planned = entry.planned_servings
     new_entry = MealPlanEntry(
         user_id=user.id,
         date=entry.date,
@@ -344,11 +365,13 @@ async def add_meal(
         recipe_thumbnail=entry.recipe_thumbnail,
         notes=entry.notes,
         servings=entry.servings,
+        planned_servings=planned,
     )
     
     db.add(new_entry)
     await db.commit()
     await db.refresh(new_entry)
+    await load_planned_servings(db, [new_entry])
     
     return meal_plan_entry_response(new_entry, recipe)
 
@@ -387,11 +410,15 @@ async def update_meal(
         entry.date = update.date
     if update.notes is not None:
         entry.notes = update.notes
+    await require_planned_servings(db, update.planned_servings)
+    if update.planned_servings is not None:
+        entry.planned_servings = update.planned_servings
     if update.servings is not None:
         entry.servings = update.servings
     
     await db.commit()
     await db.refresh(entry)
+    await load_planned_servings(db, [entry])
     
     return meal_plan_entry_response(entry, recipe)
 
@@ -446,88 +473,97 @@ async def clear_day(
     }
 
 
-@router.post("/to-grocery")
-async def add_plan_to_grocery(
-    request: AddToGroceryRequest,
-    db: AsyncSession = Depends(get_db),
-    user: ClerkUser = Depends(get_current_user)
-):
-    """
-    Add all ingredients from meal plan to grocery list.
-    
-    Fetches the recipes in the date range and adds their ingredients.
-    """
-    # Get all meal plan entries in the date range
-    result = await db.execute(
-        select(MealPlanEntry)
-        .where(
-            MealPlanEntry.user_id == user.id,
-            MealPlanEntry.date >= request.start_date,
-            MealPlanEntry.date <= request.end_date
-        )
-    )
+async def plan_grocery_preview(request, db, user, grocery_list=None):
+    grocery_list = grocery_list or await get_or_create_user_list(db, user)
+    result = await db.execute(select(MealPlanEntry).where(
+        MealPlanEntry.user_id == user.id, MealPlanEntry.date >= request.start_date,
+        MealPlanEntry.date <= request.end_date,
+    ).order_by(MealPlanEntry.date, MealPlanEntry.id))
     entries = result.scalars().all()
-    
-    if not entries:
-        return {
-            "message": "No meals planned in this date range",
-            "items_added": 0,
-            "items_missing_amount": 0,
-        }
-    
-    # Get unique recipe IDs
-    recipe_ids = list(set(entry.recipe_id for entry in entries))
-    
-    # Fetch the full recipes to get ingredients, enforcing recipe access for legacy entries.
+    await load_planned_servings(db, entries)
     recipes = {}
-    for recipe_id in recipe_ids:
+    for recipe_id in {entry.recipe_id for entry in entries}:
         recipe = await get_accessible_recipe(db, recipe_id, user)
         if recipe:
             recipes[recipe.id] = recipe
-    
-    grocery_list = await get_or_create_user_list(db, user)
-
-    # Add ingredients to grocery list
-    items_added = 0
-    items_missing_amount = 0
+    items = []
     for entry in entries:
         recipe = recipes.get(entry.recipe_id)
         if not recipe or not recipe.extracted:
             continue
-        
-        extracted = recipe.extracted
-        components = extracted.get("components", [])
-        
-        for component in components:
-            ingredients = component.get("ingredients", [])
-            for ing in ingredients:
-                quantity = _normalized_quantity(ing.get("quantity"))
-                if quantity is None:
-                    items_missing_amount += 1
-                # Create grocery item
-                grocery_item = GroceryItem(
-                    user_id=user.id,
-                    list_id=grocery_list.id,
-                    name=ing.get("name", "Unknown"),
-                    quantity=quantity,
-                    unit=ing.get("unit"),
-                    notes=ing.get("notes"),
-                    recipe_id=entry.recipe_id,
-                    recipe_title=entry.recipe_title,
-                    added_by_name=user.display_name,
-                    checked=False,
+        for component in recipe.extracted.get("components", []):
+            for ingredient in component.get("ingredients", []):
+                quantity, unscaled = scaled_plan_quantity(
+                    _normalized_quantity(ingredient.get("quantity")),
+                    getattr(entry, "planned_servings", None), recipe.extracted.get("servings"),
                 )
-                db.add(grocery_item)
-                items_added += 1
-    
+                items.append(dict(name=ingredient.get("name", "Unknown"), quantity=quantity,
+                    unit=ingredient.get("unit"), notes=ingredient.get("notes"),
+                    recipe_id=str(entry.recipe_id), recipe_title=entry.recipe_title, unscaled=unscaled))
+    totals = {}
+    for item in items:
+        key = (item["name"].strip().casefold(), (item["unit"] or "").strip().casefold())
+        total = totals.setdefault(key, dict(name=item["name"], unit=item["unit"], quantity=None, missing=0, uncombined=0))
+        if item["quantity"] is None:
+            total["missing"] += 1
+        else:
+            normalized, unknown = scaled_plan_quantity(item["quantity"], 1, 1)
+            if unknown:
+                total["uncombined"] += 1
+            else:
+                total["quantity"] = format_plan_quantity(
+                    parse_plan_quantity(total["quantity"] or "0") + parse_plan_quantity(normalized)
+                )
+    token = hashlib.sha256(json.dumps([user.id, str(grocery_list.id), str(request.start_date), str(request.end_date), items], sort_keys=True).encode()).hexdigest()
+    return dict(list_id=str(grocery_list.id), totals=list(totals.values()), message=f"Added {len(items)} ingredients to grocery list" if items else "No meals planned in this date range", items=items, items_added=len(items), items_missing_amount=sum(i["quantity"] is None for i in items),
+                items_unscaled=sum(i["unscaled"] for i in items), recipes_processed=len(recipes), preview_token=token)
+
+
+@router.post("/to-grocery/preview")
+async def preview_plan_grocery(request: AddToGroceryRequest, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)):
+    """Read-only review of the same quantities the final addition will use."""
+    return await plan_grocery_preview(request, db, user)
+
+
+@router.post("/to-grocery")
+async def add_plan_to_grocery(request: AddToGroceryRequest, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)):
+    modern = request.mutation_id is not None or request.list_id is not None or request.review is not None
+    if modern and not (request.mutation_id and request.list_id and request.review and request.preview_token):
+        raise HTTPException(status_code=400, detail="Review this grocery addition before confirming it.")
+    grocery_list = await get_or_create_user_list(db, user)  # Holds the membership/account lock.
+    if modern and request.list_id != grocery_list.id:
+        raise HTTPException(status_code=409, detail="Your household changed. Review this list before adding groceries.")
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)  # Refresh even an already loaded identity.
+    if modern:
+        # The exact reviewed result is carried by the client, bound to its receipt.
+        # A first acceptance compares it to the authoritative calculation below.
+        # Replays need no mutable recipe/plan reads or additional schema columns.
+        try:
+            serialized = json.dumps([user.id, str(request.list_id), str(request.start_date), str(request.end_date), request.preview_token, request.review], sort_keys=True, allow_nan=False)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid grocery review") from None
+        if len(serialized) > 500_000:
+            raise HTTPException(status_code=400, detail="This grocery review is too large.")
+        request_hash = hashlib.sha256(serialized.encode()).hexdigest()
+        receipt = await db.get(GroceryMutationReceipt, (grocery_list.id, request.mutation_id))
+        if receipt:
+            if receipt.actor_user_id != user.id or receipt.operation != "add" or receipt.request_hash != request_hash:
+                raise HTTPException(status_code=409, detail="This grocery addition has different ingredients. Review again.")
+            return {**request.review, "replayed": True}
+    preview = await plan_grocery_preview(request, db, user, grocery_list)
+    if request.preview_token and request.preview_token != preview["preview_token"] or modern and request.review != preview:
+        raise HTTPException(status_code=409, detail="Your plan changed. Review the ingredients again.")
+    if not preview["items"]:
+        return preview
+    if modern:
+        db.add(GroceryMutationReceipt(list_id=grocery_list.id, mutation_id=request.mutation_id,
+            actor_user_id=user.id, operation="add", request_hash=request_hash))
+    for item in preview["items"]:
+        db.add(GroceryItem(user_id=user.id, list_id=grocery_list.id, checked=False, added_by_name=user.display_name,
+            **{key: UUID(value) if key == "recipe_id" else value for key, value in item.items() if key != "unscaled"}))
+    grocery_list.revision = (getattr(grocery_list, "revision", 0) or 0) + 1
     await db.commit()
-    
-    return {
-        "message": f"Added {items_added} ingredients to grocery list",
-        "items_added": items_added,
-        "items_missing_amount": items_missing_amount,
-        "recipes_processed": len(recipe_ids)
-    }
+    return preview
 
 
 @router.post("/copy-week")
@@ -560,6 +596,7 @@ async def copy_week(
         )
     )
     source_entries = result.scalars().all()
+    await load_planned_servings(db, source_entries)
     
     if not source_entries:
         return {"message": "No meals to copy from source week", "entries_copied": 0}
@@ -580,6 +617,7 @@ async def copy_week(
             recipe_thumbnail=entry.recipe_thumbnail,
             notes=entry.notes,
             servings=entry.servings,
+        planned_servings=entry.planned_servings,
         )
         db.add(new_entry)
         entries_copied += 1
