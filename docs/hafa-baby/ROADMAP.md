@@ -34,6 +34,12 @@ the keyboard; opening an empty editor does not leave an unfinished draft. Preser
 and search context. Editing with the keyboard open must remain comfortable.
 Light/dark, large text, VoiceOver and reduced motion are acceptance dimensions.
 Use native date controls and nonblocking confirmations. Motion cannot delay entry.
+Shared daily controls scale to 0.97 with a slight fade (120ms in / 160ms out,
+strong ease-out, native driver); Reduce Motion uses opacity only. Primary text
+scales without a cap, drops fixed line heights above 1.3×, and remeasures when
+Dynamic Type changes while open. Rows/chips wrap. Routine sync occupies one
+quiet line; failures expand into review actions. The floating Add has reserved
+space above the tab bar so it cannot cover content.
 
 ## Information boundaries
 
