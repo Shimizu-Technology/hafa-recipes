@@ -1292,3 +1292,11 @@ it("does not overwrite an unsent draft when re-asking a needs-information reques
   await act(async () => suggestion("needs-info")!.props.recovery.askAgain()); await settle();
   expect(f.send).not.toHaveBeenCalled(); expect(nodes("Field")[0].props.value).toBe("Keep my new question");
 });
+
+
+it("opens the live expiring check-in from the training profile link", async () => {
+  f.params = { check_in: "today" };
+  await mount();
+  expect(button("Save today’s check-in")).toBeDefined();
+  expect(f.readiness).not.toHaveBeenCalled();
+});
