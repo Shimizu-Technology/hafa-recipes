@@ -1,6 +1,7 @@
+import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, FlatList, ScrollView, View } from "react-native";
+import { useWindowDimensions, ActivityIndicator, FlatList, ScrollView, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
@@ -35,6 +36,8 @@ import { useFocusRefresh } from "@/lib/use-focus-refresh";
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
 export default function Library() {
+  const { width, fontScale } = useWindowDimensions();
+  const columns = workoutGridColumns(width, fontScale);
   const c = useColors();
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const cache = useQueryClient();
@@ -223,11 +226,11 @@ export default function Library() {
         onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
-          key={view}
+          key={`${view}:${columns}`}
           data={visible}
-          numColumns={view === "grid" ? 2 : 1}
+          numColumns={view === "grid" ? columns : 1}
           keyExtractor={(w) => w.id}
-          columnWrapperStyle={view === "grid" ? { gap: LIBRARY_GRID_GAP } : undefined}
+          columnWrapperStyle={view === "grid" && columns > 1 ? { gap: LIBRARY_GRID_GAP } : undefined}
           contentContainerStyle={[contentContainerStyle, { gap: LIBRARY_GRID_GAP }]}
           refreshControl={refreshControl}
           keyboardShouldPersistTaps="handled"
