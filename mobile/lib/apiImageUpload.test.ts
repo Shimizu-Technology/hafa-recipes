@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => {
     _config?: unknown,
   ): Promise<{ data: Record<string, unknown> }> => ({ data: { success: true } }));
   return {
-    platform: 'ios',
+    platform: 'ios', fileSize: 0,
     client: {
       delete: vi.fn(),
       get: vi.fn(),
@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('react-native', () => ({ Platform: { get OS() { return mocks.platform; } } }));
 vi.mock('expo-file-system', () => ({ File: class {
   constructor(public uri: string) {}
+  get size() { return mocks.fileSize; }
   async bytes() { return new Uint8Array([1, 2, 3]); }
 } }));
 
@@ -600,4 +601,19 @@ it('cancels a guest Save if auth changes during token retry before transport', a
   expect(await pending).toBeInstanceOf(Error);
   expect(tokenB).not.toHaveBeenCalled(); expect(sent).not.toHaveBeenCalled();
   api.setAuthContext(null, null); vi.useRealTimers();
+});
+
+it.each([413, 422])('exposes permanent original-page rejection %s without an endless upload retry', async status => {
+  mocks.fileSize = 100;
+  mocks.post.mockResolvedValueOnce({ data: { id: 'saved-recipe' } }).mockRejectedValueOnce({ response: { status } });
+  await expect(api.saveCapturedRecipe({ extracted: {}, source_type: 'photo', original_pages: [{ uri: 'file:///a.jpg' }] }))
+    .rejects.toMatchObject({ savedRecipeId: 'saved-recipe' });
+});
+it('checks combined original-page bytes before uploading a rejected 32 MB bundle', async () => {
+  mocks.fileSize = 8 * 1024 * 1024; mocks.post.mockClear().mockResolvedValueOnce({ data: { id: 'saved-recipe' } });
+  try {
+    await expect(api.saveCapturedRecipe({ extracted: {}, source_type: 'photo', original_pages: [1, 2, 3, 4].map(n => ({ uri: `file:///${n}.jpg` })) }))
+      .rejects.toMatchObject({ savedRecipeId: 'saved-recipe' });
+    expect(mocks.post).toHaveBeenCalledOnce();
+  } finally { mocks.fileSize = 0; }
 });

@@ -35,7 +35,7 @@ import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedReci
 import { useImportPreferences } from '@/hooks/useImportPreferences';
 import { getImportStatusPresentation } from '@/lib/importStatusPresentation';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
-import { ImportActivityCard } from '@/components/ImportActivityCard';
+import { ImportActivityCard, importSourceLabel, importSourceDetail } from '@/components/ImportActivityCard';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import type { JobStatus } from '@/types/recipe';
 import { api, type RecipeImageUpload } from '@/lib/api';
@@ -140,7 +140,7 @@ export default function ExtractScreen() {
     router.push(saved.failure && saved.failure.kind !== 'invalid' ? {
       pathname: '/ocr-review', params: { recipe: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
         originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
-        saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message },
+        saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message, savedRecipeId: saved.failure.savedRecipeId || '' },
     } : { pathname: '/edit-capture', params: { initialData: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
       originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
   });
@@ -296,6 +296,10 @@ export default function ExtractScreen() {
     const imageOwner = inbox.ownerId;
     if (!imageOwner) return;
     const lease = privateRecipeDrafts.lease(imageOwner);
+    if (await privateRecipeDrafts.read(lease, 'recovery')) {
+      Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
+      return;
+    }
     const guard = () => {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== imageOwner) throw new CaptureAccountChangedError();
       privateRecipeDrafts.assert(lease);
@@ -869,9 +873,10 @@ export default function ExtractScreen() {
                 <RNView style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }} accessibilityRole="header">
                     {importStatus.title}
+                    {extraction.sourceUrl ? ` · ${importSourceLabel(extraction.sourceUrl)}` : ''}
                   </Text>
                   <Text style={[styles.hint, { color: colors.textMuted }]} numberOfLines={2}>
-                    {importStatus.description}
+                    {extraction.sourceUrl ? `${importSourceDetail(extraction.sourceUrl)} · ` : ''}{importStatus.description}
                   </Text>
                 </RNView>
                 <TouchableOpacity style={styles.detailsAction} onPress={() => setShowProgressDetails(!showProgressDetails)} accessibilityRole="button" accessibilityLabel="Import details" accessibilityState={{ expanded: showProgressDetails }}>

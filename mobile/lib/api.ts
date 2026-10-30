@@ -1,5 +1,7 @@
 import { recipeScope, assertRecipeScope } from './recipeQueryScope';
 import { offlineRecipes } from './offlineRecipes';
+import { Platform } from 'react-native';
+import { OriginalPagesRejectedError } from './captureSaveFailure';
 /**
  * API client for the Recipe Extractor FastAPI backend.
  */
@@ -896,6 +898,10 @@ class ApiClient {
     }, { requestGuard: params.requestGuard } as GuardedRequestConfig);
     if (params.original_pages?.length) {
       params.requestGuard?.();
+      const rejected = () => new OriginalPagesRejectedError('Your recipe is saved, but these original pages could not be kept. Keep them here or continue without the pages.', data.id);
+      const { File } = await import('expo-file-system');
+      const sizes = Platform.OS === 'web' ? [] : params.original_pages.map(image => new File(image.uri).size || 0);
+      if (sizes.some(size => size > 10 * 1024 * 1024) || sizes.reduce((total, size) => total + size, 0) > 30 * 1024 * 1024) throw rejected();
       const form = new FormData();
       for (const [index, image] of params.original_pages.entries()) {
         await appendRecipeImage(form, 'files', image, `page_${index + 1}.jpg`);
@@ -908,7 +914,9 @@ class ApiClient {
       } catch (error) {
         // The recipe/capture ID already reconciled: a previous page upload can
         // have committed before its response was lost. Never replace originals.
-        if ((error as { response?: { status?: number } }).response?.status !== 409) throw error;
+        const status = (error as { response?: { status?: number } }).response?.status;
+        if (status === 413 || status === 422) throw rejected();
+        if (status !== 409) throw error;
       }
       params.requestGuard?.();
     }

@@ -43,8 +43,10 @@ export async function saveCaptureOrRecover(
     input.requestGuard?.();
     if (input.expected_owner_id) {
       const lease = privateRecipeDrafts.lease(input.expected_owner_id);
-      await privateRecipeDrafts.remove(lease, 'recovery').catch(() => undefined);
-      await privateRecipeDrafts.remove(lease, input.source_type === 'text' ? 'paste' : 'scan').catch(() => undefined);
+      const recovery = await privateRecipeDrafts.read(lease, 'recovery');
+      input.requestGuard?.();
+      if (recovery?.captureId === request.capture_id) await privateRecipeDrafts.remove(lease, 'recovery', recovery);
+      if (input.source_type === 'text') await privateRecipeDrafts.remove(lease, 'paste');
     }
     return `/recipe/${result.id}` as const;
   } catch (error) {
@@ -68,6 +70,7 @@ export async function saveCaptureOrRecover(
         ...(input.expected_owner_id ? { captureOwnerId: input.expected_owner_id } : {}),
         saveErrorKind: failure.kind,
         saveErrorMessage: failure.message,
+        ...(failure.savedRecipeId ? { savedRecipeId: failure.savedRecipeId } : {}),
         ...(draftStorageError ? { draftStorageError } : {}),
       },
     };

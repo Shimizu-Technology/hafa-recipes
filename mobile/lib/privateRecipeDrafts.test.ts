@@ -1,3 +1,4 @@
+import { IMPORT_INBOX_STORAGE_KEY } from './importInboxStorage';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 const media = vi.hoisted(() => ({ files: new Set<string>(), copied: false }));
@@ -81,11 +82,11 @@ it('never deletes a page while another draft or pending capture still references
   await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
   await drafts.remove(lease, 'scan');
   expect(media.files.has(uri)).toBe(true);
-  data.set('hafa_import_inbox_v1', JSON.stringify([{ state: 'waiting', capture: { kind: 'images', images: [{ uri }] } }]));
+  data.set(IMPORT_INBOX_STORAGE_KEY, JSON.stringify([{ state: 'waiting', capture: { kind: 'images', images: [{ uri }] } }]));
   await drafts.remove(lease, 'recovery');
   expect(media.files.has(uri)).toBe(true);
   await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
-  data.delete('hafa_import_inbox_v1');
+  data.delete(IMPORT_INBOX_STORAGE_KEY);
   await drafts.remove(lease, 'recovery');
   expect(media.files.has(uri)).toBe(false);
 });
@@ -105,4 +106,23 @@ it('protects a queued retry reference registered after cleanup starts', async ()
   expect(media.files.has(uri)).toBe(true);
   expect(await drafts.read(lease, 'recovery')).not.toBeNull();
   await drafts.remove(lease, 'recovery'); expect(media.files.has(uri)).toBe(false);
+});
+
+
+it('blocks a different scan or recovery while A is unresolved, permits A retry and fences stale removal', async () => {
+  const { drafts } = fixture(); const lease = drafts.lease('owner-a');
+  const a = { captureId: 'a', request: { original_pages: [{ uri: 'a.jpg' }] } };
+  await drafts.write(lease, 'scan', { selectedImages: [{ uri: 'a.jpg' }] });
+  await drafts.write(lease, 'recovery', a);
+  await expect(drafts.write(lease, 'scan', { selectedImages: [{ uri: 'b.jpg' }] })).rejects.toThrow('Finish or discard');
+  await expect(drafts.write(lease, 'recovery', { captureId: 'b' })).rejects.toThrow('Finish or discard');
+  await drafts.write(lease, 'recovery', { ...a, retry: true });
+  await drafts.remove(lease, 'recovery', a);
+  expect(await drafts.read(lease, 'recovery')).toMatchObject({ captureId: 'a', retry: true });
+  const retry = await drafts.read(lease, 'recovery');
+  await drafts.remove(lease, 'recovery', retry);
+  expect(await drafts.read(lease, 'scan')).toBeNull();
+  await drafts.write(lease, 'recovery', { captureId: 'b' });
+  await drafts.remove(lease, 'recovery', retry);
+  expect(await drafts.read(lease, 'recovery')).toMatchObject({ captureId: 'b' });
 });

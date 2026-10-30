@@ -15,22 +15,34 @@ export function usePrivateRecipeDraft<T>(owner: string | null, kind: RecipeDraft
   const allowLeave = () => leaving ? Promise.resolve() : new Promise<void>(resolve => { leaveWaiters.current.push(resolve); setLeaving(true); });
   const lease = useRef(owner ? privateRecipeDrafts.lease(owner) : null);
   const finished = useRef(false);
+  const ownWrite = useRef(false);
+  const receipt = useRef<T | null>(null);
   const current = useRef({ value, hasContent, owner });
   current.current = { value, hasContent, owner };
   useEffect(() => {
     let alive = true;
     setReady(false); setAvailable(null); finished.current = false;
     lease.current = owner ? privateRecipeDrafts.lease(owner) : null;
-    if (lease.current) void privateRecipeDrafts.read(lease.current, kind).then(saved => {
-      if (alive) { setAvailable(saved); setReady(true); }
-    }).catch((e: Error) => { if (alive) setError(e.message); });
-    return () => { alive = false; };
+    const refresh = () => {
+      if (!lease.current || ownWrite.current) return;
+      void privateRecipeDrafts.read(lease.current, kind).then(saved => {
+        if (alive) { receipt.current = saved; setAvailable(saved); setReady(true); }
+      }).catch((e: Error) => { if (alive) setError(e.message); });
+    };
+    refresh();
+    const unsubscribe = privateRecipeDrafts.subscribe(refresh);
+    return () => { alive = false; unsubscribe(); };
   }, [owner, kind]);
   useEffect(() => { if (!hasContent) { finished.current = false; setLeaving(false); } }, [hasContent]);
   const flush = async () => {
     if (!lease.current || lease.current.owner !== current.current.owner || finished.current) return;
     if (available) throw new Error('Choose Resume draft or Discard draft before replacing your saved work.');
-    if (current.current.hasContent) await privateRecipeDrafts.write(lease.current, kind, current.current.value);
+    if (current.current.hasContent) {
+      const snapshot = current.current.value;
+      ownWrite.current = true;
+      try { await privateRecipeDrafts.write(lease.current, kind, snapshot); receipt.current = snapshot; }
+      finally { ownWrite.current = false; }
+    }
   };
   useEffect(() => {
     if (!ready || available || !hasContent) return;
@@ -48,12 +60,12 @@ export function usePrivateRecipeDraft<T>(owner: string | null, kind: RecipeDraft
     ]);
   });
   useEffect(() => { if (leaving) leaveWaiters.current.splice(0).forEach(resolve => resolve()); }, [leaving]);
-  const finish = async () => { finished.current = true; if (lease.current) await privateRecipeDrafts.remove(lease.current, kind); await allowLeave(); };
+  const finish = async () => { finished.current = true; if (lease.current) await privateRecipeDrafts.remove(lease.current, kind, receipt.current ?? current.current.value); await allowLeave(); };
   return {
     available, ready, error, flush, finish, hasContent,
     async leave() { finished.current = true; await allowLeave(); },
     pause() { setAvailable(current.current.value); },
     resume() { if (available) restore(available); setAvailable(null); },
-    async discard() { if (lease.current) await privateRecipeDrafts.remove(lease.current, kind); setAvailable(null); },
+    async discard() { if (lease.current) await privateRecipeDrafts.remove(lease.current, kind, receipt.current ?? current.current.value); setAvailable(null); },
   };
 }

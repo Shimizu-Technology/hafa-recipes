@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  signedIn: true,
+  signedIn: true, searching: false,
   push: vi.fn(),
   save: vi.fn(),
   searchArgs: [] as unknown[],
@@ -114,14 +114,14 @@ vi.mock('@/hooks/useRecipes', () => {
     useDiscoverRecipes: () => page,
     useSearchPublicRecipes: (args: unknown) => {
       mocks.searchArgs.push(args);
-      return { ...page, isLoading: false, isFetching: false, isSuccess: true };
+      return { ...page, isLoading: false, isFetching: mocks.searching, isSuccess: true };
     },
     usePublicRecipeCount: () => ({ data: { count: 12 } }),
     useIsRecipeSaved: () => ({ data: false }),
     useSaveRecipe: () => ({ mutate: mocks.save }),
     useUnsaveRecipe: () => ({ mutate: vi.fn() }),
     usePopularTags: () => ({ data: [] }),
-    useTopContributors: () => ({ data: [] }),
+    useTopContributors: () => ({ data: [{ user_id: 'maria', contributor_id: 'maria', display_name: 'Maria', recipe_count: 1 }] }),
     filterRecipesLocally: () => [],
   };
 });
@@ -258,4 +258,23 @@ it('shows a guest Save action and records only the recipe intent before authenti
     expect(mocks.push).toHaveBeenCalledWith('/(auth)/sign-in');
     expect(guestRecipeIntent.bind('session-a')).toMatchObject({ recipeId: 'recipe-a', action: 'save' });
   } finally { mocks.signedIn = true; guestRecipeIntent.clear(); await act(async () => renderer.unmount()); }
+});
+
+it('keeps contributor suggestions, active filters and search progress visible with Browse tools collapsed', async () => {
+  vi.useFakeTimers(); mocks.searching = false;
+  let renderer!: ReactTestRenderer;
+  try {
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    const input = () => renderer.root.findByType('Input' as any);
+    await act(async () => input().props.onChangeText('@maria'));
+    expect(textOf(renderer.root)).toContain('Filter by contributor:');
+    const suggestion = touchables(renderer).find(node => textOf(node).includes('Maria') && textOf(node).includes('1 recipe'))!;
+    await act(async () => suggestion.props.onPress());
+    expect(textOf(renderer.root)).toContain('Clear all');
+    mocks.searching = true;
+    await act(async () => input().props.onChangeText('rice'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(textOf(renderer.root)).toContain('Searching...');
+    expect(byLabel(renderer, 'What Can I Make?')).toBeUndefined();
+  } finally { await act(async () => renderer?.unmount()); mocks.searching = false; vi.useRealTimers(); }
 });
