@@ -10,13 +10,8 @@ import { stockShareScope } from "../lib/stock-share-scope";
 import { useShareSession } from "@/lib/use-share-session";
 import { acknowledgeShare, nativeSharingAvailable, pendingShare } from "@/modules/hafa-baby-share/src";
 
-// Match Python's strip/splitlines/code-point slicing at the idempotent wire
-// boundary, including emoji and Unicode separators in shared captions.
-export function sharedSourceTitle(text?: string) {
-  const blank = "\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
-  const stripped = (text ?? "").replace(new RegExp(`^[${blank}]+|[${blank}]+$`, "g"), "");
-  return Array.from(stripped.split(/\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]/)[0]).slice(0, 100).join("") || "Saved source";
-}
+import { sharedSourceTitle } from "../lib/source-title";
+export { sharedSourceTitle } from "../lib/source-title";
 
 /** Ordinary captures go straight into the encrypted durable outbox. Native
  * originals remain until the exact capture, including every file, is committed. */

@@ -189,7 +189,7 @@ export default function Collections() {
           />
         </>
       )}
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
         retry={() => {

@@ -199,9 +199,9 @@ export default function Profile() {
       subtitle="Choose your goal, equipment and usual schedule. Personal details are optional."
       action={<AccountButton />}
     >
-      <QueryState
+      <QueryState hasData={loaded && (value != null || q.data !== undefined)}
         loading={!loaded || (q.isPending && !!enrollment?.enrolled && !value)}
-        error={value ? null : q.error}
+        error={q.error}
         retry={() => {
           void q.refetch();
         }}

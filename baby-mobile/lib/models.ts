@@ -105,6 +105,10 @@ export interface ImportJob {
   status: string;
   record_id?: string | null;
   error?: string | null;
+  /** Private device snapshot taken durably before admission, never sent to the API. */
+  baseline?: BabyRecord | null;
+  automatic?: boolean;
+  reconciled?: boolean;
 }
 export interface Citation {
   id: string;
@@ -153,7 +157,7 @@ export interface EditorDraft {
   files: LocalFile[];
   existing?: boolean;
 }
-export type Mutation =
+export type Mutation = { localOnly?: boolean } & (
   | {
       id: string;
       generation: number;
@@ -168,6 +172,7 @@ export type Mutation =
       id: string;
       generation: number;
       type: "import";
+      baseline?: BabyRecord | null;
       automatic?: boolean;
       automatic_epoch?: number;
       url?: string;
@@ -179,7 +184,8 @@ export type Mutation =
       topics?: string[];
       error?: string;
       conflict?: boolean;
-    };
+    }
+);
 /** A breastfeed being timed on this device. Active time is the sum of segments; a pause
  * closes the open segment. It belongs to one Baby space generation and is never synced. */
 export interface FeedTimer {

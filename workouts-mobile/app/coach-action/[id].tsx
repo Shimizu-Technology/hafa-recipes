@@ -47,7 +47,7 @@ export default function CoachActionReview() {
       {!current && (
         <Notice error>This suggestion belongs to an older Workouts account setup and can’t be applied now.</Notice>
       )}
-      <QueryState loading={s.action.isPending && !!current} error={s.action.error} retry={() => { void s.action.refetch(); }}>
+      <QueryState hasData={s.action.data !== undefined} loading={s.action.isPending && !!current} error={s.action.error} retry={() => { void s.action.refetch(); }}>
         {data && <>
           {rows && <Card><CoachChangeRows summary={rows} /></Card>}
           {s.state === "proposed" && data.proposal.status !== "ready" && <Button title="Answer in Coach" secondary inline

@@ -102,9 +102,9 @@ export default function RecoverWorkout() {
   if (!enabled) return <Screen back title="Recover workout"><Copy>Set up your Workouts account before recovering a saved source.</Copy>
     <Button title="Set up Workouts" onPress={() => router.push("/onboarding")} /></Screen>;
   return <Screen back title="Recover workout" subtitle="Try the source again or paste its caption or transcript.">
-    <QueryState loading={workout.isPending} error={workout.error} retry={() => { void workout.refetch(); }}>
+    <QueryState hasData={workout.data !== undefined} loading={workout.isPending} error={workout.error} retry={() => { void workout.refetch(); }}>
       {workout.data && <Card compact><Copy kind="subheading">{workout.data.title}</Copy>
-        <Copy kind="small">Review the extraction before updating this workout. Its earlier versions and recorded sessions stay saved. You can also save a separate copy.</Copy></Card>}
+        <Copy kind="small">Review the import before updating this workout. Its earlier versions and recorded sessions stay saved. You can also save a separate copy.</Copy></Card>}
       {!loaded ? <Button title="Load recovery draft" secondary onPress={() => setLoadAttempt(value => value + 1)} /> : savedImport ?
         <><Button title="Open recovery import" onPress={() => { if (isCurrent()) router.replace({ pathname: "/import/[id]", params: { id: savedImport } }); }} />
           <Copy kind="small">Your earlier import stays available in your library. Start another update to use a different caption or source.</Copy>

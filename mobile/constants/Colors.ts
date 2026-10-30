@@ -51,6 +51,7 @@ export default {
     // Tab bar
     tabIconDefault: '#756659',
     tabIconSelected: tintColorLight,
+    tabLabelSelected: brand.reef,
 
     // Cards and surfaces
     card: '#FFFCF7',
@@ -59,6 +60,7 @@ export default {
 
     // Status colors
     success: brand.herb,
+    onSuccess: '#FFFFFF',
     warning: '#8A5A00',
     error: '#C43C2E',
 
@@ -85,6 +87,7 @@ export default {
     // Tab bar
     tabIconDefault: '#A79D92',
     tabIconSelected: tintColorDark,
+    tabLabelSelected: brand.reefHighlight,
 
     // Cards and surfaces
     card: '#1E2520',
@@ -93,6 +96,7 @@ export default {
 
     // Status colors
     success: '#86B875',
+    onSuccess: brand.ink,
     warning: '#F2B84B',
     error: '#F07167',
 

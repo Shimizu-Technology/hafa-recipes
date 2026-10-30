@@ -23,7 +23,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
-import { View, Text, Button, useColors } from '@/components/Themed';
+import { IconButton, View, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import RecipePickerModal from '@/components/RecipePickerModal';
@@ -111,21 +111,23 @@ function DayPill({
   const today = isToday(date);
 
   return (
-    <TouchableOpacity
+    <ScalePressable
       style={[
         styles.dayPill,
         {
-          backgroundColor: isSelected ? colors.tint : colors.card,
+          backgroundColor: isSelected ? colors.text : colors.card,
           borderColor: today ? colors.tint : colors.cardBorder,
         },
       ]}
       onPress={onPress}
-      activeOpacity={0.7}
+      accessibilityRole="radio"
+      accessibilityLabel={`${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}${today ? ', today' : ''}`}
+      accessibilityState={{ selected: isSelected, checked: isSelected }}
     >
       <Text
         style={[
           styles.dayPillLabel,
-          { color: isSelected ? '#FFFFFF' : colors.textMuted },
+          { color: isSelected ? colors.background : colors.textMuted },
         ]}
       >
         {label.day}
@@ -133,7 +135,7 @@ function DayPill({
       <Text
         style={[
           styles.dayPillNumber,
-          { color: isSelected ? '#FFFFFF' : colors.text },
+          { color: isSelected ? colors.background : colors.text },
         ]}
       >
         {label.number}
@@ -142,11 +144,11 @@ function DayPill({
         <RNView
           style={[
             styles.todayDot,
-            { backgroundColor: isSelected ? '#FFFFFF' : colors.tint },
+            { backgroundColor: isSelected ? colors.background : colors.tint },
           ]}
         />
       )}
-    </TouchableOpacity>
+    </ScalePressable>
   );
 }
 
@@ -248,13 +250,11 @@ export function MealSlot({
                   </Text>
                 )}
               </RNView>
-              <TouchableOpacity
-                style={styles.removeMealButton}
+              <IconButton
+                icon="close-circle-outline"
+                accessibilityLabel={`Remove ${entry.recipe_title || 'recipe'} from ${mealType}`}
                 onPress={() => onRemove(entry.id)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close-circle" size={20} color={colors.error} />
-              </TouchableOpacity>
+              />
             </ScalePressable>
           ))}
           {pendingRecipeTitle ? (
@@ -644,11 +644,11 @@ export default function PlannerScreen() {
     <View style={styles.container}>
       {/* Week Navigation Header */}
       <RNView style={[styles.weekHeader, { backgroundColor: colors.background }]}>
-        <TouchableOpacity onPress={goToPrevWeek} style={styles.weekNavButton}>
+        <TouchableOpacity onPress={goToPrevWeek} accessibilityRole="button" accessibilityLabel="Previous week" style={styles.weekNavButton}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToToday} style={styles.weekLabelContainer}>
+        <TouchableOpacity onPress={goToToday} accessibilityRole="button" accessibilityLabel="Go to today" style={styles.weekLabelContainer}>
           <Text style={[styles.weekLabel, { color: colors.text }]}>
             {weekRangeLabel}
           </Text>
@@ -657,13 +657,13 @@ export default function PlannerScreen() {
           </RNView>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToNextWeek} style={styles.weekNavButton}>
+        <TouchableOpacity onPress={goToNextWeek} accessibilityRole="button" accessibilityLabel="Next week" style={styles.weekNavButton}>
           <Ionicons name="chevron-forward" size={24} color={colors.text} />
         </TouchableOpacity>
       </RNView>
 
       {/* Day Strip */}
-      <RNView style={[styles.dayStrip, { borderBottomColor: colors.border }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={[styles.dayStrip, { borderBottomColor: colors.border }]}>
         {weekDates.map((date, index) => (
           <DayPill
             key={index}
@@ -676,7 +676,7 @@ export default function PlannerScreen() {
             }}
           />
         ))}
-      </RNView>
+      </ScrollView>
 
       {/* Day Content */}
       <ScrollView
@@ -957,6 +957,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   dayStrip: {
+    flexGrow: 1,
+    gap: spacing.xs,
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingVertical: spacing.sm,
@@ -966,7 +968,7 @@ const styles = StyleSheet.create({
   dayPill: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: DAY_WIDTH,
+    width: Math.max(44, DAY_WIDTH),
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1.5,
