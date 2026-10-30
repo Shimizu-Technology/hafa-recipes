@@ -52,6 +52,14 @@ export function createActivityDraftStore(storage: Storage, owner: string, genera
           throw Error("The original activity command changed. Refresh saved history.");
         await write({ input: null, operation: null, finished: true });
       }),
+    releaseRejected: (requestId: string) => ordered(async () => {
+      const current = await read();
+      if (current.finished || current.operation?.body.request_id !== requestId || !current.input)
+        throw Error("The original activity command changed. Refresh saved history.");
+      const input = { ...current.input, operation: undefined };
+      await write({ input, operation: null, finished: false });
+      return input;
+    }),
     retire: () =>
       ordered(async () => {
         await write({ input: null, operation: null, finished: true });
