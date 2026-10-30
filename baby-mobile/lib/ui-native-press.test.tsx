@@ -3,7 +3,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ reduced: false, listener: null as null | ((v: boolean) => void) }));
+const state = vi.hoisted(() => ({ reduced: false, objectTransform: false, listener: null as null | ((v: boolean) => void) }));
 vi.mock("react-native", async () => {
   const { createRequire } = await import("node:module"), { readFileSync, existsSync } = await import("node:fs");
   const { dirname, resolve } = await import("node:path");
@@ -18,7 +18,9 @@ vi.mock("react-native", async () => {
     if (cache.has(file)) return cache.get(file).exports;
     if (file.includes("NativeAnimatedHelper")) return { API: new Proxy({}, { get: () => () => {} }),
       assertNativeAnimatedModule() {}, generateNewNodeTag: () => 1 };
-    if (file.includes("ReactNativeFeatureFlags")) return new Proxy({}, { get: () => () => false });
+    if (file.includes("ReactNativeFeatureFlags")) return new Proxy({}, {
+      get: (_, key) => () => key === "shouldUseAnimatedObjectForTransform" ? state.objectTransform : false,
+    });
     if (file.endsWith("/Utilities/Platform.js")) return { OS: "ios", select: (o: any) => o.ios ?? o.default };
     if (file.endsWith("/ReactNative/RendererProxy.js")) return { findNodeHandle: () => 1 };
     if (file.endsWith("/ReactPrivate/ReactNativePrivateInterface.js")) return { getNodeFromPublicInstance: () => null };
@@ -72,7 +74,8 @@ vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 import { PressTarget } from "../components/ui";
 let renderer: ReactTestRenderer | undefined;
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
-it("renders numeric native transforms through real RN Animated props on mount, press and live Reduce Motion", async () => {
+it.each([false, true])("renders numeric native transforms through real RN Animated props (object transform=%s)", async objectTransform => {
+  state.reduced = false; state.objectTransform = objectTransform;
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const ref = React.createRef<any>();
   await act(async () => { renderer = create(<PressTarget ref={ref} accessibilityRole="button"
