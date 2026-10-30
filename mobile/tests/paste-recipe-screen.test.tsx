@@ -293,15 +293,15 @@ describe('PasteRecipeScreen', () => {
     });
   });
 
-  it('does not extract or publish after a declined publishing disclosure', async () => {
+  it('continues the same import privately after choosing Keep private', async () => {
     mocks.params.isPublic = 'true';
     mocks.requestPublishing.mockResolvedValueOnce(false);
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<PasteRecipeScreen />); });
     await act(async () => renderer!.root.findByType('TextInput' as unknown as React.ComponentType).props.onChangeText('1 cup rice. Cook it.'));
     await act(async () => renderer!.root.findByType('Button' as unknown as React.ComponentType).props.onPress());
-    expect(mocks.extract).not.toHaveBeenCalled();
-    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.extract).toHaveBeenCalledOnce();
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false }));
     expect(renderer!.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
       .find(node => node.props.accessibilityLabel === 'Private')!.props.accessibilityState.checked).toBe(true);
   });
