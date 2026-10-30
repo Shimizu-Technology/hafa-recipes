@@ -235,6 +235,7 @@ export function Chip({
   onPress,
   tone = "default",
   disabled = false,
+  role,
 }: {
   label: string;
   icon?: IconName;
@@ -242,6 +243,7 @@ export function Chip({
   onPress?: () => void;
   tone?: "default" | "accent";
   disabled?: boolean;
+  role?: "radio";
 }) {
   const c = useColors();
   const surface = useSurface();
@@ -291,10 +293,10 @@ export function Chip({
   const AnimatedPressable = animatedPressableComponent();
   return (
     <AnimatedPressable
-      accessibilityRole="togglebutton"
+      accessibilityRole={role ?? "togglebutton"}
       accessibilityLabel={label}
       accessibilityState={{ checked: selected, disabled }}
-      aria-pressed={selected}
+      aria-pressed={role ? undefined : selected}
       disabled={disabled}
       hitSlop={4}
       onPressIn={press.onPressIn}
@@ -386,6 +388,7 @@ export function Field({
   returnKeyType,
   onSubmit,
   inputRef,
+  hideLabel = false,
 }: {
   label: string;
   value: string;
@@ -405,6 +408,8 @@ export function Field({
   /** Called from the keyboard's return key. "next" keeps the keyboard up so focus can move on. */
   onSubmit?: () => void;
   inputRef?: Ref<TextInput>;
+  /** Keep the accessible name when search is identified by its placeholder. */
+  hideLabel?: boolean;
 }) {
   const c = useColors();
   const [focused, setFocused] = useState(false);
@@ -415,10 +420,10 @@ export function Field({
   const [accessory] = useState(() => `field-done-${++accessoryCount}`);
   return (
     <View style={{ gap: 8, flexGrow: 1 }}>
-      <Copy kind="label">
+      {!hideLabel && <Copy kind="label">
         {label}
         {optional ? <Copy kind="small" tone="muted"> · optional</Copy> : null}
-      </Copy>
+      </Copy>}
       <TextInput
         key={purpose ?? "general"}
         ref={inputRef}
