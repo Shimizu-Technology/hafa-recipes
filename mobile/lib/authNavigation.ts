@@ -2,7 +2,7 @@ import { guestRecipeIntent } from './guestRecipeIntent';
 type AuthRouter = {
   back: () => void;
   canGoBack: () => boolean;
-  replace: (href: '/(tabs)') => void;
+  replace: (href: '/(tabs)/recipes') => void;
 };
 
 /** Describe the destination that the shared auth Back action will use. */
@@ -17,5 +17,5 @@ export function leaveAuthScreen(router: AuthRouter) {
     router.back();
     return;
   }
-  router.replace('/(tabs)');
+  router.replace('/(tabs)/recipes');
 }

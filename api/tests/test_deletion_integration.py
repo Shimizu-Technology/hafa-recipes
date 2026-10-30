@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import func, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.deletion_cleanup as cleanup
@@ -27,6 +28,7 @@ from app.models.moderation import AdminAuditEvent
 from app.models.recipe import ExtractionJob, Recipe, RecipeVersion
 from app.routers.recipes import delete_recipe
 from app.routers.users import delete_account
+from tests.database_safety import require_disposable_test_database
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -37,9 +39,11 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 async def deletion_database():
+    require_disposable_test_database(TEST_DATABASE_URL)
     assert TEST_DATABASE_URL
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as connection:
+        assert await connection.scalar(text("select current_database()")) == make_url(TEST_DATABASE_URL).database
         await connection.execute(text("DROP SCHEMA public CASCADE"))
         await connection.execute(text("CREATE SCHEMA public"))
         await connection.run_sync(Base.metadata.create_all)
@@ -74,7 +78,7 @@ def _recipe(owner: str, title: str) -> Recipe:
 
 def _cleanup_settings() -> Settings:
     return Settings(
-        database_url="postgresql://localhost/hafa_recipes_codex_durable_test",
+        database_url=str(make_url(TEST_DATABASE_URL).set(drivername="postgresql")),
         database_use_ssl=False,
         openai_api_key="test-openai-key",
         clerk_development_issuer="https://development.clerk.accounts.dev",
@@ -282,6 +286,7 @@ async def test_recipe_delete_removes_dependents_and_queues_all_media_keys(
         assert cleanup_job.storage_prefixes == [
             f"thumbnails/{recipe_id}.",
             f"thumbnails/{recipe_id}/",
+            f"recipe-originals/{recipe_id}/",
         ]
 
 

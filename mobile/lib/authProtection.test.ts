@@ -9,7 +9,7 @@ describe('authentication route protection', () => {
   });
 
   it('redirects signed-in users away from authentication screens', () => {
-    expect(getAuthProtectionRedirect(true, '(auth)')).toBe('/(tabs)');
+    expect(getAuthProtectionRedirect(true, '(auth)')).toBe('/(tabs)/recipes');
   });
 
   it('does not redirect signed-in capture routes or unrelated guest routes', () => {
