@@ -31,7 +31,7 @@ vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
 import TabLayout from "../app/(tabs)/_layout";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -147,4 +147,14 @@ it.each([1, 3.1])("keeps Undo clear of Add through a live fontScale change to %s
   const addStyle = Object.assign({}, ...add.props.style);
   expect(toast.props.style.bottom).toBeGreaterThanOrEqual(addStyle.bottom + addStyle.height + 12);
   expect(controls().some(n => n.props.accessibilityLabel === "Undo")).toBe(true);
+});
+
+it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside Text rather than a layout View", async subtitle => {
+  await mount(<Screen title="Today" subtitle={subtitle}><Copy>Care comes first</Copy></Screen>);
+  const layoutChildren = renderer!.root.findAllByType("View" as React.ElementType)
+    .flatMap(view => React.Children.toArray(view.props.children));
+  expect(layoutChildren.filter(child => typeof child === "string")).toEqual([]);
+  const text = renderer!.root.findAllByType("Text" as React.ElementType).map(node => node.props.children);
+  expect(text).toContain("Today");
+  if (subtitle) expect(text).toContain(subtitle);
 });
