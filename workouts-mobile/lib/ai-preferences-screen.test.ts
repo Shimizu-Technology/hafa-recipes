@@ -27,7 +27,7 @@ beforeEach(() => {
 afterEach(async () => { if (view) await act(async () => view.unmount()); cache.clear(); });
 it("keeps the disclosure and returns to Coach with refreshed consent and the original focus", async () => {
   await mount();
-  expect(view.root.findAllByType("Copy" as never)[0].children.join("")).toContain("AI extraction and coaching use OpenAI.");
+  expect(view.root.findAllByType("Copy" as never)[0].children.join("")).toContain("AI importing and coaching use OpenAI.");
   expect(button().props.title).toBe("Accept AI sharing disclosure"); await save();
   expect(f.save).toHaveBeenCalledWith(true, 3);
   expect(cache.getQueryData(["owner", "ai-consent", 3])).toEqual({ accepted: true });

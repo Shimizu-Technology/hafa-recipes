@@ -40,13 +40,14 @@ function Mark({ kind }: { kind: "favorite" | "selected" | "unselected" }) {
 }
 
 export function LibraryCard({
-  view, title, meta, creator, image, icon, favorite, badge, selected, onPress, onLongPress,
+  view, title, meta, creator, origin, image, icon, favorite, badge, selected, onPress, onLongPress,
 }: {
   view: LibraryView;
   title: string;
   meta: string;
-  /** Source credit; shown in the list view. */
+  /** Original source credit, kept in both grid and list views. */
   creator?: string | null;
+  origin?: string;
   image?: string | null;
   icon: IconName;
   favorite: boolean;
@@ -71,7 +72,7 @@ export function LibraryCard({
   return (
     <AnimatedPressable
       accessibilityRole={selecting ? "checkbox" : "button"}
-      accessibilityLabel={[title, meta, creator ? `By ${creator}` : null, favorite ? "Favorite" : null, badge].filter(Boolean).join(", ")}
+      accessibilityLabel={[title, meta, creator ? `By ${creator}` : null, origin, favorite ? "Favorite" : null, badge].filter(Boolean).join(", ")}
       accessibilityHint={onLongPress ? "Long press to select workouts" : undefined}
       accessibilityState={selecting ? { checked: selected } : undefined}
       onPress={onPress}
@@ -101,7 +102,8 @@ export function LibraryCard({
       <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 4, padding: grid ? spacing.sm : 0 }}>
         <Copy kind="label" numberOfLines={2} style={grid ? { minHeight: Math.ceil(44 * fontScale) } : undefined}>{title}</Copy>
         <Copy kind="small" tone="muted" numberOfLines={1}>{meta}</Copy>
-        {!grid && !!creator && <Copy kind="small" tone="muted" numberOfLines={1}>By {creator}</Copy>}
+        {!!creator && <Copy kind="small" tone="muted" numberOfLines={1}>By {creator}</Copy>}
+        {!!origin && <Copy kind="caption" tone="muted" numberOfLines={1}>{origin}</Copy>}
         {note}
       </View>
     </AnimatedPressable>
