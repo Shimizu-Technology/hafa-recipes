@@ -343,6 +343,22 @@ export function useRecipe(id: string, enabled = true) {
   };
 }
 
+/** Planner searches the entire eligible scope, even with an empty query. */
+export function usePlannerRecipeSearch(
+  scope: 'all' | 'mine' | 'saved' | 'discover', filters: SearchFilters, enabled = true,
+) {
+  return useInfiniteQuery({
+    queryKey: [...recipeKeys.all, 'plannerSearch', scope, filters],
+    queryFn: ({ pageParam = 0, signal }) => scope === 'discover'
+      ? api.searchPublicRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, undefined, undefined, signal)
+      : api.searchRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, signal, scope === 'mine' ? 'own' : scope),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
 /**
  * Search and filter recipes with infinite scroll
  */
