@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
+  Alert,
+  Linking,
   StyleSheet,
   View as RNView,
   TouchableOpacity,
@@ -193,6 +195,10 @@ export default function CookModeScreen() {
   
   // Background timer notifications
   const {
+    hasPermission,
+    retryFailedAlerts,
+    hasAlertFailure,
+    alertStatus,
     scheduleTimerNotification,
     cancelTimerNotification,
     cancelAllTimerNotifications,
@@ -898,6 +904,22 @@ export default function CookModeScreen() {
               <Ionicons name="add-circle-outline" size={22} color={cook.textSecondary} />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
+            )}
+            {(hasPermission === false || hasAlertFailure) && (
+              <RNView style={{ alignItems: 'center', paddingHorizontal: spacing.md }}>
+                <Text style={{ color: cook.text, textAlign: 'center' }} accessibilityLiveRegion="polite">Alerts are off outside the app</Text>
+                {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText }}>Open Settings</Text>
+                </TouchableOpacity> : <TouchableOpacity onPress={() => { void retryFailedAlerts(); }} accessibilityRole="button" accessibilityLabel="Retry alert" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText }}>Retry alert</Text>
+                </TouchableOpacity>}
+              </RNView>
+            )}
+            {currentTimer && currentTimer.remaining > 0 && (
+              <Text style={{ color: cook.textMuted, textAlign: 'center' }} accessibilityLiveRegion="polite">
+                {currentTimer.isPaused ? 'Clock paused' : 'Clock running'}{' · '}
+                {currentTimer.isPaused ? 'Alert paused' : alertStatus(currentStepIndex) === 'scheduling' ? 'Setting up alert…' : hasPermission !== false && hasScheduledNotification(currentStepIndex) ? 'Alert scheduled' : 'No alert scheduled'}
+              </Text>
             )}
           </RNView>
       </Animated.View>
