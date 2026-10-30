@@ -6,6 +6,7 @@ import { useAuth } from '@clerk/expo';
 
 import Colors, { fontFamily, fontSize } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { ScalePressable } from '@/components/Animated';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
 import { AssistantTabBar } from '@/components/AssistantTabBar';
 import { prefetchTabData } from '@/lib/tabPrefetch';
@@ -29,6 +30,9 @@ export default function TabLayout() {
     <Tabs
       tabBar={(props) => <AssistantTabBar {...props} isSignedIn={Boolean(isSignedIn)} />}
       screenOptions={{
+        tabBarButton: ({ children, style, onPress, onLongPress, accessibilityLabel, accessibilityState, testID }) => (
+          <ScalePressable style={style} onPress={onPress} onLongPress={onLongPress} accessibilityRole="tab" accessibilityLabel={accessibilityLabel} accessibilityState={accessibilityState} testID={testID}>{children}</ScalePressable>
+        ),
         tabBarActiveTintColor: colors.tint,
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarHideOnKeyboard: true,
