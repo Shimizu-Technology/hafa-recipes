@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const drafts = vi.hoisted(() => ({ write: vi.fn(async (): Promise<void> => undefined), remove: vi.fn(async () => undefined), lease: (owner: string) => ({ owner, epoch: 0 }) }));
+const drafts = vi.hoisted(() => ({ write: vi.fn(async (): Promise<void> => undefined), read: vi.fn(async () => null), remove: vi.fn(async () => undefined), lease: (owner: string) => ({ owner, epoch: 0 }) }));
 vi.mock('./privateRecipeDrafts', () => ({ privateRecipeDrafts: drafts }));
 const uuid = vi.hoisted(() => vi.fn());
 vi.mock('expo-crypto', () => ({ randomUUID: uuid }));

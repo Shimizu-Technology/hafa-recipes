@@ -371,6 +371,7 @@ describe('Library collection recovery', () => {
     const renderer = await renderLibrary(true);
     try {
       expect(renderer.container.queryAll(instance => instance.props.children === 'Weeknight dinners')).toHaveLength(1);
+      expect(renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Weeknight dinners, 1 recipe').length).toBeGreaterThan(0);
       expect(renderer.container.queryAll(instance =>
         instance.props.children === 'Couldn’t refresh your collections. Your last loaded collections are still shown.',
       )).toHaveLength(1);
@@ -391,12 +392,12 @@ describe('Library collection recovery', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('includes collections in the normal Library pull to refresh', async () => {
+  it('refreshes Library recipes without fetching the separate Collections screen', async () => {
     const renderer = await renderLibrary();
     try {
       const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
       await act(async () => { await list.props.refreshControl.props.onRefresh(); });
-      expect(library.collections.refetch).toHaveBeenCalledOnce();
+      expect(library.collections.refetch).not.toHaveBeenCalled();
       expect(library.refetchRecipes).toHaveBeenCalledOnce();
       expect(library.refetchSaved).toHaveBeenCalledOnce();
     } finally { await act(async () => renderer.unmount()); }

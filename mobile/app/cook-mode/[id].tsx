@@ -1,3 +1,5 @@
+import { offlineRecipes } from '@/lib/offlineRecipes';
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
@@ -133,6 +135,11 @@ function extractTimeFromStep(step: string): { time: number; unit: string; displa
 }
 
 export default function CookModeScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <CookModeScreenContent key={generation} generation={generation} />;
+}
+
+function CookModeScreenContent({ generation }: { generation: string }) {
   const { id, scaleFactor: scaleFactorParam, servings: servingsParam } = useLocalSearchParams<{ 
     id: string; 
     scaleFactor?: string;
@@ -206,7 +213,8 @@ export default function CookModeScreen() {
     pauseTimerNotification,
     resumeTimerNotification,
     hasScheduledNotification,
-  } = useBackgroundTimer(id ? `cook-mode:${id}` : 'cook-mode');
+  } = useBackgroundTimer(`${generation}:cook-mode:${id || ''}`);
+  useEffect(() => offlineRecipes.onRetire(() => { void cancelAllTimerNotifications(); }), [cancelAllTimerNotifications]);
   
   // Track app state for syncing timers
   const appState = useRef<AppStateStatus>(AppState.currentState);

@@ -1,3 +1,5 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { recipeScope } from '@/lib/recipeQueryScope';
 /**
  * Global Timer Context
  * 
@@ -64,9 +66,14 @@ export function useTimerContext() {
 }
 
 export function TimerProvider({ children }: { children: React.ReactNode }) {
+  const generation = useRecipeOwnerGeneration();
+  const [contentGeneration, setContentGeneration] = useState(generation);
   const [timers, setTimers] = useState<Map<number, TimerState>>(new Map());
   const [session, setSession] = useState<CookingSession | null>(null);
   
+  if (contentGeneration !== generation) {
+    setContentGeneration(generation); setSession(null); setTimers(new Map());
+  }
   const pathname = usePathname();
   const isInCookMode = pathname?.startsWith('/cook-mode') ?? false;
   
@@ -143,22 +150,26 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   
   // Sync timers from cook mode
   const syncTimers = useCallback((newTimers: Map<number, TimerState>) => {
+    if (generation !== recipeScope()) return;
     setTimers(new Map(newTimers));
-  }, []);
+  }, [generation]);
   
   // Session management
   const startSession = useCallback((newSession: CookingSession) => {
+    if (generation !== recipeScope()) return;
     setSession(newSession);
-  }, []);
+  }, [generation]);
   
   const updateSession = useCallback((updates: Partial<CookingSession>) => {
+    if (generation !== recipeScope()) return;
     setSession(prev => prev ? { ...prev, ...updates } : null);
-  }, []);
+  }, [generation]);
   
   const endSession = useCallback(() => {
+    if (generation !== recipeScope()) return;
     setSession(null);
     setTimers(new Map());
-  }, []);
+  }, [generation]);
   
   return (
     <TimerContext.Provider

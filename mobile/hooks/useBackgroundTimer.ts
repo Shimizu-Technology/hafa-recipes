@@ -1,3 +1,4 @@
+import { offlineRecipes } from '@/lib/offlineRecipes';
 /**
  * Hook for background timer notifications.
  * 
@@ -90,6 +91,20 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 /**
  * Hook to manage background timer notifications
  */
+// Timer alerts can outlive the route. Retire their private text even when
+// Cook Mode is no longer mounted, and invalidate pending scheduling attempts.
+offlineRecipes.onRetire(() => {
+  for (const [scope, steps] of generations) for (const step of steps.keys()) advance(scope, step);
+  for (const scheduled of scheduledByScope.values()) for (const item of scheduled.values()) {
+    void Notifications.cancelScheduledNotificationAsync(item.notificationId).catch(() => undefined);
+  }
+  attempts.clear(); scheduledByScope.clear(); alerts.clear();
+  for (const scope of listeners.keys()) {
+    versions.set(scope, (versions.get(scope) || 0) + 1);
+    listeners.get(scope)?.forEach(listener => listener());
+  }
+});
+
 export function useBackgroundTimer(scope = 'default') {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const scopeRef = useRef(scope);

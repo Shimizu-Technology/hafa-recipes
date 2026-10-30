@@ -1019,6 +1019,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           </TouchableOpacity>
         </RNView>
 
+        </>}
+
         {/* @username search suggestions */}
         {usernameSearchMatch && matchingContributors.length > 0 && (
           <RNView style={[styles.usernameSuggestions, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
@@ -1127,6 +1129,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           </RNView>
         )}
 
+        {showBrowseTools && <>
         {/* Keep the community filter available without pushing recipes below the fold. */}
         {!hasTextSearch && topContributors && topContributors.length > 0 && (
           <RNView style={styles.contributorsSection}>

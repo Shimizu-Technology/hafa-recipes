@@ -1,3 +1,6 @@
+import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 import { invalidateCreatedRecipeQueries } from '@/hooks/useRecipes';
@@ -37,7 +40,7 @@ import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
@@ -119,7 +122,8 @@ const UNIT_OPTIONS = [
 export default function EditRecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { userId } = useAuth();
-  return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
+  const generation = useRecipeOwnerGeneration();
+  return <EditRecipeForm key={`${generation}:${userId ?? 'signed-out'}:${id}`} owner={userId} />;
 }
 
 export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; originalPages?: import('@/lib/api').RecipeImageUpload[]; resume?: boolean; guard: () => void } }) {
@@ -458,16 +462,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     onError: async (error: unknown, snapshot: EditSnapshot) => {
       if (!alive.current) return;
       if (capture && captureSaveFailure(error).kind !== 'invalid') {
-        guard();
-        const request = snapshot.captureRequest!;
-        // Stop autosave before queuing the authoritative failed request.
-        await localDraft.leave(); guard();
-        await privateRecipeDrafts.write(privateRecipeDrafts.lease(capture.ownerId), 'recovery', {
-          request, recipe: { ...capture.recipe, extracted: request.extracted, is_public: request.is_public, source_type: request.source_type },
-          captureId: request.capture_id, failure: captureSaveFailure(error),
-        });
-        guard();
-        router.replace({ pathname: '/ocr-review', params: { originalPages: JSON.stringify(request.original_pages), recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
+        router.replace(await recoverFailedCaptureSave(error, snapshot.captureRequest!, capture, guard, localDraft.leave));
         return;
       }
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));

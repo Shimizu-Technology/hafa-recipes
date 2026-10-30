@@ -1,3 +1,4 @@
+import { bindRecipeQueryClient } from './recipeQueryScope';
 /**
  * React Query client configuration.
  */
@@ -33,3 +34,5 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+bindRecipeQueryClient(queryClient);

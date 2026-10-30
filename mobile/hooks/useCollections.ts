@@ -1,8 +1,10 @@
+import { scopedRecipeKey } from '@/lib/recipeQueryScope';
+import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 /**
  * React Query hooks for collection operations.
  */
 
-import { useQuery, useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
+import { useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import { api, type RequestGuard } from '../lib/api';
@@ -11,10 +13,10 @@ import { Collection, CollectionRecipe } from '../types/recipe';
 // Query keys
 export const collectionKeys = {
   all: ['collections'] as const,
-  list: (owner?: string | null) => [...collectionKeys.all, owner, 'list'] as const,
-  detail: (id: string, owner?: string | null) => [...collectionKeys.all, owner, 'detail', id] as const,
-  recipes: (id: string, owner?: string | null) => [...collectionKeys.all, owner, 'recipes', id] as const,
-  recipeCollections: (recipeId: string, owner?: string | null) => [...collectionKeys.all, owner, 'recipeCollections', recipeId] as const,
+  list: (owner?: string | null) => scopedRecipeKey([...collectionKeys.all, owner, 'list']),
+  detail: (id: string, owner?: string | null) => scopedRecipeKey([...collectionKeys.all, owner, 'detail', id]),
+  recipes: (id: string, owner?: string | null) => scopedRecipeKey([...collectionKeys.all, owner, 'recipes', id]),
+  recipeCollections: (recipeId: string, owner?: string | null) => scopedRecipeKey([...collectionKeys.all, owner, 'recipeCollections', recipeId]),
 };
 
 function useCollectionAccount() {

@@ -27,10 +27,10 @@ export default function CollectionsScreen() {
       </View>}
       {!isLoadingCollections && !isCollectionsError && collections?.length === 0 && <Text>Create your first collection to organize recipes</Text>}
       {collections?.map((collection) => <TouchableOpacity key={collection.id} accessibilityRole="button"
-        accessibilityLabel={`${collection.name}, ${collection.recipe_count} recipes`}
+        accessibilityLabel={`${collection.name}, ${collection.recipe_count} ${collection.recipe_count === 1 ? 'recipe' : 'recipes'}`}
         onPress={() => router.push(`/collection/${collection.id}`)}
         style={{ padding: 16, minHeight: 44, borderBottomWidth: 1, borderColor: colors.border }}>
-        <Text>{collection.name}</Text><Text style={{ color: colors.textSecondary }}>{collection.recipe_count} recipes</Text>
+        <Text>{collection.name}</Text><Text style={{ color: colors.textSecondary }}>{collection.recipe_count} {collection.recipe_count === 1 ? 'recipe' : 'recipes'}</Text>
       </TouchableOpacity>)}
     </ScrollView>}
     {isSignedIn && <CreateCollectionModal visible={showCreateCollectionModal} onClose={() => setShowCreateCollectionModal(false)} />}

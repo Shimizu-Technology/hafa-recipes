@@ -1,3 +1,4 @@
+import { scopedRecipeKey } from '../lib/recipeQueryScope';
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,7 +18,7 @@ vi.mock('../utils/haptics', () => ({ haptics: { success: m.success } }));
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((a,b) => { resolve=a; reject=b; }); return { promise, resolve, reject }; }
 async function mount(saved = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  client.setQueryData(['recipeSaved', 'recipe-1'], { is_saved: saved });
+  client.setQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']), { is_saved: saved });
   let mutation!: ReturnType<typeof useSaveRecipe>;
   function Probe() { mutation = saved ? useUnsaveRecipe() : useSaveRecipe(); return null; }
   const r = createRoot();
@@ -33,9 +34,9 @@ describe('confirmed recipe saving', () => {
     await act(async () => h.mutation.mutate('recipe-1'));
     await act(async () => h.r.unmount());
     m.scope={ userId: 'another-viewer', epoch: 1 };
-    h.client.clear(); h.client.setQueryData(['recipeSaved', 'recipe-1'], { is_saved: false });
+    h.client.clear(); h.client.setQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']), { is_saved: false });
     await act(async () => { if (outcome === 'success') d.resolve({ saved: true }); else d.reject(new Error('late failure')); });
-    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: false });
+    expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: false });
     expect(m.success).not.toHaveBeenCalled(); expect(m.toast).not.toHaveBeenCalled(); expect(m.reconcile).not.toHaveBeenCalled();
     h.client.clear();
   });
@@ -46,7 +47,7 @@ describe('confirmed recipe saving', () => {
     await act(async () => h.mutation.mutate('recipe-1'));
     await act(async () => h.r.unmount());
     await act(async () => d.resolve({ saved: true }));
-    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: true });
+    expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: true });
     expect(m.success).not.toHaveBeenCalled(); h.client.clear();
   });
 
@@ -63,10 +64,10 @@ describe('confirmed recipe saving', () => {
     const d = deferred<{ saved: boolean }>(); (initial ? m.unsave : m.save).mockReturnValue(d.promise);
     const h = await mount(initial);
     await act(async () => h.mutation.mutate('recipe-1'));
-    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: initial });
+    expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: initial });
     expect(m.success).not.toHaveBeenCalled();
     await act(async () => d.resolve({ saved: !initial }));
-    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: !initial });
+    expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: !initial });
     expect(m.success).toHaveBeenCalledOnce();
     await h.close();
   });
@@ -76,13 +77,13 @@ describe('confirmed recipe saving', () => {
     const h = await mount();
     await act(async () => { await h.mutation.mutateAsync('recipe-1').catch(() => {}); });
     expect(m.reconcile).toHaveBeenCalledWith(h.client, 'recipe-1', expect.any(Function), expect.any(Function));
-    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: false });
+    expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: false });
     expect(m.success).not.toHaveBeenCalled();
     const toast = m.toast.mock.calls[0][0];
     expect(toast).toMatchObject({ message: "Couldn't save. Try again", actionLabel: 'Retry', tone: 'error' });
     await act(async () => toast.onAction());
     expect(m.save).toHaveBeenCalledTimes(2);
-    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: true });
+    expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: true });
     await h.close();
   });
 
@@ -111,7 +112,7 @@ it.each([false, true])('protects confirmed membership from reads before and duri
     const discover = deferred<typeof oldPage>(); const status = deferred<{ is_saved: boolean }>();
     pending.push(discover, status);
     reads.push(h.client.fetchQuery({ queryKey: key, queryFn: () => discover.promise }).catch(() => {}),
-      h.client.fetchQuery({ queryKey: ['recipeSaved', 'recipe-1'], queryFn: () => status.promise }).catch(() => {}));
+      h.client.fetchQuery({ queryKey: scopedRecipeKey(['recipeSaved', 'recipe-1']), queryFn: () => status.promise }).catch(() => {}));
   };
   startReads();
   const write = deferred<{ saved: boolean }>(); (initial ? m.unsave : m.save).mockReturnValue(write.promise);
@@ -119,9 +120,9 @@ it.each([false, true])('protects confirmed membership from reads before and duri
   // Reads begun while the request is in flight need cancellation at success too.
   startReads();
   await act(async () => write.resolve({ saved: !initial }));
-  expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: !initial });
+  expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: !initial });
   await act(async () => { pending.forEach((d, i) => d.resolve(i % 2 ? { is_saved: initial } : oldPage)); await Promise.all(reads); });
-  expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: !initial });
+  expect(h.client.getQueryData(scopedRecipeKey(['recipeSaved', 'recipe-1']))).toEqual({ is_saved: !initial });
   expect((h.client.getQueryData(key) as any).pages[0].items[0].is_saved).toBe(!initial);
   expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
   await h.close();

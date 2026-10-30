@@ -16,8 +16,9 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   let epoch = 0;
   let version = 0;
   const listeners = new Set<() => void>();
+  const retirementListeners = new Set<() => void>();
   const emit = () => { version++; listeners.forEach(listener => listener()); };
-  const retire = () => { epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear(); emit(); };
+  const retire = () => { epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear(); retirementListeners.forEach(listener => listener()); emit(); };
   let tail: Promise<unknown> = Promise.resolve();
   const observed = new Map<string, { recipe: Recipe; fetchedAt: number }>();
   const eligible = new Set<string>();
@@ -77,11 +78,13 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   };
   return {
     revision,
+    scope: () => JSON.stringify([subject, authority?.owner ?? null, authority?.generation ?? null, epoch]),
+    onRetire: (listener: () => void) => { retirementListeners.add(listener); return () => { retirementListeners.delete(listener); }; },
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     version: () => version,
     lease: (currentSubject?: string | null): Lease | null => authority && subject && currentSubject === subject ? { ...authority, epoch } : null,
     bindSubject(next: string | null) {
-      retire(); subject = next;
+      subject = next; retire();
       const currentEpoch = epoch;
       return run(async () => {
         const raw = await storage.getItem(META);

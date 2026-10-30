@@ -1,4 +1,7 @@
+import { recipeScope, assertRecipeScope } from './recipeQueryScope';
 import { offlineRecipes } from './offlineRecipes';
+import { Platform } from 'react-native';
+import { OriginalPagesRejectedError } from './captureSaveFailure';
 /**
  * API client for the Recipe Extractor FastAPI backend.
  */
@@ -183,6 +186,11 @@ class ApiClient {
     // Add request interceptor for auth token - fetches fresh token each request
     this.client.interceptors.request.use(
       async (config) => {
+        if (config.url !== '/api/users/me/identity') {
+          const scope = recipeScope();
+          const previous = (config as GuardedRequestConfig).requestGuard;
+          (config as GuardedRequestConfig).requestGuard = () => { assertRecipeScope(scope); previous?.(); };
+        }
         if (this.getTokenFn) {
           const token = await this.getAuthTokenWithRetry(
             config.url || 'unknown',
@@ -202,6 +210,7 @@ class ApiClient {
     // Add response interceptor for error handling and Sentry reporting
     this.client.interceptors.response.use(
       (response) => {
+        (response.config as GuardedRequestConfig).requestGuard?.();
         // Add breadcrumb for successful API calls
         addBreadcrumb('api', `${response.config.method?.toUpperCase()} ${response.config.url}`, {
           status: response.status,
@@ -303,7 +312,9 @@ class ApiClient {
 
   private recipeWriteGuard(requestGuard?: RequestGuard): RequestGuard {
     const authScope = this.authScope;
+    const authority = recipeScope();
     const guard = () => {
+      assertRecipeScope(authority);
       if (this.authScope !== authScope) throw new Error('Authentication changed; reopen this recipe.');
       requestGuard?.();
     };
@@ -373,8 +384,10 @@ class ApiClient {
   async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
     const revision = offlineRecipes.revision(id);
     const lease = offlineRecipes.lease(this.authScope.userId);
+    const scope = recipeScope();
     try {
       const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
+      assertRecipeScope(scope);
       if (lease) void offlineRecipes.observe(lease, data, Date.now(), revision).catch(() => undefined);
       return data;
     } catch (error) {
@@ -885,6 +898,10 @@ class ApiClient {
     }, { requestGuard: params.requestGuard } as GuardedRequestConfig);
     if (params.original_pages?.length) {
       params.requestGuard?.();
+      const rejected = () => new OriginalPagesRejectedError('Your recipe is saved, but these original pages could not be kept. Keep them here or continue without the pages.', data.id);
+      const { File } = await import('expo-file-system');
+      const sizes = Platform.OS === 'web' ? [] : params.original_pages.map(image => new File(image.uri).size || 0);
+      if (sizes.some(size => size > 10 * 1024 * 1024) || sizes.reduce((total, size) => total + size, 0) > 30 * 1024 * 1024) throw rejected();
       const form = new FormData();
       for (const [index, image] of params.original_pages.entries()) {
         await appendRecipeImage(form, 'files', image, `page_${index + 1}.jpg`);
@@ -897,7 +914,9 @@ class ApiClient {
       } catch (error) {
         // The recipe/capture ID already reconciled: a previous page upload can
         // have committed before its response was lost. Never replace originals.
-        if ((error as { response?: { status?: number } }).response?.status !== 409) throw error;
+        const status = (error as { response?: { status?: number } }).response?.status;
+        if (status === 413 || status === 422) throw rejected();
+        if (status !== 409) throw error;
       }
       params.requestGuard?.();
     }
@@ -1239,8 +1258,10 @@ class ApiClient {
   /** Resolve the auth session to the backend's durable application owner. */
   async getCurrentUserIdentity(): Promise<{ id: string }> {
     const scope = this.authScope;
+    const authority = recipeScope();
     try {
       const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
+      assertRecipeScope(authority);
       if (scope === this.authScope && scope.userId) await offlineRecipes.verify(scope.userId, data.id);
       return data;
     } catch (error) {

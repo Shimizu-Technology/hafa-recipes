@@ -1,3 +1,8 @@
+// This fixture tests immutable editor snapshots through its existing query/mutation stubs.
+vi.mock('@/hooks/useRecipeQuery', async () => {
+  const query = await import('@tanstack/react-query');
+  return { useRecipeQuery: query.useQuery, useRecipeMutation: query.useMutation };
+});
 vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: vi.fn(async () => undefined) } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'capture-id' }));
 vi.mock('@/hooks/useRecipes', () => ({ invalidateCreatedRecipeQueries: (client: any, id: string) => { client.invalidateQueries({ queryKey: ['recipes'] }); client.invalidateQueries({ queryKey: ['discover'] }); } }));

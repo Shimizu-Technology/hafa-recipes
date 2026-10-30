@@ -194,3 +194,14 @@ async def test_original_page_http_manifests_and_errors_are_never_cacheable(pages
         response = await client.get(url)
         assert response.status_code == 401
         assert response.headers.get('Cache-Control') == 'private, no-store'
+
+
+@pytest.mark.asyncio
+async def test_read_original_pages_checks_owner_without_write_lock(pages_db, monkeypatch):
+    db, recipe, _ = pages_db
+
+    async def unexpected_lock(*args):
+        raise AssertionError("Read-only manifests must not acquire the media write lock")
+
+    monkeypatch.setattr("app.recipe_source_pages.acquire_recipe_media_lock", unexpected_lock)
+    assert await read_pages(recipe.id, db, user()) == {"pages": []}

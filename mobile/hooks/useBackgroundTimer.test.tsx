@@ -1,3 +1,8 @@
+vi.mock('@react-native-async-storage/async-storage', () => { const values = new Map<string, string>(); return { default: {
+ getItem: async (key: string) => values.get(key) ?? null, setItem: async (key: string, value: string) => { values.set(key, value); },
+ getAllKeys: async () => [...values.keys()], multiRemove: async (keys: string[]) => keys.forEach(key => values.delete(key)),
+} }; });
+import { offlineRecipes } from '@/lib/offlineRecipes';
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -130,4 +135,19 @@ it.each(['denied', 'scheduler'] as const)('retries a failed alert with only its 
     expect(timer.alertStatus(1)).toBe('scheduled');
     await act(async () => { await timer.cancelAllTimerNotifications(); });
   } finally { await act(async () => r.unmount()); now.mockRestore(); }
+});
+
+it('retires private alert text after owner change even with Cook Mode unmounted', async () => {
+  await offlineRecipes.bindSubject('timer-subject'); await offlineRecipes.verify('timer-subject', 'owner-a');
+  const first = createRoot();
+  await act(async () => first.render(<Harness scope="owner-a-cooking" />));
+  await act(async () => { await timer.scheduleTimerNotification(1, 60, 'A private instruction'); first.unmount(); });
+  await offlineRecipes.verify('timer-subject', 'owner-b');
+  expect(notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('notification-1');
+  const next = createRoot();
+  try {
+    await act(async () => next.render(<Harness scope="owner-a-cooking" />));
+    expect(timer.hasScheduledNotification(1)).toBe(false);
+    expect(timer.alertStatus(1)).toBeUndefined();
+  } finally { await act(async () => next.unmount()); await offlineRecipes.clear(); }
 });
