@@ -1,3 +1,5 @@
+import { View, useWindowDimensions } from "react-native";
+import { largeText } from "@/lib/readable-layout";
 import { useState } from "react";
 import { Button, Copy, IconButton, ListGroup, ListRow, Row, Sheet, Stack, haptics } from "@/components/ui";
 import type { StartChoice } from "@/lib/training";
@@ -24,6 +26,7 @@ export function WorkoutStartSheet({
   onStart(choice: StartChoice): void;
   onEdit(): void;
 }) {
+  const { fontScale } = useWindowDimensions();
   const [rounds, setRounds] = useState(defaultStartRounds);
   const change = (delta: number) => {
     haptics.tick();
@@ -44,7 +47,7 @@ export function WorkoutStartSheet({
         />
       </ListGroup>
       <Stack gap={10}>
-        <Row justify="space-between">
+        <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 8, justifyContent: "space-between" }}>
           <Copy kind="label">Set rounds</Copy>
           <Row gap={14}>
             <IconButton icon="remove" label="Fewer rounds" disabled={busy || rounds <= 1} onPress={() => change(-1)} />
@@ -52,7 +55,7 @@ export function WorkoutStartSheet({
               style={{ minWidth: 28, textAlign: "center" }}>{rounds}</Copy>
             <IconButton icon="add" label="More rounds" disabled={busy || rounds >= 100} onPress={() => change(1)} />
           </Row>
-        </Row>
+        </View>
         <Button title={`Start ${rounds} ${rounds === 1 ? "round" : "rounds"}`} icon="play" busy={busy}
           onPress={() => onStart({ rounds })} />
       </Stack>

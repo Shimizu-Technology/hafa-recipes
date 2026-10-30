@@ -10,12 +10,15 @@ import type { GroceryItem } from '@/types/recipe';
 
 const mocks = vi.hoisted(() => ({
   collapsedSections: JSON.stringify(['recipe:recipe-1']),
+  queued: false as boolean | undefined,
   groceryState: {
     items: [] as GroceryItem[] | undefined,
     isLoading: false,
     isError: false,
     isRefetchError: false,
     isRefetching: false,
+    serverConfirmedAt: undefined as string | undefined,
+    freshness: "checking" as string,
   },
   authState: {
     isLoaded: true,
@@ -50,11 +53,13 @@ vi.mock('react-native', () => ({
     renderItem,
     renderSectionHeader,
     ListEmptyComponent,
+    ListFooterComponent,
   }: {
     sections: Array<{ key: string; data: GroceryItem[] }>;
     renderItem: (info: { item: GroceryItem; index: number; section: unknown }) => React.ReactNode;
     renderSectionHeader: (info: { section: unknown }) => React.ReactNode;
     ListEmptyComponent: React.ComponentType;
+    ListFooterComponent: React.ReactNode;
   }) => React.createElement(
     'SectionList',
     null,
@@ -68,6 +73,7 @@ vi.mock('react-native', () => ({
             renderItem({ item, index, section }),
           )),
         ]),
+    ListFooterComponent,
   ),
   Share: { share: mocks.share },
   StyleSheet: { create: <T,>(styles: T) => styles },
@@ -203,10 +209,13 @@ vi.mock('@/hooks/useGrocery', () => ({
       isError: mocks.groceryState.isError,
       isRefetchError: mocks.groceryState.isRefetchError,
       isRefetching: mocks.groceryState.isRefetching,
+      serverConfirmedAt: mocks.groceryState.serverConfirmedAt,
+      freshness: mocks.groceryState.freshness,
       refetch: mocks.refetch,
     };
   },
   useGroceryListInfo: () => ({ data: mocks.listInfoState }),
+  usePendingGrocerySync: () => ({ data: mocks.queued }),
   useGrocerySync: () => ({ lastSyncResult: null, clearSyncResult: vi.fn() }),
   useToggleGroceryItem: mutation,
   useUpdateGroceryItem: mutation,
@@ -238,6 +247,7 @@ function item(overrides: Partial<GroceryItem> & Pick<GroceryItem, 'id' | 'name'>
 
 describe('GroceryScreen shopping views', () => {
   beforeEach(() => {
+    mocks.queued = false;
     mocks.authState.isLoaded = true;
     mocks.authState.isSignedIn = true;
     mocks.listInfoState.is_shared = false;
@@ -536,16 +546,47 @@ describe('GroceryScreen shopping views', () => {
         text: string;
         onPress?: () => Promise<void>;
       }>;
-      const exportAction = actions.find((action) => action.text === 'Export list');
+      const exportAction = actions.find((action) => action.text === 'Export text — To buy');
       await act(async () => exportAction!.onPress!());
 
       const message = mocks.share.mock.calls.at(-1)?.[0]?.message as string;
+      expect(message).toContain('Grocery List — To buy');
       expect(message).toContain('[ ] 1 Salt');
       expect(message).toContain('[ ] 1 tbsp Oil');
       expect(message.toLowerCase()).not.toContain('null');
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('uses one field for search/add and names the exported view', async () => {
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice' }), item({ id: 'salt', name: 'Salt' })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      const inputs = renderer.container.queryAll((node) => node.type === 'TextInput');
+      expect(inputs).toHaveLength(1);
+      await act(async () => inputs[0].props.onChangeText('rice'));
+      const overflow = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'More grocery list actions')[0];
+      await act(async () => overflow.props.onPress());
+      const actions = mocks.alert.mock.calls.at(-1)![2];
+      await act(async () => actions.find((action: { text: string }) => action.text === 'Export text — Search matches').onPress());
+      expect(mocks.share.mock.calls.at(-1)![0].message).toContain('Grocery List — Search matches');
+      expect(mocks.share.mock.calls.at(-1)![0].message).not.toContain('Salt');
+      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Share household')).toHaveLength(1);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('labels singular pantry transfers and recovered queued changes', async () => {
+    mocks.queued = true;
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice', checked: true })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      expect(renderedText(renderer)).toContain('Saved on this device · waiting to sync');
+      expect(renderedText(renderer)).not.toContain('Up to date');
+      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Add 1 checked item to pantry')).toHaveLength(1);
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('offers retry for an initial failure and disables it during refetch', async () => {
@@ -576,4 +617,21 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => renderer.unmount());
     }
   });
+  it.each([
+    [undefined, 'checking', undefined, 'Checking sync status'],
+    [false, 'offline', undefined, 'Offline · showing this device’s list'],
+    [false, 'stale', '2026-10-31T01:00:00Z', 'Couldn’t refresh · last confirmed'],
+    [false, 'confirmed', '2026-10-31T01:00:00Z', 'Confirmed'],
+  ])('reports snapshot freshness honestly (%s, %s)', async (queued, freshness, confirmedAt, text) => {
+    mocks.queued = queued as boolean | undefined;
+    mocks.groceryState.freshness = freshness as string;
+    mocks.groceryState.serverConfirmedAt = confirmedAt as string | undefined;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      expect(renderedText(renderer)).toContain(text);
+      expect(renderedText(renderer)).not.toContain('Up to date');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
 });
