@@ -34,7 +34,7 @@ vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoContr
   useCoachPhoto: () => ({ photo: f.photo, loaded: true, busy: f.photoBusy, removing: f.photoRemoving, error: "", handoff: f.handoff,
     beginClear: f.beginPhotoClear, clearAll: () => f.photoStore ? f.photoStore.clearAll(() => {}) : f.clearPhotos(),
     clearAfterConfirmedServerClear: () => f.photoStore ? f.photoStore.clearAfterConfirmedServerClear(() => {}, f.photoSweep) : f.clearPhotos() }) }));
-vi.mock("react-native", () => ({ View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: 1 }), View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
 // Exercise the real Screen wrapper below without loading unrelated native modules.
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
