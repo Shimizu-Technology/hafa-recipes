@@ -55,7 +55,7 @@ export function ProfileForm({
         <>
           <Copy kind="heading">What matters most to you?</Copy>
           {(Object.entries(goalLabels) as Array<[Goal, string]>).map(([goal, label]) => (
-            <Choice
+            <Choice role="radio"
               disabled={disabled}
               key={goal}
               label={label}
@@ -101,7 +101,7 @@ export function ProfileForm({
           {(value.primary_goal === "strength" || value.secondary_goals?.includes("strength")) && (
             <>
               {(["strength", "muscle", "both"] as const).map((priority, index) => (
-                <Choice
+                <Choice role="radio"
                   disabled={disabled}
                   key={priority}
                   label={["Focus on strength", "Focus on muscle", "A balance of both"][index]}
@@ -114,7 +114,7 @@ export function ProfileForm({
           {(value.primary_goal === "body_composition" || value.secondary_goals?.includes("body_composition")) && (
             <>
               {(["maintain", "fat_loss", "muscle_gain"] as const).map((priority, index) => (
-                <Choice
+                <Choice role="radio"
                   disabled={disabled}
                   key={priority}
                   label={["Maintain my current composition", "Work toward fat loss", "Work toward muscle gain"][index]}
@@ -268,7 +268,7 @@ export function ProfileForm({
           </>}
           <Copy kind="heading">Your training experience</Copy>
           {(["new", "returning", "regular"] as const).map((experience, index) => (
-            <Choice
+            <Choice role="radio"
               disabled={disabled}
               key={experience}
               label={["Getting started", "Coming back to training", "Training regularly"][index]}
@@ -362,7 +362,7 @@ export function ProfileForm({
             onChange={(text) => set({ age_years: text === "" ? null : Number(text) })}
           />
           <Copy kind="label">Display units</Copy>
-          <Choice
+          <Choice role="radio"
             disabled={disabled}
             label="lb / inches / miles"
             selected={units === "imperial"}
@@ -370,7 +370,7 @@ export function ProfileForm({
               void setUnits("imperial");
             }}
           />
-          <Choice
+          <Choice role="radio"
             disabled={disabled}
             label="kg / cm / metres"
             selected={units === "metric"}

@@ -14,6 +14,10 @@ Leon confirmed that saving social workouts and browsing the shared Discover libr
 
 Acceptance: recognize the same cover and creator from feed to saved detail; browse and save without a training profile; keep filtering, collections and recovery available with fewer controls above the content. Phone layouts favor readable cards; wider screens use two columns and large text returns to one. Image failures keep an understandable fallback. Existing press feedback stays immediate, with its reduced-motion alternative; layout changes introduce no entrance delays.
 
+## Control and feedback standard (2026-10-30)
+
+Choice uses radio semantics for one selection and checkbox semantics for independent preferences. Choice and Segmented share the 0.97 press response (120ms in, 160ms out); Reduce Motion uses opacity only. Disabled buttons keep readable text and explain material blockers. iOS toasts announce their message; skeleton pulses stop while backgrounded. Sheets use a Close button without a decorative drag handle. Training countdowns use tabular numerals.
+
 ## Decisions (D1, 2026-10-13)
 
 Leon delegated the D1 choices ("whatever is clean and nice"). These are now in effect:

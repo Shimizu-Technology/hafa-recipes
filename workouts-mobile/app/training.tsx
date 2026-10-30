@@ -379,6 +379,7 @@ export default function Training() {
             size="lg"
             busy={busy}
             disabled={(d.paused && !capReached) || !!structureWarning}
+            disabledReason={structureWarning ? "Review this older draft before logging." : d.paused && !capReached ? "Resume your session to log this set." : undefined}
             onPress={() => {
               void run(() => log(true));
             }}
@@ -418,7 +419,7 @@ export default function Training() {
       )}
       {timed && <Card compact tone="accent">
         <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} time cap</Copy>
-        <Copy kind="heading">{formatClock(capRemaining ?? 0)}</Copy>
+        <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
         <Copy kind="small">Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
         {capReached && <Notice>Time’s up. Log any final exercise, then save your session.</Notice>}
         {timed.limit_reached && <Notice tone="warning">This session reached its tracking limit. Save the recorded work as a partial session.</Notice>}

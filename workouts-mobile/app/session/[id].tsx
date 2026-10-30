@@ -123,18 +123,18 @@ export default function SessionDetail() {
                     />
                     {(numericDraft[index]?.load ?? (a.load == null ? "" : String(a.load))).trim() !== "" && (
                       <>
-                        <Choice
+                        <Choice role="radio"
                           label="kg"
                           selected={a.load_unit === "kg"}
                           onPress={() => change(index, { load_unit: "kg" })}
                         />
-                        <Choice
+                        <Choice role="radio"
                           label="lb"
                           selected={a.load_unit === "lb"}
                           onPress={() => change(index, { load_unit: "lb" })}
                         />
                         {(["total", "per_hand", "added", "assistance"] as const).map((value) => (
-                          <Choice
+                          <Choice role="radio"
                             key={value}
                             label={value.replaceAll("_", " ")}
                             selected={a.load_convention === value}
@@ -146,11 +146,11 @@ export default function SessionDetail() {
                     <Field label="Actual effort · 0 to 10" optional numeric
                       {...numeric(a, index, "effort")} />
                     <Copy kind="label">How did the set feel?</Copy>
-                    {(["easy", "manageable", "hard"] as const).map((value) => <Choice key={value} label={value}
+                    {(["easy", "manageable", "hard"] as const).map((value) => <Choice role="radio" key={value} label={value}
                       selected={a.difficulty === value}
                       onPress={() => change(index, { difficulty: a.difficulty === value ? null : value })} />)}
                     <Copy kind="label">Any pain during this set?</Copy>
-                    {([true, false] as const).map((value) => <Choice key={String(value)}
+                    {([true, false] as const).map((value) => <Choice role="radio" key={String(value)}
                       label={value ? "Yes, pain reported" : "No pain reported"} selected={a.pain_reported === value}
                       onPress={() => change(index, { pain_reported: a.pain_reported === value ? null : value })} />)}
                     <Field label="Set notes" optional multiline value={a.notes ?? ""}
