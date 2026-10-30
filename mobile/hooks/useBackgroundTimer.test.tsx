@@ -3,6 +3,7 @@ import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 const notifications = vi.hoisted(() => ({
+  foregroundListeners: [] as ((state: string) => void)[],
   setNotificationHandler: vi.fn(),
   getPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
   requestPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
@@ -13,7 +14,7 @@ const notifications = vi.hoisted(() => ({
 }));
 vi.mock('expo-notifications', () => notifications);
 vi.mock('react-native', () => ({
-  AppState: { currentState: 'active', addEventListener: () => ({ remove: vi.fn() }) },
+  AppState: { currentState: 'active', addEventListener: (_event: string, listener: (state: string) => void) => { notifications.foregroundListeners.push(listener); return { remove: () => { notifications.foregroundListeners = notifications.foregroundListeners.filter(item => item !== listener); } }; } },
   Platform: { OS: 'ios' },
 }));
 vi.mock('./useTimerSound', () => ({ getTimerSoundFile: vi.fn() }));
@@ -120,6 +121,9 @@ it.each(['denied', 'scheduler'] as const)('retries a failed alert with only its 
     await act(async () => { await timer.scheduleTimerNotification(1, 60, 'Simmer'); });
     expect(timer.alertStatus(1)).toBe('off');
     now.mockReturnValue(120_000);
+    await act(async () => { notifications.foregroundListeners.forEach(listener => listener('active')); });
+    expect(timer.hasPermission).toBe(true);
+    expect(timer.alertStatus(1)).toBe('off');
     await act(async () => { await timer.retryFailedAlerts(); });
     expect(notifications.scheduleNotificationAsync.mock.lastCall?.[0].trigger.seconds).toBe(40);
     expect(timer.hasPermission).toBe(true);
