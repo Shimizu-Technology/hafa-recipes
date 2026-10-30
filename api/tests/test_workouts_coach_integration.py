@@ -2543,7 +2543,7 @@ async def test_source_only_coach_without_profile_keeps_context_bounded_and_conse
     async with api.sessions() as db:
         await db.execute(delete(WorkoutsProfile).where(WorkoutsProfile.app_user_id == "owner"))
         source = await db.get(WorkoutRecord, UUID(selected["id"]))
-        source.content = source.content | {"notes": ["Private secret note"], "source_url": "https://example.test/private", "source_title": "Selected source"}
+        source.content = source.content | {"notes": ["Private secret note"], "source_url": "https://example.test/private", "source_title": "Selected source", "source_thumbnail_url": "https://private.test/thumbnail?token=secret"}
         other = await db.get(WorkoutRecord, UUID(unrelated["id"]))
         other.content = other.content | {"title": "Unrelated private workout"}
         await db.commit()
@@ -2560,6 +2560,7 @@ async def test_source_only_coach_without_profile_keeps_context_bounded_and_conse
     assert "source_only" in sent and "Selected source" in sent
     assert "Unrelated private workout" not in sent and "Private secret note" not in sent
     assert "https://example.test/private" not in sent and '"profile"' not in sent
+    assert "source_thumbnail_url" not in sent and "private.test/thumbnail" not in sent
     assert "ask only for the specific missing" in sent
     stale = await api.client.post("/api/v1/workouts/coach/messages", headers=GENERATION,
                                   json=body | {"request_id": str(uuid4()), "context_revision": 2})

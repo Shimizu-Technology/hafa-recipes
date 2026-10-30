@@ -13,6 +13,7 @@ import * as Clipboard from "expo-clipboard";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Bubble, Button, Card, Chip, ChipRow, Copy, IconButton, ListGroup, ListRow, Notice, Sheet } from "@/components/ui";
+import { ApiError } from "@/lib/api";
 import { useTraining } from "@/lib/context";
 import { coachFocusErrors, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
 const HISTORY_POSITION_ERROR = "Could not keep your reading position. Try loading earlier messages again.";
@@ -38,7 +39,13 @@ export default function Coach() {
   const drafts = useMemo(() => createCoachDraftStore(storage), [storage]);
   const generation = enrollment?.generation ?? 0;
   const cache = useQueryClient();
-  const profile = useQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, enabled: !!enrollment?.enrolled });
+  const profile = useQuery({ queryKey: [owner, "coach-profile", generation, !!params.workout_id], queryFn: async () => {
+    try { return await api.profile(); }
+    catch (error) {
+      if (params.workout_id && error instanceof ApiError && error.status === 409) return null;
+      throw error;
+    }
+  }, enabled: !!enrollment?.enrolled });
   const sourceOnly = !!params.workout_id && profile.isSuccess && !profile.data;
   const focus: CoachFocus = {
     ...(params.workout_id ? { context_workout_id: params.workout_id } : {}),
