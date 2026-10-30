@@ -243,7 +243,7 @@ export function Chip({
   onPress?: () => void;
   tone?: "default" | "accent";
   disabled?: boolean;
-  role?: "radio";
+  role?: "radio" | "checkbox" | "button";
 }) {
   const c = useColors();
   const surface = useSurface();
@@ -293,10 +293,10 @@ export function Chip({
   const AnimatedPressable = animatedPressableComponent();
   return (
     <AnimatedPressable
-      accessibilityRole={role ?? "togglebutton"}
+      accessibilityRole={role ?? "checkbox"}
       accessibilityLabel={label}
       accessibilityState={{ checked: selected, disabled }}
-      aria-pressed={role ? undefined : selected}
+      aria-checked={role === "button" ? undefined : selected}
       disabled={disabled}
       hitSlop={4}
       onPressIn={press.onPressIn}

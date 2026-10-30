@@ -189,6 +189,10 @@ export default function Library() {
         </ScrollView>
       </View>}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
+      {!!q.error && visible.length > 0 && <>
+        <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
+        <Button title="Retry loading workouts" secondary onPress={() => void q.refetch()} />
+      </>}
       {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
     </View>
   );
@@ -302,7 +306,11 @@ export default function Library() {
         {collections.data?.map(item => <Choice role="radio" key={item.id} label={item.title} selected={bulkTarget === item.id} disabled={bulkBusy}
           onPress={() => interact(() => { setBulkTarget(item.id); setBulkMessage(""); setBulkError(""); })} />)}
         {!collections.data?.length && <Button title="Create a collection" secondary disabled={bulkBusy} onPress={() => interact(() => { setBulkOpen(false); router.push("/collections"); })} />}
-        {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
+        {!!q.error && visible.length > 0 && <>
+        <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
+        <Button title="Retry loading workouts" secondary onPress={() => void q.refetch()} />
+      </>}
+      {!!bulkMessage && <Notice>{bulkMessage}</Notice>}
         {!!bulkError && <Notice error>{bulkError} Only the remaining selected workouts will be retried.</Notice>}
         <Button title={bulkError ? "Retry remaining workouts" : "Add to collection"} busy={bulkBusy} disabled={!bulkTarget || !selectedIds.length}
           onPress={() => void addSelected()} />
