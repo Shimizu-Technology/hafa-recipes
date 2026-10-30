@@ -44,7 +44,7 @@ export default function TabLayout() {
           { name: "index", title: "Today", icon: "sunny-outline", selectedIcon: "sunny" },
           { name: "library", title: "Saved", icon: "bookmark-outline", selectedIcon: "bookmark" },
           { name: "journal", title: "Journal", icon: "book-outline", selectedIcon: "book" },
-          { name: "more", title: "More", icon: "ellipsis-horizontal", selectedIcon: "ellipsis-horizontal" },
+          { name: "ask", title: "Ask", icon: "chatbubble-outline", selectedIcon: "chatbubble" },
         ].map((t) => (
           <Tabs.Screen
             key={t.name}
@@ -78,8 +78,6 @@ export default function TabLayout() {
             }}
           />
         ))}
-        <Tabs.Screen name="routines" options={{ href: null }} />
-        <Tabs.Screen name="ask" options={{ href: null }} />
       </Tabs>
       {showAdd && <PressTarget
         accessibilityRole="button"

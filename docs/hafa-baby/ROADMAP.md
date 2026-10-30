@@ -21,9 +21,12 @@ Calm, warm and contemporary. Legible typography, "Sand & Cocoa" warm neutrals
 (sand and nude grounds, cocoa actions, a soft clay accent; chosen by Kami),
 clear contrast, comfortable one-handed targets, useful empty states, and plain
 language. Four main tabs: Today gives fast logging and writing; Saved holds an
-uncategorized inbox, all posts and user-created categories; Journal opens on
-writing; More keeps routines, Ask, doctor questions, care history and settings
-available. Global Add follows the current task. Bulk category selection preserves
+uncategorized inbox, all posts and user-created categories; Journal holds writing
+and doctor questions (with visit summaries inside that view); Ask retrieves saved
+context. Today links to pushed Care history and Lists & routines screens with
+Back. The profile button opens settings and profiles. A focused Ask from an entry
+stays in its stack with Back; notification links retain their owner/generation
+checks and land on a routine or the pushed routines list. Global Add follows the current task. Bulk category selection preserves
 membership on other devices and offers Undo. Source details lead with concise
 attributed takeaways and explicit source-supported steps; original text, evidence
 and processing details remain available on demand. Journal Save stays docked above

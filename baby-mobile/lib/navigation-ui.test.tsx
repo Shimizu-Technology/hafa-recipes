@@ -1,0 +1,111 @@
+import React, { useEffect } from "react";
+import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const mock = vi.hoisted(() => ({
+  params: {} as Record<string, string>, stack: [] as any[], baby: null as any,
+  exportVisit: vi.fn(async (_text: string, _owner: string) => {}),
+}));
+vi.mock("react-native", () => ({
+  View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
+  ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
+  Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn() }, Alert: { alert: vi.fn() },
+  useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: 1, height: 844 }),
+  AccessibilityInfo: { isReduceMotionEnabled: async () => true, addEventListener: () => ({ remove() {} }) },
+  Easing: { bezier: vi.fn() }, Animated: {
+    Value: class { setValue() {} stopAnimation() {} }, createAnimatedComponent: () => "AnimatedPressable",
+    timing: () => ({}), parallel: () => ({ start() {} }),
+  },
+}));
+vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView" }));
+vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
+vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
+vi.mock("expo-image", () => ({ Image: "Image" }));
+vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
+vi.mock("expo-router", () => ({
+  useLocalSearchParams: () => mock.params,
+  useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
+  router: {
+    push: (route: any) => { mock.stack.push(route); mock.params = route.params ?? {}; },
+    canGoBack: () => mock.stack.length > 1,
+    back: () => { mock.stack.pop(); mock.params = mock.stack.at(-1)?.params ?? {}; },
+    replace: (route: any) => { mock.stack[mock.stack.length - 1] = route; },
+  },
+}));
+vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
+vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
+vi.mock("@/lib/files", () => ({ exportVisit: mock.exportVisit }));
+vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
+vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
+vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: {} }));
+vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
+vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
+vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => ({
+  context: { scope: "all", record_id, child_id: null }, focusedTitle: "Saved source", question: "", messages: [],
+  history: [], showHistory: false, resolving: false, busy: false, error: "", openHistory() {},
+}) }));
+vi.mock("@/lib/models", () => import("./models"));
+vi.mock("@/lib/outbox", () => import("./outbox"));
+vi.mock("@/lib/history", () => import("./history"));
+vi.mock("@/lib/visit-summary", () => import("./visit-summary"));
+vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
+vi.mock("@/components/ui", () => import("../components/ui"));
+vi.mock("@/components/disclosure", () => import("../components/disclosure"));
+vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
+vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
+import Journal from "../app/(tabs)/journal";
+import RecordDetail from "../app/record/[id]";
+import AskEntry from "../app/ask-entry";
+import { emptyState, optimisticRecord } from "./models";
+let renderer: ReactTestRenderer | undefined;
+const row = (id: string, kind: "journal" | "feeding" | "question" | "source") => optimisticRecord({
+  id, kind, title: id, body: `Observation ${id}`, child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z",
+});
+async function mount(element: React.ReactElement) { await act(async () => { renderer = create(element); }); }
+async function press(label: string) {
+  const target = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType)
+    .find(n => n.props.accessibilityLabel === label || n.props.accessibilityLabel?.startsWith(label + ". "));
+  expect(target, label).toBeDefined();
+  await act(async () => target!.props.onPress());
+}
+beforeEach(() => {
+  vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  mock.params = {}; mock.stack = []; mock.exportVisit.mockClear();
+  const records = [row("Journal observation", "journal"), row("Bottle observation", "feeding"), row("Doctor question", "question"), row("Saved source", "source")];
+  mock.baby = {
+    owner: "owner", records, online: true, current: () => true,
+    state: { ...emptyState(), records, bootstrap: { generation: 1, children: [], profile: { timezone: "Pacific/Guam", ai_consent: true }, ai_available: true } },
+    api: { lease: () => 1, assertLease() {}, records: async ({ kinds }: any) => ({ items: records.filter(r => kinds.includes(r.kind)), total: records.length, has_more: false }) },
+    commit: async () => {},
+  };
+});
+afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+it("prepares a mixed journal and care visit summary from Doctor questions", async () => {
+  mock.params = { filter: "question" };
+  await mount(<Journal />);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  await press("Prepare a visit summary");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  await press("Journal observation");
+  await press("Bottle observation");
+  await press("Share 2 selected entries");
+  const [text, owner] = mock.exportVisit.mock.calls[0];
+  expect(owner).toBe("owner");
+  expect(text).toContain("Observation Journal observation");
+  expect(text).toContain("Observation Bottle observation");
+  expect(text).not.toContain("Observation Doctor question");
+  await press("Done choosing");
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
+});
+it("pushes focused Ask from a saved entry and its real Back control returns to that entry", async () => {
+  mock.params = { id: "Saved source" };
+  mock.stack = [{ pathname: "/(tabs)/library" }, { pathname: "/record/[id]", params: mock.params }];
+  await mount(<RecordDetail />);
+  await press("Ask about this entry");
+  expect(mock.stack.at(-1)).toEqual({ pathname: "/ask-entry", params: { record_id: "Saved source" } });
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(n => n.props.children === "Ask about this")).toBe(true);
+  await press("Go back");
+  expect(mock.stack.at(-1)).toEqual({ pathname: "/record/[id]", params: { id: "Saved source" } });
+});
