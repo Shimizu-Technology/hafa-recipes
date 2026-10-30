@@ -1,3 +1,5 @@
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'owner-a', entries: [] }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';

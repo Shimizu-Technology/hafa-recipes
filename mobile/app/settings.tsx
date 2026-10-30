@@ -1,3 +1,4 @@
+import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
 import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -167,6 +168,7 @@ export default function SettingsScreen() {
             // Clear all cached data to prevent stale data for next user
             queryClient.clear();
             await clearAllOfflineGroceryData();
+            await privateRecipeDrafts.clearAll();
 
             // Now sign out from Clerk
             await signOut();
@@ -244,6 +246,7 @@ export default function SettingsScreen() {
                       // Clear all cached data
                       queryClient.clear();
                       await clearAllOfflineGroceryData();
+            await privateRecipeDrafts.clearAll();
 
                       await signOut();
                       if (chatCleanupFailed) {

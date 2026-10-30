@@ -1,3 +1,6 @@
+import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
+import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
+import { privateRecipeDrafts, preserveDraftImage } from '@/lib/privateRecipeDrafts';
 import { legacyShareReceipts } from '@/lib/legacyShareReceipts';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Crypto from 'expo-crypto';
@@ -126,6 +129,20 @@ export default function ExtractScreen() {
     setIsOcrExtracting(false); setOcrProgress('');
     setSelectedImages([]); setShowImageGallery(false); setSelectedInboxId(null);
   }, [inbox.ownerId]);
+  const scanDraft = usePrivateRecipeDraft(inbox.ownerId, 'scan', { selectedImages, isPublic, selectedLocation, selectedInboxId }, selectedImages.length > 0, saved => {
+    setSelectedImages(saved.selectedImages); setIsPublic(saved.isPublic); setSelectedLocation(saved.selectedLocation);
+    setSelectedInboxId(saved.selectedInboxId); setShowImageGallery(true);
+  });
+  const recoveryDraft = usePrivateRecipeDraft<any>(inbox.ownerId, 'recovery', null, false, saved => {
+    if (!saved?.recipe || !saved.captureId) return;
+    const savedRecipe = saved.request ? { ...saved.recipe, extracted: saved.request.extracted, source_type: saved.request.source_type, is_public: saved.request.is_public } : saved.recipe;
+    router.push(saved.failure && saved.failure.kind !== 'invalid' ? {
+      pathname: '/ocr-review', params: { recipe: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
+        captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
+        saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message },
+    } : { pathname: '/edit-capture', params: { initialData: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
+      captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
+  });
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
   const openingNextShare = useRef(false);
@@ -275,6 +292,13 @@ export default function ExtractScreen() {
   };
 
   const pickImage = async (source: 'camera' | 'library') => {
+    const imageOwner = inbox.ownerId;
+    if (!imageOwner) return;
+    const lease = privateRecipeDrafts.lease(imageOwner);
+    const guard = () => {
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== imageOwner) throw new CaptureAccountChangedError();
+      privateRecipeDrafts.assert(lease);
+    };
     try {
       // Request permission
       if (source === 'camera') {
@@ -294,6 +318,7 @@ export default function ExtractScreen() {
       // Launch picker - allow multiple for library, single for camera
       // Note: allowsEditing removed to capture full image (no cropping)
       // Quality increased to 0.95 for better OCR accuracy
+      guard();
       const result = source === 'camera'
         ? await ImagePicker.launchCameraAsync({
             mediaTypes: ['images'],
@@ -307,7 +332,10 @@ export default function ExtractScreen() {
           });
 
       if (!result.canceled && result.assets.length > 0) {
-        const newImages = result.assets.map((asset) => ({ uri: asset.uri }));
+        guard();
+        const newImages = await Promise.all(result.assets.map(async (asset) => ({ uri: await preserveDraftImage(lease, asset.uri, guard) })));
+        guard();
+        if (captureOwner.current.ownerId !== imageOwner) return;
         const allImages = [...selectedImages, ...newImages].slice(0, 10); // Max 10 images
         setSelectedImages(allImages);
         setShowImageGallery(true);
@@ -323,14 +351,15 @@ export default function ExtractScreen() {
   };
 
   const clearImages = () => {
-    setSelectedImages([]);
-    setShowImageGallery(false);
-    setSelectedInboxId(null);
-    restoreComposerPreferences();
+    Alert.alert('Discard scan draft?', 'These selected pages will be removed from this draft.', [
+      { text: 'Keep draft', style: 'cancel', onPress: () => { void scanDraft.flush().then(() => { scanDraft.pause(); setShowImageGallery(false); }); } },
+      { text: 'Discard', style: 'destructive', onPress: () => { void scanDraft.finish().then(() => { setSelectedImages([]); setShowImageGallery(false); setSelectedInboxId(null); restoreComposerPreferences(); }); } },
+    ]);
+
   };
 
   const extractFromImages = async () => {
-    if (selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
+    if (!scanDraft.ready || scanDraft.available || selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
     const originalOwner = inbox.ownerId;
     if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
     const guardOwner = () => {
@@ -380,6 +409,8 @@ export default function ExtractScreen() {
           guardOwner();
           setSelectedInboxId(null);
         }
+        guardOwner();
+        if (typeof destination === 'string') await scanDraft.finish();
         guardOwner();
         setSelectedImages([]);
         restoreComposerPreferences();
@@ -687,6 +718,8 @@ export default function ExtractScreen() {
               : `${selectedImages.length} images will be combined in this order. Source images are not attached to the saved recipe.`}
           </Text>
 
+          <RecipeDraftNotice draft={scanDraft} />
+          <RecipeDraftNotice draft={recoveryDraft} />
           <RecipeVisibilitySelector
             compact
             value={isPublic ? 'public' : 'private'}
@@ -713,6 +746,8 @@ export default function ExtractScreen() {
             <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
             <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Save a recipe from a link, text, or photo.</Text>
           </RNView>
+          <RecipeDraftNotice draft={scanDraft} />
+          <RecipeDraftNotice draft={recoveryDraft} />
           {pendingShares > 0 && <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
             <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} ready to sync</Text>
             <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {

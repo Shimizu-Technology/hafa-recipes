@@ -1,3 +1,6 @@
+import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
+import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
+import { privateRecipeDrafts, preserveDraftImage } from '@/lib/privateRecipeDrafts';
 import { useImportInbox } from '@/hooks/useImportInbox';
 import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { NutritionPanel } from '@/components/NutritionPanel';
@@ -80,6 +83,10 @@ function nutritionFingerprintFor(ingredients: Array<{ name: string; quantity: st
 }
 
 export default function AddRecipeScreen() {
+  const { ownerId } = useImportInbox();
+  return <ManualRecipeForm key={ownerId ?? 'guest'} />;
+}
+function ManualRecipeForm() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -241,6 +248,17 @@ export default function AddRecipeScreen() {
   latestNutritionFingerprint.current = currentNutritionFingerprint;
   const nutritionMatchesInputs = nutritionFingerprint === currentNutritionFingerprint;
 
+  const draft = usePrivateRecipeDraft(inbox.ownerId, 'manual', {
+    title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic, imageUri, ingredients, steps,
+    sourceNutrition, estimatedNutrition, estimatedNutritionTotal, nutritionBasis, nutritionAssumptions, nutritionFingerprint,
+  }, !!(title.trim() || imageUri || ingredients.some(i => i.name.trim()) || steps.some(s => s.text.trim())), saved => {
+    setTitle(saved.title); setServings(saved.servings); setPrepTime(saved.prepTime); setCookTime(saved.cookTime);
+    setTotalTime(saved.totalTime); setNotes(saved.notes); setTags(saved.tags); setIsPublic(saved.isPublic);
+    setImageUri(saved.imageUri); setIngredients(saved.ingredients); setSteps(saved.steps);
+    setSourceNutrition(saved.sourceNutrition); setEstimatedNutrition(saved.estimatedNutrition); setEstimatedNutritionTotal(saved.estimatedNutritionTotal);
+    setNutritionBasis(saved.nutritionBasis); setNutritionAssumptions(saved.nutritionAssumptions); setNutritionFingerprint(saved.nutritionFingerprint);
+  });
+
   // Create recipe mutation
   const createMutation = useMutation({
     mutationFn: async ({ requestedPublic, originalOwner }: { requestedPublic: boolean; originalOwner: string | null }) => {
@@ -304,10 +322,12 @@ export default function AddRecipeScreen() {
         imageUri, guardOwner
       );
     },
-    onSuccess: (recipe) => {
+    onSuccess: async (recipe) => {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== savingOwner.current) return;
       invalidateCreatedRecipeQueries(queryClient, recipe.id);
       
+      await draft.finish().catch(() => Alert.alert('Recipe saved', 'The on-device draft could not be removed. Discard it before starting another recipe.'));
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== savingOwner.current) return;
       router.replace(`/recipe/${recipe.id}`);
     },
     onError: (error: Error) => {
@@ -316,7 +336,19 @@ export default function AddRecipeScreen() {
     },
   });
 
+  const imageLease = () => {
+    const owner = inbox.ownerId;
+    if (!owner) throw new CaptureAccountChangedError();
+    const lease = privateRecipeDrafts.lease(owner);
+    const guard = () => {
+      if (!captureOwner.current.mounted || captureOwner.current.ownerId !== owner) throw new CaptureAccountChangedError();
+      privateRecipeDrafts.assert(lease);
+    };
+    return { lease, guard };
+  };
   const handlePickImage = async () => {
+    const { lease, guard } = imageLease();
+    try {
     // Request permissions
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -324,6 +356,7 @@ export default function AddRecipeScreen() {
       return;
     }
 
+    guard();
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -332,17 +365,23 @@ export default function AddRecipeScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      guard();
+      const uri = await preserveDraftImage(lease, result.assets[0].uri, guard);
+      guard(); setImageUri(uri);
     }
+    } catch (error) { if (!(error instanceof CaptureAccountChangedError)) Alert.alert('Photo unavailable', 'Please choose the photo again.'); }
   };
 
   const handleTakePhoto = async () => {
+    const { lease, guard } = imageLease();
+    try {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please grant camera access to take photos.');
       return;
     }
 
+    guard();
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
@@ -350,8 +389,11 @@ export default function AddRecipeScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      guard();
+      const uri = await preserveDraftImage(lease, result.assets[0].uri, guard);
+      guard(); setImageUri(uri);
     }
+    } catch (error) { if (!(error instanceof CaptureAccountChangedError)) Alert.alert('Photo unavailable', 'Please take the photo again.'); }
   };
 
   const showImageOptions = () => {
@@ -432,6 +474,7 @@ export default function AddRecipeScreen() {
   };
 
   const handleSubmit = () => {
+    if (!draft.ready || draft.available) { Alert.alert('Private draft', 'Resume or discard the saved draft before saving a new recipe.'); return; }
     if (!title.trim()) {
       Alert.alert('Missing Title', 'Please enter a recipe title.');
       return;
@@ -519,6 +562,7 @@ export default function AddRecipeScreen() {
             contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
             keyboardShouldPersistTaps="handled"
           >
+            <RecipeDraftNotice draft={draft} />
             {/* Image Section */}
             <TouchableOpacity
               style={[styles.imageSection, { backgroundColor: colors.backgroundSecondary }]}

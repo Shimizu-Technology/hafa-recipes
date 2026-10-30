@@ -1,3 +1,5 @@
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -672,6 +674,7 @@ describe('classified image recovery', () => {
     // The gallery back action is the first touchable in its header.
     const headerActions = renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
     await act(async () => headerActions[0].props.onPress());
+    await act(async () => mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === 'Discard').onPress());
     mocks.preferences.ready = true; mocks.preferences.isPublic = false;
     await act(async () => renderer.update(<ExtractScreen />));
     expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
@@ -712,6 +715,25 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
     expect(link().props.value).toBe('');
   } finally { await act(async () => renderer.unmount()); }
 });
+  it('does not copy a picker result that returns after account change', async () => {
+    const { preserveDraftImage } = await import('@/lib/privateRecipeDrafts');
+    vi.mocked(preserveDraftImage).mockClear();
+    let finish!: (value: any) => void;
+    mocks.launchLibrary.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findAllByType('TouchableOpacity' as any).find(node => node.props.accessibilityLabel === 'Scan photos or screenshots')!.props.onPress());
+    // The chooser's photo action opens the asynchronous OS picker.
+    const choices = mocks.alert.mock.calls.at(-1)?.[2];
+    let pending: Promise<void>;
+    await act(async () => { pending = choices.find((button: any) => button.text === 'Choose Screenshots or Photos').onPress(); });
+    mocks.ownerId = 'owner-b';
+    await act(async () => renderer.update(<ExtractScreen />));
+    await act(async () => { finish({ canceled: false, assets: [{ uri: 'file:///old-private.jpg' }] }); await pending; });
+    expect(preserveDraftImage).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
+  });
+
   it('keeps newer link edits when an earlier Keep private import finishes', async () => {
     mocks.requestPublishing.mockResolvedValueOnce(false);
     let finish!: () => void;
