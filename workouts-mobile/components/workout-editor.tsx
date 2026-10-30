@@ -265,7 +265,7 @@ export function WorkoutEditor({
                   </Columns>
                   <Columns>
                     {conventions.map(([load_convention, label]) => (
-                      <Column key={load_convention}><Choice disabled={disabled} label={label} selected={e.load_convention === load_convention}
+                      <Column key={load_convention}><Choice role="radio" disabled={disabled} label={label} selected={e.load_convention === load_convention}
                         onPress={() => exercise(bi, ei, { load_convention })} /></Column>
                     ))}
                   </Columns>
