@@ -777,20 +777,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           </TouchableOpacity>
         </RNView>
 
-        {/* Subtitle row with "What can I make?" */}
-        <TouchableOpacity
-          style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}
-          onPress={() => {
-            haptics.light();
-            router.push('/ingredient-search');
-          }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="nutrition-outline" size={18} color={colors.actionText} />
-          <Text style={[styles.ingredientSearchText, { color: colors.actionText }]}>
-            What can I make?
-          </Text>
-        </TouchableOpacity>
+        {isSignedIn && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open collections"
+          onPress={() => router.push('/collections')} style={{ minHeight: 44, justifyContent: 'center' }}>
+          <Text style={{ color: colors.actionText }}>Collections ›</Text>
+        </TouchableOpacity>}
+
       </RNView>
     );
   }, [colors, libraryCount, matchingCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, allShownSelected, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
@@ -882,8 +873,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
 
       {/* Fixed header with search - outside FlatList to prevent focus loss */}
       <RNView style={styles.header}>
-        <ListHeaderTitle />
-
         {/* Search + Filter row */}
         <RNView style={styles.searchRow}>
           <RNView style={styles.searchInputContainer}>
@@ -923,6 +912,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
             )}
           </ScalePressable>
         </RNView>
+
+        <ListHeaderTitle />
 
         {/* Active filters summary */}
         {activeFilterCount > 0 && (
@@ -987,93 +978,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           </RNView>
         )}
 
-        {isSignedIn && isCollectionsError && (
-          <RNView style={[styles.collectionRecovery, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-            <Text accessibilityRole="alert" style={{ color: colors.textSecondary }}>
-              {collections === undefined
-                ? 'Couldn’t load your collections. Check your connection and try again.'
-                : 'Couldn’t refresh your collections. Your last loaded collections are still shown.'}
-            </Text>
-            <Button
-              title={isFetchingCollections ? 'Trying again…' : 'Try again'}
-              disabled={isFetchingCollections}
-              onPress={() => { void refetchCollections(); }}
-            />
-            {!collections?.length && (
-              <Button
-                title="New collection"
-                variant="outline"
-                onPress={() => setShowCreateCollectionModal(true)}
-              />
-            )}
-          </RNView>
-        )}
 
-        {/* Collections row - show skeleton while loading, or real content */}
-        {isLoadingCollections ? (
-          <RNView style={styles.collectionsSection}>
-            <RNView style={styles.collectionsSectionHeader}>
-              <RNView style={styles.collectionsTitleRow}>
-                <Ionicons name="folder-open-outline" size={18} color={colors.actionText} />
-                <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>Collections</Text>
-              </RNView>
-            </RNView>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.collectionsRow}
-            >
-              <SkeletonCollectionList count={3} />
-            </ScrollView>
-          </RNView>
-        ) : collections && collections.length > 0 ? (
-          <RNView style={styles.collectionsSection}>
-            <RNView style={styles.collectionsSectionHeader}>
-              <RNView style={styles.collectionsTitleRow}>
-                <Ionicons name="folder-open-outline" size={18} color={colors.actionText} />
-                <Text style={[styles.collectionsSectionTitle, { color: colors.text }]}>Collections</Text>
-              </RNView>
-            </RNView>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.collectionsRow}
-            >
-              {collections.map((collection) => (
-                <CollectionCard
-                  key={collection.id}
-                  collection={collection}
-                  colors={colors}
-                  onPress={() => {
-                    haptics.light();
-                    router.push(`/collection/${collection.id}`);
-                  }}
-                />
-              ))}
-              <NewCollectionCard
-                colors={colors}
-                onPress={() => {
-                  haptics.medium();
-                  setShowCreateCollectionModal(true);
-                }}
-              />
-            </ScrollView>
-          </RNView>
-        ) : null}
-
-        {/* Show "Create first collection" prompt if no collections */}
-        {collections && collections.length === 0 && !isLoadingCollections && !isCollectionsError && (
-          <TouchableOpacity
-            style={[styles.createFirstCollection, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}
-            onPress={() => setShowCreateCollectionModal(true)}
-          >
-            <Ionicons name="folder-outline" size={20} color={colors.actionText} />
-            <Text style={[styles.createFirstCollectionText, { color: colors.actionText }]}>
-              Create your first collection to organize recipes
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.actionText} />
-          </TouchableOpacity>
-        )}
       </RNView>
 
       {isLoading && !displayRecipes?.length ? (
