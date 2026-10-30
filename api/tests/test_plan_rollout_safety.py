@@ -17,6 +17,7 @@ from app.db import get_db
 from app.db.database import Base
 from app.models.grocery import GroceryItem, GroceryList, GroceryListMember
 from app.models.identity import AppUser
+from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import Recipe
 from app.routers import meal_plans as plans
 from tests.database_safety import require_disposable_test_database
@@ -349,3 +350,143 @@ async def test_identical_review_never_writes_to_a_second_household(
             )
             == 0
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expanded", [False, True])
+async def test_current_planner_create_hint_works_end_to_end_before_and_after_053(
+    isolated_plan_db, expanded
+):
+    engine, sessions = isolated_plan_db
+    recipe_id, _, _ = await seed(sessions)
+    async with sessions() as db:
+        recipe = await db.get(Recipe, recipe_id)
+        recipe.extracted = {
+            **recipe.extracted,
+            "components": [
+                {
+                    "ingredients": [{"name": "Rice", "quantity": "1 1/2", "unit": "cup"}],
+                    "steps": ["Cook"],
+                }
+            ],
+        }
+        await db.commit()
+    if not expanded:
+        async with engine.begin() as db:
+            await db.execute(text("ALTER TABLE meal_plan_entries DROP COLUMN planned_servings"))
+    app = FastAPI()
+    app.include_router(plans.router)
+
+    async def database():
+        async with sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = database
+    app.dependency_overrides[get_current_user] = user
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # Exact shape emitted by buildMealPlanEntry for a 4-serving recipe scaled to 6.
+        response = await client.post(
+            "/api/meal-plans/",
+            json={
+                "date": str(DAY),
+                "meal_type": "dinner",
+                "recipe_id": str(recipe_id),
+                "recipe_title": "Rice",
+                "recipe_thumbnail": None,
+                "planned_servings": 6,
+            },
+        )
+        assert response.status_code == 200, response.text
+        entry = response.json()
+        assert entry["planned_servings"] == (6 if expanded else None)
+        week = await client.get(f"/api/meal-plans/week?week_of={DAY}")
+        assert week.status_code == 200, week.text
+        planned = [entry for day in week.json()["days"] for entry in day["dinner"]]
+        assert len(planned) == 1 and planned[0]["id"] == entry["id"]
+        preview = await client.post(
+            "/api/meal-plans/to-grocery/preview",
+            json={"start_date": str(DAY), "end_date": str(DAY)},
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["items"][0]["quantity"] == ("2 1/4" if expanded else "1 1/2")
+        assert preview.json()["items_unscaled"] == 0
+        added = await client.post(
+            "/api/meal-plans/to-grocery", json={"start_date": str(DAY), "end_date": str(DAY)}
+        )
+        assert added.status_code == 200 and added.json()["items_added"] == 1
+        edited = await client.put(f"/api/meal-plans/{entry['id']}", json={"planned_servings": 8})
+        assert edited.status_code == (200 if expanded else 503)
+    async with sessions() as db:
+        rows = (await db.scalars(select(MealPlanEntry))).all()
+        assert len(rows) == 1
+        await plans.load_planned_servings(db, rows)
+        assert rows[0].planned_servings == (8 if expanded else None)
+        assert (await db.scalars(select(GroceryItem))).one().quantity == (
+            "2 1/4" if expanded else "1 1/2"
+        )
+
+
+@pytest.mark.asyncio
+async def test_migration053_releases_expansion_lock_before_validation_and_resumes(isolated_plan_db):
+    from importlib import import_module
+    from types import SimpleNamespace
+
+    from sqlalchemy import event
+
+    engine, _ = isolated_plan_db
+    async with engine.begin() as db:
+        await db.execute(
+            text("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT)")
+        )
+        await db.execute(text("ALTER TABLE meal_plan_entries DROP COLUMN planned_servings"))
+    migration = import_module("migrations.053_add_planned_servings")
+    transactions = {}
+    locks = []
+
+    def interrupt_validation(connection, cursor, statement, parameters, context, executemany):
+        if "ADD CONSTRAINT ck_meal_plan_entries_planned_servings" in statement:
+            transactions["expand"] = connection.exec_driver_sql("SELECT txid_current()").scalar()
+        if "VALIDATE CONSTRAINT ck_meal_plan_entries_planned_servings" in statement:
+            transactions["validate"] = connection.exec_driver_sql("SELECT txid_current()").scalar()
+            locks.extend(
+                connection.exec_driver_sql(
+                    "SELECT mode FROM pg_locks WHERE pid=pg_backend_pid() AND relation='meal_plan_entries'::regclass"
+                ).scalars()
+            )
+            raise RuntimeError("validation interrupted")
+
+    event.listen(engine.sync_engine, "before_cursor_execute", interrupt_validation)
+    try:
+        with pytest.raises(RuntimeError, match="validation interrupted"):
+            await migration.run_migration(
+                configured=SimpleNamespace(environment="test"), migration_engine=engine
+            )
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", interrupt_validation)
+    assert transactions["expand"] != transactions["validate"]
+    assert "AccessExclusiveLock" not in locks
+    async with engine.begin() as db:
+        assert (
+            await db.scalar(
+                text(
+                    "SELECT convalidated FROM pg_constraint WHERE conrelid='meal_plan_entries'::regclass AND conname='ck_meal_plan_entries_planned_servings'"
+                )
+            )
+            is False
+        )
+        assert await db.scalar(text("SELECT count(*) FROM schema_migrations WHERE version=53")) == 0
+    await migration.run_migration(
+        configured=SimpleNamespace(environment="test"), migration_engine=engine
+    )
+    async with engine.begin() as db:
+        assert (
+            await db.scalar(
+                text(
+                    "SELECT convalidated FROM pg_constraint WHERE conrelid='meal_plan_entries'::regclass AND conname='ck_meal_plan_entries_planned_servings'"
+                )
+            )
+            is True
+        )
+        assert await db.scalar(text("SELECT count(*) FROM schema_migrations WHERE version=53")) == 1

@@ -10,16 +10,22 @@ from app.config import get_settings
 from app.db.database import engine
 
 
+async def prepare(db, configured):
+    await db.execute(text("SET LOCAL lock_timeout = '5s'"))
+    await db.execute(text("SELECT pg_advisory_xact_lock(7340053)"))
+    restore = os.environ.get("MIGRATION_053_RESTORE_POINT", "").strip()
+    if len(restore) > 160 or any(ord(char) < 32 for char in restore):
+        raise RuntimeError("Invalid migration053 restore point")
+    if configured.environment == "production" and not restore:
+        raise RuntimeError("MIGRATION_053_RESTORE_POINT must name a verified restore point")
+
+
 async def run_migration(*, configured=None, migration_engine=None):
     configured = configured or get_settings()
-    async with (migration_engine or engine).begin() as db:
-        await db.execute(text("SET LOCAL lock_timeout = '5s'"))
-        await db.execute(text("SELECT pg_advisory_xact_lock(7340053)"))
-        restore = os.environ.get("MIGRATION_053_RESTORE_POINT", "").strip()
-        if len(restore) > 160 or any(ord(char) < 32 for char in restore):
-            raise RuntimeError("Invalid migration053 restore point")
-        if configured.environment == "production" and not restore:
-            raise RuntimeError("MIGRATION_053_RESTORE_POINT must name a verified restore point")
+    target = migration_engine or engine
+    # Commit expansion to release ACCESS EXCLUSIVE before the validation scan.
+    async with target.begin() as db:
+        await prepare(db, configured)
         await db.execute(
             text("ALTER TABLE meal_plan_entries ADD COLUMN IF NOT EXISTS planned_servings INTEGER")
         )
@@ -53,6 +59,10 @@ async def run_migration(*, configured=None, migration_engine=None):
             "CHECKPLANNED_SERVINGS>=1ANDPLANNED_SERVINGS<=1000NOTVALID",
         }:
             raise RuntimeError("Migration053 schema drift: unexpected servings constraint")
+    # Reacquire the migration lock in a new transaction. Interrupted validation
+    # leaves a usable expansion and no completion marker; the same command resumes.
+    async with target.begin() as db:
+        await prepare(db, configured)
         await db.execute(text(f"ALTER TABLE meal_plan_entries VALIDATE CONSTRAINT {name}"))
         await db.execute(
             text(

@@ -168,7 +168,7 @@ async def test_explicit_servings_scale_preview_and_add_but_legacy_entries_do_not
     ]
     assert preview["items_missing_amount"] == 2
     assert preview["items_unscaled"] == 1
-    assert preview["totals"][0]["quantity"] == "9/2"
+    assert preview["totals"][0]["quantity"] == "4 1/2"
     assert preview["totals"][1]["missing"] == 2
     assert session.added == []
     request.preview_token = preview["preview_token"]

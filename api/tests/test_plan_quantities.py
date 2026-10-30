@@ -8,6 +8,9 @@ from app.plan_quantities import scaled_plan_quantity
     [
         ("2", 8, 4, "4", False),
         ("1 1/2", 2, 4, "3/4", False),
+        ("1 1/2", 6, 4, "2 1/4", False),
+        ("9/4", 4, 4, "2 1/4", False),
+        ("1⅓", 8, 4, "2 2/3", False),
         ("½", 8, 4, "1", False),
         ("1½", 8, 4, "3", False),
         ("0.25", 6, 4, "3/8", False),

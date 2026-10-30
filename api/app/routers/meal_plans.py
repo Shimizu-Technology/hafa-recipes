@@ -3,7 +3,6 @@
 import hashlib
 import json
 from datetime import date, datetime, timedelta
-from fractions import Fraction
 from typing import List, Literal, Optional
 from uuid import UUID
 
@@ -19,8 +18,12 @@ from app.models.grocery import GroceryItem, GroceryMutationReceipt
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import Recipe
 from app.moderation import accessible_recipe_conditions, is_publicly_viewable
-from app.plan_quantities import scaled_plan_quantity
-from app.plan_schema import load_planned_servings, require_planned_servings
+from app.plan_quantities import format_plan_quantity, parse_plan_quantity, scaled_plan_quantity
+from app.plan_schema import (
+    load_planned_servings,
+    require_planned_servings,
+    supports_planned_servings,
+)
 from app.recipe_review import review_response_fields
 from app.routers.grocery import _lock_grocery_list, get_or_create_user_list
 
@@ -348,7 +351,11 @@ async def add_meal(
 
     recipe_title = recipe.extracted.get("title") if recipe.extracted else entry.recipe_title
 
-    await require_planned_servings(db, entry.planned_servings)
+    # Creation remains available while code deploys ahead of expansion 053.
+    # The response reports persisted legacy behavior until scaling is supported.
+    planned = None
+    if entry.planned_servings is not None and await supports_planned_servings(db):
+        planned = entry.planned_servings
     new_entry = MealPlanEntry(
         user_id=user.id,
         date=entry.date,
@@ -358,7 +365,7 @@ async def add_meal(
         recipe_thumbnail=entry.recipe_thumbnail,
         notes=entry.notes,
         servings=entry.servings,
-        planned_servings=entry.planned_servings,
+        planned_servings=planned,
     )
     
     db.add(new_entry)
@@ -504,7 +511,9 @@ async def plan_grocery_preview(request, db, user, grocery_list=None):
             if unknown:
                 total["uncombined"] += 1
             else:
-                total["quantity"] = str(Fraction(total["quantity"] or "0") + Fraction(normalized))
+                total["quantity"] = format_plan_quantity(
+                    parse_plan_quantity(total["quantity"] or "0") + parse_plan_quantity(normalized)
+                )
     token = hashlib.sha256(json.dumps([user.id, str(grocery_list.id), str(request.start_date), str(request.end_date), items], sort_keys=True).encode()).hexdigest()
     return dict(list_id=str(grocery_list.id), totals=list(totals.values()), message=f"Added {len(items)} ingredients to grocery list" if items else "No meals planned in this date range", items=items, items_added=len(items), items_missing_amount=sum(i["quantity"] is None for i in items),
                 items_unscaled=sum(i["unscaled"] for i in items), recipes_processed=len(recipes), preview_token=token)
