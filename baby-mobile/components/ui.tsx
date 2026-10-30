@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren, type RefObject } from "react";
+import { forwardRef, createContext, useContext, useEffect, useRef, useState, type PropsWithChildren, type RefObject } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -15,6 +15,8 @@ import {
   TextInput,
   View,
   useColorScheme,
+  useWindowDimensions,
+  type PressableProps,
   type TextInputProps,
   type TextStyle,
   type ViewStyle,
@@ -96,9 +98,41 @@ export function tap(kind: "select" | "success" = "select") {
     : Haptics.selectionAsync()
   ).catch(() => undefined);
 }
-const pressed = (on: boolean, disabled = false): ViewStyle => ({
-  opacity: disabled ? 0.5 : on ? 0.82 : 1,
-  transform: [{ scale: on && !disabled ? 0.97 : 1 }],
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+/** One press response for daily controls, with no movement under Reduce Motion. */
+export const PressTarget = forwardRef<View, PressableProps>(function PressTarget(
+  { style, disabled, onPressIn, onPressOut, onHoverIn, onHoverOut, ...props }, ref
+) {
+  const scale = useRef(new Animated.Value(1)).current,
+    opacity = useRef(new Animated.Value(1)).current,
+    [reduced, setReduced] = useState(true),
+    [pressed, setPressed] = useState(false),
+    [hovered, setHovered] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (active) setReduced(value); });
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduced);
+    return () => { active = false; subscription.remove(); };
+  }, []);
+  useEffect(() => {
+    scale.stopAnimation(); opacity.stopAnimation();
+    scale.setValue(1); opacity.setValue(disabled ? 0.5 : 1);
+    if (disabled) setPressed(false);
+  }, [reduced, disabled, scale, opacity]);
+  function respond(down: boolean) {
+    Animated.parallel([
+      Animated.timing(scale, { toValue: down && !reduced ? 0.97 : 1,
+        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(opacity, { toValue: disabled ? 0.5 : down ? 0.82 : 1,
+        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
+    ]).start();
+  }
+  return <AnimatedPressable {...props} ref={ref} disabled={disabled}
+    onPressIn={event => { if (!disabled) { setPressed(true); respond(true); } onPressIn?.(event); }}
+    onPressOut={event => { setPressed(false); respond(false); onPressOut?.(event); }}
+    onHoverIn={event => { setHovered(true); onHoverIn?.(event); }}
+    onHoverOut={event => { setHovered(false); onHoverOut?.(event); }}
+    style={[typeof style === "function" ? style({ pressed, hovered }) : style, { opacity, transform: [{ scale }] }]} />;
 });
 
 type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table";
@@ -142,14 +176,18 @@ export function Copy({
   lines?: number;
 }) {
   const c = useColors(),
-    { maxFontSizeMultiplier, ...style } = type[kind];
+    { fontScale } = useWindowDimensions(),
+    { maxFontSizeMultiplier: _, lineHeight, ...style } = type[kind];
   return (
     <Text
+      key={`${kind}:${fontScale}`}
       numberOfLines={lines}
-      maxFontSizeMultiplier={maxFontSizeMultiplier}
+      maxFontSizeMultiplier={0}
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
+        lineHeight: fontScale >= 1.3 ? undefined : lineHeight,
+        flexShrink: 1,
         color: tone === "error" ? c.error : tone === "muted" ? c.muted : tone === "accent" ? c.accentText : c.text,
         textAlign: align,
       }}
@@ -176,7 +214,7 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
         alignSelf: "center",
       }}
     >
-      <Pressable
+      <PressTarget
         accessibilityRole="button"
         accessibilityLabel={close ? "Close" : "Go back"}
         hitSlop={8}
@@ -203,7 +241,7 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
             </Text>
           </>
         )}
-      </Pressable>
+      </PressTarget>
     </View>
   );
 }
@@ -365,7 +403,7 @@ export function Button({
     quiet = secondary || plain,
     ink = variant === "destructive" ? c.error : quiet ? c.action : c.onAction;
   return (
-    <Pressable
+    <PressTarget
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled: disabled || busy, busy }}
@@ -383,17 +421,17 @@ export function Button({
         backgroundColor: plain ? "transparent" : quiet ? c.surface : c.action,
         borderWidth: quiet && !plain ? 1.5 : 0,
         borderColor: c.outline,
-        ...pressed(on, disabled || busy),
+
       })}
     >
       {busy ? <ActivityIndicator color={ink} /> : icon && <Icon name={icon} size={19} color={ink} />}
       <Text
-        maxFontSizeMultiplier={1.6}
+        maxFontSizeMultiplier={0}
         style={{ fontFamily: fonts.semibold, fontSize: 16, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}
       </Text>
-    </Pressable>
+    </PressTarget>
   );
 }
 let accessoryCount = 0;
@@ -413,14 +451,14 @@ function KeyboardDone({ id }: { id: string }) {
           paddingHorizontal: 12,
         }}
       >
-        <Pressable
+        <PressTarget
           accessibilityRole="button"
           accessibilityLabel="Done"
           onPress={() => Keyboard.dismiss()}
           style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
         >
           <Text style={{ fontFamily: fonts.semibold, fontSize: 17, color: c.action }}>Done</Text>
-        </Pressable>
+        </PressTarget>
       </View>
     </InputAccessoryView>
   );
@@ -481,7 +519,7 @@ export function Field({
         returnKeyType={returnKeyType}
         inputAccessoryViewID={pad || multiline ? accessory : undefined}
         textAlignVertical={multiline ? "top" : "center"}
-        maxFontSizeMultiplier={2}
+        maxFontSizeMultiplier={0}
         style={{
           borderWidth: 1,
           borderColor: c.border,
@@ -491,7 +529,6 @@ export function Field({
           padding: 15,
           fontFamily: fonts.regular,
           fontSize: 17,
-          lineHeight: 24,
           minHeight: multiline ? 150 : 52,
         }}
       />
@@ -525,7 +562,7 @@ export function Choice({
 }) {
   const c = useColors();
   return (
-    <Pressable
+    <PressTarget
       accessibilityRole="checkbox"
       accessibilityLabel={[label, detail].filter(Boolean).join(". ")}
       accessibilityState={{ checked: selected, disabled }}
@@ -552,7 +589,7 @@ export function Choice({
           </Copy>
         )}
       </View>
-    </Pressable>
+    </PressTarget>
   );
 }
 export function Chips({
@@ -573,7 +610,7 @@ export function Chips({
       {options.map((o) => {
         const on = value === o.value;
         return (
-          <Pressable
+          <PressTarget
             key={o.value}
             accessibilityRole="radio"
             accessibilityLabel={o.label}
@@ -588,20 +625,22 @@ export function Chips({
               paddingVertical: 10,
               borderRadius: 23,
               justifyContent: "center",
+              maxWidth: "100%",
+              flexShrink: 1,
               // Unselected chips are outlined like secondary buttons so they read on sand cards too.
-              backgroundColor: on ? c.action : c.surface,
+              backgroundColor: on ? c.tile : c.surface,
               borderWidth: 1.5,
-              borderColor: on ? c.action : c.outline,
-              ...pressed(down),
+              borderColor: on ? c.tile : c.outline,
+
             })}
           >
             <Text
-              maxFontSizeMultiplier={1.6}
-              style={{ fontFamily: fonts.semibold, fontSize: 15, color: on ? c.onAction : c.action }}
+              maxFontSizeMultiplier={0}
+              style={{ fontFamily: fonts.semibold, fontSize: 15, flexShrink: 1, color: on ? c.text : c.action }}
             >
               {o.label}
             </Text>
-          </Pressable>
+          </PressTarget>
         );
       })}
     </View>
@@ -665,7 +704,7 @@ export function Row({
 }) {
   const c = useColors();
   return (
-    <Pressable
+    <PressTarget
       accessibilityRole="button"
       accessibilityLabel={[title, detail].filter(Boolean).join(". ")}
       accessibilityHint={hint}
@@ -679,13 +718,14 @@ export function Row({
         paddingHorizontal: 16,
         borderRadius: 19,
         flexDirection: "row",
+        flexWrap: "wrap",
         alignItems: "center",
         gap: 13,
-        ...pressed(on),
+
       })}
     >
       {icon && <Icon name={icon} />}
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Copy kind="label">{title}</Copy>
         {detail && (
           <Copy kind="small" tone="muted">
@@ -694,7 +734,7 @@ export function Row({
         )}
       </View>
       {trailing ?? <Icon name="chevron-forward" size={17} color={c.muted} />}
-    </Pressable>
+    </PressTarget>
   );
 }
 export interface ToastAction {
@@ -770,13 +810,13 @@ export function ToastProvider({ children }: PropsWithChildren) {
             elevation: 6,
           }}
         >
-          <Pressable style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text maxFontSizeMultiplier={1.6} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15 }}>
+          <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
+            <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15 }}>
               {toast.message}
             </Text>
-          </Pressable>
+          </PressTarget>
           {toast.action && (
-            <Pressable
+            <PressTarget
               accessibilityRole="button"
               accessibilityLabel={toast.action.label}
               onPress={() => {
@@ -794,10 +834,10 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text maxFontSizeMultiplier={1.6} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15 }}>
+              <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15 }}>
                 {toast.action.label}
               </Text>
-            </Pressable>
+            </PressTarget>
           )}
         </Animated.View>
       )}

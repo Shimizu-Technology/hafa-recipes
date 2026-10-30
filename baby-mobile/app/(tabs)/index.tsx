@@ -9,7 +9,7 @@ import { careGlance, glanceChild, nextFeed } from "@/lib/care-glance";
 import { careSummary, friendlyTime } from "@/lib/care-format";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
-import { Button, Card, Copy, Empty, Icon, Loading, Notice, Row, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, PressTarget, Empty, Icon, Loading, Notice, Row, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
 import { RecordRow, kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -26,7 +26,7 @@ const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] 
 function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; hint: string; onPress: () => void }) {
   const c = useColors();
   return (
-    <Pressable
+    <PressTarget
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -39,14 +39,13 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
         backgroundColor: c.tile,
         alignItems: "center",
         gap: 10,
-        opacity: pressed ? 0.7 : 1,
       })}
     >
       <Icon name={icon} size={25} />
       <Copy kind="small" align="center">
         {label}
       </Copy>
-    </Pressable>
+    </PressTarget>
   );
 }
 
@@ -175,14 +174,14 @@ export default function Today() {
       title={`${greeting(now)}${name ? `, ${name}` : ""}`}
       subtitle={now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
       action={
-        <Pressable
+        <PressTarget
           accessibilityRole="button"
           accessibilityLabel="Settings and profiles"
           onPress={() => router.push("/settings")}
           style={{ padding: 10 }}
         >
           <Icon name="person-circle-outline" size={30} />
-        </Pressable>
+        </PressTarget>
       }
     >
       <SyncStatus />

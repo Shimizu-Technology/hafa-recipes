@@ -2,12 +2,12 @@ import { Tabs, router, useSegments } from "expo-router";
 import type { Ref } from "react";
 import { Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Icon, fonts, useColors, type IconName } from "@/components/ui";
+import { Icon, PressTarget, fonts, useColors, type IconName } from "@/components/ui";
 export default function TabLayout() {
   const c = useColors(),
     insets = useSafeAreaInsets(),
     { fontScale } = useWindowDimensions(),
-    barHeight = fontScale > 1.3 ? 90 : 64,
+    barHeight = Math.max(64, Math.ceil(40 + 28 * fontScale)),
     segments = useSegments(),
     // Ask has its own docked composer; the Add button would sit on top of it.
     showAdd = segments[segments.length - 1] !== "ask";
@@ -16,7 +16,7 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: c.action,
+          tabBarActiveTintColor: c.text,
           tabBarInactiveTintColor: c.muted,
           tabBarStyle: {
             backgroundColor: c.background,
@@ -31,13 +31,13 @@ export default function TabLayout() {
             Platform.OS === "web"
               ? undefined
               : ({ style, ref, ...props }) => (
-                  <Pressable
+                  <PressTarget
                     {...props}
                     ref={ref as Ref<View>}
-                    style={({ pressed }) => [style, { opacity: pressed ? 0.55 : 1 }]}
+                    style={style}
                   />
                 ),
-          sceneStyle: { backgroundColor: c.background },
+          sceneStyle: { backgroundColor: c.background, paddingBottom: showAdd ? 76 : 0 },
         }}
       >
         {[
@@ -51,9 +51,9 @@ export default function TabLayout() {
             name={t.name}
             options={{
               title: t.title,
-              // Labels grow with the text size, capped so five tabs still fit.
+              // Labels wrap and the bar grows when Dynamic Type changes.
               tabBarLabel: ({ color }) => (
-                <Text maxFontSizeMultiplier={1.35} style={{ fontSize: 11, fontFamily: fonts.semibold, color }}>
+                <Text maxFontSizeMultiplier={0} style={{ fontSize: 11, fontFamily: fonts.semibold, color, textAlign: "center" }}>
                   {t.title}
                 </Text>
               ),
@@ -65,12 +65,12 @@ export default function TabLayout() {
                     borderRadius: 16,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: focused ? c.action : "transparent",
+                    backgroundColor: focused ? c.tile : "transparent",
                   }}
                 >
                   <Icon
                     name={(focused ? t.selectedIcon : t.icon) as IconName}
-                    color={focused ? c.onAction : color}
+                    color={focused ? c.text : color}
                     size={23}
                   />
                 </View>
@@ -81,7 +81,7 @@ export default function TabLayout() {
         <Tabs.Screen name="routines" options={{ href: null }} />
         <Tabs.Screen name="ask" options={{ href: null }} />
       </Tabs>
-      {showAdd && <Pressable
+      {showAdd && <PressTarget
         accessibilityRole="button"
         accessibilityLabel="Add a source, note, or care log"
         onPress={() => router.push(segments[segments.length - 1] === "library" ? { pathname: "/edit", params: { kind: "source" } } : segments[segments.length - 1] === "journal" ? { pathname: "/edit", params: { kind: "journal" } } : "/add")}
@@ -100,11 +100,10 @@ export default function TabLayout() {
           shadowRadius: 9,
           shadowOffset: { width: 0, height: 4 },
           elevation: 3,
-          opacity: pressed ? 0.7 : 1,
         })}
       >
         <Icon name="add" color={c.onAction} size={28} />
-      </Pressable>}
+      </PressTarget>}
     </View>
   );
 }
