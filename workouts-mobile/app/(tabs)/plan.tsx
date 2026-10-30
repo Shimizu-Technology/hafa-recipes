@@ -385,6 +385,7 @@ export default function Plan() {
             : archivedCount ? { label: `Archived (${archivedCount})`, onPress: () => setView("archived") } : undefined}
         />
       )}
+      {loaded && view === "active" && <Button title="Build a new plan" secondary onPress={() => router.push("/build-plan")} />}
       {loaded && view === "archived" && !shownPrograms?.length && (
         <Empty icon="archive-outline" title="No archived plans" description="Plans you archive stay here with their original instructions and history." />
       )}

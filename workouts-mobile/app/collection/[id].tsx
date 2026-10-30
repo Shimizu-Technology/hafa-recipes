@@ -1,6 +1,7 @@
+import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, FlatList, View } from "react-native";
+import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { hashKey, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button, Copy, Empty, Field, IconButton, ListGroup, ListRow, Notice, Row, Screen, Sheet, SkeletonCard, useColors } from "@/components/ui";
@@ -13,6 +14,8 @@ import { useFocusRefresh } from "@/lib/use-focus-refresh";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 export default function CollectionDetail() {
+  const { width, fontScale } = useWindowDimensions();
+  const columns = workoutGridColumns(width, fontScale);
   const c = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -115,11 +118,11 @@ export default function CollectionDetail() {
       action={item ? <IconButton icon="ellipsis-horizontal" label="Collection options" onPress={() => setMenu(true)} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
-          key={view}
+          key={`${view}:${columns}`}
           data={visible}
-          numColumns={view === "grid" ? 2 : 1}
+          numColumns={view === "grid" ? columns : 1}
           keyExtractor={(w) => w.id}
-          columnWrapperStyle={view === "grid" ? { gap: LIBRARY_GRID_GAP } : undefined}
+          columnWrapperStyle={view === "grid" && columns > 1 ? { gap: LIBRARY_GRID_GAP } : undefined}
           contentContainerStyle={[contentContainerStyle, { gap: LIBRARY_GRID_GAP }]}
           refreshControl={refreshControl}
           ListHeaderComponent={header(screenHeader)}

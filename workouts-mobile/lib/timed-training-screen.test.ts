@@ -6,6 +6,7 @@ import { createTrainingStore } from "./training";
 import type { Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
+  fontScale: 1,
   owner: "owner", generation: 1, current: true, storage: null as { isCurrent(): boolean } | null,
   listeners: new Set<(state: string) => void>(), writeFailure: false, saveSession: vi.fn(), replace: vi.fn(), dismiss: vi.fn(), success: vi.fn(), announce: vi.fn() }));
 vi.mock("@/lib/context", async () => {
@@ -17,7 +18,7 @@ vi.mock("@/lib/context", async () => {
       ready: true, error: "", retry() {} }) };
 });
 vi.mock("@/components/reminders-provider", () => ({ useReminders: () => ({ state: { error: "", settings: { rest_enabled: false } } }) }));
-vi.mock("react-native", () => ({ View: "View", Alert: { alert: vi.fn() }, Linking: { openURL: vi.fn() }, Keyboard: { dismiss: fixture.dismiss }, AppState: {
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Alert: { alert: vi.fn() }, Linking: { openURL: vi.fn() }, Keyboard: { dismiss: fixture.dismiss }, AppState: {
   addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.listeners.add(listener); return { remove: () => fixture.listeners.delete(listener) };
   },
@@ -44,6 +45,7 @@ const footer = () => Children.toArray(renderer!.root.findByType("Screen" as neve
   .find(child => isValidElement(child) && child.type === ("Button" as never)) as ReactElement<{ title: string; disabled: boolean; busy: boolean; onPress(): void }>;
 const text = () => renderer!.root.findAllByType("Copy" as never).map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(async () => {
+  fixture.fontScale = 1;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner"; fixture.generation = 1; fixture.current = true; fixture.storage = { isCurrent: () => fixture.current };
   vi.useFakeTimers(); vi.setSystemTime(10000); fixture.writeFailure = false; fixture.listeners.clear(); fixture.replace.mockReset(); fixture.saveSession.mockReset();
@@ -111,8 +113,19 @@ it("a cap cannot silently discard an entered final exercise", async () => {
 const field = (label: string) => [...renderer!.root.findAllByType("Field" as never), ...renderer!.root.findAllByType("SetNumberField" as never)]
   .find(node => node.props.label === label)!;
 const done = () => renderer!.root.findByType("Screen" as never).props.footer;
-const action = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
-const partial = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Finish as partial session")!;
+function footerAction(title: string) {
+  function find(children: unknown): ReactElement<{ title: string; disabled: boolean; busy: boolean; onPress(): void }> | undefined {
+    for (const child of Children.toArray(children as never)) {
+      if (!isValidElement<{ title?: string; children?: unknown }>(child)) continue;
+      if (child.type === ("Button" as never) && child.props.title === title) return child as never;
+      const nested = find(child.props.children);
+      if (nested) return nested;
+    }
+  }
+  return find(renderer!.root.findByType("Screen" as never).props.footer);
+}
+const action = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title) ?? footerAction(title)!;
+const partial = () => action("Finish");
 const notesAndFeel = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Notes & feel")!;
 const sheet = (title: string) => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === title)!;
 const finishSheet = () => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Keep your current entry?")!;
@@ -559,4 +572,33 @@ it.each(["manual", "background"])("allows Use this time at the cap after late %s
   expect(footer().props.disabled).toBe(false);
   await act(async () => { footer().props.onPress(); }); await settle();
   expect(fixture.store!.snapshot().active!.actuals[0].duration_seconds).toBe(60);
+});
+
+it("keeps labelled Pause/Resume and Finish beside the main logging action", async () => {
+  expect(action("Pause").props.disabled).toBe(false);
+  expect(partial().props.disabled).toBe(false);
+  expect(renderer!.root.findAllByType("IconButton" as never).some(node => node.props.label === "Pause session")).toBe(false);
+  await act(async () => { action("Pause").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.paused).toBe(true);
+  expect(footer().props.disabled).toBe(true);
+  await act(async () => { action("Resume").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.paused).toBe(false);
+});
+it("offers discard confirmation when Finish is tapped with zero logged work", async () => {
+  const { Alert } = await import("react-native");
+  vi.mocked(Alert.alert).mockClear();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  expect(Alert.alert).toHaveBeenCalledWith("Discard this session?", expect.any(String), expect.any(Array));
+  expect(fixture.store!.snapshot().active).not.toBeNull();
+  expect(fixture.store!.snapshot().history).toEqual([]);
+});
+
+it("stacks set fields when large text changes and preserves both fields", async () => {
+  fixture.fontScale = 3.1;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Training))));
+  const fields = renderer!.root.findAllByType("SetNumberField" as never);
+  expect(fields).toHaveLength(2);
+  expect(fields[0].parent!.props.style.flexDirection).toBe("column");
+  expect(fields[0].props.label).toBe("Reps");
+  expect(fields[1].props.label).toBe("Weight · kg");
 });
