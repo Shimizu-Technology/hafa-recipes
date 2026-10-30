@@ -2,7 +2,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
-  fontScale: 1, reduced: false, listener: null as null | ((value: boolean) => void),
+  fontScale: 1, reduced: false, scheme: "light", listener: null as null | ((value: boolean) => void),
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
   baby: { online: true, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
 }));
@@ -10,7 +10,7 @@ vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
   Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn() },
-  useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: mock.fontScale }),
+  useColorScheme: () => mock.scheme, useWindowDimensions: () => ({ fontScale: mock.fontScale }),
   AccessibilityInfo: { isReduceMotionEnabled: async () => mock.reduced,
     addEventListener: (_: string, callback: (value: boolean) => void) => { mock.listener = callback; return { remove() {} }; } },
   Easing: { bezier: vi.fn() },
@@ -36,7 +36,7 @@ async function mount(element: React.ReactElement) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mock.fontScale = 1; mock.reduced = false; mock.timings = [];
+  mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
   mock.baby = { online: true, syncing: false, error: "", state: { outbox: [] } };
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
@@ -85,4 +85,21 @@ it("keeps normal sync quiet but expands rejected changes for action", async () =
   mock.baby.state.outbox[0].localOnly = true;
   await act(async () => renderer!.update(<SyncStatus />));
   expect(renderer!.root.findByType("Text" as React.ElementType).props.numberOfLines).toBe(1);
+});
+
+it.each(["light", "dark"])("uses a neutral selected chip with readable contrast and radio state in %s", async scheme => {
+  mock.scheme = scheme;
+  await mount(<Chips label="Show" value="question" options={[{ label: "Doctor questions", value: "question" }]} onChange={() => {}} />);
+  const chip = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
+  const style = Object.assign({}, ...chip.props.style);
+  const text = renderer!.root.findByType("Text" as React.ElementType).props.style;
+  expect(style.backgroundColor).toBe(scheme === "light" ? "#EFE6DD" : "#231E1A");
+  expect(chip.props.accessibilityState).toEqual({ checked: true, selected: true });
+  function luminance(hex: string) {
+    const rgb = hex.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)
+      .map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  }
+  const a = luminance(text.color), b = luminance(style.backgroundColor);
+  expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)).toBeGreaterThan(4.5);
 });

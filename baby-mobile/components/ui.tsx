@@ -101,11 +101,13 @@ export function tap(kind: "select" | "success" = "select") {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 /** One press response for daily controls, with no movement under Reduce Motion. */
 export const PressTarget = forwardRef<View, PressableProps>(function PressTarget(
-  { style, disabled, onPressIn, onPressOut, ...props }, ref
+  { style, disabled, onPressIn, onPressOut, onHoverIn, onHoverOut, ...props }, ref
 ) {
   const scale = useRef(new Animated.Value(1)).current,
     opacity = useRef(new Animated.Value(1)).current,
-    [reduced, setReduced] = useState(true);
+    [reduced, setReduced] = useState(true),
+    [pressed, setPressed] = useState(false),
+    [hovered, setHovered] = useState(false);
   useEffect(() => {
     let active = true;
     void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (active) setReduced(value); });
@@ -115,6 +117,7 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
   useEffect(() => {
     scale.stopAnimation(); opacity.stopAnimation();
     scale.setValue(1); opacity.setValue(disabled ? 0.5 : 1);
+    if (disabled) setPressed(false);
   }, [reduced, disabled, scale, opacity]);
   function respond(down: boolean) {
     Animated.parallel([
@@ -125,9 +128,11 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
     ]).start();
   }
   return <AnimatedPressable {...props} ref={ref} disabled={disabled}
-    onPressIn={event => { if (!disabled) respond(true); onPressIn?.(event); }}
-    onPressOut={event => { respond(false); onPressOut?.(event); }}
-    style={state => [typeof style === "function" ? style(state) : style, { opacity, transform: [{ scale }] }]} />;
+    onPressIn={event => { if (!disabled) { setPressed(true); respond(true); } onPressIn?.(event); }}
+    onPressOut={event => { setPressed(false); respond(false); onPressOut?.(event); }}
+    onHoverIn={event => { setHovered(true); onHoverIn?.(event); }}
+    onHoverOut={event => { setHovered(false); onHoverOut?.(event); }}
+    style={[typeof style === "function" ? style({ pressed, hovered }) : style, { opacity, transform: [{ scale }] }]} />;
 });
 
 type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table";
@@ -623,15 +628,15 @@ export function Chips({
               maxWidth: "100%",
               flexShrink: 1,
               // Unselected chips are outlined like secondary buttons so they read on sand cards too.
-              backgroundColor: on ? c.action : c.surface,
+              backgroundColor: on ? c.tile : c.surface,
               borderWidth: 1.5,
-              borderColor: on ? c.action : c.outline,
+              borderColor: on ? c.tile : c.outline,
 
             })}
           >
             <Text
               maxFontSizeMultiplier={0}
-              style={{ fontFamily: fonts.semibold, fontSize: 15, flexShrink: 1, color: on ? c.onAction : c.action }}
+              style={{ fontFamily: fonts.semibold, fontSize: 15, flexShrink: 1, color: on ? c.text : c.action }}
             >
               {o.label}
             </Text>

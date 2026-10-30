@@ -16,7 +16,7 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: c.action,
+          tabBarActiveTintColor: c.text,
           tabBarInactiveTintColor: c.muted,
           tabBarStyle: {
             backgroundColor: c.background,
@@ -65,12 +65,12 @@ export default function TabLayout() {
                     borderRadius: 16,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: focused ? c.action : "transparent",
+                    backgroundColor: focused ? c.tile : "transparent",
                   }}
                 >
                   <Icon
                     name={(focused ? t.selectedIcon : t.icon) as IconName}
-                    color={focused ? c.onAction : color}
+                    color={focused ? c.text : color}
                     size={23}
                   />
                 </View>
