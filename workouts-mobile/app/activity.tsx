@@ -13,6 +13,8 @@ import {
   activityErrors,
   activityBody,
   operationIsCurrent,
+  deviceActivityCalendar,
+  activitySavedMessage,
   type ActivityKind,
   type ActivityDraft,
   type ActivityOperation,
@@ -39,6 +41,9 @@ export default function ActivityEditor() {
     queryFn: () => api.activity(id!, generation),
     enabled: validId && !!id && !!enrollment?.enrolled,
   });
+  const [deviceCalendar] = useState(deviceActivityCalendar);
+  const [moreDetails, setMoreDetails] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("");
   const [draft, setDraft] = useState<ActivityDraft | null>(null);
   const [restored, setRestored] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -114,7 +119,7 @@ export default function ActivityEditor() {
     };
   }, [owner, scope, generation, id]);
   useEffect(() => {
-    if (!restored || draft || finished || !calendar.data || (id && !entry.data)) return;
+    if (!restored || draft || finished || !enrollment?.enrolled || (id && !entry.data)) return;
     const saved = entry.data;
     const content = saved?.content;
     const kind: ActivityKind =
@@ -125,7 +130,8 @@ export default function ActivityEditor() {
       generation,
       target_id: id,
       kind,
-      date: content?.date ?? calendar.data.today,
+      date: content?.date ?? deviceCalendar.today,
+      timezone: deviceCalendar.timezone,
       name: content?.name ?? "",
       duration: content?.duration_minutes == null ? "" : String(content.duration_minutes),
       distance:
@@ -142,7 +148,7 @@ export default function ActivityEditor() {
   }, [restored, draft, finished, calendar.data, entry.data, id, params.kind, owner, generation]);
   useEffect(() => {
     if (draft && !finished)
-      void draftStore.saveInput(draft).catch(() => setError("Could not preserve this draft. Retry before leaving."));
+      void draftStore.saveInput(draft).then(() => setSyncStatus(draft.operation ? "Saved on this device · waiting to sync. Retry save when connected." : "Draft saved on this device · not synced yet.")).catch(() => setError("Could not preserve this draft. Retry before leaving."));
   }, [draft, owner, scope, finished]);
   useEffect(() => {
     if (id && entry.data && (entry.data.status === "removed" || entry.data.read_only)) {
@@ -211,7 +217,7 @@ export default function ActivityEditor() {
       setMessage(
         operation.action === "remove"
           ? "Activity removed from Håfa history. The old command cannot recreate it."
-          : "Your completed activity is saved. Planning context was refreshed; no exercise sets were invented."
+          : activitySavedMessage(operation.body as ReturnType<typeof activityBody>, deviceActivityCalendar().today)
       );
     } catch (e) {
       if (current.current === focusKey && focused.current) {
@@ -229,7 +235,7 @@ export default function ActivityEditor() {
       await execute(draft.operation);
       return;
     }
-    const errors = activityErrors(draft, calendar.data?.today ?? "");
+    const errors = activityErrors(draft, deviceActivityCalendar().today);
     if (id && !draft.expected_revision) errors.push("Reload the current activity before correcting it.");
     if (errors.length) {
       setError(errors.join(" "));
@@ -279,14 +285,20 @@ export default function ActivityEditor() {
   }
   return (
     <Screen
-      back
-      title={id ? "Activity" : "Log activity"}
+      dismiss
+      title={id ? "Activity" : "Quick activity"}
+      footer={draft && !finished && validId && <>
+        {!!syncStatus && <Copy kind="small" tone="muted">{syncStatus}</Copy>}
+        <Button title={draft.operation ? draft.operation.action === "remove" ? "Retry removal" : "Retry save" : entry.data?.legacy ? "Confirm and save" : id ? "Save changes" : "Save activity"}
+          busy={busy} disabled={!!draft.operation && conflict} onPress={() => { void save(); }} />
+      </>}
       subtitle="Log something you’ve already done."
     >
       {!validId && <Notice error>This activity address is invalid.</Notice>}
       {!enrollment?.enrolled && <Button title="Set up Workouts" onPress={() => router.push("/onboarding")} />}
-      <QueryState hasData={calendar.data !== undefined && (!id || entry.data !== undefined)}
-        loading={!!enrollment?.enrolled && (calendar.isPending || (!!id && validId && entry.isPending))}
+      <QueryState
+        loading={!!id && validId && entry.isPending}
+        hasData={!!draft || !!entry.data}
         error={calendar.error ?? entry.error}
         retry={() => {
           void calendar.refetch();
@@ -329,7 +341,7 @@ export default function ActivityEditor() {
               value={draft.date}
               onChange={(date) => update({ date: date ?? "" })}
             />
-            <Copy kind="small" tone="muted">Dates use your training time zone ({calendar.data?.timezone}).</Copy>
+            <Copy kind="small" tone="muted">Device calendar · {draft.timezone ?? deviceCalendar.timezone}</Copy>
             <Field
               disabled={busy || !!draft.operation}
               label="Duration · whole minutes"
@@ -337,6 +349,8 @@ export default function ActivityEditor() {
               value={draft.duration}
               onChange={(duration) => update({ duration })}
             />
+            <Button title={moreDetails ? "Fewer details" : "More details"} secondary onPress={() => setMoreDetails(!moreDetails)} />
+            {(moreDetails || !!id) && <>
             <Field
               disabled={busy || !!draft.operation}
               label="Activity name"
@@ -401,28 +415,13 @@ export default function ActivityEditor() {
                 onPress={() => update({ confirm_completed: !draft.confirm_completed })}
               />
             )}
+            </>}
             {draft.operation && (
               <Notice>
                 This {draft.operation.action === "remove" ? "removal" : "save"} hasn’t finished. Retry it, or discard it
                 and reload.
               </Notice>
             )}
-            <Button
-              title={
-                draft.operation
-                  ? draft.operation.action === "remove" ? "Retry removal" : "Retry save"
-                  : entry.data?.legacy
-                    ? "Confirm and save"
-                    : id
-                      ? "Save changes"
-                      : "Save activity"
-              }
-              busy={busy}
-              disabled={!!draft.operation && conflict}
-              onPress={() => {
-                void save();
-              }}
-            />
             {id && !draft.operation && (
               <>
                 <Button
@@ -485,7 +484,6 @@ export default function ActivityEditor() {
           }}
         />
       )}
-      {finished && <Button title="Open activity history" onPress={() => router.replace("/activity-log")} />}
       <Button title="Completed activity history" secondary onPress={() => router.push("/activity-log")} />
     </Screen>
   );

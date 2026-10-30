@@ -10,6 +10,7 @@ const f = vi.hoisted(() => ({
   map: new Map<string, string>(),
   saveActivity: vi.fn(),
   activity: vi.fn(),
+  offline: false,
 }));
 vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) } }));
 vi.mock("expo-router", async () => {
@@ -22,14 +23,14 @@ vi.mock("expo-router", async () => {
 });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "request-uuid" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field",
-  Notice: "Notice", Screen: "Screen" }));
+  Notice: "Notice", Screen: ({ children, footer }: { children: unknown; footer: unknown }) => createElement("Screen", null, children as never, footer as never) }));
 vi.mock("@/components/calendar-date", () => ({ CalendarDate: "CalendarDate" }));
 vi.mock("@/components/query-state", () => ({ QueryState: ({ loading, children }: { loading: boolean; children: unknown }) => loading ? null : children }));
 vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => true, getItem: async (key: string) => f.map.get(key) ?? null,
     setItem: async (key: string, value: string) => { f.map.set(key, value); }, removeItem: async (key: string) => { f.map.delete(key); } };
   const api = {
-    activityLog: async () => ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }),
+    activityLog: async () => { if (f.offline) throw Error("Offline"); return ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }); },
     activity: f.activity,
     saveActivity: f.saveActivity,
   };
@@ -57,12 +58,16 @@ const button = (title: string) => nodes("Button").find((node) => node.props.titl
 const errors = () => nodes("Notice").filter((node) => node.props.error).map((node) => node.props.children).join(" ");
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.spyOn(Date.prototype, "getFullYear").mockReturnValue(2026);
+  vi.spyOn(Date.prototype, "getMonth").mockReturnValue(9);
+  vi.spyOn(Date.prototype, "getDate").mockReturnValue(10);
+  f.offline = false;
   f.params = {}; f.map.clear(); f.saveActivity.mockReset(); f.activity.mockReset();
   f.saveActivity.mockImplementation(async (_id: string | null, body: { date: string }) => ({ ...legacy, id: "saved", legacy: false,
     completed_confirmed: true, content: { ...legacy.content!, date: body.date }, profile_revision: 1 }));
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
-afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); });
+afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); vi.restoreAllMocks(); });
 
 it("a new activity saves without a confirmation checkbox because logging today or a past date is the confirmation", async () => {
   await mount();
@@ -114,9 +119,31 @@ it("a new-entry draft saved before this change resumes confirmed, while a saved 
   f.map.set(draftKey("owner", "activity-command:1:new"),
     JSON.stringify({ input: { ...old, operation }, operation, finished: false }));
   await mount();
+  await act(async () => button("More details").props.onPress());
   // The pending command is untouched: its draft is not rewritten and retry resends the exact original body.
   expect(confirmChoice()!.props.selected).toBe(false);
   await act(async () => { await button("Retry save").props.onPress(); });
   await settle();
   expect(f.saveActivity).toHaveBeenCalledWith(null, operation.body, 1);
+});
+
+it("opens offline, saves one durable command, and retries the same request after reopening", async () => {
+  f.offline = true;
+  f.saveActivity.mockRejectedValueOnce(Error("Offline"));
+  await mount();
+  expect(nodes("Field").map(n => n.props.label)).toEqual(["Duration · whole minutes"]);
+  await act(async () => nodes("Choice").find(n => n.props.label === "Basketball")!.props.onPress());
+  await act(async () => nodes("Field")[0].props.onChange("60"));
+  await act(async () => button("Save activity").props.onPress());
+  await settle();
+  const original = f.saveActivity.mock.calls[0][1];
+  expect(original).toMatchObject({ kind: "basketball", date: "2026-10-10", duration_minutes: 60 });
+  expect(JSON.stringify([...f.map.values()])).toContain("request-uuid");
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  await mount();
+  await act(async () => button("Retry save").props.onPress());
+  await settle();
+  expect(f.saveActivity.mock.calls[1][1]).toEqual(original);
+  expect(nodes("Notice").some(n => n.props.children === "Basketball · today · 60 min saved")).toBe(true);
+  expect(nodes("Button").filter(n => String(n.props.title).toLowerCase().includes("history"))).toHaveLength(1);
 });

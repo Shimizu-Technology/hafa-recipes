@@ -109,7 +109,7 @@ function Routes() {
         <Stack.Screen name="recipes-connection" />
         <Stack.Screen name="account-data" />
         <Stack.Screen name="activity-log" />
-        <Stack.Screen name="activity" />
+        <Stack.Screen name="activity" options={{ presentation: "modal" }} />
         <Stack.Screen name="ai-preferences" />
         <Stack.Screen name="session/[id]" />
       </Stack.Protected>
