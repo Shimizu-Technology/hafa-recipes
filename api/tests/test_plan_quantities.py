@@ -27,6 +27,7 @@ def test_plan_scaling_never_invents_an_unknown_amount(quantity, target, base, ex
 @pytest.mark.asyncio
 async def test_planned_servings_migration_is_additive_idempotent_and_restore_gated(monkeypatch):
     import os
+    from urllib.parse import urlsplit
     from importlib import import_module
     from types import SimpleNamespace
     from uuid import uuid4
@@ -38,12 +39,14 @@ async def test_planned_servings_migration_is_additive_idempotent_and_restore_gat
 
     url = os.environ.get("TEST_DATABASE_URL")
     require_disposable_test_database(url)
-    assert url and url.endswith("/hafa_impl_recipes_test")
+    assert url
+    expected_db = urlsplit(url).path.lstrip("/")
+    assert "test" in expected_db
     async_url = url.replace("postgresql://", "postgresql+asyncpg://")
     admin = create_async_engine(async_url)
     schema = f"r10_migration_{uuid4().hex}"
     async with admin.begin() as db:
-        assert await db.scalar(text("select current_database()")) == "hafa_impl_recipes_test"
+        assert await db.scalar(text("select current_database()")) == expected_db
         await db.execute(text(f"CREATE SCHEMA {schema}"))
     isolated = create_async_engine(
         async_url, connect_args={"server_settings": {"search_path": schema}}

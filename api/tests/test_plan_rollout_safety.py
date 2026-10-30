@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from urllib.parse import urlsplit
 from datetime import date
 from uuid import UUID, uuid4
 
@@ -37,17 +38,18 @@ def user(id="cook"):
 async def isolated_plan_db():
     url = os.environ["TEST_DATABASE_URL"]
     require_disposable_test_database(url)
-    assert url.endswith("/hafa_impl_recipes_test")
+    expected_db = urlsplit(url).path.lstrip("/")
+    assert "test" in expected_db
     url = url.replace("postgresql://", "postgresql+asyncpg://")
     admin = create_async_engine(url)
     schema = f"r10_rollout_{uuid4().hex}"
     async with admin.begin() as db:
-        assert await db.scalar(text("select current_database()")) == "hafa_impl_recipes_test"
+        assert await db.scalar(text("select current_database()")) == expected_db
         await db.execute(text(f"CREATE SCHEMA {schema}"))
     engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
     try:
         async with engine.begin() as db:
-            assert await db.scalar(text("select current_database()")) == "hafa_impl_recipes_test"
+            assert await db.scalar(text("select current_database()")) == expected_db
             await db.run_sync(Base.metadata.create_all)
         yield engine, async_sessionmaker(engine, expire_on_commit=False)
     finally:
