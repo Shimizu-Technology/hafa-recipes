@@ -1,8 +1,10 @@
+import { largeText } from "@/lib/readable-layout";
 import { Children, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactElement, type ReactNode, type Ref } from "react";
 import {
   AccessibilityInfo,
   AppState,
   Animated,
+  useWindowDimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -82,6 +84,7 @@ export function Screen({
   list?: (body: { header: ReactNode; contentContainerStyle: ViewStyle; refreshControl?: ReactElement<RefreshControlProps> }) => ReactNode;
 }>) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   back = back || dismiss;
   // Main tabs name the screen in a centered bar (like Håfa Recipes) instead of a lockup plus a large title.
@@ -93,7 +96,7 @@ export function Screen({
     )
   ) : !hideTitle ? (
     <View style={{ gap: 6 }}>
-      <Copy kind="title">{title}</Copy>
+      <Copy kind={largeText(fontScale) ? "heading" : "title"}>{title}</Copy>
       {!!(subtitle || eyebrow) && <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>}
     </View>
   ) : null;
@@ -122,21 +125,16 @@ export function Screen({
       >
         <View style={{ paddingHorizontal: spacing.md, paddingVertical: 6, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 44 }}>
-            {root ? (
-              // Centered like a native navigation bar; the side slots never push it off-center.
-              <View pointerEvents="none" style={{ position: "absolute", left: 104, right: 104, alignItems: "center" }}>
-                <Copy kind="navTitle" numberOfLines={1}>{title}</Copy>
-              </View>
-            ) : null}
             {back ? (
               <IconButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"} variant={dismiss ? "soft" : "plain"}
                 onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
             ) : root ? (
-              <View style={{ width: 1 }} />
+              <View style={{ width: 48, flexShrink: 0 }} />
             ) : (
               <BrandLockup fill />
             )}
-            {!!action && <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 8 }}>{action}</View>}
+            {root && <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}><Copy kind="navTitle" align="center">{title}</Copy></View>}
+            {!!action && <View style={{ flexShrink: 0, width: root ? 48 : undefined, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>{action}</View>}
           </View>
         </View>
       </View>
