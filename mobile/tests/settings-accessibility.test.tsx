@@ -47,7 +47,7 @@ vi.mock('@clerk/expo', () => ({
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
-vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '2.6.13' } } }));
+vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '3.0.0' } } }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => (props: Record<string, unknown>) =>

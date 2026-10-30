@@ -10,7 +10,7 @@ const config: ExpoConfig = {
   icon: "./assets/icon.png",
   slug: "hafa-baby",
   owner: "shimizutechnology",
-  version: "1.0.0",
+  version: "1.1.0",
   scheme: "hafababy",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
