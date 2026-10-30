@@ -14,7 +14,7 @@ vi.mock("../components/account-identity", () => ({ useAccountIdentity: () => ({}
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
-import { Button, Choice, Segmented } from "../components/design/controls";
+import { Button, Choice, Segmented, Field, Chip } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.timing.mockClear(); });
 afterEach(() => { act(() => view?.unmount()); });
@@ -46,4 +46,16 @@ it("keeps disabled button text readable and explains a material blocker", () => 
   expect(press.props.accessibilityHint).toBe("Resume to log this set.");
   expect(view!.root.findAllByType("Copy" as never).map(item => item.props.children)).toContain("Resume to log this set.");
   expect(view!.root.findAllByType("Copy" as never)[0].props.color).toBe(light.text);
+});
+
+it("compact search keeps its accessible name without a duplicate visible label", async () => {
+  await act(async () => { view = create(createElement(Field, { label: "Search Discover", hideLabel: true, value: "", onChange() {}, placeholder: "Search workouts or creators" })); });
+  expect(view!.root.findByType("Input" as never).props.accessibilityLabel).toBe("Search Discover");
+  expect(view!.root.findAllByType("Copy" as never)).toHaveLength(0);
+});
+it("exclusive people filters expose radio semantics and selected state", async () => {
+  await act(async () => { view = create(createElement(Chip, { label: "Leon", role: "radio", selected: true, onPress() {} })); });
+  const button = view!.root.findByType("Pressable" as never);
+  expect(button.props.accessibilityRole).toBe("radio");
+  expect(button.props.accessibilityState.checked).toBe(true);
 });
