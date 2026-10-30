@@ -72,3 +72,9 @@ describe('planner grocery handoff messaging', () => {
     expect(plannerGrocerySuccessMessage({ items_added: 1, items_missing_amount: 0 })).toBe('Added 1 ingredient');
   });
 });
+
+it('carries explicit recipe scale into a new plan entry while recipes without serving counts remain legacy', () => {
+  const recipe = { id: 'recipe', title: 'Rice', thumbnail_url: null, servings: 8 };
+  expect(buildMealPlanEntry(recipe, '2026-10-31', 'dinner').planned_servings).toBe(8);
+  expect(buildMealPlanEntry({ ...recipe, servings: null }, '2026-10-31', 'dinner')).not.toHaveProperty('planned_servings');
+});

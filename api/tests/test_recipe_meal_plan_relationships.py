@@ -75,6 +75,7 @@ def _schema():
         Column("recipe_thumbnail", String(500)),
         Column("notes", String(500)),
         Column("servings", String(20)),
+        Column("planned_servings", Integer),
         Column("created_at", DateTime, nullable=False),
         Column("updated_at", DateTime),
     )

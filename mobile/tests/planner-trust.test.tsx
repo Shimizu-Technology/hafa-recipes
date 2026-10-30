@@ -1,3 +1,7 @@
+vi.mock('@/lib/api', () => ({ api: { previewMealPlanGroceries: vi.fn() } }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'request-id' }));
+const reviewMocks = vi.hoisted(() => ({ state: {} as any, update: vi.fn(async () => ({})), add: vi.fn(async () => ({ items_added: 2, items_missing_amount: 1 })) }));
+vi.mock('@tanstack/react-query', () => ({ useQuery: () => reviewMocks.state }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
@@ -10,6 +14,8 @@ import type { MealPlanEntry } from '@/types/recipe';
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
+  Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
+  TextInput: 'TextInput',
   Alert: { alert: vi.fn() },
   Dimensions: { get: () => ({ width: 390 }) },
   Image: 'Image',
@@ -66,6 +72,7 @@ vi.mock('@/components/RecipeTrustBadge', async () => {
 vi.mock('@/hooks/useMealPlan', () => ({
   formatDateForApi: vi.fn(), formatDayLabel: vi.fn(), formatFullDayLabel: vi.fn(),
   getWeekEnd: vi.fn(), getWeekStart: vi.fn(), isToday: vi.fn(), parseDateFromApi: vi.fn(),
+  useUpdateMeal: () => ({ isPending: false, mutateAsync: reviewMocks.update }),
   useAddMeal: vi.fn(), useAddPlanToGrocery: vi.fn(), useDeleteMeal: vi.fn(),
   useMealPlanWeek: vi.fn(),
 }));
@@ -182,6 +189,42 @@ describe('planner loading recovery', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 
+  it('persists edited entry servings only after the entry form Save', async () => {
+    const meal = entry('ready');
+    const date = new Date().toISOString().slice(0, 10);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
+    reviewMocks.update.mockClear();
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<PlannerScreen />));
+      await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Edit servings for Chicken Kelaguen')[0].props.onPress());
+      await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Planned servings')[0].props.onChangeText('6'));
+      expect(reviewMocks.update).not.toHaveBeenCalled();
+      await act(async () => renderer.container.queryAll(node => node.props.title === 'Save servings')[0].props.onPress());
+      expect(reviewMocks.update).toHaveBeenCalledWith({ entryId: meal.id, update: { planned_servings: 6 } });
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('reviews week totals and missing amounts before sending a replay-safe addition', async () => {
+    const meal = entry('ready');
+    const date = new Date().toISOString().slice(0, 10);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
+    vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ mutateAsync: reviewMocks.add } as any);
+    reviewMocks.state = { data: { preview_token: 'review-token', items_added: 2, items_missing_amount: 1, items_unscaled: 0,
+      totals: [{ name: 'Rice', quantity: '3', unit: 'cup', missing: 1, uncombined: 0 }],
+      items: [{ name: 'Rice', quantity: '3', unit: 'cup', recipe_title: 'Chicken Kelaguen' }] } };
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<PlannerScreen />));
+      expect(reviewMocks.add).not.toHaveBeenCalled();
+      await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Review week groceries')[0].props.onPress());
+      expect(reviewMocks.add).not.toHaveBeenCalled();
+      expect(renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')).toHaveLength(1);
+      await act(async () => renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')[0].props.onPress());
+      expect(reviewMocks.add).toHaveBeenCalledWith(expect.objectContaining({ review: { preview_token: 'review-token', mutation_id: 'request-id' } }));
+    } finally { reviewMocks.state = {}; await act(async () => renderer.unmount()); }
+  });
+
   it('keeps cached meals visible after a refresh error and clears the warning on success', async () => {
     const meal = entry('ready');
     const date = new Date().toISOString().slice(0, 10);
@@ -197,4 +240,18 @@ describe('planner loading recovery', () => {
       expect(renderer.container.queryAll((node) => node.props.children === 'Couldn’t refresh your meal plan')).toHaveLength(0);
     } finally { await act(async () => renderer.unmount()); }
   });
+});
+
+it('makes planned servings editable on an entry', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  const selected = { ...entry('ready'), planned_servings: 8 };
+  const onEdit = vi.fn();
+  try {
+    await act(async () => renderer.render(<MealSlot mealType={{ type: 'dinner', label: 'Dinner', icon: 'restaurant-outline' }}
+      entries={[selected]} colors={colors} onAdd={vi.fn()} onRemove={vi.fn()} onViewRecipe={vi.fn()}
+      onEditServings={onEdit} isAdding={false} isAddDisabled={false} />));
+    await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Edit servings for Chicken Kelaguen')[0].props.onPress());
+    expect(onEdit).toHaveBeenCalledWith(selected);
+    expect(renderer.container.queryAll(node => node.props.children === '8 servings')).toHaveLength(1);
+  } finally { await act(async () => renderer.unmount()); }
 });

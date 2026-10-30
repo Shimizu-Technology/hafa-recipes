@@ -1527,7 +1527,7 @@ class ApiClient {
 
   async updateMealPlanEntry(
     entryId: string,
-    update: { meal_type?: string; date?: string; notes?: string; servings?: string }
+    update: { meal_type?: string; date?: string; notes?: string; servings?: string; planned_servings?: number }
   ): Promise<MealPlanEntry> {
     const { data } = await this.client.put(`/api/meal-plans/${entryId}`, update);
     return data;
@@ -1545,12 +1545,18 @@ class ApiClient {
     return data;
   }
 
-  async addMealPlanToGrocery(startDate: string, endDate: string): Promise<{
+  async previewMealPlanGroceries(startDate: string, endDate: string): Promise<{ totals: Array<{ name: string; unit: string | null; quantity: string | null; missing: number; uncombined: number }>; preview_token: string; items_added: number; items_missing_amount: number; items_unscaled: number; items: Array<{ name: string; quantity: string | null; unit: string | null; recipe_title: string }> }> {
+    const { data } = await this.client.post('/api/meal-plans/to-grocery/preview', { start_date: startDate, end_date: endDate });
+    return data;
+  }
+
+  async addMealPlanToGrocery(startDate: string, endDate: string, review?: { preview_token: string; mutation_id: string }): Promise<{
     message: string;
     items_added: number;
     items_missing_amount: number;
   }> {
     const { data } = await this.client.post('/api/meal-plans/to-grocery', {
+      ...review,
       start_date: startDate,
       end_date: endDate,
     });

@@ -84,6 +84,7 @@ export function useAddMeal() {
         recipe_thumbnail: newEntry.recipe_thumbnail || null,
         notes: newEntry.notes || null,
         servings: newEntry.servings || null,
+        planned_servings: newEntry.planned_servings ?? null,
         created_at: new Date().toISOString(),
       };
 
@@ -165,7 +166,7 @@ export function useUpdateMeal() {
       update,
     }: {
       entryId: string;
-      update: { meal_type?: string; date?: string; notes?: string; servings?: string };
+      update: { meal_type?: string; date?: string; notes?: string; servings?: string; planned_servings?: number };
     }) => api.updateMealPlanEntry(entryId, update),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: mealPlanKeys.all });
@@ -253,8 +254,8 @@ export function useAddPlanToGrocery() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ startDate, endDate }: { startDate: string; endDate: string }) =>
-      api.addMealPlanToGrocery(startDate, endDate),
+    mutationFn: ({ startDate, endDate, review }: { startDate: string; endDate: string; review?: { preview_token: string; mutation_id: string } }) =>
+      api.addMealPlanToGrocery(startDate, endDate, review),
     onSuccess: () => {
       // Also invalidate grocery queries
       queryClient.invalidateQueries({ queryKey: ['grocery'] });

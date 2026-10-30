@@ -402,6 +402,7 @@ export interface CollectionRecipe {
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
 export interface MealPlanEntry {
+  planned_servings?: number | null;
   id: string;
   date: string; // ISO date string (YYYY-MM-DD)
   meal_type: MealType;
@@ -415,6 +416,7 @@ export interface MealPlanEntry {
 }
 
 export interface MealPlanEntryCreate {
+  planned_servings?: number | null;
   date: string;
   meal_type: MealType;
   recipe_id: string;

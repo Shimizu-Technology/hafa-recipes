@@ -3,7 +3,7 @@ import type { MealPlanEntryCreate, MealType, RecipeListItem } from '@/types/reci
 export type MealPlanRecipe = Pick<
   RecipeListItem,
   'id' | 'title' | 'thumbnail_url' | 'review_state'
->;
+> & { servings?: number | null };
 
 type PlannerGroceryResult = {
   items_added: number;
@@ -46,6 +46,7 @@ export function buildMealPlanEntry(
     recipe_id: recipe.id,
     recipe_title: recipe.title,
     recipe_thumbnail: recipe.thumbnail_url,
+    ...(recipe.servings && recipe.servings > 0 ? { planned_servings: recipe.servings } : {}),
   };
 }
 

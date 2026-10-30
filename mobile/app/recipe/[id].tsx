@@ -1349,7 +1349,7 @@ export default function RecipeDetailScreen() {
                 hasPlanError={isRecipePlanError}
                 isPlanRetrying={isRecipePlanRetrying}
                 onOpenPlanDate={(date) => router.push(appRoutes.plannerDate(date))}
-                onPlanRecipe={() => router.push(appRoutes.plannerRecipe(id))}
+                onPlanRecipe={() => router.push(appRoutes.plannerRecipe(id, currentServings))}
                 onRetryPlan={() => { void refetchRecipePlan(); }}
                 savedNote={personalNote?.note_text}
                 isNoteLoading={isNoteLoading}
