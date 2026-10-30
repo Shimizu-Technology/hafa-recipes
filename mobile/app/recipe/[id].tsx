@@ -735,14 +735,6 @@ export default function RecipeDetailScreen() {
           headerRight: () => (
             <RNView style={styles.headerButtons}>
               <TouchableOpacity
-                onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel="Ask Håfa about this recipe"
-              >
-                <Text style={{ color: colors.actionText }}>Ask Håfa</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 onPress={handleShare}
                 style={styles.headerButton}
                 accessibilityRole="button"
@@ -949,6 +941,11 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
+            <TouchableOpacity onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityRole="button"
+              accessibilityLabel="Ask Håfa about this recipe" style={[styles.sourceButton, { minHeight: 44, borderColor: colors.border }]}>
+              <Ionicons name="chatbubbles-outline" size={20} color={colors.actionText} />
+              <Text style={{ color: colors.actionText }}>Ask Håfa</Text>
+            </TouchableOpacity>
             {/* Source Button */}
             {hasExternalSource && !sourcePlayback && (
               <TouchableOpacity
