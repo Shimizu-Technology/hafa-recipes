@@ -83,6 +83,7 @@ export type SearchFilters = {
 
 export const recipeKeys = {
   all: ['recipes'] as const,
+  plannerSearch: () => [...recipeKeys.all, 'plannerSearch'] as const,
   lists: () => [...recipeKeys.all, 'list'] as const,
   list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.lists(), filters] as const,
@@ -154,6 +155,7 @@ function setDiscoverSavedState(
 }
 
 export function invalidateCreatedRecipeQueries(queryClient: QueryClient, recipeId?: string | null) {
+  queryClient.invalidateQueries({ queryKey: recipeKeys.plannerSearch() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.recentRoot() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.countRoot() });
@@ -348,7 +350,7 @@ export function usePlannerRecipeSearch(
   scope: 'all' | 'mine' | 'saved' | 'discover', filters: SearchFilters, enabled = true,
 ) {
   return useInfiniteQuery({
-    queryKey: [...recipeKeys.all, 'plannerSearch', scope, filters],
+    queryKey: [...recipeKeys.plannerSearch(), scope, filters],
     queryFn: ({ pageParam = 0, signal }) => scope === 'discover'
       ? api.searchPublicRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, undefined, undefined, signal)
       : api.searchRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, signal, scope === 'mine' ? 'own' : scope),
@@ -1705,6 +1707,7 @@ function useConfirmedRecipeSave(saved: boolean) {
     },
     onSettled: (_data, _error, recipeId, context) => {
       if (currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
+      void queryClient.invalidateQueries({ queryKey: recipeKeys.plannerSearch() });
       void queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
       void queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
       void queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
