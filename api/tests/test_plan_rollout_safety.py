@@ -2,8 +2,8 @@
 
 import asyncio
 import os
-from urllib.parse import urlsplit
 from datetime import date
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx

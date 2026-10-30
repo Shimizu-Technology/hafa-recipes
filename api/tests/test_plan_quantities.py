@@ -27,9 +27,9 @@ def test_plan_scaling_never_invents_an_unknown_amount(quantity, target, base, ex
 @pytest.mark.asyncio
 async def test_planned_servings_migration_is_additive_idempotent_and_restore_gated(monkeypatch):
     import os
-    from urllib.parse import urlsplit
     from importlib import import_module
     from types import SimpleNamespace
+    from urllib.parse import urlsplit
     from uuid import uuid4
 
     from sqlalchemy import text
