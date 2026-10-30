@@ -1,3 +1,4 @@
+import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 import { invalidateCreatedRecipeQueries } from '@/hooks/useRecipes';
@@ -122,7 +123,7 @@ export default function EditRecipeScreen() {
   return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
 }
 
-export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; resume?: boolean; guard: () => void } }) {
+export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; originalPages?: import('@/lib/api').RecipeImageUpload[]; resume?: boolean; guard: () => void } }) {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -300,7 +301,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
 
   const inbox = useImportInbox();
   const localDraft = usePrivateRecipeDraft(capture?.ownerId ?? null, 'recovery', {
-    recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
+    originalPages: capture?.originalPages, recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
     recipeComponents, ingredients, steps,
   }, !!capture && !!title, saved => {
     if (!saved.ingredients) return;
@@ -408,7 +409,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
 
     return {
       data,
-      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
+      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, original_pages: capture.originalPages, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
       imageUri: newImageUri,
       publishingPreview: previewRecipe
         ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))
@@ -458,16 +459,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     onError: async (error: unknown, snapshot: EditSnapshot) => {
       if (!alive.current) return;
       if (capture && captureSaveFailure(error).kind !== 'invalid') {
-        guard();
-        const request = snapshot.captureRequest!;
-        // Stop autosave before queuing the authoritative failed request.
-        await localDraft.leave(); guard();
-        await privateRecipeDrafts.write(privateRecipeDrafts.lease(capture.ownerId), 'recovery', {
-          request, recipe: { ...capture.recipe, extracted: request.extracted, is_public: request.is_public, source_type: request.source_type },
-          captureId: request.capture_id, failure: captureSaveFailure(error),
-        });
-        guard();
-        router.replace({ pathname: '/ocr-review', params: { recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
+        router.replace(await recoverFailedCaptureSave(error, snapshot.captureRequest!, capture, guard, localDraft.leave));
         return;
       }
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));

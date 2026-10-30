@@ -1,3 +1,4 @@
+import { IMPORT_INBOX_STORAGE_KEY } from './importInboxStorage';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 const media = vi.hoisted(() => ({ files: new Set<string>(), copied: false }));
@@ -72,4 +73,66 @@ it('removes the exact new media copy if its continuation becomes abandoned', asy
     if (media.copied) throw new Error('unmounted');
   })).rejects.toThrow('unmounted');
   expect([...media.files]).toEqual(['file:///unrelated.jpg']);
+});
+
+it('never deletes a page while another draft or pending capture still references it', async () => {
+  const { drafts, data } = fixture(); const lease = drafts.lease('owner-a');
+  const uri = 'file:///private/private-recipe-drafts/owner-a/page.jpg'; media.files.add(uri);
+  await drafts.write(lease, 'scan', { selectedImages: [{ uri }] });
+  await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
+  await drafts.remove(lease, 'scan');
+  expect(media.files.has(uri)).toBe(true);
+  data.set(IMPORT_INBOX_STORAGE_KEY, JSON.stringify([{ state: 'waiting', capture: { kind: 'images', images: [{ uri }] } }]));
+  await drafts.remove(lease, 'recovery');
+  expect(media.files.has(uri)).toBe(true);
+  await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
+  data.delete(IMPORT_INBOX_STORAGE_KEY);
+  await drafts.remove(lease, 'recovery');
+  expect(media.files.has(uri)).toBe(false);
+});
+
+it('protects a queued retry reference registered after cleanup starts', async () => {
+  const { drafts, storage, data } = fixture(); const lease = drafts.lease('owner-a');
+  const uri = 'file:///private/private-recipe-drafts/owner-a/racing-page.jpg'; media.files.add(uri);
+  await drafts.write(lease, 'scan', { selectedImages: [{ uri }] });
+  let release!: () => void; let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  storage.getAllKeys.mockImplementationOnce(async () => {
+    entered(); await new Promise<void>(resolve => { release = resolve; }); return [...data.keys()];
+  });
+  const removal = drafts.remove(lease, 'scan'); await started;
+  const retry = drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
+  release(); await Promise.all([removal, retry]);
+  expect(media.files.has(uri)).toBe(true);
+  expect(await drafts.read(lease, 'recovery')).not.toBeNull();
+  await drafts.remove(lease, 'recovery'); expect(media.files.has(uri)).toBe(false);
+});
+
+
+it('blocks a different scan or recovery while A is unresolved, permits A retry and fences stale removal', async () => {
+  const { drafts } = fixture(); const lease = drafts.lease('owner-a');
+  const a = { captureId: 'a', request: { original_pages: [{ uri: 'a.jpg' }] } };
+  await drafts.write(lease, 'scan', { selectedImages: [{ uri: 'a.jpg' }] });
+  await drafts.write(lease, 'recovery', a);
+  await expect(drafts.write(lease, 'scan', { selectedImages: [{ uri: 'b.jpg' }] })).rejects.toThrow('Finish or discard');
+  await expect(drafts.write(lease, 'recovery', { captureId: 'b' })).rejects.toThrow('Finish or discard');
+  await drafts.write(lease, 'recovery', { ...a, retry: true });
+  await drafts.remove(lease, 'recovery', a);
+  expect(await drafts.read(lease, 'recovery')).toMatchObject({ captureId: 'a', retry: true });
+  const retry = await drafts.read(lease, 'recovery');
+  await drafts.remove(lease, 'recovery', retry);
+  expect(await drafts.read(lease, 'scan')).toBeNull();
+  await drafts.write(lease, 'recovery', { captureId: 'b' });
+  await drafts.remove(lease, 'recovery', retry);
+  expect(await drafts.read(lease, 'recovery')).toMatchObject({ captureId: 'b' });
+});
+
+
+it('explicitly discards a manual scan recovery and its matching scan pages together', async () => {
+  const { drafts } = fixture(); const lease = drafts.lease('owner-a');
+  const uri = 'file:///private/private-recipe-drafts/owner-a/manual.jpg'; media.files.add(uri);
+  const pages = [{ uri }]; const editor = { captureId: 'manual-a', originalPages: pages, title: 'Rice' };
+  await drafts.write(lease, 'scan', { selectedImages: pages }); await drafts.write(lease, 'recovery', editor);
+  await drafts.remove(lease, 'recovery', editor);
+  expect(await drafts.read(lease, 'scan')).toBeNull(); expect(media.files.has(uri)).toBe(false);
 });

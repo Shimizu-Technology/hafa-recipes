@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+import { OriginalPagesRejectedError } from './captureSaveFailure';
 /**
  * API client for the Recipe Extractor FastAPI backend.
  */
@@ -862,6 +864,7 @@ class ApiClient {
     source_type: CaptureSourceType;
     is_public?: boolean;
     capture_id?: string;
+    original_pages?: RecipeImageUpload[];
     requestGuard?: RequestGuard;
   }): Promise<Recipe> {
     const { data } = await this.client.post('/api/recipes/from-capture', {
@@ -870,7 +873,40 @@ class ApiClient {
       is_public: params.is_public ?? false,
       ...(params.capture_id ? { capture_id: params.capture_id } : {}),
     }, { requestGuard: params.requestGuard } as GuardedRequestConfig);
+    if (params.original_pages?.length) {
+      params.requestGuard?.();
+      const rejected = () => new OriginalPagesRejectedError('Your recipe is saved, but these original pages could not be kept. Keep them here or continue without the pages.', data.id);
+      const { File } = await import('expo-file-system');
+      const sizes = Platform.OS === 'web' ? [] : params.original_pages.map(image => new File(image.uri).size || 0);
+      if (sizes.some(size => size > 10 * 1024 * 1024) || sizes.reduce((total, size) => total + size, 0) > 30 * 1024 * 1024) throw rejected();
+      const form = new FormData();
+      for (const [index, image] of params.original_pages.entries()) {
+        await appendRecipeImage(form, 'files', image, `page_${index + 1}.jpg`);
+        params.requestGuard?.();
+      }
+      try {
+        await this.client.post(`/api/recipes/${data.id}/source-pages`, form, {
+          headers: { 'Content-Type': false }, requestGuard: params.requestGuard,
+        } as GuardedRequestConfig);
+      } catch (error) {
+        // The recipe/capture ID already reconciled: a previous page upload can
+        // have committed before its response was lost. Never replace originals.
+        const status = (error as { response?: { status?: number } }).response?.status;
+        if (status === 413 || status === 422) throw rejected();
+        if (status !== 409) throw error;
+      }
+      params.requestGuard?.();
+    }
     return data;
+  }
+
+  async getRecipeSourcePages(id: string): Promise<{ pages: { page: number; url: string }[] }> {
+    const { data } = await this.client.get(`/api/recipes/${id}/source-pages`);
+    return data;
+  }
+
+  async removeRecipeSourcePages(id: string) {
+    await this.client.delete(`/api/recipes/${id}/source-pages`);
   }
 
   async getLocations(): Promise<{ locations: Location[]; default: string }> {

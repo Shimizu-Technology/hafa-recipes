@@ -53,7 +53,9 @@ def cleanup_job(user, prefix, *, delayed=False):
 
 @router.get("/{recipe_id}/source-pages")
 async def read_pages(recipe_id: UUID, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)):
-    await owned_recipe(db, recipe_id, user)
+    owner_id = await db.scalar(select(Recipe.user_id).where(Recipe.id == recipe_id))
+    if owner_id != user.id:
+        raise HTTPException(404, "Recipe not found")
     if not await schema_ready(db):
         return {"pages": []}
     row = await db.get(RecipeSourcePages, recipe_id)

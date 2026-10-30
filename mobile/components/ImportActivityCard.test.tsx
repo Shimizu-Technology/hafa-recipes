@@ -149,3 +149,21 @@ describe('ImportActivityCard', () => {
     screen.unmount();
   });
 });
+
+
+it('orders mixed capture, active and saved rows chronologically and suppresses duplicate identities', async () => {
+  const screen = await render(<ImportActivityCard jobs={[
+    job({ id: 'saved', url: 'https://example.com/old', created_at: new Date(1000).toISOString() }),
+    job({ id: 'active', status: 'processing' }), job({ id: 'waiting', status: 'queued' }),
+  ]} captures={[
+    { id: 'waiting', createdAt: 2000, content: React.createElement('Text', {}, 'Waiting capture') },
+    { id: 'active', createdAt: 3000, content: React.createElement('Text', {}, 'Duplicate capture') },
+  ]} active={{ id: 'active', createdAt: 3000, content: React.createElement('Text', {}, 'Active capture') }}
+    onOpenRecipe={vi.fn()} onRestore={vi.fn()} />);
+  const json = JSON.stringify(screen.toJSON());
+  expect(json.indexOf('Active capture')).toBeLessThan(json.indexOf('Waiting capture'));
+  expect(json.indexOf('Waiting capture')).toBeLessThan(json.indexOf('example.com'));
+  expect(screen.queryByText('Duplicate capture')).toBeNull();
+  expect(screen.queryByLabelText('View progress YouTube import, watch · abc')).toBeNull();
+  screen.unmount();
+});

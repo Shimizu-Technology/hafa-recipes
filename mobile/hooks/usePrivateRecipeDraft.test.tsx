@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn(async () => undefi
 vi.mock('react-native', () => ({ Alert: { alert: mocks.alert }, AppState: { addEventListener: (_: string, callback: any) => { mocks.state = callback; return { remove: vi.fn() }; } } }));
 vi.mock('expo-router', () => ({ useNavigation: () => ({ dispatch: mocks.dispatch }) }));
 vi.mock('expo-router/react-navigation', () => ({ usePreventRemove: (enabled: boolean, callback: any) => { mocks.guard = enabled ? callback : null; } }));
-vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { lease: (owner: string) => ({ owner, epoch: 0 }), read: mocks.read, write: mocks.write, remove: mocks.remove } }));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { subscribe: () => () => {}, lease: (owner: string) => ({ owner, epoch: 0 }), read: mocks.read, write: mocks.write, remove: mocks.remove } }));
 import { usePrivateRecipeDraft } from './usePrivateRecipeDraft';
 let current: ReturnType<typeof usePrivateRecipeDraft<{ title: string }>>;
 const restore = vi.fn();
@@ -38,7 +38,7 @@ describe('private draft recovery and dismissal', () => {
       await act(async () => vi.advanceTimersByTime(0));
       expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'GO_BACK' });
       await act(async () => current.finish());
-      expect(mocks.remove).toHaveBeenCalledWith({ owner: 'stable-a', epoch: 0 }, 'manual');
+      expect(mocks.remove).toHaveBeenCalledWith({ owner: 'stable-a', epoch: 0 }, 'manual', { title: 'Rice' });
     } finally { await act(async () => renderer.unmount()); vi.useRealTimers(); }
   });
 });

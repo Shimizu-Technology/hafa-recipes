@@ -1,6 +1,13 @@
-vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { lease: (owner: string) => ({ owner }), remove: vi.fn(async () => undefined) } }));
+const scanFiles = vi.hoisted(() => new Set<string>());
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
+vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' },
+  Directory: class { uri: string; constructor(...parts: string[]) { this.uri = parts.join('/') + '/'; } },
+  File: class { constructor(public uri: string) {} get exists() { return scanFiles.has(this.uri); } delete() { scanFiles.delete(this.uri); } },
+}));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { write: vi.fn(async () => undefined), read: vi.fn(async () => ({ captureId: mocks.params.captureId })), lease: (owner: string) => ({ owner }), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: mocks.patchInbox } }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.entries.filter((entry) => entry.state !== 'accepted') }) }));
+import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   })),
   params: {
     recipe: '',
+    originalPages: undefined as string | undefined, savedRecipeId: undefined as string | undefined,
+    captureOwnerId: undefined as string | undefined,
     saveFailed: undefined as string | undefined,
     captureId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     saveErrorKind: undefined as string | undefined,
@@ -170,6 +179,7 @@ describe('OCRReviewScreen confidence notice', () => {
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.save.mockReset();
     mocks.save.mockImplementation(async (params) => ({ id: 'recipe-1', is_public: params.is_public }));
+    mocks.params.originalPages = undefined; mocks.params.captureOwnerId = undefined;
     mocks.params.isPublic = 'false';
     mocks.params.saveFailed = undefined;
     mocks.params.saveErrorKind = undefined;
@@ -217,6 +227,7 @@ describe('OCRReviewScreen visibility', () => {
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.save.mockReset();
     mocks.save.mockImplementation(async (params) => ({ id: 'recipe-1', is_public: params.is_public }));
+    mocks.params.originalPages = undefined; mocks.params.captureOwnerId = undefined;
     mocks.params.isPublic = 'false';
     mocks.params.saveFailed = undefined;
     mocks.params.saveErrorKind = undefined;
@@ -366,8 +377,8 @@ describe('OCRReviewScreen visibility', () => {
     });
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
     const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
-    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), 'recovery');
-    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), mocks.params.sourceType === 'text' ? 'paste' : 'scan');
+    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), 'recovery', expect.objectContaining({ captureId: mocks.params.captureId }));
+    // The store retires a scan receipt only when its pages match this recovery.
   });
 
   it('shows the validation cause and offers Edit instead of retrying a rejected payload', async () => {
@@ -395,4 +406,59 @@ describe('OCRReviewScreen visibility', () => {
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
+  it('keeps originals through manual save upload failure, OCR retry failure and confirmed cleanup', async () => {
+    const values = new Map<string, string>();
+    const { createPrivateRecipeDrafts } = await vi.importActual<typeof import('@/lib/privateRecipeDrafts')>('@/lib/privateRecipeDrafts');
+    const drafts = createPrivateRecipeDrafts({ getItem: async (key: string) => values.get(key) ?? null,
+      setItem: async (key: string, value: string) => { values.set(key, value); },
+      removeItem: async (key: string) => { values.delete(key); }, getAllKeys: async () => [...values.keys()] } as any);
+    const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
+    const lease = drafts.lease('owner-a');
+    const uri = 'file:///private/private-recipe-drafts/owner-a/page.jpg'; scanFiles.add(uri);
+    const original_pages = [{ uri }];
+    await drafts.write(lease, 'scan', { selectedImages: original_pages });
+    const leaseSpy = vi.spyOn(privateRecipeDrafts, 'lease').mockImplementation(owner => drafts.lease(owner));
+    vi.mocked(privateRecipeDrafts.write).mockImplementation((owner, kind, value) => drafts.write(owner, kind, value));
+    const route = await recoverFailedCaptureSave(new Error('503'), { capture_id: mocks.params.captureId, original_pages, extracted: baseRecipe, source_type: 'photo', is_public: false },
+      { ownerId: 'owner-a', recipe: { source_type: 'photo' } }, () => {}, async () => {});
+    expect(route.params.originalPages).toBe(JSON.stringify(original_pages));
+    Object.assign(mocks.params, route.params); mocks.replace.mockClear();
+    vi.mocked(privateRecipeDrafts.read).mockImplementation((owner, kind) => drafts.read(owner, kind));
+    vi.mocked(privateRecipeDrafts.remove).mockImplementation((owner, kind, expected) => drafts.remove(owner, kind, expected));
+    mocks.save.mockImplementation(async (request: any) => {
+      expect(request.original_pages).toEqual(original_pages); expect(scanFiles.has(uri)).toBe(true);
+      if (mocks.save.mock.calls.length === 1) throw new Error('503');
+      return { id: 'recipe-1', is_public: false };
+    });
+    const renderer = await renderRecipe({});
+    try {
+      const retry = () => renderer.root.findAllByType('Button' as any).find(node => node.props.children === 'Retry Save')!;
+      await act(async () => retry().props.onPress());
+      expect(scanFiles.has(uri)).toBe(true); expect(await drafts.read(lease, 'recovery')).not.toBeNull();
+      await act(async () => retry().props.onPress());
+      expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+      expect(await drafts.read(lease, 'recovery')).toBeNull(); expect(await drafts.read(lease, 'scan')).toBeNull();
+      expect(scanFiles.has(uri)).toBe(false);
+    } finally { await act(async () => renderer.unmount()); leaseSpy.mockRestore(); vi.mocked(privateRecipeDrafts.write).mockImplementation(async () => undefined); vi.mocked(privateRecipeDrafts.read).mockImplementation(async () => ({ captureId: mocks.params.captureId })); vi.mocked(privateRecipeDrafts.remove).mockImplementation(async () => undefined); }
+  });
+
+});
+
+it('offers an explicit way to keep the saved recipe after permanent page rejection without re-uploading', async () => {
+  mocks.params.savedRecipeId = 'already-saved'; mocks.params.saveFailed = 'true'; mocks.params.saveErrorKind = 'pages';
+  mocks.params.saveErrorMessage = 'Your recipe is saved, but these pages could not be kept.';
+  mocks.params.captureId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  mocks.save.mockClear(); mocks.replace.mockClear();
+  const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
+  vi.mocked(privateRecipeDrafts.read).mockImplementation(async () => ({ captureId: mocks.params.captureId }));
+  vi.mocked(privateRecipeDrafts.remove).mockImplementation(async () => undefined);
+  const renderer = await renderRecipe({});
+  try {
+    const buttons = renderer.root.findAllByType('Button' as any);
+    expect(buttons.some(node => node.props.children === 'Retry Save')).toBe(false);
+    await act(async () => buttons.find(node => node.props.children === 'Continue without original pages')!.props.onPress());
+    expect(mocks.replace).not.toHaveBeenCalled();
+    await act(async () => mocks.alert.mock.calls.at(-1)![2].find((button: any) => button.text === 'Continue without pages').onPress());
+    expect(mocks.replace).toHaveBeenCalledWith('/recipe/already-saved'); expect(mocks.save).not.toHaveBeenCalled();
+  } finally { await act(async () => renderer.unmount()); mocks.params.savedRecipeId = undefined; }
 });

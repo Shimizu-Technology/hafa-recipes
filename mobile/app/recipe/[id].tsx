@@ -25,7 +25,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
+import { Button, Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
@@ -941,6 +941,8 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
+            {isOwner && recipe.source_type === 'photo' && <Button title="Original pages" variant="outline"
+              onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })} />}
             <TouchableOpacity onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityRole="button"
               accessibilityLabel="Ask Håfa about this recipe" style={[styles.sourceButton, { minHeight: 44, borderColor: colors.border }]}>
               <Ionicons name="chatbubbles-outline" size={20} color={colors.actionText} />

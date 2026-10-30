@@ -7,6 +7,7 @@ import * as Crypto from 'expo-crypto';
 import * as Clipboard from 'expo-clipboard';
 import {
   StyleSheet,
+  useWindowDimensions,
   TouchableOpacity,
   Alert,
   Linking,
@@ -34,7 +35,7 @@ import { useExtractionJobs, useLocations, useCheckDuplicate, useSaveCapturedReci
 import { useImportPreferences } from '@/hooks/useImportPreferences';
 import { getImportStatusPresentation } from '@/lib/importStatusPresentation';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
-import { ImportActivityCard } from '@/components/ImportActivityCard';
+import { ImportActivityCard, importSourceLabel, importSourceDetail } from '@/components/ImportActivityCard';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import type { JobStatus } from '@/types/recipe';
 import { api, type RecipeImageUpload } from '@/lib/api';
@@ -46,12 +47,12 @@ import { CaptureAccountChangedError, saveCaptureOrRecover } from '@/lib/captureS
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import {
   getImageImportFailurePresentation,
-  getManualImageDraftRoute,
 } from '@/lib/imageImportClassification';
 
 export default function ExtractScreen() {
   const router = useRouter();
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
   const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId } = useLocalSearchParams<{
@@ -138,10 +139,10 @@ export default function ExtractScreen() {
     const savedRecipe = saved.request ? { ...saved.recipe, extracted: saved.request.extracted, source_type: saved.request.source_type, is_public: saved.request.is_public } : saved.recipe;
     router.push(saved.failure && saved.failure.kind !== 'invalid' ? {
       pathname: '/ocr-review', params: { recipe: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-        captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
-        saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message },
+        originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
+        saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message, savedRecipeId: saved.failure.savedRecipeId || '' },
     } : { pathname: '/edit-capture', params: { initialData: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-      captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
+      originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
   });
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
@@ -276,7 +277,7 @@ export default function ExtractScreen() {
   const handleScanRecipe = async () => {
     Alert.alert(
       'Import Recipe Images',
-      'Take a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
+      'Håfa keeps your original pages privately so you can check them later. You can remove them anytime.\n\nTake a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
       [
         {
           text: 'Take Photo',
@@ -295,6 +296,10 @@ export default function ExtractScreen() {
     const imageOwner = inbox.ownerId;
     if (!imageOwner) return;
     const lease = privateRecipeDrafts.lease(imageOwner);
+    if (await privateRecipeDrafts.read(lease, 'recovery')) {
+      Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
+      return;
+    }
     const guard = () => {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== imageOwner) throw new CaptureAccountChangedError();
       privateRecipeDrafts.assert(lease);
@@ -346,6 +351,13 @@ export default function ExtractScreen() {
     }
   };
 
+  const moveImage = (index: number, direction: -1 | 1) => setSelectedImages((pages) => {
+    const next = index + direction;
+    if (next < 0 || next >= pages.length) return pages;
+    const ordered = [...pages];
+    [ordered[index], ordered[next]] = [ordered[next], ordered[index]];
+    return ordered;
+  });
   const removeImage = (index: number) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
@@ -359,6 +371,7 @@ export default function ExtractScreen() {
   };
 
   const extractFromImages = async () => {
+    if (recoveryDraft.available) { Alert.alert('Finish your saved draft', 'Resume or discard the recipe recovery before starting another scan.'); return; }
     if (!scanDraft.ready || scanDraft.available || selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
     const originalOwner = inbox.ownerId;
     if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
@@ -388,6 +401,8 @@ export default function ExtractScreen() {
       setOcrProgress(`Extracting recipe with AI vision...`);
 
       guardOwner();
+      await scanDraft.flush();
+      guardOwner();
       // Use single or multi-image API based on count
       const result = imageCount === 1
         ? await api.extractRecipeFromImage(selectedImages[0], selectedLocation)
@@ -399,6 +414,7 @@ export default function ExtractScreen() {
         const destination = await saveCaptureOrRecover({
           extracted: result.recipe,
           source_type: 'photo',
+          original_pages: selectedImages,
           is_public: requestedPublic,
           capture_id: selectedInboxId ?? undefined,
           expected_owner_id: originalOwner, requestGuard: guardOwner,
@@ -423,11 +439,11 @@ export default function ExtractScreen() {
                 text: 'Use Image & Enter Manually',
                 onPress: () => {
                   try { guardOwner(); } catch { return; }
-                  const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
-                  if (!draftRoute) return;
-                  // Keep every selected source on Import so multi-page recovery
-                  // remains available if the user returns from the manual draft.
-                  router.push(draftRoute);
+                  router.push({ pathname: '/edit-capture', params: {
+                    initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
+                    captureId: selectedInboxId ?? Crypto.randomUUID(), captureOwnerId: originalOwner,
+                    captureSource: 'photo', isPublic: 'false', originalPages: JSON.stringify(selectedImages),
+                  } });
                 },
               },
               { text: 'Review Images', style: 'cancel' },
@@ -684,7 +700,8 @@ export default function ExtractScreen() {
             showsVerticalScrollIndicator={false}
           >
             {selectedImages.map((image, index) => (
-              <RNView key={index} style={styles.galleryImageContainer}>
+              <RNView key={image.uri} style={{ width: fontScale >= 1.3 ? '100%' : '45%', minWidth: 140, flexGrow: 1 }}>
+              <RNView style={[styles.galleryImageContainer, { width: '100%' }]}>
                 <Image source={{ uri: image.uri }} style={styles.galleryImage} />
                 <IconButton
                   icon="close-circle"
@@ -696,6 +713,11 @@ export default function ExtractScreen() {
                 <RNView style={[styles.galleryImageNumber, { backgroundColor: colors.tint }]}>
                   <Text style={styles.galleryImageNumberText}>{index + 1}</Text>
                 </RNView>
+              </RNView>
+              <RNView style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <IconButton icon="arrow-back" accessibilityLabel={`Move page ${index + 1} earlier`} disabled={index === 0} onPress={() => moveImage(index, -1)} />
+                <IconButton icon="arrow-forward" accessibilityLabel={`Move page ${index + 1} later`} disabled={index === selectedImages.length - 1} onPress={() => moveImage(index, 1)} />
+              </RNView>
               </RNView>
             ))}
 
@@ -714,12 +736,13 @@ export default function ExtractScreen() {
           {/* Info Text */}
           <Text style={[styles.galleryHint, { color: colors.textMuted }]}>
             {selectedImages.length === 1
-              ? 'Add more screenshots or pages for a complete recipe. Source images are not attached to the saved recipe.'
-              : `${selectedImages.length} images will be combined in this order. Source images are not attached to the saved recipe.`}
+              ? 'Add more screenshots or pages for a complete recipe. Original pages are kept privately with your recipe.'
+              : `${selectedImages.length} images will be combined in this order. Original pages are kept privately with your recipe.`}
           </Text>
 
           <RecipeDraftNotice draft={scanDraft} />
           <RecipeDraftNotice draft={recoveryDraft} />
+          <Text>Håfa keeps your original pages privately so you can check them later. You can remove them anytime.</Text>
           <RecipeVisibilitySelector
             compact
             value={isPublic ? 'public' : 'private'}
@@ -850,9 +873,10 @@ export default function ExtractScreen() {
                 <RNView style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }} accessibilityRole="header">
                     {importStatus.title}
+                    {extraction.sourceUrl ? ` · ${importSourceLabel(extraction.sourceUrl)}` : ''}
                   </Text>
                   <Text style={[styles.hint, { color: colors.textMuted }]} numberOfLines={2}>
-                    {importStatus.description}
+                    {extraction.sourceUrl ? `${importSourceDetail(extraction.sourceUrl)} · ` : ''}{importStatus.description}
                   </Text>
                 </RNView>
                 <TouchableOpacity style={styles.detailsAction} onPress={() => setShowProgressDetails(!showProgressDetails)} accessibilityRole="button" accessibilityLabel="Import details" accessibilityState={{ expanded: showProgressDetails }}>

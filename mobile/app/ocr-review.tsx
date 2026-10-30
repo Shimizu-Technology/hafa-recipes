@@ -46,7 +46,7 @@ export default function OCRReviewScreen() {
     captureOwnerId,
     saveErrorKind,
     saveErrorMessage,
-    draftStorageError,
+    draftStorageError, originalPages, savedRecipeId,
   } = useLocalSearchParams<{
     recipe: string;
     location: string;
@@ -57,7 +57,7 @@ export default function OCRReviewScreen() {
     captureOwnerId?: string;
     saveErrorKind?: string;
     saveErrorMessage?: string;
-    draftStorageError?: string;
+    draftStorageError?: string; originalPages?: string; savedRecipeId?: string;
   }>();
   useEffect(() => { if (draftStorageError) Alert.alert('Draft not saved on this device', draftStorageError); }, [draftStorageError]);
   const inbox = useImportInbox();
@@ -80,10 +80,10 @@ export default function OCRReviewScreen() {
   const [isPublic, setIsPublic] = useState(isPublicParam !== 'false');
   const [isSaving, setIsSaving] = useState(false);
   const [captureId, setCaptureId] = useState(() => captureIdParam ?? randomUUID());
-  const [failure, setFailure] = useState<{ kind: string; message: string } | null>(null);
+  const [failure, setFailure] = useState<{ kind: string; message: string; savedRecipeId?: string } | null>(null);
   const attemptedSave = useRef(saveFailed === 'true');
   const canEdit = !attemptedSave.current || failure?.kind === 'invalid';
-  const canRetry = failure?.kind !== 'invalid' && failure?.kind !== 'conflict';
+  const canRetry = failure?.kind !== 'invalid' && failure?.kind !== 'conflict' && failure?.kind !== 'pages';
   
   const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
@@ -110,7 +110,7 @@ export default function OCRReviewScreen() {
         setCaptureId(captureIdParam ?? randomUUID());
         attemptedSave.current = saveFailed === 'true';
         setFailure(saveFailed === 'true' ? {
-          kind: saveErrorKind ?? 'retry',
+          kind: saveErrorKind ?? 'retry', savedRecipeId,
           message: saveErrorMessage ?? 'Your extracted recipe is still here. Retry saving without importing it again.',
         } : null);
       } catch {
@@ -119,7 +119,7 @@ export default function OCRReviewScreen() {
         router.back();
       }
     }
-  }, [captureIdParam, isPublicParam, recipeParam, router.back, saveErrorKind, saveErrorMessage, saveFailed]);
+  }, [captureIdParam, isPublicParam, recipeParam, router.back, saveErrorKind, saveErrorMessage, saveFailed, savedRecipeId]);
 
   const doSave = async () => {
     if (!recipe || !canRetry || saveInFlight.current || isCheckingDisclosure) return;
@@ -144,6 +144,7 @@ export default function OCRReviewScreen() {
         source_type: sourceType,
         is_public: isPublic,
         capture_id: captureId,
+        original_pages: originalPages ? JSON.parse(originalPages) : undefined,
         expected_owner_id: boundOwner.current!, requestGuard: guardOwner,
       });
 
@@ -155,8 +156,9 @@ export default function OCRReviewScreen() {
         guardOwner();
       }
       const lease = privateRecipeDrafts.lease(boundOwner.current!);
-      await privateRecipeDrafts.remove(lease, 'recovery'); guardOwner();
-      await privateRecipeDrafts.remove(lease, sourceType === 'text' ? 'paste' : 'scan'); guardOwner();
+      const recovery = await privateRecipeDrafts.read(lease, 'recovery'); guardOwner();
+      if (recovery?.captureId === captureId) await privateRecipeDrafts.remove(lease, 'recovery', recovery);
+      guardOwner();
       router.replace(`/recipe/${result.id}`);
     } catch (error: unknown) {
       if (error instanceof CaptureAccountChangedError) return;
@@ -169,6 +171,25 @@ export default function OCRReviewScreen() {
     }
   };
   
+  const keepWithoutPages = () => {
+    const recipeId = failure?.savedRecipeId;
+    if (!recipeId) return;
+    Alert.alert('Continue without original pages?', 'The extracted recipe is already saved. This removes the local original pages for this scan.', [
+      { text: 'Keep pages here', style: 'cancel' },
+      { text: 'Continue without pages', style: 'destructive', onPress: () => {
+        void (async () => {
+          guardOwner();
+          const lease = privateRecipeDrafts.lease(boundOwner.current!);
+          const recovery = await privateRecipeDrafts.read(lease, 'recovery'); guardOwner();
+          if (recovery?.captureId !== captureId) return;
+          await privateRecipeDrafts.remove(lease, 'recovery', recovery); guardOwner();
+          await importInbox.patch(captureId, { state: 'accepted', recipeId }).catch(() => undefined); guardOwner();
+          router.replace(`/recipe/${recipeId}`);
+        })().catch(() => Alert.alert('Could not finish', 'Your pages are still kept here. Try again.'));
+      } },
+    ]);
+  };
+
   const handleEdit = () => {
     if (!canEdit || saveInFlight.current) return;
     try { guardOwner(); } catch (error) { Alert.alert('Account Changed', (error as Error).message); return; }
@@ -181,6 +202,7 @@ export default function OCRReviewScreen() {
         captureId,
         isPublic: isPublic ? 'true' : 'false',
         captureSource: sourceType,
+        originalPages,
         captureOwnerId: boundOwner.current!,
       },
     });
@@ -363,6 +385,7 @@ export default function OCRReviewScreen() {
         ]}
       >
         <RNView style={styles.bottomBarButtons}>
+          {failure?.kind === 'pages' && failure.savedRecipeId && <Button title="Continue without original pages" onPress={keepWithoutPages} />}
           {failure?.kind === 'conflict' && <Button title="Open Library" onPress={() => router.replace('/(tabs)/history')} />}
           {/* Edit Button */}
           {canEdit && <TouchableOpacity

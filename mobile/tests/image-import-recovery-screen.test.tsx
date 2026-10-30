@@ -1,4 +1,4 @@
-vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { read: vi.fn(async () => null), assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -98,6 +98,7 @@ vi.mock('react-native', async () => {
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
+    useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     AccessibilityInfo: { announceForAccessibility: vi.fn() },
     ActivityIndicator: host('ActivityIndicator'),
     Alert: { alert: mocks.alert },
@@ -499,6 +500,8 @@ describe('classified image recovery', () => {
       await chooseAction.onPress();
     });
 
+    const earlier = renderer!.root.findAll(node => node.props.accessibilityLabel === 'Move page 2 earlier')[0];
+    await act(async () => earlier.props.onPress());
     const extractButton = renderer!.root.findAllByType(
       'Button' as unknown as React.ComponentType,
     ).find(node => node.props.children === 'Import Recipe from 2 Images')!;
@@ -506,24 +509,28 @@ describe('classified image recovery', () => {
       await extractButton.props.onPress();
     });
 
+    expect(mocks.extractMultiple).toHaveBeenCalledWith([
+      expect.objectContaining({ uri: 'file:///recipe-back.jpg' }),
+      expect.objectContaining({ uri: 'file:///recipe-front.jpg' }),
+    ], 'Guam');
     const failure = mocks.alert.mock.calls.find(([title]) => title === 'Choose One Recipe');
     const recoverAction = failure?.[2]
       .find((action: { text: string }) => action.text === 'Use Image & Enter Manually');
     await act(async () => recoverAction.onPress());
 
     expect(mocks.push).toHaveBeenCalledWith({
-      pathname: '/add-recipe',
+      pathname: '/edit-capture',
       params: {
-        captureSource: 'photo',
-        fromOcr: 'true',
-        initialImageUri: 'file:///recipe-front.jpg',
+        initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
+        captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a',
+        captureSource: 'photo', isPublic: 'false', originalPages: JSON.stringify([{ uri: 'file:///recipe-back.jpg' }, { uri: 'file:///recipe-front.jpg' }]),
       },
     });
     expect(renderer!.root.findAllByType(
       'Image' as unknown as React.ComponentType,
     ).map(node => node.props.source.uri)).toEqual([
-      'file:///recipe-front.jpg',
       'file:///recipe-back.jpg',
+      'file:///recipe-front.jpg',
     ]);
   });
 
@@ -697,6 +704,7 @@ describe('classified image recovery', () => {
     expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
       captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
+      originalPages: JSON.stringify([{ uri: 'file:///recipe-front.jpg' }, { uri: 'file:///recipe-back.jpg' }]),
     } });
   });
 
@@ -750,4 +758,14 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
     } finally { await act(async () => renderer.unmount()); }
   });
 
+});
+
+it('identifies the active import source before its details are expanded', async () => {
+  mocks.extraction.isExtracting = true; mocks.extraction.sourceUrl = 'https://www.youtube.com/watch?v=active-video';
+  let renderer!: ReactTestRenderer;
+  try {
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const copy = renderer.root.findAllByType('ThemedText' as any).map(node => node.props.children).flat(Infinity).join(' ');
+    expect(copy).toContain('YouTube'); expect(copy).toContain('watch · active-video');
+  } finally { await act(async () => renderer.unmount()); mocks.extraction.isExtracting = false; mocks.extraction.sourceUrl = ''; }
 });
