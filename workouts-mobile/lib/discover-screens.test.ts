@@ -775,7 +775,7 @@ it("a server-saved incomplete workout exposes credit, cover, timing and optional
   expect(button("Save workout")).toBeUndefined(); expect(button("Save and share to Discover")).toBeUndefined();
   expect(fixture.acceptImport).not.toHaveBeenCalled();
   await act(async () => button("Check details")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved", review: "1" } });
 });
 it("Library refreshes stale results on return and by pulling down, without refetching fresh data", async () => {
   fixture.capabilities.mockResolvedValue(caps(false));
@@ -1654,7 +1654,7 @@ it.each([undefined, "workouts_ai_budget_unavailable", "workouts_ai_budget_exceed
   expect(button("Open saved workout")).toBeDefined(); expect(button("Check details")).toBeDefined();
   expect(button("Save workout")).toBeUndefined();
   await act(async () => button("Check details")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved" } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: "saved", review: "1" } });
 });
 
 it("keeps saved workout instructions ahead of optional diagnostics without losing correction or source recovery", async () => {
@@ -1671,7 +1671,7 @@ it("keeps saved workout instructions ahead of optional diagnostics without losin
   expect(collapsed.indexOf("Goblet squat")).toBeLessThan(collapsed.indexOf("Review workout details"));
   expect(nodes("Copy").filter(node => node.children.join("").includes("Some workout details need checking"))).toHaveLength(1);
   await act(async () => button("Check details")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id } });
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/edit-workout/[id]", params: { id: saved.id, review: "1" } });
   await act(async () => button("Recover from caption or source")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/recover-workout/[id]", params: { id: saved.id } });
   await act(async () => button("Import diagnostics")!.props.onPress());

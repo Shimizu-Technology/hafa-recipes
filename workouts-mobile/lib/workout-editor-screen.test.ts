@@ -14,10 +14,10 @@ let renderer: ReactTestRenderer | undefined;
 let latest: AuthoredWorkout | undefined;
 const field = (label: string) => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === label);
 const button = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
-async function render(initial: AuthoredWorkout) {
+async function render(initial: AuthoredWorkout, review = false) {
   function Editor() {
     const [value, setValue] = useState(initial);
-    return createElement(WorkoutEditor, { value, onChange(next: AuthoredWorkout) { latest = next; setValue(next); } });
+    return createElement(WorkoutEditor, { review, value, onChange(next: AuthoredWorkout) { latest = next; setValue(next); } });
   }
   await act(async () => { renderer = create(createElement(Editor)); });
 }
@@ -119,4 +119,25 @@ it("keeps oversized workout notes visible for correction even after the disclosu
   expect(field("Private notes · only you")).toBeDefined();
   await act(async () => button("Hide instructions, notes and equipment").props.onPress());
   expect(field("Private notes · only you")).toBeDefined();
+});
+
+it("reviews the exact unknown exercise with source evidence, permits leaving it blank and retains the full editor", async () => {
+  const initial = workout(); initial.blocks[0].grouping = "circuit";
+  initial.blocks[0].exercises.push({ name: "Lunge", evidence: [{ field: "name", wording: "Then lunges", location: "caption" }] });
+  await render(initial, true);
+  expect(field("Exercise name")).toBeUndefined();
+  await act(async () => button("Lunge: reps, time or distance not specified").props.onPress());
+  expect(field("Exercise name")!.props.value).toBe("Lunge");
+  expect(field("Rest · seconds")).toBeDefined();
+  expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children.flat?.() ?? n.props.children).flat().join(" ")).toContain("Then lunges");
+  await act(async () => button("Leave unknown").props.onPress());
+  expect(latest).toBeUndefined();
+  await act(async () => button("Main: rounds not specified").props.onPress());
+  expect(field("Rounds")).toBeDefined();
+  expect(field("Exercise name")).toBeUndefined();
+  await act(async () => field("Rounds")!.props.onChange("3"));
+  expect(latest!.blocks[0].rounds).toBe(3);
+  expect(latest!.blocks[0].exercises[1].reps_min).toBeUndefined();
+  await act(async () => button("Open full editor").props.onPress());
+  expect(renderer!.root.findAllByType("Field" as never).filter(n => n.props.label === "Exercise name")).toHaveLength(2);
 });

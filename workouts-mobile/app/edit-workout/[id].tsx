@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Notice, Screen } from "@/components/ui";
@@ -10,7 +10,8 @@ import { useTraining } from "@/lib/context";
 import { editedContent, workoutErrors } from "@/lib/library";
 import type { Workout, AuthoredWorkout } from "@/lib/models";
 export default function EditWorkout() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, review } = useLocalSearchParams<{ id: string; review?: string }>();
+  const scrollRef = useRef<ScrollView>(null);
   const { storage, api, owner, enrollment, isCurrentAccount } = useTraining();
   const scope = `workout-edit:${enrollment?.generation}:${id}`;
   const cache = useQueryClient();
@@ -164,7 +165,8 @@ export default function EditWorkout() {
   return (
     <Screen
       back
-      title="Edit workout"
+      title={review ? "Check details" : "Edit workout"}
+      scrollRef={scrollRef}
       subtitle="Past sessions stay as they were."
       footer={value ? (<>
         {/* The save error sits next to Save, where the person is looking. */}
@@ -188,7 +190,7 @@ export default function EditWorkout() {
       >
         {value && (
           <View pointerEvents={busy ? "none" : "auto"}>
-            <WorkoutEditor value={editedContent(value)} onChange={update} disabled={busy || !!command || resolved} />
+            <WorkoutEditor review={!!review} onReviewTarget={() => scrollRef.current?.scrollTo({ y: 0, animated: false })} value={editedContent(value)} onChange={update} disabled={busy || !!command || resolved} />
           </View>
         )}
       </QueryState>
