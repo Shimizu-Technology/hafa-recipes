@@ -103,3 +103,25 @@ it.each(["light", "dark"])("uses a neutral selected chip with readable contrast 
   const a = luminance(text.color), b = luminance(style.backgroundColor);
   expect((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)).toBeGreaterThan(4.5);
 });
+
+it.each([false, true])("keeps long choices wrapping or horizontally intrinsic (scroll=%s, M4)", async scroll => {
+  mock.fontScale = 3.1;
+  const labels = ["Doctor questions and observations to bring to our next appointment",
+    "A long saved-source topic with multilingual text 日本語 and a full untruncated label"];
+  await mount(<Chips scroll={scroll} label="Show" value="0"
+    options={labels.map((label, i) => ({ label, value: String(i) }))} onChange={() => {}} />);
+  const options = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  for (const option of options) {
+    const style = Object.assign({}, ...option.props.style);
+    expect(style.flexShrink).toBe(scroll ? 0 : 1);
+    expect(style.maxWidth).toBe(scroll ? undefined : "100%");
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+  }
+  const texts = renderer!.root.findAllByType("Text" as React.ElementType);
+  expect(texts.map(t => t.props.children)).toEqual(labels);
+  expect(texts.every(t => !t.props.numberOfLines && t.props.maxFontSizeMultiplier === 0)).toBe(true);
+  const scrollers = renderer!.root.findAllByType("ScrollView" as React.ElementType);
+  expect(renderer!.root.findByType("View" as React.ElementType).props.style.flexWrap).toBe(scroll ? "nowrap" : "wrap");
+  expect(scrollers).toHaveLength(scroll ? 1 : 0);
+  if (scroll) expect(scrollers[0].props.horizontal).toBe(true);
+});

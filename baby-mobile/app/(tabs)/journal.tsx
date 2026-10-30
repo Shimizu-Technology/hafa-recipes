@@ -7,7 +7,7 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { exportVisit } from "@/lib/files";
 import { visitSummary } from "@/lib/visit-summary";
-import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen, Section } from "@/components/ui";
+import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -16,6 +16,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
   const b = useBaby(),
     [filter, setFilter] = useState(careHistory ? "care" : "journal"),
     [q, setQ] = useState(""),
+    [searching, setSearching] = useState(false),
     [selected, setSelected] = useState<string[]>([]),
     [preparing, setPreparing] = useState(false),
     [error, setError] = useState(""),
@@ -102,19 +103,13 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     <Screen
       title={careHistory ? "Care history" : "Journal"}
       back={careHistory}
-      subtitle={careHistory ? "Feeding, sleep and diapers." : "Your thoughts and memories."}
-      action={!careHistory &&
-        <Button
-          secondary
-          title="Write"
-          icon="add"
-          onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })}
-        />
-      }
+      action={<Button variant="ghost" title={searching ? "Close search" : "Search"} icon="search-outline"
+        onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
     >
       <SyncStatus />
-      <ChildFilter />
+      <ChildFilter scroll />
       {!careHistory && <Chips
+        scroll
         value={filter}
         label="Show"
         options={[
@@ -124,7 +119,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         ]}
         onChange={setFilter}
       />}
-      <Field label="Search" value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Notes and questions"} />
+      {searching && <Field label="Search" value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Notes and questions"} />}
       {filter === "question" && (preparing ? (
         <Card tone="soft">
           <Copy kind="label">Choose what to bring to the visit</Copy>
@@ -165,7 +160,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
           />
         ))}
       {loading && !records.length ? <Loading label={careHistory ? "Loading care history…" : "Loading your journal…"} /> : records.length ? (
-        <Section title={careHistory ? "Care logs" : "Your timeline"}>
+        <View style={{ gap: 12 }}>
           {records.map((r) =>
             preparing ? (
               <Card key={r.id} tone="soft">
@@ -186,19 +181,13 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
               />
             )
           )}
-        </Section>
+        </View>
       ) : (
         <Empty
           icon="book-outline"
           title={q.trim() ? "No matching entries" : careHistory ? "No care logged yet" : "A place for your own words."}
           body={q.trim() ? "Try a different phrase or clear your search." : careHistory ? "Log a feed, sleep or diaper from Today. Your care history will be here." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
-          action={(!careHistory || !!q.trim()) &&
-            <Button
-              secondary
-              title={q.trim() ? "Clear search" : "Write an entry"}
-              onPress={() => q.trim() ? setQ("") : router.push({ pathname: "/edit", params: { kind: "journal" } })}
-            />
-          }
+          action={q.trim() ? <Button secondary title="Clear search" onPress={() => setQ("")} /> : undefined}
         />
       )}
       {!historyError && page?.key === key && page.more && (

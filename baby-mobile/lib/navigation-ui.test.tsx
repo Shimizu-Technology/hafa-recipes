@@ -54,7 +54,8 @@ vi.mock("@/components/ui", () => import("../components/ui"));
 vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
 vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
-import Journal from "../app/(tabs)/journal";
+vi.mock("@/lib/source-title", () => import("./source-title"));
+import Journal, { JournalContent } from "../app/(tabs)/journal";
 import RecordDetail from "../app/record/[id]";
 import AskEntry from "../app/ask-entry";
 import { emptyState, optimisticRecord } from "./models";
@@ -108,4 +109,30 @@ it("pushes focused Ask from a saved entry and its real Back control returns to t
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(n => n.props.children === "Ask about this")).toBe(true);
   await press("Go back");
   expect(mock.stack.at(-1)).toEqual({ pathname: "/record/[id]", params: { id: "Saved source" } });
+});
+
+it("keeps compact Journal filters horizontal, writing-only, and clears route-driven visit selections", async () => {
+  mock.params = { filter: "question" };
+  await mount(<Journal />);
+  await press("Prepare a visit summary");
+  await press("Journal observation");
+  mock.params = { filter: "all" };
+  await act(async () => renderer!.update(<Journal />));
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["journal", "question"]);
+  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Write")).toBe(false);
+  expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).some(n => n.props.horizontal)).toBe(true);
+  mock.params = { filter: "question" };
+  await act(async () => renderer!.update(<Journal />));
+  await press("Prepare a visit summary");
+  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Share 0 selected entries" && n.props.disabled)).toBe(true);
+});
+it("keeps care-only history pushed with Back and disclosed care search", async () => {
+  mock.stack = [{ pathname: "/(tabs)" }, { pathname: "/care-history" }];
+  await mount(<JournalContent careHistory />);
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["feeding"]);
+  expect(renderer!.root.findAllByType("TextInput" as React.ElementType)).toHaveLength(0);
+  await press("Search");
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.placeholder).toBe("Search care logs");
+  await press("Go back");
+  expect(mock.stack.at(-1)).toEqual({ pathname: "/(tabs)" });
 });
