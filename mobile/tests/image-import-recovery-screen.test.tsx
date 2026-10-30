@@ -697,4 +697,19 @@ describe('classified image recovery', () => {
     } });
   });
 
+it('clears a Keep private link after asynchronous inbox persistence', async () => {
+  mocks.requestPublishing.mockResolvedValueOnce(false);
+  let finishAdd!: () => void;
+  mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>(resolve => { finishAdd = () => resolve(undefined); }));
+  let renderer!: ReactTestRenderer;
+  await act(async () => { renderer = create(<ExtractScreen />); });
+  const link = () => renderer.root.findAllByType('Input' as unknown as React.ComponentType).find(node => node.props.accessibilityLabel === 'Recipe link')!;
+  try {
+    await act(async () => link().props.onChangeText('https://example.com/private-recipe'));
+    await act(async () => { void renderer.root.findAllByType('Button' as unknown as React.ComponentType).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
+    expect(mocks.addInbox).toHaveBeenCalledOnce();
+    await act(async () => finishAdd());
+    expect(link().props.value).toBe('');
+  } finally { await act(async () => renderer.unmount()); }
+});
 });

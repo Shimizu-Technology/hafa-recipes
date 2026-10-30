@@ -461,7 +461,7 @@ export default function ExtractScreen() {
         capture: { kind: 'url', url: importUrl }, createdAt: Date.now(), state: 'ready',
         request: { url: importUrl, location: selectedLocation, notes: notes.trim(), is_public: requestedPublic },
       });
-      if (JSON.stringify(currentDraft.current) === JSON.stringify(draft)) {
+      if (JSON.stringify({ ...currentDraft.current, isPublic: draft.isPublic }) === JSON.stringify(draft)) {
         setUrl('');
         setNotes('');
       }
