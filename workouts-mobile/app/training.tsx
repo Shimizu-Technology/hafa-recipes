@@ -497,7 +497,7 @@ export default function Training() {
             />
           </Row>
           {metric === "time" && (d.interval_started_at != null || d.interval_elapsed_milliseconds != null ? (
-            <Row gap={12}>
+            <Row gap={12} wrap>
               <Copy kind="numericSmall">{formatClock(interval)}</Copy>
               <Button title="Reset timer" variant="ghost" size="sm" inline disabled={busy}
                 onPress={() => { void run(() => store.timer("interval")); }} />
