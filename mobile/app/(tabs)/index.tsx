@@ -22,7 +22,7 @@ import { useAuth } from '@clerk/expo';
 import * as ImagePicker from 'expo-image-picker';
 import { ShareIntentModule } from 'expo-share-intent';
 
-import { Text, Input, Button, useColors } from '@/components/Themed';
+import { IconButton, Text, Input, Button, useColors } from '@/components/Themed';
 import ExtractionProgress from '@/components/ExtractionProgress';
 import { ImportSettingsPanel, ImportHelpPanel } from '@/components/ImportPanels';
 import RecipeChatModal from '@/components/RecipeChatModal';
@@ -648,12 +648,13 @@ export default function ExtractScreen() {
             {selectedImages.map((image, index) => (
               <RNView key={index} style={styles.galleryImageContainer}>
                 <Image source={{ uri: image.uri }} style={styles.galleryImage} />
-                <TouchableOpacity
-                  style={[styles.galleryRemoveButton, { backgroundColor: colors.error }]}
+                <IconButton
+                  icon="close-circle"
+                  accessibilityLabel={`Remove page ${index + 1}`}
                   onPress={() => removeImage(index)}
-                >
-                  <Ionicons name="close" size={16} color="#FFFFFF" />
-                </TouchableOpacity>
+                  color={colors.text}
+                  style={[styles.galleryRemoveButton, { backgroundColor: colors.backgroundElevated }]}
+                />
                 <RNView style={[styles.galleryImageNumber, { backgroundColor: colors.tint }]}>
                   <Text style={styles.galleryImageNumberText}>{index + 1}</Text>
                 </RNView>
@@ -1064,9 +1065,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },

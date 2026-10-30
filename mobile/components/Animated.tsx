@@ -3,8 +3,8 @@
  * Provides smooth, performant animations throughout the app.
  */
 
-import { ReactNode, useEffect, useState } from 'react';
-import { Pressable, PressableProps, View, ViewStyle, StyleProp } from 'react-native';
+import { ReactNode, useEffect, useRef, useState } from 'react';
+import { Animated as NativeAnimated, Easing as NativeEasing, Platform, Pressable, PressableProps, View, ViewStyle, StyleProp } from 'react-native';
 import { MotiView } from 'moti';
 import Animated, {
   Easing,
@@ -20,7 +20,7 @@ import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 export { useInitialListEntrance } from '@/lib/listAnimation';
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const AnimatedPressable = NativeAnimated.createAnimatedComponent(Pressable);
 
 // ============================================================
 // Staggered List Animation
@@ -83,7 +83,8 @@ function EnteringListItem({ children, index, delay, style }: Required<Pick<Anima
 interface ScalePressableProps extends Omit<PressableProps, 'style'> {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
-  scaleValue?: number; // How much to scale down (default 0.97)
+  /** @deprecated Press feedback uses the same 0.97 scale on every control. */
+  scaleValue?: number;
 }
 
 /**
@@ -93,33 +94,37 @@ interface ScalePressableProps extends Omit<PressableProps, 'style'> {
 export function ScalePressable({
   children,
   style,
-  scaleValue = 0.97,
+  scaleValue: _scaleValue,
   onPressIn,
   onPressOut,
   ...props
 }: ScalePressableProps) {
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = (e: any) => {
-    scale.value = withSpring(scaleValue, { damping: 15, stiffness: 400 });
-    onPressIn?.(e);
+  const reduceMotion = useReduceMotion();
+  const progress = useRef(new NativeAnimated.Value(0)).current;
+  const animate = (pressed: boolean) => {
+    progress.stopAnimation();
+    NativeAnimated.timing(progress, {
+      toValue: pressed ? 1 : 0,
+      duration: pressed ? 120 : 160,
+      easing: NativeEasing.bezier(0.23, 1, 0.32, 1),
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
   };
 
-  const handlePressOut = (e: any) => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 400 });
-    onPressOut?.(e);
-  };
+  useEffect(() => () => progress.stopAnimation(), [progress]);
 
   return (
     <AnimatedPressable
-      style={[style, animatedStyle]}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
       {...props}
+      style={[
+        style,
+        {
+          opacity: props.disabled ? 0.5 : progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.85] }),
+          transform: [{ scale: reduceMotion ? 1 : progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.97] }) }],
+        },
+      ]}
+      onPressIn={(e) => { if (!props.disabled) animate(true); onPressIn?.(e); }}
+      onPressOut={(e) => { animate(false); onPressOut?.(e); }}
     >
       {children}
     </AnimatedPressable>

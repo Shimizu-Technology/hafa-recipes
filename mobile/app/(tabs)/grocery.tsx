@@ -203,7 +203,7 @@ function GroceryItemRow({
         accessibilityRole="button"
         accessibilityLabel={`Remove ${item.name}`}
       >
-        <Ionicons name="trash-outline" size={20} color={colors.error} />
+        <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
       </TouchableOpacity>
     </ScalePressable>
   );
@@ -815,6 +815,9 @@ export default function GroceryScreen() {
               }} 
               style={styles.headerIconButton}
               disabled={isRefetching}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh grocery list"
+              accessibilityState={{ disabled: isRefetching, busy: isRefetching }}
             >
               <Ionicons 
                 name="refresh-outline" 
@@ -823,7 +826,9 @@ export default function GroceryScreen() {
               />
             </TouchableOpacity>
             <TouchableOpacity 
-              onPress={() => setShowSettings(true)} 
+              onPress={() => setShowSettings(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Grocery list settings"
               style={styles.headerIconButton}
             >
               <Ionicons name="settings-outline" size={22} color={colors.actionText} />
@@ -1060,6 +1065,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerIconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: spacing.sm,
   },
   subtitleRow: {

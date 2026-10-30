@@ -1050,36 +1050,36 @@ export default function DiscoverScreen() {
               </TouchableOpacity>
             )}
             {sourceFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {sourceFilter}
                 </Text>
               </RNView>
             )}
             {timeFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.success + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.success }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {timeFilter === 'quick' ? '<30 min' : timeFilter === 'medium' ? '30-60 min' : '60+ min'}
                 </Text>
               </RNView>
             )}
             {selectedTags.length > 0 && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {selectedTags.length} tag{selectedTags.length > 1 ? 's' : ''}
                 </Text>
               </RNView>
             )}
             {mealTypeFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>
                   {mealTypeFilter[0].toUpperCase() + mealTypeFilter.slice(1)}
                 </Text>
               </RNView>
             )}
             {hideMyRecipes && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.tint + '20' }]}>
-                <Text style={[styles.activeFilterText, { color: colors.actionText }]}>Mine hidden</Text>
+              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
+                <Text style={[styles.activeFilterText, { color: colors.text }]}>Mine hidden</Text>
               </RNView>
             )}
             <TouchableOpacity
@@ -1490,7 +1490,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     // Subtle shadow for depth
-    ...shadows.card,
   },
   // Grid view styles
   gridRow: {
