@@ -59,3 +59,12 @@ it("exclusive people filters expose radio semantics and selected state", async (
   expect(button.props.accessibilityRole).toBe("radio");
   expect(button.props.accessibilityState.checked).toBe(true);
 });
+
+it("exposes independent chips as checked controls in native and browser accessibility trees", () => {
+  act(() => { view = create(createElement(Chip, { label: "Dumbbell", selected: true, onPress() {} })); });
+  const chip = view!.root.findByType("Pressable" as never);
+  expect(chip.props.accessibilityRole).toBe("checkbox");
+  expect(chip.props.accessibilityState.checked).toBe(true);
+  expect(chip.props["aria-checked"]).toBe(true);
+  expect(chip.props["aria-pressed"]).toBeUndefined();
+});
