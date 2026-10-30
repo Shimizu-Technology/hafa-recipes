@@ -2533,3 +2533,98 @@ async def test_unexpected_preparation_failure_is_safe_and_logged(coach_api, monk
         assert message.proposals["state"] == "failed" and message.proposals["actions"] == []
         assert "PRIVATE" not in message.assistant_message
         assert await db.scalar(select(func.count()).select_from(WorkoutProposal)) == 0
+
+
+async def quick_day_program(api, *, missed=False):
+    from datetime import date
+    from zoneinfo import ZoneInfo
+
+    from app.domains.workouts.schemas import TrainingProfile
+
+    async with api.sessions() as db:
+        stored = await db.get(WorkoutsProfile, "owner")
+        stored.content = stored.content | {"available_days": list(range(7))}
+        profile = TrainingProfile.model_validate(stored.content)
+        await db.commit()
+    today = now().astimezone(ZoneInfo(profile.timezone)).date()
+    proposal = build_program(profile, today, weeks=1).model_dump(mode="json")
+    original = proposal["sessions"][0]
+    proposal["sessions"] = [{**original, "id": "today", "date": today.isoformat()}]
+    if missed:
+        proposal["sessions"] = [
+            {**original, "id": "missed-a", "date": (today - timedelta(days=4)).isoformat()},
+            {**original, "id": "missed-b", "date": (today - timedelta(days=2)).isoformat()},
+            {**original, "id": "future", "date": (today + timedelta(days=4)).isoformat()},
+        ]
+    assert date.fromisoformat(proposal["sessions"][0]["date"])
+    response = await api.client.post("/api/v1/workouts/programs", headers=GENERATION,
+                                     json={"title": "Day edits", "proposal": proposal})
+    assert response.status_code == 201, response.text
+    return response.json(), today
+
+
+async def test_quick_today_preview_apply_undo_and_stale_context(coach_api):
+    api = coach_api
+    row, _ = await quick_day_program(api)
+    response = await api.client.post("/api/v1/workouts/adaptation-proposals", headers=GENERATION,
+                                    json={"program_id": row["id"], "program_revision": 1,
+                                          "session_id": "today", "profile_revision": 1, "minutes": 15})
+    assert response.status_code == 200, response.text
+    proposal = response.json()
+    assert proposal["proposal"]["status"] == "ready", proposal
+    path = f'/api/v1/workouts/quick-training-proposals/{proposal["id"]}'
+    assert (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()["revision"] == 1
+    applied = await api.client.post(path + "/accept", headers=GENERATION)
+    assert applied.status_code == 200, applied.text
+    replay = await api.client.post(path + "/accept", headers=GENERATION)
+    assert replay.json() == applied.json()
+    changed = (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()
+    assert changed["content"]["proposal"]["sessions"][0]["workout"]["estimated_minutes"] <= 15
+    undone = await api.client.post(path + "/undo", headers=GENERATION)
+    assert undone.status_code == 200, undone.text
+    restored = (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()
+    assert restored["content"] == row["content"]
+    assert (await api.client.post(path + "/accept", headers=GENERATION)).status_code == 409
+    fresh = await api.client.post("/api/v1/workouts/adaptation-proposals", headers=GENERATION,
+                                 json={"program_id": row["id"], "program_revision": 3,
+                                       "session_id": "today", "profile_revision": 1, "minutes": 15})
+    await api.client.put("/api/v1/workouts/readiness", headers=GENERATION, json={"state": "unknown"})
+    assert (await api.client.post(f'/api/v1/workouts/quick-training-proposals/{fresh.json()["id"]}/accept', headers=GENERATION)).status_code == 409
+
+
+async def test_missed_day_shift_avoids_other_plans_and_preserves_future_then_undo(coach_api):
+    api = coach_api
+    row, today = await quick_day_program(api, missed=True)
+    other = {**row["content"], "title": "Occupied day", "proposal": {
+        **row["content"]["proposal"], "sessions": [{**row["content"]["proposal"]["sessions"][0], "date": today.isoformat(), "id": "occupied"}]}}
+    assert (await api.client.post("/api/v1/workouts/programs", headers=GENERATION, json=other)).status_code == 201
+    response = await api.client.post("/api/v1/workouts/missed-session-proposals", headers=GENERATION,
+                                    json={"program_id": row["id"], "program_revision": 1, "profile_revision": 1})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    sessions = body["proposal"]["program"]["proposal"]["sessions"]
+    assert len({s["date"] for s in sessions}) == 3
+    assert all(s["date"] > today.isoformat() for s in sessions if s["id"].startswith("missed"))
+    assert next(s for s in sessions if s["id"] == "future")["date"] == (today + timedelta(days=4)).isoformat()
+    path = f'/api/v1/workouts/quick-training-proposals/{body["id"]}'
+    await enroll(api, other=True)
+    assert (await api.client.post(path + "/accept", headers=GENERATION | {"X-Test-User": "other"})).status_code == 404
+    accepted = await api.client.post(path + "/accept", headers=GENERATION)
+    assert accepted.status_code == 200, accepted.text
+    undone = await api.client.post(path + "/undo", headers=GENERATION)
+    assert undone.status_code == 200, undone.text
+    assert (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()["content"] == row["content"]
+
+
+def test_today_adjustment_guard_rejects_recorded_and_unrelated_changes():
+    from copy import deepcopy
+    from datetime import date
+
+    from app.domains.workouts.quick_training import today_guard
+    before = {"proposal": {"sessions": [{"id": "a", "date": "2026-10-31", "workout": {}}, {"id": "b", "date": "2026-11-04", "workout": {}}]}}
+    with pytest.raises(HTTPException):
+        today_guard(before, before, {"a"}, {"a"}, date(2026, 10, 31))
+    after = deepcopy(before)
+    after["proposal"]["sessions"][1]["date"] = "2026-11-05"
+    with pytest.raises(HTTPException):
+        today_guard(before, after, {"a"}, set(), date(2026, 10, 31))

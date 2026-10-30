@@ -1,3 +1,4 @@
+import { AdjustTraining } from "./adjust-training";
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
@@ -17,6 +18,8 @@ import type { Program, ScheduledSession } from "@/lib/models";
 export function TrainToday() {
   const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjust, setAdjust] = useState<{ program: Program; session?: ScheduledSession } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
@@ -49,6 +52,7 @@ export function TrainToday() {
   const planned = activePrograms.flatMap((p) => p.sessions.filter((s) => s.date === date && !isDone(p, s)).map((s) => ({ program: p, session: s })))[0];
   const doneToday = activePrograms.some((p) => p.sessions.some((s) => s.date === date && isDone(p, s)));
   const next = nextPlannedSession(activePrograms, date, isDone);
+  const missedPlan = activePrograms.find(p => p.sessions.some(s => s.date < date && !isDone(p, s)));
   const missed = activePrograms.flatMap((p) => p.sessions.filter((s) => s.date < date && !isDone(p, s)));
   const dayOf = (iso: string | undefined) => {
     const at = new Date(iso ?? "");
@@ -111,6 +115,7 @@ export function TrainToday() {
       action: <>
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}
         <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => { void start(planned.program, planned.session); }} />
+        <Button title="Adjust today" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} />
       </> };
   } else if (!profile.data) {
     hero = { title: "Set up your training", detail: "Add your goal and free days, then build a plan that fits your week.",
@@ -169,6 +174,7 @@ export function TrainToday() {
             {missed.length} earlier {missed.length === 1 ? "session needs" : "sessions need"} a new date. Tap one below to move it or
             train it now; nothing moves on its own.
           </Copy>}
+          {!!missedPlan && !active && <Button title="Missed sessions" secondary onPress={() => { setAdjust({ program: missedPlan }); setAdjustOpen(true); }} />}
           {!ancestryReady && <>
             <Copy kind="small" tone="muted">Done-day checkmarks are paused while we check your corrected results. Your saved results are in Progress.</Copy>
             {!ancestry.isPending && <Button title="Check again" variant="secondary" size="sm" inline onPress={() => { void ancestry.refetch(); }} />}
@@ -179,6 +185,7 @@ export function TrainToday() {
         <ListRow icon="chatbubble-ellipses-outline" title="Adjust with coach" detail="Short on time, sore or not feeling 100%?" onPress={() => router.push("/coach")} />
         <ListRow icon="walk-outline" title="Log an activity you did" onPress={() => router.push("/activity")} />
       </ListGroup>
+      {adjust && <AdjustTraining key={`${adjust.program.id}:${adjust.session?.id ?? "missed"}`} visible={adjustOpen} onClose={() => setAdjustOpen(false)} program={programs.data?.find(p => p.id === adjust.program.id) ?? adjust.program} session={adjust.session} />}
       {!!error && <Notice error>{error}</Notice>}
     </>
   );

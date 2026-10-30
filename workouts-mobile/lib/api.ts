@@ -1,3 +1,4 @@
+import type { DayProposal } from "@/components/adjust-training";
 import { streamCoachRequest } from "./coach-stream";
 import {
   activityQuery,
@@ -1054,6 +1055,12 @@ export function createWorkoutsApi(
           )
         ).data
       );
+    },
+    async previewDay(body: { program_id: string; program_revision: number; profile_revision: number; session_id?: string; minutes?: number }, generation: number) {
+      return (await request<DayProposal>(body.session_id ? "/adaptation-proposals" : "/missed-session-proposals", "POST", body, { generation })).data;
+    },
+    async applyDay(id: string, action: "accept" | "undo", generation: number) {
+      return (await request<{ state: string }>(`/quick-training-proposals/${encodeURIComponent(id)}/${action}`, "POST", undefined, { generation })).data;
     },
     async programs() {
       return (

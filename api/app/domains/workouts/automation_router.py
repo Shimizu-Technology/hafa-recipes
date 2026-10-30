@@ -597,8 +597,19 @@ class ProgramProposalRequest(DomainModel):
 
 
 class AdaptRequest(DomainModel):
-    workout_id: UUID
-    workout_revision: int = Field(strict=True, ge=1)
+    workout_id: UUID | None = None
+    workout_revision: int | None = Field(default=None, strict=True, ge=1)
+    program_id: UUID | None = None
+    program_revision: int | None = Field(default=None, strict=True, ge=1)
+    session_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def exactly_one_source(self):
+        saved = self.workout_id is not None and self.workout_revision is not None
+        planned = self.program_id is not None and self.program_revision is not None and self.session_id is not None
+        if saved == planned or (saved and any(v is not None for v in (self.program_id, self.program_revision, self.session_id))) or (planned and (self.workout_id is not None or self.workout_revision is not None)):
+            raise ValueError("Choose one saved workout or scheduled session with its revision")
+        return self
     profile_revision: int = Field(strict=True, ge=1)
     minutes: int | None = Field(default=None, strict=True, ge=5, le=180)
 
@@ -702,6 +713,9 @@ async def propose_adaptation(
     request: AdaptRequest, user: User, db: Database, generation: Generation
 ):
     await membership_for(db, user.id, generation=generation, write=True)
+    if request.program_id is not None:
+        from app.domains.workouts.quick_training import prepare
+        return proposal_response(await prepare(db, user.id, generation, request))
     profile, revision = await effective_profile(db, user.id, generation, request.profile_revision)
     source = await owned_record(db, WorkoutRecord, request.workout_id, user.id, generation)
     if source.revision != request.workout_revision:
@@ -966,3 +980,23 @@ async def accept_adaptation(proposal_id: UUID, user: User, db: Database, generat
     await refresh_optional_source_metadata(db, saved)
     await db.commit()
     return record_response(saved)
+
+
+class MissedSessionsRequest(DomainModel):
+    program_id: UUID
+    program_revision: int = Field(strict=True, ge=1)
+    profile_revision: int = Field(strict=True, ge=1)
+
+
+@router.post("/missed-session-proposals")
+async def propose_missed_sessions(request: MissedSessionsRequest, user: User, db: Database, generation: Generation):
+    from app.domains.workouts.quick_training import prepare
+    await membership_for(db, user.id, generation=generation, write=True)
+    return proposal_response(await prepare(db, user.id, generation, request, missed=True))
+
+
+@router.post("/quick-training-proposals/{proposal_id}/{operation}")
+async def apply_quick_training(proposal_id: UUID, operation: Literal["accept", "undo"], user: User, db: Database, generation: Generation):
+    from app.domains.workouts.quick_training import apply
+    await membership_for(db, user.id, generation=generation, write=True)
+    return await apply(db, user.id, generation, proposal_id, operation)
