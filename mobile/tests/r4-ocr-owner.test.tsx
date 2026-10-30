@@ -188,9 +188,9 @@ describe('OCRReviewScreen confidence notice', () => {
     mocks.params.sourceType = 'photo';
   });
 
-  it('R4 hides A OCR recipe after same-subject stable-owner retirement', async () => {
+  it.each([true, false])('R4 hides A OCR recipe after same-subject stable-owner retirement (owner parameter %s)', async hasOwner => {
     await offlineRecipes.clear(); await offlineRecipes.bindSubject('subject'); await offlineRecipes.verify('subject','owner-a');
-    mocks.params.captureOwnerId = 'owner-a';
+    (mocks.params as any).captureOwnerId = hasOwner ? 'owner-a' : undefined;
     const renderer = await renderRecipe({title:'A private family recipe'});
     try {
       expect(JSON.stringify(renderer.toJSON())).toContain('A private family recipe');

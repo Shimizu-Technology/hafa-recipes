@@ -35,10 +35,16 @@ import { CaptureAccountChangedError, captureSaveFailure } from '@/lib/captureSav
 
 export default function OCRReviewScreen() {
   const generation = useRecipeOwnerGeneration();
-  return <OCRReviewContent key={generation} />;
+  const params = useLocalSearchParams<{ captureId?: string; recipe?: string; captureOwnerId?: string }>();
+  const { ownerId } = useImportInbox();
+  const route = params.captureId ?? params.recipe;
+  const origin = useRef({ route, owner: params.captureOwnerId ?? ownerId });
+  if (origin.current.route !== route) origin.current = { route, owner: params.captureOwnerId ?? ownerId };
+  if (!origin.current.owner && ownerId === JSON.parse(generation)[1]) origin.current.owner = ownerId;
+  return <OCRReviewContent key={generation} originalOwner={origin.current.owner} />;
 }
 
-function OCRReviewContent() {
+function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -69,7 +75,7 @@ function OCRReviewContent() {
   const authority = useRecipeOwnerGeneration();
   const activeOwner = JSON.parse(authority)[1] as string | null;
   const inbox = useImportInbox();
-  const boundOwner = useRef<string | null>(captureOwnerId ?? inbox.ownerId);
+  const boundOwner = useRef<string | null>(captureOwnerId ?? originalOwner);
   if (!boundOwner.current && inbox.ownerId) boundOwner.current = inbox.ownerId;
   const captureOwner = useRef({ ownerId: inbox.ownerId, mounted: true });
   captureOwner.current.ownerId = inbox.ownerId;
