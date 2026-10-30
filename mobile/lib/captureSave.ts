@@ -42,7 +42,7 @@ export async function saveCaptureOrRecover(
     input.requestGuard?.();
     let draftStorageError: string | undefined;
     if (input.expected_owner_id) await privateRecipeDrafts.write(privateRecipeDrafts.lease(input.expected_owner_id), 'recovery', {
-      captureId: request.capture_id, failure, recipe: { id: request.capture_id, extracted: input.extracted, source_type: input.source_type, is_public: input.is_public },
+      captureId: request.capture_id, failure, request: { capture_id: request.capture_id, extracted: input.extracted, source_type: input.source_type, is_public: input.is_public, original_pages: input.original_pages }, recipe: { id: request.capture_id, extracted: input.extracted, source_type: input.source_type, is_public: input.is_public },
     }).catch(() => { draftStorageError = 'This recipe is still open, but its local draft could not be written. Keep Håfa open until you save it.'; });
     return {
       pathname: '/ocr-review' as const,

@@ -46,7 +46,6 @@ import { CaptureAccountChangedError, saveCaptureOrRecover } from '@/lib/captureS
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import {
   getImageImportFailurePresentation,
-  getManualImageDraftRoute,
 } from '@/lib/imageImportClassification';
 
 export default function ExtractScreen() {
@@ -138,10 +137,10 @@ export default function ExtractScreen() {
     const savedRecipe = saved.request ? { ...saved.recipe, extracted: saved.request.extracted, source_type: saved.request.source_type, is_public: saved.request.is_public } : saved.recipe;
     router.push(saved.failure && saved.failure.kind !== 'invalid' ? {
       pathname: '/ocr-review', params: { recipe: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-        originalPages: JSON.stringify(saved.request?.original_pages || []), captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
+        originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
         saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message },
     } : { pathname: '/edit-capture', params: { initialData: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-      originalPages: JSON.stringify(saved.request?.original_pages || []), captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
+      originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
   });
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
@@ -426,11 +425,11 @@ export default function ExtractScreen() {
                 text: 'Use Image & Enter Manually',
                 onPress: () => {
                   try { guardOwner(); } catch { return; }
-                  const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
-                  if (!draftRoute) return;
-                  // Keep every selected source on Import so multi-page recovery
-                  // remains available if the user returns from the manual draft.
-                  router.push(draftRoute);
+                  router.push({ pathname: '/edit-capture', params: {
+                    initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
+                    captureId: selectedInboxId ?? Crypto.randomUUID(), captureOwnerId: originalOwner,
+                    captureSource: 'photo', isPublic: 'false', originalPages: JSON.stringify(selectedImages),
+                  } });
                 },
               },
               { text: 'Review Images', style: 'cancel' },

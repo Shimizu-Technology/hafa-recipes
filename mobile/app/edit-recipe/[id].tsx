@@ -300,7 +300,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
 
   const inbox = useImportInbox();
   const localDraft = usePrivateRecipeDraft(capture?.ownerId ?? null, 'recovery', {
-    recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
+    originalPages: capture?.originalPages, recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
     recipeComponents, ingredients, steps,
   }, !!capture && !!title, saved => {
     if (!saved.ingredients) return;

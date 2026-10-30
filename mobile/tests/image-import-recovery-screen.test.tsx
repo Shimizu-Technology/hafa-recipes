@@ -512,11 +512,11 @@ describe('classified image recovery', () => {
     await act(async () => recoverAction.onPress());
 
     expect(mocks.push).toHaveBeenCalledWith({
-      pathname: '/add-recipe',
+      pathname: '/edit-capture',
       params: {
-        captureSource: 'photo',
-        fromOcr: 'true',
-        initialImageUri: 'file:///recipe-front.jpg',
+        initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
+        captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a',
+        captureSource: 'photo', isPublic: 'false', originalPages: expect.any(String),
       },
     });
     expect(renderer!.root.findAllByType(
