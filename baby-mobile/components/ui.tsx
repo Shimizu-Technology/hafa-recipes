@@ -589,6 +589,8 @@ export function Chips({
             }}
             style={({ pressed: down }) => ({
               minHeight: 44,
+              flexShrink: scroll ? 0 : 1,
+              maxWidth: scroll ? undefined : "100%",
               paddingHorizontal: 16,
               paddingVertical: 10,
               borderRadius: 23,
