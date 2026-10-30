@@ -501,7 +501,6 @@ export default function GroceryScreen() {
   const handleAddItem = (keepInputFocused = false) => {
     if (!newItemName.trim()) return;
     
-    haptics.success();
     
     // Auto-expand "Other Items" section since that's where new items go
     if (
@@ -521,6 +520,7 @@ export default function GroceryScreen() {
       { name: newItemName.trim() },
       {
         onSuccess: () => {
+          haptics.success();
           setNewItemName('');
           setSearchQuery('');
           if (keepInputFocused) {

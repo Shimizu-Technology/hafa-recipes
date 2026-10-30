@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   alert: vi.fn(),
   share: vi.fn(),
   refetch: vi.fn(),
+  addItem: vi.fn(),
+  success: vi.fn(),
   focusCallback: vi.fn() as () => void,
   routerPush: vi.fn(),
   routerSetParams: vi.fn(),
@@ -127,7 +129,7 @@ vi.mock('@/utils/haptics', () => ({
   haptics: {
     light: vi.fn(),
     medium: vi.fn(),
-    success: vi.fn(),
+    success: mocks.success,
     warning: vi.fn(),
   },
 }));
@@ -182,7 +184,7 @@ function mutation() {
 }
 
 vi.mock('@/hooks/useGrocery', () => ({
-  useAddGroceryItem: mutation,
+  useAddGroceryItem: () => ({ ...mutation(), mutate: mocks.addItem }),
   useClearAllItems: mutation,
   useClearCheckedItems: mutation,
   useDeleteGroceryItem: mutation,
@@ -250,7 +252,21 @@ describe('GroceryScreen shopping views', () => {
     mocks.refetch.mockReset();
     mocks.focusCallback = vi.fn();
     mocks.alert.mockReset();
+    mocks.addItem.mockReset(); mocks.success.mockClear();
     mocks.share.mockReset();
+  });
+
+  it('waits for the add mutation to succeed before confirming with haptics', async () => {
+    const r = createRoot({ textComponentTypes: ['Text'] });
+    await act(async () => r.render(<GroceryScreen />));
+    const input = r.container.queryAll(n => n.type === 'TextInput')[0];
+    await act(async () => input.props.onChangeText('Rice'));
+    await act(async () => r.container.queryAll(n => n.type === 'TextInput')[0].props.onSubmitEditing());
+    expect(mocks.addItem).toHaveBeenCalledOnce();
+    expect(mocks.success).not.toHaveBeenCalled();
+    await act(async () => mocks.addItem.mock.calls[0][1].onSuccess());
+    expect(mocks.success).toHaveBeenCalledOnce();
+    await act(async () => r.unmount());
   });
 
   it('revalidates an aged shared list but leaves a personal list alone on focus', async () => {
