@@ -747,7 +747,7 @@ it("keeps the existing Coach entry reachable from Today", async () => {
   const { router } = await import("expo-router");
   fixture.available = true;
   await mount();
-  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Adjust with coach")!;
+  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Ask Coach")!;
   expect(coach.props.icon).toBe("chatbubble-ellipses-outline");
   await act(async () => coach.props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/coach");
