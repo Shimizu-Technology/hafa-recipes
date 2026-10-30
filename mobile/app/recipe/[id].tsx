@@ -1,7 +1,8 @@
+import { guestRecipeIntent, type GuestRecipeAction } from '@/lib/guestRecipeIntent';
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRecipeTabScroll } from '@/hooks/useRecipeTabScroll';
 import { recipeCost, recipeLoadError, recipeDetailView } from '@/lib/recipeDetailPresentation';
 import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
@@ -158,7 +159,9 @@ export default function RecipeDetailScreen() {
   const [showRecipeAppeal, setShowRecipeAppeal] = useState(false);
   const [androidMenuActions, setAndroidMenuActions] = useState<RecipeMenuAction[] | null>(null);
   const [showIngredientsRef, setShowIngredientsRef] = useState(false); // Collapsed by default
-  const { userId } = useAuth();
+  const { userId, sessionId } = useAuth();
+  const activeSession = useRef(sessionId);
+  activeSession.current = sessionId;
   const { isRefreshingNutrition, nutritionError, refreshNutrition } = useNutritionRefresh(recipe?.id, recipe?.content_revision, userId, refetch);
   const { user } = useUser();
   const reportMutation = useCreateSafetyReport();
@@ -326,8 +329,26 @@ export default function RecipeDetailScreen() {
     );
   };
 
+  const requireRecipeAccount = (action: GuestRecipeAction, proceed: () => void) => {
+    if (userId) { proceed(); return; }
+    guestRecipeIntent.start(id, action);
+    router.push('/(auth)/sign-in');
+  };
+
+  useEffect(() => {
+    if (!recipe || !userId || !sessionId) return;
+    const action = guestRecipeIntent.take(id, sessionId);
+    if (action === 'save') saveMutation.mutate(id, { onSuccess: (result) => {
+      if (activeSession.current === sessionId && result.saved) showToast({ message: 'Saved to your library', tone: 'success' });
+    } });
+    if (action === 'collection') setShowCollectionModal(true);
+    if (action === 'plan') router.push(appRoutes.plannerRecipe(id));
+    if (action === 'chat') setShowChatModal(true);
+  }, [id, recipe, userId, sessionId]);
+
   const handleSaveToggle = () => {
     if (isSavePending) return;
+    if (!userId) { requireRecipeAccount('save', () => undefined); return; }
     if (isSaved) {
       unsaveMutation.mutate(id);
     } else {
@@ -381,7 +402,7 @@ export default function RecipeDetailScreen() {
     const canShowReExtract = canReExtract && (isOwner || isAdmin);
     const actions: RecipeMenuAction[] = isOwner
       ? [
-          { label: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+          { label: 'Add to Collection', onPress: () => requireRecipeAccount('collection', () => setShowCollectionModal(true)) },
           { label: 'Edit Recipe', onPress: () => router.push(`/edit-recipe/${id}`) },
           { label: 'Version History', onPress: () => setShowVersionHistory(true) },
           ...(canReExtract ? [{ label: 'Re-extract with AI', onPress: handleReExtract }] : []),
@@ -392,7 +413,7 @@ export default function RecipeDetailScreen() {
         ]
       : [
           { label: isSaved ? 'Remove from Library' : 'Save to Library', onPress: handleSaveToggle },
-          { label: 'Add to Collection', onPress: () => setShowCollectionModal(true) },
+          { label: 'Add to Collection', onPress: () => requireRecipeAccount('collection', () => setShowCollectionModal(true)) },
           ...(canShowReExtract ? [{ label: 'Re-extract with AI', onPress: handleReExtract }] : []),
           ...(recipe.is_public
             ? [{
@@ -712,7 +733,7 @@ export default function RecipeDetailScreen() {
           headerRight: () => (
             <RNView style={styles.headerButtons}>
               <TouchableOpacity
-                onPress={() => setShowChatModal(true)}
+                onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))}
                 style={styles.headerButton}
                 accessibilityRole="button"
                 accessibilityLabel="Ask about this recipe"
@@ -985,6 +1006,24 @@ export default function RecipeDetailScreen() {
                 />
               </TouchableOpacity>
             )}
+
+            <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+              {!isOwner && <TouchableOpacity onPress={handleSaveToggle} style={styles.headerButton}
+                accessibilityRole="button" accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
+                accessibilityState={{ selected: isSaved, disabled: isSavePending }} disabled={isSavePending}>
+                <Text style={{ color: colors.actionText }}>{isSaved ? 'Saved' : 'Save'}</Text>
+              </TouchableOpacity>}
+              {!userId && <>
+                <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Plan recipe"
+                  onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id)))}>
+                  <Text style={{ color: colors.actionText }}>Plan</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Add recipe to collection"
+                  onPress={() => requireRecipeAccount('collection', () => setShowCollectionModal(true))}>
+                  <Text style={{ color: colors.actionText }}>Collect</Text>
+                </TouchableOpacity>
+              </>}
+            </RNView>
 
             {/* Public badge for non-owner viewing public recipe */}
             {!isOwner && recipe.is_public && (
