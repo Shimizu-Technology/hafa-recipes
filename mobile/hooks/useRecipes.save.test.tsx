@@ -5,11 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSaveRecipe, useUnsaveRecipe, recipeKeys } from './useRecipes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ subject: 'viewer', save: vi.fn(), unsave: vi.fn(), reconcile: vi.fn(), toast: vi.fn(), success: vi.fn() }));
+const m = vi.hoisted(() => ({ subject: 'viewer', scope: { userId: 'viewer', epoch: 0 }, save: vi.fn(), unsave: vi.fn(), reconcile: vi.fn(), toast: vi.fn(), success: vi.fn() }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: m.subject }) }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('react-native', () => ({ AppState: {} }));
-vi.mock('../lib/api', () => ({ api: { saveRecipe: m.save, unsaveRecipe: m.unsave } }));
+vi.mock('../lib/api', () => ({ api: { saveRecipe: m.save, unsaveRecipe: m.unsave, getAuthScope: () => m.scope } }));
 vi.mock('../lib/recipeCache', async (original) => ({ ...await original<typeof import('../lib/recipeCache')>(), reconcileSavedStateAfterError: m.reconcile }));
 vi.mock('../lib/toast', () => ({ showToast: m.toast }));
 vi.mock('../utils/haptics', () => ({ haptics: { success: m.success } }));
@@ -24,9 +24,41 @@ async function mount(saved = false) {
   await act(async () => r.render(<QueryClientProvider client={client}><Probe /></QueryClientProvider>));
   return { client, r, get mutation() { return mutation; }, async close() { await act(async () => r.unmount()); client.clear(); } };
 }
-beforeEach(() => { vi.clearAllMocks(); m.subject='viewer'; m.reconcile.mockResolvedValue(undefined); });
+beforeEach(() => { vi.clearAllMocks(); m.subject='viewer'; m.scope={ userId: 'viewer', epoch: 0 }; m.reconcile.mockResolvedValue(undefined); });
 
 describe('confirmed recipe saving', () => {
+  it.each(['success', 'failure'] as const)('ignores a late %s after unmount and an account transition', async (outcome) => {
+    const d = deferred<{ saved: boolean }>(); m.save.mockReturnValue(d.promise);
+    const h = await mount();
+    await act(async () => h.mutation.mutate('recipe-1'));
+    await act(async () => h.r.unmount());
+    m.scope={ userId: 'another-viewer', epoch: 1 };
+    h.client.clear(); h.client.setQueryData(['recipeSaved', 'recipe-1'], { is_saved: false });
+    await act(async () => { if (outcome === 'success') d.resolve({ saved: true }); else d.reject(new Error('late failure')); });
+    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: false });
+    expect(m.success).not.toHaveBeenCalled(); expect(m.toast).not.toHaveBeenCalled(); expect(m.reconcile).not.toHaveBeenCalled();
+    h.client.clear();
+  });
+
+  it('settles the same account cache after navigation without off-screen feedback', async () => {
+    const d = deferred<{ saved: boolean }>(); m.save.mockReturnValue(d.promise);
+    const h = await mount();
+    await act(async () => h.mutation.mutate('recipe-1'));
+    await act(async () => h.r.unmount());
+    await act(async () => d.resolve({ saved: true }));
+    expect(h.client.getQueryData(['recipeSaved', 'recipe-1'])).toEqual({ is_saved: true });
+    expect(m.success).not.toHaveBeenCalled(); h.client.clear();
+  });
+
+  it('rejects Retry after signing out and back into the same subject', async () => {
+    m.save.mockRejectedValue(new Error('offline')); const h = await mount();
+    await act(async () => { await h.mutation.mutateAsync('recipe-1').catch(() => {}); });
+    const retry = m.toast.mock.calls[0][0].onAction;
+    m.scope={ userId: 'viewer', epoch: 2 };
+    await act(async () => retry());
+    expect(m.save).toHaveBeenCalledOnce(); await h.close();
+  });
+
   it.each([false, true])('holds the settled state until the server confirms (initial saved=%s)', async (initial) => {
     const d = deferred<{ saved: boolean }>(); (initial ? m.unsave : m.save).mockReturnValue(d.promise);
     const h = await mount(initial);

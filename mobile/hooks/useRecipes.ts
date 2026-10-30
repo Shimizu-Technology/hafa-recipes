@@ -1652,28 +1652,28 @@ function useConfirmedRecipeSave(saved: boolean) {
   const mutation = useMutation({
     mutationFn: (recipeId: string) => saved ? api.saveRecipe(recipeId) : api.unsaveRecipe(recipeId),
     // Retain the initiating account for late responses and persistent Retry actions.
-    onMutate: () => ({ subject }),
+    onMutate: () => ({ subject, authScope: api.getAuthScope() }),
     onSuccess: (data, recipeId, context) => {
-      if (currentSubject.current !== context.subject) return;
+      if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) return;
       queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
       setDiscoverSavedState(queryClient, recipeId, data.saved);
-      if (data.saved === saved) haptics.success();
+      if (mounted.current && data.saved === saved) haptics.success();
     },
     onError: async (_error, recipeId, context) => {
-      if (currentSubject.current !== context?.subject) return;
+      if (currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
       await reconcileSavedStateAfterError(queryClient, recipeId);
-      if (currentSubject.current !== context?.subject) return;
+      if (!mounted.current || currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
       showToast({
         message: saved ? "Couldn't save. Try again" : "Couldn't remove. Try again",
         tone: 'error',
         actionLabel: 'Retry',
         onAction: () => {
-          if (mounted.current && context?.subject && currentSubject.current === context.subject) mutation.mutate(recipeId);
+          if (mounted.current && context?.subject && currentSubject.current === context.subject && api.getAuthScope() === context.authScope) mutation.mutate(recipeId);
         },
       });
     },
     onSettled: (_data, _error, _recipeId, context) => {
-      if (currentSubject.current !== context?.subject) return;
+      if (currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
       void queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
       void queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
     },
