@@ -92,9 +92,13 @@ struct BabyShareImageNormalizationTests {
     // bridges must reduce dimensions rather than enqueue an API-rejected file.
     var noise = Data(count: 2_048 * 2_048 * 4), seed: UInt32 = 12345
     noise.withUnsafeMutableBytes { buffer in
-      for index in 0..<buffer.count {
+      // Avoid per-byte generic Range iteration in unoptimized test builds.
+      // The seed, recurrence and byte order are identical to the original fixture.
+      var index = 0
+      while index < buffer.count {
         seed = seed &* 1664525 &+ 1013904223
         buffer[index] = UInt8(truncatingIfNeeded: seed >> 24)
+        index += 1
       }
     }
     guard let provider = CGDataProvider(data: noise as CFData),
