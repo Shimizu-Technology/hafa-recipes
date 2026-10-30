@@ -4,7 +4,7 @@ vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' },
   Directory: class { uri: string; constructor(...parts: string[]) { this.uri = parts.join('/') + '/'; } },
   File: class { constructor(public uri: string) {} get exists() { return scanFiles.has(this.uri); } delete() { scanFiles.delete(this.uri); } },
 }));
-vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { lease: (owner: string) => ({ owner }), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { read: vi.fn(async () => ({ captureId: mocks.params.captureId })), lease: (owner: string) => ({ owner }), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: mocks.patchInbox } }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.entries.filter((entry) => entry.state !== 'accepted') }) }));
 // @ts-expect-error Node-only source callback fixture runs in Vitest, outside Expo.
@@ -379,8 +379,8 @@ describe('OCRReviewScreen visibility', () => {
     });
     expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
     const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
-    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), 'recovery');
-    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), mocks.params.sourceType === 'text' ? 'paste' : 'scan');
+    expect(privateRecipeDrafts.remove).toHaveBeenCalledWith(expect.objectContaining({ owner: 'owner-a' }), 'recovery', expect.objectContaining({ captureId: mocks.params.captureId }));
+    // The store retires a scan receipt only when its pages match this recovery.
   });
 
   it('shows the validation cause and offers Edit instead of retrying a rejected payload', async () => {
@@ -430,7 +430,8 @@ describe('OCRReviewScreen visibility', () => {
     expect(route.params.originalPages).toBe(JSON.stringify(original_pages));
     Object.assign(mocks.params, route.params); mocks.replace.mockClear();
     const leaseSpy = vi.spyOn(privateRecipeDrafts, 'lease').mockImplementation(owner => drafts.lease(owner));
-    vi.mocked(privateRecipeDrafts.remove).mockImplementation((owner, kind) => drafts.remove(owner, kind));
+    vi.mocked(privateRecipeDrafts.read).mockImplementation((owner, kind) => drafts.read(owner, kind));
+    vi.mocked(privateRecipeDrafts.remove).mockImplementation((owner, kind, expected) => drafts.remove(owner, kind, expected));
     mocks.save.mockImplementation(async (request: any) => {
       expect(request.original_pages).toEqual(original_pages); expect(scanFiles.has(uri)).toBe(true);
       if (mocks.save.mock.calls.length === 1) throw new Error('503');
@@ -445,7 +446,7 @@ describe('OCRReviewScreen visibility', () => {
       expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
       expect(await drafts.read(lease, 'recovery')).toBeNull(); expect(await drafts.read(lease, 'scan')).toBeNull();
       expect(scanFiles.has(uri)).toBe(false);
-    } finally { await act(async () => renderer.unmount()); leaseSpy.mockRestore(); vi.mocked(privateRecipeDrafts.remove).mockImplementation(async () => undefined); }
+    } finally { await act(async () => renderer.unmount()); leaseSpy.mockRestore(); vi.mocked(privateRecipeDrafts.read).mockImplementation(async () => ({ captureId: mocks.params.captureId })); vi.mocked(privateRecipeDrafts.remove).mockImplementation(async () => undefined); }
   });
 
 });
