@@ -143,16 +143,19 @@ describe("Workouts native share generation", () => {
         writeFileSync(join(extension, file), plist.build({}));
       return config;
     };
+    const addResourceFile = vi.fn();
     try {
       const config = plugin({ name: "Workouts", slug: "workouts", mods: { ios: { xcodeproj: predecessor } } });
       expect(existsSync(extension)).toBe(false);
-      await config.mods.ios.xcodeproj({ ...config, modResults: { findTargetKey: (name: string) => name === '"ShareExtension"' ? "extension-target" : null, findPBXGroupKey: () => "extension-group", addResourceFile: vi.fn() }, modRequest: {
+      await config.mods.ios.xcodeproj({ ...config, modResults: { findTargetKey: (name: string) => name === '"ShareExtension"' ? "extension-target" : null, findPBXGroupKey: () => "extension-group", addResourceFile }, modRequest: {
         platformProjectRoot: directory, projectRoot: new URL("..", import.meta.url).pathname,
       } });
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
       const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
       expect(info.UIAppFonts).toEqual(["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"]);
       for (const font of info.UIAppFonts) expect(existsSync(join(extension, font))).toBe(true);
+      expect(addResourceFile.mock.calls).toEqual(info.UIAppFonts.map((font: string) =>
+        [font, { target: "extension-target" }, "extension-group"]));
       expect(plist.parse(readFileSync(join(extension, "ShareExtension.entitlements"), "utf8"))["keychain-access-groups"])
         .toEqual(["$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share"]);
     } finally { rmSync(directory, { recursive: true, force: true }); }
