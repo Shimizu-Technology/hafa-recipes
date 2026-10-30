@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  cachedOwner: undefined as { id: string } | undefined,
   alert: vi.fn(),
   getIdentity: vi.fn(),
   deleteAccount: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock('react-native', async () => {
     View: host('NativeView'),
   };
 });
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ clear: vi.fn(), getQueryData: vi.fn() }) }));
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ clear: vi.fn(), getQueryData: () => mocks.cachedOwner }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@clerk/expo', () => ({
   useAuth: () => ({ isSignedIn: true, isLoaded: true, sessionId: 'sess-1' }),
@@ -166,6 +167,7 @@ describe('SettingsScreen accessibility', () => {
   });
 
   beforeEach(() => {
+    mocks.cachedOwner = undefined;
     mocks.countError = false;
     mocks.showDeveloperTools = true;
     mocks.setThemePreference.mockClear();
@@ -173,7 +175,8 @@ describe('SettingsScreen accessibility', () => {
     mocks.refetchCount.mockClear();
   });
 
-  it('does not delete an account before its stable owner is known for local cleanup', async () => {
+  it.each([undefined, { id: 'previous-owner' }])('does not delete an account before its stable owner is known for local cleanup (cached %s)', async cached => {
+    mocks.cachedOwner = cached;
     mocks.alert.mockClear(); mocks.deleteAccount.mockReset().mockResolvedValue(undefined);
     mocks.getIdentity.mockRejectedValue(new Error('offline'));
     const renderer = await renderSettings();

@@ -203,9 +203,7 @@ export default function SettingsScreen() {
                     let accountDeleted = false;
                     let chatCleanupFailed = false;
                     try {
-                      let appUserId = queryClient.getQueryData<{ id: string }>(
-                        ['currentUserIdentity', user?.id],
-                      )?.id ?? JSON.parse(creationScope)[1] ?? undefined;
+                      let appUserId = JSON.parse(creationScope)[1] ?? undefined;
                       if (!appUserId) {
                         try {
                           appUserId = (await api.getCurrentUserIdentity()).id;
