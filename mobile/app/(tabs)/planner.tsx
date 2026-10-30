@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { api } from '@/lib/api';
 import * as Crypto from 'expo-crypto';
 import { useQuery } from '@tanstack/react-query';
@@ -314,6 +315,11 @@ export function MealSlot({
 }
 
 export default function PlannerScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <PlannerScreenContent key={generation} />;
+}
+
+function PlannerScreenContent() {
   const router = useRouter();
   const {
     date: requestedDateParam,

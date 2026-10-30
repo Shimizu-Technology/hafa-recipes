@@ -1,3 +1,4 @@
+import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation, useRecipeInfiniteQuery as useInfiniteQuery } from './useRecipeQuery';
 import { useQuery as useIdentityQuery } from '@tanstack/react-query';
 import { scopedRecipeKey, isCurrentRecipeKey, recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
@@ -9,7 +10,7 @@ import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
  * React Query hooks for recipe operations.
  */
 
-import { useQueryClient, keepPreviousData, type InfiniteData, type QueryClient, type MutateOptions } from '@tanstack/react-query';
+import { keepPreviousData, type InfiniteData, type QueryClient, type MutateOptions } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
@@ -1674,6 +1675,7 @@ export function useIsRecipeSaved(recipeId: string, enabled = true) {
 
 /** Save state and completion feedback follow the server, including after an ambiguous failure. */
 function useConfirmedRecipeSave(saved: boolean) {
+  const creationScope = recipeScope();
   const queryClient = useQueryClient();
   const { userId: subject } = useAuth();
   const mounted = useRef(true);
@@ -1684,7 +1686,8 @@ function useConfirmedRecipeSave(saved: boolean) {
   // Freeze before React Query can yield in onMutate. Retry reuses this exact lease.
   const freeze = (id: string, extraGuard?: () => void) => {
     const authScope = api.getAuthScope();
-    const authority = recipeScope();
+    const authority = creationScope;
+    assertRecipeScope(authority);
     const initiatingSubject = subject;
     const ownerId = queryClient.getQueryData<{ id: string }>(currentUserIdentityKey(subject))?.id;
     const current = () => {
@@ -1745,8 +1748,8 @@ function useConfirmedRecipeSave(saved: boolean) {
     onSettled: (data, error, intent, context, mutationContext) => { if (intent.current()) options.onSettled?.(data, error, intent.id, context, mutationContext); },
   });
   return { ...mutation, variables: mutation.variables?.id,
-    mutate: (id: string, options?: Options, guard?: () => void) => mutation.mutate(freeze(id, guard), callbacks(options)),
-    mutateAsync: (id: string, options?: Options, guard?: () => void) => mutation.mutateAsync(freeze(id, guard), callbacks(options)),
+    mutate: (id: string, options?: Options, guard?: () => void) => { if (creationScope === recipeScope()) mutation.mutate(freeze(id, guard), callbacks(options)); },
+    mutateAsync: async (id: string, options?: Options, guard?: () => void) => mutation.mutateAsync(freeze(id, guard), callbacks(options)),
   };
 }
 

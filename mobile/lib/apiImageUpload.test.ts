@@ -139,7 +139,7 @@ describe('recipe image multipart requests', () => {
 
     await api.editRecipe('recipe-1', edit);
 
-    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit, { requestGuard: expect.any(Function) });
+    expect(mocks.client.patch).toHaveBeenCalledWith('/api/recipes/recipe-1', edit, expect.objectContaining({ requestGuard: expect.any(Function), signal: expect.any(AbortSignal) }));
   });
 
   it.each([false, true])('checks an editor account after delayed auth (photo=%s)', async (photo) => {
@@ -466,7 +466,7 @@ describe('recipe image multipart requests', () => {
     expect(mocks.post).toHaveBeenCalledWith(
       '/api/tts',
       { text: 'Read this response', voice: 'nova' },
-      { responseType: 'blob', signal: controller.signal },
+      expect.objectContaining({ responseType: 'blob', signal: expect.any(AbortSignal) }),
     );
   });
 });

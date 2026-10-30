@@ -151,3 +151,14 @@ it('retires private alert text after owner change even with Cook Mode unmounted'
     expect(timer.alertStatus(1)).toBeUndefined();
   } finally { await act(async () => next.unmount()); await offlineRecipes.clear(); }
 });
+
+it('discards a retained cooking alert action rather than scheduling A text under B', async () => {
+  await offlineRecipes.bindSubject('subject'); await offlineRecipes.verify('subject','a');
+  const root=createRoot();
+  try {
+    await act(async()=>root.render(<Harness scope="a-retained-alert"/>));const old=timer.scheduleTimerNotification;
+    await act(async()=>{await offlineRecipes.verify('subject','b');});notifications.scheduleNotificationAsync.mockClear();
+    await act(async()=>{await old(1,60,'A private instruction');});
+    expect(notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  } finally {await act(async()=>root.unmount());await offlineRecipes.clear();}
+});

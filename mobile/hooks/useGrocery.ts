@@ -1,7 +1,9 @@
+import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
+import { useRecipeQueryClient as useQueryClient, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 import { ingredientToGroceryItem } from '@/lib/recipeTrust';
 /** Durable, account-scoped grocery synchronization hooks. */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '@/lib/api';
@@ -59,6 +61,7 @@ async function fetchAndCacheSnapshot(
   lease = getGroceryStorageLease(),
 ): Promise<GrocerySnapshot> {
   const serverSnapshot = await api.getGrocerySnapshot();
+  assertGroceryStorageLease(lease);
   void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
     console.warn('[Grocery Widget] Failed to publish snapshot:', error),
   );
@@ -144,9 +147,13 @@ async function commitMutations(
   lease: GroceryStorageLease,
   prepare: (snapshot: GrocerySnapshot) => GroceryMutationRequest[],
 ): Promise<GrocerySnapshot & { syncStatus: 'confirmed' | 'queued' }> {
+  const owner = recipeScope();
   return serializeGroceryMutation(async () => {
+    assertRecipeScope(owner);
     assertGroceryStorageLease(lease);
     let snapshot = await baseSnapshot(queryClient, confirmedOffline, lease);
+    assertRecipeScope(owner);
+    assertGroceryStorageLease(lease);
     const mutations = prepare(snapshot);
     if (mutations.length === 0) return { ...snapshot, syncStatus: 'queued' };
 
@@ -165,6 +172,7 @@ async function commitMutations(
         const response = await sendGroceryMutationWithRetry(mutation, (request) =>
           api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
         );
+        assertGroceryStorageLease(lease);
         void publishConfirmedGrocerySnapshot(response.snapshot).catch((error) =>
           console.warn('[Grocery Widget] Failed to publish mutation:', error),
         );
@@ -289,16 +297,21 @@ export function useGrocerySync(enabled = true) {
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const syncingRef = useRef<Promise<SyncResult> | null>(null);
 
+  const creationScope = recipeScope();
   const syncPendingChanges = useCallback(async (): Promise<SyncResult> => {
+    assertRecipeScope(creationScope);
     if (syncingRef.current) return syncingRef.current;
     const sync = serializeGroceryMutation(async () => {
+      assertRecipeScope(creationScope);
       const result: SyncResult = { synced: 0, failed: 0, failedItems: [] };
       if (!enabled || !isOnline) return result;
       const lease = getGroceryStorageLease();
       const queued = await getPendingSyncQueue(lease);
+      assertRecipeScope(creationScope);
       let serverSnapshot: GrocerySnapshot;
       try {
         serverSnapshot = await api.getGrocerySnapshot();
+        assertGroceryStorageLease(lease);
         void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
           console.warn('[Grocery Widget] Failed to publish synchronization:', error),
         );
@@ -335,10 +348,12 @@ export function useGrocerySync(enabled = true) {
       for (const [index, entry] of queued.entries()) {
         try {
           const response = await sendGroceryMutationWithRetry(entry.mutation, (request) =>
-            api.syncGroceryMutation(request, () => assertGroceryStorageLease(lease)),
+            api.syncGroceryMutation(request, () => { assertRecipeScope(creationScope); assertGroceryStorageLease(lease); }),
           );
+          assertGroceryStorageLease(lease);
           serverSnapshot = response.snapshot;
-          void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
+          assertGroceryStorageLease(lease);
+        void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
             console.warn('[Grocery Widget] Failed to publish queued mutation:', error),
           );
           await removeFromSyncQueue(entry.mutation.mutation_id, lease);
@@ -381,7 +396,7 @@ export function useGrocerySync(enabled = true) {
     } finally {
       syncingRef.current = null;
     }
-  }, [enabled, isOnline, queryClient]);
+  }, [enabled, isOnline, queryClient, creationScope]);
 
   useOnlineCallback(() => {
     void syncPendingChanges().catch((error) =>

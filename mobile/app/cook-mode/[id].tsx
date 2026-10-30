@@ -26,7 +26,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { writeCookModeStep } from '@/lib/cookModeProgress';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, useColors } from '@/components/Themed';
@@ -376,11 +376,11 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   const clearSavedStep = useCallback(async () => {
     if (!id) return;
     try {
-      await AsyncStorage.removeItem(COOK_MODE_STEP_KEY(id));
+      await writeCookModeStep(id, null, generation);
     } catch (error) {
       console.warn('Failed to clear saved cook mode step:', error);
     }
-  }, [id]);
+  }, [id, generation]);
 
   // Load completion sound based on preference
   useEffect(() => {

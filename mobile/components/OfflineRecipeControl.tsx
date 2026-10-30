@@ -24,10 +24,12 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
     {row && <Text>Offline copy · Updated {new Date(row.savedAt).toLocaleString()}. Changes may be missing while offline.</Text>}
     <Button title={row?.pinned ? 'Available offline ✓' : 'Make available offline'} disabled={busy}
       onPress={() => {
+        const current = () => { const authority = offlineRecipes.lease(userId); return authority?.owner === lease.owner && authority.generation === lease.generation && authority.epoch === lease.epoch; };
+        if (!current()) return;
         setBusy(true);
         void offlineRecipes.pin(lease, recipeId, !row?.pinned).then(() => offlineRecipes.read(lease, recipeId))
-          .then(setRow).catch((error: Error) => Alert.alert('Could not update offline recipe', error.message))
-          .finally(() => setBusy(false));
+          .then(value => { if (current()) setRow(value); }).catch((error: Error) => { if (current()) Alert.alert('Could not update offline recipe', error.message); })
+          .finally(() => { if (current()) setBusy(false); });
       }} />
   </View>;
 }

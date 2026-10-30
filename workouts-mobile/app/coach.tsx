@@ -620,7 +620,7 @@ export default function Coach() {
     </> : showCheckIn ? <>
       <ChipRow wrap label="How are you feeling today?">
         {(["ready", "limited", "unknown"] as const).map((value) => (
-          <Chip key={value} selected={readiness === value} disabled={busy}
+          <Chip key={value} role="radio" selected={readiness === value} disabled={busy}
             label={value === "ready" ? "Ready to train" : value === "limited" ? "I need to take it easier" : "Not sure"}
             onPress={() => { if (currentConversation()) setReadiness(value); }} />
         ))}
