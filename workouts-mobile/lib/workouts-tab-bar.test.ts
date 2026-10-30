@@ -13,7 +13,7 @@ vi.mock("@/components/tab-chrome", () => ({ setTabOverlayHeight: vi.fn() }));
 import { WorkoutsTabBar } from "@/components/workouts-tab-bar";
 it("leaves browse content clear and keeps active training resumable", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  for (const route of ["discover", "library", "plan"]) {
+  for (const route of ["discover", "library", "extract", "train"]) {
     f.active = null;
     let tree: ReturnType<typeof create>;
     const props = { state: { index: 0, routes: [{ name: route }] } } as never;
@@ -29,4 +29,17 @@ it("leaves browse content clear and keeps active training resumable", async () =
   await act(async () => resume.props.onPress());
   expect(f.push).toHaveBeenCalledWith("/training");
   await act(async () => tree!.unmount());
+});
+
+it("shows exactly one floating Resume on browse/Add and none on canonical Train", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  f.active = { workout: { title: "Current strength" } };
+  for (const route of ["discover", "library", "extract", "train"]) {
+    let tree: ReturnType<typeof create>;
+    await act(async () => { tree = create(createElement(WorkoutsTabBar, { state: { index: 0, routes: [{ name: route }] } } as never)); });
+    const buttons = tree!.root.findAllByType("Pressable" as never);
+    expect(buttons).toHaveLength(route === "train" ? 0 : 1);
+    if (route !== "train") expect(buttons[0].props.accessibilityLabel).toBe("Resume workout, Current strength");
+    await act(async () => tree!.unmount());
+  }
 });

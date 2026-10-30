@@ -50,7 +50,7 @@ vi.mock("@/components/ui", () => ({
 }));
 import { TrainToday as Today } from "@/components/train-today";
 import TodayRoute from "../app/(tabs)/index";
-import Plan from "../app/(tabs)/plan";
+import Plan from "../app/(tabs)/train";
 import SessionDetail from "../app/session/[id]";
 import { dateInTimezone } from "./training";
 
@@ -739,7 +739,7 @@ it("Train shows today's session once, folds past weeks and keeps old Today links
   const weeks = renderer!.root.findAll((node) => String(node.type) === "Pressable" && node.props.accessibilityState);
   expect(weeks.map((w) => w.props.accessibilityState.expanded)).toEqual([false, true, true]); // The finished past week folds away.
   await act(async () => { renderer = create(createElement(TodayRoute)); });
-  expect(renderer!.root.findByType("Redirect" as never).props.href).toBe("/(tabs)/plan");
+  expect(renderer!.root.findByType("Redirect" as never).props.href).toEqual({ pathname: "/(tabs)/train", params: { id: "saved-session" } });
 });
 
 

@@ -26,7 +26,7 @@ export function WorkoutsTabBar(props: BottomTabBarProps) {
   }, []);
   const route = props.state.routes[props.state.index]?.name;
   // Train shows its own Resume action at the top, so the floating bar would repeat it.
-  const active = route === "plan" ? null : offline.state.active;
+  const active = route === "train" ? null : offline.state.active;
   const floating = !keyboard && !!active;
   useEffect(() => {
     if (!floating) setTabOverlayHeight(0);
