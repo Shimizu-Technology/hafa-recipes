@@ -395,6 +395,7 @@ export default function HistoryScreen() {
   // Saved recipes with infinite scroll
   const {
     recipes: savedRecipes,
+    total: savedTotal,
     isLoading: isLoadingSaved,
     isError: isSavedRecipesError,
     refetch: refetchSaved,
@@ -418,6 +419,7 @@ export default function HistoryScreen() {
 
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
+    setOwnershipFilter(filters.ownershipFilter || 'all');
     setSourceFilter(filters.sourceFilter);
     setTimeFilter(filters.timeFilter);
     setSelectedTags(filters.selectedTags);
@@ -483,18 +485,20 @@ export default function HistoryScreen() {
   // the current filtered search, never the length of the pages loaded so far.
   const libraryCount = useMemo(() => {
     if (ownershipFilter === 'saved') {
-      return savedRecipes?.length ?? 0;
+      return savedTotal;
     } else if (ownershipFilter === 'own') {
       return recipesTotal;
     } else {
-      return recipesTotal + (savedRecipes?.length ?? 0);
+      return recipesTotal + savedTotal;
     }
-  }, [ownershipFilter, recipesTotal, savedRecipes]);
+  }, [ownershipFilter, recipesTotal, savedTotal]);
   const matchingCount = hasActiveFilters && isServerSearchCurrent && isSearchSuccess ? searchTotal : undefined;
 
   // For display, slice to current page
   const displayRecipes = combinedRecipes?.slice(0, displayCount);
   const canEnterRow = useInitialListEntrance(Boolean(displayRecipes?.length));
+
+  const allShownSelected = Boolean(displayRecipes?.length) && displayRecipes!.every(recipe => selectedRecipeIds.has(recipe.id));
 
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = combinedRecipes && displayCount < combinedRecipes.length;
@@ -552,7 +556,7 @@ export default function HistoryScreen() {
 
   const selectAllRecipes = useCallback(() => {
     if (displayRecipes) {
-      setSelectedRecipeIds(new Set(displayRecipes.map(r => r.id)));
+      setSelectedRecipeIds(previous => new Set([...previous, ...displayRecipes.map(r => r.id)]));
       haptics.medium();
     }
   }, [displayRecipes]);
@@ -733,11 +737,11 @@ export default function HistoryScreen() {
           <RNView style={styles.headerActions}>
             <TouchableOpacity
               style={[styles.selectAllButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-              onPress={selectedRecipeIds.size === displayRecipes?.length ? clearSelection : selectAllRecipes}
+              onPress={allShownSelected ? clearSelection : selectAllRecipes}
               activeOpacity={0.7}
             >
               <Text style={[styles.selectAllText, { color: colors.actionText }]}>
-                {selectedRecipeIds.size === displayRecipes?.length ? 'Deselect All' : 'Select All'}
+                {allShownSelected ? 'Deselect all' : 'Select shown'}
               </Text>
             </TouchableOpacity>
           </RNView>
@@ -788,7 +792,7 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </RNView>
     );
-  }, [colors, libraryCount, matchingCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
+  }, [colors, libraryCount, matchingCount, router, hasActiveFilters, combinedRecipes, isSelectionMode, selectedRecipeIds.size, displayRecipes?.length, allShownSelected, exitSelectionMode, selectAllRecipes, clearSelection, handleShowHeaderMenu]);
 
   const filteredEmpty = hasActiveFilters || ownershipFilter !== 'all';
   const clearSearchAndFilters = () => {
@@ -856,11 +860,9 @@ export default function HistoryScreen() {
         visible={showFilterModal}
         onClose={() => setShowFilterModal(false)}
         onApply={handleApplyFilters}
-        initialFilters={{ sourceFilter, timeFilter, selectedTags }}
+        initialFilters={{ sourceFilter, timeFilter, selectedTags, ownershipFilter }}
         popularTags={popularTags}
         showOwnershipFilter
-        ownershipFilter={ownershipFilter}
-        onOwnershipFilterChange={setOwnershipFilter}
       />
 
       {/* Create Collection Modal */}
