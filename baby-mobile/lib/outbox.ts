@@ -107,6 +107,6 @@ export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
   return !!recordId && outbox.slice(0, outbox.findIndex((m) => m.id === change.id))
     .some((m) => mutationRecordId(m) === recordId);
 }
-export function retryMutation(change: Mutation): Mutation {
+export function retryMutation<T extends Mutation>(change: T): T {
   return { ...change, error: undefined, conflict: false, localOnly: false };
 }
