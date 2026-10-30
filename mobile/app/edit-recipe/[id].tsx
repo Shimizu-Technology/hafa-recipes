@@ -467,7 +467,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
           captureId: request.capture_id, failure: captureSaveFailure(error),
         });
         guard();
-        router.replace({ pathname: '/ocr-review', params: { recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
+        router.replace({ pathname: '/ocr-review', params: { originalPages: JSON.stringify(request.original_pages), recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
         return;
       }
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));

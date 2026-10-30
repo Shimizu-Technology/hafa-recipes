@@ -1,6 +1,15 @@
+const scanFiles = vi.hoisted(() => new Set<string>());
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
+vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' },
+  Directory: class { uri: string; constructor(...parts: string[]) { this.uri = parts.join('/') + '/'; } },
+  File: class { constructor(public uri: string) {} get exists() { return scanFiles.has(this.uri); } delete() { scanFiles.delete(this.uri); } },
+}));
 vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { lease: (owner: string) => ({ owner }), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/lib/importInbox', () => ({ importInbox: { patch: mocks.patchInbox } }));
 vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: mocks.entries.filter((entry) => entry.state !== 'accepted') }) }));
+// @ts-expect-error Node-only source callback fixture runs in Vitest, outside Expo.
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   })),
   params: {
     recipe: '',
+    originalPages: undefined as string | undefined,
+    captureOwnerId: undefined as string | undefined,
     saveFailed: undefined as string | undefined,
     captureId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     saveErrorKind: undefined as string | undefined,
@@ -170,6 +181,7 @@ describe('OCRReviewScreen confidence notice', () => {
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.save.mockReset();
     mocks.save.mockImplementation(async (params) => ({ id: 'recipe-1', is_public: params.is_public }));
+    mocks.params.originalPages = undefined; mocks.params.captureOwnerId = undefined;
     mocks.params.isPublic = 'false';
     mocks.params.saveFailed = undefined;
     mocks.params.saveErrorKind = undefined;
@@ -217,6 +229,7 @@ describe('OCRReviewScreen visibility', () => {
     mocks.requestPublishing.mockResolvedValue(true);
     mocks.save.mockReset();
     mocks.save.mockImplementation(async (params) => ({ id: 'recipe-1', is_public: params.is_public }));
+    mocks.params.originalPages = undefined; mocks.params.captureOwnerId = undefined;
     mocks.params.isPublic = 'false';
     mocks.params.saveFailed = undefined;
     mocks.params.saveErrorKind = undefined;
@@ -393,6 +406,46 @@ describe('OCRReviewScreen visibility', () => {
     await act(async () => submit.props.onPress());
     expect(mocks.alert).toHaveBeenCalledWith('Save failed', 'Sign in again before retrying this save.');
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it('keeps originals through manual save upload failure, OCR retry failure and confirmed cleanup', async () => {
+    const values = new Map<string, string>();
+    const { createPrivateRecipeDrafts } = await vi.importActual<typeof import('@/lib/privateRecipeDrafts')>('@/lib/privateRecipeDrafts');
+    const drafts = createPrivateRecipeDrafts({ getItem: async (key: string) => values.get(key) ?? null,
+      setItem: async (key: string, value: string) => { values.set(key, value); },
+      removeItem: async (key: string) => { values.delete(key); }, getAllKeys: async () => [...values.keys()] } as any);
+    const { privateRecipeDrafts } = await import('@/lib/privateRecipeDrafts');
+    const lease = drafts.lease('owner-a');
+    const uri = 'file:///private/private-recipe-drafts/owner-a/page.jpg'; scanFiles.add(uri);
+    const original_pages = [{ uri }];
+    await drafts.write(lease, 'scan', { selectedImages: original_pages });
+    const source = readFileSync(new URL('../app/edit-recipe/[id].tsx', import.meta.url), 'utf8');
+    const callback = source.split('onError: async (error: unknown, snapshot: EditSnapshot) => {')[1].split('\n    },\n  });')[0];
+    const compiled = ts.transpileModule('async function handler(error: unknown, snapshot: unknown) {' + callback + '\n}', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+    const failure = () => ({ kind: 'retry', message: 'Original pages unavailable' });
+    const handler = new Function('alive', 'capture', 'captureSaveFailure', 'guard', 'localDraft', 'privateRecipeDrafts', 'router', 'Alert', 'getApiErrorMessage', compiled + ';return handler;')(
+      { current: true }, { id: mocks.params.captureId, ownerId: 'owner-a', recipe: { source_type: 'photo' } }, failure, () => {}, { leave: async () => {} }, drafts, { replace: mocks.replace }, {}, () => '');
+    await handler(new Error('503'), { captureRequest: { capture_id: mocks.params.captureId, original_pages, extracted: baseRecipe, source_type: 'photo', is_public: false } });
+    const route = mocks.replace.mock.calls[0][0] as any;
+    expect(route.params.originalPages).toBe(JSON.stringify(original_pages));
+    Object.assign(mocks.params, route.params); mocks.replace.mockClear();
+    const leaseSpy = vi.spyOn(privateRecipeDrafts, 'lease').mockImplementation(owner => drafts.lease(owner));
+    vi.mocked(privateRecipeDrafts.remove).mockImplementation((owner, kind) => drafts.remove(owner, kind));
+    mocks.save.mockImplementation(async (request: any) => {
+      expect(request.original_pages).toEqual(original_pages); expect(scanFiles.has(uri)).toBe(true);
+      if (mocks.save.mock.calls.length === 1) throw new Error('503');
+      return { id: 'recipe-1', is_public: false };
+    });
+    const renderer = await renderRecipe({});
+    try {
+      const retry = () => renderer.root.findAllByType('Button' as any).find(node => node.props.children === 'Retry Save')!;
+      await act(async () => retry().props.onPress());
+      expect(scanFiles.has(uri)).toBe(true); expect(await drafts.read(lease, 'recovery')).not.toBeNull();
+      await act(async () => retry().props.onPress());
+      expect(mocks.replace).toHaveBeenCalledWith('/recipe/recipe-1');
+      expect(await drafts.read(lease, 'recovery')).toBeNull(); expect(await drafts.read(lease, 'scan')).toBeNull();
+      expect(scanFiles.has(uri)).toBe(false);
+    } finally { await act(async () => renderer.unmount()); leaseSpy.mockRestore(); vi.mocked(privateRecipeDrafts.remove).mockImplementation(async () => undefined); }
   });
 
 });

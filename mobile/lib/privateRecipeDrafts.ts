@@ -37,13 +37,19 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
     remove: (lease: DraftLease, kind: RecipeDraftKind) => run(async () => {
       valid(lease); const raw = await storage.getItem(key(lease, kind));
       await storage.removeItem(key(lease, kind));
+      valid(lease);
       if (raw && raw.includes('private-recipe-drafts/')) {
+        // Scan, editor, recovery and pending captures can share the same pages.
+        // Retire this receipt first, then delete only files no remaining receipt uses.
+        const keys = (await storage.getAllKeys()).filter(value => value.startsWith(PREFIX) || value === 'hafa_import_inbox_v1');
+        const references = await Promise.all(keys.map(value => storage.getItem(value)));
+        valid(lease);
         const { File, Directory, Paths } = await import('expo-file-system');
         const root = new Directory(Paths.document, 'private-recipe-drafts', encodeURIComponent(lease.owner));
         const clean = (value: any) => {
           if (!value || typeof value !== 'object') return;
           for (const [field, child] of Object.entries(value)) {
-            if ((field === 'uri' || field === 'imageUri') && typeof child === 'string' && child.startsWith(root.uri)) {
+            if ((field === 'uri' || field === 'imageUri') && typeof child === 'string' && child.startsWith(root.uri) && !references.some(reference => reference?.includes(child))) {
               const file = new File(child); if (file.exists) file.delete();
             } else if (typeof child === 'object') clean(child);
           }
