@@ -6,6 +6,7 @@ import { createTrainingStore } from "./training";
 import type { Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
+  fontScale: 1,
   owner: "owner", generation: 1, current: true, storage: null as { isCurrent(): boolean } | null,
   listeners: new Set<(state: string) => void>(), writeFailure: false, saveSession: vi.fn(), replace: vi.fn(), dismiss: vi.fn(), success: vi.fn(), announce: vi.fn() }));
 vi.mock("@/lib/context", async () => {
@@ -17,7 +18,7 @@ vi.mock("@/lib/context", async () => {
       ready: true, error: "", retry() {} }) };
 });
 vi.mock("@/components/reminders-provider", () => ({ useReminders: () => ({ state: { error: "", settings: { rest_enabled: false } } }) }));
-vi.mock("react-native", () => ({ View: "View", Alert: { alert: vi.fn() }, Linking: { openURL: vi.fn() }, Keyboard: { dismiss: fixture.dismiss }, AppState: {
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Alert: { alert: vi.fn() }, Linking: { openURL: vi.fn() }, Keyboard: { dismiss: fixture.dismiss }, AppState: {
   addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.listeners.add(listener); return { remove: () => fixture.listeners.delete(listener) };
   },
@@ -44,6 +45,7 @@ const footer = () => Children.toArray(renderer!.root.findByType("Screen" as neve
   .find(child => isValidElement(child) && child.type === ("Button" as never)) as ReactElement<{ title: string; disabled: boolean; busy: boolean; onPress(): void }>;
 const text = () => renderer!.root.findAllByType("Copy" as never).map((node) => node.children.filter((child) => typeof child === "string").join("")).join("\n");
 beforeEach(async () => {
+  fixture.fontScale = 1;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner"; fixture.generation = 1; fixture.current = true; fixture.storage = { isCurrent: () => fixture.current };
   vi.useFakeTimers(); vi.setSystemTime(10000); fixture.writeFailure = false; fixture.listeners.clear(); fixture.replace.mockReset(); fixture.saveSession.mockReset();
@@ -589,4 +591,14 @@ it("offers discard confirmation when Finish is tapped with zero logged work", as
   expect(Alert.alert).toHaveBeenCalledWith("Discard this session?", expect.any(String), expect.any(Array));
   expect(fixture.store!.snapshot().active).not.toBeNull();
   expect(fixture.store!.snapshot().history).toEqual([]);
+});
+
+it("stacks set fields when large text changes and preserves both fields", async () => {
+  fixture.fontScale = 3.1;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Training))));
+  const fields = renderer!.root.findAllByType("SetNumberField" as never);
+  expect(fields).toHaveLength(2);
+  expect(fields[0].parent!.props.style.flexDirection).toBe("column");
+  expect(fields[0].props.label).toBe("Reps");
+  expect(fields[1].props.label).toBe("Weight · kg");
 });
