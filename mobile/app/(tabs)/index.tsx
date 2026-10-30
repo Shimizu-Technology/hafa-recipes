@@ -742,22 +742,6 @@ export default function ExtractScreen() {
         keyboardVerticalOffset={insets.top + 64}>
         <ScrollView ref={importScroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.md }]}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <RecipeDraftNotice draft={scanDraft} />
-          <RecipeDraftNotice draft={recoveryDraft} />
-          {pendingShares > 0 && <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
-            <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} ready to sync</Text>
-            <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {
-              if (!ShareIntentModule || openingNextShare.current) return;
-              openingNextShare.current = true;
-              setIsOpeningNextShare(true);
-              void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
-                openingNextShare.current = false;
-                setIsOpeningNextShare(false);
-              });
-            }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
-              <Text style={{ color: colors.actionText }}>Open next</Text>
-            </TouchableOpacity>
-          </RNView>}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
             style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             <RNView style={styles.composerLabelRow}>
@@ -825,8 +809,23 @@ export default function ExtractScreen() {
               </TouchableOpacity>
             ))}
           </RNView>
+          <RecipeDraftNotice draft={scanDraft} />
+          <RecipeDraftNotice draft={recoveryDraft} />
           <ImportActivityCard jobs={isSignedIn ? recentImports.data || [] : []}
-            captures={inbox.entries.filter((entry) => !entry.jobId || !recentImports.data?.some((job) => job.id === entry.jobId) && entry.jobId !== extraction.jobId).map((entry) => ({
+            captures={[...(pendingShares > 0 ? [{ id: 'native-waiting', createdAt: 0, content: <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
+            <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} waiting to sync</Text>
+            <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {
+              if (!ShareIntentModule || openingNextShare.current) return;
+              openingNextShare.current = true;
+              setIsOpeningNextShare(true);
+              void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
+                openingNextShare.current = false;
+                setIsOpeningNextShare(false);
+              });
+            }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
+              <Text style={{ color: colors.actionText }}>Open next</Text>
+            </TouchableOpacity>
+          </RNView> }] : []), ...inbox.entries.filter((entry) => !entry.jobId || !recentImports.data?.some((job) => job.id === entry.jobId) && entry.jobId !== extraction.jobId).map((entry) => ({
               id: entry.id, createdAt: entry.createdAt, content: <RNView key={entry.id} style={styles.inboxRow}>
               <RNView style={{ flex: 1 }}>
                 <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
@@ -839,7 +838,7 @@ export default function ExtractScreen() {
               }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
               {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
             </RNView>,
-            }))}
+            }))]}
             active={(extraction.isExtracting || extraction.isComplete || extraction.isFailed) ? {
               id: extraction.jobId || 'active',
               createdAt: Date.parse(recentImports.data?.find((job) => job.id === extraction.jobId)?.created_at || '') || 0,

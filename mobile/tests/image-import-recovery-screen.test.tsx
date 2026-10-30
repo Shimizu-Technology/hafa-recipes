@@ -454,12 +454,12 @@ describe('classified image recovery', () => {
       ).map(node => Array.isArray(node.props.children)
         ? node.props.children.join('')
         : node.props.children);
-      expect(waitingCopy()).toContain('2 shared recipes ready to sync');
+      expect(waitingCopy()).toContain('2 shared recipes waiting to sync');
       await act(async () => { vi.advanceTimersByTime(6_000); });
       expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(true);
 
       await act(async () => { mocks.queueChanged?.({ pendingCount: 1 }); });
-      expect(waitingCopy()).toContain('1 shared recipe ready to sync');
+      expect(waitingCopy()).toContain('1 shared recipe waiting to sync');
       expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(false);
     } finally {
       await act(async () => renderer?.unmount());
