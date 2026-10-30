@@ -149,6 +149,13 @@ export function advanceAfterImport(change: Mutation, result: BabyRecord, job?: I
     return { ...change, conflict: true, error: "This source changed while it processed. Your local version is safe. Compare the saved version before retrying." };
   const data = { ...local.data };
   for (const key of new Set([...Object.keys(before.data), ...Object.keys(result.data)])) {
+    if (key === "attachment_ids") {
+      const original = before.data.attachment_ids ?? [], selected = local.data.attachment_ids ?? [];
+      const removed = new Set(original.filter(id => !selected.includes(id)));
+      data.attachment_ids = [...new Set([...(result.data.attachment_ids ?? []).filter(id => !removed.has(id)),
+        ...selected.filter(id => !original.includes(id))])];
+      continue;
+    }
     // Keep deliberate edits, but acquire new originals/metadata when that field
     // was untouched locally. Processing-only fields always belong to the result.
     const editable = ["url", "source_text", "topics", "attachment_ids"].includes(key);

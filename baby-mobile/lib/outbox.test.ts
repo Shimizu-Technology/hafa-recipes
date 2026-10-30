@@ -191,3 +191,13 @@ it("keeps import metadata while applying the later user's editable source fields
     .toMatchObject({ record: { data: { source_text: "Acquired text" } } });
   expect(advanceAfterImport(edit, terminal)).toMatchObject({ conflict: true, record: { revision: row.revision } });
 });
+
+it("applies the edit's attachment additions and removals to the terminal import list", () => {
+  const baseline = { ...row, data: { attachment_ids: ["keep", "remove"] } };
+  const edit: Mutation = { id: "edit", type: "save", generation: 1, files: [],
+    record: { ...baseline, data: { attachment_ids: ["keep", "local-addition"] } } };
+  const result = { ...baseline, revision: baseline.revision + 2,
+    data: { attachment_ids: ["keep", "remove", "import-addition"] } };
+  expect(advanceAfterImport(edit, result, { id: "job", status: "ready", baseline }))
+    .toMatchObject({ record: { data: { attachment_ids: ["keep", "import-addition", "local-addition"] } } });
+});
