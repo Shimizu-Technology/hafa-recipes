@@ -70,6 +70,21 @@ describe("Baby wire boundaries", () => {
     await expect(api.save(row, 1)).rejects.toMatchObject({ status: 409 });
     expect(transport).not.toHaveBeenCalled();
   });
+  it("keeps token-refresh failures in the authentication pause rather than failing queued records", async () => {
+    const transport = vi.fn<typeof fetch>();
+    const api = createBabyApi("https://service.example", async () => { throw Error("private SDK detail"); },
+      () => true, transport);
+    await expect(api.save(row, 1)).rejects.toMatchObject({ status: 401, message: expect.stringContaining("sign-in") });
+    expect(transport).not.toHaveBeenCalled();
+  });
+  it("retains the account fence when token refresh rejects after an account change", async () => {
+    let current = true;
+    const transport = vi.fn<typeof fetch>();
+    const api = createBabyApi("https://service.example", async () => { current = false; throw Error("SDK detail"); },
+      () => current, transport);
+    await expect(api.save(row, 1)).rejects.toMatchObject({ status: 409 });
+    expect(transport).not.toHaveBeenCalled();
+  });
   it("fences account changes while a response is in flight", async () => {
     let current = true;
     const transport = vi.fn<typeof fetch>().mockImplementation(async () => {

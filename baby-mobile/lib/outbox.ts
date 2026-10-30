@@ -124,5 +124,7 @@ export function advanceAfterImport(change: Mutation, result: BabyRecord): Mutati
   const computed = Object.fromEntries([
     "summary", "key_points", "steps", "evidence", "creator", "platform", "thumbnail_url", "coverage_notes", "status",
   ].filter(key => key in result.data).map(key => [key, result.data[key]]));
-  return { ...advanced, record: { ...advanced.record, data: { ...advanced.record.data, ...computed } } };
+  return { ...advanced, record: { ...advanced.record,
+    title: advanced.record.title === "Saved source" ? result.title : advanced.record.title,
+    data: { ...advanced.record.data, ...computed } } };
 }

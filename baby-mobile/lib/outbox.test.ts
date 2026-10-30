@@ -182,4 +182,6 @@ it("keeps import metadata while applying the later user's editable source fields
   const terminal = { ...row, revision: 3, data: { summary: "Organized", status: "ready", creator: "Example creator", source_text: "Acquired text" } };
   expect(advanceAfterImport(edit, terminal)).toMatchObject({ record: { revision: 3, title: "My title", body: "My note",
     data: { source_text: "My original", topics: ["My topic"], summary: "Organized", status: "ready", creator: "Example creator" } } });
+  expect(advanceAfterImport({ ...edit, record: { ...edit.record, title: "Saved source" } }, terminal))
+    .toMatchObject({ record: { title: terminal.title } });
 });

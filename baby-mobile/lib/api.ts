@@ -60,7 +60,14 @@ export function createBabyApi(
     check();
     const captured = epoch;
     if (!base) throw new ApiError("This build needs its Håfa service configuration.", 0);
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch {
+      check();
+      assertLease(captured);
+      throw new ApiError("Couldn’t check your sign-in. Reconnect and try again, or sign in again.", 401);
+    }
     check();
     assertLease(captured);
     if (!token) throw new ApiError("Sign in again to continue.", 401);
