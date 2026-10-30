@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
 import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
 import { useEffect, useState, useRef } from 'react';
@@ -35,8 +36,8 @@ import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 
 export default function PasteRecipeScreen() {
-  const { ownerId } = useImportInbox();
-  return <PasteRecipeForm key={ownerId ?? 'guest'} />;
+  const generation = useRecipeOwnerGeneration();
+  return <PasteRecipeForm key={generation} />;
 }
 function PasteRecipeForm() {
   const router = useRouter();

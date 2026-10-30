@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useAuth, useUser } from '@clerk/expo';
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
@@ -11,13 +12,14 @@ import { captureError } from '@/lib/sentry';
 
 /** Keeps the native widget capability and server snapshot current while signed in. */
 export function GroceryWidgetCoordinator() {
+  const authority = useRecipeOwnerGeneration();
   const { isLoaded, isSignedIn } = useAuth();
   const { user } = useUser();
   const identityEpochRef = useRef(0);
   const currentUserId = isLoaded && isSignedIn ? user?.id ?? null : null;
 
   const synchronize = useCallback(() => {
-    if (!currentUserId) return;
+    if (!currentUserId || !JSON.parse(authority)[1]) return;
     const epoch = ++identityEpochRef.current;
     void synchronizeGroceryWidget(
       currentUserId,
@@ -31,7 +33,7 @@ export function GroceryWidgetCoordinator() {
         tags: { operation: 'synchronizeGroceryWidget' },
       });
     });
-  }, [currentUserId]);
+  }, [currentUserId, authority]);
 
   useEffect(() => {
     if (currentUserId) synchronize();

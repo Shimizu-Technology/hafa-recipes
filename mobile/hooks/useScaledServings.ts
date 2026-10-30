@@ -1,3 +1,5 @@
+import { useRecipeOwnerGeneration } from './useOfflineLease';
+import { recipeScope } from '@/lib/recipeQueryScope';
 /**
  * Hook for persisting scaled servings per recipe.
  * 
@@ -10,57 +12,74 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SCALED_SERVINGS_KEY_PREFIX = 'scaled_servings_';
+let writes: Promise<unknown> = Promise.resolve();
+function commitServing(key: string, value: string | null, authority: string) {
+  const run = async () => {
+    if (authority !== recipeScope()) return;
+    const previous = await AsyncStorage.getItem(key);
+    if (authority !== recipeScope()) return;
+    if (value === null) await AsyncStorage.removeItem(key); else await AsyncStorage.setItem(key, value);
+    if (authority !== recipeScope() && await AsyncStorage.getItem(key) === value) {
+      if (previous === null) await AsyncStorage.removeItem(key); else await AsyncStorage.setItem(key, previous);
+    }
+  };
+  const result = writes.then(run); writes = result.catch(() => undefined); return result;
+}
 
 /**
  * Hook to manage persisted scaled servings for a specific recipe.
  */
 export function useScaledServings(recipeId: string, originalServings: number) {
-  const [selection, setSelection] = useState<{ recipeId: string; servings: number | null }>({ recipeId, servings: null });
+  const authority = useRecipeOwnerGeneration();
+  const owner = JSON.parse(authority)[1] as string | null;
+  const [selection, setSelection] = useState<{ recipeId: string; authority: string; servings: number | null }>({ recipeId, authority, servings: null });
   const [isLoading, setIsLoading] = useState(true);
   const editRevision = useRef(0);
-  const storageKey = `${SCALED_SERVINGS_KEY_PREFIX}${recipeId}`;
-  const scaledServings = selection.recipeId === recipeId ? selection.servings : null;
+  const storageKey = `${SCALED_SERVINGS_KEY_PREFIX}${encodeURIComponent(owner ?? 'guest')}:${recipeId}`;
+  const scaledServings = selection.recipeId === recipeId && selection.authority === authority ? selection.servings : null;
 
   useEffect(() => {
     let cancelled = false;
     const revision = editRevision.current;
     setIsLoading(true);
     void AsyncStorage.getItem(storageKey).then(stored => {
-      if (cancelled || revision !== editRevision.current) return;
+      if (authority !== recipeScope() || cancelled || revision !== editRevision.current) return;
       const parsed = stored === null ? NaN : Number(stored);
-      setSelection({ recipeId, servings: Number.isInteger(parsed) && parsed > 0 ? parsed : null });
+      setSelection({ recipeId, authority, servings: Number.isInteger(parsed) && parsed > 0 ? parsed : null });
     }).catch(() => {
       // Storage is optional; use this recipe's original servings.
     }).finally(() => {
-      if (!cancelled) setIsLoading(false);
+      if (!cancelled && authority === recipeScope()) setIsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [recipeId, storageKey]);
+  }, [recipeId, storageKey, authority]);
 
   const setScaledServings = useCallback(async (servings: number | null) => {
+    if (authority !== recipeScope()) return;
     editRevision.current += 1;
     const next = servings !== null && Number.isInteger(servings) && servings > 0 ? servings : null;
-    setSelection({ recipeId, servings: next });
+    setSelection({ recipeId, authority, servings: next });
     try {
       if (next === null || next === originalServings) {
-        await AsyncStorage.removeItem(storageKey);
+        await commitServing(storageKey, null, authority);
       } else {
-        await AsyncStorage.setItem(storageKey, next.toString());
+        await commitServing(storageKey, next.toString(), authority);
       }
     } catch {
       // Non-critical
     }
-  }, [recipeId, storageKey, originalServings]);
+  }, [recipeId, storageKey, originalServings, authority]);
 
   const resetServings = useCallback(async () => {
+    if (authority !== recipeScope()) return;
     editRevision.current += 1;
-    setSelection({ recipeId, servings: null });
+    setSelection({ recipeId, authority, servings: null });
     try {
-      await AsyncStorage.removeItem(storageKey);
+      await commitServing(storageKey, null, authority);
     } catch {
       // Non-critical
     }
-  }, [recipeId, storageKey]);
+  }, [recipeId, storageKey, authority]);
 
   // Computed values
   const currentServings = scaledServings ?? originalServings;

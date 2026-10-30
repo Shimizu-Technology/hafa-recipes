@@ -1,10 +1,11 @@
+vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => JSON.stringify(['subject', mocks.ownerId, 'fixture', 0]) }));
 vi.mock('@/hooks/useRecipeQuery', async () => {
   const query = await import('@tanstack/react-query');
   return { useRecipeMutation: query.useMutation, useRecipeQueryClient: query.useQueryClient };
 });
 vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
 vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
-vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: 'owner-a', entries: [] }) }));
+vi.mock('@/hooks/useImportInbox', () => ({ useImportInbox: () => ({ ownerId: mocks.ownerId, entries: [] }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  ownerId: 'owner-a',
   alert: vi.fn(),
   isPending: false,
   back: vi.fn(),
@@ -185,6 +187,7 @@ function headerAction(renderer: ReactTestRenderer, label: string) {
 
 describe('AddRecipeScreen visibility', () => {
   beforeEach(() => {
+    mocks.ownerId = 'owner-a';
     mocks.params.initialData = JSON.stringify({
       title: 'Red Rice',
       ingredients: [{ name: 'rice', quantity: '2', unit: 'cups' }],
@@ -301,6 +304,7 @@ describe('AddRecipeScreen visibility', () => {
 
 describe('AddRecipeScreen accessibility', () => {
   beforeEach(() => {
+    mocks.ownerId = 'owner-a';
     mocks.params.initialData = JSON.stringify({
       title: 'Red Rice',
       ingredients: [
@@ -367,4 +371,14 @@ describe('AddRecipeScreen accessibility', () => {
     expect(save.props.disabled).toBe(true);
     expect(save.props.accessibilityState).toEqual({ disabled: true, busy: true });
   });
+});
+
+it('hides imported manual-edit route payloads when their original owner changes', async () => {
+ let renderer!: ReactTestRenderer;
+ try {
+  await act(async()=>{renderer=create(<AddRecipeScreen/>)});
+  expect(JSON.stringify(renderer.toJSON())).toContain('Red Rice');
+  mocks.ownerId='owner-b';await act(async()=>renderer.update(<AddRecipeScreen/>));
+  expect(JSON.stringify(renderer.toJSON())).not.toContain('Red Rice');
+ }finally{await act(async()=>renderer.unmount());}
 });

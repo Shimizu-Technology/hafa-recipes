@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
@@ -33,6 +34,11 @@ import { getOcrPublishDisclosure } from '@/lib/ocrReview';
 import { CaptureAccountChangedError, captureSaveFailure } from '@/lib/captureSave';
 
 export default function OCRReviewScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <OCRReviewContent key={generation} />;
+}
+
+function OCRReviewContent() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -60,6 +66,8 @@ export default function OCRReviewScreen() {
     draftStorageError?: string; originalPages?: string; savedRecipeId?: string;
   }>();
   useEffect(() => { if (draftStorageError) Alert.alert('Draft not saved on this device', draftStorageError); }, [draftStorageError]);
+  const authority = useRecipeOwnerGeneration();
+  const activeOwner = JSON.parse(authority)[1] as string | null;
   const inbox = useImportInbox();
   const boundOwner = useRef<string | null>(captureOwnerId ?? inbox.ownerId);
   if (!boundOwner.current && inbox.ownerId) boundOwner.current = inbox.ownerId;
@@ -70,8 +78,9 @@ export default function OCRReviewScreen() {
     return () => { captureOwner.current.mounted = false; };
   }, []);
   const guardOwner = () => {
-    if (!boundOwner.current || !captureOwner.current.mounted || captureOwner.current.ownerId !== boundOwner.current) throw new CaptureAccountChangedError();
+    if (!admitted || !boundOwner.current || !captureOwner.current.mounted || captureOwner.current.ownerId !== boundOwner.current) throw new CaptureAccountChangedError();
   };
+  const admitted = !!boundOwner.current && boundOwner.current === activeOwner && inbox.ownerId === activeOwner;
   const sourceType = sourceTypeParam === 'text' ? 'text' : 'photo';
   const isTextCapture = sourceType === 'text';
 
@@ -102,7 +111,7 @@ export default function OCRReviewScreen() {
   };
 
   useEffect(() => {
-    if (recipeParam) {
+    if (recipeParam && admitted) {
       try {
         const parsed = JSON.parse(recipeParam);
         setRecipe(parsed);
@@ -119,7 +128,7 @@ export default function OCRReviewScreen() {
         router.back();
       }
     }
-  }, [captureIdParam, isPublicParam, recipeParam, router.back, saveErrorKind, saveErrorMessage, saveFailed, savedRecipeId]);
+  }, [admitted, captureIdParam, isPublicParam, recipeParam, router.back, saveErrorKind, saveErrorMessage, saveFailed, savedRecipeId]);
 
   const doSave = async () => {
     if (!recipe || !canRetry || saveInFlight.current || isCheckingDisclosure) return;
@@ -208,7 +217,7 @@ export default function OCRReviewScreen() {
     });
   };
 
-  if (!recipe) {
+  if (!recipe || !admitted) {
     return (
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
         <Stack.Screen
@@ -218,7 +227,7 @@ export default function OCRReviewScreen() {
           }}
         />
         <RNView style={styles.loadingContainer}>
-          <Text style={{ color: colors.textMuted }}>Loading...</Text>
+          <Text style={{ color: colors.textMuted }}>{admitted ? 'Loading...' : 'Account changed. Reopen this capture from its account.'}</Text>
         </RNView>
       </RNView>
     );

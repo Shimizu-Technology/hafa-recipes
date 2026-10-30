@@ -11,7 +11,8 @@ function deferred() { let resolve!: (value: string | null) => void; const promis
 describe('recipe serving persistence', () => {
   it('does not carry scaling into another recipe or accept a late load for the previous one', async () => {
     const first = deferred(), second = deferred();
-    storage.getItem.mockImplementation((key: string) => key.endsWith('a') ? first.promise : second.promise);
+    const reads = new Set<string>();
+    storage.getItem.mockImplementation((key: string) => { if (reads.has(key)) return Promise.resolve(null); reads.add(key); return key.endsWith('a') ? first.promise : second.promise; });
     let value!: ReturnType<typeof useScaledServings>;
     function Harness({ id, servings }: { id: string; servings: number }) { value = useScaledServings(id, servings); return null; }
     const root = createRoot();
@@ -29,7 +30,7 @@ describe('recipe serving persistence', () => {
     } finally { await act(async () => root.unmount()); }
   });
   it('preserves a new user choice when storage hydration finishes later', async () => {
-    const read = deferred(); storage.getItem.mockReturnValue(read.promise);
+    const read = deferred(); storage.getItem.mockReset().mockResolvedValue(null).mockReturnValueOnce(read.promise);
     let value!: ReturnType<typeof useScaledServings>;
     function Harness() { value = useScaledServings('a', 4); return null; }
     const root = createRoot();
@@ -37,7 +38,7 @@ describe('recipe serving persistence', () => {
       await act(async () => root.render(<Harness />));
       await act(async () => { await value.setScaledServings(6); read.resolve('8'); });
       expect(value.currentServings).toBe(6);
-      expect(storage.setItem).toHaveBeenCalledWith('scaled_servings_a', '6');
+      expect(storage.setItem).toHaveBeenCalledWith('scaled_servings_guest:a', '6');
     } finally { await act(async () => root.unmount()); }
   });
 });

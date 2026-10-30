@@ -50,7 +50,6 @@ import {
   hideOwnedDiscoverRecipes,
   resolveDiscoverResults,
 } from '@/lib/discoverResults';
-import { newlyExposedThumbnailUrls } from '@/lib/recipeImagePrefetch';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 
@@ -63,7 +62,6 @@ import {
   RecipeGridCardFrame,
   RECIPE_GRID_GAP,
 } from '@/components/RecipeGridCardFrame';
-import { Image as ExpoImage } from 'expo-image';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
 const ITEMS_PER_PAGE = 20;
@@ -422,7 +420,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const [showContributors, setShowContributors] = useState(false);
   const [isRandomLoading, setIsRandomLoading] = useState(false);
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
-  const prefetchedThumbnailUrls = useRef(new Set<string>());
 
   // View preference (grid or list)
   const { viewMode, toggleViewMode, isGrid } = useViewPreference();
@@ -596,27 +593,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const canEnterRow = useInitialListEntrance(Boolean(displayRecipes?.length));
   const hasPrimaryLoadError = hasServerFilters ? isSearchError : isDiscoverError;
 
-  // Warm every thumbnail currently exposed by the feed. The first cards retain
-  // high render priority while the remaining optimized derivatives fill the
-  // persistent cache for fast scrolling and filter transitions.
-  useEffect(() => {
-    if (!active) return;
-    const thumbnailUrls = newlyExposedThumbnailUrls(
-      displayRecipes ?? [],
-      prefetchedThumbnailUrls.current,
-    );
-    if (thumbnailUrls.length > 0) {
-      void ExpoImage.prefetch(thumbnailUrls, { cachePolicy: 'disk' })
-        .then((succeeded) => {
-          if (!succeeded) {
-            thumbnailUrls.forEach((url) => prefetchedThumbnailUrls.current.delete(url));
-          }
-        })
-        .catch(() => {
-          thumbnailUrls.forEach((url) => prefetchedThumbnailUrls.current.delete(url));
-        });
-    }
-  }, [displayRecipes, active]);
+
 
   // Determine if there's more to load - either from server or locally
   const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;

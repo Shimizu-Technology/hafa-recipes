@@ -1,3 +1,4 @@
+vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => JSON.stringify(['subject', mocks.ownerId, 'fixture', 0]) }));
 const scanFiles = vi.hoisted(() => new Set<string>());
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' },
