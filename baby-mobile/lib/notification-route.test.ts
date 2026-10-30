@@ -411,3 +411,8 @@ it("does not acknowledge a late destination after its account generation has bee
   expect(f.env.open).toHaveBeenCalledTimes(1);
   expect(f.env.acknowledge).toHaveBeenCalledOnce();
 });
+
+it("keeps the notification fallback on the pushed routines route", async () => {
+  const { reminderRoutes } = await import("./notification-route");
+  expect(reminderRoutes.routines).toBe("/routines");
+});
