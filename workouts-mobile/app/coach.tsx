@@ -25,6 +25,7 @@ export default function Coach() {
     program_id?: string; programId?: string;
     session_id?: string; sessionId?: string;
     revision?: string;
+    check_in?: string;
   }>();
   // Detail screens may link with camelCase (`/coach?workoutId=…`) or the original snake_case.
   const params = Object.fromEntries(Object.entries({
@@ -97,13 +98,16 @@ export default function Coach() {
   useLayoutEffect(() => {
     liveScope.current = scope; loadedScope.current = null;
     setSnack(null); setOptions(false); setReplyMenu(null); setDraftNotice(""); setReuse(null); setError(""); setBusy(false);
-    setClearConfirm(false); setClearedRequest(false); setShowCheckIn(false); setReadiness("unknown");
+    setClearConfirm(false); setClearedRequest(false); setShowCheckIn(raw.check_in === "today"); setOptions(raw.check_in === "today"); setReadiness("unknown");
     sending.current?.controller.abort(); sending.current = null; setProvisional("");
     stoppingRef.current = null; finishing.current = null; setStopping(null); guard.current = false;
     return () => { if (liveScope.current === scope) { liveScope.current = null; sending.current?.controller.abort(); } };
   }, [scope]);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [showCheckIn, setShowCheckIn] = useState(false);
+  useEffect(() => {
+    if (raw.check_in === "today") { setOptions(true); setShowCheckIn(true); }
+  }, [raw.check_in]);
   const [readiness, setReadiness] = useState<"ready" | "limited" | "unknown">("unknown");
   const checkIn = useQuery({
     queryKey: [owner, "readiness", generation],
