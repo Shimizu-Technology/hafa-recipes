@@ -151,18 +151,18 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   // Sync timers from cook mode
   const syncTimers = useCallback((newTimers: Map<number, TimerState>) => {
     if (generation !== recipeScope()) return;
-    setTimers(new Map(newTimers));
+    setTimers(previous => generation === recipeScope() ? new Map(newTimers) : previous);
   }, [generation]);
   
   // Session management
   const startSession = useCallback((newSession: CookingSession) => {
     if (generation !== recipeScope()) return;
-    setSession(newSession);
+    setSession(previous => generation === recipeScope() ? newSession : previous);
   }, [generation]);
   
   const updateSession = useCallback((updates: Partial<CookingSession>) => {
     if (generation !== recipeScope()) return;
-    setSession(prev => prev ? { ...prev, ...updates } : null);
+    setSession(prev => generation === recipeScope() && prev ? { ...prev, ...updates } : prev);
   }, [generation]);
   
   const endSession = useCallback(() => {

@@ -1,3 +1,4 @@
+import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
@@ -40,7 +41,7 @@ import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useQueryClient } from '@tanstack/react-query';
+
 
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';

@@ -1,3 +1,4 @@
+import { ownerScopedApi } from './ownerScopedApi';
 import { recipeScope, assertRecipeScope } from './recipeQueryScope';
 import { offlineRecipes } from './offlineRecipes';
 import { Platform } from 'react-native';
@@ -566,6 +567,7 @@ class ApiClient {
     requestGuard?.();
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/manual`, {
+      signal: (this as any).ownerSignal,
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1129,15 +1131,18 @@ class ApiClient {
     onDelta?: ChatDeltaHandler,
     signal?: AbortSignal,
   ): Promise<ChatResponse> {
-    const token = await this.getAuthTokenWithRetry(streamPath, signal);
+    const guard = this.recipeWriteGuard();
+    const token = await this.getAuthTokenWithRetry(streamPath, signal, guard);
+    guard();
     try {
       const result = await streamChatRequest({
         url: `${API_BASE_URL}${streamPath}`,
         token,
         payload,
         onDelta,
-        signal,
+        signal: (this as any).ownerSignal ?? signal,
       });
+      guard();
       addBreadcrumb('api', `POST ${streamPath}`, { status: 200, streamed: true }, 'info');
       return result;
     } catch (error) {
@@ -1388,6 +1393,7 @@ class ApiClient {
     if (!token) throw new Error('Sign in again before saving this recipe.');
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
+      signal: (this as any).ownerSignal,
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1708,7 +1714,7 @@ class ApiClient {
 }
 
 // Export singleton instance
-export const api = new ApiClient();
+export const api = ownerScopedApi(new ApiClient());
 
 // Export base URL for debugging
 export { API_BASE_URL, SHOW_DEVELOPER_TOOLS };

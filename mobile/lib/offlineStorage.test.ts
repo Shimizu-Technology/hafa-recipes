@@ -203,3 +203,20 @@ describe('account-scoped offline grocery storage', () => {
     );
   });
 });
+
+it('invalidates in-flight grocery leases and discards queued private recipe payloads on stable-owner change', async () => {
+  const { offlineRecipes } = await import('./offlineRecipes');
+  await offlineRecipes.bindSubject('same-subject'); await offlineRecipes.verify('same-subject', 'owner-a');
+  await bindOfflineGroceryIdentity('same-subject');
+  const a = getGroceryStorageLease(); await cacheGrocerySnapshot(snapshot(), a);
+  const privateAdd = { ...mutation(), item: { name: 'Secret ingredient', recipe_id: 'private-a', recipe_title: 'A family secret' } };
+  await addToSyncQueue(privateAdd, a);
+  expect(await getPendingSyncQueue(a)).toHaveLength(1);
+  await offlineRecipes.verify('same-subject', 'owner-b');
+  expect(() => assertGroceryStorageLease(a)).toThrow();
+  const b = getGroceryStorageLease(); await cacheGrocerySnapshot(snapshot('account-b', 'list-b'), b);
+  expect(await getPendingSyncQueue(b)).toEqual([]);
+  expect(JSON.stringify([...storage.values.values()])).not.toContain('A family secret');
+  await expect(addToSyncQueue(privateAdd, a)).rejects.toThrow();
+  await offlineRecipes.clear();
+});

@@ -1,13 +1,21 @@
+import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { useAuth } from '@clerk/expo';
 import { api } from '@/lib/api';
-import { useQuery as useRawQuery, useInfiniteQuery as useRawInfiniteQuery, useQueryClient, useMutation as useRawMutation } from '@tanstack/react-query';
-import { useSyncExternalStore } from 'react';
+import { useQuery as useRawQuery, useInfiniteQuery as useRawInfiniteQuery, useQueryClient as useRawQueryClient, useMutation as useRawMutation } from '@tanstack/react-query';
+import { useMemo, useSyncExternalStore } from 'react';
 import { offlineRecipes } from '@/lib/offlineRecipes';
-import { assertRecipeScope, bindRecipeQueryClient, recipeScope, scopedRecipeKey } from '@/lib/recipeQueryScope';
+import { assertRecipeScope, bindRecipeQueryClient, recipeScope, scopedRecipeKey, recipeOperation, ownerQueryClient } from '@/lib/recipeQueryScope';
+
+export function useRecipeQueryClient() {
+  const client = useRawQueryClient();
+  const scope = useSyncExternalStore(offlineRecipes.subscribe, recipeScope, recipeScope);
+  bindRecipeQueryClient(client);
+  return useMemo(() => ownerQueryClient(client, scope), [client, scope]);
+}
 
 /** The request and its result belong to the authority captured at render time. */
 function useScopedOptions(options: any) {
-  const client = useQueryClient();
+  const client = useRawQueryClient();
   bindRecipeQueryClient(client);
   const scope = useSyncExternalStore(offlineRecipes.subscribe, recipeScope, recipeScope);
   const { userId, isLoaded } = useAuth();
@@ -33,19 +41,31 @@ export const useRecipeInfiniteQuery: typeof useRawInfiniteQuery = ((options: any
 
 /** Late mutations must not publish or roll back private data into a new owner. */
 export const useRecipeMutation: typeof useRawMutation = ((options: any) => {
+  // Capture at render/creation, never when a retained action is invoked later.
+  const scope = useSyncExternalStore(offlineRecipes.subscribe, recipeScope, recipeScope);
+  const client = useRawQueryClient();
+  bindRecipeQueryClient(client);
   const wrap = (name: string) => options[name] && ((...args: any[]) => {
     const index = name === 'onMutate' ? 0 : name === 'onSettled' ? 2 : 1;
     const intent = args[index];
-    if (intent.scope !== recipeScope()) return;
+    if (intent.scope !== recipeScope() || intent.operation.signal.aborted) return;
     args[index] = intent.variables;
-    return options[name](...args);
+    const result = options[name](...args);
+    return Promise.resolve(result).then(value => { intent.operation.assert(); return value; });
   });
   const mutation = useRawMutation<any, Error, { variables: any; scope: string }, any>({ ...options,
+    retry: (count: number, error: Error) => {
+      if (error instanceof CaptureAccountChangedError || scope !== recipeScope()) return false;
+      const policy = options.retry ?? client.getDefaultOptions().mutations?.retry ?? false;
+      return typeof policy === 'function' ? policy(count, error) : policy === true || typeof policy === 'number' && count < policy;
+    },
     mutationFn: async (intent: any, context: any) => {
-      assertRecipeScope(intent.scope);
-      const result = await options.mutationFn(intent.variables, context);
-      assertRecipeScope(intent.scope);
-      return result;
+      intent.operation.assert();
+      try {
+        const result = await options.mutationFn(intent.variables, context);
+        intent.operation.assert();
+        return result;
+      } catch (error) { intent.operation.assert(); throw error; }
     },
     onMutate: wrap('onMutate'), onSuccess: wrap('onSuccess'), onError: wrap('onError'), onSettled: wrap('onSettled'),
   });
@@ -58,12 +78,16 @@ export const useRecipeMutation: typeof useRawMutation = ((options: any) => {
   );
   return { ...mutation, variables: (mutation.variables as any)?.variables,
     mutate: (variables: any, options: any) => {
-      const intent = { variables, scope: recipeScope() };
-      return mutation.mutate(intent, callbacks(intent, options));
+      if (scope !== recipeScope()) return;
+      const intent: any = { variables, scope };
+      intent.operation = recipeOperation(scope, () => { intent.variables = undefined; });
+      void mutation.mutateAsync(intent, callbacks(intent, options)).catch(() => undefined).finally(intent.operation.release);
     },
     mutateAsync: (variables: any, options: any) => {
-      const intent = { variables, scope: recipeScope() };
-      return mutation.mutateAsync(intent, callbacks(intent, options));
+      try { assertRecipeScope(scope); } catch (error) { return Promise.reject(error); }
+      const intent: any = { variables, scope };
+      intent.operation = recipeOperation(scope, () => { intent.variables = undefined; });
+      return mutation.mutateAsync(intent, callbacks(intent, options)).finally(intent.operation.release);
     },
   };
 }) as typeof useRawMutation;

@@ -1,8 +1,9 @@
+import { useRecipeMutation as useMutation } from './useRecipeQuery';
 /**
  * React Query hooks for AI chat.
  */
 
-import { useMutation } from '@tanstack/react-query';
+
 import { api } from '../lib/api';
 import type { ChatDeltaHandler } from '../lib/chatStream';
 import { ChatMessage, ChatResponse } from '../types/recipe';

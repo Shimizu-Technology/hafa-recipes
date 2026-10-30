@@ -1,3 +1,4 @@
+import { recipeScope } from '@/lib/recipeQueryScope';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 /**
  * Hook for background timer notifications.
@@ -106,6 +107,7 @@ offlineRecipes.onRetire(() => {
 });
 
 export function useBackgroundTimer(scope = 'default') {
+  const ownerScope = recipeScope();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -143,6 +145,7 @@ export function useBackgroundTimer(scope = 'default') {
     soundPreference: TimerSoundOption = 'default',
     deadline?: number,
   ): Promise<string | null> => {
+    if (ownerScope !== recipeScope()) return null;
     const activeScope = scopeRef.current;
     const generation = advance(activeScope, stepIndex);
     const isCurrent = () => generations.get(activeScope)?.get(stepIndex) === generation;
@@ -183,7 +186,7 @@ export function useBackgroundTimer(scope = 'default') {
       console.error('Failed to schedule timer alert:', error);
       return null;
     }
-  }, []);
+  }, [ownerScope]);
 
   const retryFailedAlerts = useCallback(async () => {
     const activeScope = scopeRef.current;

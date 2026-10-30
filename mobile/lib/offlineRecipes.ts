@@ -16,9 +16,9 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   let epoch = 0;
   let version = 0;
   const listeners = new Set<() => void>();
-  const retirementListeners = new Set<() => void>();
+  const retirementListeners = new Set<(previous: Authority | null) => void>();
   const emit = () => { version++; listeners.forEach(listener => listener()); };
-  const retire = () => { epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear(); retirementListeners.forEach(listener => listener()); emit(); };
+  const retire = () => { const previous = authority; epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear(); retirementListeners.forEach(listener => listener(previous)); emit(); };
   let tail: Promise<unknown> = Promise.resolve();
   const observed = new Map<string, { recipe: Recipe; fetchedAt: number }>();
   const eligible = new Set<string>();
@@ -78,8 +78,9 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   };
   return {
     revision,
+    ownerGeneration: () => authority ? JSON.stringify([authority.owner, authority.generation]) : null,
     scope: () => JSON.stringify([subject, authority?.owner ?? null, authority?.generation ?? null, epoch]),
-    onRetire: (listener: () => void) => { retirementListeners.add(listener); return () => { retirementListeners.delete(listener); }; },
+    onRetire: (listener: (previous: Authority | null) => void) => { retirementListeners.add(listener); return () => { retirementListeners.delete(listener); }; },
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     version: () => version,
     lease: (currentSubject?: string | null): Lease | null => authority && subject && currentSubject === subject ? { ...authority, epoch } : null,

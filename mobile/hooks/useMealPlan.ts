@@ -1,3 +1,4 @@
+import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from './useRecipeQuery';
 import { scopedRecipeKey } from '@/lib/recipeQueryScope';
 /**
@@ -5,7 +6,7 @@ import { scopedRecipeKey } from '@/lib/recipeQueryScope';
  * Includes optimistic updates for instant UI feedback.
  */
 
-import { useQueryClient } from '@tanstack/react-query';
+
 import { api } from '@/lib/api';
 import { MealPlanEntryCreate, WeekPlan, DayMeals, MealPlanEntry, MealType } from '@/types/recipe';
 

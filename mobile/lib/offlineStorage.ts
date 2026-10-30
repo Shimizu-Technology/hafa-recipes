@@ -20,9 +20,11 @@ interface GroceryStorageScope {
 export interface PendingGroceryMutation {
   mutation: GroceryMutationRequest;
   queued_at: string;
+  ownerGeneration?: string | null;
 }
 
 export interface GroceryStorageLease {
+  readonly recipeScope?: string;
   readonly identityEpoch: number;
   readonly scopeEpoch: number;
   readonly identityHash: string;
@@ -36,6 +38,7 @@ let boundIdentityHash: string | null = null;
 
 export function assertGroceryStorageLease(lease: GroceryStorageLease): void {
   if (
+    lease.recipeScope !== undefined && lease.recipeScope !== offlineRecipes.scope() ||
     !identityReady ||
     lease.identityHash !== boundIdentityHash ||
     lease.identityEpoch !== identityEpoch ||
@@ -47,7 +50,7 @@ export function assertGroceryStorageLease(lease: GroceryStorageLease): void {
 
 export function getGroceryStorageLease(): GroceryStorageLease {
   if (!boundIdentityHash) throw new Error('Grocery storage identity is not bound.');
-  const lease = { identityEpoch, scopeEpoch, identityHash: boundIdentityHash };
+  const lease = { identityEpoch, scopeEpoch, identityHash: boundIdentityHash, recipeScope: offlineRecipes.scope() };
   assertGroceryStorageLease(lease);
   return lease;
 }
@@ -245,7 +248,9 @@ export function addToSyncQueue(
     const raw = await AsyncStorage.getItem(key);
     const queue = raw ? (JSON.parse(raw) as PendingGroceryMutation[]) : [];
     if (!queue.some((entry) => entry.mutation.mutation_id === mutation.mutation_id)) {
-      queue.push({ mutation, queued_at: new Date().toISOString() });
+      assertGroceryStorageLease(lease);
+      const ownerGeneration = offlineRecipes.ownerGeneration();
+      queue.push({ mutation, queued_at: new Date().toISOString(), ...(ownerGeneration ? { ownerGeneration } : {}) });
       await AsyncStorage.setItem(key, JSON.stringify(queue));
     }
   });
@@ -262,7 +267,8 @@ export function getPendingSyncQueue(
     if (!raw) return [];
     try {
       const queue = JSON.parse(raw) as PendingGroceryMutation[];
-      return queue.filter((entry) => entry.mutation?.list_id === scope.listId);
+      assertGroceryStorageLease(lease);
+      return queue.filter((entry) => entry.mutation?.list_id === scope.listId && (entry.ownerGeneration ?? null) === offlineRecipes.ownerGeneration());
     } catch {
       return [];
     }
@@ -318,3 +324,11 @@ export function clearAllOfflineGroceryData(): Promise<void> {
   const recipesCleared = offlineRecipes.clear();
   return Promise.all([serialized(clearPrivateGroceryStorage), recipesCleared]).then(() => undefined);
 }
+
+// Stable-owner retirement also invalidates Clerk-scoped grocery work. A bootstrap
+// with no prior authority leaves durable edits for the restored generation intact.
+offlineRecipes.onRetire(previous => {
+  if (!previous) return;
+  scopeEpoch++;
+  void serialized(clearPrivateGroceryStorage).catch(() => undefined);
+});

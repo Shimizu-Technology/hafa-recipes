@@ -1,10 +1,11 @@
+import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { scopedRecipeKey } from '@/lib/recipeQueryScope';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 /**
  * React Query hooks for collection operations.
  */
 
-import { useQueryClient, type UseMutationResult } from '@tanstack/react-query';
+import { type UseMutationResult } from '@tanstack/react-query';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import { api, type RequestGuard } from '../lib/api';
