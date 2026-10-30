@@ -8,6 +8,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  alert: vi.fn(),
+  getIdentity: vi.fn(),
+  deleteAccount: vi.fn(),
   setThemePreference: vi.fn(),
   setTextSize: vi.fn(),
   refetchCount: vi.fn(),
@@ -21,7 +24,7 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
     ActivityIndicator: host('ActivityIndicator'),
-    Alert: { alert: vi.fn() },
+    Alert: { alert: mocks.alert },
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Linking: { openURL: vi.fn() },
     Modal: host('Modal'),
@@ -34,7 +37,7 @@ vi.mock('react-native', async () => {
     View: host('NativeView'),
   };
 });
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ clear: vi.fn() }) }));
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ clear: vi.fn(), getQueryData: vi.fn() }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@clerk/expo', () => ({
   useAuth: () => ({ isSignedIn: true, isLoaded: true, sessionId: 'sess-1' }),
@@ -82,7 +85,7 @@ vi.mock('@/lib/api', () => ({
   get SHOW_DEVELOPER_TOOLS() {
     return mocks.showDeveloperTools;
   },
-  api: {},
+  api: { getCurrentUserIdentity: mocks.getIdentity, deleteAccount: mocks.deleteAccount },
 }));
 vi.mock('@/lib/sentry', () => ({ captureMessage: vi.fn(), captureError: vi.fn() }));
 vi.mock('@/contexts/ThemeContext', () => ({
@@ -155,7 +158,7 @@ const originalLoad = loader._load;
 describe('SettingsScreen accessibility', () => {
   beforeAll(() => {
     loader._load = (request, ...rest) => (
-      request === '@/lib/api' ? { API_BASE_URL: 'https://api.example.test', api: {} } : originalLoad(request, ...rest)
+      request === '@/lib/api' ? { API_BASE_URL: 'https://api.example.test', api: { getCurrentUserIdentity: mocks.getIdentity, deleteAccount: mocks.deleteAccount } } : originalLoad(request, ...rest)
     );
   });
   afterAll(() => {
@@ -168,6 +171,18 @@ describe('SettingsScreen accessibility', () => {
     mocks.setThemePreference.mockClear();
     mocks.setTextSize.mockClear();
     mocks.refetchCount.mockClear();
+  });
+
+  it('does not delete an account before its stable owner is known for local cleanup', async () => {
+    mocks.alert.mockClear(); mocks.deleteAccount.mockReset().mockResolvedValue(undefined);
+    mocks.getIdentity.mockRejectedValue(new Error('offline'));
+    const renderer = await renderSettings();
+    await act(async () => touchables(renderer).find(node => textOf(node).includes('Delete Account'))!.props.onPress());
+    await act(async () => mocks.alert.mock.calls.at(-1)![2].find((button: { text: string }) => button.text === 'Delete Account').onPress());
+    await act(async () => mocks.alert.mock.calls.at(-1)![2].find((button: { text: string }) => button.text === 'Delete Forever').onPress());
+    expect(mocks.getIdentity).toHaveBeenCalled();
+    expect(mocks.deleteAccount).not.toHaveBeenCalled();
+    expect(mocks.alert).toHaveBeenLastCalledWith('Error', 'Failed to delete account. Please try again.');
   });
 
   it('labels the theme segments and marks only the active theme selected', async () => {

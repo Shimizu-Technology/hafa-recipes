@@ -39,13 +39,7 @@ public final class HafaWidgetBridgeModule: Module {
     }
 
     AsyncFunction("retireSession") { (owner: String) async throws -> Bool in
-      do { try HafaWidgetStore.shared.archivePending(owner: owner) }
-      catch {
-        defer { WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind) }
-        try HafaWidgetStore.shared.clearSession()
-        throw error
-      }
-      let revoked = try await HafaWidgetSyncClient.shared.revokeAndClearSession {
+      let revoked = try await HafaWidgetSyncClient.shared.revokeAndClearSession(archivingOwner: owner) {
         WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind)
       }
       WidgetCenter.shared.reloadTimelines(ofKind: HafaWidgetConstants.widgetKind)

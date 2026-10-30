@@ -215,6 +215,7 @@ export default function SettingsScreen() {
                           });
                         }
                       }
+                      if (!appUserId) throw new Error("Cannot delete account before its stable owner is verified");
                       assertRecipeScope(creationScope);
                       await api.deleteAccount();
                       accountDeleted = true;

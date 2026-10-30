@@ -72,7 +72,7 @@ const legacyOwner = (scope: string) => `legacy-scope:${scope}`;
 function retireNativeSession(owner: string) {
   // Every path uses one chain; a later owner cannot archive an earlier queue.
   retirement = retirement.then(() => HafaWidgetBridge.retireSession(owner))
-    .then(() => deleteStoredSession()).catch(() => undefined);
+    .catch(() => undefined).then(() => deleteStoredSession()).catch(() => undefined);
   return retirement;
 }
 const refreshListeners = new Set<() => void>();
@@ -253,6 +253,8 @@ async function provisionSession(
   snapshot: GrocerySnapshot,
   isCurrent: () => boolean,
 ): Promise<void> {
+  const owner = JSON.parse(recipeScope())[1] as string | null;
+  const archiveOwner = owner ?? legacyOwner(snapshot.account_scope_id);
   const installationId = await getOrCreateInstallationId();
   if (!isCurrent()) return;
 
@@ -277,7 +279,7 @@ async function provisionSession(
 
   const stored: StoredGroceryWidgetSession = {
     version: 1,
-    owner: JSON.parse(recipeScope())[1],
+    owner,
     clerkUserId,
     credentialId: credential.credential_id,
     accountScopeId: credential.account_scope_id,
@@ -291,18 +293,13 @@ async function provisionSession(
       API_BASE_URL,
       JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
     );
-    if (isCurrent()) {
-      const owner = JSON.parse(recipeScope())[1];
-      if (owner) {
-        await HafaWidgetBridge.restorePending(legacyOwner(snapshot.account_scope_id));
-        if (!isCurrent()) return;
-        await HafaWidgetBridge.restorePending(owner);
-        if (!isCurrent()) return;
-        await HafaWidgetBridge.flushPending();
-      }
+    if (isCurrent() && owner) {
+      await HafaWidgetBridge.restorePending(legacyOwner(snapshot.account_scope_id));
+      if (isCurrent()) await HafaWidgetBridge.restorePending(owner);
+      if (isCurrent()) await HafaWidgetBridge.flushPending();
     }
     if (!isCurrent()) {
-      await HafaWidgetBridge.clearSession(true);
+      await retireNativeSession(archiveOwner);
       return;
     }
     await SecureStore.setItemAsync(
@@ -310,9 +307,9 @@ async function provisionSession(
       JSON.stringify(stored),
       SECURE_STORE_OPTIONS,
     );
-    if (!isCurrent()) await deleteStoredSession();
+    if (!isCurrent()) await retireNativeSession(archiveOwner);
   } catch (error) {
-    await HafaWidgetBridge.clearSession(true).catch(() => false);
+    await retireNativeSession(archiveOwner);
     await revokeBearerToken(credential.token);
     await deleteStoredSession().catch(() => undefined);
     throw error;

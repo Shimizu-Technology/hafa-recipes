@@ -250,7 +250,17 @@ final class HafaWidgetStore {
   }()
   private let decoder = JSONDecoder()
 
+  #if HAFA_WIDGET_TESTS
+  private var testDirectory: URL?
+  var afterArchive: (() -> Void)?
+  init(directory: URL) { testDirectory = directory }
+  private init() {}
+  #endif
+
   private func containerURL() throws -> URL {
+    #if HAFA_WIDGET_TESTS
+    if let testDirectory { return testDirectory }
+    #endif
     guard let url = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: HafaWidgetConstants.appGroup
     ) else {
@@ -444,15 +454,25 @@ final class HafaWidgetStore {
     return try containerURL().appendingPathComponent("grocery-pending-owner-\(name).json")
   }
 
-  func archivePending(owner: String) throws {
-    try withFileLock {
-      let pending = try readUnlocked().pending
-      let url = try pendingURL(owner)
-      let existing = (try? decoder.decode([HafaWidgetPendingMutation].self, from: Data(contentsOf: url))) ?? []
-      let ids = Set(pending.map { $0.id })
-      try encoder.encode(existing.filter { !ids.contains($0.id) } + pending).write(to: url, options: [.atomic])
+  private func writeArchive(_ pending: [HafaWidgetPendingMutation], to url: URL) throws {
+    if pending.isEmpty {
+      if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    } else {
+      try encoder.encode(pending).write(to: url, options: [.atomic])
       try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: S_IRUSR | S_IWUSR), .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
     }
+  }
+
+  private func archiveUnlocked(owner: String) throws {
+    let pending = try readUnlocked().pending
+    let url = try pendingURL(owner)
+    let existing = (try? decoder.decode([HafaWidgetPendingMutation].self, from: Data(contentsOf: url))) ?? []
+    let ids = Set(pending.map { $0.id })
+    try writeArchive(existing.filter { !ids.contains($0.id) } + pending, to: url)
+  }
+
+  func archivePending(owner: String) throws {
+    try withFileLock { try archiveUnlocked(owner: owner) }
   }
 
   func restorePending(owner: String) throws {
@@ -466,7 +486,7 @@ final class HafaWidgetStore {
       if let snapshot = state.snapshot { state.snapshot = applying(state.pending, to: snapshot) }
       try writeUnlocked(state)
       // Keep entries for another list until that owner's list is active again.
-      try encoder.encode(pending.filter { $0.listID != state.snapshot?.list.id }).write(to: url, options: [.atomic])
+      try writeArchive(pending.filter { $0.listID != state.snapshot?.list.id }, to: url)
     }
   }
 
@@ -477,24 +497,29 @@ final class HafaWidgetStore {
     }
   }
 
-  func clearSession() throws {
-    var firstError: Error?
-    do {
-      try HafaWidgetCredentialStore.shared.delete()
-    } catch {
-      firstError = error
-    }
-    do {
-      try withFileLock {
+  func clearSession(archivingOwner: String? = nil) throws {
+    try withFileLock {
+      var firstError: Error?
+      // One critical section: a widget enqueue is either archived or rejected
+      // against the cleared state, never accepted into a deletion gap.
+      do { if let archivingOwner { try archiveUnlocked(owner: archivingOwner) } }
+      catch { firstError = error }
+      #if HAFA_WIDGET_TESTS
+      afterArchive?()
+      #endif
+      do {
+        #if HAFA_WIDGET_TESTS
+        if testDirectory == nil { try HafaWidgetCredentialStore.shared.delete() }
+        #else
+        try HafaWidgetCredentialStore.shared.delete()
+        #endif
+      } catch { if firstError == nil { firstError = error } }
+      do {
         let url = try stateURL()
-        if FileManager.default.fileExists(atPath: url.path) {
-          try FileManager.default.removeItem(at: url)
-        }
-      }
-    } catch {
-      if firstError == nil { firstError = error }
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+      } catch { if firstError == nil { firstError = error } }
+      if let firstError { throw firstError }
     }
-    if let firstError { throw firstError }
   }
 
   private func decodeSnapshot(_ data: Data) throws -> HafaWidgetSnapshot {
@@ -732,7 +757,7 @@ actor HafaWidgetSyncClient {
     }
   }
 
-  func revokeAndClearSession(onClear: (() -> Void)? = nil) async throws -> Bool {
+  func revokeAndClearSession(archivingOwner: String? = nil, onClear: (() -> Void)? = nil) async throws -> Bool {
     let state = try? HafaWidgetStore.shared.readState()
     let request = state.flatMap {
       makeRequest(
@@ -745,7 +770,8 @@ actor HafaWidgetSyncClient {
     // Privacy boundary: remove the bearer and rendered list before waiting on
     // a best-effort network revocation. The already-built request retains only
     // the in-memory capability needed to revoke itself.
-    try HafaWidgetStore.shared.clearSession()
+    do { try HafaWidgetStore.shared.clearSession(archivingOwner: archivingOwner) }
+    catch { onClear?(); throw error }
     onClear?()
     guard let request else { return false }
     do {

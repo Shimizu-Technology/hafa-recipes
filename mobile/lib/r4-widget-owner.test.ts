@@ -195,3 +195,20 @@ import { groceryAccountScope } from './groceryAccountScope';
 it('matches the API stable-owner namespace for legacy archive deletion',async()=>{
  expect(await groceryAccountScope('owner-a')).toBe('gacct_EO0nnVrx2oEWi5C9zi10HtyA');
 });
+
+it.each([1, 2])('retires a configured capability when foreground publication expires during restore %s', async (restoreNumber) => {
+ await offlineRecipes.bindSubject('clerk-user-one'); await offlineRecipes.verify('clerk-user-one','owner-a');
+ apiMock.getGrocerySnapshot.mockResolvedValue(snapshot());
+ apiMock.issueGroceryWidgetCredential.mockResolvedValue({credential_id:CREDENTIAL_ID,token:`hfw_v1.${CREDENTIAL_ID}.abcdefghijklmnopqrstuvwxyzABCDEFGH1234567890_-`,list_id:LIST_ID,account_scope_id:'scope-one',scopes:['grocery:read','grocery:set_checked'],issued_at:'2026-08-23T00:00:00Z',expires_at:'2027-11-21T00:00:00Z'});
+ let current=true, release!:()=>void; const gate=new Promise<void>(r=>{release=r});
+ bridge.restorePending.mockReset().mockImplementation(async()=>{ if(bridge.restorePending.mock.calls.length===restoreNumber) await gate; });
+ const pending=synchronizeGroceryWidget('clerk-user-one',()=>current);
+ try {
+   await vi.waitFor(()=>expect(bridge.restorePending).toHaveBeenCalledTimes(restoreNumber));
+   current=false; release(); await pending;
+   expect(bridge.retireSession).toHaveBeenCalledWith('owner-a');
+   expect(bridge.clearSession).toHaveBeenCalledWith(true);
+   expect(bridge.flushPending).not.toHaveBeenCalled();
+   expect(secureValues.has(SESSION_KEY)).toBe(false);
+ } finally { release(); await offlineRecipes.clear(); }
+});
