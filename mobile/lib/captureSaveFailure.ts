@@ -1,6 +1,11 @@
 import { getApiErrorMessage } from './apiErrorMessage';
+export class OriginalPagesRejectedError extends Error {
+  constructor(message: string, public savedRecipeId: string) { super(message); }
+}
+type CaptureFailure = { kind: 'invalid' | 'auth' | 'conflict' | 'retry' | 'pages'; message: string; savedRecipeId?: string };
 /** Only a rejected payload can safely be edited before reconciling the first save. */
-export function captureSaveFailure(error: unknown) {
+export function captureSaveFailure(error: unknown): CaptureFailure {
+  if (error instanceof OriginalPagesRejectedError) return { kind: 'pages', message: error.message, savedRecipeId: error.savedRecipeId };
   const status = (error as { response?: { status?: number } })?.response?.status;
   const kind = status === 400 || status === 422 ? 'invalid'
     : status === 401 || status === 403 ? 'auth'

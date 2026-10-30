@@ -1,3 +1,4 @@
+import { IMPORT_INBOX_STORAGE_KEY } from './importInboxStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ExtractRequest } from '@/types/recipe';
 import type { SharedRecipeImage } from './shareCapture';
@@ -23,7 +24,7 @@ export type ImportInboxEntry = {
 };
 
 type Storage = Pick<typeof AsyncStorage, 'getItem' | 'setItem'>;
-const STORAGE_KEY = 'hafa_import_inbox_v1';
+const STORAGE_KEY = IMPORT_INBOX_STORAGE_KEY;
 
 /** Keep recovery byte-for-byte consistent with the request used by intake. */
 export const importInboxRequest = (entry: ImportInboxEntry): ExtractRequest => entry.request ?? {

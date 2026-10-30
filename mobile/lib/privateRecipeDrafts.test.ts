@@ -1,3 +1,4 @@
+import { IMPORT_INBOX_STORAGE_KEY } from './importInboxStorage';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 const media = vi.hoisted(() => ({ files: new Set<string>(), copied: false }));
@@ -81,11 +82,11 @@ it('never deletes a page while another draft or pending capture still references
   await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
   await drafts.remove(lease, 'scan');
   expect(media.files.has(uri)).toBe(true);
-  data.set('hafa_import_inbox_v1', JSON.stringify([{ state: 'waiting', capture: { kind: 'images', images: [{ uri }] } }]));
+  data.set(IMPORT_INBOX_STORAGE_KEY, JSON.stringify([{ state: 'waiting', capture: { kind: 'images', images: [{ uri }] } }]));
   await drafts.remove(lease, 'recovery');
   expect(media.files.has(uri)).toBe(true);
   await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
-  data.delete('hafa_import_inbox_v1');
+  data.delete(IMPORT_INBOX_STORAGE_KEY);
   await drafts.remove(lease, 'recovery');
   expect(media.files.has(uri)).toBe(false);
 });

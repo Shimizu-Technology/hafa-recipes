@@ -523,7 +523,7 @@ describe('classified image recovery', () => {
       params: {
         initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
         captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a',
-        captureSource: 'photo', isPublic: 'false', originalPages: expect.any(String),
+        captureSource: 'photo', isPublic: 'false', originalPages: JSON.stringify([{ uri: 'file:///recipe-back.jpg' }, { uri: 'file:///recipe-front.jpg' }]),
       },
     });
     expect(renderer!.root.findAllByType(
@@ -704,7 +704,7 @@ describe('classified image recovery', () => {
     expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
       captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
-      originalPages: expect.any(String),
+      originalPages: JSON.stringify([{ uri: 'file:///recipe-front.jpg' }, { uri: 'file:///recipe-back.jpg' }]),
     } });
   });
 
@@ -758,4 +758,14 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
     } finally { await act(async () => renderer.unmount()); }
   });
 
+});
+
+it('identifies the active import source before its details are expanded', async () => {
+  mocks.extraction.isExtracting = true; mocks.extraction.sourceUrl = 'https://www.youtube.com/watch?v=active-video';
+  let renderer!: ReactTestRenderer;
+  try {
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const copy = renderer.root.findAllByType('ThemedText' as any).map(node => node.props.children).flat(Infinity).join(' ');
+    expect(copy).toContain('YouTube'); expect(copy).toContain('watch · active-video');
+  } finally { await act(async () => renderer.unmount()); mocks.extraction.isExtracting = false; mocks.extraction.sourceUrl = ''; }
 });

@@ -1,3 +1,4 @@
+import { IMPORT_INBOX_STORAGE_KEY } from './importInboxStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 export type RecipeDraftKind = 'manual' | 'paste' | 'scan' | 'recovery';
 export type DraftLease = { owner: string; epoch: number };
@@ -71,7 +72,7 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
       if (raw && raw.includes('private-recipe-drafts/')) {
         // Scan, editor, recovery and pending captures can share the same pages.
         // Retire this receipt first, then delete only files no remaining receipt uses.
-        const keys = (await storage.getAllKeys()).filter(value => value.startsWith(PREFIX) || value === 'hafa_import_inbox_v1');
+        const keys = (await storage.getAllKeys()).filter(value => value.startsWith(PREFIX) || value === IMPORT_INBOX_STORAGE_KEY);
         const references = await Promise.all(keys.map(value => storage.getItem(value)));
         valid(lease);
         const { File, Directory, Paths } = await import('expo-file-system');

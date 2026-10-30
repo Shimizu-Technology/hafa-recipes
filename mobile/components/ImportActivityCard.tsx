@@ -116,7 +116,7 @@ export function ImportActivityCard({
     !captures.some((capture) => capture.id === job.id));
   const rows = [
     ...visibleJobs.map((job) => ({ id: job.id, createdAt: Date.parse(job.created_at || '') || 0, job })),
-    ...captures, ...(active ? [active] : []),
+    ...captures.filter(capture => capture.id !== active?.id), ...(active ? [active] : []),
   ].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
   if (!rows.length) return null;
 

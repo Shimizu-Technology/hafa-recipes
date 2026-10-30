@@ -1,3 +1,4 @@
+import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 import { invalidateCreatedRecipeQueries } from '@/hooks/useRecipes';
@@ -458,16 +459,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
     onError: async (error: unknown, snapshot: EditSnapshot) => {
       if (!alive.current) return;
       if (capture && captureSaveFailure(error).kind !== 'invalid') {
-        guard();
-        const request = snapshot.captureRequest!;
-        // Stop autosave before queuing the authoritative failed request.
-        await localDraft.leave(); guard();
-        await privateRecipeDrafts.write(privateRecipeDrafts.lease(capture.ownerId), 'recovery', {
-          request, recipe: { ...capture.recipe, extracted: request.extracted, is_public: request.is_public, source_type: request.source_type },
-          captureId: request.capture_id, failure: captureSaveFailure(error),
-        });
-        guard();
-        router.replace({ pathname: '/ocr-review', params: { originalPages: JSON.stringify(request.original_pages), recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
+        router.replace(await recoverFailedCaptureSave(error, snapshot.captureRequest!, capture, guard, localDraft.leave));
         return;
       }
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));

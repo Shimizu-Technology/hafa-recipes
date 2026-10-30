@@ -70,6 +70,7 @@ export async function saveCaptureOrRecover(
         ...(input.expected_owner_id ? { captureOwnerId: input.expected_owner_id } : {}),
         saveErrorKind: failure.kind,
         saveErrorMessage: failure.message,
+        ...(failure.savedRecipeId ? { savedRecipeId: failure.savedRecipeId } : {}),
         ...(draftStorageError ? { draftStorageError } : {}),
       },
     };

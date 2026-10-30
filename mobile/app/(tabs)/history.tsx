@@ -20,9 +20,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { View, Text, Input, Chip, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, OwnershipFilter } from '@/components/FilterBottomSheet';
-import CreateCollectionModal from '@/components/CreateCollectionModal';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
-import { SkeletonRecipeList, SkeletonCollectionList } from '@/components/Skeleton';
+import { SkeletonRecipeList } from '@/components/Skeleton';
 import { AnimatedListItem, ScalePressable, useInitialListEntrance } from '@/components/Animated';
 import {
   useRecipes,
@@ -33,8 +32,7 @@ import {
   filterRecipesLocally,
   SearchFilters,
 } from '@/hooks/useRecipes';
-import { useCollections } from '@/hooks/useCollections';
-import { RecipeListItem, Collection } from '@/types/recipe';
+import { RecipeListItem } from '@/types/recipe';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
 import Colors from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
@@ -231,75 +229,6 @@ export function GridRecipeCard({
   );
 }
 
-// Collection card for the horizontal row - single cover image style
-function CollectionCard({
-  collection,
-  onPress,
-  colors,
-}: {
-  collection: Collection;
-  onPress: () => void;
-  colors: ReturnType<typeof useColors>;
-}) {
-  const firstThumbnail = collection.preview_thumbnails?.[0];
-
-  return (
-    <TouchableOpacity
-      style={[styles.collectionCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      {/* Single cover image or emoji */}
-      <RNView style={styles.collectionPreview}>
-        <RecipeThumbnail
-          uri={firstThumbnail}
-          style={styles.collectionCoverImage}
-          accessibilityLabel={`${collection.name} collection cover`}
-          placeholderIconName="folder-open-outline"
-          placeholderIconSize={30}
-        />
-        {/* Recipe count badge */}
-        {collection.recipe_count > 0 && (
-          <RNView style={[styles.collectionBadge, { backgroundColor: colors.tint }]}>
-            <Text style={styles.collectionBadgeText}>{collection.recipe_count}</Text>
-          </RNView>
-        )}
-      </RNView>
-
-      {/* Collection info */}
-      <RNView style={styles.collectionInfo}>
-        <Text style={[styles.collectionName, { color: colors.text }]} numberOfLines={1}>
-          {collection.name}
-        </Text>
-      </RNView>
-    </TouchableOpacity>
-  );
-}
-
-// New collection card (+ button)
-function NewCollectionCard({
-  onPress,
-  colors,
-}: {
-  onPress: () => void;
-  colors: ReturnType<typeof useColors>;
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.collectionCard, styles.newCollectionCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border, borderStyle: 'dashed' }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <RNView style={[styles.newCollectionIcon, { backgroundColor: colors.tint + '15' }]}>
-        <Ionicons name="add" size={28} color={colors.actionText} />
-      </RNView>
-      <Text style={[styles.newCollectionText, { color: colors.textMuted }]}>
-        New Collection
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
 export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
@@ -311,7 +240,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const isServerSearchCurrent = debouncedSearchQuery === searchQuery;
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
 
   // Selection mode for bulk operations
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -327,14 +255,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all'); // all, own, or saved only
 
-  // Collections
-  const {
-    data: collections,
-    isLoading: isLoadingCollections,
-    isError: isCollectionsError,
-    isFetching: isFetchingCollections,
-    refetch: refetchCollections,
-  } = useCollections(active && !!isSignedIn);
+
 
   // Pass source filter to server-side queries
   const sourceTypeParam = sourceFilter === 'all' ? undefined : sourceFilter;
@@ -411,12 +332,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
 
   const handleRefreshAll = useCallback(async () => {
     await Promise.all([
-      isAuthenticated ? refetchCollections() : Promise.resolve(),
       hasActiveFilters ? refetchSearch() : Promise.resolve(),
       showOwnRecipes ? refetchRecipes() : Promise.resolve(),
       showSavedRecipes ? refetchSaved() : Promise.resolve(),
     ]);
-  }, [hasActiveFilters, isAuthenticated, refetchCollections, refetchRecipes, refetchSaved, refetchSearch, showOwnRecipes, showSavedRecipes]);
+  }, [hasActiveFilters, isAuthenticated, refetchRecipes, refetchSaved, refetchSearch, showOwnRecipes, showSavedRecipes]);
 
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
@@ -855,12 +775,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         initialFilters={{ sourceFilter, timeFilter, selectedTags, ownershipFilter }}
         popularTags={popularTags}
         showOwnershipFilter
-      />
-
-      {/* Create Collection Modal */}
-      <CreateCollectionModal
-        visible={active && showCreateCollectionModal}
-        onClose={() => setShowCreateCollectionModal(false)}
       />
 
       {/* Bulk Add to Collection Modal */}
@@ -1370,110 +1284,6 @@ const styles = StyleSheet.create({
   loadMoreText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
-  },
-  // Collections styles
-  collectionRecovery: {
-    padding: spacing.md,
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    marginBottom: spacing.md,
-  },
-  collectionsSection: {
-    marginTop: spacing.md,
-  },
-  collectionsSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  collectionsTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  collectionsSectionTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-  },
-  collectionsRow: {
-    paddingRight: spacing.lg,
-    gap: spacing.sm,
-  },
-  collectionCard: {
-    width: 120,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  newCollectionCard: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: 140,
-  },
-  collectionPreview: {
-    height: 80,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  collectionCoverImage: {
-    width: '100%',
-    height: '100%',
-  },
-  collectionBadge: {
-    position: 'absolute',
-    bottom: spacing.xs,
-    right: spacing.xs,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-  },
-  collectionBadgeText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-  },
-  collectionInfo: {
-    padding: spacing.sm,
-  },
-  collectionName: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  collectionCount: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-  newCollectionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  newCollectionText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-    textAlign: 'center',
-  },
-  createFirstCollection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginTop: spacing.md,
-    gap: spacing.sm,
-  },
-  createFirstCollectionText: {
-    flex: 1,
-    fontSize: fontSize.sm,
   },
   // Header menu button
   headerMenuButton: {

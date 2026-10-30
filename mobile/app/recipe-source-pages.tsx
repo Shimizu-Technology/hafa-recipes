@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Image, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -21,11 +21,19 @@ export default function RecipeSourcePagesScreen() {
   const [removed, setRemoved] = useState(false);
   const pages = useQuery({ queryKey: ['recipe-source-pages', owner, id],
     queryFn: () => api.getRecipeSourcePages(id), enabled: Boolean(owner && id) && !removed,
-    staleTime: 0, gcTime: 0, refetchInterval: 45_000 });
+    staleTime: 0, gcTime: 0 });
   const values = pages.data?.pages || [];
   const index = Math.min(page, Math.max(0, values.length - 1));
   const panelWidth = width > 700 ? (width - 48) / 2 : Math.max(280, width - 48);
-  const navigatePage = (next: number) => { setPage(next); setZoom(1); };
+  const retriedPage = useRef<number | null>(null);
+  const navigatePage = (next: number) => {
+    retriedPage.current = null; setPage(next); setZoom(1);
+    if (Date.now() - pages.dataUpdatedAt > 45_000) void pages.refetch();
+  };
+  const retryPage = () => {
+    if (retriedPage.current === index) return;
+    retriedPage.current = index; void pages.refetch();
+  };
   const remove = () => Alert.alert('Remove original pages?', 'Your extracted recipe will stay saved. The original pages will be removed privately.', [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Remove pages', style: 'destructive', onPress: () => {
@@ -59,7 +67,7 @@ export default function RecipeSourcePagesScreen() {
             <Text accessibilityRole="header">Original page {index + 1}</Text>
             <ScrollView horizontal style={{ height: 420 }}>
               <ScrollView nestedScrollEnabled>
-                <Image source={{ uri: values[index].url, cache: 'reload' }}
+                <Image source={{ uri: values[index].url, cache: 'reload' }} onError={retryPage}
                   accessibilityLabel={`Original recipe page ${index + 1}`}
                   style={{ width: panelWidth * zoom, height: 420 * zoom }} resizeMode="contain" />
               </ScrollView>
