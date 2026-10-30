@@ -3,13 +3,13 @@ import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { replaceRecord } from "@/lib/outbox";
-import { exportFile, removeLocal } from "@/lib/files";
+import { retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { exportFile } from "@/lib/files";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
   if (row.type === "import") return row;
-  if (row.type === "delete") return { ...row, record: { ...row.record, revision }, error: undefined, conflict: false };
-  return { ...row, record: { ...row.record, revision }, error: undefined, conflict: false };
+  if (row.type === "delete") return { ...retryMutation(row), record: { ...row.record, revision } };
+  return { ...retryMutation(row), record: { ...row.record, revision } };
 }
 export default function Sync() {
   const b = useBaby(),
@@ -36,7 +36,7 @@ export default function Sync() {
   async function retry(m: Mutation) {
     await b.commit((s) => ({
       ...s,
-      outbox: s.outbox.map((row) => (row.id === m.id ? { ...row, error: undefined, conflict: false } : row)),
+      outbox: s.outbox.map((row) => (row.id === m.id ? retryMutation(row) : row)),
     }));
     await b.sync();
   }
@@ -50,7 +50,7 @@ export default function Sync() {
       {!!b.error && b.error !== error && <Notice error>{b.error}</Notice>}
       <Notice>
         {b.online
-          ? "Your device is online. Pending changes retry when you return to the app."
+          ? "Changes sync independently. Failed changes wait for your review; later changes to the same entry wait too."
           : "You’re offline. Your entries and drafts are kept privately on this device."}
       </Notice>
       <Button
@@ -71,11 +71,15 @@ export default function Sync() {
                     : m.record.title}
               </Copy>
               <Copy kind="small" tone="muted">
-                {m.conflict
+                {m.localOnly
+                  ? "Kept on this phone · not syncing"
+                  : m.conflict
                   ? "Needs a conflict review"
                   : m.error
                     ? "Needs your attention"
-                    : "Safely queued on this device"}
+                    : (waitingForEarlier(b.state.outbox, m) || waitingForImport(b.state.imports, m))
+                      ? "Waiting for an earlier change to this entry"
+                      : "Safely queued on this device"}
               </Copy>
               {m.type === "import" ? (
                 <Copy>{m.url || m.text || "Attached source files"}</Copy>
@@ -169,7 +173,7 @@ export default function Sync() {
                         outbox: s.outbox.map((row) =>
                           row.id === m.id && row.type === "save"
                             ? {
-                                ...row,
+                                ...retryMutation(row),
                                 record: {
                                   ...row.record,
                                   id: Crypto.randomUUID(),
@@ -190,8 +194,14 @@ export default function Sync() {
                   }
                 />
               )}
-              {!m.conflict && m.error && (
-                <Button secondary title="Retry this change" busy={busy} onPress={() => void run(() => retry(m))} />
+              {!m.localOnly && (m.error || m.conflict) && (
+                <Button secondary title="Keep on this phone" disabled={b.syncing || busy}
+                  onPress={() => void run(async () => {
+                    await b.commit(s => ({ ...s, outbox: s.outbox.map(row => row.id === m.id ? { ...row, localOnly: true } : row) }));
+                  })} />
+              )}
+              {!m.conflict && (m.error || m.localOnly) && (
+                <Button secondary title="Retry" busy={busy} onPress={() => void run(() => retry(m))} />
               )}
               <Button
                 variant="destructive"
@@ -200,7 +210,7 @@ export default function Sync() {
                 onPress={() =>
                   Alert.alert(
                     "Discard this change?",
-                    "This removes this unsynced change and its local files. It cannot be recovered here. You can export a text backup first.",
+                    "This removes only this unsynced change. Later changes to this entry stay on this phone. You can export a text backup first.",
                     [
                       { text: "Keep change", style: "cancel" },
                       { text: "Discard change", style: "destructive", onPress: () => void run(() => discard(m)) },

@@ -1,15 +1,16 @@
 import { useRef } from "react";
 import { router } from "expo-router";
-import { ActionSheetIOS, Alert, Platform, Pressable, View } from "react-native";
+import { ActionSheetIOS, Alert, Platform, Pressable, View, useWindowDimensions } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
 import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
 import { careGlance, glanceChild, nextFeed } from "@/lib/care-glance";
 import { careSummary, friendlyTime } from "@/lib/care-format";
+import { routineToday } from "@/lib/today-routines";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
-import { Button, Card, Copy, Empty, Icon, Loading, Notice, Row, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, PressTarget, Empty, Icon, Loading, Notice, Row, Screen, Section, useColors, useToast, type IconName } from "@/components/ui";
 import { RecordRow, kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -26,7 +27,7 @@ const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] 
 function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; hint: string; onPress: () => void }) {
   const c = useColors();
   return (
-    <Pressable
+    <PressTarget
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -39,38 +40,31 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
         backgroundColor: c.tile,
         alignItems: "center",
         gap: 10,
-        opacity: pressed ? 0.7 : 1,
       })}
     >
       <Icon name={icon} size={25} />
       <Copy kind="small" align="center">
         {label}
       </Copy>
-    </Pressable>
+    </PressTarget>
   );
-}
-
-function greeting(now: Date) {
-  const hour = now.getHours();
-  return hour < 5 ? "Hello" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
 export default function Today() {
   const b = useBaby(),
     toast = useToast(),
     now = useMinuteClock(),
-    profile = b.state.bootstrap!.profile,
+    { fontScale } = useWindowDimensions(),
     children = b.state.bootstrap!.children,
     child = glanceChild(b.state),
     records = b.records.filter((r) => !b.state.selectedChild || r.child_id === b.state.selectedChild || !r.child_id),
     latestCare = useTodayCare(),
     care = latestCare.rows,
     glance = careGlance(latestCare.all, child?.id ?? null, now),
-    routines = records.filter((r) => r.kind === "routine"),
+    routines = records.filter((r) => routineToday(r, now)),
     showCare = !!child && (!child.due_date || !!child.birth_date || care.length > 0),
     timer = activeTimer(b.state),
     timerChild = timer && children.find((c) => c.id === timer.child_id),
-    name = profile.display_name.split(" ")[0],
     writing = useRef(false);
   async function quick(action: () => Promise<() => Promise<void>>, message: string) {
     // One write at a time: a double tap must not start two sleeps or end one twice.
@@ -172,29 +166,24 @@ export default function Today() {
   }
   return (
     <Screen
-      title={`${greeting(now)}${name ? `, ${name}` : ""}`}
-      subtitle={now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+      title={now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
       action={
-        <Pressable
+        <PressTarget
           accessibilityRole="button"
           accessibilityLabel="Settings and profiles"
           onPress={() => router.push("/settings")}
           style={{ padding: 10 }}
         >
           <Icon name="person-circle-outline" size={30} />
-        </Pressable>
+        </PressTarget>
       }
     >
       <SyncStatus />
       {!children.length && <Row title="Add a baby profile" detail="Optional · personalize everyday care when you’re ready"
         icon="person-add-outline" onPress={() => router.push("/child")} />}
-      <Row title="Write a journal entry" detail="A thought, photo or small moment" icon="book-outline"
-        onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
-      <Button secondary title="Open saved posts" icon="bookmark-outline" onPress={() => router.push("/(tabs)/library")} />
       {children.length > 1 && <ChildFilter />}
-      {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
       {child && showCare && <CareGlance child={child} rows={latestCare.all} now={now} />}
-      {showCare && <View style={{ flexDirection: "row", gap: 10 }}>
+      {showCare && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", gap: 10 }}>
         <Tile
           icon={kindIcon.feeding}
           label={timer ? "Feeding…" : "Feed"}
@@ -209,6 +198,7 @@ export default function Today() {
         />
         <Tile icon={kindIcon.diaper} label="Diaper" hint="Choose wet, dirty or both" onPress={diaper} />
       </View>}
+      {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
       {(care.length > 0 || latestCare.loading || latestCare.error) && (
         <Section title="Recent care">
           {latestCare.loading && !care.length && <Loading label="Loading latest care…" />}
@@ -228,7 +218,9 @@ export default function Today() {
           ))}
         </Section>
       )}
-      {routines.length > 0 && <Section title="Lists & routines">
+      <Row title="Write a journal entry" detail="A thought, photo or small moment" icon="book-outline"
+        onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
+      {routines.length > 0 && <Section title="Today’s routines">
         {routines.slice(0, 2).map((r) => <RecordRow key={r.id} record={r} />)}
       </Section>}
       {records.filter((r) => r.kind === "source" || r.kind === "journal").length > 0 && (
