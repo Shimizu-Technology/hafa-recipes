@@ -13,7 +13,7 @@ const scope = vi.hoisted(() => ({
   haptic: vi.fn(async () => undefined),
 }));
 vi.mock("react-native", () => ({
-  Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text",
+  useWindowDimensions: () => ({ fontScale: 1 }), Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text",
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
   ActionSheetIOS: { showActionSheetWithOptions: (config: { options: string[] }, pick: (index: number) => void) =>
     scope.sheets.push({ options: config.options, pick }) },
@@ -29,6 +29,7 @@ vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `fixture-$
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
+vi.mock("@/lib/today-routines", () => import("./today-routines"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
