@@ -1366,8 +1366,10 @@ class ApiClient {
     return data;
   }
 
-  async checkRecipeSaved(recipeId: string): Promise<{ is_saved: boolean }> {
-    const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`);
+  async checkRecipeSaved(recipeId: string, requestGuard?: RequestGuard): Promise<{ is_saved: boolean }> {
+    const guard = this.recipeWriteGuard(requestGuard);
+    const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`, { requestGuard: guard } as GuardedRequestConfig);
+    guard();
     return data;
   }
 

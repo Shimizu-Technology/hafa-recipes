@@ -83,6 +83,7 @@ export type SearchFilters = {
 
 export const recipeKeys = {
   all: ['recipes'] as const,
+  plannerSearch: () => [...recipeKeys.all, 'plannerSearch'] as const,
   lists: () => [...recipeKeys.all, 'list'] as const,
   list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.lists(), filters] as const,
@@ -154,6 +155,7 @@ function setDiscoverSavedState(
 }
 
 export function invalidateCreatedRecipeQueries(queryClient: QueryClient, recipeId?: string | null) {
+  queryClient.invalidateQueries({ queryKey: recipeKeys.plannerSearch() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.recentRoot() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.countRoot() });
@@ -341,6 +343,22 @@ export function useRecipe(id: string, enabled = true) {
     thumbnailPending,
     preview,
   };
+}
+
+/** Planner searches the entire eligible scope, even with an empty query. */
+export function usePlannerRecipeSearch(
+  scope: 'all' | 'mine' | 'saved' | 'discover', filters: SearchFilters, enabled = true,
+) {
+  return useInfiniteQuery({
+    queryKey: [...recipeKeys.plannerSearch(), scope, filters],
+    queryFn: ({ pageParam = 0, signal }) => scope === 'discover'
+      ? api.searchPublicRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, undefined, undefined, signal)
+      : api.searchRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, signal, scope === 'mine' ? 'own' : scope),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+    enabled,
+    staleTime: 30_000,
+  });
 }
 
 /**
@@ -1688,7 +1706,7 @@ function useConfirmedRecipeSave(saved: boolean) {
     },
     onError: async (_error, intent) => {
       if (!intent.current()) return;
-      await reconcileSavedStateAfterError(queryClient, intent.id, intent.guard);
+      try { await reconcileSavedStateAfterError(queryClient, intent.id, intent.guard, () => api.checkRecipeSaved(intent.id, intent.guard)); } catch { /* Retry remains available when reconciliation is offline. */ }
       if (!mounted.current || !intent.current()) return;
       showToast({
         message: saved ? "Couldn't save. Try again" : "Couldn't remove. Try again",
@@ -1698,9 +1716,10 @@ function useConfirmedRecipeSave(saved: boolean) {
     },
     onSettled: (data, _error, intent) => {
       if (!intent.current()) return;
-      for (const queryKey of [recipeKeys.saved(), ['savedRecipesCount'], recipeKeys.discover(), ['recipeSaved', intent.id], ...(data ? [recipeKeys.all] : [])]) {
+      for (const queryKey of [recipeKeys.plannerSearch(), recipeKeys.saved(), ['savedRecipesCount'], recipeKeys.discover(), ['recipeSaved', intent.id], ...(data ? [recipeKeys.all] : [])]) {
         void queryClient.invalidateQueries({ queryKey, refetchType: 'none' });
       }
+
     },
   });
   type Options = MutateOptions<Awaited<ReturnType<typeof api.saveRecipe>>, Error, string, void>;

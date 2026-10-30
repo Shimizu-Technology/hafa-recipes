@@ -73,13 +73,22 @@ export function savedStateInRecipePages(
 export async function reconcileSavedStateAfterError(
   queryClient: QueryClient,
   recipeId: string,
-  guard: () => void = () => {},
+  guard?: () => void,
+  readSaved?: () => Promise<{ is_saved: boolean }>,
 ): Promise<void> {
-  guard();
-  // Mark stale without launching account-shared reads during an ambiguous write.
+  if (guard && readSaved) {
+    guard();
+    const result = await readSaved();
+    guard();
+    queryClient.setQueryData(['recipeSaved', recipeId], result);
+    queryClient.setQueriesData<InfiniteData<PaginatedRecipes>>(
+      { queryKey: ['discover'] },
+      data => updateSavedStateInRecipePages(data, recipeId, result.is_saved),
+    );
+    return;
+  }
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['discover'], refetchType: 'none' }),
-    queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true, refetchType: 'none' }),
+    queryClient.invalidateQueries({ queryKey: ['discover'] }),
+    queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
   ]);
-  guard();
 }
