@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
@@ -37,6 +38,11 @@ const PANTRY_STARTERS = ['chicken', 'rice', 'eggs', 'tomatoes'];
 const MAX_SEARCH_INGREDIENTS = 50;
 
 export default function IngredientSearchScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <IngredientSearchScreenContent key={generation} />;
+}
+
+function IngredientSearchScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();

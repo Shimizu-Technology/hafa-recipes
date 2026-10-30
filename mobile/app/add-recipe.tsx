@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useRecipeQueryClient as useQueryClient, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
 import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
@@ -84,8 +85,16 @@ function nutritionFingerprintFor(ingredients: Array<{ name: string; quantity: st
 }
 
 export default function AddRecipeScreen() {
+  const generation = useRecipeOwnerGeneration();
   const { ownerId } = useImportInbox();
-  return <ManualRecipeForm key={ownerId ?? 'guest'} />;
+  const params = useLocalSearchParams<{ captureOwnerId?: string; initialData?: string; initialImageUri?: string }>();
+  const origin = useRef(params.captureOwnerId ?? ownerId);
+  if (!origin.current && ownerId) origin.current = ownerId;
+  const activeOwner = JSON.parse(generation)[1];
+  if ((params.initialData || params.initialImageUri) && (!activeOwner || origin.current !== activeOwner)) {
+    return <Text>Reopen this capture from the account that owns it.</Text>;
+  }
+  return <ManualRecipeForm key={generation} />;
 }
 function ManualRecipeForm() {
   const router = useRouter();

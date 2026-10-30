@@ -27,7 +27,7 @@ describe('RecipeThumbnail', () => {
       expect(renderer.container.queryAll((instance) => instance.type === 'Ionicons')).toHaveLength(1);
       const image = renderer.container.queryAll((instance) => instance.type === 'ExpoImage')[0];
       expect(image.props).toMatchObject({
-        cachePolicy: 'memory-disk',
+        cachePolicy: 'none',
         contentFit: 'cover',
         recyclingKey: 'https://example.com/recipe.jpg',
         priority: 'high',

@@ -1,3 +1,5 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { assertRecipeScope, recipeScope } from '@/lib/recipeQueryScope';
 /**
  * Recipe Chat Modal - AI-powered recipe assistant.
  * 
@@ -68,7 +70,7 @@ import {
   normalizeChatImageAttachment,
   normalizeChatPaste,
 } from '../lib/chatComposer';
-import { readChatDraft, writeChatDraft, writeChatHistory } from '../lib/chatDrafts';
+import { readChatDraft, writeChatDraft as persistChatDraft, writeChatHistory as persistChatHistory } from '../lib/chatDrafts';
 import {
   chatStorageKey,
   legacyChatStorageKey,
@@ -112,7 +114,24 @@ const COOKING_SUGGESTIONS = [
 ];
 
 /** Render recipe-specific or general cooking chat with local conversation persistence. */
-export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeChatModalProps) {
+export default function RecipeChatModal(props: RecipeChatModalProps) {
+  const authority = useRecipeOwnerGeneration();
+  const origin = useRef(authority);
+  // Recipe context belongs to the screen that opened it; general chat starts clean.
+  if (props.recipe && origin.current !== authority) return null;
+  return <RecipeChatModalContent key={authority} {...props} />;
+}
+
+function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalProps) {
+  const authority = useRef(recipeScope()).current;
+  const writeChatDraft = useCallback((key: string, text: string) => {
+    try { assertRecipeScope(authority); } catch (error) { return Promise.reject(error); }
+    return persistChatDraft(key, text);
+  }, [authority]);
+  const writeChatHistory = useCallback((key: string, text: string) => {
+    try { assertRecipeScope(authority); } catch (error) { return Promise.reject(error); }
+    return persistChatHistory(key, text);
+  }, [authority]);
   const colors = useColors();
   const scrollViewRef = useRef<ScrollView>(null);
   
@@ -369,6 +388,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
     void (async () => {
       try {
         const identity = await api.getCurrentUserIdentity();
+        assertRecipeScope(authority);
         if (historyLoadGenerationRef.current !== generation) return;
         const conversationKey = chatStorageKey(identity.id, recipe?.id);
         activeStorageKeyRef.current = conversationKey;
@@ -392,15 +412,16 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
           historyLoadGenerationRef.current !== generation
           || activeStorageKeyRef.current !== conversationKey
         ) return;
+        assertRecipeScope(authority);
         const history: ChatMessage[] = stored ? JSON.parse(stored) : [];
         updateMessages(normalizeStoredChatMessages(history));
         updateInputText((storedDraft ?? '').slice(0, CHAT_MESSAGE_MAX_CHARS));
         updateLoadedStorageKey(conversationKey);
         void recoverChatImageCleanup(conversationKey, stored !== null)
-          .then(() => processChatImageCleanup(
+          .then(() => { assertRecipeScope(authority); return processChatImageCleanup(
             conversationKey,
-            (urls) => api.deleteChatImages(urls),
-          ))
+            (urls) => { assertRecipeScope(authority); return api.deleteChatImages(urls); },
+          ); })
           .catch(() => undefined);
       } catch {
         if (
@@ -569,7 +590,7 @@ export default function RecipeChatModal({ isVisible, onClose, recipe }: RecipeCh
             if (imageUrls.length > 0) {
               void processChatImageCleanup(
                 conversationKey,
-                (urls) => api.deleteChatImages(urls),
+                (urls) => { assertRecipeScope(authority); return api.deleteChatImages(urls); },
               ).then(() => hasChatImageCleanup(conversationKey, cleanupJobId))
               .then((pending) => {
                 if (!pending) return;

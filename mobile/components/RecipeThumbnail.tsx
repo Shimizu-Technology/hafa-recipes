@@ -1,3 +1,6 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { offlineRecipes } from '@/lib/offlineRecipes';
+import { recipeScope } from '@/lib/recipeQueryScope';
 import { useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 import { StyleSheet, View as RNView, type StyleProp, type ViewStyle } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -17,7 +20,13 @@ type RecipeThumbnailProps = {
   onError?: (error: ImageErrorEventData) => void;
 };
 
-/** Paint a placeholder immediately, then reveal a persistently cached recipe image. */
+// Clear legacy shared cache entries; new requests never persist private bytes.
+offlineRecipes.onRetire(() => {
+  void Image.clearMemoryCache?.().catch(() => undefined);
+  void Image.clearDiskCache?.().catch(() => undefined);
+});
+
+/** Paint a placeholder immediately, then reveal an authority-bound image. */
 export function RecipeThumbnail({
   uri,
   style,
@@ -29,10 +38,13 @@ export function RecipeThumbnail({
   overlay,
   onError,
 }: RecipeThumbnailProps) {
+  const scope = useRecipeOwnerGeneration();
   const colors = useColors();
   const normalizedUri = uri?.trim() || null;
+  const [origin, setOrigin] = useState({ uri: normalizedUri, scope });
+  if (origin.uri !== normalizedUri) setOrigin({ uri: normalizedUri, scope });
   const [failedUri, setFailedUri] = useState<string | null>(null);
-  const shouldLoad = Boolean(normalizedUri && normalizedUri !== failedUri);
+  const shouldLoad = Boolean(origin.scope === scope && normalizedUri && normalizedUri !== failedUri);
 
   useEffect(() => {
     setFailedUri(null);
@@ -43,7 +55,7 @@ export function RecipeThumbnail({
       style={[styles.container, { backgroundColor: `${colors.tint}15` }, style]}
       accessible={accessible}
       accessibilityRole={accessible ? 'image' : undefined}
-      accessibilityLabel={accessible ? accessibilityLabel : undefined}
+      accessibilityLabel={accessible ? (origin.scope === scope ? accessibilityLabel : 'Recipe photo') : undefined}
     >
       <Ionicons
         name={placeholderIconName}
@@ -54,16 +66,18 @@ export function RecipeThumbnail({
       {shouldLoad && (
         <>
           <Image
+            key={scope}
             source={{ uri: normalizedUri! }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
-            cachePolicy="memory-disk"
+            cachePolicy="none"
             recyclingKey={normalizedUri}
             priority={priority}
             transition={150}
             autoplay={false}
             accessible={false}
             onError={(event) => {
+              if (scope !== recipeScope()) return;
               setFailedUri(normalizedUri);
               onError?.(event);
             }}

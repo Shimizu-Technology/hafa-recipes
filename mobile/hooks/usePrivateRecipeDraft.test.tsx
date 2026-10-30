@@ -1,3 +1,4 @@
+import { recipeScope } from '@/lib/recipeQueryScope';
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +8,7 @@ const mocks = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn(async () => undefi
 vi.mock('react-native', () => ({ Alert: { alert: mocks.alert }, AppState: { addEventListener: (_: string, callback: any) => { mocks.state = callback; return { remove: vi.fn() }; } } }));
 vi.mock('expo-router', () => ({ useNavigation: () => ({ dispatch: mocks.dispatch }) }));
 vi.mock('expo-router/react-navigation', () => ({ usePreventRemove: (enabled: boolean, callback: any) => { mocks.guard = enabled ? callback : null; } }));
-vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { subscribe: () => () => {}, lease: (owner: string) => ({ owner, epoch: 0 }), read: mocks.read, write: mocks.write, remove: mocks.remove } }));
+vi.mock('@/lib/privateRecipeDrafts', () => ({ privateRecipeDrafts: { assert: () => {}, subscribe: () => () => {}, lease: (owner: string) => ({ owner, epoch: 0, scope: recipeScope() }), read: mocks.read, write: mocks.write, remove: mocks.remove } }));
 import { usePrivateRecipeDraft } from './usePrivateRecipeDraft';
 let current: ReturnType<typeof usePrivateRecipeDraft<{ title: string }>>;
 const restore = vi.fn();
@@ -30,7 +31,7 @@ describe('private draft recovery and dismissal', () => {
     try {
       await act(async () => renderer.render(<Harness title="Rice" />));
       await act(async () => mocks.state('background'));
-      expect(mocks.write).toHaveBeenCalledWith({ owner: 'stable-a', epoch: 0 }, 'manual', { title: 'Rice' });
+      expect(mocks.write).toHaveBeenCalledWith({ owner: 'stable-a', epoch: 0, scope: recipeScope() }, 'manual', { title: 'Rice' });
       await act(async () => mocks.guard({ data: { action: { type: 'GO_BACK' } } }));
       expect(mocks.dispatch).not.toHaveBeenCalled();
       const keep = mocks.alert.mock.calls.at(-1)![2].find((item: any) => item.text === 'Keep draft and leave');
@@ -38,7 +39,7 @@ describe('private draft recovery and dismissal', () => {
       await act(async () => vi.advanceTimersByTime(0));
       expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'GO_BACK' });
       await act(async () => current.finish());
-      expect(mocks.remove).toHaveBeenCalledWith({ owner: 'stable-a', epoch: 0 }, 'manual', { title: 'Rice' });
+      expect(mocks.remove).toHaveBeenCalledWith({ owner: 'stable-a', epoch: 0, scope: recipeScope() }, 'manual', { title: 'Rice' });
     } finally { await act(async () => renderer.unmount()); vi.useRealTimers(); }
   });
 });

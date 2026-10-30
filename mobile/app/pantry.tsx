@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView,
@@ -26,6 +27,11 @@ const todayKey = () => {
 };
 
 export default function PantryScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <PantryScreenContent key={generation} />;
+}
+
+function PantryScreenContent() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
