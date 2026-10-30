@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useIsFocused } from 'expo-router/react-navigation';
 import { useEffect } from 'react';
 import { useAuth } from '@clerk/expo';
@@ -10,6 +11,11 @@ import { HistoryScreen as LibraryScreen } from '@/app/(tabs)/history';
 import { DiscoverScreen } from '@/app/(tabs)/discover';
 
 export default function RecipesScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <RecipesScreenContent key={generation} />;
+}
+
+function RecipesScreenContent() {
   const focused = useIsFocused();
   const { isSignedIn, isLoaded } = useAuth();
   const identity = useCurrentUserIdentity(Boolean(isSignedIn));

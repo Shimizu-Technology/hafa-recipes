@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { cookModeStepKey, readCookModeStep, writeCookModeStep, currentCookModeScope } from '@/lib/cookModeProgress';
+import { useRecipeOwnerGeneration } from './useOfflineLease';
+import { assertRecipeScope } from '@/lib/recipeQueryScope';
 
-export const COOK_MODE_STEP_KEY = (recipeId: string) => `cook_mode_step_${recipeId}`;
+export const COOK_MODE_STEP_KEY = cookModeStepKey;
 
 /**
  * Restore and persist the cook-mode step for a recipe.
@@ -16,6 +18,8 @@ export function useCookModeStepPersistence(
   currentStepIndex: number,
   setCurrentStepIndex: (index: number) => void,
 ) {
+  const generation = useRecipeOwnerGeneration();
+  const scope = currentCookModeScope();
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
   const isRestored = !!recipeId && restoredFor === recipeId;
 
@@ -28,8 +32,9 @@ export function useCookModeStepPersistence(
 
     (async () => {
       try {
-        const savedStep = await AsyncStorage.getItem(COOK_MODE_STEP_KEY(recipeId));
+        const savedStep = await readCookModeStep(recipeId, scope);
         if (cancelled) return;
+        assertRecipeScope(scope);
         if (savedStep !== null) {
           const stepIndex = parseInt(savedStep, 10);
           // Step 0 is the default, so only restore later valid steps.
@@ -40,20 +45,20 @@ export function useCookModeStepPersistence(
       } catch (error) {
         console.warn('Failed to load saved cook mode step:', error);
       }
-      if (!cancelled) setRestoredFor(recipeId);
+      if (!cancelled && scope === currentCookModeScope()) setRestoredFor(recipeId);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [recipeId, stepCount, restoredFor, setCurrentStepIndex]);
+  }, [recipeId, stepCount, restoredFor, setCurrentStepIndex, generation]);
 
   useEffect(() => {
     if (!recipeId || !isRestored) return;
-    AsyncStorage.setItem(COOK_MODE_STEP_KEY(recipeId), currentStepIndex.toString()).catch((error) => {
+    writeCookModeStep(recipeId, currentStepIndex.toString(), scope).catch((error) => {
       console.warn('Failed to save cook mode step:', error);
     });
-  }, [recipeId, isRestored, currentStepIndex]);
+  }, [recipeId, isRestored, currentStepIndex, generation]);
 
   return { isRestored };
 }

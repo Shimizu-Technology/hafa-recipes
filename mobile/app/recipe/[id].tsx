@@ -1,3 +1,5 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { OfflineRecipeControl } from '@/components/OfflineRecipeControl';
 import { guestRecipeIntent, type GuestRecipeAction } from '@/lib/guestRecipeIntent';
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { NutritionPanel } from '@/components/NutritionPanel';
@@ -135,6 +137,11 @@ function SimilarRecipeCard({
 
 /** Render a complete recipe and its connected cooking actions. */
 export default function RecipeDetailScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <RecipeDetailScreenContent key={generation} />;
+}
+
+function RecipeDetailScreenContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const colors = useColors();
@@ -941,6 +948,7 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
+            <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
             {isOwner && recipe.source_type === 'photo' && <Button title="Original pages" variant="outline"
               onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })} />}
             <TouchableOpacity onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityRole="button"

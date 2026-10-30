@@ -1,3 +1,4 @@
+import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
 import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
@@ -81,6 +82,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
 
 /** Account and app preferences, presented from the root stack rather than as a tab. */
 export default function SettingsScreen() {
+  const creationScope = recipeScope();
   const queryClient = useQueryClient();
   const router = useRouter();
   const colors = useColors();
@@ -213,6 +215,7 @@ export default function SettingsScreen() {
                           });
                         }
                       }
+                      assertRecipeScope(creationScope);
                       await api.deleteAccount();
                       accountDeleted = true;
                       chatCleanupFailed = !appUserId;

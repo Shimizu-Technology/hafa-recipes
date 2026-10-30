@@ -1,10 +1,16 @@
+import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
+import { useRecipeQuery as useQuery, useRecipeMutation as useMutation, useRecipeInfiniteQuery as useInfiniteQuery } from './useRecipeQuery';
+import { useQuery as useIdentityQuery } from '@tanstack/react-query';
+import { scopedRecipeKey, isCurrentRecipeKey, recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
+import { useOfflineLease } from './useOfflineLease';
+import { useOfflineRecipe } from '@/hooks/useOfflineRecipe';
 import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
 /**
  * React Query hooks for recipe operations.
  */
 
-import { useQuery, useMutation, useQueryClient, keepPreviousData, useInfiniteQuery, type InfiniteData, type QueryClient, type MutateOptions } from '@tanstack/react-query';
+import { keepPreviousData, type InfiniteData, type QueryClient, type MutateOptions } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@clerk/expo';
@@ -86,37 +92,37 @@ export const recipeKeys = {
   plannerSearch: () => [...recipeKeys.all, 'plannerSearch'] as const,
   lists: () => [...recipeKeys.all, 'list'] as const,
   list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
-    [...recipeKeys.lists(), filters] as const,
-  infinite: (sourceType?: string) => [...recipeKeys.all, 'infinite', sourceType] as const,
+    scopedRecipeKey([...recipeKeys.lists(), filters]),
+  infinite: (sourceType?: string) => scopedRecipeKey([...recipeKeys.all, 'infinite', sourceType]),
   recentRoot: () => [...recipeKeys.all, 'recent'] as const,
-  infiniteSearch: (filters: SearchFilters) => [...recipeKeys.all, 'infiniteSearch', filters] as const,
-  recent: (limit?: number) => [...recipeKeys.all, 'recent', limit] as const,
-  search: (filters: SearchFilters) => [...recipeKeys.all, 'search', filters] as const,
+  infiniteSearch: (filters: SearchFilters) => scopedRecipeKey([...recipeKeys.all, 'infiniteSearch', filters]),
+  recent: (limit?: number) => scopedRecipeKey([...recipeKeys.all, 'recent', limit]),
+  search: (filters: SearchFilters) => scopedRecipeKey([...recipeKeys.all, 'search', filters]),
   details: () => [...recipeKeys.all, 'detail'] as const,
-  detail: (id: string) => [...recipeKeys.details(), id] as const,
+  detail: (id: string) => scopedRecipeKey([...recipeKeys.details(), id]),
   countRoot: () => [...recipeKeys.all, 'count'] as const,
-  count: (sourceType?: string) => [...recipeKeys.all, 'count', sourceType] as const,
-  popularTags: (scope: 'user' | 'public') => [...recipeKeys.all, 'popularTags', scope] as const,
+  count: (sourceType?: string) => scopedRecipeKey([...recipeKeys.all, 'count', sourceType]),
+  popularTags: (scope: 'user' | 'public') => scopedRecipeKey([...recipeKeys.all, 'popularTags', scope]),
   // Saved recipes
   saved: () => ['savedRecipes'] as const,
-  savedInfinite: () => [...recipeKeys.saved(), 'infinite'] as const,
+  savedInfinite: () => scopedRecipeKey([...recipeKeys.saved(), 'infinite']),
   // Discover (public recipes)
   discover: () => ['discover'] as const,
   discoverList: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
-    [...recipeKeys.discover(), 'list', filters] as const,
-  discoverInfinite: (sourceType?: string) => [...recipeKeys.discover(), 'infinite', sourceType] as const,
+    scopedRecipeKey([...recipeKeys.discover(), 'list', filters]),
+  discoverInfinite: (sourceType?: string) => scopedRecipeKey([...recipeKeys.discover(), 'infinite', sourceType]),
   discoverFeed: (
     sourceType?: string,
     sort: DiscoverSort = 'recent',
     mealType?: string,
-  ) => [...recipeKeys.discoverInfinite(sourceType), sort, mealType] as const,
-  discoverInfiniteSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'infiniteSearch', filters] as const,
-  discoverSearch: (filters: SearchFilters) => [...recipeKeys.discover(), 'search', filters] as const,
-  discoverCount: (sourceType?: string) => [...recipeKeys.discover(), 'count', sourceType] as const,
-  topContributors: () => [...recipeKeys.discover(), 'topContributors'] as const,
+  ) => scopedRecipeKey([...recipeKeys.discoverInfinite(sourceType), sort, mealType]),
+  discoverInfiniteSearch: (filters: SearchFilters) => scopedRecipeKey([...recipeKeys.discover(), 'infiniteSearch', filters]),
+  discoverSearch: (filters: SearchFilters) => scopedRecipeKey([...recipeKeys.discover(), 'search', filters]),
+  discoverCount: (sourceType?: string) => scopedRecipeKey([...recipeKeys.discover(), 'count', sourceType]),
+  topContributors: () => scopedRecipeKey([...recipeKeys.discover(), 'topContributors']),
   // Ingredient search
   byIngredients: (ingredients: string[], includeSaved: boolean, includePublic: boolean) => 
-    [...recipeKeys.all, 'byIngredients', ingredients.join(','), includeSaved, includePublic] as const,
+    scopedRecipeKey([...recipeKeys.all, 'byIngredients', ingredients.join(','), includeSaved, includePublic]),
 };
 
 export const extractionJobKeys = {
@@ -130,17 +136,19 @@ export const extractionJobKeys = {
 };
 
 const currentUserIdentityKey = (clerkUserId: string | null | undefined) =>
-  ['currentUserIdentity', clerkUserId] as const;
+  ['currentUserIdentity', clerkUserId, recipeScope()] as const;
 
 /** Resolve a replaceable auth subject to Håfa's durable application owner. */
 export function useCurrentUserIdentity(enabled = true) {
   const { isLoaded, userId: clerkUserId } = useAuth();
-  return useQuery({
+  const lease = useOfflineLease(clerkUserId);
+  const query = useIdentityQuery({
     queryKey: currentUserIdentityKey(clerkUserId),
     queryFn: () => api.getCurrentUserIdentity(),
     enabled: enabled && isLoaded && Boolean(clerkUserId),
     staleTime: Infinity,
   });
+  return { ...query, data: lease ? { id: lease.owner } : undefined };
 }
 
 function setDiscoverSavedState(
@@ -222,6 +230,7 @@ const MAX_COVER_WAIT_MS = 5 * 60_000;
 
 /** Poll only while a bounded cover job is pending and this account is visible online. */
 export function useRecipe(id: string, enabled = true) {
+  const authority = recipeScope();
   const queryClient = useQueryClient();
   const { userId, isLoaded } = useAuth();
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
@@ -300,6 +309,7 @@ export function useRecipe(id: string, enabled = true) {
     },
     refetchIntervalInBackground: false,
   });
+  const offline = useOfflineRecipe(id, userId, query.data, query.error, connected === true && !query.error, query.refetch);
   const deadline = pendingDeadline(query.data);
   const thumbnailPending = deadline > Date.now();
   const hasData = query.data !== undefined;
@@ -308,10 +318,10 @@ export function useRecipe(id: string, enabled = true) {
     // Skip until auth settles so a previous account's cache never fills the screen.
     if (hasData || !enabled || !id || !isLoaded) return null;
     const cached = [recipeKeys.all, recipeKeys.saved(), recipeKeys.discover()].flatMap((queryKey) =>
-      queryClient.getQueriesData({ queryKey, predicate: (cachedQuery) => cachedQuery.queryKey[1] !== 'detail' })
+      queryClient.getQueriesData({ queryKey, predicate: (cachedQuery) => isCurrentRecipeKey(cachedQuery.queryKey) && cachedQuery.queryKey[1] !== 'detail' })
         .map(([, data]) => data));
     return findRecipePreview(cached, id);
-  }, [hasData, enabled, id, isLoaded, queryClient, userId]);
+  }, [hasData, enabled, id, isLoaded, queryClient, userId, authority]);
 
   // Expire the visible status even if requests are paused, failed, or the last poll hangs.
   useEffect(() => {
@@ -338,7 +348,10 @@ export function useRecipe(id: string, enabled = true) {
 
   return {
     ...query,
-    isLoading: query.isLoading || (query.isPending && enabled && foreground && !!id
+    data: query.data && offline.allowed ? query.data : offline.recipe,
+    offlineSavedAt: offline.savedAt,
+    usingOffline: !query.data && !!offline.recipe || connected === false && !!offline.recipe,
+    isLoading: offline.loading && !query.data || query.isLoading || (query.isPending && enabled && foreground && !!id
       && (connected === null || (!isLoaded && connected !== false))),
     thumbnailPending,
     preview,
@@ -439,7 +452,7 @@ export function useRecipeCount(sourceType?: string, enabled = true) {
  * Get available locations
  */
 export function useLocations() {
-  return useQuery({
+  return useIdentityQuery({
     queryKey: ['locations'],
     queryFn: () => api.getLocations(),
     staleTime: Infinity, // Locations don't change
@@ -453,7 +466,7 @@ export function useExtractionJobs(
 ) {
   const identity = useCurrentUserIdentity(enabled);
   const durableUserId = identity.data?.id;
-  return useQuery({
+  return useIdentityQuery({
     queryKey: extractionJobKeys.recent(durableUserId, jobKind),
     queryFn: () => api.getExtractionJobs({ limit: 8, jobKind, includeCancelled: false }),
     enabled: enabled && identity.isSuccess && Boolean(durableUserId),
@@ -517,7 +530,7 @@ export function useAsyncExtractionController() {
   const currentOwnerRef = useRef(durableUserId);
   currentOwnerRef.current = durableUserId;
 
-  const activeJobsQuery = useQuery({
+  const activeJobsQuery = useIdentityQuery({
     queryKey: extractionJobKeys.active(durableUserId),
     queryFn: () => api.getExtractionJobs({ limit: 1, activeOnly: true }),
     enabled: Boolean(
@@ -1218,6 +1231,7 @@ export function useDeleteRecipe() {
   const freeze = (id: string) => {
     const current = () => !!userId && identity.current === captured;
     const authScope = api.getAuthScope();
+    const authority = recipeScope();
     const admitted = current() && authScope.userId === userId;
     const authorized = () => admitted && api.getAuthScope() === authScope;
     const guard = () => {
@@ -1653,7 +1667,7 @@ export function useSavedRecipesCount() {
 export function useIsRecipeSaved(recipeId: string, enabled = true) {
   const { isLoaded, userId } = useAuth();
   return useQuery({
-    queryKey: ['recipeSaved', recipeId],
+    queryKey: scopedRecipeKey(['recipeSaved', recipeId]),
     queryFn: () => api.checkRecipeSaved(recipeId),
     enabled: isLoaded && !!userId && !!recipeId && enabled,
   });
@@ -1661,6 +1675,7 @@ export function useIsRecipeSaved(recipeId: string, enabled = true) {
 
 /** Save state and completion feedback follow the server, including after an ambiguous failure. */
 function useConfirmedRecipeSave(saved: boolean) {
+  const creationScope = recipeScope();
   const queryClient = useQueryClient();
   const { userId: subject } = useAuth();
   const mounted = useRef(true);
@@ -1671,10 +1686,13 @@ function useConfirmedRecipeSave(saved: boolean) {
   // Freeze before React Query can yield in onMutate. Retry reuses this exact lease.
   const freeze = (id: string, extraGuard?: () => void) => {
     const authScope = api.getAuthScope();
+    const authority = creationScope;
+    assertRecipeScope(authority);
     const initiatingSubject = subject;
     const ownerId = queryClient.getQueryData<{ id: string }>(currentUserIdentityKey(subject))?.id;
     const current = () => {
       try {
+        assertRecipeScope(authority);
         extraGuard?.();
         return Boolean(initiatingSubject) && currentSubject.current === initiatingSubject
           && api.getAuthScope() === authScope
@@ -1690,7 +1708,7 @@ function useConfirmedRecipeSave(saved: boolean) {
       intent.guard();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: recipeKeys.discover() }),
-        queryClient.cancelQueries({ queryKey: ['recipeSaved', intent.id], exact: true }),
+        queryClient.cancelQueries({ queryKey: scopedRecipeKey(['recipeSaved', intent.id]), exact: true }),
       ]);
       intent.guard();
     },
@@ -1698,10 +1716,10 @@ function useConfirmedRecipeSave(saved: boolean) {
       if (!intent.current()) return;
       await Promise.all([
         queryClient.cancelQueries({ queryKey: recipeKeys.discover() }),
-        queryClient.cancelQueries({ queryKey: ['recipeSaved', intent.id], exact: true }),
+        queryClient.cancelQueries({ queryKey: scopedRecipeKey(['recipeSaved', intent.id]), exact: true }),
       ]);
       if (!intent.current()) return;
-      queryClient.setQueryData(['recipeSaved', intent.id], { is_saved: data.saved });
+      queryClient.setQueryData(scopedRecipeKey(['recipeSaved', intent.id]), { is_saved: data.saved });
       setDiscoverSavedState(queryClient, intent.id, data.saved);
       if (mounted.current && data.saved === saved) haptics.success();
     },
@@ -1717,7 +1735,7 @@ function useConfirmedRecipeSave(saved: boolean) {
     },
     onSettled: (data, _error, intent) => {
       if (!intent.current()) return;
-      for (const queryKey of [recipeKeys.plannerSearch(), recipeKeys.saved(), ['savedRecipesCount'], recipeKeys.discover(), ['recipeSaved', intent.id], ...(data ? [recipeKeys.all] : [])]) {
+      for (const queryKey of [recipeKeys.plannerSearch(), recipeKeys.saved(), ['savedRecipesCount'], recipeKeys.discover(), scopedRecipeKey(['recipeSaved', intent.id]), ...(data ? [recipeKeys.all] : [])]) {
         void queryClient.invalidateQueries({ queryKey, refetchType: 'none' });
       }
 
@@ -1730,8 +1748,8 @@ function useConfirmedRecipeSave(saved: boolean) {
     onSettled: (data, error, intent, context, mutationContext) => { if (intent.current()) options.onSettled?.(data, error, intent.id, context, mutationContext); },
   });
   return { ...mutation, variables: mutation.variables?.id,
-    mutate: (id: string, options?: Options, guard?: () => void) => mutation.mutate(freeze(id, guard), callbacks(options)),
-    mutateAsync: (id: string, options?: Options, guard?: () => void) => mutation.mutateAsync(freeze(id, guard), callbacks(options)),
+    mutate: (id: string, options?: Options, guard?: () => void) => { if (creationScope === recipeScope()) mutation.mutate(freeze(id, guard), callbacks(options)); },
+    mutateAsync: async (id: string, options?: Options, guard?: () => void) => mutation.mutateAsync(freeze(id, guard), callbacks(options)),
   };
 }
 
@@ -1871,14 +1889,14 @@ export function filterRecipesLocally(
 
 export const noteKeys = {
   all: ['recipeNotes'] as const,
-  detail: (recipeId: string) => [...noteKeys.all, recipeId] as const,
+  detail: (recipeId: string) => scopedRecipeKey([...noteKeys.all, recipeId]),
 };
 
 export const versionKeys = {
   all: ['recipeVersions'] as const,
-  list: (recipeId: string) => [...versionKeys.all, 'list', recipeId] as const,
-  detail: (recipeId: string, versionId: string) => [...versionKeys.all, 'detail', recipeId, versionId] as const,
-  count: (recipeId: string) => [...versionKeys.all, 'count', recipeId] as const,
+  list: (recipeId: string) => scopedRecipeKey([...versionKeys.all, 'list', recipeId]),
+  detail: (recipeId: string, versionId: string) => scopedRecipeKey([...versionKeys.all, 'detail', recipeId, versionId]),
+  count: (recipeId: string) => scopedRecipeKey([...versionKeys.all, 'count', recipeId]),
 };
 
 /**

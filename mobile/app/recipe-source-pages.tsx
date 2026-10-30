@@ -1,7 +1,9 @@
+import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
+import { useRecipeQuery as useQuery } from '@/hooks/useRecipeQuery';
 import { useRef, useState } from 'react';
 import { Alert, Image, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { useCurrentUserIdentity, useRecipe } from '@/hooks/useRecipes';
@@ -12,6 +14,8 @@ export default function RecipeSourcePagesScreen() {
   const identity = useCurrentUserIdentity();
   const owner = identity.data?.id;
   const { data: recipe } = useRecipe(id);
+  const creationScope = recipeScope();
+  const removePages = api.removeRecipeSourcePages;
   const queryClient = useQueryClient();
   const colors = useColors();
   const { width } = useWindowDimensions();
@@ -38,7 +42,8 @@ export default function RecipeSourcePagesScreen() {
     { text: 'Cancel', style: 'cancel' },
     { text: 'Remove pages', style: 'destructive', onPress: () => {
       setRemoving(true);
-      void api.removeRecipeSourcePages(id).then(() => {
+      void removePages(id).then(() => {
+        assertRecipeScope(creationScope);
         setRemoved(true);
         queryClient.removeQueries({ queryKey: ['recipe-source-pages', owner, id] });
       }).catch(() => Alert.alert('Could not remove pages', 'Try again when you are connected.'))

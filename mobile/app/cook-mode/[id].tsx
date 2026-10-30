@@ -1,3 +1,6 @@
+import { offlineRecipes } from '@/lib/offlineRecipes';
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
+import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   Alert,
@@ -23,7 +26,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { writeCookModeStep } from '@/lib/cookModeProgress';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, useColors } from '@/components/Themed';
@@ -132,6 +135,11 @@ function extractTimeFromStep(step: string): { time: number; unit: string; displa
 }
 
 export default function CookModeScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <CookModeScreenContent key={generation} generation={generation} />;
+}
+
+function CookModeScreenContent({ generation }: { generation: string }) {
   const { id, scaleFactor: scaleFactorParam, servings: servingsParam } = useLocalSearchParams<{ 
     id: string; 
     scaleFactor?: string;
@@ -141,7 +149,7 @@ export default function CookModeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   
-  const { data: recipe, isLoading, error } = useRecipe(id);
+  const { data: recipe, isLoading, error, offlineSavedAt, usingOffline } = useRecipe(id);
   
   // Parse scaling params
   const scaleFactor = scaleFactorParam ? parseFloat(scaleFactorParam) : 1;
@@ -205,7 +213,8 @@ export default function CookModeScreen() {
     pauseTimerNotification,
     resumeTimerNotification,
     hasScheduledNotification,
-  } = useBackgroundTimer(id ? `cook-mode:${id}` : 'cook-mode');
+  } = useBackgroundTimer(`${generation}:cook-mode:${id || ''}`);
+  useEffect(() => offlineRecipes.onRetire(() => { void cancelAllTimerNotifications(); }), [cancelAllTimerNotifications]);
   
   // Track app state for syncing timers
   const appState = useRef<AppStateStatus>(AppState.currentState);
@@ -367,11 +376,11 @@ export default function CookModeScreen() {
   const clearSavedStep = useCallback(async () => {
     if (!id) return;
     try {
-      await AsyncStorage.removeItem(COOK_MODE_STEP_KEY(id));
+      await writeCookModeStep(id, null, generation);
     } catch (error) {
       console.warn('Failed to clear saved cook mode step:', error);
     }
-  }, [id]);
+  }, [id, generation]);
 
   // Load completion sound based on preference
   useEffect(() => {
@@ -722,7 +731,7 @@ export default function CookModeScreen() {
     );
   }
 
-  if (error || !recipe || steps.length === 0) {
+  if ((error && !canRetainRecipeOnError(error)) || !recipe || steps.length === 0) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -747,6 +756,9 @@ export default function CookModeScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" />
 
+      {(usingOffline || error) && <Text accessibilityRole="alert" style={{ color: cook.text, padding: 12 }}>
+        Offline copy{offlineSavedAt ? ` · Updated ${new Date(offlineSavedAt).toLocaleDateString()}` : ''}. Changes may be missing.
+      </Text>}
       {/* Header */}
       <RNView style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
         <TouchableOpacity

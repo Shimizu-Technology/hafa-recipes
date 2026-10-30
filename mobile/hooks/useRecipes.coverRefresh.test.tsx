@@ -1,3 +1,4 @@
+import { offlineRecipes } from '../lib/offlineRecipes';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -21,7 +22,7 @@ const mocks = vi.hoisted(() => {
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock('../utils/haptics', () => ({ haptics: { success: vi.fn() } }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: mocks.isLoaded, userId: mocks.userId }) }));
-vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem: async () => null, setItem: async () => {}, getAllKeys: async () => [], multiRemove: async () => {} } }));
 vi.mock('../lib/api', () => ({ api: { getRecipe: mocks.getRecipe } }));
 vi.mock('react-native', () => ({ AppState: {
   get currentState() { return mocks.appState; },
@@ -60,7 +61,9 @@ async function mount() {
   await flush();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await offlineRecipes.bindSubject('account-a');
+  await offlineRecipes.verify('account-a', 'owner-a');
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-09T00:00:00Z'));
   mocks.getRecipe.mockReset();
@@ -241,11 +244,11 @@ describe('recipe cover refresh', () => {
     await mount();
     await flush(3_010);
     mocks.userId = 'account-b';
+    await act(async () => { await offlineRecipes.bindSubject('account-b'); });
     await act(async () => { renderer!.update(tree()); });
     await act(async () => { resolveOld({ ...base, thumbnail_url: 'https://images/account-a.webp' }); });
     await flush();
-    expect(result.data?.thumbnail_url).toBeNull();
-    expect(result.error?.name).toBe('CaptureAccountChangedError');
+    expect(result.data).toBeUndefined();
   });
 });
 

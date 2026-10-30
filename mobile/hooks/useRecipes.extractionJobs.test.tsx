@@ -1,5 +1,12 @@
+import { recipeScope } from '../lib/recipeQueryScope';
+// Extraction recovery owns its identity fixture; stable-owner privacy is exercised
+// with the real authority store in useRecipes.ownerBoundary.test.tsx.
+vi.mock('./useOfflineLease', () => ({ useOfflineLease: (subject: string) => {
+  const data = useQueryClient().getQueryData<{ id: string }>(['currentUserIdentity', subject, recipeScope()]);
+  return data ? { owner: data.id } : null;
+} }));
 import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

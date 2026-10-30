@@ -1,3 +1,4 @@
+import { CaptureAccountChangedError } from './captureAccount';
 import * as Crypto from 'expo-crypto';
 
 import type {
@@ -145,6 +146,7 @@ export function createDeleteMutation(
 }
 
 export function isRetryableGroceryError(error: unknown): boolean {
+  if (error instanceof CaptureAccountChangedError) return false;
   const status = (error as { response?: { status?: number } })?.response?.status;
   return status === undefined || status === 408 || status === 429 || status >= 500;
 }

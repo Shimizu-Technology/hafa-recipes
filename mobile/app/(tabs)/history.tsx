@@ -697,6 +697,10 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           </TouchableOpacity>
         </RNView>
 
+        {isSignedIn && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open offline recipes"
+          onPress={() => router.push('/offline-recipes')} style={{ minHeight: 44, justifyContent: 'center' }}>
+          <Text>Available offline ›</Text>
+        </TouchableOpacity>}
         {isSignedIn && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open collections"
           onPress={() => router.push('/collections')} style={{ minHeight: 44, justifyContent: 'center' }}>
           <Text style={{ color: colors.actionText }}>Collections ›</Text>

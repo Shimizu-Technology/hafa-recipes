@@ -1,3 +1,4 @@
+import { recipeScope, assertRecipeScope, ownerQueryClient } from '@/lib/recipeQueryScope';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -12,7 +13,8 @@ import {
 const publishingDisclosureKey = ['publishingDisclosure'] as const;
 
 export function usePublishingDisclosure() {
-  const queryClient = useQueryClient();
+  const creationScope = recipeScope();
+  const queryClient = ownerQueryClient(useQueryClient(), creationScope);
   const inFlight = useRef(false);
   const chosePrivate = useRef(false);
   const isMounted = useRef(true);
@@ -39,7 +41,9 @@ export function usePublishingDisclosure() {
     try {
       // Always ask the server. A cached acceptance must never outlive a newer
       // disclosure version introduced while the app is still running.
+      assertRecipeScope(creationScope);
       const status = await api.getPublishingDisclosure();
+      assertRecipeScope(creationScope);
       queryClient.setQueryData<PublishingDisclosureStatus>(publishingDisclosureKey, status);
       if (!isScreenActive.current) return false;
       if (!status.requires_acceptance) return true;
@@ -56,6 +60,7 @@ export function usePublishingDisclosure() {
               text: 'Agree and publish',
               onPress: async () => {
                 try {
+                  assertRecipeScope(creationScope);
                   const accepted = await api.acceptPublishingDisclosure(status.current_version);
                   queryClient.setQueryData<PublishingDisclosureStatus>(
                     publishingDisclosureKey,

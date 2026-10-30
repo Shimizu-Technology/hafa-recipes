@@ -1,3 +1,4 @@
+vi.mock('@/hooks/useRecipeQuery', () => ({ useRecipeQuery: (options: any) => { mocks.options = options; return { data: { pages: mocks.pages }, isSuccess: true, dataUpdatedAt: mocks.updatedAt, refetch: mocks.refetch }; } }));
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';

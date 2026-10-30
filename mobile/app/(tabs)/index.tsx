@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
 import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
 import { privateRecipeDrafts, preserveDraftImage } from '@/lib/privateRecipeDrafts';
@@ -50,6 +51,11 @@ import {
 } from '@/lib/imageImportClassification';
 
 export default function ExtractScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <ExtractScreenContent key={generation} />;
+}
+
+function ExtractScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const { fontScale } = useWindowDimensions();

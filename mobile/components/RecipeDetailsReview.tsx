@@ -1,3 +1,4 @@
+import { recipeScope, assertRecipeScope, scopedRecipeKey, ownerQueryClient } from '@/lib/recipeQueryScope';
 import { getIngredientAmount, formatIngredientAmount, normalizeIngredientUnit } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -23,7 +24,9 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const queryClient = useQueryClient();
+  const creationScope = recipeScope();
+  const editRecipe = api.editRecipe;
+  const queryClient = ownerQueryClient(useQueryClient(), creationScope);
   // Keep the content revision and field paths together even if a background refetch finishes.
   const [snapshot] = useState(recipe);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
@@ -49,10 +52,11 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
     try {
       const edit = buildRecipeIssueEdit(snapshot, quantities, accepted, resolvedIssues, units);
       if (!edit.verified_paths?.length && !edit.resolved_issue_ids?.length) { onClose(); return; }
-      const updated = await api.editRecipe(snapshot.id, edit);
+      const updated = await editRecipe(snapshot.id, edit);
       if (!mountedRef.current) return;
-      queryClient.setQueryData(['recipes', 'detail', snapshot.id], updated);
-      queryClient.setQueryData(['recipe', snapshot.id], updated);
+      assertRecipeScope(creationScope);
+      queryClient.setQueryData(scopedRecipeKey(['recipes', 'detail', snapshot.id]), updated);
+      queryClient.setQueryData(scopedRecipeKey(['recipe', snapshot.id]), updated);
       for (const key of ['recipes', 'savedRecipes', 'discover', 'recipeVersions', 'mealPlans', 'extractionJobs']) {
         void queryClient.invalidateQueries({ queryKey: [key] });
       }

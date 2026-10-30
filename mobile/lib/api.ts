@@ -1,3 +1,6 @@
+import { ownerScopedApi } from './ownerScopedApi';
+import { recipeScope, assertRecipeScope } from './recipeQueryScope';
+import { offlineRecipes } from './offlineRecipes';
 import { Platform } from 'react-native';
 import { OriginalPagesRejectedError } from './captureSaveFailure';
 /**
@@ -184,6 +187,11 @@ class ApiClient {
     // Add request interceptor for auth token - fetches fresh token each request
     this.client.interceptors.request.use(
       async (config) => {
+        if (config.url !== '/api/users/me/identity') {
+          const scope = recipeScope();
+          const previous = (config as GuardedRequestConfig).requestGuard;
+          (config as GuardedRequestConfig).requestGuard = () => { assertRecipeScope(scope); previous?.(); };
+        }
         if (this.getTokenFn) {
           const token = await this.getAuthTokenWithRetry(
             config.url || 'unknown',
@@ -203,6 +211,7 @@ class ApiClient {
     // Add response interceptor for error handling and Sentry reporting
     this.client.interceptors.response.use(
       (response) => {
+        (response.config as GuardedRequestConfig).requestGuard?.();
         // Add breadcrumb for successful API calls
         addBreadcrumb('api', `${response.config.method?.toUpperCase()} ${response.config.url}`, {
           status: response.status,
@@ -304,7 +313,9 @@ class ApiClient {
 
   private recipeWriteGuard(requestGuard?: RequestGuard): RequestGuard {
     const authScope = this.authScope;
+    const authority = recipeScope();
     const guard = () => {
+      assertRecipeScope(authority);
       if (this.authScope !== authScope) throw new Error('Authentication changed; reopen this recipe.');
       requestGuard?.();
     };
@@ -372,8 +383,19 @@ class ApiClient {
   }
 
   async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
-    const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
-    return data;
+    const revision = offlineRecipes.revision(id);
+    const lease = offlineRecipes.lease(this.authScope.userId);
+    const scope = recipeScope();
+    try {
+      const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
+      assertRecipeScope(scope);
+      if (lease) void offlineRecipes.observe(lease, data, Date.now(), revision).catch(() => undefined);
+      return data;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (lease && status && [401, 403, 404, 410].includes(status)) await offlineRecipes.remove(lease, id).catch(() => undefined);
+      throw error;
+    }
   }
 
   async getRecentRecipes(limit = 10): Promise<RecipeListItem[]> {
@@ -460,7 +482,9 @@ class ApiClient {
   }
 
   async deleteRecipe(id: string, requestGuard?: RequestGuard): Promise<{ message: string; id: string }> {
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.delete(`/api/recipes/${id}`, { requestGuard } as GuardedRequestConfig);
+    if (lease) void offlineRecipes.remove(lease, id).catch(() => undefined);
     return data;
   }
 
@@ -543,6 +567,7 @@ class ApiClient {
     requestGuard?.();
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/manual`, {
+      signal: (this as any).ownerSignal,
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1106,15 +1131,18 @@ class ApiClient {
     onDelta?: ChatDeltaHandler,
     signal?: AbortSignal,
   ): Promise<ChatResponse> {
-    const token = await this.getAuthTokenWithRetry(streamPath, signal);
+    const guard = this.recipeWriteGuard();
+    const token = await this.getAuthTokenWithRetry(streamPath, signal, guard);
+    guard();
     try {
       const result = await streamChatRequest({
         url: `${API_BASE_URL}${streamPath}`,
         token,
         payload,
         onDelta,
-        signal,
+        signal: (this as any).ownerSignal ?? signal,
       });
+      guard();
       addBreadcrumb('api', `POST ${streamPath}`, { status: 200, streamed: true }, 'info');
       return result;
     } catch (error) {
@@ -1234,8 +1262,20 @@ class ApiClient {
 
   /** Resolve the auth session to the backend's durable application owner. */
   async getCurrentUserIdentity(): Promise<{ id: string }> {
-    const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
-    return data;
+    const scope = this.authScope;
+    const authority = recipeScope();
+    try {
+      const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
+      assertRecipeScope(authority);
+      if (scope === this.authScope && scope.userId) await offlineRecipes.verify(scope.userId, data.id);
+      return data;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (scope === this.authScope && scope.userId && status && [401, 403, 409, 410].includes(status)) {
+        await offlineRecipes.clear().catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   async createShareCredential(input: { installation_id: string; location?: string; is_public?: boolean }, requestGuard?: RequestGuard): Promise<{
@@ -1353,6 +1393,7 @@ class ApiClient {
     if (!token) throw new Error('Sign in again before saving this recipe.');
     
     const response = await fetch(`${API_BASE_URL}/api/recipes/${recipeId}/edit`, {
+      signal: (this as any).ownerSignal,
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1390,22 +1431,30 @@ class ApiClient {
 
   async saveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const revision = offlineRecipes.revision(recipeId);
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.post(`/api/recipes/${recipeId}/save`, undefined, { requestGuard: guard } as GuardedRequestConfig);
     guard();
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.saved, revision).catch(() => undefined);
     return data;
   }
 
   async unsaveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.delete(`/api/recipes/${recipeId}/save`, { requestGuard: guard } as GuardedRequestConfig);
     guard();
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.saved).catch(() => undefined);
     return data;
   }
 
   async checkRecipeSaved(recipeId: string, requestGuard?: RequestGuard): Promise<{ is_saved: boolean }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const revision = offlineRecipes.revision(recipeId);
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`, { requestGuard: guard } as GuardedRequestConfig);
     guard();
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.is_saved, revision).catch(() => undefined);
     return data;
   }
 
@@ -1665,7 +1714,7 @@ class ApiClient {
 }
 
 // Export singleton instance
-export const api = new ApiClient();
+export const api = ownerScopedApi(new ApiClient());
 
 // Export base URL for debugging
 export { API_BASE_URL, SHOW_DEVELOPER_TOOLS };

@@ -1,9 +1,12 @@
+import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
+import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from './useRecipeQuery';
+import { scopedRecipeKey } from '@/lib/recipeQueryScope';
 /**
  * React Query hooks for meal planning functionality.
  * Includes optimistic updates for instant UI feedback.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
 import { api } from '@/lib/api';
 import { MealPlanEntryCreate, WeekPlan, DayMeals, MealPlanEntry, MealType } from '@/types/recipe';
 
@@ -11,14 +14,14 @@ import { MealPlanEntryCreate, WeekPlan, DayMeals, MealPlanEntry, MealType } from
 export const mealPlanKeys = {
   all: ['meal-plans'] as const,
   reviews: () => [...mealPlanKeys.all, 'grocery-review'] as const,
-  review: (week: string) => [...mealPlanKeys.reviews(), week] as const,
+  review: (week: string) => scopedRecipeKey([...mealPlanKeys.reviews(), week]),
   weeks: () => [...mealPlanKeys.all, 'week'] as const,
-  week: (weekOf?: string) => [...mealPlanKeys.weeks(), weekOf || 'current'] as const,
+  week: (weekOf?: string) => scopedRecipeKey([...mealPlanKeys.weeks(), weekOf || 'current']),
   days: () => [...mealPlanKeys.all, 'day'] as const,
-  day: (date?: string) => [...mealPlanKeys.days(), date || 'today'] as const,
+  day: (date?: string) => scopedRecipeKey([...mealPlanKeys.days(), date || 'today']),
   recipes: () => [...mealPlanKeys.all, 'recipe'] as const,
   recipe: (recipeId: string, startDate: string) => (
-    [...mealPlanKeys.recipes(), recipeId, startDate] as const
+    scopedRecipeKey([...mealPlanKeys.recipes(), recipeId, startDate])
   ),
 };
 

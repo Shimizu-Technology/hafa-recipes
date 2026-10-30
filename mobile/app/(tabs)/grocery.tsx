@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 /**
  * Grocery List Screen
  * 
@@ -211,6 +212,11 @@ function GroceryItemRow({
 }
 
 export default function GroceryScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <GroceryScreenContent key={generation} />;
+}
+
+function GroceryScreenContent() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn } = useAuth();

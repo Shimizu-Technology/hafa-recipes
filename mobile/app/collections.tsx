@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useState } from 'react';
 import { ScrollView, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -8,6 +9,11 @@ import { SignInBanner } from '@/components/SignInBanner';
 import { useCollections } from '@/hooks/useCollections';
 
 export default function CollectionsScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <CollectionsScreenContent key={generation} />;
+}
+
+function CollectionsScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const { isSignedIn } = useAuth();
