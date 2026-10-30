@@ -2642,10 +2642,22 @@ async def test_quick_today_undo_after_midnight_preserves_snapshot_and_recording_
     assert (await api.client.post(path + "/accept", headers=GENERATION)).status_code == 200
     tomorrow = now() + timedelta(days=1)
     monkeypatch.setattr(quick_training, "now", lambda: tomorrow)
+    recorded = quick_training.recorded_program_ids
+    async def recorded_today(*args):
+        return {"today"}
+    monkeypatch.setattr(quick_training, "recorded_program_ids", recorded_today)
+    blocked = await api.client.post(path + "/undo", headers=GENERATION)
+    assert blocked.status_code == 409
+    assert (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()["revision"] == 2
+    monkeypatch.setattr(quick_training, "recorded_program_ids", recorded)
     undone = await api.client.post(path + "/undo", headers=GENERATION)
     assert undone.status_code == 200, undone.text
     restored = (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()
     assert restored["content"] == row["content"]
+    from app.domains.workouts.models import WorkoutsProgramVersion
+    async with api.sessions() as db:
+        original = await db.scalar(select(WorkoutsProgramVersion).where(WorkoutsProgramVersion.program_id == UUID(row["id"]), WorkoutsProgramVersion.revision == 1))
+        assert original.content == row["content"]
     from datetime import date
     with pytest.raises(HTTPException):
         quick_training.today_guard(row["content"], row["content"], {"today"}, {"today"}, date.fromisoformat(tomorrow.date().isoformat()), restoring=True)
