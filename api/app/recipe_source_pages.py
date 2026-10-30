@@ -116,6 +116,8 @@ async def upload_pages(recipe_id: UUID, files: list[UploadFile], db: AsyncSessio
                 break
         raise
     db.add(RecipeSourcePages(recipe_id=recipe_id, pages=pages))
+    receipt.storage_prefixes = []
+    receipt.next_attempt_at = None
     receipt.status = "completed"
     receipt.completed_at = datetime.now(timezone.utc)
     await db.commit()

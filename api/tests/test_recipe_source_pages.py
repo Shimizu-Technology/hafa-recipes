@@ -141,3 +141,55 @@ async def test_page_bounds_and_orphan_receipt_survive_failed_storage(pages_db):
     assert await db.get(RecipeSourcePages, recipe.id) is None
     queued = await db.scalar(select(DeletionCleanupJob).where(DeletionCleanupJob.status == "queued"))
     assert queued is not None and queued.next_attempt_at is not None
+
+@pytest.mark.asyncio
+async def test_completed_upload_receipt_minimizes_raw_cleanup_targets(pages_db):
+    db, recipe, _ = pages_db
+    await upload_pages(recipe.id, [page()], db, user())
+    receipt = await db.scalar(select(DeletionCleanupJob).where(DeletionCleanupJob.status == 'completed'))
+    assert receipt.storage_prefixes == []
+    assert receipt.next_attempt_at is None
+    assert receipt.storage_prefix_count == 1
+
+
+@pytest.mark.asyncio
+async def test_original_page_http_manifests_and_errors_are_never_cacheable(pages_db):
+    import httpx
+    from fastapi import FastAPI
+    from app.auth import get_current_user
+    from app.db.database import get_db
+    from app.recipe_source_pages import router
+    from app.request_context import RequestContextMiddleware
+
+    db, recipe, storage = pages_db
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+    app.include_router(router)
+    async def database():
+        yield db
+    app.dependency_overrides[get_db] = database
+    app.dependency_overrides[get_current_user] = user
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://api.test') as client:
+        url = f'/api/recipes/{recipe.id}/source-pages'
+        response = await client.get(url)
+        assert response.status_code == 200
+        assert response.headers.get('Cache-Control') == 'private, no-store'
+        await upload_pages(recipe.id, [page()], db, user())
+        response = await client.get(url)
+        assert response.json()['pages'][0]['url'] == 'https://signed.invalid/private'
+        assert response.headers.get('Cache-Control') == 'private, no-store'
+        assert storage.presign_client.generate_presigned_url.call_args.kwargs['Params']['ResponseCacheControl'] == 'private, no-store'
+        storage.is_enabled = False
+        response = await client.get(url)
+        assert response.status_code == 503
+        assert response.headers.get('Cache-Control') == 'private, no-store'
+        app.dependency_overrides[get_current_user] = lambda: user('other')
+        response = await client.get(url)
+        assert response.status_code == 404
+        assert response.headers.get('Cache-Control') == 'private, no-store'
+        def anonymous():
+            raise HTTPException(401, 'Sign in')
+        app.dependency_overrides[get_current_user] = anonymous
+        response = await client.get(url)
+        assert response.status_code == 401
+        assert response.headers.get('Cache-Control') == 'private, no-store'
