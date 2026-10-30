@@ -35,6 +35,7 @@ import {
   advancePending,
   queueRemovedUploads,
   uploadedReferences,
+  waitingForEarlier,
 } from "./outbox";
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
@@ -267,13 +268,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) setError("");
       if (latest.active === false) return;
       restoreAfterSync = true;
-      let importsDeferred = false;
       for (const pending of [...ref.current.outbox]) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
-        if (next.type === "import" && importsDeferred) continue;
         if (!alive.current || !onlineRef.current) break;
-        if (next.generation !== latest.generation || next.conflict || next.error) continue;
+        if (next.generation !== latest.generation || next.conflict || next.error || next.localOnly) continue;
         if (next.type === "import" && next.automatic &&
           (!(latest.profile.ai_consent && latest.profile.auto_process_shares) ||
             (next.automatic_epoch ?? 0) !== (latest.profile.auto_process_epoch ?? 0))) {
@@ -282,8 +281,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
           continue;
         }
-        if (next.type === "import" && next.record_id &&
-          ref.current.outbox.some((m) => m.type === "save" && m.record.id === next.record_id)) continue;
+        if (waitingForEarlier(ref.current.outbox, next)) continue;
         try {
           let result: BabyRecord | undefined;
           if (next.type === "delete") {
@@ -354,12 +352,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             await refresh();
             break;
           }
-          if (next.type === "import" && status === 429) {
-            importsDeferred = true;
-            setError(messageFor(e));
-            continue;
-          }
-          if (shouldRetry(status)) {
+          if (status === 0 || status === 401 || status === 403) {
             setError(messageFor(e));
             break;
           }

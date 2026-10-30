@@ -96,3 +96,17 @@ export function advancePending(m: Mutation, result: BabyRecord): Mutation {
   if (m.type === "delete") return { ...m, record: { ...m.record, revision: result.revision } };
   return { ...m, record: { ...m.record, revision: result.revision } };
 }
+
+/** All operations on a record share one durable order, including source imports.
+ * An unresolved ancestor holds only its own record, never the entire outbox. */
+export function mutationRecordId(change: Mutation) {
+  return change.type === "import" ? change.record_id : change.record.id;
+}
+export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
+  const recordId = mutationRecordId(change);
+  return !!recordId && outbox.slice(0, outbox.findIndex((m) => m.id === change.id))
+    .some((m) => mutationRecordId(m) === recordId);
+}
+export function retryMutation(change: Mutation): Mutation {
+  return { ...change, error: undefined, conflict: false, localOnly: false };
+}

@@ -153,7 +153,7 @@ export interface EditorDraft {
   files: LocalFile[];
   existing?: boolean;
 }
-export type Mutation =
+export type Mutation = { localOnly?: boolean } & (
   | {
       id: string;
       generation: number;
@@ -179,7 +179,8 @@ export type Mutation =
       topics?: string[];
       error?: string;
       conflict?: boolean;
-    };
+    }
+);
 /** A breastfeed being timed on this device. Active time is the sum of segments; a pause
  * closes the open segment. It belongs to one Baby space generation and is never synced. */
 export interface FeedTimer {

@@ -5,6 +5,8 @@ import {
   pendingRecords,
   searchLocal,
   shouldRetry,
+  waitingForEarlier,
+  retryMutation,
   inheritedFiles,
   advancePending,
   queueRemovedUploads,
@@ -68,7 +70,7 @@ describe("offline care and source recovery", () => {
     expect(searchLocal(row, "birth")).toBe(true);
     expect(searchLocal(row, "missing")).toBe(false);
   });
-  it("automatically retries transient failures and requires review for conflicts or denied access", () => {
+  it("allows transient startup failures to recover the cached account", () => {
     expect([0, 408, 429, 503].every(shouldRetry)).toBe(true);
     expect([401, 403, 409, 410, 422].some(shouldRetry)).toBe(false);
   });
@@ -137,4 +139,26 @@ it("quarantines ownerless stock shares and fences account and generation changes
   expect(scope.allow(signedIn, "stable-A", 2)).toBe(false);
   scope.observe(signedIn, "issuer:account-B");
   expect(scope.allow(signedIn, "stable-B", 1)).toBe(false);
+});
+
+it("holds later saves, imports and deletes behind any unresolved operation on the same record", () => {
+  const failed: Mutation = { id: "failed", type: "save", generation: 1, record: row, files: [], error: "Upload failed" };
+  const edit: Mutation = { ...failed, id: "edit", error: undefined };
+  const imported: Mutation = { id: "import", type: "import", generation: 1, record_id: row.id, files: [] };
+  const deleted: Mutation = { id: "delete", type: "delete", generation: 1, record: row };
+  const unrelated: Mutation = { ...edit, id: "other", record: { ...row, id: "different" } };
+  const queue = [failed, edit, imported, deleted, unrelated];
+  expect(queue.map(m => waitingForEarlier(queue, m))).toEqual([false, true, true, true, false]);
+  expect(waitingForEarlier([imported, edit], edit)).toBe(true);
+});
+it("retains failed and phone-only originals through relaunch, including files and latest visible edits", () => {
+  const failed: Mutation = { id: "failed", type: "save", generation: 1, record: row,
+    files: [{ id: "photo", uri: "file:///photo.jpg", name: "photo.jpg", mime_type: "image/jpeg" }],
+    error: "Upload failed", localOnly: true };
+  const edit: Mutation = { ...failed, id: "edit", record: { ...row, body: "Later edit" }, localOnly: undefined, error: undefined };
+  const restored = JSON.parse(JSON.stringify({ ...emptyState(), outbox: [failed, edit] }));
+  expect(restored.outbox[0]).toEqual(failed);
+  expect(waitingForEarlier(restored.outbox, restored.outbox[1])).toBe(true);
+  expect(pendingRecords(restored)[0].body).toBe("Later edit");
+  expect(retryMutation(failed)).toMatchObject({ localOnly: false, error: undefined, conflict: false, files: failed.files });
 });

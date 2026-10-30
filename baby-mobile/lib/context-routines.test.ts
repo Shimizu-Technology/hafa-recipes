@@ -453,7 +453,8 @@ it("continues original and journal saves when automatic imports hit a quota", as
   ] };
   mock.api.import = vi.fn().mockRejectedValue(new ApiError("Daily allowance reached", 429));
   await mount();
-  expect(mock.api.import).toHaveBeenCalledOnce();
+  expect(mock.api.import).toHaveBeenCalledTimes(2);
+  expect(baby.state.outbox.every(m => m.error === "Daily allowance reached")).toBe(true);
   expect(mock.api.save.mock.calls.map(([record]: [BabyRecord]) => record.id)).toEqual(["A", "B", "journal"]);
   expect(baby.state.outbox.map(m => m.id)).toEqual(["import-A", "import-B"]);
 });
@@ -479,4 +480,53 @@ it("retains terminal polling until the updated source is safely persisted", asyn
   await act(async () => { await baby.sync(); });
   expect(baby.state.imports[0].status).toBe("ready");
   expect(baby.records.find(r => r.id === "source")?.data.summary).toBe("Useful result");
+});
+
+describe("independent durable outbox records", () => {
+  it.each([422, 429, 500, 503])("persists HTTP %i failure while care, source and reminder records continue", async (status) => {
+    await mount();
+    const journal = { ...row("photo"), kind: "journal" as const };
+    const rows = [journal, { ...row("care"), kind: "diaper" as const }, { ...row("source"), kind: "source" as const }, row("reminder")];
+    mock.api.save.mockImplementation(async (r: BabyRecord) => {
+      if (r.id === journal.id) throw new ApiError("Could not save this change", status);
+      return { ...r, revision: (r.revision ?? 0) + 1 };
+    });
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: rows.map(record => ({ id: record.id, type: "save", generation: 1, record, files: [] })) })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save.mock.calls.map(([r]: any[]) => r.id)).toEqual(["photo", "care", "source", "reminder"]);
+    expect(mock.state?.outbox).toMatchObject([{ id: "photo", error: "Could not save this change" }]);
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save).toHaveBeenCalledTimes(4);
+    // A cold provider restores the exact failed mutation; it never retries silently.
+    mock.saved = mock.state;
+    await act(async () => { renderer!.unmount(); });
+    await mount();
+    expect(baby.state.outbox[0].error).toBe("Could not save this change");
+    expect(mock.api.save).toHaveBeenCalledTimes(4);
+  });
+  it("holds a later edit/delete behind failure, then advances revisions in order after Retry", async () => {
+    await mount();
+    const record = { ...row("journal", false, 1), kind: "journal" as const };
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: [
+      { id: "first", type: "save", generation: 1, record, files: [], error: "Upload failed" },
+      { id: "edit", type: "save", generation: 1, record: { ...record, body: "Updated" }, files: [] },
+      { id: "delete", type: "delete", generation: 1, record },
+    ] })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save).not.toHaveBeenCalled(); expect(mock.api.remove).not.toHaveBeenCalled();
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: s.outbox.map(m => m.id === "first" ? { ...m, error: undefined } : m) })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save.mock.calls.map(([r]: any[]) => r.revision)).toEqual([1, 2]);
+    expect(mock.api.remove.mock.calls[0][0].revision).toBe(3);
+    expect(mock.state?.outbox).toEqual([]);
+  });
+  it.each([0, 401, 403])("pauses the whole pass on network/auth %i without marking records rejected", async (status) => {
+    await mount();
+    mock.api.save.mockRejectedValueOnce(new ApiError("Connection or sign in needed", status));
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: [row("first"), row("other")].map(record => ({ id: record.id, type: "save", generation: 1, record, files: [] })) })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(mock.state?.outbox).toHaveLength(2);
+    expect(mock.state?.outbox.every(m => !m.error)).toBe(true);
+  });
 });

@@ -306,3 +306,11 @@ it("uses the explicit shared signup provisioner without a Baby generation header
   expect(JSON.parse(init?.body as string)).toEqual({ installation_id: "cmi_" + "a".repeat(64), intent: "create_account" });
   expect(init?.headers).toEqual({ Authorization: "Bearer verified-token", "Content-Type": "application/json" });
 });
+
+it("distinguishes server upload failure from offline without reflecting private details", async () => {
+  const transport = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ detail: "private database error" }, { status: 500 }));
+  const api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+  await expect(api.upload(new FormData(), 1, "photo")).rejects.toMatchObject({ status: 500, message: expect.stringContaining("could not upload this attachment") });
+  transport.mockRejectedValueOnce(new TypeError("Network request failed"));
+  await expect(api.save(row, 1)).rejects.toMatchObject({ status: 0, message: expect.stringContaining("offline") });
+});
