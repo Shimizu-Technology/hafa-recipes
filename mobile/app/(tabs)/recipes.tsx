@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useAuth } from '@clerk/expo';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
@@ -15,13 +16,14 @@ export default function RecipesScreen() {
   const router = useRouter();
   const colors = useColors();
   const { scope, ready, select } = useRecipeScope(owner, requested);
+  useEffect(() => { if (ready && requested) router.setParams({ scope: undefined }); }, [ready, requested, router]);
   if (!isLoaded || (isSignedIn && !owner && !identity.isError) || !ready) return <ActivityIndicator accessibilityLabel="Loading recipes" />;
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingVertical: 8 }} accessibilityRole="radiogroup" accessibilityLabel="Recipe scope">
       {(['library', 'discover'] as const).map((value) => <Chip key={value}
         label={value === 'library' ? 'My Library' : 'Discover'} selected={scope === value}
         accessibilityRole="radio"
-        onPress={() => { select(value); router.setParams({ scope: value }); }} />)}
+        onPress={() => select(value)} />)}
     </View>
     {identity.isError && isSignedIn && <Text>Could not load your account. Discover is available while you reconnect.</Text>}
     {scope === 'library' ? <LibraryScreen /> : <DiscoverScreen />}
