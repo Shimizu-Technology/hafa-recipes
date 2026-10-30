@@ -17,7 +17,7 @@ const ownerKey = (scope: string) => {
 };
 
 /** Durable payloads keep their stable owner; each replay acquires fresh authority. */
-export function replayPantryWrites(authority = recipeScope()): Promise<PantrySnapshot | undefined> {
+export function replayPantryWrites(authority = recipeScope(), requestedScope?: 'active' | 'personal'): Promise<PantrySnapshot | undefined> {
   const key = ownerKey(authority);
   const run = async () => {
     assertRecipeScope(authority);
@@ -26,7 +26,7 @@ export function replayPantryWrites(authority = recipeScope()): Promise<PantrySna
     let latest: PantrySnapshot | undefined;
     while (true) {
       guard();
-      const job = await stored(async () => { guard(); return (JSON.parse(await AsyncStorage.getItem(key) || '[]') as Job[])[0]; });
+      const job = await stored(async () => { guard(); return (JSON.parse(await AsyncStorage.getItem(key) || '[]') as Job[]).find(job => !requestedScope || job.scope === requestedScope); });
       guard(); if (!job) return latest;
       const remove = () => stored(async () => {
         guard(); const jobs = JSON.parse(await AsyncStorage.getItem(key) || '[]') as Job[]; guard();
@@ -72,7 +72,7 @@ export async function submitPantryWrite(kind: Job['kind'], scope: Job['scope'], 
       throw error;
     }
   });
-  return replayPantryWrites(authority);
+  return replayPantryWrites(authority, scope);
 }
 
 export function clearPendingPantry(owner: string) {

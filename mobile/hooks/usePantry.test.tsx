@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'clerk-alice' }) }));
-vi.mock('expo-crypto', () => ({ randomUUID: () => 'test-mutation-id' }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => String(Math.random()) }));
 vi.mock('@/lib/offlineStorage', () => ({
   getGroceryStorageLease: () => ({ identityEpoch: 1, scopeEpoch: 1, identityHash: 'alice' }),
   assertGroceryStorageLease: () => undefined,
@@ -76,4 +76,20 @@ describe('usePantryWrite', () => {
       queryClient.clear();
     }
   });
+});
+
+it('keeps concurrent active and personal Pantry acknowledgements in their own cache scopes',async()=>{
+ const client=new QueryClient();let active:any,personal:any,release!:(value:PantrySnapshot)=>void;
+ function Harness(){active=usePantryWrite('active');personal=usePantryWrite('personal');return null;}
+ mocks.getPantrySnapshot.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve})).mockImplementation(async(scope:string)=>({...snapshot(5),scope:scope==='personal'?'personal':'household'}));
+ mocks.syncPantryMutation.mockImplementation(async(request:any)=>({...snapshot(6),scope:request.scope==='personal'?'personal':'household'}));
+ await offlineRecipes.bindSubject('clerk-alice');await offlineRecipes.verify('clerk-alice','owner-a');let renderer!:ReactTestRenderer,first!:Promise<any>,second!:Promise<any>;
+ try{await act(async()=>{renderer=create(<QueryClientProvider client={client}><Harness/></QueryClientProvider>)});
+ await act(async()=>{first=active.mutateAsync({operation:'add',item:{name:'Household rice'}})});
+ await vi.waitFor(()=>expect(release).toBeTypeOf('function'));
+ await act(async()=>{second=personal.mutateAsync({operation:'add',item:{name:'Private pantry rice'}})});
+ await act(async()=>{release(snapshot(5));await Promise.all([first,second])});
+ expect((client.getQueryData(pantryKeys.snapshot('active','clerk-alice')) as PantrySnapshot).scope).toBe('household');
+ expect((client.getQueryData(pantryKeys.snapshot('personal','clerk-alice')) as PantrySnapshot).scope).toBe('personal');
+ }finally{if(renderer)await act(async()=>renderer.unmount());client.clear();}
 });
