@@ -10,6 +10,7 @@ import {
   retryMutation,
   inheritedFiles,
   advancePending,
+  advanceAfterImport,
   queueRemovedUploads,
 } from "./outbox";
 import { emptyState, optimisticRecord, type Mutation } from "./models";
@@ -173,4 +174,12 @@ it("holds saves for active imports but lets deletion cancel the import", () => {
   expect(waitingForImport([{ ...jobs[0], status: "ready" }], save)).toBe(false);
   // A deferred native receipt saved only an original; no worker owns the record.
   expect(waitingForImport([{ ...jobs[0], status: "deferred" }], save)).toBe(false);
+});
+
+it("keeps import metadata while applying the later user's editable source fields", () => {
+  const edit: Mutation = { id: "edit", type: "save", generation: 1, files: [],
+    record: { ...row, body: "My note", title: "My title", data: { source_text: "My original", topics: ["My topic"], status: "queued" } } };
+  const terminal = { ...row, revision: 3, data: { summary: "Organized", status: "ready", creator: "Example creator", source_text: "Acquired text" } };
+  expect(advanceAfterImport(edit, terminal)).toMatchObject({ record: { revision: 3, title: "My title", body: "My note",
+    data: { source_text: "My original", topics: ["My topic"], summary: "Organized", status: "ready", creator: "Example creator" } } });
 });

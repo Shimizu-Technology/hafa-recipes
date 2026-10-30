@@ -116,3 +116,13 @@ export function retryMutation<T extends Mutation>(change: T): T {
 export function waitingForImport(imports: ImportJob[], change: Mutation) {
   return change.type === "save" && imports.some(job => job.record_id === change.record.id && job.status !== "deferred" && !importFinished(job.status));
 }
+
+/** Source editors change originals, topics and attachments, not processing metadata. */
+export function advanceAfterImport(change: Mutation, result: BabyRecord): Mutation {
+  const advanced = advancePending(change, result);
+  if (advanced.type !== "save" || advanced.record.id !== result.id) return advanced;
+  const computed = Object.fromEntries([
+    "summary", "key_points", "steps", "evidence", "creator", "platform", "thumbnail_url", "coverage_notes", "status",
+  ].filter(key => key in result.data).map(key => [key, result.data[key]]));
+  return { ...advanced, record: { ...advanced.record, data: { ...advanced.record.data, ...computed } } };
+}

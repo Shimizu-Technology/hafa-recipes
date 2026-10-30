@@ -33,6 +33,7 @@ import {
   replaceRecord,
   shouldRetry,
   advancePending,
+  advanceAfterImport,
   queueRemovedUploads,
   uploadedReferences,
   waitingForEarlier,
@@ -392,7 +393,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
               records: row ? replaceRecord(s.records, row) : s.records,
               // Held edits use the import's final revision. Rejected edits still need review.
               outbox: row && importFinished(fresh.status)
-                ? s.outbox.map(m => m.type === "save" && !m.error && !m.conflict ? advancePending(m, row!) : m)
+                ? s.outbox.map(m => m.type === "save" && !m.error && !m.conflict ? advanceAfterImport(m, row!) : m)
                 : s.outbox,
             }));
             if (row && importFinished(fresh.status) && ref.current.outbox.some(m =>

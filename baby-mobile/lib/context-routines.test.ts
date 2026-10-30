@@ -557,10 +557,10 @@ it("holds source edits until a terminal import and rebases them before sending",
   expect(mock.api.save).not.toHaveBeenCalled();
   expect(baby.state.outbox[0]).toMatchObject({ id: "edit", record: { revision: 1, body: "My later edit" } });
   mock.api.job.mockResolvedValue({ id: "job", record_id: source.id, status: "ready" });
-  mock.api.record.mockResolvedValue({ ...source, revision: 3, data: { status: "ready" } });
+  mock.api.record.mockResolvedValue({ ...source, revision: 3, data: { status: "ready", summary: "Processed summary" } });
   await act(async () => { await baby.sync(); await settle(); });
   expect(mock.api.save).toHaveBeenCalledOnce();
-  expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My later edit" });
+  expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My later edit", data: { status: "ready", summary: "Processed summary" } });
   expect(baby.state.outbox).toEqual([]);
 });
 it("restores phone-only files and errors without submitting them from a cold provider", async () => {
