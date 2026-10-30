@@ -1651,10 +1651,11 @@ export function useSavedRecipesCount() {
  * Check if a specific recipe is saved
  */
 export function useIsRecipeSaved(recipeId: string, enabled = true) {
+  const { isLoaded, userId } = useAuth();
   return useQuery({
     queryKey: ['recipeSaved', recipeId],
     queryFn: () => api.checkRecipeSaved(recipeId),
-    enabled: !!recipeId && enabled,
+    enabled: isLoaded && !!userId && !!recipeId && enabled,
   });
 }
 

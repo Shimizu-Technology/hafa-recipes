@@ -5,11 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSaveRecipe, useUnsaveRecipe, recipeKeys } from './useRecipes';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ subject: 'viewer', scope: { userId: 'viewer', epoch: 0 }, save: vi.fn(), unsave: vi.fn(), reconcile: vi.fn(), toast: vi.fn(), success: vi.fn() }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: m.subject }) }));
+const m = vi.hoisted(() => ({ loaded: true, checkSaved: vi.fn(async () => ({ is_saved: false })), subject: 'viewer', scope: { userId: 'viewer', epoch: 0 }, save: vi.fn(), unsave: vi.fn(), reconcile: vi.fn(), toast: vi.fn(), success: vi.fn() }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: m.subject, isLoaded: m.loaded }) }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('react-native', () => ({ AppState: {} }));
-vi.mock('../lib/api', () => ({ api: { saveRecipe: m.save, unsaveRecipe: m.unsave, getAuthScope: () => m.scope } }));
+vi.mock('../lib/api', () => ({ api: { checkRecipeSaved: m.checkSaved, saveRecipe: m.save, unsaveRecipe: m.unsave, getAuthScope: () => m.scope } }));
 vi.mock('../lib/recipeCache', async (original) => ({ ...await original<typeof import('../lib/recipeCache')>(), reconcileSavedStateAfterError: m.reconcile }));
 vi.mock('../lib/toast', () => ({ showToast: m.toast }));
 vi.mock('../utils/haptics', () => ({ haptics: { success: m.success } }));
@@ -24,7 +24,7 @@ async function mount(saved = false) {
   await act(async () => r.render(<QueryClientProvider client={client}><Probe /></QueryClientProvider>));
   return { client, r, get mutation() { return mutation; }, async close() { await act(async () => r.unmount()); client.clear(); } };
 }
-beforeEach(() => { vi.clearAllMocks(); m.subject='viewer'; m.scope={ userId: 'viewer', epoch: 0 }; m.reconcile.mockResolvedValue(undefined); });
+beforeEach(() => { vi.clearAllMocks(); m.subject='viewer'; m.loaded=true; m.scope={ userId: 'viewer', epoch: 0 }; m.reconcile.mockResolvedValue(undefined); });
 
 describe('confirmed recipe saving', () => {
   it.each(['success', 'failure'] as const)('ignores a late %s after unmount and an account transition', async (outcome) => {
@@ -181,4 +181,15 @@ it('invalidates a previously opened Saved planner page after Save and Unsave', a
     expect(h.client.getQueryState(key)?.isInvalidated).toBe(true);
     await h.close();
   }
+});
+
+it.each(['guest', 'loading'] as const)('does not request private saved status while %s', async state => {
+  const { useIsRecipeSaved } = await import('./useRecipes');
+  m.loaded = state !== 'loading'; m.subject = state === 'guest' ? '' : 'viewer';
+  const client = new QueryClient(); const renderer = createRoot();
+  function Probe() { useIsRecipeSaved('recipe-1'); return null; }
+  try {
+    await act(async () => renderer.render(<QueryClientProvider client={client}><Probe /></QueryClientProvider>));
+    expect(m.checkSaved).not.toHaveBeenCalled();
+  } finally { await act(async () => renderer.unmount()); client.clear(); }
 });

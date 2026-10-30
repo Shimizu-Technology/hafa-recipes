@@ -1017,7 +1017,7 @@ export default function RecipeDetailScreen() {
               </TouchableOpacity>}
               {!userId && <>
                 <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Plan recipe"
-                  onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id)))}>
+                  onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))}>
                   <Text style={{ color: colors.actionText }}>Plan</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Add recipe to collection"
