@@ -321,7 +321,7 @@ export default function Plan() {
   }
   const archivedCount = q.data?.filter((p) => !!p.schedule_state?.archived_at).length ?? 0;
   // Loading and errors show once, in the Today section above.
-  const loaded = !!enrollment?.enrolled && q.isSuccess && actuals.isSuccess && profile.isSuccess;
+  const loaded = !!enrollment?.enrolled && q.data !== undefined && actuals.data !== undefined && profile.data !== undefined;
   function openSessionSheet(p: Program, s: ScheduledSession) {
     if (current()) { setError(""); setEditing(null); setRemoving(null); setOpened({ programId: p.id, sessionId: s.id }); }
   }

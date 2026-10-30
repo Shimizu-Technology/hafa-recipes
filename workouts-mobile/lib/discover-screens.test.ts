@@ -1714,3 +1714,17 @@ it("keeps Discover search and Filters together and moves People into the sheet",
   expect(button("Surprise me")!.props.variant).toBe("ghost");
   expect(nodes("Copy").some(n => n.children.join("") === "People sharing")).toBe(false);
 });
+
+it("Library keeps cached cards and offers an explicit retry when refreshing workouts fails", async () => {
+  fixture.capabilities.mockResolvedValue(caps(false));
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  fixture.searchLibrary.mockRejectedValueOnce(new ApiError("Offline", 503));
+  await act(async () => nodes("Screen")[0].props.onRefresh()); await settle();
+  expect(nodes("LibraryCard")).toHaveLength(1);
+  expect(button("Retry loading workouts")).toBeDefined();
+  expect(nodes("Notice").some(n => String(n.props.children).includes("Showing your saved workouts"))).toBe(true);
+  await act(async () => button("Retry loading workouts")!.props.onPress()); await settle();
+  expect(button("Retry loading workouts")).toBeUndefined();
+  expect(nodes("LibraryCard")).toHaveLength(1);
+});
