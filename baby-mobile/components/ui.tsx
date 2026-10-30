@@ -305,7 +305,7 @@ export function Screen({
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
         <View style={{ flex: 1, gap: 4 }}>
           <Copy kind={titleKind}>{title}</Copy>
-          {subtitle && <Copy tone="muted">{subtitle}</Copy>}
+          {!!subtitle && <Copy tone="muted">{subtitle}</Copy>}
         </View>
         {action}
       </View>
