@@ -337,10 +337,15 @@ export default function ExtractScreen() {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
     };
     imageImportInFlight.current = true;
-    if (isPublic) {
+    let requestedPublic = isPublic;
+    if (requestedPublic) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
-      if (!allowed) { imageImportInFlight.current = false; if (didChoosePrivate()) setIsPublic(false); return; }
+      if (!allowed) {
+        if (!didChoosePrivate()) { imageImportInFlight.current = false; return; }
+        requestedPublic = false;
+        setIsPublic(false);
+      }
     }
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 
@@ -365,7 +370,7 @@ export default function ExtractScreen() {
         const destination = await saveCaptureOrRecover({
           extracted: result.recipe,
           source_type: 'photo',
-          is_public: isPublic,
+          is_public: requestedPublic,
           capture_id: selectedInboxId ?? undefined,
           expected_owner_id: originalOwner, requestGuard: guardOwner,
         }, selectedLocation, saveCapturedRecipe.mutateAsync);
@@ -432,9 +437,11 @@ export default function ExtractScreen() {
   const proceedWithExtraction = async () => {
     const draft = { url, notes, isPublic, selectedLocation, ownerId: inbox.ownerId };
     if (currentDraft.current.ownerId !== draft.ownerId) return;
-    if (isPublic && !(await requestPublishing())) {
-      if (didChoosePrivate() && JSON.stringify(currentDraft.current) === JSON.stringify(draft)) setIsPublic(false);
-      return;
+    let requestedPublic = draft.isPublic;
+    if (requestedPublic && !(await requestPublishing())) {
+      if (!didChoosePrivate() || JSON.stringify(currentDraft.current) !== JSON.stringify(draft)) return;
+      requestedPublic = false;
+      setIsPublic(false);
     }
 
     try {
@@ -452,7 +459,7 @@ export default function ExtractScreen() {
       await importInbox.add({
         id: Crypto.randomUUID(), ownerId: inbox.ownerId,
         capture: { kind: 'url', url: importUrl }, createdAt: Date.now(), state: 'ready',
-        request: { url: importUrl, location: selectedLocation, notes: notes.trim(), is_public: isPublic },
+        request: { url: importUrl, location: selectedLocation, notes: notes.trim(), is_public: requestedPublic },
       });
       if (JSON.stringify(currentDraft.current) === JSON.stringify(draft)) {
         setUrl('');
@@ -760,6 +767,10 @@ export default function ExtractScreen() {
               </RNView>
               <Ionicons name="options-outline" size={20} color={colors.textMuted} />
             </TouchableOpacity>
+            <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
+              onChange={(value) => { setIsPublic(value === 'public'); rememberImportSettings({ isPublic: value === 'public' }); }}
+              disabled={!preferences.ready || isLoading || isCheckingDisclosure} />
+            <Text style={[styles.hint, { color: colors.textMuted }]}>Default for new accounts: Public. Your choice is remembered for future imports on this account.</Text>
             <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Import Recipe'}
               onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : () => { Keyboard.dismiss(); return handleExtract(); }}
               disabled={Boolean(isSignedIn) && (!preferences.ready || isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}

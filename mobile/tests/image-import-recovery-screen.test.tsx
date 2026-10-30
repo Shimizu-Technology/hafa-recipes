@@ -308,6 +308,18 @@ describe('classified image recovery', () => {
     await act(async () => renderer.unmount());
   });
 
+  it('continues a link import privately from the disclosure without a second tap', async () => {
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    await act(async () => renderer.root.findAllByType('Input' as unknown as React.ComponentType)
+      .find(node => node.props.accessibilityLabel === 'Recipe link')!.props.onChangeText('https://example.com/recipe'));
+    await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
+      .find(node => node.props.children === 'Import Recipe')!.props.onPress());
+    expect(mocks.addInbox).toHaveBeenCalledWith(expect.objectContaining({ request: expect.objectContaining({ is_public: false }) }));
+    await act(async () => renderer.unmount());
+  });
+
   it('keeps settings separate from help and retains notes and visibility after closing', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<ExtractScreen />); });
