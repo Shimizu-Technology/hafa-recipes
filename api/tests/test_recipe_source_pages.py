@@ -112,9 +112,12 @@ async def test_unmigrated_api_and_additive_replay(pages_db):
     assert error.value.status_code == 503
     await db.rollback()
     await db.refresh(recipe)
+    await db.execute(text("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL)"))
+    await db.commit()
     migration = importlib.import_module("migrations.054_add_recipe_source_pages")
     await migration.run_migration(migration_engine=db.bind)
     await migration.run_migration(migration_engine=db.bind)
+    assert await db.scalar(text("SELECT COUNT(*) FROM schema_migrations WHERE version=54")) == 1
     assert await db.get(Recipe, recipe.id) is not None
     await upload_pages(recipe.id, [page()], db, user())
     await db.delete(recipe)
