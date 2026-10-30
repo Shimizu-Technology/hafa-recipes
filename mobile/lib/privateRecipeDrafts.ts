@@ -61,7 +61,8 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
       // A recovery and its scan receipt refer to the same capture. Retire both
       // only when their ordered pages match; a late completion cannot delete B.
       if (kind === 'recovery' && raw) {
-        const pages = JSON.parse(raw).request?.original_pages;
+        const recovery = JSON.parse(raw);
+        const pages = recovery.request?.original_pages ?? recovery.originalPages;
         const scan = await storage.getItem(key(lease, 'scan')); valid(lease);
         if (pages?.length && scan && JSON.stringify(JSON.parse(scan).selectedImages) === JSON.stringify(pages)) {
           await storage.removeItem(key(lease, 'scan')); valid(lease);

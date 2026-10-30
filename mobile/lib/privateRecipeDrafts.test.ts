@@ -126,3 +126,13 @@ it('blocks a different scan or recovery while A is unresolved, permits A retry a
   await drafts.remove(lease, 'recovery', retry);
   expect(await drafts.read(lease, 'recovery')).toMatchObject({ captureId: 'b' });
 });
+
+
+it('explicitly discards a manual scan recovery and its matching scan pages together', async () => {
+  const { drafts } = fixture(); const lease = drafts.lease('owner-a');
+  const uri = 'file:///private/private-recipe-drafts/owner-a/manual.jpg'; media.files.add(uri);
+  const pages = [{ uri }]; const editor = { captureId: 'manual-a', originalPages: pages, title: 'Rice' };
+  await drafts.write(lease, 'scan', { selectedImages: pages }); await drafts.write(lease, 'recovery', editor);
+  await drafts.remove(lease, 'recovery', editor);
+  expect(await drafts.read(lease, 'scan')).toBeNull(); expect(media.files.has(uri)).toBe(false);
+});
