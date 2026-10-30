@@ -220,7 +220,6 @@ export default function SettingsScreen() {
                       accountDeleted = true;
                       chatCleanupFailed = !appUserId;
                       if (appUserId) {
-                        await (await import('@/lib/pantryWrites')).clearPendingPantry(appUserId);
                         try {
                           await clearAccountChatStorage(appUserId);
                         } catch (error) {

@@ -233,3 +233,10 @@ it('migrates generation-stamped pending groceries only to their proven stable ow
  await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),b);expect((await getPendingSyncQueue(b)).map(entry=>entry.mutation.mutation_id)).toEqual(['b']);
  await offlineRecipes.verify('subject','owner-a');const returned=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),returned);expect((await getPendingSyncQueue(returned)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);await offlineRecipes.clear();
 });
+
+it('recovers 2.6 ownerless grocery work only through its authenticated per-user API namespace',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');await bindOfflineGroceryIdentity('subject');
+ storage.values.set('@hafa_grocery_scope_v2:account-a:list-a:queue',JSON.stringify([{mutation:mutation(),queued_at:'legacy'}]));
+ await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot('account-b','list-a'),b);expect(await getPendingSyncQueue(b)).toEqual([]);
+ await offlineRecipes.verify('subject','owner-a');const a=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),a);expect((await getPendingSyncQueue(a)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);await offlineRecipes.clear();
+});

@@ -28,7 +28,9 @@ vi.mock('expo-secure-store', () => ({
     secureValues.delete(key);
   }),
 }));
-vi.mock('expo-crypto', () => ({
+vi.mock('expo-crypto', async () => ({
+  CryptoDigestAlgorithm: { SHA256: 'SHA256' },
+  digestStringAsync: async (_algorithm: string, text: string) => (await vi.importActual<any>('node:crypto')).createHash('sha256').update(text).digest('hex'),
   randomUUID: vi.fn(() => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
 }));
 vi.mock('hafa-widget-bridge', () => ({ HafaWidgetBridge: bridge }));
@@ -176,4 +178,20 @@ it('serializes successive owner retirements before a replacement widget can publ
  try{expect(bridge.retireSession.mock.calls.map(args=>args[0])).toEqual(['owner-a']);}
  finally{finish();await bindGroceryWidgetIdentity('clerk-user-one');await offlineRecipes.clear();}
  expect(bridge.retireSession.mock.calls.slice(0,2).map(args=>args[0])).toEqual(['owner-a','owner-b']);
+});
+
+it('preserves a 2.6 widget queue by API owner namespace and restores it only to that owner',async()=>{
+ await offlineRecipes.bindSubject('clerk-user-one');await offlineRecipes.verify('clerk-user-one','owner-b');
+ secureValues.set(SESSION_KEY,JSON.stringify(storedSession({accountScopeId:'gacct_owner_a'})));
+ bridge.getSessionStatus.mockResolvedValue({hasCredential:true,requiresReconnect:false,accountScopeId:'gacct_owner_a',listId:LIST_ID});
+ await bindGroceryWidgetIdentity('clerk-user-one');expect(bridge.retireSession).toHaveBeenCalledWith('legacy-scope:gacct_owner_a');expect(bridge.flushPending).not.toHaveBeenCalled();
+ bridge.getSessionStatus.mockResolvedValue({hasCredential:false,accountScopeId:null,listId:null,requiresReconnect:false});
+ await offlineRecipes.verify('clerk-user-one','owner-a');
+ apiMock.getGrocerySnapshot.mockResolvedValue({...snapshot(),account_scope_id:'gacct_owner_a'});
+ apiMock.issueGroceryWidgetCredential.mockResolvedValue({credential_id:CREDENTIAL_ID,token:`hfw_v1.${CREDENTIAL_ID}.abcdefghijklmnopqrstuvwxyzABCDEFGH1234567890_-`,list_id:LIST_ID,account_scope_id:'gacct_owner_a',scopes:['grocery:read','grocery:set_checked'],issued_at:'2026-08-23T00:00:00Z',expires_at:'2027-11-21T00:00:00Z'});
+ await synchronizeGroceryWidget('clerk-user-one');expect(bridge.restorePending).toHaveBeenCalledWith('legacy-scope:gacct_owner_a');expect(bridge.restorePending).toHaveBeenCalledWith('owner-a');expect(bridge.flushPending).toHaveBeenCalledOnce();await offlineRecipes.clear();
+});
+import { groceryAccountScope } from './groceryAccountScope';
+it('matches the API stable-owner namespace for legacy archive deletion',async()=>{
+ expect(await groceryAccountScope('owner-a')).toBe('gacct_EO0nnVrx2oEWi5C9zi10HtyA');
 });

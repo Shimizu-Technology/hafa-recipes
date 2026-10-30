@@ -26,7 +26,9 @@ vi.mock('expo-secure-store', () => ({
     secureValues.delete(key);
   }),
 }));
-vi.mock('expo-crypto', () => ({
+vi.mock('expo-crypto', async () => ({
+  CryptoDigestAlgorithm: { SHA256: 'SHA256' },
+  digestStringAsync: async (_algorithm: string, text: string) => (await vi.importActual<any>('node:crypto')).createHash('sha256').update(text).digest('hex'),
   randomUUID: vi.fn(() => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
 }));
 vi.mock('hafa-widget-bridge', () => ({ HafaWidgetBridge: bridge }));

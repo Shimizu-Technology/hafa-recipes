@@ -173,11 +173,13 @@ export function cacheServerGrocerySnapshot(
     const legacyRaw = await AsyncStorage.getItem(legacyKey); assertGroceryStorageLease(lease);
     if (serverScope.owner && legacyRaw) {
       const legacy = parseQueue(legacyRaw);
-      const owned = legacy.filter(queueEntryBelongsToOwner);
+      // Even pre-3.0 ownerless records have a proven owner here: the API's
+      // account_scope_id is a stable per-user namespace, including shared lists.
+      const owned = legacy.filter(entry => queueEntryBelongsToOwner(entry) || (!entry.owner && !entry.ownerGeneration));
       if (owned.length) {
         const target = queueKey(serverScope), current = parseQueue(await AsyncStorage.getItem(target));
         assertGroceryStorageLease(lease);
-        await AsyncStorage.setItem(target, JSON.stringify([...current, ...owned.filter(entry => !current.some(value => value.mutation.mutation_id === entry.mutation.mutation_id))]));
+        await AsyncStorage.setItem(target, JSON.stringify([...current, ...owned.filter(entry => !current.some(value => value.mutation.mutation_id === entry.mutation.mutation_id)).map(entry => ({ ...entry, owner: serverScope.owner }))]));
         assertGroceryStorageLease(lease);
         await AsyncStorage.setItem(legacyKey, JSON.stringify(legacy.filter(entry => !owned.includes(entry))));
       }
