@@ -74,7 +74,7 @@ const library = vi.hoisted(() => ({
   refetchRecipes: vi.fn(), refetchSaved: vi.fn(),
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useRecipes: () => ({ recipes: [], total: library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
+  useRecipes: (sourceType?: string) => ({ recipes: [], total: sourceType ? 10 : library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
   useSavedRecipes: () => ({ recipes: library.cached, total: library.savedTotal ?? library.cached.length, fetchNextPage: library.moreSaved, hasNextPage: true, refetch: library.refetchSaved }),
   useSearchRecipes: (filters: Record<string, unknown>) => {
     library.filters = filters;
