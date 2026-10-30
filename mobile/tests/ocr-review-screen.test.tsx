@@ -379,7 +379,7 @@ describe('OCRReviewScreen visibility', () => {
         .some(label => label.props.children === 'Edit'))!;
     await act(async () => edit.props.onPress());
     expect(mocks.save).not.toHaveBeenCalled();
-    expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/add-recipe' }));
+    expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/edit-capture', params: expect.objectContaining({ captureId: mocks.params.captureId }) }));
   });
 
   it('explains an expired session instead of silently presenting a generic retry', async () => {

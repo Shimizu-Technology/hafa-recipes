@@ -1,0 +1,42 @@
+import { describe, expect, it, vi } from 'vitest';
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
+vi.mock('expo-file-system', () => ({ Paths: { document: 'file:///private' }, Directory: class { exists = false; delete() {} } }));
+import { createPrivateRecipeDrafts } from './privateRecipeDrafts';
+function fixture() {
+  const data = new Map<string, string>();
+  const storage = { getItem: vi.fn(async (key: string) => data.get(key) ?? null),
+    setItem: vi.fn(async (key: string, value: string) => { data.set(key, value); }),
+    removeItem: vi.fn(async (key: string) => { data.delete(key); }),
+    getAllKeys: vi.fn(async () => [...data.keys()]), multiRemove: vi.fn(async (keys: string[]) => keys.forEach(key => data.delete(key))) };
+  return { drafts: createPrivateRecipeDrafts(storage as any), storage, data };
+}
+describe('private recipe drafts', () => {
+  it('survives a new store, isolates stable owners and methods, and serializes discard', async () => {
+    const { drafts, storage } = fixture(); const owner = drafts.lease('stable-a');
+    await drafts.write(owner, 'manual', { title: 'Rice', components: [{ name: 'Sauce', notes: 'Family note' }] });
+    expect(await drafts.read(drafts.lease('stable-b'), 'manual')).toBeNull();
+    expect(await drafts.read(owner, 'paste')).toBeNull();
+    const relaunched = createPrivateRecipeDrafts(storage as any);
+    expect(await relaunched.read(relaunched.lease('stable-a'), 'manual')).toMatchObject({ title: 'Rice' });
+    const pending = drafts.write(owner, 'manual', { title: 'New title' });
+    const discard = drafts.remove(owner, 'manual');
+    await Promise.all([pending, discard]);
+    expect(await drafts.read(owner, 'manual')).toBeNull();
+  });
+  it('invalidates pending writes on sign-out and never deletes unrelated storage', async () => {
+    const { drafts, data } = fixture(); const owner = drafts.lease('stable-a');
+    data.set('unrelated', 'keep');
+    const stale = drafts.write(owner, 'scan', { selectedImages: [] });
+    const clear = drafts.clearAll();
+    await expect(stale).rejects.toThrow('Account changed'); await clear;
+    await expect(drafts.write(owner, 'manual', {})).rejects.toThrow('Account changed');
+    expect(data.get('unrelated')).toBe('keep');
+    expect(await drafts.read(drafts.lease('stable-b'), 'scan')).toBeNull();
+  });
+  it('reports disk failure and refuses unbounded content', async () => {
+    const { drafts, storage } = fixture();
+    storage.setItem.mockRejectedValueOnce(new Error('Disk full'));
+    await expect(drafts.write(drafts.lease('a'), 'paste', { text: 'Rice' })).rejects.toThrow('Disk full');
+    await expect(drafts.write(drafts.lease('a'), 'paste', { text: 'x'.repeat(500_001) })).rejects.toThrow('too large');
+  });
+});

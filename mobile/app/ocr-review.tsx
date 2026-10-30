@@ -45,6 +45,7 @@ export default function OCRReviewScreen() {
     captureOwnerId,
     saveErrorKind,
     saveErrorMessage,
+    draftStorageError,
   } = useLocalSearchParams<{
     recipe: string;
     location: string;
@@ -55,7 +56,9 @@ export default function OCRReviewScreen() {
     captureOwnerId?: string;
     saveErrorKind?: string;
     saveErrorMessage?: string;
+    draftStorageError?: string;
   }>();
+  useEffect(() => { if (draftStorageError) Alert.alert('Draft not saved on this device', draftStorageError); }, [draftStorageError]);
   const inbox = useImportInbox();
   const boundOwner = useRef<string | null>(captureOwnerId ?? inbox.ownerId);
   if (!boundOwner.current && inbox.ownerId) boundOwner.current = inbox.ownerId;
@@ -168,9 +171,10 @@ export default function OCRReviewScreen() {
     // Replace review with add-recipe screen, preserving the capture origin.
     // Using replace so user doesn't come back to this screen after saving
     router.replace({
-      pathname: '/add-recipe',
+      pathname: '/edit-capture',
       params: {
         initialData: JSON.stringify(recipe),
+        captureId,
         isPublic: isPublic ? 'true' : 'false',
         captureSource: sourceType,
         captureOwnerId: boundOwner.current!,

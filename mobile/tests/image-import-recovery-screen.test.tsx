@@ -1,3 +1,5 @@
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -660,6 +662,7 @@ describe('classified image recovery', () => {
     // The gallery back action is the first touchable in its header.
     const headerActions = renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
     await act(async () => headerActions[0].props.onPress());
+    await act(async () => mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === 'Discard').onPress());
     mocks.preferences.ready = true; mocks.preferences.isPublic = false;
     await act(async () => renderer.update(<ExtractScreen />));
     expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
