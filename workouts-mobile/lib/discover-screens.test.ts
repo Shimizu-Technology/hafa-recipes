@@ -432,7 +432,11 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
     { contributor_id: "chef_mine5678", display_name: "Me", workout_count: 1, is_you: true },
   ]);
   await mount(Discover);
-  const strip = () => nodes("ChipRow").find((n) => n.props.label === "Show workouts from one person")!;
+  const sheet = nodes("Sheet").find(n => n.props.title === "Filters")!;
+  expect(sheet.props.visible).toBe(false);
+  await act(async () => button("Filters")!.props.onPress());
+  expect(nodes("Sheet").find(n => n.props.title === "Filters")!.props.visible).toBe(true);
+  const strip = () => nodes("ChipRow").find((n) => n.props.label === "People")!;
   const people = () => strip().findAll((n) => String(n.type) === "Chip");
   expect(people().map((n) => n.props.label)).toEqual(["Leon (4)", "You (1)"]);
   await act(async () => people()[0].props.onPress());
@@ -1697,4 +1701,16 @@ it.each([undefined, false, true])("gates the owner cover editor on actual server
     await act(async () => change.props.onPress());
     expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout-cover/[id]", params: { id: saved.id } });
   }
+});
+
+it("keeps Discover search and Filters together and moves People into the sheet", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
+  await mount(Discover);
+  const search = nodes("Field").find(n => n.props.label === "Search Discover")!;
+  expect(search.props.hideLabel).toBe(true);
+  const row = search.parent!.parent!;
+  expect(row.findAll(n => String(n.type) === "Button").map(n => n.props.title)).toContain("Filters");
+  expect(nodes("Button").filter(n => n.props.title === "Share yours")).toHaveLength(1);
+  expect(button("Surprise me")!.props.variant).toBe("ghost");
+  expect(nodes("Copy").some(n => n.children.join("") === "People sharing")).toBe(false);
 });
