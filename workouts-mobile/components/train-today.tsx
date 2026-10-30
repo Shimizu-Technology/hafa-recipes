@@ -187,7 +187,7 @@ export function TrainToday() {
         onPress={() => { setAdjust({ program: receipt.program, session: receipt.session }); setAdjustOpen(true); }} />)}
       {!!receipts.error && <><Notice error>Could not restore saved adjustments.</Notice><Button title="Retry saved adjustments" secondary onPress={() => void receipts.refetch()} /></>}
       <ListGroup>
-        <ListRow icon="chatbubble-ellipses-outline" title="Adjust with coach" detail="Short on time, sore or not feeling 100%?" onPress={() => router.push("/coach")} />
+        <ListRow icon="chatbubble-ellipses-outline" title="Ask Coach" detail="Questions about training or a change to your plan" onPress={() => router.push("/coach")} />
         <ListRow icon="walk-outline" title="Log an activity you did" onPress={() => router.push("/activity")} />
       </ListGroup>
       {adjust && <AdjustTraining key={`${adjust.program.id}:${adjust.session?.id ?? "missed"}`} visible={adjustOpen} onClose={() => setAdjustOpen(false)} program={programs.data?.find(p => p.id === adjust.program.id) ?? adjust.program} session={adjust.session} />}

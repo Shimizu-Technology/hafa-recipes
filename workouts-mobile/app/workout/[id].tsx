@@ -187,8 +187,6 @@ export default function WorkoutDetail() {
       // The hero leads; the title and meta line follow it in the page body.
       hideTitle
       action={workout ? <Row gap={4}>
-        <IconButton icon="chatbubble-ellipses-outline" label="Ask the coach about this workout" variant="plain"
-          onPress={() => router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })} />
         {workout.kind !== "program" && <IconButton icon="share-outline" label="Share workout" variant="plain"
           onPress={() => router.push({ pathname: "/share", params: { id: workout.id, kind: "workout" } })} />}
         <IconButton icon="ellipsis-horizontal" label="More workout actions" variant="plain" onPress={() => setMore(true)} />
@@ -203,6 +201,8 @@ export default function WorkoutDetail() {
         <Copy kind="title">{workout?.title ?? "Your workout."}</Copy>
         {!!meta && <Copy tone="muted">{meta}</Copy>}
       </Stack>
+      {workout && <ListRow icon="chatbubble-ellipses-outline" title="Ask about this workout"
+        onPress={() => router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })} />}
       {!!error && <Notice error>{error}</Notice>}
       {publication?.is_public && publication.moderation_status === "hidden" && (
         <Notice tone="warning">
