@@ -211,6 +211,7 @@ export function Screen({
   children,
   title,
   subtitle,
+  titleKind = "title",
   back = false,
   close = false,
   action,
@@ -222,6 +223,7 @@ export function Screen({
 }: {
   children: React.ReactNode;
   title: string;
+  titleKind?: "title" | "heading";
   /** Show the Håfa Baby mark above the title (welcome and first-run screens). */
   brand?: boolean;
   /** Docked below the scrolling content and above the keyboard, for example a message composer. */
@@ -263,7 +265,7 @@ export function Screen({
       {brand && <BrandMark size={64} />}
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
         <View style={{ flex: 1, gap: 4 }}>
-          <Copy kind="title">{title}</Copy>
+          <Copy kind={titleKind}>{title}</Copy>
           {subtitle && <Copy tone="muted">{subtitle}</Copy>}
         </View>
         {action}
@@ -560,16 +562,19 @@ export function Chips({
   value,
   onChange,
   label,
+  scroll = false,
 }: {
   options: { label: string; value: string }[];
   value: string;
   onChange: (v: string) => void;
   /** Read before each option by VoiceOver, for example "Feeding method". */
   label?: string;
+  /** Single-row filters scroll; form choices keep their wrapping layout. */
+  scroll?: boolean;
 }) {
   const c = useColors();
-  return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+  const choices = (
+    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: scroll ? "nowrap" : "wrap", gap: 8 }}>
       {options.map((o) => {
         const on = value === o.value;
         return (
@@ -606,6 +611,8 @@ export function Chips({
       })}
     </View>
   );
+  return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
+    contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
 export function Empty({
   icon = "leaf-outline",

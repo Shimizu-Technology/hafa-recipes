@@ -16,6 +16,7 @@ export default function Journal() {
   const b = useBaby(),
     [filter, setFilter] = useState("journal"),
     [q, setQ] = useState(""),
+    [searching, setSearching] = useState(false),
     [selected, setSelected] = useState<string[]>([]),
     [preparing, setPreparing] = useState(false),
     [error, setError] = useState(""),
@@ -97,19 +98,13 @@ export default function Journal() {
   return (
     <Screen
       title="Journal"
-      subtitle="Your thoughts and memories."
-      action={
-        <Button
-          secondary
-          title="Write"
-          icon="add"
-          onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })}
-        />
-      }
+      action={<Button variant="ghost" title={searching ? "Close search" : "Search"} icon="search-outline"
+        onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
     >
       <SyncStatus />
-      <ChildFilter />
+      <ChildFilter scroll />
       <Chips
+        scroll
         value={filter}
         label="Show"
         options={[
@@ -118,10 +113,10 @@ export default function Journal() {
           { label: "Care history", value: "care" },
           { label: "Doctor questions", value: "question" },
         ]}
-        onChange={setFilter}
+        onChange={next => { setFilter(next); setPreparing(false); setSelected([]); }}
       />
-      <Field label="Search" value={q} onChange={setQ} placeholder="Notes, questions and care history" />
-      {preparing ? (
+      {searching && <Field label="Search" value={q} onChange={setQ} placeholder="Notes and questions" />}
+      {filter === "question" && (preparing ? (
         <Card tone="soft">
           <Copy kind="label">Choose what to bring to the visit</Copy>
           <Copy kind="small" tone="muted">
@@ -142,7 +137,7 @@ export default function Journal() {
           icon="document-text-outline"
           onPress={() => setPreparing(true)}
         />
-      )}
+      ))}
       {!!error && <Notice error>{error}</Notice>}
       {!!historyError && <>
         <Notice error>{historyError} Entries already on this device are shown below.</Notice>
@@ -161,7 +156,7 @@ export default function Journal() {
           />
         ))}
       {loading && !records.length ? <Loading label="Loading your journal…" /> : records.length ? (
-        <Section title="Your timeline">
+        <View style={{ gap: 12 }}>
           {records.map((r) =>
             preparing ? (
               <Card key={r.id} tone="soft">
@@ -182,18 +177,18 @@ export default function Journal() {
               />
             )
           )}
-        </Section>
+        </View>
       ) : (
         <Empty
           icon="book-outline"
           title={q.trim() ? "No matching entries" : "A place for your own words."}
           body={q.trim() ? "Try a different phrase or clear your search." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
-          action={
+          action={q.trim() ?
             <Button
               secondary
-              title={q.trim() ? "Clear search" : "Write an entry"}
-              onPress={() => q.trim() ? setQ("") : router.push({ pathname: "/edit", params: { kind: "journal" } })}
-            />
+              title="Clear search"
+              onPress={() => setQ("")}
+            /> : undefined
           }
         />
       )}

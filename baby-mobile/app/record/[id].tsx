@@ -1,3 +1,4 @@
+import { sourceTitle } from "@/lib/source-title";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { Image } from "expo-image";
@@ -75,13 +76,15 @@ export default function RecordDetail() {
       </Screen>
     );
   const child = b.state.bootstrap!.children.find((c) => c.id === record.child_id),
+    title = record.kind === "source" ? sourceTitle(record) : record.title,
     data = record.data,
     localFiles = inheritedFiles(b.state, record.id).filter(
       (file) => !file.uploaded_id || !data.attachment_ids?.includes(file.uploaded_id)
     );
   return (
     <Screen
-      title={record.title}
+      title={title}
+      titleKind={Array.from(title).length > 60 ? "heading" : "title"}
       back
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
