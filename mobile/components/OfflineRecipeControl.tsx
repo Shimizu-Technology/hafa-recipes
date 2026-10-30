@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { Button, Text } from '@/components/Themed';
-import { useOfflineLease } from '@/hooks/useOfflineRecipe';
+import { useOfflineLease } from '@/hooks/useOfflineLease';
 import { offlineRecipes, type OfflineRecipe } from '@/lib/offlineRecipes';
 
 export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string; eligible: boolean }) {

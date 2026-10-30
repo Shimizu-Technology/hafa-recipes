@@ -3,7 +3,7 @@ import { Alert, ScrollView, TouchableOpacity, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { Button, Text } from '@/components/Themed';
-import { useOfflineLease } from '@/hooks/useOfflineRecipe';
+import { useOfflineLease } from '@/hooks/useOfflineLease';
 import { offlineRecipes, type OfflineRecipe } from '@/lib/offlineRecipes';
 export default function OfflineRecipesScreen() {
   const { userId } = useAuth();

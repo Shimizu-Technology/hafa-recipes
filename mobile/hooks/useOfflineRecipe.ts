@@ -1,13 +1,9 @@
+import { useOfflineLease } from './useOfflineLease';
 import { api } from '@/lib/api';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { offlineRecipes, type OfflineRecipe } from '@/lib/offlineRecipes';
 import type { Recipe } from '@/types/recipe';
 import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
-
-export function useOfflineLease(subject: string | null | undefined) {
-  useSyncExternalStore(offlineRecipes.subscribe, offlineRecipes.version, offlineRecipes.version);
-  return offlineRecipes.lease(subject);
-}
 
 export function useOfflineRecipe(id: string, subject: string | null | undefined, live: Recipe | undefined, error: unknown, canVerify: boolean, refetch: () => Promise<unknown>) {
   const lease = useOfflineLease(subject);
