@@ -632,8 +632,6 @@ export function Chips({
               paddingVertical: 10,
               borderRadius: 23,
               justifyContent: "center",
-              maxWidth: "100%",
-              flexShrink: 1,
               // Unselected chips are outlined like secondary buttons so they read on sand cards too.
               backgroundColor: on ? c.tile : c.surface,
               borderWidth: 1.5,
