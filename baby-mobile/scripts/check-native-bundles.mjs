@@ -9,7 +9,7 @@ for (const path of maps) {
   const sources = JSON.parse(readFileSync(path,"utf8")).sources ?? [];
   if (!sources.some(source => source.endsWith("/@clerk/clerk-js/dist/clerk.native.js"))) throw new Error("Native Clerk selection changed; review dependency reachability");
   if (!sources.some(source => source.endsWith("/expo-router/build/fork/getStateFromPath.js"))) throw new Error("Router implementation changed; review incoming-link decoding");
-  const unsafe = sources.filter(source => /\/node_modules\/(?:stream-json|jayson|node-forge|braces|zod|abitype|viem|ox|@base-org\/account|@coinbase\/wallet-sdk)\//.test(source));
+  const unsafe = sources.filter(source => /\/node_modules\/(?:deepmerge|@expo\/config|stream-json|jayson|node-forge|braces|zod|abitype|viem|ox|@base-org\/account|@coinbase\/wallet-sdk)\//.test(source));
   if (unsafe.length) throw new Error(`Unreviewed native dependency reachability: ${unsafe.join(",")}`);
 }
 console.log("Both native bundles select Clerk native and Expo Router fork; reviewed build/socket and wallet dependencies are absent. Incoming-link runtime checks remain separate.");
