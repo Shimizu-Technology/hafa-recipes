@@ -29,7 +29,7 @@ import {
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
-import { remainingSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
+import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 import { SetNumberField } from "@/components/training/set-entry";
@@ -88,7 +88,7 @@ export default function Training() {
   const [moreInstructions, setMoreInstructions] = useState(false);
   const [summary, setSummary] = useState<(ReturnType<typeof sessionSummary> & { partial: boolean }) | null>(null);
   const finishing = useRef(false);
-  const phase = restPhase(d?.rest_until ?? null, now);
+  const phase = d?.paused ? ((d.rest_remaining_milliseconds ?? 0) > 0 ? "resting" : "idle") : restPhase(d?.rest_until ?? null, now);
   useEffect(() => {
     // One alert when a rest runs out on its own; "End rest" clears the timer instead.
     const key = `${d?.id}:${d?.rest_until}`;
@@ -105,10 +105,10 @@ export default function Training() {
   }, []);
   useEffect(() => {
     const active = store?.snapshot().active;
-    if (!sameSession() || !active?.timed_circuit || active.paused || checkpointing.current ||
-      (now - active.checkpoint_at < 5000 && circuitRemaining(active, now)! > 0)) return;
+    if (!sameSession() || !active || active.paused || checkpointing.current ||
+      (now - active.checkpoint_at < 5000 && (circuitRemaining(active, now) == null || circuitRemaining(active, now)! > 0))) return;
     checkpointing.current = true;
-    void store!.checkpoint().catch(() => { if (sameSession()) setError("Could not save the circuit timer on this device. Pause and retry."); })
+    void store!.checkpoint().catch(() => { if (sameSession()) setError("Could not save the session timer on this device. Pause and retry."); })
       .finally(() => { if (sameSession()) checkpointing.current = false; });
   }, [now, store, d?.id, d?.paused, scope]);
   useEffect(() => {
@@ -224,8 +224,8 @@ export default function Training() {
   const unit = unitOf(values);
   const activity = d.activity_type ?? inferActivityType(d.workout);
   const chooseActivity = (type: string) => { void run(() => store.activityType(type)); };
-  const rest = remainingSeconds(d.rest_until, now);
-  const interval = d.interval_started_at == null ? 0 : Math.max(0, Math.floor((now - d.interval_started_at) / 1000));
+  const rest = restRemainingSeconds(d, now);
+  const interval = exerciseElapsedSeconds(d, now);
   async function log(completed: boolean) {
     if (!current() || !step || !store || store.snapshot().active?.id !== d!.id)
       throw Error("This session changed. Review the current session before logging.");
@@ -441,6 +441,12 @@ export default function Training() {
               void run(() => store.timer("rest", 0));
             }}
           />
+          <Button title="Reset rest" variant="ghost" size="sm" disabled={busy} onPress={() => {
+            const previous = d.actuals.at(-1);
+            const block = d.workout.blocks.find((b) => b.id === previous?.block_id);
+            const seconds = block && previous ? (((step?.block_id === previous.block_id && step.round_index !== (previous.round_index ?? 1)) ? block.rest_between_rounds_seconds : null) ?? block.exercises[previous.exercise_index]?.rest_seconds ?? 60) : 60;
+            void run(() => store.timer("rest", seconds));
+          }} />
           {restAlertsOff && <Copy kind="small" tone="muted" align="center">Rest alerts are off on this device. This timer still works.</Copy>}
         </Card>
       )}
@@ -491,16 +497,18 @@ export default function Training() {
               onChange={(v) => field("load", v)}
             />
           </Row>
-          {metric === "time" && (d.interval_started_at != null ? (
-            <Row gap={12}>
+          {metric === "time" && (d.interval_started_at != null || d.interval_elapsed_milliseconds != null ? (
+            <Row gap={12} wrap>
               <Copy kind="numericSmall">{formatClock(interval)}</Copy>
+              <Button title="Reset timer" variant="ghost" size="sm" inline disabled={busy}
+                onPress={() => { void run(() => store.timer("interval")); }} />
               <Button
                 title="Use this time"
                 icon="stop-circle-outline"
                 variant="secondary"
                 size="sm"
                 inline
-                disabled={d.paused || !!structureWarning}
+                disabled={busy || (d.paused && !capReached) || !!structureWarning}
                 onPress={() => {
                   field("seconds", String(interval));
                   void run(() => store.timer("interval", 0));

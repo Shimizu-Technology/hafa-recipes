@@ -5,6 +5,8 @@ import {
   stepsFor,
   trackingPrescriptionWarning,
   remainingSeconds,
+  restRemainingSeconds,
+  exerciseElapsedSeconds,
   canonicalLoad,
   displayLoad,
   canonicalHeight,
@@ -966,4 +968,103 @@ it("default unit choices do not become unlogged actual work", async () => {
   await store.input({ load_unit: "kg", convention: "total", reps: "  " });
   await store.finish("partial");
   expect(store.snapshot().history[0].request.actuals).toHaveLength(1);
+});
+
+
+describe("pause keeps subordinate timers", () => {
+  async function setup() {
+    const storage = memory();
+    let now = 10000;
+    const store = createTrainingStore(storage, "owner", 1, () => now);
+    await store.load();
+    await store.start(fixture(), { workout_id: "workout", workout_revision: 3 }, "timers");
+    return { store, storage, clock: () => now, at: (value: number) => { now = value; } };
+  }
+  it("freezes rest and elapsed exercise time across repeated pause, cold load and resume", async () => {
+    const { store, storage, at, clock } = await setup();
+    await store.timer("rest", 30); await store.timer("interval");
+    at(17500); await store.pause(true);
+    at(80000); await store.pause(true);
+    expect(restRemainingSeconds(store.snapshot().active!, clock())).toBe(23);
+    expect(exerciseElapsedSeconds(store.snapshot().active!, clock())).toBe(7);
+    const restored = createTrainingStore(storage, "owner", 1, clock); await restored.load();
+    expect(restored.snapshot().active?.rest_remaining_milliseconds).toBe(22500);
+    await restored.pause(false); await restored.pause(false);
+    at(82000);
+    expect(restRemainingSeconds(restored.snapshot().active!, clock())).toBe(21);
+    expect(exerciseElapsedSeconds(restored.snapshot().active!, clock())).toBe(9);
+    expect(restored.snapshot().active?.actuals).toEqual([]);
+  });
+  it("cold recovery freezes running clocks at their durable checkpoint", async () => {
+    const { store, storage, at, clock } = await setup();
+    await store.timer("rest", 30); await store.timer("interval");
+    at(15300); await store.checkpoint(); at(90000);
+    const restored = createTrainingStore(storage, "owner", 1, clock); await restored.load();
+    expect(restored.snapshot().active?.paused).toBe(true);
+    expect(restRemainingSeconds(restored.snapshot().active!, clock())).toBe(25);
+    expect(exerciseElapsedSeconds(restored.snapshot().active!, clock())).toBe(5);
+  });
+  it("supports explicit resets, ending rest and using time while paused without resurrecting clocks", async () => {
+    const { store, at, clock } = await setup();
+    await store.timer("rest", 30); await store.timer("interval");
+    at(16000); await store.pause(true);
+    await store.timer("rest", 30); await store.timer("interval");
+    expect(restRemainingSeconds(store.snapshot().active!, clock())).toBe(30);
+    expect(exerciseElapsedSeconds(store.snapshot().active!, clock())).toBe(0);
+    await store.timer("rest", 0); await store.timer("interval", 0);
+    await store.pause(false); at(20000);
+    expect(restRemainingSeconds(store.snapshot().active!, clock())).toBe(0);
+    expect(exerciseElapsedSeconds(store.snapshot().active!, clock())).toBe(0);
+    expect(store.snapshot().active?.interval_started_at).toBeNull();
+  });
+  it("clears frozen values when logging and undoing", async () => {
+    const { store, at, clock } = await setup();
+    await store.timer("interval"); at(14000); await store.pause(true);
+    await store.log(next(store)); await store.pause(false);
+    expect(exerciseElapsedSeconds(store.snapshot().active!, clock())).toBe(0);
+    await store.pause(true); await store.undo(); await store.pause(false);
+    expect(restRemainingSeconds(store.snapshot().active!, clock())).toBe(0);
+    expect(store.snapshot().active?.interval_started_at).toBeNull();
+  });
+  it("preserves background/source-return AMRAP clocks without extending the cap", async () => {
+    const { store, setTime, time } = await timedStore();
+    await store.timer("rest", 30); await store.timer("interval");
+    setTime(15000); await store.pause(true); setTime(90000);
+    expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(5);
+    expect(restRemainingSeconds(store.snapshot().active!, time())).toBe(25);
+    expect(circuitRemaining(store.snapshot().active!, time())).toBe(1195);
+    await store.pause(false); setTime(92000);
+    expect(circuitRemaining(store.snapshot().active!, time())).toBe(1193);
+    expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(7);
+  });
+});
+
+
+it.each(["manual", "background", "checkpoint"])("freezes subordinate clocks at the effective cap end on late %s pause", async mode => {
+  const { store, setTime, time } = await timedStore(amrap(1, 60));
+  await store.timer("interval"); await store.timer("rest", 90);
+  setTime(80000);
+  if (mode === "checkpoint") await store.checkpoint();
+  else await store.pause(true, mode === "background" ? time() : undefined);
+  const d = store.snapshot().active!;
+  expect(d.active_milliseconds).toBe(60000);
+  expect(exerciseElapsedSeconds(d, time())).toBe(60);
+  expect(restRemainingSeconds(d, time())).toBe(30);
+  expect(d.active_intervals?.at(-1)?.ended_at).toBe(new Date(70000).toISOString());
+  setTime(100000); await store.pause(true); await store.pause(false); await store.pause(true);
+  expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(60);
+  expect(restRemainingSeconds(store.snapshot().active!, time())).toBe(30);
+});
+it("uses prior active segments and repeated pause/resume when freezing clocks at the cap", async () => {
+  const { store, setTime, time } = await timedStore(amrap(1, 60));
+  await store.timer("interval"); await store.timer("rest", 90);
+  setTime(30000); await store.pause(true); await store.pause(true);
+  setTime(100000); await store.pause(false); await store.pause(false);
+  setTime(110000); await store.pause(true);
+  setTime(200000); await store.pause(false);
+  setTime(240000); await store.pause(true);
+  expect(store.snapshot().active!.active_milliseconds).toBe(60000);
+  expect(exerciseElapsedSeconds(store.snapshot().active!, time())).toBe(60);
+  expect(restRemainingSeconds(store.snapshot().active!, time())).toBe(30);
+  expect(store.snapshot().active!.active_intervals?.at(-1)?.ended_at).toBe(new Date(230000).toISOString());
 });
