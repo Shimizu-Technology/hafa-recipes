@@ -112,7 +112,7 @@ async def test_unmigrated_api_and_additive_replay(pages_db):
     assert error.value.status_code == 503
     await db.rollback()
     await db.refresh(recipe)
-    migration = importlib.import_module("migrations.053_add_recipe_source_pages")
+    migration = importlib.import_module("migrations.054_add_recipe_source_pages")
     await migration.run_migration(migration_engine=db.bind)
     await migration.run_migration(migration_engine=db.bind)
     assert await db.get(Recipe, recipe.id) is not None
