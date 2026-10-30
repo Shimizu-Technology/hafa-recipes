@@ -1,3 +1,4 @@
+import { Redirect } from 'expo-router';
 import { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
@@ -299,7 +300,7 @@ function NewCollectionCard({
   );
 }
 
-export default function HistoryScreen() {
+export function HistoryScreen() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -1668,3 +1669,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
 });
+
+/** Keep existing deep links selecting their original scope. */
+export default function LegacyRecipeRoute() {
+  return <Redirect href={{ pathname: '/(tabs)/recipes', params: { scope: 'library' } }} />;
+}

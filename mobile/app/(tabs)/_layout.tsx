@@ -8,10 +8,9 @@ import Colors, { fontFamily, fontSize } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ScalePressable } from '@/components/Animated';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
-import { AssistantTabBar } from '@/components/AssistantTabBar';
 import { prefetchTabData } from '@/lib/tabPrefetch';
 
-/** Configure the five primary cooking workflows and their shared app chrome. */
+/** Configure the four primary cooking workflows and their shared app chrome. */
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -28,7 +27,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <AssistantTabBar {...props} isSignedIn={Boolean(isSignedIn)} />}
+      initialRouteName="recipes"
       screenOptions={{
         tabBarButton: ({ href: _href, style, onPress, ...props }) => (
           <ScalePressable {...props} style={style} onPress={onPress} />
@@ -67,38 +66,17 @@ export default function TabLayout() {
         headerRight: () => <AccountHeaderButton />,
         headerRightContainerStyle: { paddingRight: 16 },
       }}>
-      <Tabs.Screen
-        name="discover"
-        options={{
-          title: 'Discover',
-          headerTitle: () => <TabHeaderBrand />,
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? 'globe' : 'globe-outline'}
-              size={24}
-              color={focused ? colors.tabIconSelected : color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'Library',
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? 'book' : 'book-outline'}
-              size={24}
-              color={focused ? colors.tabIconSelected : color}
-            />
-          ),
-        }}
-      />
+      <Tabs.Screen name="recipes" options={{
+        title: 'Recipes', headerTitle: () => <TabHeaderBrand />,
+        tabBarIcon: ({ focused, color }) => <Ionicons name={focused ? 'book' : 'book-outline'} size={24} color={color} />,
+      }} />
+      <Tabs.Screen name="discover" options={{ href: null }} />
+      <Tabs.Screen name="history" options={{ href: null }} />
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Import',
-          tabBarAccessibilityLabel: 'Import a recipe',
+          title: 'Add',
+          tabBarAccessibilityLabel: 'Add a recipe',
           tabBarIcon: ({ focused }) => <ImportTabIcon focused={focused} />,
         }}
       />

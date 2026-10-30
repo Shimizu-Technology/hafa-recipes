@@ -738,9 +738,9 @@ export default function RecipeDetailScreen() {
                 onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))}
                 style={styles.headerButton}
                 accessibilityRole="button"
-                accessibilityLabel="Ask about this recipe"
+                accessibilityLabel="Ask Håfa about this recipe"
               >
-                <Ionicons name="chatbubbles-outline" size={22} color={colors.actionText} />
+                <Text style={{ color: colors.actionText }}>Ask Håfa</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleShare}
