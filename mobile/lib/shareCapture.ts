@@ -1,3 +1,5 @@
+import { offlineRecipes } from './offlineRecipes';
+import { recipeScope, assertRecipeScope } from './recipeQueryScope';
 import type { ShareIntent } from 'expo-share-intent';
 
 import { normalizePastedRecipeText } from './textCapture';
@@ -31,6 +33,7 @@ export type ShareIntentAction =
   | { kind: 'unsupported'; message: string };
 
 type StagedCapture = {
+  scope: string;
   token: string;
   createdAt: number;
   capture: PendingShareCapture;
@@ -140,10 +143,13 @@ export function resolveShareIntent(
 }
 
 /** Stage sensitive shared content in process memory until its route consumes it. */
-export function stagePendingShareCapture(capture: PendingShareCapture): string {
+export function stagePendingShareCapture(capture: PendingShareCapture, owner = JSON.parse(recipeScope())[1] as string | null): string {
+  const scope = recipeScope();
+  if (owner !== JSON.parse(scope)[1]) throw new Error('Capture account changed. Reopen this capture from its owner.');
+  assertRecipeScope(scope);
   const token = `share-${Date.now().toString(36)}-${(++captureSequence).toString(36)}`;
   if (stagedCaptureExpiry) clearTimeout(stagedCaptureExpiry);
-  stagedCapture = { token, createdAt: Date.now(), capture };
+  stagedCapture = { scope, token, createdAt: Date.now(), capture };
   stagedCaptureExpiry = setTimeout(() => {
     if (stagedCapture?.token === token) stagedCapture = null;
     stagedCaptureExpiry = null;
@@ -156,9 +162,19 @@ export function consumePendingShareCapture(token: string | undefined): PendingSh
   if (!token || !stagedCapture || stagedCapture.token !== token) return null;
 
   const pending = stagedCapture;
+  if (JSON.parse(pending.scope)[1] && pending.scope !== recipeScope()) return null;
   stagedCapture = null;
   if (stagedCaptureExpiry) clearTimeout(stagedCaptureExpiry);
   stagedCaptureExpiry = null;
   if (Date.now() - pending.createdAt > PENDING_CAPTURE_TTL_MS) return null;
   return pending.capture;
 }
+
+// Durable owner-assigned inbox captures remain available to their original owner.
+// Only the transient route delivery is retired; unassigned captures keep their claim rule.
+offlineRecipes.onRetire(previous => {
+  if (!previous || !stagedCapture || !JSON.parse(stagedCapture.scope)[1]) return;
+  stagedCapture = null;
+  if (stagedCaptureExpiry) clearTimeout(stagedCaptureExpiry);
+  stagedCaptureExpiry = null;
+});

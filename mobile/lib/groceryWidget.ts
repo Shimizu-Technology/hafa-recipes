@@ -1,3 +1,6 @@
+import { groceryAccountScope } from './groceryAccountScope';
+import { offlineRecipes } from './offlineRecipes';
+import { assertRecipeScope, recipeScope } from './recipeQueryScope';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 
@@ -24,6 +27,7 @@ const SECURE_STORE_OPTIONS: SecureStore.SecureStoreOptions = {
 };
 
 export interface StoredGroceryWidgetSession {
+  owner?: string | null;
   version: 1;
   clerkUserId: string;
   credentialId: string;
@@ -63,10 +67,21 @@ export interface WidgetGrocerySnapshot {
 }
 
 let widgetStateQueue: Promise<unknown> = Promise.resolve();
+let retirement: Promise<unknown> = Promise.resolve();
+const legacyOwner = (scope: string) => `legacy-scope:${scope}`;
+function retireNativeSession(owner: string) {
+  // Every path uses one chain; a later owner cannot archive an earlier queue.
+  retirement = retirement.then(() => HafaWidgetBridge.retireSession(owner))
+    .catch(() => undefined).then(() => deleteStoredSession()).catch(() => undefined);
+  return retirement;
+}
 const refreshListeners = new Set<() => void>();
 
-function serializeWidgetState<T>(operation: () => Promise<T>): Promise<T> {
-  const result = widgetStateQueue.then(operation, operation);
+function serializeWidgetState<T>(operation: (guard: () => void) => Promise<T>): Promise<T> {
+  const scope = recipeScope();
+  const guard = () => assertRecipeScope(scope);
+  const run = async () => { guard(); await retirement; guard(); const result = await operation(guard); guard(); return result; };
+  const result = widgetStateQueue.then(run, run);
   widgetStateQueue = result.then(
     () => undefined,
     () => undefined,
@@ -78,6 +93,7 @@ function isStoredSession(value: unknown): value is StoredGroceryWidgetSession {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<StoredGroceryWidgetSession>;
   return (
+    (candidate.owner == null || typeof candidate.owner === 'string' && candidate.owner.length > 0 && candidate.owner.length <= 256) &&
     candidate.version === 1 &&
     typeof candidate.clerkUserId === 'string' &&
     candidate.clerkUserId.length > 0 &&
@@ -184,13 +200,14 @@ async function deleteStoredSession(): Promise<void> {
   await SecureStore.deleteItemAsync(SESSION_METADATA_KEY);
 }
 
-async function bindIdentityUnsafe(clerkUserId: string | null): Promise<void> {
+async function bindIdentityUnsafe(clerkUserId: string | null, guard: () => void): Promise<void> {
   if (!HafaWidgetBridge.isAvailable) return;
   const [stored, status] = await Promise.all([
     loadStoredSession(),
     HafaWidgetBridge.getSessionStatus(),
   ]);
-  const belongsToCurrentUser = stored?.clerkUserId === clerkUserId;
+  guard();
+  const belongsToCurrentUser = stored?.clerkUserId === clerkUserId && (stored.owner ?? null) === JSON.parse(recipeScope())[1];
   const hasNativeState = status.hasCredential || status.listId !== null;
   const hasCompleteMatchingSession =
     Boolean(clerkUserId) &&
@@ -204,13 +221,16 @@ async function bindIdentityUnsafe(clerkUserId: string | null): Promise<void> {
   if (stored || hasNativeState) {
     // The widget bearer can revoke itself even after Clerk signs out or changes
     // accounts. Local state is always scrubbed whether that request succeeds.
-    await HafaWidgetBridge.clearSession(true);
+    const owner = stored?.owner && status.accountScopeId === stored.accountScopeId && status.listId === stored.listId
+      ? stored.owner : status.accountScopeId ? legacyOwner(status.accountScopeId) : null;
+    if (owner) await retireNativeSession(owner);
+    else await HafaWidgetBridge.clearSession(true);
   }
-  await deleteStoredSession();
+  guard(); await deleteStoredSession();
 }
 
 export function bindGroceryWidgetIdentity(clerkUserId: string | null): Promise<void> {
-  return serializeWidgetState(() => bindIdentityUnsafe(clerkUserId));
+  return serializeWidgetState(guard => bindIdentityUnsafe(clerkUserId, guard));
 }
 
 async function revokeBearerToken(
@@ -233,6 +253,8 @@ async function provisionSession(
   snapshot: GrocerySnapshot,
   isCurrent: () => boolean,
 ): Promise<void> {
+  const owner = JSON.parse(recipeScope())[1] as string | null;
+  const archiveOwner = owner ?? legacyOwner(snapshot.account_scope_id);
   const installationId = await getOrCreateInstallationId();
   if (!isCurrent()) return;
 
@@ -257,6 +279,7 @@ async function provisionSession(
 
   const stored: StoredGroceryWidgetSession = {
     version: 1,
+    owner,
     clerkUserId,
     credentialId: credential.credential_id,
     accountScopeId: credential.account_scope_id,
@@ -270,8 +293,13 @@ async function provisionSession(
       API_BASE_URL,
       JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
     );
+    if (isCurrent() && owner) {
+      await HafaWidgetBridge.restorePending(legacyOwner(snapshot.account_scope_id));
+      if (isCurrent()) await HafaWidgetBridge.restorePending(owner);
+      if (isCurrent()) await HafaWidgetBridge.flushPending();
+    }
     if (!isCurrent()) {
-      await HafaWidgetBridge.clearSession(true);
+      await retireNativeSession(archiveOwner);
       return;
     }
     await SecureStore.setItemAsync(
@@ -279,8 +307,9 @@ async function provisionSession(
       JSON.stringify(stored),
       SECURE_STORE_OPTIONS,
     );
+    if (!isCurrent()) await retireNativeSession(archiveOwner);
   } catch (error) {
-    await HafaWidgetBridge.clearSession(true).catch(() => false);
+    await retireNativeSession(archiveOwner);
     await revokeBearerToken(credential.token);
     await deleteStoredSession().catch(() => undefined);
     throw error;
@@ -291,18 +320,22 @@ export function synchronizeGroceryWidget(
   clerkUserId: string,
   isCurrent: () => boolean = () => true,
 ): Promise<void> {
-  return serializeWidgetState(async () => {
+  const authority = recipeScope(), current = isCurrent;
+  isCurrent = () => authority === recipeScope() && current();
+  return serializeWidgetState(async guard => {
     if (!HafaWidgetBridge.isAvailable || !isCurrent()) return;
-    await bindIdentityUnsafe(clerkUserId);
+    await bindIdentityUnsafe(clerkUserId, guard);
     if (!isCurrent()) return;
 
     let stored = await loadStoredSession();
     let status = await HafaWidgetBridge.getSessionStatus();
+    guard();
     if (
       stored?.clerkUserId === clerkUserId &&
       status.hasCredential &&
       !status.requiresReconnect
     ) {
+      guard();
       await HafaWidgetBridge.flushPending();
       if (!isCurrent()) return;
       stored = await loadStoredSession();
@@ -322,7 +355,8 @@ export function synchronizeGroceryWidget(
       !shouldRenewGroceryWidgetSession(stored);
 
     if (canReuseSession) {
-      await HafaWidgetBridge.updateSnapshot(
+      guard();
+    await HafaWidgetBridge.updateSnapshot(
         JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
       );
       return;
@@ -332,9 +366,10 @@ export function synchronizeGroceryWidget(
 }
 
 export function publishConfirmedGrocerySnapshot(snapshot: GrocerySnapshot): Promise<void> {
-  return serializeWidgetState(async () => {
+  return serializeWidgetState(async guard => {
     if (!HafaWidgetBridge.isAvailable) return;
     const stored = await loadStoredSession();
+    guard();
     if (
       !stored ||
       stored.accountScopeId !== snapshot.account_scope_id ||
@@ -344,16 +379,24 @@ export function publishConfirmedGrocerySnapshot(snapshot: GrocerySnapshot): Prom
       requestGroceryWidgetRefresh();
       return;
     }
+    guard();
     await HafaWidgetBridge.updateSnapshot(
       JSON.stringify(toWidgetGrocerySnapshot(snapshot)),
     );
   });
 }
 
-export function clearGroceryWidgetSession(revokeWithApp = false): Promise<void> {
-  return serializeWidgetState(async () => {
+export function clearGroceryWidgetSession(revokeWithApp = false, deletedOwner?: string): Promise<void> {
+  return serializeWidgetState(async guard => {
     if (!HafaWidgetBridge.isAvailable) return;
     const stored = await loadStoredSession();
+    guard();
+    if (deletedOwner) {
+      await HafaWidgetBridge.discardPending(deletedOwner);
+      const scope = await groceryAccountScope(deletedOwner); guard();
+      await HafaWidgetBridge.discardPending(legacyOwner(scope));
+    }
+    guard();
     if (revokeWithApp && stored) {
       await api.revokeGroceryWidgetCredential(stored.credentialId).catch(() => undefined);
     }
@@ -370,3 +413,10 @@ export function subscribeToGroceryWidgetRefresh(listener: () => void): () => voi
 export function requestGroceryWidgetRefresh(): void {
   refreshListeners.forEach((listener) => listener());
 }
+
+// Native revocation scrubs the rendered list before its best-effort network await.
+// Start retirement immediately, ahead of any blocked JS synchronization queue.
+offlineRecipes.onRetire(previous => {
+  if (!previous || !HafaWidgetBridge.isAvailable) return;
+  void retireNativeSession(previous.owner);
+});

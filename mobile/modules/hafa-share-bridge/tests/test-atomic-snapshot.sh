@@ -11,5 +11,5 @@ native = (mobile / 'node_modules/expo-share-intent/ios/ExpoShareIntentModule.swi
 helper = native.split('// HAFA_ATOMIC_CAPTURE_SNAPSHOT_BEGIN\n', 1)[1].split('// HAFA_ATOMIC_CAPTURE_SNAPSHOT_END', 1)[0]
 (output / 'HafaAtomicCaptureSnapshot.swift').write_text('import Foundation\n' + helper)
 PY
-xcrun swiftc "$mobile_root/modules/hafa-share-bridge/ios/HafaShareShared.swift" "$fixture_dir/HafaAtomicCaptureSnapshot.swift" "$mobile_root/modules/hafa-share-bridge/tests/atomic-snapshot/main.swift" -o "$fixture_dir/test"
+xcrun swiftc -D HAFA_WIDGET_TESTS "$mobile_root/modules/hafa-widget-bridge/ios/HafaWidgetShared.swift" "$mobile_root/modules/hafa-share-bridge/ios/HafaShareShared.swift" "$fixture_dir/HafaAtomicCaptureSnapshot.swift" "$mobile_root/modules/hafa-share-bridge/tests/atomic-snapshot/main.swift" -o "$fixture_dir/test"
 "$fixture_dir/test"
