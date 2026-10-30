@@ -30,3 +30,25 @@ describe('meal plan query keys', () => {
     expect(queryClient.getQueryData(recipeKey)).toBe(relationships);
   });
 });
+
+it.each(['add', 'update', 'delete'] as const)('invalidates a grocery review after %s changes the plan', async (action) => {
+  const React = await import('react');
+  const { act } = React;
+  const { createRoot } = await import('test-renderer');
+  const { QueryClientProvider } = await import('@tanstack/react-query');
+  const hooks = await import('./useMealPlan');
+  const { api } = await import('@/lib/api');
+  Object.assign(api, { addMealPlanEntry: vi.fn(async () => ({ id: 'entry' })), updateMealPlanEntry: vi.fn(async () => ({})), deleteMealPlanEntry: vi.fn(async () => ({})) });
+  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  const client = new QueryClient();
+  const key = mealPlanKeys.review('2026-10-26');
+  client.setQueryData(key, { preview_token: 'previous' });
+  let mutation: any;
+  function Probe() { const add = hooks.useAddMeal(); const update = hooks.useUpdateMeal(); const remove = hooks.useDeleteMeal(); mutation = { add, update, delete: remove }[action]; return null; }
+  const renderer = createRoot();
+  try {
+    await act(async () => renderer.render(React.createElement(QueryClientProvider, { client }, React.createElement(Probe))));
+    await act(async () => mutation.mutateAsync(action === 'add' ? { date: '2026-10-26', meal_type: 'dinner', recipe_id: 'rice' } : action === 'update' ? { entryId: 'entry', update: { planned_servings: 8 } } : 'entry'));
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  } finally { await act(async () => renderer.unmount()); client.clear(); }
+});

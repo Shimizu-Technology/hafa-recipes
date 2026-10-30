@@ -244,8 +244,10 @@ describe('planner loading recovery', () => {
       expect(renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')).toHaveLength(1);
       await act(async () => renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')[0].props.onPress());
       const first = reviewMocks.add.mock.calls.at(-1)![0];
+      await act(async () => renderer.container.queryAll(node => node.props.title === 'Close review')[0].props.onPress());
       reviewMocks.state = { ...reviewMocks.state, data: { ...reviewMocks.state.data, list_id: 'household-b', preview_token: 'changed' } };
       await act(async () => renderer.render(React.createElement(PlannerScreen)));
+      await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Review week groceries')[0].props.onPress());
       await act(async () => renderer.container.queryAll(node => node.props.title === 'Add reviewed groceries')[0].props.onPress());
       expect(reviewMocks.add.mock.calls.at(-1)![0]).toEqual(first);
       expect(reviewMocks.add).toHaveBeenCalledWith(expect.objectContaining({ review: expect.objectContaining({ list_id: 'household-a', preview_token: 'review-token', mutation_id: 'request-id' }) }));
