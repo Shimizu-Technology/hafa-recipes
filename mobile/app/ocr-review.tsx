@@ -156,8 +156,9 @@ export default function OCRReviewScreen() {
         guardOwner();
       }
       const lease = privateRecipeDrafts.lease(boundOwner.current!);
-      await privateRecipeDrafts.remove(lease, 'recovery'); guardOwner();
-      await privateRecipeDrafts.remove(lease, sourceType === 'text' ? 'paste' : 'scan'); guardOwner();
+      const recovery = await privateRecipeDrafts.read(lease, 'recovery'); guardOwner();
+      if (recovery?.captureId === captureId) await privateRecipeDrafts.remove(lease, 'recovery', recovery);
+      guardOwner();
       router.replace(`/recipe/${result.id}`);
     } catch (error: unknown) {
       if (error instanceof CaptureAccountChangedError) return;

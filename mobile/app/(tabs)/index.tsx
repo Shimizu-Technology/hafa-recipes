@@ -296,6 +296,10 @@ export default function ExtractScreen() {
     const imageOwner = inbox.ownerId;
     if (!imageOwner) return;
     const lease = privateRecipeDrafts.lease(imageOwner);
+    if (await privateRecipeDrafts.read(lease, 'recovery')) {
+      Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
+      return;
+    }
     const guard = () => {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== imageOwner) throw new CaptureAccountChangedError();
       privateRecipeDrafts.assert(lease);
