@@ -7,6 +7,7 @@ import * as Crypto from 'expo-crypto';
 import * as Clipboard from 'expo-clipboard';
 import {
   StyleSheet,
+  useWindowDimensions,
   TouchableOpacity,
   Alert,
   Linking,
@@ -46,12 +47,12 @@ import { CaptureAccountChangedError, saveCaptureOrRecover } from '@/lib/captureS
 import { usePublishingDisclosure } from '@/hooks/usePublishingDisclosure';
 import {
   getImageImportFailurePresentation,
-  getManualImageDraftRoute,
 } from '@/lib/imageImportClassification';
 
 export default function ExtractScreen() {
   const router = useRouter();
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
   const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId } = useLocalSearchParams<{
@@ -138,10 +139,10 @@ export default function ExtractScreen() {
     const savedRecipe = saved.request ? { ...saved.recipe, extracted: saved.request.extracted, source_type: saved.request.source_type, is_public: saved.request.is_public } : saved.recipe;
     router.push(saved.failure && saved.failure.kind !== 'invalid' ? {
       pathname: '/ocr-review', params: { recipe: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-        captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
+        originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
         saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message },
     } : { pathname: '/edit-capture', params: { initialData: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-      captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
+      originalPages: JSON.stringify(saved.request?.original_pages || saved.originalPages || []), captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
   });
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
@@ -276,7 +277,7 @@ export default function ExtractScreen() {
   const handleScanRecipe = async () => {
     Alert.alert(
       'Import Recipe Images',
-      'Take a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
+      'Håfa keeps your original pages privately so you can check them later. You can remove them anytime.\n\nTake a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
       [
         {
           text: 'Take Photo',
@@ -346,6 +347,13 @@ export default function ExtractScreen() {
     }
   };
 
+  const moveImage = (index: number, direction: -1 | 1) => setSelectedImages((pages) => {
+    const next = index + direction;
+    if (next < 0 || next >= pages.length) return pages;
+    const ordered = [...pages];
+    [ordered[index], ordered[next]] = [ordered[next], ordered[index]];
+    return ordered;
+  });
   const removeImage = (index: number) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
@@ -359,6 +367,7 @@ export default function ExtractScreen() {
   };
 
   const extractFromImages = async () => {
+    if (recoveryDraft.available) { Alert.alert('Finish your saved draft', 'Resume or discard the recipe recovery before starting another scan.'); return; }
     if (!scanDraft.ready || scanDraft.available || selectedImages.length === 0 || imageImportInFlight.current || isCheckingDisclosure) return;
     const originalOwner = inbox.ownerId;
     if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
@@ -388,6 +397,8 @@ export default function ExtractScreen() {
       setOcrProgress(`Extracting recipe with AI vision...`);
 
       guardOwner();
+      await scanDraft.flush();
+      guardOwner();
       // Use single or multi-image API based on count
       const result = imageCount === 1
         ? await api.extractRecipeFromImage(selectedImages[0], selectedLocation)
@@ -399,6 +410,7 @@ export default function ExtractScreen() {
         const destination = await saveCaptureOrRecover({
           extracted: result.recipe,
           source_type: 'photo',
+          original_pages: selectedImages,
           is_public: requestedPublic,
           capture_id: selectedInboxId ?? undefined,
           expected_owner_id: originalOwner, requestGuard: guardOwner,
@@ -423,11 +435,11 @@ export default function ExtractScreen() {
                 text: 'Use Image & Enter Manually',
                 onPress: () => {
                   try { guardOwner(); } catch { return; }
-                  const draftRoute = getManualImageDraftRoute(selectedImages[0]?.uri);
-                  if (!draftRoute) return;
-                  // Keep every selected source on Import so multi-page recovery
-                  // remains available if the user returns from the manual draft.
-                  router.push(draftRoute);
+                  router.push({ pathname: '/edit-capture', params: {
+                    initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
+                    captureId: selectedInboxId ?? Crypto.randomUUID(), captureOwnerId: originalOwner,
+                    captureSource: 'photo', isPublic: 'false', originalPages: JSON.stringify(selectedImages),
+                  } });
                 },
               },
               { text: 'Review Images', style: 'cancel' },
@@ -684,7 +696,8 @@ export default function ExtractScreen() {
             showsVerticalScrollIndicator={false}
           >
             {selectedImages.map((image, index) => (
-              <RNView key={index} style={styles.galleryImageContainer}>
+              <RNView key={image.uri} style={{ width: fontScale >= 1.3 ? '100%' : '45%', minWidth: 140, flexGrow: 1 }}>
+              <RNView style={[styles.galleryImageContainer, { width: '100%' }]}>
                 <Image source={{ uri: image.uri }} style={styles.galleryImage} />
                 <IconButton
                   icon="close-circle"
@@ -696,6 +709,11 @@ export default function ExtractScreen() {
                 <RNView style={[styles.galleryImageNumber, { backgroundColor: colors.tint }]}>
                   <Text style={styles.galleryImageNumberText}>{index + 1}</Text>
                 </RNView>
+              </RNView>
+              <RNView style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <IconButton icon="arrow-back" accessibilityLabel={`Move page ${index + 1} earlier`} disabled={index === 0} onPress={() => moveImage(index, -1)} />
+                <IconButton icon="arrow-forward" accessibilityLabel={`Move page ${index + 1} later`} disabled={index === selectedImages.length - 1} onPress={() => moveImage(index, 1)} />
+              </RNView>
               </RNView>
             ))}
 
@@ -714,12 +732,13 @@ export default function ExtractScreen() {
           {/* Info Text */}
           <Text style={[styles.galleryHint, { color: colors.textMuted }]}>
             {selectedImages.length === 1
-              ? 'Add more screenshots or pages for a complete recipe. Source images are not attached to the saved recipe.'
-              : `${selectedImages.length} images will be combined in this order. Source images are not attached to the saved recipe.`}
+              ? 'Add more screenshots or pages for a complete recipe. Original pages are kept privately with your recipe.'
+              : `${selectedImages.length} images will be combined in this order. Original pages are kept privately with your recipe.`}
           </Text>
 
           <RecipeDraftNotice draft={scanDraft} />
           <RecipeDraftNotice draft={recoveryDraft} />
+          <Text>Håfa keeps your original pages privately so you can check them later. You can remove them anytime.</Text>
           <RecipeVisibilitySelector
             compact
             value={isPublic ? 'public' : 'private'}
@@ -742,26 +761,6 @@ export default function ExtractScreen() {
         keyboardVerticalOffset={insets.top + 64}>
         <ScrollView ref={importScroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.md }]}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <RNView style={styles.importHeading}>
-            <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
-            <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Save a recipe from a link, text, or photo.</Text>
-          </RNView>
-          <RecipeDraftNotice draft={scanDraft} />
-          <RecipeDraftNotice draft={recoveryDraft} />
-          {pendingShares > 0 && <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
-            <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} ready to sync</Text>
-            <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {
-              if (!ShareIntentModule || openingNextShare.current) return;
-              openingNextShare.current = true;
-              setIsOpeningNextShare(true);
-              void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
-                openingNextShare.current = false;
-                setIsOpeningNextShare(false);
-              });
-            }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
-              <Text style={{ color: colors.actionText }}>Open next</Text>
-            </TouchableOpacity>
-          </RNView>}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
             style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             <RNView style={styles.composerLabelRow}>
@@ -792,27 +791,77 @@ export default function ExtractScreen() {
               onBlur={() => { linkFocused.current = false; }}
               style={{ backgroundColor: colors.background }} />
             <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
-            <TouchableOpacity style={styles.settingsSummary} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
+            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
-              <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={20} color={colors.actionText} />
-              <RNView style={styles.settingsCopy}>
-                <Text style={[styles.settingsTitle, { color: colors.text }]}>{isPublic ? 'Public in Discover' : 'Private recipe'}</Text>
-                <Text style={[styles.hint, { color: colors.textMuted }]}>{isPublic ? 'Visible to everyone' : 'Only you'} · {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
-              </RNView>
+              <Text style={{ color: colors.textSecondary }}>Cost estimates: {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
               <Ionicons name="options-outline" size={20} color={colors.textMuted} />
             </TouchableOpacity>
             <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
-              onChange={(value) => { setIsPublic(value === 'public'); rememberImportSettings({ isPublic: value === 'public' }); }}
+              onChange={(value) => { const next = value === 'public'; setIsPublic(next); rememberImportSettings({ isPublic: next }); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} />
-            <Text style={[styles.hint, { color: colors.textMuted }]}>Default for new accounts: Public. Your choice is remembered for future imports on this account.</Text>
             <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Import Recipe'}
               onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : () => { Keyboard.dismiss(); return handleExtract(); }}
               disabled={Boolean(isSignedIn) && (!preferences.ready || isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
               loading={isChecking} size="md" />
           </RNView>
 
-          {(extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
+
+
+          {inbox.storageError && <Text style={{ color: colors.error }}>{inbox.storageError}</Text>}
+          {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
+
+
+          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
+          <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+            {([
+              { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
+              { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
+              { title: 'Write your own recipe', icon: 'create-outline', onPress: () => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } }) },
+            ] as const).map((method, index) => (
+              <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
+                onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
+                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
+                <Ionicons name={method.icon} size={21} color={colors.actionText} />
+                <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
+                <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))}
+          </RNView>
+          <RecipeDraftNotice draft={scanDraft} />
+          <RecipeDraftNotice draft={recoveryDraft} />
+          <ImportActivityCard jobs={isSignedIn ? recentImports.data || [] : []}
+            captures={[...(pendingShares > 0 ? [{ id: 'native-waiting', createdAt: 0, content: <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
+            <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} waiting to sync</Text>
+            <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {
+              if (!ShareIntentModule || openingNextShare.current) return;
+              openingNextShare.current = true;
+              setIsOpeningNextShare(true);
+              void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
+                openingNextShare.current = false;
+                setIsOpeningNextShare(false);
+              });
+            }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
+              <Text style={{ color: colors.actionText }}>Open next</Text>
+            </TouchableOpacity>
+          </RNView> }] : []), ...inbox.entries.filter((entry) => !entry.jobId || !recentImports.data?.some((job) => job.id === entry.jobId) && entry.jobId !== extraction.jobId).map((entry) => ({
+              id: entry.id, createdAt: entry.createdAt, content: <RNView key={entry.id} style={styles.inboxRow}>
+              <RNView style={{ flex: 1 }}>
+                <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
+                <Text style={[styles.hint, { color: entry.error ? colors.error : colors.textMuted }]}>
+                  {entry.error ? `Needs help · ${entry.error}` : (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Importing…' : entry.state === 'ready' ? 'Waiting · starts after the current import' : 'Waiting · Ready to review')}
+                </Text>
+              </RNView>
+              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting || Boolean(isSignedIn && !inbox.ownerId)} onPress={() => {
+                void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
+              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
+              {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
+            </RNView>,
+            }))]}
+            active={(extraction.isExtracting || extraction.isComplete || extraction.isFailed) ? {
+              id: extraction.jobId || 'active',
+              createdAt: Date.parse(recentImports.data?.find((job) => job.id === extraction.jobId)?.created_at || '') || 0,
+              content: (extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
             <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
               <RNView style={styles.pendingShareCopy}>
                 {extraction.isExtracting ? <ActivityIndicator color={colors.actionText} /> : <Ionicons
@@ -904,45 +953,10 @@ export default function ExtractScreen() {
 
 
             </RNView>
-          )}
-
-          {inbox.storageError && <Text style={{ color: colors.error }}>{inbox.storageError}</Text>}
-          {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
-          {inbox.entries.length > 0 && <RNView style={[styles.compactProgress, { borderColor: colors.border }]}>
-            <Text style={[styles.label, { color: colors.text }]}>Waiting imports · {inbox.entries.length}</Text>
-            {inbox.entries.map((entry) => <RNView key={entry.id} style={styles.inboxRow}>
-              <RNView style={{ flex: 1 }}>
-                <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
-                <Text style={[styles.hint, { color: entry.error ? colors.error : colors.textMuted }]}>
-                  {entry.error || (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
-                </Text>
-              </RNView>
-              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting || Boolean(isSignedIn && !inbox.ownerId)} onPress={() => {
-                void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
-              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
-              {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
-            </RNView>)}
-          </RNView>}
-
-          {isSignedIn && <ImportActivityCard jobs={(recentImports.data || []).filter((job) => !(job.id === extraction.jobId && (extraction.isExtracting || extraction.isComplete || extraction.isFailed)))}
+          ),
+            } : null}
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
-            onRestore={extraction.restoreJob} onCancel={handleCancel} />}
-          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
-          <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
-            {([
-              { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
-              { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
-              { title: 'Write your own recipe', icon: 'create-outline', onPress: () => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } }) },
-            ] as const).map((method, index) => (
-              <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
-                onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
-                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
-                <Ionicons name={method.icon} size={21} color={colors.actionText} />
-                <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
-                <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
-              </TouchableOpacity>
-            ))}
-          </RNView>
+            onRestore={extraction.restoreJob} onCancel={handleCancel} />
           <RNView style={styles.helpActions}>
             <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
               accessibilityRole="button" accessibilityLabel="Import help">

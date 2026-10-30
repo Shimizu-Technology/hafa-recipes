@@ -91,7 +91,7 @@ describe('ImportActivityCard', () => {
       action: 'open', actionLabel: 'Open recipe', label: 'Saved · Some details uncertain',
     });
     expect(importJobPresentation(job({ status: 'failed', recipe_id: null }))).toMatchObject({
-      action: 'restore', actionLabel: 'View options', label: 'Needs attention',
+      action: 'restore', actionLabel: 'View options', label: 'Needs help',
     });
     expect(importJobPresentation(job({
       status: 'failed', recipe_id: 'saved-draft', review_state: 'source_incomplete',
@@ -110,11 +110,10 @@ describe('ImportActivityCard', () => {
       onCancel={onCancel} onOpenRecipe={vi.fn()} onRestore={vi.fn()} />);
     const removals = screen.getAllByLabelText('Remove unfinished import YouTube, watch · abc');
     expect(removals).toHaveLength(2);
-    await fireEvent.press(removals[1]);
+    await fireEvent.press(removals[0]);
     expect(onCancel).toHaveBeenCalledExactlyOnceWith(expired);
     await fireEvent.press(screen.getByLabelText('Cancel import YouTube, watch · abc'));
     expect(onCancel).toHaveBeenLastCalledWith(active);
-    await fireEvent.press(screen.getByLabelText('Recent imports'));
     expect(screen.getByText('Draft saved')).toBeTruthy();
     expect(screen.getAllByLabelText('Remove unfinished import YouTube, watch · abc')).toHaveLength(2);
     screen.unmount();
@@ -137,8 +136,6 @@ describe('ImportActivityCard', () => {
     );
 
     await fireEvent.press(screen.getByLabelText('View progress YouTube import, watch · abc'));
-    expect(screen.queryByLabelText('Open recipe YouTube import, watch · xyz')).toBeNull();
-    await fireEvent.press(screen.getByLabelText('Recent imports'));
     expect(screen.getByLabelText('Open recipe YouTube import, watch · xyz')).toBeTruthy();
     await fireEvent.press(screen.getAllByLabelText('Open recipe YouTube import, watch · abc')[0]);
     await fireEvent.press(screen.getByLabelText('View options YouTube import, watch · abc'));

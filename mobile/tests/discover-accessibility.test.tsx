@@ -128,7 +128,7 @@ vi.mock('@/hooks/useRecipes', () => {
 
 import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 import { SaveButton } from '../app/(tabs)/discover';
-import DiscoverScreen from '../app/(tabs)/discover';
+import { DiscoverScreen } from '../app/(tabs)/discover';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 
 function textOf(node: ReactTestInstance | string | number): string {

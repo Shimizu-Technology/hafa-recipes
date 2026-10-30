@@ -73,3 +73,19 @@ it('removes the exact new media copy if its continuation becomes abandoned', asy
   })).rejects.toThrow('unmounted');
   expect([...media.files]).toEqual(['file:///unrelated.jpg']);
 });
+
+it('never deletes a page while another draft or pending capture still references it', async () => {
+  const { drafts, data } = fixture(); const lease = drafts.lease('owner-a');
+  const uri = 'file:///private/private-recipe-drafts/owner-a/page.jpg'; media.files.add(uri);
+  await drafts.write(lease, 'scan', { selectedImages: [{ uri }] });
+  await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
+  await drafts.remove(lease, 'scan');
+  expect(media.files.has(uri)).toBe(true);
+  data.set('hafa_import_inbox_v1', JSON.stringify([{ state: 'waiting', capture: { kind: 'images', images: [{ uri }] } }]));
+  await drafts.remove(lease, 'recovery');
+  expect(media.files.has(uri)).toBe(true);
+  await drafts.write(lease, 'recovery', { request: { original_pages: [{ uri }] } });
+  data.delete('hafa_import_inbox_v1');
+  await drafts.remove(lease, 'recovery');
+  expect(media.files.has(uri)).toBe(false);
+});

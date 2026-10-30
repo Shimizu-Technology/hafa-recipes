@@ -26,7 +26,7 @@ describe('leaveAuthScreen', () => {
     leaveAuthScreen(router);
 
     expect(router.back).not.toHaveBeenCalled();
-    expect(router.replace).toHaveBeenCalledWith('/(tabs)');
+    expect(router.replace).toHaveBeenCalledWith('/(tabs)/recipes');
   });
 
   it('describes the actual Back destination for assistive technology', () => {

@@ -27,6 +27,7 @@ vi.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
 vi.mock('expo-router', () => ({
   useFocusEffect: vi.fn(),
   useRouter: () => ({ push: vi.fn() }),
+  Stack: { Screen: 'StackScreen' },
 }));
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
@@ -119,7 +120,8 @@ vi.mock('@/components/RecipeTrustBadge', async () => {
   };
 });
 
-import HistoryScreen, { GridRecipeCard, RecipeCard } from '../app/(tabs)/history';
+import CollectionsScreen from '../app/collections';
+import { HistoryScreen, GridRecipeCard, RecipeCard } from '../app/(tabs)/history';
 
 const colors = {
   card: '#fff', cardBorder: '#ddd', error: '#b00', success: '#070', text: '#111',
@@ -345,14 +347,14 @@ describe('Library collection recovery', () => {
     Object.assign(library.collections, { data: undefined, isError: true });
   });
 
-  async function renderLibrary() {
+  async function renderLibrary(collections = false) {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
-    await act(async () => { renderer.render(<HistoryScreen />); });
+    await act(async () => { renderer.render(collections ? <CollectionsScreen /> : <HistoryScreen />); });
     return renderer;
   }
 
   it('offers an explicit retry after the initial collection request fails', async () => {
-    const renderer = await renderLibrary();
+    const renderer = await renderLibrary(true);
     try {
       expect(renderer.container.queryAll(instance =>
         instance.props.children === 'Couldn’t load your collections. Check your connection and try again.',
@@ -366,7 +368,7 @@ describe('Library collection recovery', () => {
   it('retains cached collection cards and disables retry while reconnecting', async () => {
     library.collections.data = [{ id: 'collection-1', name: 'Weeknight dinners', recipe_count: 1 } as Collection];
     library.collections.isFetching = true;
-    const renderer = await renderLibrary();
+    const renderer = await renderLibrary(true);
     try {
       expect(renderer.container.queryAll(instance => instance.props.children === 'Weeknight dinners')).toHaveLength(1);
       expect(renderer.container.queryAll(instance =>
@@ -378,7 +380,7 @@ describe('Library collection recovery', () => {
 
   it('keeps creation available without claiming the failed cached list is empty', async () => {
     library.collections.data = [];
-    const renderer = await renderLibrary();
+    const renderer = await renderLibrary(true);
     try {
       expect(renderer.container.queryAll(instance =>
         instance.props.children === 'Create your first collection to organize recipes',
@@ -445,6 +447,18 @@ describe('Library search and filter accessibility', () => {
         sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved',
       }));
       expect(button().props.accessibilityValue).toEqual({ text: '1 filter applied' });
+    } finally { await act(async () => renderer.unmount()); }
+  });
+});
+
+describe('compact collection entry', () => {
+  it('keeps collection cards off the recipe list and offers an index entry', async () => {
+    library.collections.data = [{ id: 'one', name: 'Family recipes', recipe_count: 9 } as Collection];
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      expect(renderer.container.queryAll(n => n.props.accessibilityLabel === 'Open collections')).toHaveLength(1);
+      expect(renderer.container.queryAll(n => n.props.children === 'Family recipes')).toHaveLength(0);
     } finally { await act(async () => renderer.unmount()); }
   });
 });
