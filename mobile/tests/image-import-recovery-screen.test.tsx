@@ -734,4 +734,20 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
     await act(async () => renderer.unmount());
   });
 
+  it('keeps newer link edits when an earlier Keep private import finishes', async () => {
+    mocks.requestPublishing.mockResolvedValueOnce(false);
+    let finish!: () => void;
+    mocks.addInbox.mockImplementationOnce(() => new Promise<undefined>(resolve => { finish = () => resolve(undefined); }));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<ExtractScreen />); });
+    const link = () => renderer.root.findAllByType('Input' as any).find(node => node.props.accessibilityLabel === 'Recipe link')!;
+    try {
+      await act(async () => link().props.onChangeText('https://example.com/submitted'));
+      await act(async () => { void renderer.root.findAllByType('Button' as any).find(node => node.props.children === 'Import Recipe')!.props.onPress(); });
+      await act(async () => link().props.onChangeText('https://example.com/next'));
+      await act(async () => finish());
+      expect(link().props.value).toBe('https://example.com/next');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
 });
