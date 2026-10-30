@@ -32,7 +32,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { View, Text, useColors } from '@/components/Themed';
 import {
   RecipeVisibilitySelector,
-  type RecipeVisibility,
 } from '@/components/RecipeVisibilitySelector';
 import { api } from '@/lib/api';
 import { formatPublishDisclosure } from '@/lib/recipePublishing';
@@ -85,7 +84,7 @@ export default function AddRecipeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { requestPublishing, isCheckingDisclosure } = usePublishingDisclosure();
+  const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
   
   // Get initial data from route params for imported-recipe pre-fill.
   const {
@@ -244,8 +243,7 @@ export default function AddRecipeScreen() {
 
   // Create recipe mutation
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const originalOwner = importedSource === 'manual' ? inbox.ownerId : importedOwner.current;
+    mutationFn: async ({ requestedPublic, originalOwner }: { requestedPublic: boolean; originalOwner: string | null }) => {
       const guardOwner = () => {
         if (!originalOwner || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
       };
@@ -294,7 +292,7 @@ export default function AddRecipeScreen() {
           notes: notes.trim() || null,
           tags: tagList.length > 0 ? tagList : null,
           // A source-only recovery remains private until the user completes it.
-          is_public: isStructurallyComplete ? isPublic : false,
+          is_public: isStructurallyComplete ? requestedPublic : false,
           nutrition: nutritionMatchesInputs ? estimatedNutrition : null,
           nutrition_total: nutritionMatchesInputs ? estimatedNutritionTotal : null,
           nutrition_source_serving_size: nutritionMatchesInputs ? sourceNutrition?.sourceServingSize ?? null : null,
@@ -422,11 +420,15 @@ export default function AddRecipeScreen() {
       || !steps.some(step => step.text.trim()));
 
   const submitRecipe = async () => {
-    if (isPublic && !isRecoveredIncompleteDraft && !(await requestPublishing(publishPreview()))) {
+    const originalOwner = importedSource === 'manual' ? inbox.ownerId : importedOwner.current;
+    let requestedPublic = isPublic;
+    if (requestedPublic && !isRecoveredIncompleteDraft && !(await requestPublishing(publishPreview()))) {
+      if (!didChoosePrivate()) return;
+      requestedPublic = false;
       setIsPublic(false);
-      return;
     }
-    createMutation.mutate();
+    if (!originalOwner || !captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
+    createMutation.mutate({ requestedPublic, originalOwner });
   };
 
   const handleSubmit = () => {
@@ -437,15 +439,6 @@ export default function AddRecipeScreen() {
     
 
     void submitRecipe();
-  };
-
-  const handleVisibilityChange = async (visibility: RecipeVisibility) => {
-    if (visibility === 'private') {
-      setIsPublic(false);
-      return;
-    }
-    if (isPublic) return;
-    if (await requestPublishing(publishPreview())) setIsPublic(true);
   };
 
   const handleSuggestTags = async () => {
@@ -512,24 +505,7 @@ export default function AddRecipeScreen() {
       <Stack.Screen
         options={{
           headerTitle: initialData ? 'Edit Recipe' : 'Add Recipe',
-          headerRight: () => (
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={createMutation.isPending}
-              style={styles.saveButton}
-              accessibilityRole="button"
-              accessibilityLabel={createMutation.isPending ? 'Saving recipe' : undefined}
-              accessibilityState={{ disabled: createMutation.isPending, busy: createMutation.isPending }}
-            >
-              {createMutation.isPending ? (
-                <ActivityIndicator size="small" color={colors.actionText} />
-              ) : (
-                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
-                  {isRecoveredIncompleteDraft ? 'Save draft' : (isPublic ? 'Publish' : 'Save private')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          ),
+
         }}
       />
       
@@ -844,12 +820,28 @@ export default function AddRecipeScreen() {
               </Text>
             )}
 
-            <RecipeVisibilitySelector
-              value={isPublic ? 'public' : 'private'}
-              onChange={handleVisibilityChange}
-              disabled={createMutation.isPending || isCheckingDisclosure || isRecoveredIncompleteDraft}
-            />
           </ScrollView>
+          <RNView style={{ padding: spacing.md, paddingBottom: insets.bottom + spacing.sm }}>
+            <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
+              onChange={(value) => setIsPublic(value === 'public')}
+              disabled={createMutation.isPending || isCheckingDisclosure || isRecoveredIncompleteDraft} />
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={createMutation.isPending}
+              style={styles.saveButton}
+              accessibilityRole="button"
+              accessibilityLabel={createMutation.isPending ? 'Saving recipe' : undefined}
+              accessibilityState={{ disabled: createMutation.isPending, busy: createMutation.isPending }}
+            >
+              {createMutation.isPending ? (
+                <ActivityIndicator size="small" color={colors.actionText} />
+              ) : (
+                <Text style={[styles.saveButtonText, { color: colors.actionText }]}>
+                  {isRecoveredIncompleteDraft ? 'Save draft' : (isPublic ? 'Publish' : 'Save private')}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </RNView>
         </View>
       </KeyboardAvoidingView>
     </>
