@@ -548,3 +548,19 @@ all exit 0. Workouts and Baby `npm run export:all` and
 `npm run check:native-bundles` also exit 0. The extra repository-wide
 `./scripts/check.sh` exits 1 during API test setup because `TEST_DATABASE_URL`
 is unset (2,099 passed, 698 skipped, 244 setup errors); its later stages do not run.
+
+## 2026-10-30 advisory refresh for the unchanged SDK 57 lock
+
+The lock remains `b642369988a63a06a1e819305b98b3f470575b1f8d06576fcdcf0cc2fbca3686`.
+No package version, declaring edge, integrity value or exception expiry changes.
+The registry now reports two additional advisory IDs on already installed paths:
+
+- `decode-uri-component:1243857` ([GHSA-qr28-fpjm-wq7f](https://github.com/advisories/GHSA-qr28-fpjm-wq7f)) describes quadratic malformed-encoding recovery, including 0.5.0; 0.5.1 is patched. Installed query-string 7.1.3 still requires a callable CommonJS decoder, so a default-only ESM override is incompatible. The app's `safeIncomingEncoding` rejects malformed encoding and input over 8,192 characters before routing, using one built-in decode pass. The active Router fork uses URLSearchParams; app code has no query-string parser import. This adds the new advisory to the existing bounded decoder reachability exception, rather than claiming the installed package is fixed. Keep incoming-link/OAuth runtime acceptance separate.
+- `deepmerge:1243505` ([GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)) reports prototype poisoning in 4.2.0–4.3.1; the advisory lists no patched release. Installed 4.3.1 is consumed by `@expo/config` for trusted repository Expo configuration/plugin modifications (`Config.js` mergeConfig and plugin-prop merging). It does not receive workout content or remote API data. App source has no deepmerge import. Native source-map verification now rejects deepmerge alongside the existing build/wallet dependencies; if it appears in either native bundle, this exception cannot pass the gate.
+
+These are temporary reachability exceptions, not vulnerability fixes. The existing
+whole-lock fingerprint, critical-finding rejection, unknown-advisory rejection,
+invalid-report rejection and 2026-11-17 expiry stay enforced. Do not admit untrusted
+Expo configuration or select the legacy Router parser. All-platform exports and
+native source-map checks must pass for each final PR head; native interaction and
+real-device sharing remain separate acceptance gates.
