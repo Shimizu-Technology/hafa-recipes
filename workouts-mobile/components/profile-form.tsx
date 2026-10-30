@@ -20,10 +20,12 @@ export function ProfileForm({
   section,
   baseline,
   disabled = false,
+  checkInDisabled = disabled,
   expandDetails = false
 }: {
   expandDetails?: boolean;
   disabled?: boolean;
+  checkInDisabled?: boolean;
   value: TrainingProfile;
   update(value: TrainingProfile): void;
   section?: number;
@@ -452,7 +454,8 @@ export function ProfileForm({
           />
           <Copy kind="heading">Today’s check-in</Copy>
           <Copy kind="small" tone="muted">Check in with Coach when you’re ready to train. Your check-in expires, so it stays separate from your usual preferences.</Copy>
-          <Button title="Check in for today" variant="secondary" disabled={disabled}
+          {!baseline && <Copy kind="small" tone="muted">Save your profile first, then check in for today.</Copy>}
+          <Button title="Check in for today" variant="secondary" disabled={checkInDisabled || !baseline}
             onPress={() => router.push({ pathname: "/coach", params: { check_in: "today" } })} />
         </>
       )}
