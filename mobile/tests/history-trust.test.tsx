@@ -121,7 +121,7 @@ vi.mock('@/components/RecipeTrustBadge', async () => {
 });
 
 import CollectionsScreen from '../app/collections';
-import HistoryScreen, { GridRecipeCard, RecipeCard } from '../app/(tabs)/history';
+import { HistoryScreen, GridRecipeCard, RecipeCard } from '../app/(tabs)/history';
 
 const colors = {
   card: '#fff', cardBorder: '#ddd', error: '#b00', success: '#070', text: '#111',

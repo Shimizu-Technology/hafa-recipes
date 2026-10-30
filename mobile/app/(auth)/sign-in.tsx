@@ -99,7 +99,7 @@ export default function SignInScreen() {
       });
       if (result.status === 'complete' && result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
       } else {
         setErrorMessage('Verification is not complete. Please try again.');
       }
@@ -141,7 +141,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
       } else if (['needs_second_factor', 'needs_client_trust'].includes(result.status ?? '')) {
         const factors = supportedCodeFactors(result.supportedSecondFactors);
         if (factors.length) {
@@ -201,7 +201,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
       } else if (result.status === 'account_not_found') {
         setErrorMessage('This Apple account is not connected to an existing library. Restore your library by email below, then connect Apple from inside Håfa.');
       } else if (result.status === 'incomplete') {
@@ -232,7 +232,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
       } else if (result.status === 'account_not_found') {
         setErrorMessage('This Google account is not connected to an existing library. Restore your library by email below, then connect Google from inside Håfa.');
       } else if (result.status === 'incomplete') {

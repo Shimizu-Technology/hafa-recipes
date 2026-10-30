@@ -64,7 +64,7 @@ describe('AuthProtection', () => {
       await act(async () => renderer.render(
         <AuthProtection><TouchableOpacity /></AuthProtection>,
       ));
-      expect(mocks.replace).toHaveBeenCalledWith('/(tabs)');
+      expect(mocks.replace).toHaveBeenCalledWith('/(tabs)/recipes');
     } finally {
       await act(async () => renderer.unmount());
     }

@@ -87,7 +87,7 @@ export default function SignUpScreen() {
 
       // The production access gate temporarily unmounts navigation; once it
       // verifies this owner, AuthProtection redirects from the auth screen.
-      if (!needsOnboarding) router.replace('/(tabs)');
+      if (!needsOnboarding) router.replace('/(tabs)/recipes');
     } catch (error) {
       if (needsOnboarding) failAccountOnboarding(sessionId, error);
       throw error;
