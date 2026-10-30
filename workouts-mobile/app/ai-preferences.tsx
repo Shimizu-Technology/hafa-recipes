@@ -43,6 +43,7 @@ export default function AiPreferences() {
         profile, workout, plan and recorded training context you permit. Imported health activity additionally requires
         its own health connection permission and reviewed source eligibility.
       </Copy>
+      <Copy>Source explanations can use only the selected saved workout without a training profile. Personal coaching uses relevant training details. Both purposes use the current AI sharing permission; this screen does not offer separate consent switches.</Copy>
       <Notice>
         Declining keeps manual entry, saved training and planning controls available. Revoking stops future AI use; it
         does not recall information already processed by a provider.

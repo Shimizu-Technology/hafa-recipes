@@ -39,6 +39,7 @@ export default function Coach() {
   const generation = enrollment?.generation ?? 0;
   const cache = useQueryClient();
   const profile = useQuery({ queryKey: [owner, "profile", generation], queryFn: api.profile, enabled: !!enrollment?.enrolled });
+  const sourceOnly = !!params.workout_id && profile.isSuccess && !profile.data;
   const focus: CoachFocus = {
     ...(params.workout_id ? { context_workout_id: params.workout_id } : {}),
     ...(params.program_id ? { context_program_id: params.program_id } : {}),
@@ -165,7 +166,7 @@ export default function Coach() {
     isCurrentAccount: () => isCurrentAccount() && !voiceActive && !photos.busy && !photos.removing });
   const voiceIdentity = useMemo(() => ({}), [scope, epoch, consent.data?.accepted, capabilities.data?.coach]);
   const voice = useCoachVoice({ scope: JSON.stringify([owner, generation, focusToken, epoch]), identity: voiceIdentity,
-    enabled: loaded && !busy && !pending && !stopping && !!enrollment?.enrolled && !!profile.data &&
+    enabled: loaded && !busy && !pending && !stopping && !!enrollment?.enrolled && (!!profile.data || sourceOnly) &&
       !!capabilities.data?.coach && !!consent.data?.accepted,
     message, current: () => currentConversation() && !photos.busy && !photos.removing,
     write: setMessage, beforeCapture: stopCoachReadAloud });
@@ -547,9 +548,9 @@ export default function Coach() {
     {readAloud.stopFailed && <Button title="Retry stopping speech" variant="ghost" size="sm" inline onPress={() => { void readAloud.retryStop().catch(() => undefined); }} />}
     {!!readAloud.messageId && Platform.OS === "ios" && <Copy kind="small" tone="muted">If you can’t hear speech, turn off silent mode.</Copy>}
   </>;
-  const needsConsent = !!enrollment?.enrolled && !!profile.data && !!capabilities.data?.coach &&
+  const needsConsent = !!enrollment?.enrolled && (!!profile.data || sourceOnly) && !!capabilities.data?.coach &&
     consent.isSuccess && consent.data.accepted === false && !prerequisiteErrors.length;
-  const unavailable = !enrollment?.enrolled || !profile.data || !capabilities.data?.coach || !consent.data?.accepted;
+  const unavailable = !enrollment?.enrolled || (!profile.data && !sourceOnly) || !capabilities.data?.coach || !consent.data?.accepted;
   const photoBlocked = !photos.loaded || photos.busy || photos.removing || !!photos.photo?.discard ||
     !!photos.photo && (!photos.photo.attachment_id || !!photos.photo.expires_at && Date.parse(photos.photo.expires_at) <= Date.now());
   const sendDisabled = !loaded || voice.preparing || !pending && photoBlocked || !!stopping || unavailable;
@@ -633,7 +634,7 @@ export default function Coach() {
           disabled={busy || !!stopping || photos.busy || photos.removing || !enrollment?.enrolled}
           onPress={() => { if (currentConversation()) setClearConfirm(true); }} />
       </ListGroup>
-      <Copy kind="small" tone="muted">Coach uses your profile and recent training, not Health data. You approve any change before it’s saved. Voice input uses your device’s speech service; check the text before sending.</Copy>
+      <Copy kind="small" tone="muted">{sourceOnly ? "Source explanation shares only this saved workout with OpenAI. Personal changes need only the relevant missing details; no changes are applied here." : "Coach uses your profile and recent training, not Health data. You approve any change before it’s saved."} Voice input uses your device’s speech service; check the text before sending.</Copy>
     </>}
   </Sheet>;
   const replyItem = history.find(item => item.id === replyMenu);
@@ -661,7 +662,7 @@ export default function Coach() {
     : params.program_id ? ["Move a session", "Make this week lighter", "Pause my plan", "How am I doing?"]
     : ["Plan my week", "Make today easier", "Swap an exercise", "How am I progressing?"];
   if (enrollment?.enrolled && profile.isPending && !retryingCoach) return <CoachChatShell><Copy>Loading your training preferences…</Copy>{speechFeedback}</CoachChatShell>;
-  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data)) return <CoachChatShell>
+  if (!enrollment?.enrolled || (profile.isSuccess && !profile.data && !sourceOnly)) return <CoachChatShell>
     {speechFeedback}
     <Copy kind="heading">Set up your training first</Copy>
     <Copy tone="muted">Add your goal, equipment and schedule so Coach can use your saved workouts.</Copy>
@@ -702,7 +703,7 @@ export default function Coach() {
         <Button title="Retry loading coach" secondary inline busy={retryingCoach} onPress={() => { void retryCoach(); }} />
       </>}
       {needsConsent && <Card>
-        <Copy>Coach sends your question and training details to our AI provider. Turn on AI sharing to start chatting.</Copy>
+        <Copy>{sourceOnly ? "Source explanation sends your question and the selected saved workout to OpenAI. Turn on AI sharing to continue." : "Coach sends your question and relevant training details to OpenAI. Turn on AI sharing to start chatting."}</Copy>
         <Button title="Review AI sharing" onPress={() => router.push({
           pathname: "/ai-preferences", params: { return_to: "coach", ...params },
         })} />
@@ -727,7 +728,7 @@ export default function Coach() {
       )}
       {empty && <View style={{ flexGrow: 1, justifyContent: "center", gap: 12, paddingVertical: 24 }}>
         <Copy kind="heading" align="center">{focusKey === "general" ? "What can I help with?" : "What would you like to change?"}</Copy>
-        {!needsConsent && <Copy kind="small" tone="muted" align="center">Coach uses your profile and recent training. You approve any change first.</Copy>}
+        {!needsConsent && <Copy kind="small" tone="muted" align="center">{sourceOnly ? "Source-only context · this saved workout, without a training profile or history." : "Coach uses your profile and recent training. You approve any change first."}</Copy>}
         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingTop: 4 }}>
           {prompts.map(prompt => <Button key={prompt} title={prompt} secondary size="sm" inline
             disabled={sendDisabled || busy || !!message.trim()} onPress={() => { void send(prompt); }} />)}
