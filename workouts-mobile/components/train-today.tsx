@@ -1,3 +1,4 @@
+import { dayAdjustments } from "@/lib/day-adjustments";
 import { AdjustTraining } from "./adjust-training";
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery } from "@tanstack/react-query";
@@ -30,6 +31,7 @@ export function TrainToday() {
   const programs = useQuery({ queryKey: [owner, "programs", enrollment?.generation], queryFn: api.programs, enabled });
   const sessions = useQuery(sessionsQuery(api, owner, enrollment));
   const generation = enrollment?.generation ?? 0;
+  const receipts = useQuery({ queryKey: [owner, "day-adjustments", generation], queryFn: () => dayAdjustments(storage, owner, generation).list(), enabled });
   const parents = missingProgressParents(offline.state.history, sessions.data ?? [], generation);
   const needsAncestry = parents.length > 0 && selectProgressSessions(offline.state.history, sessions.data ?? [], generation).requiresAncestry;
   const ancestry = useQuery({
@@ -181,6 +183,9 @@ export function TrainToday() {
           </>}
         </Card>
       </QueryState>
+      {receipts.data?.map(receipt => <Button key={receipt.proposal.id} title={`Review saved adjustment · ${receipt.program.title}`} secondary
+        onPress={() => { setAdjust({ program: receipt.program, session: receipt.session }); setAdjustOpen(true); }} />)}
+      {!!receipts.error && <><Notice error>Could not restore saved adjustments.</Notice><Button title="Retry saved adjustments" secondary onPress={() => void receipts.refetch()} /></>}
       <ListGroup>
         <ListRow icon="chatbubble-ellipses-outline" title="Adjust with coach" detail="Short on time, sore or not feeling 100%?" onPress={() => router.push("/coach")} />
         <ListRow icon="walk-outline" title="Log an activity you did" onPress={() => router.push("/activity")} />

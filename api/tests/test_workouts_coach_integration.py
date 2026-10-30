@@ -2628,3 +2628,24 @@ def test_today_adjustment_guard_rejects_recorded_and_unrelated_changes():
     after["proposal"]["sessions"][1]["date"] = "2026-11-05"
     with pytest.raises(HTTPException):
         today_guard(before, after, {"a"}, set(), date(2026, 10, 31))
+
+
+async def test_quick_today_undo_after_midnight_preserves_snapshot_and_recording_fence(coach_api, monkeypatch):
+    from app.domains.workouts import quick_training
+    api = coach_api
+    row, _ = await quick_day_program(api)
+    response = await api.client.post("/api/v1/workouts/adaptation-proposals", headers=GENERATION,
+                                    json={"program_id": row["id"], "program_revision": 1,
+                                          "session_id": "today", "profile_revision": 1, "minutes": 15})
+    assert response.status_code == 200, response.text
+    path = f'/api/v1/workouts/quick-training-proposals/{response.json()["id"]}'
+    assert (await api.client.post(path + "/accept", headers=GENERATION)).status_code == 200
+    tomorrow = now() + timedelta(days=1)
+    monkeypatch.setattr(quick_training, "now", lambda: tomorrow)
+    undone = await api.client.post(path + "/undo", headers=GENERATION)
+    assert undone.status_code == 200, undone.text
+    restored = (await api.client.get(f'/api/v1/workouts/programs/{row["id"]}')).json()
+    assert restored["content"] == row["content"]
+    from datetime import date
+    with pytest.raises(HTTPException):
+        quick_training.today_guard(row["content"], row["content"], {"today"}, {"today"}, date.fromisoformat(tomorrow.date().isoformat()), restoring=True)

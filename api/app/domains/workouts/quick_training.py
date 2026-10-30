@@ -21,7 +21,7 @@ from app.domains.workouts.schedule import validate_other_program_dates
 from app.domains.workouts.schemas import WorkoutContent
 
 
-def today_guard(before, after, ids, recorded, today):
+def today_guard(before, after, ids, recorded, today, *, restoring=False):
     originals, updated = logical_sessions(before), logical_sessions(after)
     if set(originals) != set(updated) or len(ids) != 1:
         raise HTTPException(409, "Refresh today's session before adjusting it")
@@ -29,7 +29,7 @@ def today_guard(before, after, ids, recorded, today):
         changed = updated[key]
         if key not in ids and changed != original:
             raise HTTPException(409, "An unrelated session changed")
-        if key in ids and (key in recorded or original["date"] != today.isoformat()
+        if key in ids and (key in recorded or (not restoring and original["date"] != today.isoformat())
                           or {k: v for k, v in original.items() if k != "workout"}
                           != {k: v for k, v in changed.items() if k != "workout"}):
             raise HTTPException(409, "Only today's unrecorded prescription can change")
@@ -112,7 +112,7 @@ async def apply(db, user_id, generation, identifier, operation):
     ids = set(body["session_ids"])
     recorded = await recorded_program_ids(db, user_id, generation, row.id)
     if body["quick_training"] == "today":
-        today_guard(row.content, content, ids, recorded, today)
+        today_guard(row.content, content, ids, recorded, today, restoring=operation == "undo")
     else:
         date_move_guard(row.content, content, ids, recorded, profile, today, restoring=operation == "undo")
         future_ids = {s["id"] for s in content["proposal"]["sessions"] if s["id"] in ids and s["date"] >= today.isoformat()}
