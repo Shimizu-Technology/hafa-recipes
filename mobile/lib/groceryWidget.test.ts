@@ -8,6 +8,7 @@ const bridge = vi.hoisted(() => ({
   getSessionStatus: vi.fn(),
   flushPending: vi.fn(),
   clearSession: vi.fn(),
+  retireSession: vi.fn(), restorePending: vi.fn(async () => {}), discardPending: vi.fn(async () => {}),
 }));
 const apiMock = vi.hoisted(() => ({
   getGrocerySnapshot: vi.fn(),
@@ -25,7 +26,9 @@ vi.mock('expo-secure-store', () => ({
     secureValues.delete(key);
   }),
 }));
-vi.mock('expo-crypto', () => ({
+vi.mock('expo-crypto', async () => ({
+  CryptoDigestAlgorithm: { SHA256: 'SHA256' },
+  digestStringAsync: async (_algorithm: string, text: string) => (await vi.importActual<any>('node:crypto')).createHash('sha256').update(text).digest('hex'),
   randomUUID: vi.fn(() => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
 }));
 vi.mock('hafa-widget-bridge', () => ({ HafaWidgetBridge: bridge }));
@@ -108,6 +111,7 @@ describe('grocery widget lifecycle', () => {
     bridge.updateSnapshot.mockResolvedValue(undefined);
     bridge.flushPending.mockResolvedValue(undefined);
     bridge.clearSession.mockResolvedValue(true);
+    bridge.retireSession.mockImplementation(async () => { await bridge.clearSession(true); return true; });
     bridge.getSessionStatus.mockResolvedValue({
       available: true,
       hasCredential: false,

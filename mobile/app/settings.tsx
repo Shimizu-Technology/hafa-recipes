@@ -203,9 +203,7 @@ export default function SettingsScreen() {
                     let accountDeleted = false;
                     let chatCleanupFailed = false;
                     try {
-                      let appUserId = queryClient.getQueryData<{ id: string }>(
-                        ['currentUserIdentity', user?.id],
-                      )?.id;
+                      let appUserId = JSON.parse(creationScope)[1] ?? undefined;
                       if (!appUserId) {
                         try {
                           appUserId = (await api.getCurrentUserIdentity()).id;
@@ -215,6 +213,7 @@ export default function SettingsScreen() {
                           });
                         }
                       }
+                      if (!appUserId) throw new Error("Cannot delete account before its stable owner is verified");
                       assertRecipeScope(creationScope);
                       await api.deleteAccount();
                       accountDeleted = true;
@@ -235,7 +234,7 @@ export default function SettingsScreen() {
                       }
                       await clearVerifiedAccountOwner();
                       await clearAccountOnboarding();
-                      await clearGroceryWidgetSession(false).catch((error) =>
+                      await clearGroceryWidgetSession(false, appUserId).catch((error) =>
                         captureError(error instanceof Error ? error : new Error(String(error)), {
                           tags: { operation: 'clearGroceryWidgetOnAccountDelete' },
                         }),
@@ -249,7 +248,7 @@ export default function SettingsScreen() {
 
                       // Clear all cached data
                       queryClient.clear();
-                      await clearAllOfflineGroceryData();
+                      await clearAllOfflineGroceryData(appUserId);
             await privateRecipeDrafts.clearAll();
 
                       await signOut();

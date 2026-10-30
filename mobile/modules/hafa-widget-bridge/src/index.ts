@@ -15,6 +15,9 @@ type HafaWidgetBridgeNativeModule = {
   updateSnapshot(snapshotJson: string): Promise<void>;
   getSessionStatus(): Promise<HafaWidgetSessionStatus>;
   flushPending(): Promise<void>;
+  retireSession(owner: string): Promise<boolean>;
+  restorePending(owner: string): Promise<void>;
+  discardPending(owner: string): Promise<void>;
   clearSession(revoke: boolean): Promise<boolean>;
 };
 
@@ -50,6 +53,10 @@ export const HafaWidgetBridge = {
   async flushPending() {
     await nativeModule?.flushPending();
   },
+
+  async retireSession(owner: string) { return (await nativeModule?.retireSession(owner)) ?? false; },
+  async restorePending(owner: string) { await nativeModule?.restorePending(owner); },
+  async discardPending(owner: string) { await nativeModule?.discardPending(owner); },
 
   async clearSession(revoke = true): Promise<boolean> {
     return (await nativeModule?.clearSession(revoke)) ?? false;

@@ -29,7 +29,7 @@ import {
   bindOfflineGroceryIdentity,
   cacheGrocerySnapshot,
   cacheServerGrocerySnapshot,
-  clearActiveGroceryScope,
+  clearActiveGroceryScope, clearAllOfflineGroceryData,
   getCachedGrocerySnapshot,
   getGroceryStorageLease,
   getPendingSyncQueue,
@@ -204,7 +204,7 @@ describe('account-scoped offline grocery storage', () => {
   });
 });
 
-it('invalidates in-flight grocery leases and discards queued private recipe payloads on stable-owner change', async () => {
+it('invalidates grocery leases, isolates pending work from B and restores it when A returns', async () => {
   const { offlineRecipes } = await import('./offlineRecipes');
   await offlineRecipes.bindSubject('same-subject'); await offlineRecipes.verify('same-subject', 'owner-a');
   await bindOfflineGroceryIdentity('same-subject');
@@ -216,7 +216,47 @@ it('invalidates in-flight grocery leases and discards queued private recipe payl
   expect(() => assertGroceryStorageLease(a)).toThrow();
   const b = getGroceryStorageLease(); await cacheGrocerySnapshot(snapshot('account-b', 'list-b'), b);
   expect(await getPendingSyncQueue(b)).toEqual([]);
-  expect(JSON.stringify([...storage.values.values()])).not.toContain('A family secret');
+  expect(JSON.stringify(await getCachedGrocerySnapshot(b))).not.toContain('A family secret');
+  await offlineRecipes.verify('same-subject', 'owner-a');
+  const returned = getGroceryStorageLease();
+  await cacheServerGrocerySnapshot(snapshot(), returned);
+  expect((await getPendingSyncQueue(returned))[0].mutation.item?.recipe_title).toBe('A family secret');
   await expect(addToSyncQueue(privateAdd, a)).rejects.toThrow();
   await offlineRecipes.clear();
+});
+
+it('migrates generation-stamped pending groceries only to their proven stable owner',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');await bindOfflineGroceryIdentity('subject');
+ const legacy='@hafa_grocery_scope_v2:account-a:list-a:queue';
+ storage.values.set(legacy,JSON.stringify([{mutation:mutation(),queued_at:'now',ownerGeneration:JSON.stringify(['owner-a','prior-generation'])},{mutation:{...mutation(),mutation_id:'b',item:{name:'B secret'}},queued_at:'now',ownerGeneration:JSON.stringify(['owner-b','old-b'])}]));
+ const a=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),a);expect((await getPendingSyncQueue(a)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);
+ await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),b);expect((await getPendingSyncQueue(b)).map(entry=>entry.mutation.mutation_id)).toEqual(['b']);
+ await offlineRecipes.verify('subject','owner-a');const returned=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),returned);expect((await getPendingSyncQueue(returned)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);await offlineRecipes.clear();
+});
+
+it('recovers 2.6 ownerless grocery work only through its authenticated per-user API namespace',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');await bindOfflineGroceryIdentity('subject');
+ storage.values.set('@hafa_grocery_scope_v2:account-a:list-a:queue',JSON.stringify([{mutation:mutation(),queued_at:'legacy'}]));
+ await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot('account-b','list-a'),b);expect(await getPendingSyncQueue(b)).toEqual([]);
+ await offlineRecipes.verify('subject','owner-a');const a=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),a);expect((await getPendingSyncQueue(a)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);await offlineRecipes.clear();
+});
+
+it('keeps durable grocery work through sign-out and a new Clerk identity for the same stable owner',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('first-subject');await offlineRecipes.verify('first-subject','owner-a');await bindOfflineGroceryIdentity('first-subject');
+ const first=getGroceryStorageLease();await cacheGrocerySnapshot(snapshot(),first);await addToSyncQueue(mutation(),first);
+ await clearAllOfflineGroceryData();await offlineRecipes.bindSubject(null);await bindOfflineGroceryIdentity(null);
+ await offlineRecipes.bindSubject('new-subject');await offlineRecipes.verify('new-subject','owner-b');await bindOfflineGroceryIdentity('new-subject');const b=getGroceryStorageLease();await cacheGrocerySnapshot(snapshot('account-b','list-b'),b);expect(await getPendingSyncQueue(b)).toEqual([]);
+ await offlineRecipes.verify('new-subject','owner-a');const a=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot(),a);expect((await getPendingSyncQueue(a)).map(entry=>entry.mutation.mutation_id)).toEqual(['mutation-a']);await offlineRecipes.clear();
+});
+it('account deletion removes only that stable owner grocery journal',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');await bindOfflineGroceryIdentity('subject');const a=getGroceryStorageLease();await cacheGrocerySnapshot(snapshot(),a);await addToSyncQueue(mutation(),a);
+ await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheGrocerySnapshot(snapshot('account-b','list-b'),b);await addToSyncQueue(mutation('list-b'),b);
+ await clearAllOfflineGroceryData('owner-a');await bindOfflineGroceryIdentity('subject');await offlineRecipes.verify('subject','owner-b');const returned=getGroceryStorageLease();await cacheServerGrocerySnapshot(snapshot('account-b','list-b'),returned);expect(await getPendingSyncQueue(returned)).toHaveLength(1);
+ expect(JSON.stringify([...storage.values.entries()].filter(([key])=>key.includes('owner-a')))).not.toContain('mutation-a');await offlineRecipes.clear();
+});
+
+it('discards a retained A membership cleanup without invalidating B grocery data',async()=>{
+ const {offlineRecipes}=await import('./offlineRecipes');await offlineRecipes.bindSubject('subject');await offlineRecipes.verify('subject','owner-a');await bindOfflineGroceryIdentity('subject');const a=getGroceryStorageLease();await cacheGrocerySnapshot(snapshot(),a);
+ await offlineRecipes.verify('subject','owner-b');const b=getGroceryStorageLease();await cacheGrocerySnapshot(snapshot('account-b','list-b'),b);await addToSyncQueue(mutation('list-b'),b);
+ await clearActiveGroceryScope(a);expect(()=>assertGroceryStorageLease(b)).not.toThrow();expect((await getCachedGrocerySnapshot(b))?.account_scope_id).toBe('account-b');expect(await getPendingSyncQueue(b)).toHaveLength(1);await offlineRecipes.clear();
 });

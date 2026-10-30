@@ -249,7 +249,7 @@ function ExtractScreenContent() {
       setSelectedInboxId(entry.id);
       setIsPublic(entry.preferences?.isPublic ?? false);
       setSelectedLocation(entry.preferences?.location || 'Guam');
-      const captureToken = stagePendingShareCapture(entry.capture);
+      const captureToken = stagePendingShareCapture(entry.capture, owner);
       router.setParams({ captureToken });
     }
   };

@@ -1,3 +1,4 @@
+import { groceryAccountScope } from './groceryAccountScope';
 import { offlineRecipes } from './offlineRecipes';
 /** Account-scoped grocery snapshots and durable mutation queue. */
 
@@ -13,6 +14,7 @@ const SCOPE_PREFIX = '@hafa_grocery_scope_v2:';
 const LEGACY_KEYS = ['@hafa_grocery_list', '@hafa_grocery_count', '@hafa_pending_sync', '@hafa_last_sync'];
 
 interface GroceryStorageScope {
+  owner?: string | null;
   accountScopeId: string;
   listId: string;
 }
@@ -21,6 +23,7 @@ export interface PendingGroceryMutation {
   mutation: GroceryMutationRequest;
   queued_at: string;
   ownerGeneration?: string | null;
+  owner?: string | null;
 }
 
 export interface GroceryStorageLease {
@@ -62,7 +65,7 @@ function serialized<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function scopeId(scope: GroceryStorageScope): string {
-  return `${encodeURIComponent(scope.accountScopeId)}:${encodeURIComponent(scope.listId)}`;
+  return `${scope.owner ? encodeURIComponent(scope.owner) + ':' : ''}${encodeURIComponent(scope.accountScopeId)}:${encodeURIComponent(scope.listId)}`;
 }
 
 function snapshotKey(scope: GroceryStorageScope): string {
@@ -78,11 +81,11 @@ function lastSyncKey(scope: GroceryStorageScope): string {
 }
 
 function scopeFromSnapshot(snapshot: GrocerySnapshot): GroceryStorageScope {
-  return { accountScopeId: snapshot.account_scope_id, listId: snapshot.list.id };
+  return { owner: JSON.parse(offlineRecipes.scope())[1], accountScopeId: snapshot.account_scope_id, listId: snapshot.list.id };
 }
 
 function sameScope(left: GroceryStorageScope, right: GroceryStorageScope): boolean {
-  return left.accountScopeId === right.accountScopeId && left.listId === right.listId;
+  return (left.owner ?? null) === (right.owner ?? null) && left.accountScopeId === right.accountScopeId && left.listId === right.listId;
 }
 
 async function getActiveScopeUnsafe(): Promise<GroceryStorageScope | null> {
@@ -91,7 +94,8 @@ async function getActiveScopeUnsafe(): Promise<GroceryStorageScope | null> {
   try {
     const parsed = JSON.parse(raw) as Partial<GroceryStorageScope>;
     if (typeof parsed.accountScopeId !== 'string' || typeof parsed.listId !== 'string') return null;
-    return { accountScopeId: parsed.accountScopeId, listId: parsed.listId };
+    if ((parsed.owner ?? null) !== JSON.parse(offlineRecipes.scope())[1]) return null;
+    return { owner: parsed.owner, accountScopeId: parsed.accountScopeId, listId: parsed.listId };
   } catch {
     return null;
   }
@@ -100,7 +104,7 @@ async function getActiveScopeUnsafe(): Promise<GroceryStorageScope | null> {
 async function setActiveScopeUnsafe(scope: GroceryStorageScope): Promise<void> {
   const previous = await getActiveScopeUnsafe();
   if (previous && !sameScope(previous, scope)) {
-    await AsyncStorage.multiRemove([snapshotKey(previous), queueKey(previous), lastSyncKey(previous)]);
+    await AsyncStorage.multiRemove([snapshotKey(previous), lastSyncKey(previous)]);
   }
   await AsyncStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
 }
@@ -110,9 +114,20 @@ async function privateGroceryKeys(): Promise<string[]> {
   return keys.filter((key) => key === ACTIVE_SCOPE_KEY || key === IDENTITY_KEY || key.startsWith(SCOPE_PREFIX) || LEGACY_KEYS.includes(key));
 }
 
-async function clearPrivateGroceryStorage(): Promise<void> {
+async function clearPrivateGroceryStorage(deletedOwner?: string): Promise<void> {
   const keys = await privateGroceryKeys();
-  if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+  const remove = keys.filter(key => !key.startsWith(SCOPE_PREFIX) || !key.endsWith(':queue'));
+  if (deletedOwner) {
+    const accountScope = await groceryAccountScope(deletedOwner);
+    for (const key of keys.filter(key => key.startsWith(SCOPE_PREFIX) && key.endsWith(':queue'))) {
+      const rows = parseQueue(await AsyncStorage.getItem(key));
+      const ownedKey = key.startsWith(`${SCOPE_PREFIX}${encodeURIComponent(deletedOwner)}:`) || key.startsWith(`${SCOPE_PREFIX}${accountScope}:`);
+      const kept = ownedKey ? [] : rows.filter(entry => (queueOwner(entry)) !== deletedOwner);
+      if (!kept.length) remove.push(key);
+      else if (kept.length !== rows.length) await AsyncStorage.setItem(key, JSON.stringify(kept));
+    }
+  }
+  if (remove.length > 0) await AsyncStorage.multiRemove(remove);
 }
 
 /** Clerk is only a local privacy boundary; the API's stable scope owns data. */
@@ -164,7 +179,24 @@ export function cacheServerGrocerySnapshot(
   return serialized(async () => {
     assertGroceryStorageLease(lease);
     const serverScope = scopeFromSnapshot(serverSnapshot);
-    const activeScope = await getActiveScopeUnsafe();
+    // #357 stamped queue entries with stable owner + generation, but used the
+    // old list-only key. Migrate only records whose owner is already proven.
+    const legacyKey = queueKey({ accountScopeId: serverScope.accountScopeId, listId: serverScope.listId });
+    const legacyRaw = await AsyncStorage.getItem(legacyKey); assertGroceryStorageLease(lease);
+    if (serverScope.owner && legacyRaw) {
+      const legacy = parseQueue(legacyRaw);
+      // Even pre-3.0 ownerless records have a proven owner here: the API's
+      // account_scope_id is a stable per-user namespace, including shared lists.
+      const owned = legacy.filter(entry => queueEntryBelongsToOwner(entry) || (!entry.owner && !entry.ownerGeneration));
+      if (owned.length) {
+        const target = queueKey(serverScope), current = parseQueue(await AsyncStorage.getItem(target));
+        assertGroceryStorageLease(lease);
+        await AsyncStorage.setItem(target, JSON.stringify([...current, ...owned.filter(entry => !current.some(value => value.mutation.mutation_id === entry.mutation.mutation_id)).map(entry => ({ ...entry, owner: serverScope.owner }))]));
+        assertGroceryStorageLease(lease);
+        await AsyncStorage.setItem(legacyKey, JSON.stringify(legacy.filter(entry => !owned.includes(entry))));
+      }
+    }
+    const activeScope = serverScope;
     let snapshot = serverSnapshot;
     if (activeScope && sameScope(activeScope, serverScope)) {
       const raw = await AsyncStorage.getItem(queueKey(activeScope));
@@ -172,7 +204,7 @@ export function cacheServerGrocerySnapshot(
         try {
           const queue = JSON.parse(raw) as PendingGroceryMutation[];
           snapshot = queue
-            .filter((entry) => entry.mutation?.list_id === serverScope.listId)
+            .filter((entry) => entry.mutation?.list_id === serverScope.listId && queueEntryBelongsToOwner(entry))
             .reduce(
               (current, entry) =>
                 applyOptimisticGroceryMutation(current, entry.mutation),
@@ -250,7 +282,7 @@ export function addToSyncQueue(
     if (!queue.some((entry) => entry.mutation.mutation_id === mutation.mutation_id)) {
       assertGroceryStorageLease(lease);
       const ownerGeneration = offlineRecipes.ownerGeneration();
-      queue.push({ mutation, queued_at: new Date().toISOString(), ...(ownerGeneration ? { ownerGeneration } : {}) });
+      queue.push({ owner: JSON.parse(offlineRecipes.scope())[1], mutation, queued_at: new Date().toISOString(), ...(ownerGeneration ? { ownerGeneration } : {}) });
       await AsyncStorage.setItem(key, JSON.stringify(queue));
     }
   });
@@ -268,7 +300,7 @@ export function getPendingSyncQueue(
     try {
       const queue = JSON.parse(raw) as PendingGroceryMutation[];
       assertGroceryStorageLease(lease);
-      return queue.filter((entry) => entry.mutation?.list_id === scope.listId && (entry.ownerGeneration ?? null) === offlineRecipes.ownerGeneration());
+      return queue.filter((entry) => entry.mutation?.list_id === scope.listId && queueEntryBelongsToOwner(entry));
     } catch {
       return [];
     }
@@ -307,7 +339,9 @@ export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<voi
     // A membership request may already have reached the server when Clerk starts
     // rebinding the same account. Wait for that bind, then clean only if this is
     // still the originating identity. A different account must remain untouched.
+    if (lease.recipeScope !== undefined && lease.recipeScope !== offlineRecipes.scope()) return;
     const currentIdentityHash = await AsyncStorage.getItem(IDENTITY_KEY);
+    if (lease.recipeScope !== undefined && lease.recipeScope !== offlineRecipes.scope()) return;
     if (currentIdentityHash !== lease.identityHash) return;
     ++scopeEpoch;
     const scope = await getActiveScopeUnsafe();
@@ -316,13 +350,13 @@ export function clearActiveGroceryScope(lease: GroceryStorageLease): Promise<voi
   });
 }
 
-export function clearAllOfflineGroceryData(): Promise<void> {
+export function clearAllOfflineGroceryData(deletedOwner?: string): Promise<void> {
   ++identityEpoch;
   ++scopeEpoch;
   identityReady = false;
   boundIdentityHash = null;
   const recipesCleared = offlineRecipes.clear();
-  return Promise.all([serialized(clearPrivateGroceryStorage), recipesCleared]).then(() => undefined);
+  return Promise.all([serialized(() => clearPrivateGroceryStorage(deletedOwner)), recipesCleared]).then(() => undefined);
 }
 
 // Stable-owner retirement also invalidates Clerk-scoped grocery work. A bootstrap
@@ -330,5 +364,27 @@ export function clearAllOfflineGroceryData(): Promise<void> {
 offlineRecipes.onRetire(previous => {
   if (!previous) return;
   scopeEpoch++;
-  void serialized(clearPrivateGroceryStorage).catch(() => undefined);
+  // Keep durable owner/list queues, but never admit the prior active snapshot.
+  void serialized(async () => {
+    const keys = (await AsyncStorage.getAllKeys()).filter(key => key.startsWith(SCOPE_PREFIX) && (key.endsWith(':snapshot') || key.endsWith(':last_sync')));
+    await AsyncStorage.multiRemove([...keys, ACTIVE_SCOPE_KEY]);
+  }).catch(() => undefined);
 });
+
+function queueEntryBelongsToOwner(entry: PendingGroceryMutation): boolean {
+  const owner = JSON.parse(offlineRecipes.scope())[1];
+  const priorOwner = queueOwner(entry);
+  return priorOwner === owner;
+}
+
+function parseQueue(raw: string | null): PendingGroceryMutation[] {
+  try { const rows = JSON.parse(raw || '[]'); return Array.isArray(rows) ? rows.filter(entry => entry?.mutation?.mutation_id) : []; }
+  catch { return []; }
+}
+
+function queueOwner(entry: PendingGroceryMutation): string | null | undefined {
+  if (entry.owner) return entry.owner;
+  if (!entry.ownerGeneration) return null;
+  try { const parsed = JSON.parse(entry.ownerGeneration); return typeof parsed[0] === 'string' ? parsed[0] : undefined; }
+  catch { return undefined; }
+}
