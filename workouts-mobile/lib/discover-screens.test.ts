@@ -432,7 +432,11 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
     { contributor_id: "chef_mine5678", display_name: "Me", workout_count: 1, is_you: true },
   ]);
   await mount(Discover);
-  const strip = () => nodes("ChipRow").find((n) => n.props.label === "Show workouts from one person")!;
+  const sheet = nodes("Sheet").find(n => n.props.title === "Filters")!;
+  expect(sheet.props.visible).toBe(false);
+  await act(async () => button("Filters")!.props.onPress());
+  expect(nodes("Sheet").find(n => n.props.title === "Filters")!.props.visible).toBe(true);
+  const strip = () => nodes("ChipRow").find((n) => n.props.label === "People")!;
   const people = () => strip().findAll((n) => String(n.type) === "Chip");
   expect(people().map((n) => n.props.label)).toEqual(["Leon (4)", "You (1)"]);
   await act(async () => people()[0].props.onPress());
@@ -564,10 +568,10 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   expect(metaLine()).toBe("30 min · 1 exercise · Dumbbells, Bench");
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
-  // Recipes-style header: chat, share and everything else in one ··· sheet.
+  // Contextual Coach is labelled in content; share and overflow stay in the header.
   expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "IconButton").map((n) => n.props.label))
-    .toEqual(["Ask the coach about this workout", "Share workout", "More workout actions"]);
-  await act(async () => header("Ask the coach about this workout")!.props.onPress());
+    .toEqual(["Share workout", "More workout actions"]);
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
   await act(async () => header("Share workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/share", params: { id: saved.id, kind: "workout" } });
@@ -1697,4 +1701,16 @@ it.each([undefined, false, true])("gates the owner cover editor on actual server
     await act(async () => change.props.onPress());
     expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout-cover/[id]", params: { id: saved.id } });
   }
+});
+
+it("keeps Discover search and Filters together and moves People into the sheet", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
+  await mount(Discover);
+  const search = nodes("Field").find(n => n.props.label === "Search Discover")!;
+  expect(search.props.hideLabel).toBe(true);
+  const row = search.parent!.parent!;
+  expect(row.findAll(n => String(n.type) === "Button").map(n => n.props.title)).toContain("Filters");
+  expect(nodes("Button").filter(n => n.props.title === "Share yours")).toHaveLength(1);
+  expect(button("Surprise me")!.props.variant).toBe("ghost");
+  expect(nodes("Copy").some(n => n.children.join("") === "People sharing")).toBe(false);
 });

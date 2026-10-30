@@ -87,7 +87,7 @@ it("expiry does not imply completion; actual work enables an explicit cap save a
   expect(renderer!.root.findAllByType("StatTile" as never).map((tile) => [tile.props.label, tile.props.value]))
     .toEqual([["Set logged", 1], ["Exercise", 1], ["Active time", 20]]);
   await act(async () => { done().props.onPress(); }); await settle();
-  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+  expect(fixture.replace).toHaveBeenCalledWith("/history-progress");
 });
 
 it("an expired empty circuit still asks for actual work instead of offering a completed save", async () => {
@@ -192,7 +192,7 @@ it("logs the typed entry before finishing a partial session without duplicating 
   expect(fixture.store!.snapshot().history[0].request).toMatchObject({ status: "partial", actuals: [{ reps: 10 }, { reps: 8, notes: "Last effort" }] });
   expect(renderer!.root.findByType("Screen" as never).props.title).toBe("Partial session saved");
   await act(async () => { done().props.onPress(); }); await settle();
-  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+  expect(fixture.replace).toHaveBeenCalledWith("/history-progress");
 });
 it("finishes without the unlogged entry only after explicit choice and retains it if persistence fails", async () => {
   await recordedThenTyped();
@@ -360,7 +360,7 @@ it("saves a finished session with the inferred activity and summarises it before
   expect(renderer!.root.findAllByType("StatTile" as never).map((tile) => tile.props.value).slice(0, 2)).toEqual([2, 1]);
   expect(fixture.replace).not.toHaveBeenCalled();
   await act(async () => { done().props.onPress(); }); await settle();
-  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+  expect(fixture.replace).toHaveBeenCalledWith("/history-progress");
 });
 it("ending rest early stays silent", async () => {
   await startSquats();

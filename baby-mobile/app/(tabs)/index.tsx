@@ -199,7 +199,7 @@ export default function Today() {
         <Tile icon={kindIcon.diaper} label="Diaper" hint="Choose wet, dirty or both" onPress={diaper} />
       </View>}
       {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
-      {(care.length > 0 || latestCare.loading || latestCare.error) && (
+      {(care.length > 0 || latestCare.loading || !!latestCare.error) && (
         <Section title="Recent care">
           {latestCare.loading && !care.length && <Loading label="Loading latest care…" />}
           {!!latestCare.error && (

@@ -24,11 +24,33 @@ enum WorkoutsShareStore {
   static func withLock<T>(_ operation: (UserDefaults, URL) throws -> T) rethrows -> T? {
     guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group),
       let defaults = UserDefaults(suiteName: group) else { return nil }
+    return try withFileLock(container) {
+      defaults.synchronize()
+      return try operation(defaults, container)
+    }
+  }
+  // Nonblocking flock attempts use a monotonic deadline. A timeout never opens
+  // or mutates the journal; the last durable capture remains the retry source.
+  static func withFileLock<T>(_ container: URL, timeout: TimeInterval = 0.25,
+    _ operation: () throws -> T) rethrows -> T? {
     let fd = open(container.appendingPathComponent("workouts-share.lock").path, O_CREAT | O_RDWR, mode_t(0o600))
     guard fd >= 0 else { return nil }; defer { close(fd) }
-    guard flock(fd, LOCK_EX) == 0 else { return nil }; defer { flock(fd, LOCK_UN) }
-    defaults.synchronize()
-    return try operation(defaults, container)
+    let deadline = ProcessInfo.processInfo.systemUptime + max(0, timeout)
+    while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+      guard errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR else { return nil }
+      let remaining = deadline - ProcessInfo.processInfo.systemUptime
+      guard remaining > 0 else { return nil }
+      Thread.sleep(forTimeInterval: min(0.01, remaining))
+    }
+    defer { flock(fd, LOCK_UN) }
+    return try operation()
+  }
+  private static let captureWriteQueue = DispatchQueue(label: "com.shimizutechnology.hafaworkouts.capture-writes", qos: .utility)
+  static func performCaptureWrite<T>(_ operation: @escaping () -> T, completion: @escaping (T) -> Void) {
+    captureWriteQueue.async {
+      let result = operation()
+      DispatchQueue.main.async { completion(result) }
+    }
   }
   static func shareFile(_ path: String) -> URL? {
     guard let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?.standardizedFileURL,
@@ -137,6 +159,32 @@ enum WorkoutsShareStore {
       return capture["isPublic"] as? Bool ?? false
     } ?? nil
   }
+  // Only this durable capture changes; the account's default stays unchanged.
+  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool = false) -> Bool {
+    locked { chooseVisibility(key, isPublic: isPublic, confirmed: confirmed, $0) } ?? false
+  }
+  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool, _ d: WorkoutsShareDefaults) -> Bool {
+    guard var capture = d.dictionary(forKey: key + ".capture"),
+      capture["visibilityPending"] as? Bool == true, capture["jobId"] == nil else { return false }
+    capture["isPublic"] = isPublic; capture["visibilityChosen"] = true
+    capture["visibilityPending"] = !confirmed
+    d.set(capture, forKey: key + ".capture")
+    return d.synchronize()
+  }
+  // Opening the host takes ownership of unfinished confirmations. An untouched
+  // choice recovers privately; an explicit per-item choice survives dismissal.
+  static func readyCaptures(_ d: WorkoutsShareDefaults) -> [[String: Any]]? {
+    let captures = (d.stringArray(forKey: pending) ?? []).compactMap { key -> [String: Any]? in
+      guard var capture = d.dictionary(forKey: key + ".capture") else { return nil }
+      if capture["visibilityPending"] as? Bool == true {
+        if capture["visibilityChosen"] as? Bool != true { capture["isPublic"] = false }
+        capture["visibilityPending"] = false
+        d.set(capture, forKey: key + ".capture")
+      }
+      return capture
+    }
+    return d.synchronize() ? captures : nil
+  }
   static func discardOwner(_ owner: String) -> Bool {
     locked { d in
       for key in d.stringArray(forKey: staging) ?? [] {
@@ -194,6 +242,7 @@ enum WorkoutsShareStore {
     guard let state = locked({ d -> ([String: Any], String, [String: Any])? in
       guard let session = d.dictionary(forKey: sessionKey), let capability = token(),
         let capture = d.dictionary(forKey: key + ".capture"),
+        capture["visibilityPending"] as? Bool != true,
         capture["accountScopeId"] as? String == session["accountScopeId"] as? String,
         capture["generation"] as? Int == session["generation"] as? Int,
         let expires = session["expiresAt"] as? Double, expires > Date().timeIntervalSince1970 else { return nil }
