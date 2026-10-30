@@ -55,9 +55,20 @@ export default function ScheduleOnce() {
     } catch (e) { if (mounted.current && live.current === scope) setError((e as Error).message); }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
+  async function scheduleAnother() {
+    if (lock.current || !saved) return;
+    lock.current = true; setBusy(true);
+    try {
+      guard();
+      const next = { date: dateInTimezone(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone), time: "" };
+      await form.reopen(next); guard();
+      setInput(next); setCommand(null); setSaved(false); setError("");
+    } catch (e) { if (mounted.current) setError((e as Error).message); }
+    finally { lock.current = false; if (mounted.current) setBusy(false); }
+  }
   return <Screen dismiss title="Schedule" subtitle={workout.data?.title}
     footer={!saved && input && workout.data ? <Button title={command ? "Retry schedule" : "Save session"} busy={busy} onPress={() => void save()} /> : undefined}>
-    {saved ? <><Notice>Session scheduled.</Notice><Button title="Open Train" onPress={() => router.replace("/(tabs)/plan")} /></> : <>
+    {saved ? <><Notice>Session scheduled.</Notice><Button title="Open Train" onPress={() => router.replace("/(tabs)/plan")} /><Button title="Schedule another session" secondary busy={busy} onPress={() => void scheduleAnother()} /></> : <>
       {input && <>
         <CalendarDate label="Workout date" value={input.date} disabled={busy || !!command} onChange={date => update({ date: date ?? "" })} />
         <Field label="Time · HH:MM" optional placeholder="18:30" value={input.time} disabled={busy || !!command} onChange={time => update({ time })} />

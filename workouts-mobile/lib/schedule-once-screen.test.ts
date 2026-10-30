@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { scheduleOnceCommand } from "./schedule-once";
 import type { Workout } from "./models";
-const f = vi.hoisted(() => ({ map: new Map<string, string>(), save: vi.fn(), replace: vi.fn() }));
+const f = vi.hoisted(() => ({ map: new Map<string, string>(), uuid: 0, save: vi.fn(), replace: vi.fn() }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => ({ workout_id: "source" }), router: { push() {}, replace: f.replace } }));
-vi.mock("expo-crypto", () => ({ randomUUID: () => "one-request" }));
+vi.mock("expo-crypto", () => ({ randomUUID: () => `request-${++f.uuid}` }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Copy: "Copy", Field: "Field", Notice: "Notice",
   Screen: ({ children, footer }: { children: never; footer: never }) => createElement("Screen", null, children, footer) }));
 vi.mock("@/components/calendar-date", () => ({ CalendarDate: "Date" }));
@@ -25,7 +25,7 @@ async function mount() { await act(async () => { view = create(createElement(Que
 const nodes = (type: string) => view!.root.findAll(n => String(n.type) === type);
 const button = (title: string) => nodes("Button").find(n => n.props.title === title)!;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  f.map.clear(); f.save.mockReset(); f.save.mockResolvedValue({ id: "plan" }); cache = new QueryClient({ defaultOptions: { queries: { retry: false } } }); });
+  f.map.clear(); f.uuid = 0; f.save.mockReset(); f.save.mockResolvedValue({ id: "plan" }); cache = new QueryClient({ defaultOptions: { queries: { retry: false } } }); });
 afterEach(async () => { await act(async () => view?.unmount()); view = undefined; cache.clear(); });
 it("schedules a source snapshot without a profile and resumes an identical command after a network failure", async () => {
   await mount();
@@ -43,6 +43,11 @@ it("schedules a source snapshot without a profile and resumes an identical comma
   expect(f.save.mock.calls[1][0]).toEqual(command);
   expect(nodes("Notice").some(n => n.props.children === "Session scheduled.")).toBe(true);
   expect(f.save).toHaveBeenCalledTimes(2);
+  await act(async () => button("Schedule another session").props.onPress()); await settle();
+  await act(async () => nodes("Date")[0].props.onChange("2026-11-05"));
+  await act(async () => button("Save session").props.onPress()); await settle();
+  expect(f.save.mock.calls[2][0].request_id).not.toBe(command.request_id);
+  expect(f.save.mock.calls[2][0].proposal.sessions[0].date).toBe("2026-11-05");
 });
 it("rejects an invalid time and leaves unknown prescription fields untouched", () => {
   expect(() => scheduleOnceCommand(workout, "2026-11-04", "25:30", "id")).toThrow("Use a time");
