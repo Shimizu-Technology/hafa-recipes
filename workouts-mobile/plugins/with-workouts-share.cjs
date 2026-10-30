@@ -41,9 +41,21 @@ module.exports = function withWorkoutsShare(config) {
       await fs.readFile(path.join(native, "CaptureConfirmation.swift"), "utf8"),
       await fs.readFile(path.join(native, "HafaWorkoutsShareStore.swift"), "utf8"),
       await fs.readFile(path.join(native, "CaptureProviderLoader.swift"), "utf8")));
+    const fonts = [
+      ["@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf", "DMSans_400Regular.ttf"],
+      ["@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf", "DMSans_600SemiBold.ttf"],
+      ["@expo-google-fonts/fraunces/600SemiBold/Fraunces_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"],
+    ];
+    const target = mod.modResults.findTargetKey("ShareExtension") ?? mod.modResults.findTargetKey('"ShareExtension"');
+    const group = mod.modResults.findPBXGroupKey({ name: "ShareExtension" });
+    if (!target || !group) throw Error("Workouts share target/group missing; refusing unstyled extension.");
+    for (const [module, name] of fonts) {
+      await fs.copyFile(require.resolve(module, { paths: [mod.modRequest.projectRoot] }), path.join(extension, name));
+      mod.modResults.addResourceFile(name, { target }, group);
+    }
     for (const [name, update] of [
       ["ShareExtension.entitlements", value => { value["keychain-access-groups"] = [keychain]; }],
-      ["ShareExtension-Info.plist", value => { value.WorkoutsShareKeychainGroup = keychain; }],
+      ["ShareExtension-Info.plist", value => { value.WorkoutsShareKeychainGroup = keychain; value.UIAppFonts = fonts.map(([, name]) => name); }],
     ]) {
       const file = path.join(extension, name); const value = plist.parse(await fs.readFile(file, "utf8"));
       update(value); await fs.writeFile(file, plist.build(value));

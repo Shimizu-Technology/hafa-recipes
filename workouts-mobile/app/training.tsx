@@ -166,7 +166,7 @@ export default function Training() {
     return (
       <Screen
         title={summary.partial ? "Partial session saved" : "Session saved"}
-        footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/(tabs)/progress")} />}
+        footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/history-progress")} />}
       >
         <Copy tone="muted">Saved to your history. If you’re offline, it uploads when you reconnect.</Copy>
         <Row gap={12} wrap>

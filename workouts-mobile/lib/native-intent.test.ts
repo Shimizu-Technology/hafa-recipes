@@ -62,3 +62,8 @@ it("accepts the dedicated Extract destination and preserves capture share links"
   expect(incomingNativePath("/(tabs)/extract")).toBe("/(tabs)/extract");
   expect(incomingNativePath("hafaworkouts://capture?shared=1&request_id=source-request")).toBe("/capture?shared=1&request_id=source-request");
 });
+
+it("keeps legacy and current training links routable with notification parameters", () => {
+  for (const path of ["/(tabs)/index", "/(tabs)/plan", "/(tabs)/progress", "/(tabs)/train", "/history-progress"])
+    expect(incomingNativePath(`${path}?session_id=saved`)).toBe(`${path}?session_id=saved`);
+});
