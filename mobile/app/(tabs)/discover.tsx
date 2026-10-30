@@ -1,3 +1,4 @@
+import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
@@ -71,7 +72,7 @@ function getContributorId(value: { contributor_id?: string | null; user_id?: str
 }
 
 // Save/Bookmark button reflects confirmed server state.
-function SaveButton({
+export function SaveButton({
   recipeId,
   initialIsSaved,
   colors,
@@ -84,7 +85,9 @@ function SaveButton({
 }) {
   // New APIs include saved state in the feed response. Keep the one-card query
   // only as a rolling-deploy fallback for an older API response.
-  const shouldFetchSavedStatus = !isOwner && initialIsSaved == null;
+  const { isSignedIn } = useAuth();
+  const router = useRouter();
+  const shouldFetchSavedStatus = !!isSignedIn && !isOwner && initialIsSaved == null;
   const { data: savedStatus, isLoading } = useIsRecipeSaved(
     recipeId,
     shouldFetchSavedStatus,
@@ -95,11 +98,16 @@ function SaveButton({
   // Don't show save button for own recipes
   if (isOwner) return null;
 
-  const isSaved = initialIsSaved ?? savedStatus?.is_saved ?? false;
+  const isSaved = !!isSignedIn && (initialIsSaved ?? savedStatus?.is_saved ?? false);
   const isPending = saveMutation.isPending || unsaveMutation.isPending;
 
   const handlePress = () => {
     if (isPending) return;
+    if (!isSignedIn) {
+      guestRecipeIntent.start(recipeId, 'save');
+      router.push('/(auth)/sign-in');
+      return;
+    }
     if (isSaved) {
       unsaveMutation.mutate(recipeId);
     } else {
@@ -212,7 +220,7 @@ function RecipeCard({
           )}
         />
         {/* Save button overlay */}
-        {currentUserId && (
+        {(
           <RNView style={styles.saveButtonContainer}>
             <SaveButton
               recipeId={recipe.id}
@@ -324,7 +332,7 @@ function GridRecipeCard({
   const contributorId = getContributorId(recipe);
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
   const canFilterByUser = contributorId && recipe.extractor_display_name && !isOwner;
-  const showSaveButton = !!currentUserId && !isOwner;
+  const showSaveButton = !isOwner;
 
   return (
     <RecipeGridCardFrame

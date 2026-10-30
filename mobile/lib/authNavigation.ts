@@ -1,3 +1,4 @@
+import { guestRecipeIntent } from './guestRecipeIntent';
 type AuthRouter = {
   back: () => void;
   canGoBack: () => boolean;
@@ -11,6 +12,7 @@ export function authBackAccessibilityLabel(router: AuthRouter) {
 
 /** Leave auth safely even when a restored screen has no navigation history. */
 export function leaveAuthScreen(router: AuthRouter) {
+  guestRecipeIntent.clear();
   if (router.canGoBack()) {
     router.back();
     return;
