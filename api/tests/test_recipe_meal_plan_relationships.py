@@ -304,6 +304,7 @@ class _ScalarResult:
 
 
 class _RecordingSession:
+    info = {"planned_servings_supported": False}
     def __init__(self, rows=None):
         self.statement = None
         self.rows = rows or []

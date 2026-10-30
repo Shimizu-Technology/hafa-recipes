@@ -15,13 +15,14 @@ from sqlalchemy.orm import load_only
 
 from app.auth import ClerkUser, get_current_user
 from app.db import get_db
-from app.models.grocery import GroceryItem, GroceryList, GroceryMutationReceipt
+from app.models.grocery import GroceryItem, GroceryMutationReceipt
 from app.models.meal_plan import MealPlanEntry
 from app.models.recipe import Recipe
 from app.moderation import accessible_recipe_conditions, is_publicly_viewable
 from app.plan_quantities import scaled_plan_quantity
+from app.plan_schema import load_planned_servings, require_planned_servings
 from app.recipe_review import review_response_fields
-from app.routers.grocery import get_or_create_user_list
+from app.routers.grocery import _lock_grocery_list, get_or_create_user_list
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
 
@@ -92,6 +93,8 @@ class AddToGroceryRequest(BaseModel):
     end_date: date
     preview_token: Optional[str] = None
     mutation_id: Optional[UUID] = None
+    list_id: Optional[UUID] = None
+    review: Optional[dict] = None
 
 
 # ============================================================
@@ -247,6 +250,7 @@ async def get_week_plan(
         .order_by(MealPlanEntry.date, MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
     entries = result.all()
+    await load_planned_servings(db, [entry for entry, _ in entries])
     
     # Organize by day
     days = organize_by_day(entries, week_start, week_end)
@@ -282,6 +286,7 @@ async def get_day_plan(
         .order_by(MealPlanEntry.meal_type, MealPlanEntry.created_at)
     )
     entries = result.all()
+    await load_planned_servings(db, [entry for entry, _ in entries])
     
     # Organize into meal slots
     meals = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
@@ -317,10 +322,9 @@ async def get_recipe_plan_entries(
     result = await db.execute(
         _recipe_plan_entries_statement(recipe_id, user.id, first_date, limit)
     )
-    return [
-        meal_plan_entry_response(entry, recipe)
-        for entry, recipe in result.all()
-    ]
+    entries = result.all()
+    await load_planned_servings(db, [entry for entry, _ in entries])
+    return [meal_plan_entry_response(entry, recipe) for entry, recipe in entries]
 
 
 @router.post("/", response_model=MealPlanEntryResponse)
@@ -344,6 +348,7 @@ async def add_meal(
 
     recipe_title = recipe.extracted.get("title") if recipe.extracted else entry.recipe_title
 
+    await require_planned_servings(db, entry.planned_servings)
     new_entry = MealPlanEntry(
         user_id=user.id,
         date=entry.date,
@@ -359,6 +364,7 @@ async def add_meal(
     db.add(new_entry)
     await db.commit()
     await db.refresh(new_entry)
+    await load_planned_servings(db, [new_entry])
     
     return meal_plan_entry_response(new_entry, recipe)
 
@@ -397,6 +403,7 @@ async def update_meal(
         entry.date = update.date
     if update.notes is not None:
         entry.notes = update.notes
+    await require_planned_servings(db, update.planned_servings)
     if update.planned_servings is not None:
         entry.planned_servings = update.planned_servings
     if update.servings is not None:
@@ -404,6 +411,7 @@ async def update_meal(
     
     await db.commit()
     await db.refresh(entry)
+    await load_planned_servings(db, [entry])
     
     return meal_plan_entry_response(entry, recipe)
 
@@ -458,12 +466,14 @@ async def clear_day(
     }
 
 
-async def plan_grocery_preview(request, db, user):
+async def plan_grocery_preview(request, db, user, grocery_list=None):
+    grocery_list = grocery_list or await get_or_create_user_list(db, user)
     result = await db.execute(select(MealPlanEntry).where(
         MealPlanEntry.user_id == user.id, MealPlanEntry.date >= request.start_date,
         MealPlanEntry.date <= request.end_date,
     ).order_by(MealPlanEntry.date, MealPlanEntry.id))
     entries = result.scalars().all()
+    await load_planned_servings(db, entries)
     recipes = {}
     for recipe_id in {entry.recipe_id for entry in entries}:
         recipe = await get_accessible_recipe(db, recipe_id, user)
@@ -495,8 +505,8 @@ async def plan_grocery_preview(request, db, user):
                 total["uncombined"] += 1
             else:
                 total["quantity"] = str(Fraction(total["quantity"] or "0") + Fraction(normalized))
-    token = hashlib.sha256(json.dumps([user.id, str(request.start_date), str(request.end_date), items], sort_keys=True).encode()).hexdigest()
-    return dict(totals=list(totals.values()), message=f"Added {len(items)} ingredients to grocery list" if items else "No meals planned in this date range", items=items, items_added=len(items), items_missing_amount=sum(i["quantity"] is None for i in items),
+    token = hashlib.sha256(json.dumps([user.id, str(grocery_list.id), str(request.start_date), str(request.end_date), items], sort_keys=True).encode()).hexdigest()
+    return dict(list_id=str(grocery_list.id), totals=list(totals.values()), message=f"Added {len(items)} ingredients to grocery list" if items else "No meals planned in this date range", items=items, items_added=len(items), items_missing_amount=sum(i["quantity"] is None for i in items),
                 items_unscaled=sum(i["unscaled"] for i in items), recipes_processed=len(recipes), preview_token=token)
 
 
@@ -508,21 +518,37 @@ async def preview_plan_grocery(request: AddToGroceryRequest, db: AsyncSession = 
 
 @router.post("/to-grocery")
 async def add_plan_to_grocery(request: AddToGroceryRequest, db: AsyncSession = Depends(get_db), user: ClerkUser = Depends(get_current_user)):
-    preview = await plan_grocery_preview(request, db, user)
-    if request.preview_token and request.preview_token != preview["preview_token"]:
+    modern = request.mutation_id is not None or request.list_id is not None or request.review is not None
+    if modern and not (request.mutation_id and request.list_id and request.review and request.preview_token):
+        raise HTTPException(status_code=400, detail="Review this grocery addition before confirming it.")
+    grocery_list = await get_or_create_user_list(db, user)  # Holds the membership/account lock.
+    if modern and request.list_id != grocery_list.id:
+        raise HTTPException(status_code=409, detail="Your household changed. Review this list before adding groceries.")
+    grocery_list = await _lock_grocery_list(db, grocery_list.id)  # Refresh even an already loaded identity.
+    if modern:
+        # The exact reviewed result is carried by the client, bound to its receipt.
+        # A first acceptance compares it to the authoritative calculation below.
+        # Replays need no mutable recipe/plan reads or additional schema columns.
+        try:
+            serialized = json.dumps([user.id, str(request.list_id), str(request.start_date), str(request.end_date), request.preview_token, request.review], sort_keys=True, allow_nan=False)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid grocery review") from None
+        if len(serialized) > 500_000:
+            raise HTTPException(status_code=400, detail="This grocery review is too large.")
+        request_hash = hashlib.sha256(serialized.encode()).hexdigest()
+        receipt = await db.get(GroceryMutationReceipt, (grocery_list.id, request.mutation_id))
+        if receipt:
+            if receipt.actor_user_id != user.id or receipt.operation != "add" or receipt.request_hash != request_hash:
+                raise HTTPException(status_code=409, detail="This grocery addition has different ingredients. Review again.")
+            return {**request.review, "replayed": True}
+    preview = await plan_grocery_preview(request, db, user, grocery_list)
+    if request.preview_token and request.preview_token != preview["preview_token"] or modern and request.review != preview:
         raise HTTPException(status_code=409, detail="Your plan changed. Review the ingredients again.")
     if not preview["items"]:
         return preview
-    grocery_list = await get_or_create_user_list(db, user)
-    if request.mutation_id:
-        await db.execute(select(GroceryList).where(GroceryList.id == grocery_list.id).with_for_update())
-        receipt = await db.get(GroceryMutationReceipt, (grocery_list.id, request.mutation_id))
-        if receipt:
-            if receipt.actor_user_id != user.id or receipt.request_hash != preview["preview_token"]:
-                raise HTTPException(status_code=409, detail="This grocery addition has different ingredients. Review again.")
-            return {**preview, "replayed": True}
+    if modern:
         db.add(GroceryMutationReceipt(list_id=grocery_list.id, mutation_id=request.mutation_id,
-            actor_user_id=user.id, operation="add", request_hash=preview["preview_token"]))
+            actor_user_id=user.id, operation="add", request_hash=request_hash))
     for item in preview["items"]:
         db.add(GroceryItem(user_id=user.id, list_id=grocery_list.id, checked=False, added_by_name=user.display_name,
             **{key: UUID(value) if key == "recipe_id" else value for key, value in item.items() if key != "unscaled"}))
@@ -561,6 +587,7 @@ async def copy_week(
         )
     )
     source_entries = result.scalars().all()
+    await load_planned_servings(db, source_entries)
     
     if not source_entries:
         return {"message": "No meals to copy from source week", "entries_copied": 0}

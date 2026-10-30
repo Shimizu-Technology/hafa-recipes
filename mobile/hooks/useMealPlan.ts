@@ -10,6 +10,8 @@ import { MealPlanEntryCreate, WeekPlan, DayMeals, MealPlanEntry, MealType } from
 // Query keys
 export const mealPlanKeys = {
   all: ['meal-plans'] as const,
+  reviews: () => [...mealPlanKeys.all, 'grocery-review'] as const,
+  review: (week: string) => [...mealPlanKeys.reviews(), week] as const,
   weeks: () => [...mealPlanKeys.all, 'week'] as const,
   week: (weekOf?: string) => [...mealPlanKeys.weeks(), weekOf || 'current'] as const,
   days: () => [...mealPlanKeys.all, 'day'] as const,
@@ -139,6 +141,7 @@ export function useAddMeal() {
         }
       );
       queryClient.invalidateQueries({ queryKey: mealPlanKeys.recipes() });
+      queryClient.invalidateQueries({ queryKey: mealPlanKeys.reviews() });
     },
 
     // On error, roll back to the previous value
@@ -217,6 +220,7 @@ export function useDeleteMeal() {
 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: mealPlanKeys.recipes() });
+      queryClient.invalidateQueries({ queryKey: mealPlanKeys.reviews() });
     },
 
     // On error, roll back
@@ -254,7 +258,7 @@ export function useAddPlanToGrocery() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ startDate, endDate, review }: { startDate: string; endDate: string; review?: { preview_token: string; mutation_id: string } }) =>
+    mutationFn: ({ startDate, endDate, review }: { startDate: string; endDate: string; review?: Parameters<typeof api.addMealPlanToGrocery>[2] }) =>
       api.addMealPlanToGrocery(startDate, endDate, review),
     onSuccess: () => {
       // Also invalidate grocery queries

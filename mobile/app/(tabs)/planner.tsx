@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
  * ingredients to their grocery list.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   ScrollView,
@@ -37,6 +37,7 @@ import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import {
   useMealPlanWeek,
   useAddMeal,
+  mealPlanKeys,
   useUpdateMeal,
   useDeleteMeal,
   useAddPlanToGrocery,
@@ -391,10 +392,12 @@ export default function PlannerScreen() {
   const [reviewVisible, setReviewVisible] = useState(false);
   const [reviewMutationId, setReviewMutationId] = useState('');
   const [reviewAdding, setReviewAdding] = useState(false);
-  const review = useQuery({ queryKey: ['plan-grocery-review', weekOfStr],
+  const pendingReview = useRef<Parameters<ReturnType<typeof useAddPlanToGrocery>['mutateAsync']>[0] | null>(null);
+  const review = useQuery({ queryKey: mealPlanKeys.review(weekOfStr),
     queryFn: () => api.previewMealPlanGroceries(weekOfStr, formatDateForApi(getWeekEnd(currentWeekStart))),
     enabled: reviewVisible && isSignedIn === true,
   });
+  const reviewData = pendingReview.current?.review?.review ?? review.data;
   const deleteMeal = useDeleteMeal();
   const addToGrocery = useAddPlanToGrocery();
 
@@ -517,17 +520,25 @@ export default function PlannerScreen() {
   );
 
   // Handle adding to grocery
-  const handleAddToGrocery = () => { setReviewMutationId(Crypto.randomUUID()); setReviewVisible(true); };
+  const handleAddToGrocery = () => { if (!pendingReview.current) setReviewMutationId(Crypto.randomUUID()); setReviewVisible(true); };
   const confirmGroceries = async () => {
-    if (!review.data || reviewAdding) return;
+    if (!reviewData || reviewAdding) return;
     setReviewAdding(true);
     try {
-      const result = await addToGrocery.mutateAsync({ startDate: weekOfStr, endDate: formatDateForApi(getWeekEnd(currentWeekStart)), review: {
-        preview_token: review.data.preview_token, mutation_id: reviewMutationId,
-      } });
+      pendingReview.current ??= { startDate: weekOfStr, endDate: formatDateForApi(getWeekEnd(currentWeekStart)), review: {
+        preview_token: reviewData.preview_token, mutation_id: reviewMutationId, list_id: reviewData.list_id, review: reviewData,
+      } };
+      const result = await addToGrocery.mutateAsync(pendingReview.current);
+      pendingReview.current = null;
       setReviewVisible(false); successHaptic();
       showToast({ message: plannerGrocerySuccessMessage(result), tone: 'success', actionLabel: 'View list', onAction: () => router.push('/(tabs)/grocery') });
-    } catch { Alert.alert('Couldn’t add groceries', 'Retry this addition to reconnect to the same request. If the plan changed, close and review again.'); }
+    } catch (error: any) {
+      if (error?.response?.status === 409) Alert.alert('Review needed', error.response.data?.detail ?? 'Your plan or household changed.', [
+        { text: 'Keep previous request', style: 'cancel' },
+        { text: 'Review current list', onPress: () => { pendingReview.current = null; setReviewMutationId(Crypto.randomUUID()); void review.refetch(); } },
+      ]);
+      else Alert.alert('Couldn’t confirm groceries', 'Retry this addition to reconnect to the same request. Your previous review is kept when you close this screen.');
+    }
     finally { setReviewAdding(false); }
   };
 
@@ -814,13 +825,13 @@ export default function PlannerScreen() {
           <Text>Review this week’s groceries</Text>
           {review.isLoading && <ActivityIndicator accessibilityLabel="Loading grocery review" />}
           {review.isError && <Button title="Retry grocery review" onPress={() => review.refetch()} />}
-          {review.data && <>
-            <Text>{review.data.items_added} ingredient lines · {review.data.items_missing_amount} missing amounts · {review.data.items_unscaled} amounts need checking</Text>
+          {reviewData && <>
+            <Text>{reviewData.items_added} ingredient lines · {reviewData.items_missing_amount} missing amounts · {reviewData.items_unscaled} amounts need checking</Text>
             <ScrollView>
-              {review.data.totals.map((total, index) => <Text key={`total:${index}`} style={{ paddingVertical: spacing.sm }}>{total.quantity ?? 'See source amounts'} {total.unit} {total.name}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
+              {reviewData.totals.map((total, index) => <Text key={`total:${index}`} style={{ paddingVertical: spacing.sm }}>{total.quantity ?? 'See source amounts'} {total.unit} {total.name}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
               <Text>By recipe</Text>
-              {review.data.items.map((item, index) => <Text key={index} style={{ paddingVertical: spacing.sm }}>{item.quantity ?? 'Amount not stated'} {item.unit} {item.name} · {item.recipe_title}</Text>)}</ScrollView>
-            <Button title={reviewAdding ? 'Adding…' : 'Add reviewed groceries'} disabled={reviewAdding || review.isFetching || review.isError || !review.data.items_added} onPress={confirmGroceries} />
+              {reviewData.items.map((item, index) => <Text key={index} style={{ paddingVertical: spacing.sm }}>{item.quantity ?? 'Amount not stated'} {item.unit} {item.name} · {item.recipe_title}</Text>)}</ScrollView>
+            <Button title={reviewAdding ? 'Adding…' : 'Add reviewed groceries'} disabled={reviewAdding || (!pendingReview.current && (review.isFetching || review.isError)) || !reviewData.items_added} onPress={confirmGroceries} />
           </>}
           <Button title="Close review" variant="secondary" disabled={reviewAdding} onPress={() => setReviewVisible(false)} />
         </View>

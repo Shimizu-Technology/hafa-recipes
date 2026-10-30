@@ -3,8 +3,9 @@
 import enum
 import uuid
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, Date, DateTime, FetchedValue, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import deferred
 from sqlalchemy.sql import func
 
 from app.db.database import Base
@@ -36,15 +37,16 @@ class MealPlanEntry(Base):
     recipe_title = Column(String(255), nullable=False)  # Cached for quick display
     recipe_thumbnail = Column(String(500), nullable=True)  # Cached thumbnail URL
     notes = Column(String(500), nullable=True)  # Optional notes (e.g., "make extra for leftovers")
-    planned_servings = Column(Integer, nullable=True)  # Explicit modern scaling; legacy entries stay unchanged.
+    planned_servings = deferred(Column(Integer, nullable=True, server_default=FetchedValue()), raiseload=True)  # Explicit modern scaling; legacy entries stay unchanged.
     servings = Column(String(20), nullable=True)  # Override servings if needed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Composite unique constraint: one recipe per meal slot per day per user
     # (user can have different recipes for breakfast, lunch, dinner on same day)
+    __mapper_args__ = {"eager_defaults": False}
     __table_args__ = (
         # No unique constraint - allow multiple recipes per meal slot if desired
         # Users might want 2 side dishes for dinner
-        {},
+        {"implicit_returning": False},
     )
