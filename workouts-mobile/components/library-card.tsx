@@ -1,8 +1,9 @@
+import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { useState } from "react";
 import { Animated, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { contentWidth, motion, radii, spacing } from "@/constants/theme";
+import { motion, radii, spacing } from "@/constants/theme";
 import { Copy, useColors, useReducedMotion, type IconName } from "@/components/ui";
 import { animatedPressableComponent, usePressScale } from "@/components/design/press";
 import type { LibraryView } from "@/lib/library-view";
@@ -11,8 +12,8 @@ export const LIBRARY_GRID_GAP = spacing.sm;
 
 /** Width of one grid column inside the screen's content padding. */
 export function useLibraryGridWidth() {
-  const { width } = useWindowDimensions();
-  return Math.floor((Math.min(width, contentWidth) - (spacing.lg - 4) * 2 - LIBRARY_GRID_GAP) / 2);
+  const { width, fontScale } = useWindowDimensions();
+  return workoutGridWidth(width, fontScale);
 }
 
 function Cover({ uri, icon, size }: { uri?: string | null; icon: IconName; size: number }) {
@@ -100,10 +101,10 @@ export function LibraryCard({
         {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
       </View>
       <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 4, padding: grid ? spacing.sm : 0 }}>
-        <Copy kind="label" numberOfLines={2} style={grid ? { minHeight: Math.ceil(44 * fontScale) } : undefined}>{title}</Copy>
-        <Copy kind="small" tone="muted" numberOfLines={1}>{meta}</Copy>
-        {!!creator && <Copy kind="small" tone="muted" numberOfLines={1}>By {creator}</Copy>}
-        {!!origin && <Copy kind="caption" tone="muted" numberOfLines={1}>{origin}</Copy>}
+        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid ? { minHeight: Math.ceil(44 * fontScale) } : undefined}>{title}</Copy>
+        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{meta}</Copy>
+        {!!creator && <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>By {creator}</Copy>}
+        {!!origin && <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{origin}</Copy>}
         {note}
       </View>
     </AnimatedPressable>
@@ -117,6 +118,8 @@ export function CollectionTile({ title, count, covers, onPress }: {
   const c = useColors();
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
+  const { width, fontScale } = useWindowDimensions();
+  const tileWidth = largeText(fontScale) ? workoutGridWidth(width, fontScale) : 128;
   const mosaic = covers.length >= 4;
   return (
     <AnimatedPressable
@@ -126,16 +129,16 @@ export function CollectionTile({ title, count, covers, onPress }: {
       onPress={onPress}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
-      style={{ width: 128, gap: 6, opacity: press.opacity, transform: [{ scale: press.scale }] }}
+      style={{ width: tileWidth, gap: 6, opacity: press.opacity, transform: [{ scale: press.scale }] }}
     >
-      <View style={{ width: 128, height: 88, borderRadius: radii.md, overflow: "hidden", borderWidth: 1, borderColor: c.border,
+      <View style={{ width: tileWidth, height: largeText(fontScale) ? 160 : 88, borderRadius: radii.md, overflow: "hidden", borderWidth: 1, borderColor: c.border,
         flexDirection: "row", flexWrap: "wrap", gap: 1, backgroundColor: c.border }}>
-        {mosaic ? covers.slice(0, 4).map((uri, index) => <View key={index} style={{ width: 62.5, height: 42.5 }}>
+        {mosaic ? covers.slice(0, 4).map((uri, index) => <View key={index} style={{ width: (tileWidth - 3) / 2, height: largeText(fontScale) ? 78.5 : 42.5 }}>
           <Cover uri={uri} icon="image-outline" size={18} />
         </View>) : <Cover uri={covers[0]} icon="folder-open-outline" size={28} />}
       </View>
       <View>
-        <Copy kind="label" numberOfLines={1}>{title}</Copy>
+        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 1}>{title}</Copy>
         <Copy kind="small" tone="muted">{count} {count === 1 ? "workout" : "workouts"}</Copy>
       </View>
     </AnimatedPressable>
