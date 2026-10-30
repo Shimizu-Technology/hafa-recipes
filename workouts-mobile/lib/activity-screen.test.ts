@@ -222,3 +222,17 @@ it("can save an editable draft while React Query is paused offline", async () =>
    expect(nodes("CalendarDate")[0].props.disabled).toBe(false);
  } finally { onlineManager.setOnline(true); }
 });
+
+it("keeps revision-conflict recovery available for an existing activity without creating another activity", async () => {
+ f.params = { id: LEGACY_ID };
+ f.activity.mockResolvedValue({ ...legacy, legacy: false, completed_confirmed: true });
+ f.saveActivity.mockRejectedValueOnce(Object.assign(Error("Revision changed"), { status: 409 }));
+ await mount(); await act(async () => button("Save changes").props.onPress()); await settle();
+ expect(button("Discard and reload")).toBeDefined();
+ f.activity.mockResolvedValue({ ...legacy, revision: 4, legacy: false, completed_confirmed: true });
+ await act(async () => button("Discard and reload").props.onPress()); await settle();
+ expect(nodes("CalendarDate")[0].props.disabled).toBe(false);
+ await act(async () => button("Save changes").props.onPress()); await settle();
+ expect(f.saveActivity.mock.calls[1][0]).toBe(LEGACY_ID);
+ expect(f.saveActivity.mock.calls[1][1].expected_revision).toBe(4);
+});

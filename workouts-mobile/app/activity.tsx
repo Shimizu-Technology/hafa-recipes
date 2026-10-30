@@ -492,7 +492,7 @@ export default function ActivityEditor() {
             )}
             {draft.operation?.action === "save" && <Button title="Check saved request before editing" secondary busy={busy}
               onPress={() => void execute(draft.operation!, true)} />}
-            {conflict && !draft.operation && (
+            {((conflict && !draft.operation) || (id && conflict)) && (
               <Button
                 title="Discard and reload"
                 secondary
