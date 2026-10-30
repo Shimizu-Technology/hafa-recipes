@@ -75,7 +75,7 @@ interface BabyContext {
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
   queue: (m: Mutation) => Promise<void>;
   discardQueued: (id: string, server?: BabyRecord) => Promise<void>;
-  saveDraft: (key: string, draft: EditorDraft | null) => Promise<void>;
+  saveDraft: (key: string, draft: EditorDraft | null, valid?: () => boolean) => Promise<void>;
   getToken: () => Promise<string | null>;
   current: () => boolean;
   signOut: () => Promise<void>;
@@ -586,11 +586,13 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => addMutation(s, m));
           void funcs.current.sync();
         },
-        saveDraft: async (key, draft) => {
+        saveDraft: async (key, draft, valid) => {
+          if (valid && !valid()) return;
           const capturedGeneration = state.bootstrap?.generation;
           if (capturedGeneration !== ref.current.bootstrap?.generation || ref.current.bootstrap?.active === false)
             throw Error("This draft belongs to an earlier Baby space.");
           await commit((s) => {
+            if (valid && !valid()) return s;
             const drafts = { ...s.drafts };
             if (draft) drafts[key] = draft;
             else delete drafts[key];

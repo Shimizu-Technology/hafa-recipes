@@ -1,15 +1,20 @@
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, Card, Chips, Copy, Empty, Icon, Loading, Notice, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, Card, Chips, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
 export default function AskScreen({ back = false }: { back?: boolean }) {
+  const [screenFocused, setScreenFocused] = useState(false);
+  useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
   const b = useBaby(),
     params = useLocalSearchParams<{ record_id?: string }>(),
-    chat = useAskSession(params.record_id),
+    { fontScale, height } = useWindowDimensions(),
+    composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
+    chat = useAskSession(params.record_id, screenFocused),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
   const focused = !!chat.context.record_id;
   async function review(proposal: Proposal) {
@@ -27,7 +32,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       action={<Button secondary title="History" icon="time-outline" disabled={chat.resolving} onPress={() => void openHistory()} />}
       followEnd
       footer={
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
+        <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-end", gap: 10 }}>
           <TextInput
             accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
             value={question}
@@ -37,23 +42,24 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             editable={available && !busy && !chat.resolving}
             multiline
             maxLength={4000}
-            maxFontSizeMultiplier={1.6}
-            style={{ flex: 1, maxHeight: 132, minHeight: 46, borderWidth: 1, borderColor: c.border, borderRadius: 22,
+            maxFontSizeMultiplier={0}
+            scrollEnabled
+            style={{ flex: fontScale >= 1.5 ? undefined : 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
+              minHeight: composerMinimum, borderWidth: 1, borderColor: c.border, borderRadius: 22,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
-              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
+              fontFamily: fonts.regular, fontSize: 17 }}
           />
-          <Pressable
+          <PressTarget
             accessibilityRole="button"
             accessibilityLabel={error && chat.requestId ? "Retry this question" : "Send question"}
             accessibilityState={{ disabled: !canSend, busy }}
             disabled={!canSend}
             onPress={() => void send()}
-            style={({ pressed }) => ({ width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center",
-              backgroundColor: c.action, opacity: !canSend ? 0.4 : pressed ? 0.8 : 1,
-              transform: [{ scale: pressed && canSend ? 0.95 : 1 }] })}
+            style={{ width: 46, height: 46, alignSelf: "flex-end", borderRadius: 23, alignItems: "center", justifyContent: "center",
+              backgroundColor: c.action }}
           >
             {busy ? <ActivityIndicator color={c.onAction} /> : <Icon name={error && chat.requestId ? "refresh" : "arrow-up"} color={c.onAction} size={24} />}
-          </Pressable>
+          </PressTarget>
         </View>
       }
     >
@@ -134,7 +140,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: 20,
               borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
           >
-            <Text maxFontSizeMultiplier={2} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 25 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17 }}>
               {m.content}
             </Text>
           </View>
