@@ -761,26 +761,6 @@ export default function ExtractScreen() {
         keyboardVerticalOffset={insets.top + 64}>
         <ScrollView ref={importScroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.md }]}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <RNView style={styles.importHeading}>
-            <Text style={[styles.importTitle, { color: colors.text }]}>Import a recipe</Text>
-            <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>Save a recipe from a link, text, or photo.</Text>
-          </RNView>
-          <RecipeDraftNotice draft={scanDraft} />
-          <RecipeDraftNotice draft={recoveryDraft} />
-          {pendingShares > 0 && <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
-            <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} ready to sync</Text>
-            <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {
-              if (!ShareIntentModule || openingNextShare.current) return;
-              openingNextShare.current = true;
-              setIsOpeningNextShare(true);
-              void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
-                openingNextShare.current = false;
-                setIsOpeningNextShare(false);
-              });
-            }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
-              <Text style={{ color: colors.actionText }}>Open next</Text>
-            </TouchableOpacity>
-          </RNView>}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
             style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             <RNView style={styles.composerLabelRow}>
@@ -811,27 +791,77 @@ export default function ExtractScreen() {
               onBlur={() => { linkFocused.current = false; }}
               style={{ backgroundColor: colors.background }} />
             <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
-            <TouchableOpacity style={styles.settingsSummary} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
+            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
-              <Ionicons name={isPublic ? 'globe-outline' : 'lock-closed-outline'} size={20} color={colors.actionText} />
-              <RNView style={styles.settingsCopy}>
-                <Text style={[styles.settingsTitle, { color: colors.text }]}>{isPublic ? 'Public in Discover' : 'Private recipe'}</Text>
-                <Text style={[styles.hint, { color: colors.textMuted }]}>{isPublic ? 'Visible to everyone' : 'Only you'} · {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
-              </RNView>
+              <Text style={{ color: colors.textSecondary }}>Cost estimates: {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
               <Ionicons name="options-outline" size={20} color={colors.textMuted} />
             </TouchableOpacity>
             <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
-              onChange={(value) => { setIsPublic(value === 'public'); rememberImportSettings({ isPublic: value === 'public' }); }}
+              onChange={(value) => { const next = value === 'public'; setIsPublic(next); rememberImportSettings({ isPublic: next }); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} />
-            <Text style={[styles.hint, { color: colors.textMuted }]}>Default for new accounts: Public. Your choice is remembered for future imports on this account.</Text>
             <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Import Recipe'}
               onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : () => { Keyboard.dismiss(); return handleExtract(); }}
               disabled={Boolean(isSignedIn) && (!preferences.ready || isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
               loading={isChecking} size="md" />
           </RNView>
 
-          {(extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
+
+
+          {inbox.storageError && <Text style={{ color: colors.error }}>{inbox.storageError}</Text>}
+          {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
+
+
+          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
+          <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+            {([
+              { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
+              { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
+              { title: 'Write your own recipe', icon: 'create-outline', onPress: () => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } }) },
+            ] as const).map((method, index) => (
+              <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
+                onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
+                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
+                <Ionicons name={method.icon} size={21} color={colors.actionText} />
+                <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
+                <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))}
+          </RNView>
+          <RecipeDraftNotice draft={scanDraft} />
+          <RecipeDraftNotice draft={recoveryDraft} />
+          <ImportActivityCard jobs={isSignedIn ? recentImports.data || [] : []}
+            captures={[...(pendingShares > 0 ? [{ id: 'native-waiting', createdAt: 0, content: <RNView style={[styles.pendingShareNotice, { borderColor: colors.border }]}>
+            <Text style={{ color: colors.text }}>{pendingShares} shared {pendingShares === 1 ? 'recipe' : 'recipes'} waiting to sync</Text>
+            <TouchableOpacity disabled={isOpeningNextShare} onPress={() => {
+              if (!ShareIntentModule || openingNextShare.current) return;
+              openingNextShare.current = true;
+              setIsOpeningNextShare(true);
+              void Promise.resolve(ShareIntentModule.getShareIntent('')).catch(() => {
+                openingNextShare.current = false;
+                setIsOpeningNextShare(false);
+              });
+            }} accessibilityRole="button" accessibilityLabel="Open next shared recipe">
+              <Text style={{ color: colors.actionText }}>Open next</Text>
+            </TouchableOpacity>
+          </RNView> }] : []), ...inbox.entries.filter((entry) => !entry.jobId || !recentImports.data?.some((job) => job.id === entry.jobId) && entry.jobId !== extraction.jobId).map((entry) => ({
+              id: entry.id, createdAt: entry.createdAt, content: <RNView key={entry.id} style={styles.inboxRow}>
+              <RNView style={{ flex: 1 }}>
+                <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
+                <Text style={[styles.hint, { color: entry.error ? colors.error : colors.textMuted }]}>
+                  {entry.error ? `Needs help · ${entry.error}` : (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Importing…' : entry.state === 'ready' ? 'Waiting · starts after the current import' : 'Waiting · Ready to review')}
+                </Text>
+              </RNView>
+              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting || Boolean(isSignedIn && !inbox.ownerId)} onPress={() => {
+                void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
+              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
+              {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
+            </RNView>,
+            }))]}
+            active={(extraction.isExtracting || extraction.isComplete || extraction.isFailed) ? {
+              id: extraction.jobId || 'active',
+              createdAt: Date.parse(recentImports.data?.find((job) => job.id === extraction.jobId)?.created_at || '') || 0,
+              content: (extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
             <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
               <RNView style={styles.pendingShareCopy}>
                 {extraction.isExtracting ? <ActivityIndicator color={colors.actionText} /> : <Ionicons
@@ -923,45 +953,10 @@ export default function ExtractScreen() {
 
 
             </RNView>
-          )}
-
-          {inbox.storageError && <Text style={{ color: colors.error }}>{inbox.storageError}</Text>}
-          {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
-          {inbox.entries.length > 0 && <RNView style={[styles.compactProgress, { borderColor: colors.border }]}>
-            <Text style={[styles.label, { color: colors.text }]}>Waiting imports · {inbox.entries.length}</Text>
-            {inbox.entries.map((entry) => <RNView key={entry.id} style={styles.inboxRow}>
-              <RNView style={{ flex: 1 }}>
-                <Text style={{ color: colors.text }} numberOfLines={1}>{entry.capture.kind === 'url' ? entry.capture.url : entry.capture.kind === 'text' ? 'Shared recipe text' : `${entry.capture.images.length} recipe images`}</Text>
-                <Text style={[styles.hint, { color: entry.error ? colors.error : colors.textMuted }]}>
-                  {entry.error || (entry.ownerId === null ? (!isSignedIn ? 'Sign in to finish importing' : inbox.ownerId ? 'Tap Finish to import it into your library' : 'Getting your account ready…') : entry.state === 'submitting' ? 'Starting import…' : entry.state === 'ready' ? 'Queued · starts after the current import' : 'Ready to review')}
-                </Text>
-              </RNView>
-              {(entry.state === 'waiting' || entry.state === 'error' || entry.state === 'submitting' || entry.submissionClaimed || entry.ownerId === null) && <TouchableOpacity disabled={extraction.isExtracting || Boolean(isSignedIn && !inbox.ownerId)} onPress={() => {
-                void (extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? extraction.retryPendingStart() : openCapturedEntry(entry)).catch((error: Error) => Alert.alert('Could Not Open Import', error.message));
-              }} accessibilityRole="button" accessibilityLabel="Finish shared import"><Text style={{ color: colors.actionText }}>{entry.submissionClaimed || entry.state === 'submitting' || extraction.canRetryStart && extraction.requestKey === `share:${entry.id}` ? 'Reconnect' : entry.state === 'error' ? 'Retry' : 'Finish'}</Text></TouchableOpacity>}
-              {entry.state !== 'submitting' && !entry.submissionClaimed && !(extraction.canRetryStart && extraction.requestKey === `share:${entry.id}`) && <TouchableOpacity onPress={() => { if (captureOwner.current.ownerId !== inbox.ownerId) return; void importInbox.removeWaiting(entry.id, entry.ownerId === null ? null : inbox.ownerId).catch((error: Error) => Alert.alert('Could Not Remove Import', error.message)); }} accessibilityRole="button" accessibilityLabel="Remove waiting import"><Ionicons name="close" size={18} color={colors.textMuted} /></TouchableOpacity>}
-            </RNView>)}
-          </RNView>}
-
-          {isSignedIn && <ImportActivityCard jobs={(recentImports.data || []).filter((job) => !(job.id === extraction.jobId && (extraction.isExtracting || extraction.isComplete || extraction.isFailed)))}
+          ),
+            } : null}
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
-            onRestore={extraction.restoreJob} onCancel={handleCancel} />}
-          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
-          <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
-            {([
-              { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
-              { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
-              { title: 'Write your own recipe', icon: 'create-outline', onPress: () => router.push({ pathname: '/add-recipe', params: { isPublic: isPublic ? 'true' : 'false' } }) },
-            ] as const).map((method, index) => (
-              <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
-                onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
-                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
-                <Ionicons name={method.icon} size={21} color={colors.actionText} />
-                <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
-                <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
-              </TouchableOpacity>
-            ))}
-          </RNView>
+            onRestore={extraction.restoreJob} onCancel={handleCancel} />
           <RNView style={styles.helpActions}>
             <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
               accessibilityRole="button" accessibilityLabel="Import help">

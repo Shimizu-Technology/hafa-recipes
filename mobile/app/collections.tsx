@@ -1,0 +1,38 @@
+import { useState } from 'react';
+import { ScrollView, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { useAuth } from '@clerk/expo';
+import { Button, Text, useColors } from '@/components/Themed';
+import CreateCollectionModal from '@/components/CreateCollectionModal';
+import { SignInBanner } from '@/components/SignInBanner';
+import { useCollections } from '@/hooks/useCollections';
+
+export default function CollectionsScreen() {
+  const router = useRouter();
+  const colors = useColors();
+  const { isSignedIn } = useAuth();
+  const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
+  const { data: collections, isLoading: isLoadingCollections, isError: isCollectionsError,
+    isFetching: isFetchingCollections, refetch: refetchCollections } = useCollections(Boolean(isSignedIn));
+  return <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <Stack.Screen options={{ title: 'Collections' }} />
+    {!isSignedIn ? <SignInBanner message="Sign in to open your collections" /> : <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
+      <Button title="New collection" onPress={() => setShowCreateCollectionModal(true)} />
+      {isLoadingCollections && <ActivityIndicator accessibilityLabel="Loading collections" />}
+      {isCollectionsError && <View>
+        <Text accessibilityRole="alert">{collections === undefined
+          ? 'Couldn’t load your collections. Check your connection and try again.'
+          : 'Couldn’t refresh your collections. Your last loaded collections are still shown.'}</Text>
+        <Button title={isFetchingCollections ? 'Trying again…' : 'Try again'} disabled={isFetchingCollections} onPress={() => { void refetchCollections(); }} />
+      </View>}
+      {!isLoadingCollections && !isCollectionsError && collections?.length === 0 && <Text>Create your first collection to organize recipes</Text>}
+      {collections?.map((collection) => <TouchableOpacity key={collection.id} accessibilityRole="button"
+        accessibilityLabel={`${collection.name}, ${collection.recipe_count} recipes`}
+        onPress={() => router.push(`/collection/${collection.id}`)}
+        style={{ padding: 16, minHeight: 44, borderBottomWidth: 1, borderColor: colors.border }}>
+        <Text>{collection.name}</Text><Text style={{ color: colors.textSecondary }}>{collection.recipe_count} recipes</Text>
+      </TouchableOpacity>)}
+    </ScrollView>}
+    {isSignedIn && <CreateCollectionModal visible={showCreateCollectionModal} onClose={() => setShowCreateCollectionModal(false)} />}
+  </View>;
+}

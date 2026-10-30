@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import type { ReactNode } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, TouchableOpacity, View as RNView } from 'react-native';
 
@@ -10,6 +10,8 @@ const ACTIVE_STATUSES: JobStatus['status'][] = ['queued', 'claimed', 'processing
 
 type ImportActivityCardProps = {
   jobs: JobStatus[];
+  captures?: { id: string; createdAt: number; content: ReactNode }[];
+  active?: { id: string; createdAt: number; content: ReactNode } | null;
   onOpenRecipe: (job: JobStatus) => void;
   onRestore: (job: JobStatus) => void;
   onCancel?: (job: JobStatus) => void;
@@ -70,7 +72,7 @@ export function importJobPresentation(job: JobStatus): ImportPresentation {
       actionLabel: 'View progress',
       colorKind: 'tint',
       icon: 'hourglass-outline',
-      label: job.status === 'queued' ? 'Waiting to start' : `Importing · ${job.progress}%`,
+      label: job.status === 'queued' ? 'Waiting' : `Importing · ${job.progress}%`,
     };
   }
   if (job.recipe_id) {
@@ -90,7 +92,7 @@ export function importJobPresentation(job: JobStatus): ImportPresentation {
       actionLabel: 'View options',
       colorKind: 'error',
       icon: job.status === 'expired' ? 'time-outline' : 'alert-circle-outline',
-      label: job.status === 'expired' ? 'Expired' : 'Needs attention',
+      label: job.status === 'expired' ? 'Needs help · Expired' : 'Needs help',
     };
   }
   return {
@@ -104,18 +106,19 @@ export function importJobPresentation(job: JobStatus): ImportPresentation {
 
 /** A compact, explicit recovery surface for recent durable link imports. */
 export function ImportActivityCard({
-  jobs,
+  jobs, captures = [], active,
   onOpenRecipe,
   onRestore,
   onCancel,
 }: ImportActivityCardProps) {
   const colors = useColors();
-  const [historyExpanded, setHistoryExpanded] = useState(false);
-  const visibleJobs = jobs.filter((job) => job.status !== 'cancelled');
-  const needsAction = (job: JobStatus) => importJobPresentation(job).action === 'restore';
-  const unfinished = visibleJobs.filter(needsAction);
-  const history = visibleJobs.filter((job) => !needsAction(job));
-  if (visibleJobs.length === 0) return null;
+  const visibleJobs = jobs.filter((job) => job.status !== 'cancelled' && job.id !== active?.id &&
+    !captures.some((capture) => capture.id === job.id));
+  const rows = [
+    ...visibleJobs.map((job) => ({ id: job.id, createdAt: Date.parse(job.created_at || '') || 0, job })),
+    ...captures, ...(active ? [active] : []),
+  ].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
+  if (!rows.length) return null;
 
   const colorFor = (kind: ImportPresentation['colorKind']) => ({
     success: colors.success, warning: colors.warning, error: colors.error,
@@ -161,24 +164,13 @@ export function ImportActivityCard({
     );
   };
 
-  return (
-    <RNView style={styles.container}>
-      {unfinished.length > 0 && <RNView style={[styles.unfinished, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Unfinished imports</Text>
-        {unfinished.map(renderJob)}
-      </RNView>}
-      {history.length > 0 && <RNView>
-        <TouchableOpacity style={styles.historyToggle} onPress={() => setHistoryExpanded(!historyExpanded)}
-          accessibilityRole="button" accessibilityLabel="Recent imports" accessibilityState={{ expanded: historyExpanded }}>
-          <Ionicons name="time-outline" size={19} color={colors.textMuted} />
-          <Text style={[styles.historyTitle, { color: colors.textSecondary }]}>Recent imports</Text>
-          <Text style={[styles.age, { color: colors.textMuted }]}>{history.length}</Text>
-          <Ionicons name={historyExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
-        </TouchableOpacity>
-        {historyExpanded && <RNView>{history.map(renderJob)}</RNView>}
-      </RNView>}
-    </RNView>
-  );
+  return <RNView style={styles.container}>
+    <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>Imports</Text>
+    {rows.map((row, index) => <RNView key={row.id}>
+      {'job' in row ? renderJob(row.job, index) : row.content}
+    </RNView>)}
+  </RNView>;
+
 }
 
 const styles = StyleSheet.create({
