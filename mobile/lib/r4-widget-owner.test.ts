@@ -102,7 +102,6 @@ function storedSession(overrides: Partial<StoredGroceryWidgetSession> = {}) {
   };
 }
 
-describe('grocery widget lifecycle', () => {
   beforeEach(() => {
     secureValues.clear();
     vi.clearAllMocks();
@@ -154,7 +153,7 @@ describe('grocery widget lifecycle', () => {
     await synchronizeGroceryWidget('clerk-user-one');expect(bridge.restorePending).toHaveBeenCalledWith('owner-a');
     await offlineRecipes.clear();
   });
-});
+
 
 import * as SecureStore from 'expo-secure-store';
 it('removes a widget metadata write dispatched before retirement but completed afterwards',async()=>{
@@ -166,4 +165,15 @@ it('removes a widget metadata write dispatched before retirement but completed a
  const pending=synchronizeGroceryWidget('clerk-user-one').catch(()=>undefined);
  try{await started;await offlineRecipes.verify('clerk-user-one','owner-b');finish();await pending;expect(secureValues.has(SESSION_KEY)).toBe(false);}
  finally{finish();spy.mockRestore();await offlineRecipes.clear();}
+});
+
+it('serializes successive owner retirements before a replacement widget can publish',async()=>{
+ await offlineRecipes.bindSubject('clerk-user-one');await offlineRecipes.verify('clerk-user-one','owner-a');
+ let finish!:()=>void;const gate=new Promise<void>(resolve=>{finish=resolve});
+ bridge.retireSession.mockReset().mockImplementationOnce(()=>gate).mockResolvedValue(true);
+ await offlineRecipes.verify('clerk-user-one','owner-b');await vi.waitFor(()=>expect(bridge.retireSession).toHaveBeenCalledWith('owner-a'));
+ await offlineRecipes.verify('clerk-user-one','owner-c');
+ try{expect(bridge.retireSession.mock.calls.map(args=>args[0])).toEqual(['owner-a']);}
+ finally{finish();await bindGroceryWidgetIdentity('clerk-user-one');await offlineRecipes.clear();}
+ expect(bridge.retireSession.mock.calls.slice(0,2).map(args=>args[0])).toEqual(['owner-a','owner-b']);
 });

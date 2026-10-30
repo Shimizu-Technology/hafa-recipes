@@ -399,6 +399,8 @@ export function requestGroceryWidgetRefresh(): void {
 // Start retirement immediately, ahead of any blocked JS synchronization queue.
 offlineRecipes.onRetire(previous => {
   if (!previous || !HafaWidgetBridge.isAvailable) return;
-  const scrub = HafaWidgetBridge.retireSession(previous.owner).catch(() => undefined);
-  retirement = Promise.all([retirement, scrub]).then(() => deleteStoredSession()).catch(() => undefined);
+  // Never let a later owner's retirement archive the prior owner's native queue.
+  // Provisioning waits for this same chain before installing any replacement.
+  retirement = retirement.then(() => HafaWidgetBridge.retireSession(previous.owner))
+    .then(() => deleteStoredSession()).catch(() => undefined);
 });
