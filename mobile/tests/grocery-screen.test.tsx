@@ -10,6 +10,7 @@ import type { GroceryItem } from '@/types/recipe';
 
 const mocks = vi.hoisted(() => ({
   collapsedSections: JSON.stringify(['recipe:recipe-1']),
+  queued: false,
   groceryState: {
     items: [] as GroceryItem[] | undefined,
     isLoading: false,
@@ -50,11 +51,13 @@ vi.mock('react-native', () => ({
     renderItem,
     renderSectionHeader,
     ListEmptyComponent,
+    ListFooterComponent,
   }: {
     sections: Array<{ key: string; data: GroceryItem[] }>;
     renderItem: (info: { item: GroceryItem; index: number; section: unknown }) => React.ReactNode;
     renderSectionHeader: (info: { section: unknown }) => React.ReactNode;
     ListEmptyComponent: React.ComponentType;
+    ListFooterComponent: React.ReactNode;
   }) => React.createElement(
     'SectionList',
     null,
@@ -68,6 +71,7 @@ vi.mock('react-native', () => ({
             renderItem({ item, index, section }),
           )),
         ]),
+    ListFooterComponent,
   ),
   Share: { share: mocks.share },
   StyleSheet: { create: <T,>(styles: T) => styles },
@@ -207,6 +211,7 @@ vi.mock('@/hooks/useGrocery', () => ({
     };
   },
   useGroceryListInfo: () => ({ data: mocks.listInfoState }),
+  usePendingGrocerySync: () => ({ data: mocks.queued }),
   useGrocerySync: () => ({ lastSyncResult: null, clearSyncResult: vi.fn() }),
   useToggleGroceryItem: mutation,
   useUpdateGroceryItem: mutation,
@@ -238,6 +243,7 @@ function item(overrides: Partial<GroceryItem> & Pick<GroceryItem, 'id' | 'name'>
 
 describe('GroceryScreen shopping views', () => {
   beforeEach(() => {
+    mocks.queued = false;
     mocks.authState.isLoaded = true;
     mocks.authState.isSignedIn = true;
     mocks.listInfoState.is_shared = false;
@@ -536,16 +542,47 @@ describe('GroceryScreen shopping views', () => {
         text: string;
         onPress?: () => Promise<void>;
       }>;
-      const exportAction = actions.find((action) => action.text === 'Export list');
+      const exportAction = actions.find((action) => action.text === 'Export text — To buy');
       await act(async () => exportAction!.onPress!());
 
       const message = mocks.share.mock.calls.at(-1)?.[0]?.message as string;
+      expect(message).toContain('Grocery List — To buy');
       expect(message).toContain('[ ] 1 Salt');
       expect(message).toContain('[ ] 1 tbsp Oil');
       expect(message.toLowerCase()).not.toContain('null');
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('uses one field for search/add and names the exported view', async () => {
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice' }), item({ id: 'salt', name: 'Salt' })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      const inputs = renderer.container.queryAll((node) => node.type === 'TextInput');
+      expect(inputs).toHaveLength(1);
+      await act(async () => inputs[0].props.onChangeText('rice'));
+      const overflow = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'More grocery list actions')[0];
+      await act(async () => overflow.props.onPress());
+      const actions = mocks.alert.mock.calls.at(-1)![2];
+      await act(async () => actions.find((action: { text: string }) => action.text === 'Export text — Search matches').onPress());
+      expect(mocks.share.mock.calls.at(-1)![0].message).toContain('Grocery List — Search matches');
+      expect(mocks.share.mock.calls.at(-1)![0].message).not.toContain('Salt');
+      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Share household')).toHaveLength(1);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('labels singular pantry transfers and recovered queued changes', async () => {
+    mocks.queued = true;
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice', checked: true })];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      expect(renderedText(renderer)).toContain('Saved on this device · waiting to sync');
+      expect(renderedText(renderer)).not.toContain('Up to date');
+      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Add 1 checked item to pantry')).toHaveLength(1);
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('offers retry for an initial failure and disables it during refetch', async () => {

@@ -404,12 +404,12 @@ export function useGrocerySync(enabled = true) {
   };
 }
 
-export function usePendingGrocerySync() {
+export function usePendingGrocerySync(enabled = true) {
   const { isOnline } = useNetworkStatus();
   return useQuery({
     queryKey: groceryKeys.pending(),
     queryFn: () => hasPendingSync(getGroceryStorageLease()),
-    enabled: !isOnline,
+    enabled,
     refetchInterval: !isOnline ? 5_000 : false,
   });
 }
