@@ -11,6 +11,7 @@ const f = vi.hoisted(() => ({
   saveActivity: vi.fn(),
   activity: vi.fn(),
   offline: false,
+  timezone: "UTC", today: "2026-10-10",
 }));
 vi.mock("react-native", () => ({ AppState: { addEventListener: () => ({ remove() {} }) } }));
 vi.mock("expo-router", async () => {
@@ -30,7 +31,7 @@ vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => true, getItem: async (key: string) => f.map.get(key) ?? null,
     setItem: async (key: string, value: string) => { f.map.set(key, value); }, removeItem: async (key: string) => { f.map.delete(key); } };
   const api = {
-    activityLog: async () => { if (f.offline) throw Error("Offline"); return ({ items: [], has_more: false, timezone: "UTC", today: "2026-10-10", limit: 50, offset: 0 }); },
+    activityLog: async () => { if (f.offline) throw Error("Offline"); return ({ items: [], has_more: false, timezone: f.timezone, today: f.today, limit: 50, offset: 0 }); },
     activity: f.activity,
     saveActivity: f.saveActivity,
   };
@@ -61,7 +62,8 @@ beforeEach(() => {
   vi.spyOn(Date.prototype, "getFullYear").mockReturnValue(2026);
   vi.spyOn(Date.prototype, "getMonth").mockReturnValue(9);
   vi.spyOn(Date.prototype, "getDate").mockReturnValue(10);
-  f.offline = false;
+  f.offline = false; f.timezone = "UTC"; f.today = "2026-10-10";
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-10T12:00:00Z"));
   f.params = {}; f.map.clear(); f.saveActivity.mockReset(); f.activity.mockReset();
   f.saveActivity.mockImplementation(async (_id: string | null, body: { date: string }) => ({ ...legacy, id: "saved", legacy: false,
     completed_confirmed: true, content: { ...legacy.content!, date: body.date }, profile_revision: 1 }));
@@ -128,6 +130,7 @@ it("a new-entry draft saved before this change resumes confirmed, while a saved 
 });
 
 it("opens offline, saves one durable command, and retries the same request after reopening", async () => {
+  await mount(); await act(async () => renderer!.unmount()); renderer = undefined; cache.clear();
   f.offline = true;
   f.saveActivity.mockRejectedValueOnce(Error("Offline"));
   await mount();
@@ -146,4 +149,64 @@ it("opens offline, saves one durable command, and retries the same request after
   expect(f.saveActivity.mock.calls[1][1]).toEqual(original);
   expect(nodes("Notice").some(n => n.props.children === "Basketball · today · 60 min saved")).toBe(true);
   expect(nodes("Button").filter(n => String(n.props.title).toLowerCase().includes("history"))).toHaveLength(1);
+});
+
+it("uses the server training date when the device calendar is a day ahead", async () => {
+ vi.spyOn(Date.prototype, "getDate").mockReturnValue(11);
+ await mount();
+ expect(nodes("CalendarDate")[0].props.value).toBe("2026-10-10");
+ await act(async () => nodes("Field")[0].props.onChange("60"));
+ await act(async () => button("Save activity").props.onPress()); await settle();
+ expect(f.saveActivity.mock.calls[0][1].date).toBe("2026-10-10");
+});
+it("checks the original request before unlocking a rejected date and preserves uncertain requests", async () => {
+ const { draftKey } = await import("./drafts");
+ const old = { owner: "owner", generation: 1, target_id: null, kind: "basketball", date: "2026-10-11", timezone: "Pacific/Guam", name: "", duration: "60", distance: "", distance_unit: "km", notes: "", strenuous: null, confirm_completed: true };
+ const operation = { owner: "owner", generation: 1, target_id: null, action: "save", body: { request_id: "frozen-original", kind: "basketball", date: old.date, duration_minutes: 60, strenuous: null } };
+ const key = draftKey("owner", "activity-command:1:new");
+ f.map.set(key, JSON.stringify({ input: old, operation, finished: false }));
+ f.saveActivity.mockRejectedValueOnce(Error("Lost response"));
+ await mount();
+ await act(async () => button("Check saved request before editing").props.onPress()); await settle();
+ expect(nodes("CalendarDate")[0].props.disabled).toBe(true);
+ expect(JSON.parse(f.map.get(key)!).operation.body.request_id).toBe("frozen-original");
+ f.saveActivity.mockRejectedValueOnce(Object.assign(Error("Date rejected"), { status: 422 }));
+ await act(async () => button("Check saved request before editing").props.onPress()); await settle();
+ expect(f.saveActivity.mock.calls.map(args => args[1])).toEqual([operation.body, operation.body]);
+ expect(nodes("CalendarDate")[0].props.disabled).toBe(false);
+ expect(nodes("CalendarDate")[0].props.value).toBe(old.date);
+ expect(JSON.parse(f.map.get(key)!).operation).toBeNull();
+ await act(async () => nodes("CalendarDate")[0].props.onChange("2026-10-10"));
+ await act(async () => button("Save activity").props.onPress()); await settle();
+ expect(f.saveActivity.mock.calls[2][1]).toMatchObject({ date: "2026-10-10", request_id: "request-uuid" });
+});
+it("keeps a fresh offline activity as an editable draft until its training calendar is known", async () => {
+ f.offline = true; await mount();
+ await act(async () => nodes("Field")[0].props.onChange("60"));
+ await act(async () => button("Save activity").props.onPress()); await settle();
+ expect(f.saveActivity).not.toHaveBeenCalled();
+ expect(nodes("CalendarDate")[0].props.disabled).toBe(false);
+ expect(JSON.stringify([...f.map.values()])).toContain("60");
+});
+
+it("computes fresh offline defaults in the cached training timezone, scoped to its enrollment", async () => {
+ const { draftKey } = await import("./drafts");
+ f.map.set(draftKey("owner", "activity-calendar:1"), "America/Los_Angeles");
+ vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-31T15:00:00Z"));
+ vi.spyOn(Date.prototype, "getMonth").mockReturnValue(10); vi.spyOn(Date.prototype, "getDate").mockReturnValue(1);
+ f.offline = true; await mount();
+ expect(nodes("CalendarDate")[0].props.value).toBe("2026-10-31");
+});
+it("checks a lost successful save without creating a replacement command", async () => {
+ f.saveActivity.mockRejectedValueOnce(Error("Lost response")); await mount();
+ await act(async () => nodes("Field")[0].props.onChange("60"));
+ await act(async () => button("Save activity").props.onPress()); await settle();
+ const original = f.saveActivity.mock.calls[0][1];
+ await act(async () => button("Check saved request before editing").props.onPress()); await settle();
+ expect(f.saveActivity.mock.calls[1][1]).toEqual(original);
+ expect(nodes("CalendarDate")).toHaveLength(0);
+ expect(button("Start a new completed activity")).toBeDefined();
+ f.today = "2026-10-11";
+ await act(async () => button("Start a new completed activity").props.onPress()); await settle();
+ expect(nodes("CalendarDate")[0].props.value).toBe("2026-10-11");
 });

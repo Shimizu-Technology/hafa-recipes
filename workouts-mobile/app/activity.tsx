@@ -1,4 +1,6 @@
 import { AppState } from "react-native";
+import { draftKey } from "@/lib/drafts";
+import { dateInTimezone } from "@/lib/training";
 import { createActivityDraftStore } from "@/lib/activity-drafts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -41,7 +43,28 @@ export default function ActivityEditor() {
     queryFn: () => api.activity(id!, generation),
     enabled: validId && !!id && !!enrollment?.enrolled,
   });
-  const [deviceCalendar] = useState(deviceActivityCalendar);
+  const calendarKey = draftKey(owner, `activity-calendar:${generation}`);
+  const [cachedTimezone, setCachedTimezone] = useState<string | null>(null);
+  const [calendarLoaded, setCalendarLoaded] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setCalendarLoaded(false); setCachedTimezone(null);
+    void storage.getItem(calendarKey).then(value => {
+      if (active) { if (value) { dateInTimezone(new Date(), value); setCachedTimezone(value); } setCalendarLoaded(true); }
+    }).catch(() => { if (active) setCalendarLoaded(true); });
+    return () => { active = false; };
+  }, [storage, calendarKey]);
+  useEffect(() => {
+    if (calendar.data && storage.isCurrent()) {
+      setCachedTimezone(calendar.data.timezone);
+      void storage.setItem(calendarKey, calendar.data.timezone).catch(() => setError("Could not save your training timezone for offline logging."));
+    }
+  }, [calendar.data, calendarKey, storage]);
+  function activityCalendar() {
+    if (calendar.data && !calendar.isError) return calendar.data;
+    if (cachedTimezone) return { timezone: cachedTimezone, today: dateInTimezone(new Date(Date.now()), cachedTimezone) };
+    return deviceActivityCalendar();
+  }
   const [moreDetails, setMoreDetails] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
   const [draft, setDraft] = useState<ActivityDraft | null>(null);
@@ -119,7 +142,7 @@ export default function ActivityEditor() {
     };
   }, [owner, scope, generation, id]);
   useEffect(() => {
-    if (!restored || draft || finished || !enrollment?.enrolled || (id && !entry.data)) return;
+    if (!calendarLoaded || (!calendar.isFetched && calendar.fetchStatus !== "paused") || !restored || draft || finished || !enrollment?.enrolled || (id && !entry.data)) return;
     const saved = entry.data;
     const content = saved?.content;
     const kind: ActivityKind =
@@ -130,8 +153,8 @@ export default function ActivityEditor() {
       generation,
       target_id: id,
       kind,
-      date: content?.date ?? deviceCalendar.today,
-      timezone: deviceCalendar.timezone,
+      date: content?.date ?? activityCalendar().today,
+      timezone: activityCalendar().timezone,
       name: content?.name ?? "",
       duration: content?.duration_minutes == null ? "" : String(content.duration_minutes),
       distance:
@@ -145,7 +168,7 @@ export default function ActivityEditor() {
       // Logging a past or today date is the confirmation; only older unconfirmed entries ask explicitly.
       confirm_completed: saved ? saved.completed_confirmed === true || !saved.legacy : true,
     });
-  }, [restored, draft, finished, calendar.data, entry.data, id, params.kind, owner, generation]);
+  }, [calendarLoaded, calendar.isFetched, calendar.fetchStatus, cachedTimezone, restored, draft, finished, calendar.data, entry.data, id, params.kind, owner, generation]);
   useEffect(() => {
     if (draft && !finished)
       void draftStore.saveInput(draft).then(() => setSyncStatus(draft.operation ? "Saved on this device · waiting to sync. Retry save when connected." : "Draft saved on this device · not synced yet.")).catch(() => setError("Could not preserve this draft. Retry before leaving."));
@@ -183,7 +206,7 @@ export default function ActivityEditor() {
           : draft.distance,
     });
   }
-  async function execute(operation: ActivityOperation) {
+  async function execute(operation: ActivityOperation, editRejected = false) {
     if (lock.current || !draft) return;
     lock.current = true;
     setBusy(true);
@@ -217,11 +240,22 @@ export default function ActivityEditor() {
       setMessage(
         operation.action === "remove"
           ? "Activity removed from Håfa history. The old command cannot recreate it."
-          : activitySavedMessage(operation.body as ReturnType<typeof activityBody>, deviceActivityCalendar().today)
+          : activitySavedMessage(operation.body as ReturnType<typeof activityBody>, activityCalendar().today)
       );
     } catch (e) {
       if (current.current === focusKey && focused.current) {
-        setError((e as Error).message);
+        if ((e as { status?: number }).status === 422 && operation.action === "save" && editRejected) {
+          // Replaying the exact command first checks the server's durable receipt before date validation.
+          // Only a definitive 422 permits replacing it; a network/5xx response never does.
+          try {
+            const checked = await calendar.refetch();
+            guard();
+            if (checked.error || !checked.data) { setError("Reconnect to check your training calendar before correcting this save."); return; }
+            const editable = await draftStore.releaseRejected(operation.body.request_id);
+            guard(); setDraft({ ...editable, timezone: checked.data.timezone }); setConflict(false);
+            setError("The server rejected this save without recording it. Choose a completed date in your training timezone, then save again.");
+          } catch (failure) { if (current.current === focusKey && focused.current) setError((failure as Error).message); }
+        } else setError((e as Error).message);
         setConflict([409, 410].includes((e as { status?: number }).status ?? 0));
       }
     } finally {
@@ -235,7 +269,13 @@ export default function ActivityEditor() {
       await execute(draft.operation);
       return;
     }
-    const errors = activityErrors(draft, deviceActivityCalendar().today);
+    if (!calendar.data && !cachedTimezone) {
+      try { guard(); await draftStore.saveInput(draft); guard();
+        setSyncStatus("Draft saved on this device · connect to confirm your training calendar before syncing.");
+      } catch (e) { setError((e as Error).message); }
+      return;
+    }
+    const errors = activityErrors(draft, activityCalendar().today);
     if (id && !draft.expected_revision) errors.push("Reload the current activity before correcting it.");
     if (errors.length) {
       setError(errors.join(" "));
@@ -341,7 +381,7 @@ export default function ActivityEditor() {
               value={draft.date}
               onChange={(date) => update({ date: date ?? "" })}
             />
-            <Copy kind="small" tone="muted">Device calendar · {draft.timezone ?? deviceCalendar.timezone}</Copy>
+            <Copy kind="small" tone="muted">{calendar.data || cachedTimezone ? "Training calendar" : "Device date · training calendar not yet confirmed"} · {calendar.data?.timezone ?? cachedTimezone ?? draft.timezone ?? activityCalendar().timezone}</Copy>
             <Field
               disabled={busy || !!draft.operation}
               label="Duration · whole minutes"
@@ -418,8 +458,7 @@ export default function ActivityEditor() {
             </>}
             {draft.operation && (
               <Notice>
-                This {draft.operation.action === "remove" ? "removal" : "save"} hasn’t finished. Retry it, or discard it
-                and reload.
+                This {draft.operation.action === "remove" ? "removal" : "save"} hasn’t finished. Retry the same request. Check it before editing so an uncertain save cannot create a duplicate.
               </Notice>
             )}
             {id && !draft.operation && (
@@ -451,7 +490,9 @@ export default function ActivityEditor() {
                 )}
               </>
             )}
-            {(conflict || draft.operation) && (
+            {draft.operation?.action === "save" && <Button title="Check saved request before editing" secondary busy={busy}
+              onPress={() => void execute(draft.operation!, true)} />}
+            {conflict && !draft.operation && (
               <Button
                 title="Discard and reload"
                 secondary
