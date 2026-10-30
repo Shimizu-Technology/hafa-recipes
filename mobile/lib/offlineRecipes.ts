@@ -4,6 +4,8 @@ import type { Recipe } from '@/types/recipe';
 type Authority = { subject: string; owner: string; generation: string };
 export type OfflineRecipe = { recipe: Recipe; savedAt: number; pinned: boolean };
 type Lease = Authority & { epoch: number };
+export const OFFLINE_LIMITS = { pins: 100, bytes: 20 * 1024 * 1024 };
+const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 const PREFIX = 'hafa_offline_recipes_v1:';
 const META = `${PREFIX}authority`;
 
@@ -12,6 +14,10 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   let authority: Authority | null = null;
   let subject: string | null = null;
   let epoch = 0;
+  let version = 0;
+  const listeners = new Set<() => void>();
+  const emit = () => { version++; listeners.forEach(listener => listener()); };
+  const retire = () => { epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear(); emit(); };
   let tail: Promise<unknown> = Promise.resolve();
   const observed = new Map<string, { recipe: Recipe; fetchedAt: number }>();
   const eligible = new Set<string>();
@@ -34,6 +40,7 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
   const writeAll = async (lease: Lease, rows: OfflineRecipe[], changedId: string) => {
     if (!valid(lease)) return;
     const prior = await readIndex(lease);
+    if (!valid(lease)) return;
     await Promise.all(rows.filter(row => row.recipe.id === changedId).map(row => storage.setItem(recordKey(lease, row.recipe.id), JSON.stringify(row))));
     if (!valid(lease)) return;
     const ids = rows.map(row => row.recipe.id);
@@ -59,33 +66,43 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
     const rows = await readAll(lease);
     const previous = rows.find(row => row.recipe.id === recipe.id);
     const next = { recipe: { ...recipe, raw_text: undefined }, savedAt: fetchedAt, pinned: pinned ?? previous?.pinned ?? false };
-    if (JSON.stringify(next).length > 500_000) throw new Error('This recipe is too large to keep offline.');
+    if (bytes(next) > 500_000) throw new Error('This recipe is too large to keep offline.');
     const remaining = rows.filter(row => row.recipe.id !== recipe.id);
     const all = [next, ...remaining];
     const kept = [...all.filter(row => row.pinned), ...all.filter(row => !row.pinned).slice(0, 30)];
+    if (kept.filter(row => row.pinned).length > OFFLINE_LIMITS.pins || kept.reduce((size, row) => size + bytes(row), 0) > OFFLINE_LIMITS.bytes) {
+      throw new Error("Offline storage allows 100 kept recipes and 20 MB total. Remove an offline copy and try again. Your kept recipes have not been removed.");
+    }
     await writeAll(lease, kept, recipe.id);
   };
   return {
     revision,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    version: () => version,
     lease: (currentSubject?: string | null): Lease | null => authority && subject && currentSubject === subject ? { ...authority, epoch } : null,
     bindSubject(next: string | null) {
-      epoch++; subject = next; authority = null; observed.clear(); eligible.clear(); revisions.clear();
+      retire(); subject = next;
       const currentEpoch = epoch;
       return run(async () => {
         const raw = await storage.getItem(META);
         const prior: Authority | null = raw ? JSON.parse(raw) : null;
         if (!next || prior?.subject !== next) await erase();
-        if (epoch === currentEpoch && next && prior?.subject === next) authority = prior;
+        if (epoch === currentEpoch && next && prior?.subject === next) { authority = prior; emit(); }
       });
     },
     verify(currentSubject: string, owner: string) {
+      if (subject !== currentSubject) return Promise.resolve();
+      const changed = authority?.owner !== owner;
+      // Retire authority and observations synchronously, before queued disk work.
+      if (changed) retire();
       const currentEpoch = epoch;
       return run(async () => {
         if (subject !== currentSubject || epoch !== currentEpoch) return;
-        if (authority?.owner !== owner) {
+        if (changed) {
           await erase();
           if (epoch !== currentEpoch) return;
           authority = { subject: currentSubject, owner, generation: `${Date.now()}-${Math.random().toString(36).slice(2)}` };
+          emit();
         }
         await storage.setItem(META, JSON.stringify(authority));
       });
@@ -126,15 +143,14 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
         await save(lease, observation.recipe, pinned, observation.fetchedAt); return;
       }
       if (!row || !valid(lease)) throw new Error('Open a saved or own recipe online before marking it Available offline.');
-      row.pinned = pinned;
-      await writeAll(lease, rows, id);
+      await save(lease, row.recipe, pinned, row.savedAt);
     }),
     remove: (lease: Lease, id: string) => {
       if (valid(lease)) revisions.set(id, revision(id) + 1);
       return run(() => forget(lease, id));
     },
     clear() {
-      epoch++; authority = null; observed.clear(); eligible.clear(); revisions.clear();
+      retire();
       return run(erase);
     },
   };

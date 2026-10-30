@@ -2,14 +2,17 @@ import { useEffect, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { Button, Text } from '@/components/Themed';
+import { useOfflineLease } from '@/hooks/useOfflineRecipe';
 import { offlineRecipes, type OfflineRecipe } from '@/lib/offlineRecipes';
 
 export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string; eligible: boolean }) {
   const { userId } = useAuth();
-  const lease = offlineRecipes.lease(userId);
+  const lease = useOfflineLease(userId);
   const scope = lease ? `${lease.owner}:${lease.generation}` : null;
-  const [row, setRow] = useState<OfflineRecipe | null>(null);
+  const [cached, setCached] = useState<{ scope: string | null; row: OfflineRecipe | null }>({ scope: null, row: null });
   const [busy, setBusy] = useState(false);
+  const row = cached.scope === scope ? cached.row : null;
+  const setRow = (value: OfflineRecipe | null) => setCached({ scope, row: value });
   useEffect(() => {
     let active = true;
     if (!lease) { setRow(null); return; }
