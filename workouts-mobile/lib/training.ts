@@ -30,6 +30,9 @@ export interface SessionDraft {
   cursor: number;
   rest_until: number | null;
   interval_started_at: number | null;
+  /** Frozen timer values; optional for drafts saved by older app versions. */
+  rest_remaining_milliseconds?: number | null;
+  interval_elapsed_milliseconds?: number | null;
   paused: boolean;
   notes: string;
   input?: Record<string, string>;
@@ -247,6 +250,26 @@ export function summaryOf(actual: ActualSet) {
   if (actual.side) chunks.push(actual.side);
   return chunks.join(" · ") || "Skipped";
 }
+/** Freeze subordinate clocks at the same instant as the session clock. */
+function freezeTimers(d: SessionDraft, now: number) {
+  if (d.rest_until != null) d.rest_remaining_milliseconds = Math.max(0, d.rest_until - now);
+  if (d.interval_started_at != null) d.interval_elapsed_milliseconds = Math.max(0, now - d.interval_started_at);
+  d.rest_until = null;
+  d.interval_started_at = null;
+}
+function clearTimers(d: SessionDraft) {
+  d.rest_until = null;
+  d.rest_remaining_milliseconds = null;
+  d.interval_started_at = null;
+  d.interval_elapsed_milliseconds = null;
+}
+export function exerciseElapsedSeconds(d: SessionDraft, now = Date.now()) {
+  return Math.floor(Math.max(0, d.interval_started_at == null
+    ? d.interval_elapsed_milliseconds ?? 0 : now - d.interval_started_at) / 1000);
+}
+export function restRemainingSeconds(d: SessionDraft, now = Date.now()) {
+  return d.rest_until == null ? Math.ceil((d.rest_remaining_milliseconds ?? 0) / 1000) : remainingSeconds(d.rest_until, now);
+}
 function closeActive(d: SessionDraft, now: number) {
   if (d.active_started_at == null) return;
   const capEnd = d.timed_circuit ? d.active_started_at + Math.max(0,
@@ -287,10 +310,10 @@ export function createTrainingStore(
         const next = work(clone(state));
         next.history = pruneHistory(next.history);
         if (next.active?.timed_circuit && !next.active.paused && circuitRemaining(next.active, clock()) === 0) {
+          const capEnd = (next.active.active_started_at ?? clock()) + Math.max(0, next.active.timed_circuit.time_cap_seconds * 1000 - next.active.active_milliseconds);
+          freezeTimers(next.active, Math.min(clock(), capEnd));
           closeActive(next.active, clock());
           next.active.paused = true;
-          next.active.rest_until = null;
-          next.active.interval_started_at = null;
         }
         if (next.active)
           next.active.checkpoint_at = Math.max(clock(), next.active.checkpoint_at, next.active.active_started_at ?? 0);
@@ -373,9 +396,10 @@ export function createTrainingStore(
         }
         if (state.active && !state.active.paused) {
           const d = state.active;
-          closeActive(d, d.checkpoint_at ?? new Date(d.started_at).getTime());
+          const checkpoint = d.checkpoint_at ?? new Date(d.started_at).getTime();
+          freezeTimers(d, checkpoint);
+          closeActive(d, checkpoint);
           d.paused = true;
-          d.interval_started_at = null;
         }
       }
       loaded = true;
@@ -448,7 +472,7 @@ export function createTrainingStore(
         d.actuals.push(clone(actual));
         d.cursor++;
         d.input = {};
-        d.interval_started_at = null;
+        clearTimers(d);
         if (d.timed_circuit && d.cursor === d.steps.length && circuitRemaining(d, now)! > 0) {
           const round = step.round_index + 1;
           if (round <= 100 && d.steps.length + d.timed_circuit.round_size <= 1000) {
@@ -464,7 +488,8 @@ export function createTrainingStore(
         const rest = betweenRounds
           ? (block?.rest_between_rounds_seconds ?? step.exercise.rest_seconds)
           : step.exercise.rest_seconds;
-        d.rest_until = actual.completed && rest ? now + rest * 1000 : null;
+        d.rest_until = actual.completed && rest && !d.paused ? now + rest * 1000 : null;
+        d.rest_remaining_milliseconds = actual.completed && rest && d.paused ? rest * 1000 : null;
         return s;
       });
     },
@@ -476,24 +501,28 @@ export function createTrainingStore(
           d.actuals.pop();
           d.cursor--;
           d.input = {};
-          d.rest_until = null;
-          d.interval_started_at = null;
+          clearTimers(d);
           return s;
         }
         const prior = d?.undo.pop();
         if (!d || !prior) throw Error("There is no set to undo.");
         d.actuals = prior.actuals;
         d.cursor = prior.cursor;
-        d.rest_until = null;
-        d.interval_started_at = null;
+        clearTimers(d);
         return s;
       });
     },
     timer(kind: "rest" | "interval", seconds = 60, now = clock()) {
       return update((s) => {
         if (!s.active) throw Error("No session is active.");
-        if (kind === "rest") s.active.rest_until = seconds > 0 ? now + seconds * 1000 : null;
-        else s.active.interval_started_at = seconds === 0 ? null : now;
+        const d = s.active;
+        if (kind === "rest") {
+          d.rest_until = !d.paused && seconds > 0 ? now + seconds * 1000 : null;
+          d.rest_remaining_milliseconds = d.paused && seconds > 0 ? seconds * 1000 : null;
+        } else {
+          d.interval_started_at = !d.paused && seconds > 0 ? now : null;
+          d.interval_elapsed_milliseconds = d.paused && seconds > 0 ? 0 : null;
+        }
         return s;
       });
     },
@@ -502,15 +531,20 @@ export function createTrainingStore(
     },
     pause(paused: boolean, now = clock()) {
       return update((s) => {
-        if (s.active) {
-          now = Math.max(now, s.active.checkpoint_at);
-          if (paused && s.active.active_started_at != null) {
-            closeActive(s.active, now);
+        const d = s.active;
+        if (d && d.paused !== paused) {
+          now = Math.max(now, d.checkpoint_at);
+          if (paused) {
+            freezeTimers(d, now);
+            closeActive(d, now);
+          } else {
+            d.active_started_at = now;
+            if (d.rest_remaining_milliseconds != null) d.rest_until = now + d.rest_remaining_milliseconds;
+            if (d.interval_elapsed_milliseconds != null) d.interval_started_at = now - d.interval_elapsed_milliseconds;
+            d.rest_remaining_milliseconds = null;
+            d.interval_elapsed_milliseconds = null;
           }
-          if (!paused && s.active.paused) s.active.active_started_at = now;
-          s.active.paused = paused;
-          s.active.rest_until = null;
-          s.active.interval_started_at = null;
+          d.paused = paused;
         }
         return s;
       });
@@ -542,8 +576,7 @@ export function createTrainingStore(
         d.cursor = 0;
         d.undo = [];
         d.input = {};
-        d.rest_until = null;
-        d.interval_started_at = null;
+        clearTimers(d);
         d.cell_identity_version = 2;
         return s;
       });

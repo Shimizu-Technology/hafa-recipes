@@ -518,3 +518,25 @@ it.each([
   }); await settle();
   expect(text().includes("No set count given")).toBe(showHint);
 });
+
+
+it("keeps the rest countdown visible and resettable while the session is paused", async () => {
+  await act(async () => { await fixture.store!.timer("rest", 30); }); await settle();
+  await act(async () => { vi.setSystemTime(15000); await fixture.store!.pause(true); }); await settle();
+  await act(async () => { vi.advanceTimersByTime(60000); }); await settle();
+  expect(renderer!.root.findByType("RestTimer" as never).props.remaining).toBe(25);
+  expect(action("Reset rest")).toBeDefined();
+  expect(fixture.store!.snapshot().active!.actuals).toEqual([]);
+});
+it("shows the frozen exercise timer with an explicit reset and resumes from its value", async () => {
+  const fixed: Workout = { ...workout, provenance: "user", blocks: [{ id: "main", label: "Hold", grouping: "sequential", exercises: [{ name: "Plank", sets: 1, duration_seconds: 30 }] }] };
+  await act(async () => { await fixture.store!.discard(); await fixture.store!.start(fixed, { workout_id: "source", workout_revision: 1 }, "hold"); }); await settle();
+  await act(async () => { action("Start timer").props.onPress(); }); await settle();
+  await act(async () => { vi.setSystemTime(15000); await fixture.store!.pause(true); }); await settle();
+  expect(action("Reset timer")).toBeDefined();
+  expect(text()).toContain("0:05");
+  await act(async () => { action("Reset timer").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.interval_elapsed_milliseconds).toBe(0);
+  await act(async () => { await fixture.store!.pause(false); vi.advanceTimersByTime(2000); }); await settle();
+  expect(text()).toContain("0:02");
+});
