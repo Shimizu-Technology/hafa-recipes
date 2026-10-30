@@ -137,6 +137,32 @@ enum WorkoutsShareStore {
       return capture["isPublic"] as? Bool ?? false
     } ?? nil
   }
+  // Only this durable capture changes; the account's default stays unchanged.
+  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool = false) -> Bool {
+    locked { chooseVisibility(key, isPublic: isPublic, confirmed: confirmed, $0) } ?? false
+  }
+  static func chooseVisibility(_ key: String, isPublic: Bool, confirmed: Bool, _ d: WorkoutsShareDefaults) -> Bool {
+    guard var capture = d.dictionary(forKey: key + ".capture"),
+      capture["visibilityPending"] as? Bool == true, capture["jobId"] == nil else { return false }
+    capture["isPublic"] = isPublic; capture["visibilityChosen"] = true
+    capture["visibilityPending"] = !confirmed
+    d.set(capture, forKey: key + ".capture")
+    return d.synchronize()
+  }
+  // Opening the host takes ownership of unfinished confirmations. An untouched
+  // choice recovers privately; an explicit per-item choice survives dismissal.
+  static func readyCaptures(_ d: WorkoutsShareDefaults) -> [[String: Any]]? {
+    let captures = (d.stringArray(forKey: pending) ?? []).compactMap { key -> [String: Any]? in
+      guard var capture = d.dictionary(forKey: key + ".capture") else { return nil }
+      if capture["visibilityPending"] as? Bool == true {
+        if capture["visibilityChosen"] as? Bool != true { capture["isPublic"] = false }
+        capture["visibilityPending"] = false
+        d.set(capture, forKey: key + ".capture")
+      }
+      return capture
+    }
+    return d.synchronize() ? captures : nil
+  }
   static func discardOwner(_ owner: String) -> Bool {
     locked { d in
       for key in d.stringArray(forKey: staging) ?? [] {
@@ -194,6 +220,7 @@ enum WorkoutsShareStore {
     guard let state = locked({ d -> ([String: Any], String, [String: Any])? in
       guard let session = d.dictionary(forKey: sessionKey), let capability = token(),
         let capture = d.dictionary(forKey: key + ".capture"),
+        capture["visibilityPending"] as? Bool != true,
         capture["accountScopeId"] as? String == session["accountScopeId"] as? String,
         capture["generation"] as? Int == session["generation"] as? Int,
         let expires = session["expiresAt"] as? Double, expires > Date().timeIntervalSince1970 else { return nil }

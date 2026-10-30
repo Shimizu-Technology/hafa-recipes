@@ -146,10 +146,13 @@ describe("Workouts native share generation", () => {
     try {
       const config = plugin({ name: "Workouts", slug: "workouts", mods: { ios: { xcodeproj: predecessor } } });
       expect(existsSync(extension)).toBe(false);
-      await config.mods.ios.xcodeproj({ ...config, modResults: {}, modRequest: {
+      await config.mods.ios.xcodeproj({ ...config, modResults: { findTargetKey: (name: string) => name === '"ShareExtension"' ? "extension-target" : null, findPBXGroupKey: () => "extension-group", addResourceFile: vi.fn() }, modRequest: {
         platformProjectRoot: directory, projectRoot: new URL("..", import.meta.url).pathname,
       } });
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
+      const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
+      expect(info.UIAppFonts).toEqual(["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"]);
+      for (const font of info.UIAppFonts) expect(existsSync(join(extension, font))).toBe(true);
       expect(plist.parse(readFileSync(join(extension, "ShareExtension.entitlements"), "utf8"))["keychain-access-groups"])
         .toEqual(["$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share"]);
     } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -274,6 +277,29 @@ try FileManager.default.moveItem(at: savedURL, to: journalURL)
 let retry = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
 assert(retry.dictionary(forKey: refused + ".stage") == nil)
 assert(WorkoutsShareStore.beginStage(refused, retry))
+// Per-item visibility survives journal reopen, never updates the preference,
+// and cannot change after the host takes ownership or import starts.
+let visibilityKey = "hafaworkoutsShareKey.visibility"
+retry.set(["captureId": "visibility", "files": [[String: Any]](), "visibilityPending": true,
+    "isPublic": true, "ownerId": "owner-b", "generation": 4], forKey: visibilityKey + ".capture")
+retry.set([visibilityKey], forKey: WorkoutsShareStore.pending)
+assert(retry.synchronize())
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: false, retry))
+let privacyReopen = try WorkoutsShareDefaults(defaults: failedFlush, container: container)
+assert(privacyReopen.dictionary(forKey: visibilityKey + ".capture")?["isPublic"] as? Bool == false)
+assert(privacyReopen.dictionary(forKey: WorkoutsShareStore.sessionKey)?["isPublic"] as? Bool == true)
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: false, privacyReopen))
+assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
+assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
+privacyReopen.set(["captureId": "untouched", "files": [[String: Any]](), "visibilityPending": true,
+    "isPublic": true], forKey: visibilityKey + ".capture")
+assert(privacyReopen.synchronize())
+assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == false)
+privacyReopen.set(["captureId": "confirmed", "files": [[String: Any]](), "visibilityPending": true], forKey: visibilityKey + ".capture")
+assert(privacyReopen.synchronize())
+assert(WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: true, confirmed: true, privacyReopen))
+assert(!WorkoutsShareStore.chooseVisibility(visibilityKey, isPublic: false, confirmed: true, privacyReopen))
+assert(WorkoutsShareStore.readyCaptures(privacyReopen)?.first?["isPublic"] as? Bool == true)
 // Existing unreadable/corrupt journals fail closed instead of overwriting
 // queued sources with stale preferences or a new account.
 let beforeCorruption = try Data(contentsOf: journalURL)

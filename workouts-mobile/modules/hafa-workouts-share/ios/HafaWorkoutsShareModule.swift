@@ -47,7 +47,8 @@ public final class HafaWorkoutsShareModule: Module {
         let d = try WorkoutsShareDefaults(defaults: defaults, container: container)
         guard WorkoutsShareStore.reconcileStages(d) else { throw NSError(domain: WorkoutsShareStore.service, code: 4) }
         guard d.synchronize() else { throw NSError(domain: WorkoutsShareStore.service, code: 8) }
-        return (d.stringArray(forKey: WorkoutsShareStore.pending) ?? []).compactMap { d.dictionary(forKey: $0 + ".capture") }
+        guard let captures = WorkoutsShareStore.readyCaptures(d) else { throw NSError(domain: WorkoutsShareStore.service, code: 8) }
+        return captures
       }) else { throw NSError(domain: WorkoutsShareStore.service, code: 2) }
       return String(data: try JSONSerialization.data(withJSONObject: entries), encoding: .utf8)!
     }
