@@ -1,7 +1,8 @@
+import { useRecipeQuery as useQuery } from '@/hooks/useRecipeQuery';
 import { useState } from 'react';
 import { Alert, Image, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { useCurrentUserIdentity, useRecipe } from '@/hooks/useRecipes';

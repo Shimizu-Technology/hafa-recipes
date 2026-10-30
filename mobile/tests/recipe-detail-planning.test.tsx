@@ -1,9 +1,14 @@
+vi.mock('@react-native-async-storage/async-storage', () => { const values = new Map<string, string>(); return { default: {
+ getItem: async (key: string) => values.get(key) ?? null, setItem: async (key: string, value: string) => { values.set(key, value); },
+ getAllKeys: async () => [...values.keys()], multiRemove: async (keys: string[]) => keys.forEach(key => values.delete(key)),
+} }; });
+import { offlineRecipes } from '../lib/offlineRecipes';
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ servings: null as number | null, scaled: 1, push: vi.fn() }));
+const m = vi.hoisted(() => ({ unavailable: false, servings: null as number | null, scaled: 1, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   StyleSheet: { create: (value: any) => value }, Platform: { OS: 'ios' },
@@ -45,7 +50,7 @@ vi.mock('@/lib/toast', () => ({ showToast: vi.fn() }));
 vi.mock('@/lib/openRecipeSource', () => ({ openRecipeSource: vi.fn() }));
 vi.mock('@/utils/haptics', () => ({ haptics: {} }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useRecipe: () => ({ data: { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
+  useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
     is_owner: true, is_public: false, review_state: 'ready', content_revision: 1,
     extracted: { title: 'Rice', servings: m.servings, tags: [], times: {},
       components: [{ name: 'Main', ingredients: [{ name: 'rice', quantity: '1', unit: 'cup' }], steps: ['Cook'] }] } } }),
@@ -70,3 +75,15 @@ it.each([[null, 1, undefined], [4, 8, '8'], [1, 1, '1']] as const)(
     } finally { await act(async () => renderer.unmount()); }
   },
 );
+
+it('retires the mounted detail contents when the same subject changes stable owner', async () => {
+  await offlineRecipes.bindSubject('detail-subject'); await offlineRecipes.verify('detail-subject', 'owner-a');
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    expect(root.container.queryAll(node => node.props.children === 'Rice').length).toBeGreaterThan(0);
+    m.unavailable = true;
+    await act(async () => { await offlineRecipes.verify('detail-subject', 'owner-b'); });
+    expect(root.container.queryAll(node => node.props.children === 'Rice')).toHaveLength(0);
+  } finally { await act(async () => root.unmount()); m.unavailable = false; await offlineRecipes.clear(); }
+});

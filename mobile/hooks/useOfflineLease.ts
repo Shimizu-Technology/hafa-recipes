@@ -6,3 +6,8 @@ export function useOfflineLease(subject: string | null | undefined) {
   useSyncExternalStore(offlineRecipes.subscribe, offlineRecipes.version, offlineRecipes.version);
   return offlineRecipes.lease(subject);
 }
+
+/** Local recipe UI state retires along with network and disk content. */
+export function useRecipeOwnerGeneration() {
+  return useSyncExternalStore(offlineRecipes.subscribe, offlineRecipes.scope, offlineRecipes.scope);
+}

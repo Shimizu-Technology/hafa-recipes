@@ -1,3 +1,4 @@
+vi.mock('@/hooks/useRecipeQuery', () => ({ useRecipeQuery: () => ({ data: { pages: mocks.pages }, isSuccess: true }) }));
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';

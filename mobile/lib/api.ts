@@ -1,3 +1,4 @@
+import { recipeScope, assertRecipeScope } from './recipeQueryScope';
 import { offlineRecipes } from './offlineRecipes';
 /**
  * API client for the Recipe Extractor FastAPI backend.
@@ -183,6 +184,11 @@ class ApiClient {
     // Add request interceptor for auth token - fetches fresh token each request
     this.client.interceptors.request.use(
       async (config) => {
+        if (config.url !== '/api/users/me/identity') {
+          const scope = recipeScope();
+          const previous = (config as GuardedRequestConfig).requestGuard;
+          (config as GuardedRequestConfig).requestGuard = () => { assertRecipeScope(scope); previous?.(); };
+        }
         if (this.getTokenFn) {
           const token = await this.getAuthTokenWithRetry(
             config.url || 'unknown',
@@ -202,6 +208,7 @@ class ApiClient {
     // Add response interceptor for error handling and Sentry reporting
     this.client.interceptors.response.use(
       (response) => {
+        (response.config as GuardedRequestConfig).requestGuard?.();
         // Add breadcrumb for successful API calls
         addBreadcrumb('api', `${response.config.method?.toUpperCase()} ${response.config.url}`, {
           status: response.status,
@@ -303,7 +310,9 @@ class ApiClient {
 
   private recipeWriteGuard(requestGuard?: RequestGuard): RequestGuard {
     const authScope = this.authScope;
+    const authority = recipeScope();
     const guard = () => {
+      assertRecipeScope(authority);
       if (this.authScope !== authScope) throw new Error('Authentication changed; reopen this recipe.');
       requestGuard?.();
     };
@@ -373,8 +382,10 @@ class ApiClient {
   async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
     const revision = offlineRecipes.revision(id);
     const lease = offlineRecipes.lease(this.authScope.userId);
+    const scope = recipeScope();
     try {
       const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
+      assertRecipeScope(scope);
       if (lease) void offlineRecipes.observe(lease, data, Date.now(), revision).catch(() => undefined);
       return data;
     } catch (error) {
@@ -1239,8 +1250,10 @@ class ApiClient {
   /** Resolve the auth session to the backend's durable application owner. */
   async getCurrentUserIdentity(): Promise<{ id: string }> {
     const scope = this.authScope;
+    const authority = recipeScope();
     try {
       const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
+      assertRecipeScope(authority);
       if (scope === this.authScope && scope.userId) await offlineRecipes.verify(scope.userId, data.id);
       return data;
     } catch (error) {

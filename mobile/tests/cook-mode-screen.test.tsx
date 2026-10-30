@@ -1,3 +1,4 @@
+import { offlineRecipes } from '../lib/offlineRecipes';
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   seekTo: vi.fn(async () => undefined),
   hasScheduledNotification: vi.fn((_stepIndex: number) => false),
   scheduleTimerNotification: vi.fn(async () => undefined),
+  cancelAllTimerNotifications: vi.fn(async () => undefined),
   back: vi.fn(),
   retryAlert: vi.fn().mockResolvedValue(undefined),
   openSettings: vi.fn().mockResolvedValue(undefined),
@@ -98,6 +100,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     getItem: vi.fn(async (key: string) => mocks.storage.get(key) ?? null),
     setItem: vi.fn(async (key: string, value: string) => { mocks.storage.set(key, value); }),
     removeItem: vi.fn(async (key: string) => { mocks.storage.delete(key); }),
+    getAllKeys: async () => [...mocks.storage.keys()], multiRemove: async (keys: string[]) => keys.forEach(key => mocks.storage.delete(key)),
   },
 }));
 vi.mock('expo-router', () => {
@@ -149,7 +152,7 @@ vi.mock('@/hooks/useBackgroundTimer', () => ({
     alertStatus: () => 'scheduled',
     scheduleTimerNotification: mocks.scheduleTimerNotification,
     cancelTimerNotification: vi.fn(async () => undefined),
-    cancelAllTimerNotifications: vi.fn(async () => undefined),
+    cancelAllTimerNotifications: mocks.cancelAllTimerNotifications,
     pauseTimerNotification: vi.fn(async () => undefined),
     resumeTimerNotification: vi.fn(async () => undefined),
     hasScheduledNotification: mocks.hasScheduledNotification,
@@ -424,6 +427,18 @@ describe('CookModeScreen', () => {
   });
 
   describe('cached cooking continuity', () => {
+    it('retires the mounted Cook Mode steps when its stable-owner generation changes', async () => {
+      await offlineRecipes.bindSubject('cook-subject'); await offlineRecipes.verify('cook-subject', 'owner-a');
+      const renderer = await renderScreen();
+      expect(textOf(renderer.root)).toContain('Rinse the rice.');
+      mocks.recipeQuery.data = undefined;
+      await act(async () => { await offlineRecipes.verify('cook-subject', 'owner-b'); });
+      expect(textOf(renderer.root)).not.toContain('Rinse the rice.');
+      expect(buttonByLabel(renderer, 'Next step')).toBeUndefined();
+      expect(mocks.cancelAllTimerNotifications).toHaveBeenCalled();
+      await act(async () => { renderer.unmount(); await offlineRecipes.clear(); });
+    });
+
     it('keeps steps and controls usable after a transient refetch failure', async () => {
       mocks.recipeQuery.error = new Error('Network unavailable');
       const renderer = await renderScreen();

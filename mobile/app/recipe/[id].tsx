@@ -1,3 +1,4 @@
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { OfflineRecipeControl } from '@/components/OfflineRecipeControl';
 import { guestRecipeIntent, type GuestRecipeAction } from '@/lib/guestRecipeIntent';
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
@@ -136,6 +137,11 @@ function SimilarRecipeCard({
 
 /** Render a complete recipe and its connected cooking actions. */
 export default function RecipeDetailScreen() {
+  const generation = useRecipeOwnerGeneration();
+  return <RecipeDetailScreenContent key={generation} />;
+}
+
+function RecipeDetailScreenContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const colors = useColors();

@@ -1,3 +1,4 @@
+import { scopedRecipeKey } from './recipeQueryScope';
 import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 
 import type { PaginatedRecipes } from '@/types/recipe';
@@ -80,7 +81,7 @@ export async function reconcileSavedStateAfterError(
     guard();
     const result = await readSaved();
     guard();
-    queryClient.setQueryData(['recipeSaved', recipeId], result);
+    queryClient.setQueryData(scopedRecipeKey(['recipeSaved', recipeId]), result);
     queryClient.setQueriesData<InfiniteData<PaginatedRecipes>>(
       { queryKey: ['discover'] },
       data => updateSavedStateInRecipePages(data, recipeId, result.is_saved),
