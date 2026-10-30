@@ -97,6 +97,14 @@ export default function DiscoverWorkout() {
       setBusy(null);
     }
   }
+  async function schedule() {
+    if (!item || generation == null || busy) return;
+    setBusy("save"); setError("");
+    try {
+      const id = item.saved_workout_id ?? (await saveCopy())?.id;
+      if (id) { setSheet(null); router.push({ pathname: "/schedule-once", params: { workout_id: id } }); }
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
   async function askCoach() {
     if (!item) return;
     setBusy("coach");
@@ -297,16 +305,7 @@ export default function DiscoverWorkout() {
           )}
           {!!error && <Notice error>{error}</Notice>}
 
-          {!item.is_owner && !!savedId && (
-            <ListGroup>
-              <ListRow
-                icon="calendar-outline"
-                title="Add to a plan"
-                detail="Build a training plan that includes it"
-                onPress={() => router.push({ pathname: "/build-plan", params: { include: savedId } })}
-              />
-            </ListGroup>
-          )}
+          {generation != null && <ListGroup><ListRow icon="calendar-outline" title="Schedule" detail="Save a private copy and choose a date" disabled={!!busy} onPress={() => void schedule()} /></ListGroup>}
           <SourcePlayback key={item.source_url} url={item.source_url} title={item.title} />
 
           <SectionHeader title="The workout" />
@@ -395,12 +394,12 @@ export default function DiscoverWorkout() {
               }}
             />
             <Button
-              title="Add to a plan"
+              title="Schedule"
               icon="calendar-outline"
               variant="secondary"
               onPress={() => {
                 setSheet(null);
-                router.push({ pathname: "/build-plan", params: { include: savedId } });
+                router.push({ pathname: "/schedule-once", params: { workout_id: savedId } });
               }}
             />
           </>

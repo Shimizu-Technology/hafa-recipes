@@ -259,12 +259,9 @@ export default function WorkoutDetail() {
             {workout.kind === "session" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"
-                title="Add to a plan"
-                // Plans need set or round counts; send people straight to the fix instead of a dead row.
-                detail={timedParts ? "Split its timed parts first" : trackingWarning ? "Add set or round counts first" : "Choose your days and keep this workout selected"}
-                onPress={() => router.push(trackingWarning
-                  ? { pathname: "/edit-workout/[id]", params: { id: workout.id } }
-                  : { pathname: "/build-plan", params: { include: workout.id } })}
+                title="Schedule"
+                detail="Choose a date for this workout"
+                onPress={() => go({ pathname: "/schedule-once", params: { workout_id: workout.id } })}
               />
             </ListGroup>}
             <SectionHeader title="Source" />

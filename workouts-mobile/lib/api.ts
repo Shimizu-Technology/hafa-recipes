@@ -1,3 +1,4 @@
+import type { ScheduleOnceCommand } from "./schedule-once";
 import { streamCoachRequest } from "./coach-stream";
 import {
   activityQuery,
@@ -1054,6 +1055,10 @@ export function createWorkoutsApi(
           )
         ).data
       );
+    },
+    async scheduleOnce(command: ScheduleOnceCommand, generation: number) {
+      const { request_id, ...body } = command;
+      return (await request<{ id: string }>("/programs", "POST", body, { generation, creationKey: request_id })).data;
     },
     async programs() {
       return (
