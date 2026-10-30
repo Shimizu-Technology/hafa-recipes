@@ -7,7 +7,7 @@ export function missingDetails(w: AuthoredWorkout): MissingDetail[] {
   for (const b of w.blocks) {
     if (!b.execution && b.rounds == null && b.grouping !== "sequential")
       items.push({ key: `${b.id}:rounds`, block: b.id, label: `${b.label}: rounds not specified` });
-    if (b.rest_between_rounds_seconds == null && b.grouping !== "sequential")
+    if (b.rounds !== 1 && b.rest_between_rounds_seconds == null && b.grouping !== "sequential")
       items.push({ key: `${b.id}:rest`, block: b.id, label: `${b.label}: rest between rounds not specified` });
     b.exercises.forEach((e, i) => {
       const add = (field: string, text: string) => items.push({ key: `${b.id}:${i}:${field}`, block: b.id, exercise: i, label: `${e.name}: ${text}` });

@@ -5,6 +5,7 @@ import type { AuthoredWorkout } from "./models";
 
 vi.mock("react-native", () => ({ View: "View" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field", Notice: "Notice" }));
+vi.mock("@/components/source-playback", () => ({ SourcePlayback: "SourcePlayback" }));
 vi.mock("@/components/workout-source", () => ({ SavedSourceText: "SavedSourceText" }));
 const settings = vi.hoisted(() => ({ units: "metric" as "metric" | "imperial" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ units: settings.units }) }));
@@ -140,4 +141,28 @@ it("reviews the exact unknown exercise with source evidence, permits leaving it 
   expect(latest!.blocks[0].exercises[1].reps_min).toBeUndefined();
   await act(async () => button("Open full editor").props.onPress());
   expect(renderer!.root.findAllByType("Field" as never).filter(n => n.props.label === "Exercise name")).toHaveLength(2);
+});
+
+it("returns to the review summary after deleting the selected exercise", async () => {
+  const initial = workout(); initial.blocks[0].exercises = [{ name: "First" }, { name: "Next" }];
+  await render(initial, true);
+  await act(async () => button("First: reps, time or distance not specified").props.onPress());
+  await act(async () => button("Remove First").props.onPress());
+  expect(field("Exercise name")).toBeUndefined();
+  expect(button("Next: reps, time or distance not specified")).toBeDefined();
+});
+it("labels evidence by field and exposes a safe original-source action beside unknown controls", async () => {
+  const initial = workout(); initial.source_url = "https://example.com/workout";
+  initial.blocks[0].exercises[0].evidence = [{ field: "rest_seconds", wording: "Rest 30 seconds", location: "caption" }];
+  await render(initial, true);
+  await act(async () => button("Squat: rest not specified").props.onPress());
+  expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children).flat().join(" ")).toContain("rest_seconds");
+  expect(renderer!.root.findByType("SourcePlayback" as never).props.url).toBe(initial.source_url);
+});
+it("explains when no usable original-source link is available", async () => {
+  const initial = workout(); initial.source_url = "javascript:alert(1)";
+  await render(initial, true);
+  await act(async () => button("Squat: rest not specified").props.onPress());
+  expect(renderer!.root.findAllByType("SourcePlayback" as never)).toHaveLength(0);
+  expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children).flat().join(" ")).toContain("Original source link unavailable");
 });

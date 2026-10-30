@@ -2,6 +2,8 @@ import { missingDetails, type MissingDetail } from "@/lib/missing-details";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { View } from "react-native";
 import { Button, Card, Choice, Copy, Field } from "./ui";
+import { SourcePlayback } from "./source-playback";
+import { sourceURL } from "@/lib/source-playback";
 import { SavedSourceText } from "./workout-source";
 import { useTraining } from "@/lib/context";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
@@ -72,6 +74,7 @@ export function WorkoutEditor({
   const [removingBlock, setRemovingBlock] = useState<string | null>(null);
   function update(next: AuthoredWorkout, removedExercise?: { blockId: string; index: number }) {
     if (disabled) return;
+    if (removedExercise && target?.block === removedExercise.blockId && target.exercise === removedExercise.index) setTarget(null);
     // Keep automatically revealed fields mounted when a correction clears their error.
     setExpandedBlocks(current => retainExpanded(current, value.blocks.filter(invalidBlockSettings).map(block => block.id)));
     setExpandedExercises(current => {
@@ -108,9 +111,10 @@ export function WorkoutEditor({
         {!target ? unknown.map(item => <Button key={item.key} title={item.label} secondary onPress={() => focus(item)} />) : <>
           <Button title="Back to review summary" secondary onPress={() => focus(null)} />
           <Copy kind="label">Source evidence</Copy>
-          {targetExercise?.evidence?.map((item, index) => <Copy key={index} kind="small">{item.location ? `${item.location}: ` : ""}{item.wording}</Copy>)}
+          {targetExercise?.evidence?.map(item => <Copy key={JSON.stringify(item)} kind="small">{item.field}: {item.location ? `${item.location}: ` : ""}{item.wording}</Copy>)}
           <SavedSourceText context={value.source_context} />
-          {!targetExercise?.evidence?.length && !value.source_context && <Copy kind="small">No saved wording for this detail. Check the original source or leave it unknown.</Copy>}
+          {!targetExercise?.evidence?.length && !value.source_context && <Copy kind="small">No saved wording for this detail. Leave it unknown if the source does not say.</Copy>}
+          {sourceURL(value.source_url) ? <SourcePlayback url={value.source_url} title={value.title} /> : <Copy kind="small">Original source link unavailable.</Copy>}
           <Button title="Leave unknown" secondary onPress={() => focus(null)} />
         </>}
         <Button title="Open full editor" secondary onPress={() => { setFullEditor(true); focus(null); }} />
