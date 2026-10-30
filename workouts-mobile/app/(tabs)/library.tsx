@@ -283,9 +283,9 @@ export default function Library() {
         <Field label="Equipment" value={equipment} onChange={setEquipment} placeholder="Dumbbells, bodyweight…" optional />
         <Field label="Tags" value={tags} onChange={setTags} placeholder="Separate tags with commas" optional />
         {!!collections.data?.length && <Copy kind="label">Collection</Copy>}
-        {!!collections.data?.length && <Choice label="All collections" selected={!collection} onPress={() => setCollection(undefined)} />}
+        {!!collections.data?.length && <Choice role="radio" label="All collections" selected={!collection} onPress={() => setCollection(undefined)} />}
         {collections.data?.map((item) => (
-          <Choice key={item.id} label={item.title} detail={`${item.workout_count} workouts`}
+          <Choice role="radio" key={item.id} label={item.title} detail={`${item.workout_count} workouts`}
             selected={collection === item.id} onPress={() => setCollection(item.id)} />
         ))}
         {collections.error && <Notice error>{collections.error.message}</Notice>}
@@ -296,7 +296,7 @@ export default function Library() {
       </Sheet>
       <Sheet visible={bulkOpen} onClose={() => interact(() => setBulkOpen(false))} title="Add workouts to a collection">
         <Copy>{selectedIds.length} selected. Existing collections, favorites, tags and archive choices stay private and unchanged.</Copy>
-        {collections.data?.map(item => <Choice key={item.id} label={item.title} selected={bulkTarget === item.id} disabled={bulkBusy}
+        {collections.data?.map(item => <Choice role="radio" key={item.id} label={item.title} selected={bulkTarget === item.id} disabled={bulkBusy}
           onPress={() => interact(() => { setBulkTarget(item.id); setBulkMessage(""); setBulkError(""); })} />)}
         {!collections.data?.length && <Button title="Create a collection" secondary disabled={bulkBusy} onPress={() => interact(() => { setBulkOpen(false); router.push("/collections"); })} />}
         {!!bulkMessage && <Notice>{bulkMessage}</Notice>}

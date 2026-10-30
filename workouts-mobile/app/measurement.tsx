@@ -434,7 +434,7 @@ export default function MeasurementEditor() {
                   onChange={(value) => update({ value })}
                 />
                 {(draft.kind === "weight" ? ["kg", "lb"] : ["cm", "in"]).map((unit) => (
-                  <Choice
+                  <Choice role="radio"
                     key={unit}
                     label={unit === "in" ? "inches" : unit}
                     disabled={busy || !!draft.operation}

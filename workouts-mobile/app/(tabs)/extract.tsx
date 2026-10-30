@@ -656,10 +656,10 @@ export default function Capture() {
       <Sheet visible={panel === "settings"} onClose={() => setPanel(null)} title="Import settings">
         <View style={{ gap: 12 }}>
           {discoverOn && <>
-            <Choice label="Public in Discover" icon="globe-outline" selected={isPublic} disabled={locked}
+            <Choice role="radio" label="Public in Discover" icon="globe-outline" selected={isPublic} disabled={locked}
               detail="Others can find and save complete workouts. Your training and incomplete drafts stay private."
               onPress={() => { if (!isPublic) void visibility(true); }} />
-            <Choice label="Private" icon="lock-closed-outline" selected={!isPublic} disabled={locked}
+            <Choice role="radio" label="Private" icon="lock-closed-outline" selected={!isPublic} disabled={locked}
               detail="Only you can see this workout."
               onPress={() => { if (isPublic) void visibility(false); }} />
           </>}

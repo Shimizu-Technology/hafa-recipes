@@ -83,7 +83,7 @@ export function ActivityContext({
                     { value: true, label: "Strenuous" }
                   ] as const
                 ).map((choice) => (
-                  <Choice
+                  <Choice role="radio"
                     disabled={disabled}
                     key={choice.label}
                     label={`Activity ${index + 1} · ${choice.label}`}

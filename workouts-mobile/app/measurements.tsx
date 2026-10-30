@@ -40,8 +40,8 @@ export default function Measurements() {
   ];
   return (
     <Screen back title="Measurements">
-      <Choice label="Weight history" selected={kind === "weight"} onPress={() => setKind("weight")} />
-      <Choice label="Height history" selected={kind === "height"} onPress={() => setKind("height")} />
+      <Choice role="radio" label="Weight history" selected={kind === "weight"} onPress={() => setKind("weight")} />
+      <Choice role="radio" label="Height history" selected={kind === "height"} onPress={() => setKind("height")} />
       <Button
         title={`Record ${kind}`}
         disabled={!enrollment?.enrolled}

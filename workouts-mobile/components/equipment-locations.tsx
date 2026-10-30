@@ -78,7 +78,7 @@ export function EquipmentLocations({
         <Copy kind="heading">Where will you train?</Copy>
         <Copy>Locations stay separate. The selected location supplies the equipment and loads for your next plan.</Copy>
         {locations.map((location) => (
-          <Choice
+          <Choice role="radio"
             disabled={disabled}
             key={location.id}
             label={location.name}
