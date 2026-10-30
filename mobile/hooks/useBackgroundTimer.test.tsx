@@ -92,3 +92,16 @@ it('cancels the returned alert when Stop wins a pending scheduling race', async 
   expect(timer.alertStatus(1)).toBeUndefined();
   await act(async () => r.unmount());
 });
+
+it('does not reuse an earlier alert deadline when rescheduling fails', async () => {
+  const r = createRoot();
+  await act(async () => r.render(<Harness scope="failed-reschedule" />));
+  await act(async () => { await timer.scheduleTimerNotification(1, 60, 'Simmer'); });
+  expect(timer.hasScheduledNotification(1)).toBe(true);
+  notifications.cancelScheduledNotificationAsync.mockRejectedValueOnce(new Error('cancel unavailable'));
+  await act(async () => { expect(await timer.scheduleTimerNotification(1, 120, 'Simmer longer')).toBeNull(); });
+  expect(timer.alertStatus(1)).toBe('off');
+  expect(timer.hasScheduledNotification(1)).toBe(false);
+  expect(timer.getRemainingTime(1)).toBeNull();
+  await act(async () => { await timer.cancelAllTimerNotifications(); r.unmount(); });
+});

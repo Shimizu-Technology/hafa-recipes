@@ -185,6 +185,7 @@ export function useBackgroundTimer(scope = 'default') {
    * Useful when app comes back from background
    */
   const getRemainingTime = useCallback((stepIndex: number): number | null => {
+    if (statusFor(scopeRef.current).get(stepIndex) !== 'scheduled') return null;
     const scheduled = scheduledNotifications.current.get(stepIndex);
     if (!scheduled) return null;
     
@@ -196,7 +197,8 @@ export function useBackgroundTimer(scope = 'default') {
    * Check if a step has a scheduled notification
    */
   const hasScheduledNotification = useCallback((stepIndex: number): boolean => {
-    return scheduledNotifications.current.has(stepIndex);
+    return statusFor(scopeRef.current).get(stepIndex) === 'scheduled'
+      && scheduledNotifications.current.has(stepIndex);
   }, []);
 
   /**
