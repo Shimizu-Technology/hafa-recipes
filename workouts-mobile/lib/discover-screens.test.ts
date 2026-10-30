@@ -192,10 +192,10 @@ it("omits an empty reference card when source identity is already in the header"
   }, showIdentity: false, showOriginal: false })); });
   expect(nodes("Card")).toHaveLength(0);
 });
-it("a saved workout enters planning with that workout selected", async () => {
+it.each(["session", "exercise", "accessory"] as const)("a saved %s schedules that workout once", async (kind) => {
   fixture.params = { id: "saved-1" };
   fixture.workout.mockResolvedValue({ id: "saved-1", revision: 1, generation: 1, title: "Saved session",
-    kind: "session", provenance: "user", blocks: [{ id: "b", label: "Main", grouping: "sequential",
+    kind, provenance: "user", blocks: [{ id: "b", label: "Main", grouping: "sequential",
       exercises: [{ name: "Squat", sets: 3, reps_min: 8 }] }], equipment_required: [] });
   await mount(WorkoutDetail);
   const action = nodes("ListRow").find((n) => n.props.title === "Schedule");

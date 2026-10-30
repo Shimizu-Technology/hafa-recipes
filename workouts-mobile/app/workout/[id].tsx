@@ -256,7 +256,7 @@ export default function WorkoutDetail() {
                 ))}
               </Card>
             ))}
-            {workout.kind === "session" && exercises > 0 && <ListGroup>
+            {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"
                 title="Schedule"
