@@ -316,13 +316,13 @@ it("keeps a native original without processing when its captured permission epoc
   expect(account.state.outbox[0].type).toBe("save");
 });
 
-it("names a pasted source from its first words and saves the complete original", async () => {
+it("keeps an untitled source eligible for a processed title and saves the complete original", async () => {
   const account = setup(); Object.assign(scope.params, { kind: "source" });
   await mount(Edit);
   const text = "Changing station checklist\nKeep wipes and a spare outfit nearby.";
   await act(async () => renderer!.root.findAll(node => String(node.type) === "Field" && node.props.label === "Your notes or pasted source text")[0].props.onChange(text));
   await press("Save post"); await account.drain();
-  expect(account.state.outbox[0]).toMatchObject({ type: "save", record: { title: "Changing station checklist", body: text, data: { source_text: text } } });
+  expect(account.state.outbox[0]).toMatchObject({ type: "save", record: { title: "Saved source", body: text, data: { source_text: text } } });
 });
 it("persists queued native progress before acknowledging a durable receipt", async () => {
   const account = setup(), gate = held<void>(); account.holdCommit(gate.promise);
