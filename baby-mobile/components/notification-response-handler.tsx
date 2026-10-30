@@ -1,3 +1,4 @@
+import { reminderRoutes } from "@/lib/notification-route";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
@@ -62,7 +63,7 @@ export function NotificationResponseHandler() {
           if (live.current.pathname !== "/record/" + id) router.push({ pathname: "/record/[id]", params: { id } });
         },
         fallback: () => {
-          if (live.current.pathname !== "/routines") router.push("/(tabs)/routines");
+          if (live.current.pathname !== "/routines") router.push(reminderRoutes.routines);
           live.current.toast("Could not open that reminder. Your saved routines are here.");
         },
         retry: () => live.current.toast("Open Routines to find your reminder, or try this notification again."),

@@ -240,7 +240,7 @@ export default function RecordDetail() {
         secondary
         title="Ask about this entry"
         icon="sparkles-outline"
-        onPress={() => router.push({ pathname: "/(tabs)/ask", params: { record_id: record.id } })}
+        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
       />
       <Button
         variant="destructive"

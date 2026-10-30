@@ -624,3 +624,15 @@ describe("verified import completion (M1)", () => {
     expect(baby.state.outbox).toEqual([]);
   });
 });
+
+it("checks Ask draft write leases inside the serialized commit (M3)", async () => {
+  await mount();
+  let valid = true;
+  const draft = { ...row("draft"), kind: "journal" as const, body: "Stale question", files: [] };
+  await act(async () => {
+    const preceding = baby.commit(s => { valid = false; return s; });
+    const saving = baby.saveDraft("chat:v2:guarded", draft, () => valid);
+    await Promise.all([preceding, saving]);
+  });
+  expect(baby.state.drafts["chat:v2:guarded"]).toBeUndefined();
+});
