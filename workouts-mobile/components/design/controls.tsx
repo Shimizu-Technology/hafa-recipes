@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
-import { Copy, haptics, useColors, useReducedMotion, useSurface, type Surface } from "./foundation";
+import { Copy, haptics, useColors, useSurface, type Surface } from "./foundation";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
