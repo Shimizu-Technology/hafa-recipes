@@ -70,7 +70,7 @@ export default function SafetyCenter() {
     <Screen back title="Safety Center" subtitle="Control whose public content you see.">
       <Copy tone="muted">Blocking applies across Håfa Workouts and Håfa Recipes. People aren’t told when you block or unblock them. Your saved copies stay in your library.</Copy>
       <SectionHeader title="Blocked contributors" />
-      <QueryState loading={q.isPending && generation != null} loadingLabel="Loading blocked contributors"
+      <QueryState hasData={q.data !== undefined} loading={q.isPending && generation != null} loadingLabel="Loading blocked contributors"
         error={q.error} errorMessage={q.error ? safetyError(q.error, "Couldn’t load blocked contributors. Try again.") : undefined}
         retry={() => { void q.refetch(); }}>
         {!q.data?.length ? (

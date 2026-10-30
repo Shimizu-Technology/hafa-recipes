@@ -25,6 +25,19 @@ it("shows a labelled skeleton while loading, then the content, then a retryable 
   expect(retry).toHaveBeenCalledTimes(1);
 });
 
+
+it("keeps loaded content and retry visible during a refetch failure, including an empty result", async () => {
+  const retry = vi.fn();
+  await act(async () => { renderer = create(createElement(QueryState, { loading: true, hasData: true, error: Error("offline"), retry }, createElement("CachedEmptyList"))); });
+  expect(types()).toContain("CachedEmptyList");
+  expect(types()).not.toContain("SkeletonCard");
+  expect(renderer!.root.findByType("Notice" as never).props.children).toBe("Couldn’t refresh. Showing your saved content.");
+  await act(async () => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === "Try again")!.props.onPress());
+  expect(retry).toHaveBeenCalledOnce();
+  await act(async () => renderer!.update(createElement(QueryState, { loading: false, hasData: true, error: null, retry }, createElement("FreshList"))));
+  expect(types()).toEqual(["FreshList"]);
+});
+
 it("keeps technical errors hidden until details are requested", async () => {
   await act(async () => { renderer = create(createElement(QueryState, { loading: false, error: Error("Network request failed: ECONNREFUSED"), retry() {} })); });
   expect(renderer!.root.findAllByType("Copy" as never)).toHaveLength(0);

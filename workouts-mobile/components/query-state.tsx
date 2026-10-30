@@ -7,6 +7,7 @@ import { Button, Copy, Notice, SkeletonCard } from "./ui";
  */
 export function QueryState({
   loading,
+  hasData = false,
   error,
   retry,
   loadingLabel = "Loading your training",
@@ -14,6 +15,8 @@ export function QueryState({
   children,
 }: PropsWithChildren<{
   loading: boolean;
+  /** A successful cached response exists, including an empty list or null profile. */
+  hasData?: boolean;
   error: Error | null;
   retry(): void;
   loadingLabel?: string;
@@ -21,16 +24,17 @@ export function QueryState({
 }>) {
   const [details, setDetails] = useState(false);
   useEffect(() => setDetails(false), [error]);
-  if (loading) return <SkeletonCard lines={3} label={loadingLabel} />;
+  if (loading && !hasData) return <SkeletonCard lines={3} label={loadingLabel} />;
   if (error)
     return (
       <>
-        <Notice error>{errorMessage ?? (error instanceof ApiError ? error.message : "We couldn’t load this right now. Check your connection and try again.")}</Notice>
-        <Button title="Try again" secondary onPress={retry} />
+        <Notice error>{hasData ? "Couldn’t refresh. Showing your saved content." : errorMessage ?? (error instanceof ApiError ? error.message : "We couldn’t load this right now. Check your connection and try again.")}</Notice>
+        <Button title="Try again" secondary size={hasData ? "sm" : undefined} onPress={retry} />
         {!(error instanceof ApiError) && <>
           <Button title={details ? "Hide details" : "Show details"} variant="ghost" size="sm" onPress={() => setDetails(!details)} />
           {details && <Copy kind="small" tone="muted">{error.message}</Copy>}
         </>}
+        {hasData && children}
       </>
     );
   return children;

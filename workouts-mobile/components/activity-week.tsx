@@ -41,12 +41,16 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
   }, 0) / 60) : 0;
   return (
     <Card>
-      {q.isPending ? (
+      {q.error && q.data && <>
+        <Notice error>Couldn’t refresh this week. Showing saved activity.</Notice>
+        <Button title="Try again" secondary size="sm" onPress={() => { void q.refetch(); }} />
+      </>}
+      {q.isPending && !q.data ? (
         <>
           <Skeleton height={26} width="70%" />
           <Copy tone="muted">Loading saved activity…</Copy>
         </>
-      ) : q.error ? (
+      ) : q.error && !q.data ? (
         <>
           <Notice error>This week’s activity couldn’t load.</Notice>
           <Button
