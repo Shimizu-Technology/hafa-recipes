@@ -405,6 +405,7 @@ export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showBrowseTools, setShowBrowseTools] = useState(false);
   // The input stays bound to searchQuery; server queries use the debounced value
   // so typing does not fire a request per keystroke.
   const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
@@ -922,15 +923,6 @@ export default function DiscoverScreen() {
 
       {/* Search remains mounted while results update, preserving keyboard focus. */}
       <RNView style={styles.header}>
-        <ListHeaderTitle />
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          {countData
-            ? `${hasServerFilters ? searchTotal : countData.count} community ${
-              (hasServerFilters ? searchTotal : countData.count) === 1 ? 'recipe' : 'recipes'
-            }`
-            : 'Recipes shared by the community'}
-        </Text>
-
         {/* Search + Filter row */}
         <RNView style={styles.searchRow}>
           <RNView style={styles.searchInputContainer}>
@@ -968,6 +960,15 @@ export default function DiscoverScreen() {
           </TouchableOpacity>
         </RNView>
 
+        <RNView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <ListHeaderTitle />
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Browse tools"
+            accessibilityState={{ expanded: showBrowseTools }} onPress={() => setShowBrowseTools((shown) => !shown)}
+            style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
+            <Text>Browse tools {showBrowseTools ? '⌃' : '⌄'}</Text>
+          </TouchableOpacity>
+        </RNView>
+        {showBrowseTools && <>
         {/* Discovery Actions Row */}
         <RNView style={styles.discoveryRow}>
           <TouchableOpacity
@@ -1198,6 +1199,7 @@ export default function DiscoverScreen() {
             </>}
           </RNView>
         )}
+        </>}
       </RNView>
 
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
