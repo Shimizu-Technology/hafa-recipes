@@ -147,7 +147,7 @@ describe('SignInScreen', () => {
       expect(backButton.props.accessibilityRole).toBe('button');
       await act(async () => backButton.props.onPress());
       expect(routerMocks.back).not.toHaveBeenCalled();
-      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)');
+      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)/recipes');
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -211,7 +211,7 @@ describe('SignInScreen', () => {
       expect(clerkMocks.create).toHaveBeenCalledOnce();
       expect(clerkMocks.attemptSecondFactor).toHaveBeenCalledWith({ strategy: 'email_code', code: '123456' });
       expect(clerkMocks.setActive).toHaveBeenCalledWith({ session: 'session_existing' });
-      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)');
+      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)/recipes');
     } finally { await act(async () => renderer.unmount()); }
   });
 

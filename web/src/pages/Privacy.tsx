@@ -3,7 +3,7 @@ export default function Privacy() {
     <div className="page">
       <div className="container">
         <h1>Privacy Policy</h1>
-        <p><em>Last updated: August 27, 2026</em></p>
+        <p><em>Last updated: October 31, 2026</em></p>
 
         <h2>Overview</h2>
         <p>
@@ -53,6 +53,14 @@ export default function Privacy() {
         </p>
         <p>
           We retain your data for as long as your account is active. You can delete your account through the app's Settings or <a href="/delete-account">request deletion without the app</a>.
+        </p>
+
+        <h2>Original scanned pages</h2>
+        <p>
+          Håfa keeps the original photo pages of scanned recipes privately so you can compare them with the extracted recipe later. We explain this before scanning. Only the recipe owner can request short-lived links to these pages. Original pages are never included in Discover or shared recipe views, even when the recipe is public.
+        </p>
+        <p>
+          You can remove original pages from an individual recipe at any time. Removing pages, deleting the recipe, or deleting your account queues deletion from storage; cleanup retries if a storage service is temporarily unavailable.
         </p>
 
         <h2>Your Rights</h2>

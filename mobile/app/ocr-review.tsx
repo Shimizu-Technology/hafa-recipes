@@ -46,7 +46,7 @@ export default function OCRReviewScreen() {
     captureOwnerId,
     saveErrorKind,
     saveErrorMessage,
-    draftStorageError,
+    draftStorageError, originalPages,
   } = useLocalSearchParams<{
     recipe: string;
     location: string;
@@ -57,7 +57,7 @@ export default function OCRReviewScreen() {
     captureOwnerId?: string;
     saveErrorKind?: string;
     saveErrorMessage?: string;
-    draftStorageError?: string;
+    draftStorageError?: string; originalPages?: string;
   }>();
   useEffect(() => { if (draftStorageError) Alert.alert('Draft not saved on this device', draftStorageError); }, [draftStorageError]);
   const inbox = useImportInbox();
@@ -144,6 +144,7 @@ export default function OCRReviewScreen() {
         source_type: sourceType,
         is_public: isPublic,
         capture_id: captureId,
+        original_pages: originalPages ? JSON.parse(originalPages) : undefined,
         expected_owner_id: boundOwner.current!, requestGuard: guardOwner,
       });
 
@@ -181,6 +182,7 @@ export default function OCRReviewScreen() {
         captureId,
         isPublic: isPublic ? 'true' : 'false',
         captureSource: sourceType,
+        originalPages,
         captureOwnerId: boundOwner.current!,
       },
     });

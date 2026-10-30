@@ -218,6 +218,7 @@ async def delete_account(
             for recipe_id in recipe_ids
             for prefix in storage_service.thumbnail_prefixes(recipe_id)
         ]
+        storage_prefixes.extend(f"recipe-originals/{recipe_id}/" for recipe_id in recipe_ids)
         storage_prefixes.append(f"chat-images/{user_id}/")
         from app.domains.workouts.source_media import owned_cleanup_prefixes
 

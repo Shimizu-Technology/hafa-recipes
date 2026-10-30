@@ -122,7 +122,7 @@ export default function EditRecipeScreen() {
   return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
 }
 
-export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; resume?: boolean; guard: () => void } }) {
+export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; originalPages?: import('@/lib/api').RecipeImageUpload[]; resume?: boolean; guard: () => void } }) {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -300,7 +300,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
 
   const inbox = useImportInbox();
   const localDraft = usePrivateRecipeDraft(capture?.ownerId ?? null, 'recovery', {
-    recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
+    originalPages: capture?.originalPages, recipe: capture?.recipe, captureId: capture?.id, title, servings, prepTime, cookTime, totalTime, notes, tags, isPublic,
     recipeComponents, ingredients, steps,
   }, !!capture && !!title, saved => {
     if (!saved.ingredients) return;
@@ -408,7 +408,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
 
     return {
       data,
-      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
+      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, original_pages: capture.originalPages, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
       imageUri: newImageUri,
       publishingPreview: previewRecipe
         ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))
@@ -467,7 +467,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
           captureId: request.capture_id, failure: captureSaveFailure(error),
         });
         guard();
-        router.replace({ pathname: '/ocr-review', params: { recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
+        router.replace({ pathname: '/ocr-review', params: { originalPages: JSON.stringify(request.original_pages), recipe: JSON.stringify(request.extracted), captureId: request.capture_id, captureOwnerId: capture.ownerId, sourceType: request.source_type, saveFailed: 'true', saveErrorKind: captureSaveFailure(error).kind, isPublic: request.is_public ? 'true' : 'false' } });
         return;
       }
       Alert.alert('Couldn’t save recipe', getApiErrorMessage(error, 'Failed to update recipe'));

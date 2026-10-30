@@ -1,3 +1,4 @@
+import { offlineRecipes } from '@/lib/offlineRecipes';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -174,6 +175,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
 
     void (async () => {
       try {
+        await offlineRecipes.bindSubject(currentUserId);
         await bindGroceryWidgetIdentity(currentUserId);
         await bindOfflineGroceryIdentity(currentUserId);
       } catch (error) {
@@ -184,6 +186,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
         try {
           await bindGroceryWidgetIdentity(currentUserId);
           await bindOfflineGroceryIdentity(currentUserId);
+        await offlineRecipes.bindSubject(currentUserId);
         } catch (recoveryError) {
           captureError(
             recoveryError instanceof Error

@@ -423,6 +423,21 @@ describe('CookModeScreen', () => {
     });
   });
 
+  describe('cached cooking continuity', () => {
+    it('keeps steps and controls usable after a transient refetch failure', async () => {
+      mocks.recipeQuery.error = new Error('Network unavailable');
+      const renderer = await renderScreen();
+      expect(buttonByLabel(renderer, 'Next step')).toBeTruthy();
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      expect(stepCounter(renderer)).toBe('Step 2 of 4');
+    });
+    it('does not render cached cooking steps after access is revoked', async () => {
+      mocks.recipeQuery.error = { response: { status: 403 } };
+      const renderer = await renderScreen();
+      expect(renderer.root.findAll(node => node.props.accessibilityLabel === 'Next step')).toHaveLength(0);
+    });
+  });
+
   describe('accessibility', () => {
     it('labels the header and navigation controls and reflects the disabled state', async () => {
       const renderer = await renderScreen();

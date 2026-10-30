@@ -1,3 +1,4 @@
+import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   Alert,
@@ -141,7 +142,7 @@ export default function CookModeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   
-  const { data: recipe, isLoading, error } = useRecipe(id);
+  const { data: recipe, isLoading, error, offlineSavedAt, usingOffline } = useRecipe(id);
   
   // Parse scaling params
   const scaleFactor = scaleFactorParam ? parseFloat(scaleFactorParam) : 1;
@@ -722,7 +723,7 @@ export default function CookModeScreen() {
     );
   }
 
-  if (error || !recipe || steps.length === 0) {
+  if ((error && !canRetainRecipeOnError(error)) || !recipe || steps.length === 0) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -747,6 +748,9 @@ export default function CookModeScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle="light-content" />
 
+      {(usingOffline || error) && <Text accessibilityRole="alert" style={{ color: cook.text, padding: 12 }}>
+        Offline copy{offlineSavedAt ? ` · Updated ${new Date(offlineSavedAt).toLocaleDateString()}` : ''}. Changes may be missing.
+      </Text>}
       {/* Header */}
       <RNView style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
         <TouchableOpacity

@@ -56,6 +56,8 @@ class RequestContextMiddleware:
                 headers = MutableHeaders(scope=message)
                 if scope["path"].startswith("/api/v1/workouts"):
                     headers["Cache-Control"] = "no-store"
+                if re.fullmatch(r"/api/recipes/[^/]+/source-pages/?", scope["path"]):
+                    headers["Cache-Control"] = "private, no-store"
                 headers["X-Request-ID"] = request_id
             await send(message)
 

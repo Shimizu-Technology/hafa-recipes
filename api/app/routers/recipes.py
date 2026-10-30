@@ -2292,7 +2292,7 @@ async def delete_recipe(
     if recipe.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only delete your own recipes")
 
-    storage_prefixes = storage_service.thumbnail_prefixes(recipe_id)
+    storage_prefixes = storage_service.thumbnail_prefixes(recipe_id) + [f"recipe-originals/{recipe_id}/"]
     cleanup_job = DeletionCleanupJob(
         kind="recipe",
         app_user_id=user.id,

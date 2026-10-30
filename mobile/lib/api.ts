@@ -1,3 +1,4 @@
+import { offlineRecipes } from './offlineRecipes';
 /**
  * API client for the Recipe Extractor FastAPI backend.
  */
@@ -370,8 +371,17 @@ class ApiClient {
   }
 
   async getRecipe(id: string, signal?: AbortSignal, requestGuard?: RequestGuard): Promise<Recipe> {
-    const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
-    return data;
+    const revision = offlineRecipes.revision(id);
+    const lease = offlineRecipes.lease(this.authScope.userId);
+    try {
+      const { data } = await this.client.get(`/api/recipes/${id}`, { signal, requestGuard } as GuardedRequestConfig);
+      if (lease) void offlineRecipes.observe(lease, data, Date.now(), revision).catch(() => undefined);
+      return data;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (lease && status && [401, 403, 404, 410].includes(status)) await offlineRecipes.remove(lease, id).catch(() => undefined);
+      throw error;
+    }
   }
 
   async getRecentRecipes(limit = 10): Promise<RecipeListItem[]> {
@@ -458,7 +468,9 @@ class ApiClient {
   }
 
   async deleteRecipe(id: string, requestGuard?: RequestGuard): Promise<{ message: string; id: string }> {
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.delete(`/api/recipes/${id}`, { requestGuard } as GuardedRequestConfig);
+    if (lease) void offlineRecipes.remove(lease, id).catch(() => undefined);
     return data;
   }
 
@@ -862,6 +874,7 @@ class ApiClient {
     source_type: CaptureSourceType;
     is_public?: boolean;
     capture_id?: string;
+    original_pages?: RecipeImageUpload[];
     requestGuard?: RequestGuard;
   }): Promise<Recipe> {
     const { data } = await this.client.post('/api/recipes/from-capture', {
@@ -870,7 +883,34 @@ class ApiClient {
       is_public: params.is_public ?? false,
       ...(params.capture_id ? { capture_id: params.capture_id } : {}),
     }, { requestGuard: params.requestGuard } as GuardedRequestConfig);
+    if (params.original_pages?.length) {
+      params.requestGuard?.();
+      const form = new FormData();
+      for (const [index, image] of params.original_pages.entries()) {
+        await appendRecipeImage(form, 'files', image, `page_${index + 1}.jpg`);
+        params.requestGuard?.();
+      }
+      try {
+        await this.client.post(`/api/recipes/${data.id}/source-pages`, form, {
+          headers: { 'Content-Type': false }, requestGuard: params.requestGuard,
+        } as GuardedRequestConfig);
+      } catch (error) {
+        // The recipe/capture ID already reconciled: a previous page upload can
+        // have committed before its response was lost. Never replace originals.
+        if ((error as { response?: { status?: number } }).response?.status !== 409) throw error;
+      }
+      params.requestGuard?.();
+    }
     return data;
+  }
+
+  async getRecipeSourcePages(id: string): Promise<{ pages: { page: number; url: string }[] }> {
+    const { data } = await this.client.get(`/api/recipes/${id}/source-pages`);
+    return data;
+  }
+
+  async removeRecipeSourcePages(id: string) {
+    await this.client.delete(`/api/recipes/${id}/source-pages`);
   }
 
   async getLocations(): Promise<{ locations: Location[]; default: string }> {
@@ -1198,8 +1238,18 @@ class ApiClient {
 
   /** Resolve the auth session to the backend's durable application owner. */
   async getCurrentUserIdentity(): Promise<{ id: string }> {
-    const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
-    return data;
+    const scope = this.authScope;
+    try {
+      const { data } = await this.client.get('/api/users/me/identity', { timeout: 10_000 });
+      if (scope === this.authScope && scope.userId) await offlineRecipes.verify(scope.userId, data.id);
+      return data;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (scope === this.authScope && scope.userId && status && [401, 403, 409, 410].includes(status)) {
+        await offlineRecipes.clear().catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   async createShareCredential(input: { installation_id: string; location?: string; is_public?: boolean }, requestGuard?: RequestGuard): Promise<{
@@ -1354,22 +1404,30 @@ class ApiClient {
 
   async saveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const revision = offlineRecipes.revision(recipeId);
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.post(`/api/recipes/${recipeId}/save`, undefined, { requestGuard: guard } as GuardedRequestConfig);
     guard();
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.saved, revision).catch(() => undefined);
     return data;
   }
 
   async unsaveRecipe(recipeId: string, requestGuard?: RequestGuard): Promise<{ saved: boolean; message: string }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.delete(`/api/recipes/${recipeId}/save`, { requestGuard: guard } as GuardedRequestConfig);
     guard();
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.saved).catch(() => undefined);
     return data;
   }
 
   async checkRecipeSaved(recipeId: string, requestGuard?: RequestGuard): Promise<{ is_saved: boolean }> {
     const guard = this.recipeWriteGuard(requestGuard);
+    const revision = offlineRecipes.revision(recipeId);
+    const lease = offlineRecipes.lease(this.authScope.userId);
     const { data } = await this.client.get(`/api/recipes/${recipeId}/saved`, { requestGuard: guard } as GuardedRequestConfig);
     guard();
+    if (lease) void offlineRecipes.markSaved(lease, recipeId, data.is_saved, revision).catch(() => undefined);
     return data;
   }
 

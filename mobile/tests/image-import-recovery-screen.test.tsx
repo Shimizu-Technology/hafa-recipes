@@ -98,6 +98,7 @@ vi.mock('react-native', async () => {
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
+    useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     AccessibilityInfo: { announceForAccessibility: vi.fn() },
     ActivityIndicator: host('ActivityIndicator'),
     Alert: { alert: mocks.alert },
@@ -454,12 +455,12 @@ describe('classified image recovery', () => {
       ).map(node => Array.isArray(node.props.children)
         ? node.props.children.join('')
         : node.props.children);
-      expect(waitingCopy()).toContain('2 shared recipes ready to sync');
+      expect(waitingCopy()).toContain('2 shared recipes waiting to sync');
       await act(async () => { vi.advanceTimersByTime(6_000); });
       expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(true);
 
       await act(async () => { mocks.queueChanged?.({ pendingCount: 1 }); });
-      expect(waitingCopy()).toContain('1 shared recipe ready to sync');
+      expect(waitingCopy()).toContain('1 shared recipe waiting to sync');
       expect(touchableWithText(renderer, 'Open next')!.props.disabled).toBe(false);
     } finally {
       await act(async () => renderer?.unmount());
@@ -499,6 +500,8 @@ describe('classified image recovery', () => {
       await chooseAction.onPress();
     });
 
+    const earlier = renderer!.root.findAll(node => node.props.accessibilityLabel === 'Move page 2 earlier')[0];
+    await act(async () => earlier.props.onPress());
     const extractButton = renderer!.root.findAllByType(
       'Button' as unknown as React.ComponentType,
     ).find(node => node.props.children === 'Import Recipe from 2 Images')!;
@@ -506,24 +509,28 @@ describe('classified image recovery', () => {
       await extractButton.props.onPress();
     });
 
+    expect(mocks.extractMultiple).toHaveBeenCalledWith([
+      expect.objectContaining({ uri: 'file:///recipe-back.jpg' }),
+      expect.objectContaining({ uri: 'file:///recipe-front.jpg' }),
+    ], 'Guam');
     const failure = mocks.alert.mock.calls.find(([title]) => title === 'Choose One Recipe');
     const recoverAction = failure?.[2]
       .find((action: { text: string }) => action.text === 'Use Image & Enter Manually');
     await act(async () => recoverAction.onPress());
 
     expect(mocks.push).toHaveBeenCalledWith({
-      pathname: '/add-recipe',
+      pathname: '/edit-capture',
       params: {
-        captureSource: 'photo',
-        fromOcr: 'true',
-        initialImageUri: 'file:///recipe-front.jpg',
+        initialData: JSON.stringify({ title: '', components: [{ name: 'Main', ingredients: [], steps: [] }] }),
+        captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a',
+        captureSource: 'photo', isPublic: 'false', originalPages: expect.any(String),
       },
     });
     expect(renderer!.root.findAllByType(
       'Image' as unknown as React.ComponentType,
     ).map(node => node.props.source.uri)).toEqual([
-      'file:///recipe-front.jpg',
       'file:///recipe-back.jpg',
+      'file:///recipe-front.jpg',
     ]);
   });
 
@@ -677,8 +684,8 @@ describe('classified image recovery', () => {
     await act(async () => mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === 'Discard').onPress());
     mocks.preferences.ready = true; mocks.preferences.isPublic = false;
     await act(async () => renderer.update(<ExtractScreen />));
-    expect(renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType)
-      .some(node => node.props.children === 'Private recipe')).toBe(true);
+    expect(renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
+      .some(node => node.props.accessibilityLabel === 'Private' && node.props.accessibilityState?.checked)).toBe(true);
     await act(async () => renderer.unmount());
   });
 
@@ -697,6 +704,7 @@ describe('classified image recovery', () => {
     expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
       captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
+      originalPages: expect.any(String),
     } });
   });
 

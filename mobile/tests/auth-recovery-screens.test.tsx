@@ -202,7 +202,7 @@ describe('authentication recovery Back controls', () => {
         'durable-password',
       );
       expect(authMocks.setActive).toHaveBeenCalledWith({ session: 'sess_existing_owner' });
-      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)');
+      expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)/recipes');
     } finally {
       await act(async () => renderer.unmount());
     }
