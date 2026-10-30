@@ -226,6 +226,7 @@ export default function GroceryScreen() {
   const addItemInputRef = useRef<TextInput>(null);
   
   const [newItemName, setNewItemName] = useState('');
+  const [addPendingSync, setAddPendingSync] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showChecked, setShowChecked] = useState(false);
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
@@ -237,6 +238,7 @@ export default function GroceryScreen() {
   
   // Show alert when sync has failures
   useEffect(() => {
+    if (lastSyncResult && lastSyncResult.failed === 0) setAddPendingSync(false);
     if (lastSyncResult && lastSyncResult.failed > 0) {
       Alert.alert(
         "Sync Notice",
@@ -519,8 +521,9 @@ export default function GroceryScreen() {
     addItemMutation.mutate(
       { name: newItemName.trim() },
       {
-        onSuccess: () => {
-          haptics.success();
+        onSuccess: (result) => {
+          if (result.syncStatus === 'confirmed') haptics.success();
+          setAddPendingSync(result.syncStatus === 'queued');
           setNewItemName('');
           setSearchQuery('');
           if (keepInputFocused) {
@@ -906,6 +909,7 @@ export default function GroceryScreen() {
           </TouchableOpacity>
         </RNView>
 
+        {addPendingSync && <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted, paddingHorizontal: spacing.md }}>Saved on this device · waiting to sync</Text>}
         <RNView style={[styles.searchRow, { backgroundColor: colors.backgroundSecondary }]}>
           <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput

@@ -264,8 +264,11 @@ describe('GroceryScreen shopping views', () => {
     await act(async () => r.container.queryAll(n => n.type === 'TextInput')[0].props.onSubmitEditing());
     expect(mocks.addItem).toHaveBeenCalledOnce();
     expect(mocks.success).not.toHaveBeenCalled();
-    await act(async () => mocks.addItem.mock.calls[0][1].onSuccess());
+    await act(async () => mocks.addItem.mock.calls[0][1].onSuccess({ syncStatus: 'confirmed' }));
     expect(mocks.success).toHaveBeenCalledOnce();
+    mocks.success.mockClear();
+    await act(async () => mocks.addItem.mock.calls[0][1].onSuccess({ syncStatus: 'queued' }));
+    expect(mocks.success).not.toHaveBeenCalled();
     await act(async () => r.unmount());
   });
 

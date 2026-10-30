@@ -105,3 +105,25 @@ it('does not reuse an earlier alert deadline when rescheduling fails', async () 
   expect(timer.getRemainingTime(1)).toBeNull();
   await act(async () => { await timer.cancelAllTimerNotifications(); r.unmount(); });
 });
+
+
+it.each(['denied', 'scheduler'] as const)('retries a failed alert with only its remaining deadline (%s)', async (reason) => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+  notifications.getPermissionsAsync.mockResolvedValue({ granted: true });
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<Harness scope={`retry-${reason}`} />));
+    if (reason === 'denied') {
+      notifications.getPermissionsAsync.mockResolvedValueOnce({ granted: false });
+      notifications.requestPermissionsAsync.mockResolvedValueOnce({ granted: false });
+    } else notifications.scheduleNotificationAsync.mockRejectedValueOnce(new Error('temporary'));
+    await act(async () => { await timer.scheduleTimerNotification(1, 60, 'Simmer'); });
+    expect(timer.alertStatus(1)).toBe('off');
+    now.mockReturnValue(120_000);
+    await act(async () => { await timer.retryFailedAlerts(); });
+    expect(notifications.scheduleNotificationAsync.mock.lastCall?.[0].trigger.seconds).toBe(40);
+    expect(timer.hasPermission).toBe(true);
+    expect(timer.alertStatus(1)).toBe('scheduled');
+    await act(async () => { await timer.cancelAllTimerNotifications(); });
+  } finally { await act(async () => r.unmount()); now.mockRestore(); }
+});

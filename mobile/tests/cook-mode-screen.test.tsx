@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   hasScheduledNotification: vi.fn((_stepIndex: number) => false),
   scheduleTimerNotification: vi.fn(async () => undefined),
   back: vi.fn(),
+  retryAlert: vi.fn().mockResolvedValue(undefined),
   openSettings: vi.fn().mockResolvedValue(undefined),
   permission: true as boolean | null,
   alertFailure: false,
@@ -143,6 +144,7 @@ vi.mock('@/hooks/useTimerSound', () => ({
 vi.mock('@/hooks/useBackgroundTimer', () => ({
   useBackgroundTimer: () => ({
     hasPermission: mocks.permission,
+    retryFailedAlerts: mocks.retryAlert,
     hasAlertFailure: mocks.alertFailure,
     alertStatus: () => 'scheduled',
     scheduleTimerNotification: mocks.scheduleTimerNotification,
@@ -277,8 +279,13 @@ describe('CookModeScreen', () => {
     expect(textOf(r.root)).toContain('Clock running · No alert scheduled');
     await advance(1000);
     expect(textOf(r.root)).toContain('0:59');
-    await act(async () => buttonByLabel(r, 'Open notification settings').props.onPress());
-    expect(mocks.openSettings).toHaveBeenCalledOnce();
+    if (reason === 'denied') {
+      await act(async () => buttonByLabel(r, 'Open notification settings').props.onPress());
+      expect(mocks.openSettings).toHaveBeenCalledOnce();
+    } else {
+      await act(async () => buttonByLabel(r, 'Retry alert').props.onPress());
+      expect(mocks.retryAlert).toHaveBeenCalledOnce();
+    }
     await act(async () => r.unmount());
   });
 

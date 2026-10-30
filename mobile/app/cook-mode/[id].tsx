@@ -196,6 +196,7 @@ export default function CookModeScreen() {
   // Background timer notifications
   const {
     hasPermission,
+    retryFailedAlerts,
     hasAlertFailure,
     alertStatus,
     scheduleTimerNotification,
@@ -907,9 +908,11 @@ export default function CookModeScreen() {
             {(hasPermission === false || hasAlertFailure) && (
               <RNView style={{ alignItems: 'center', paddingHorizontal: spacing.md }}>
                 <Text style={{ color: cook.text, textAlign: 'center' }} accessibilityLiveRegion="polite">Alerts are off outside the app</Text>
-                <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
+                {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
                   <Text style={{ color: cook.actionText }}>Open Settings</Text>
-                </TouchableOpacity>
+                </TouchableOpacity> : <TouchableOpacity onPress={() => { void retryFailedAlerts(); }} accessibilityRole="button" accessibilityLabel="Retry alert" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText }}>Retry alert</Text>
+                </TouchableOpacity>}
               </RNView>
             )}
             {currentTimer && currentTimer.remaining > 0 && (

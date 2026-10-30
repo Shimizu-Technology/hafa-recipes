@@ -32,6 +32,9 @@ interface ScheduledNotification {
 // in cook mode), so leaving and re-entering cook mode — which remounts the
 // screen while its timers keep running — can still pause, cancel, and
 // recognize notifications that were scheduled before the remount.
+type AlertAttempt = { endTime: number; stepText: string; sound: TimerSoundOption };
+const attempts = new Map<string, Map<number, AlertAttempt>>();
+
 const scheduledByScope = new Map<string, Map<number, ScheduledNotification>>();
 
 function scheduledFor(scope: string): Map<number, ScheduledNotification> {
@@ -123,11 +126,14 @@ export function useBackgroundTimer(scope = 'default') {
     remainingSeconds: number,
     stepText: string,
     soundPreference: TimerSoundOption = 'default',
+    deadline?: number,
   ): Promise<string | null> => {
     const activeScope = scopeRef.current;
     const generation = advance(activeScope, stepIndex);
     const isCurrent = () => generations.get(activeScope)?.get(stepIndex) === generation;
-    const endTime = Date.now() + remainingSeconds * 1000;
+    const endTime = deadline ?? Date.now() + remainingSeconds * 1000;
+    if (!attempts.has(activeScope)) attempts.set(activeScope, new Map());
+    attempts.get(activeScope)!.set(stepIndex, { endTime, stepText, sound: soundPreference });
     setStatus(activeScope, stepIndex, 'scheduling');
     try {
       await cancelExisting(activeScope, stepIndex);
@@ -164,9 +170,19 @@ export function useBackgroundTimer(scope = 'default') {
     }
   }, []);
 
+  const retryFailedAlerts = useCallback(async () => {
+    const activeScope = scopeRef.current;
+    await Promise.all([...statusFor(activeScope)].filter(([, status]) => status === 'off').map(([step]) => {
+      const attempt = attempts.get(activeScope)?.get(step);
+      if (!attempt) return;
+      return scheduleTimerNotification(step, Math.max(0, (attempt.endTime - Date.now()) / 1000), attempt.stepText, attempt.sound, attempt.endTime);
+    }));
+  }, [scheduleTimerNotification]);
+
   const cancelTimerNotification = useCallback(async (stepIndex: number) => {
     const activeScope = scopeRef.current;
     advance(activeScope, stepIndex);
+    attempts.get(activeScope)?.delete(stepIndex);
     setStatus(activeScope, stepIndex);
     try { await cancelExisting(activeScope, stepIndex); }
     catch (error) { console.error('Failed to cancel notification:', error); }
@@ -231,6 +247,7 @@ export function useBackgroundTimer(scope = 'default') {
 
   return {
     hasPermission,
+    retryFailedAlerts,
     alertStatus: (stepIndex: number) => statusFor(scope).get(stepIndex),
     hasAlertFailure: [...statusFor(scope).values()].includes('off'),
     scheduleTimerNotification,
