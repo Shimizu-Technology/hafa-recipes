@@ -548,7 +548,7 @@ it("keeps local file preparation failures on that entry while unrelated care syn
 it("holds source edits until a terminal import and rebases them before sending", async () => {
   const source = { ...row("source", false, 1), kind: "source" as const };
   mock.saved = { ...emptyState(), bootstrap, records: [source],
-    imports: [{ id: "job", record_id: source.id, status: "queued" }], outbox: [
+    imports: [{ id: "job", record_id: source.id, status: "queued", baseline: source }], outbox: [
       { id: "edit", type: "save", generation: 1, record: { ...source, body: "My later edit" }, files: [] },
     ] };
   mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "processing" }));
@@ -557,7 +557,7 @@ it("holds source edits until a terminal import and rebases them before sending",
   expect(mock.api.save).not.toHaveBeenCalled();
   expect(baby.state.outbox[0]).toMatchObject({ id: "edit", record: { revision: 1, body: "My later edit" } });
   mock.api.job.mockResolvedValue({ id: "job", record_id: source.id, status: "ready" });
-  mock.api.record.mockResolvedValue({ ...source, revision: 3, data: { status: "ready", summary: "Processed summary" } });
+  mock.api.record.mockResolvedValue({ ...source, revision: 3, data: { ...source.data, status: "ready", summary: "Processed summary" } });
   await act(async () => { await baby.sync(); await settle(); });
   expect(mock.api.save).toHaveBeenCalledOnce();
   expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My later edit", data: { status: "ready", summary: "Processed summary" } });
@@ -571,4 +571,56 @@ it("restores phone-only files and errors without submitting them from a cold pro
   await mount();
   expect(baby.state.outbox[0]).toMatchObject({ localOnly: true, error: "Upload failed", files: [file] });
   expect(mock.api.save).not.toHaveBeenCalled();
+});
+
+describe("verified import completion (M1)", () => {
+  const changes = [
+    { title: "Other device title" }, { body: "Other device note" }, { child_id: "other-child" },
+    { data: { topics: ["Other topic"] } }, { data: { source_text: "Other original" } },
+    { data: { attachment_ids: ["other-photo"] } },
+  ];
+  it.each(changes)("conflicts instead of adopting a remote edit after import: %j", async (change) => {
+    const source = { ...row("source", false, 1), kind: "source" as const };
+    mock.saved = { ...emptyState(), bootstrap, records: [source], imports: [
+      { id: "job", record_id: source.id, status: "processing", baseline: source },
+    ], outbox: [{ id: "edit", type: "save", generation: 1, record: { ...source, body: "My local note" }, files: [] }] };
+    mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "ready" }));
+    mock.api.record = vi.fn(async () => ({ ...source, ...change, revision: 5 }));
+    await mount();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0]).toMatchObject({ conflict: true, record: { revision: 1, body: "My local note" } });
+  });
+  it.each(changes)("conflicts on edits made during processing: %j", async (change) => {
+    const source = { ...row("source", false, 1), kind: "source" as const };
+    mock.saved = { ...emptyState(), bootstrap, records: [source], imports: [
+      { id: "job", record_id: source.id, status: "processing", baseline: source },
+    ], outbox: [{ id: "edit", type: "save", generation: 1, record: { ...source, body: "My local note" }, files: [] }] };
+    mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "incomplete", error: "Edited while processing" }));
+    mock.api.record = vi.fn(async () => ({ ...source, ...change, revision: 3 }));
+    await mount();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0]).toMatchObject({ conflict: true, record: { revision: 1 } });
+  });
+  it("reconciles a completed admission replay after cold restore before releasing a later edit (S1)", async () => {
+    const source = { ...row("source", false, 1), kind: "source" as const };
+    mock.saved = { ...emptyState(), bootstrap, records: [source], outbox: [
+      { id: "job", type: "import", generation: 1, record_id: source.id, files: [] },
+      { id: "edit", type: "save", generation: 1, record: { ...source, body: "My note" }, files: [] },
+    ] };
+    mock.api.import = vi.fn(async () => {
+      expect(mock.state?.outbox[0]).toMatchObject({ baseline: source });
+      throw new ApiError("Offline before the admission receipt arrived", 0);
+    });
+    await mount();
+    expect(baby.state.outbox[0]).toMatchObject({ baseline: source });
+    mock.saved = mock.state;
+    await act(async () => { renderer!.unmount(); });
+    mock.api.import.mockResolvedValue({ id: "job", record_id: source.id, status: "ready" });
+    mock.api.record = vi.fn(async () => ({ ...source, revision: 3, data: { ...source.data, status: "ready", source_text: "Acquired original" } }));
+    await mount(); await act(settle);
+    expect(mock.api.record).toHaveBeenCalledWith(source.id);
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My note", data: { source_text: "Acquired original" } });
+    expect(baby.state.outbox).toEqual([]);
+  });
 });

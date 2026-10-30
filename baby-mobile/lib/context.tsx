@@ -319,6 +319,13 @@ export function BabyProvider({ children }: PropsWithChildren) {
               };
               result = await api.save(value, next.generation);
             } else {
+              // Persist before the request: a lost admission response can replay
+              // an already-completed job after a relaunch.
+              const baseline = next.baseline === undefined
+                ? ref.current.records.find(row => row.id === next.record_id) ?? null : next.baseline;
+              if (next.baseline === undefined) await commit(s => ({ ...s,
+                outbox: s.outbox.map(m => m.id === next.id ? { ...m, baseline } : m),
+              }));
               const job = await api.import(
                 {
                   id: next.id,
@@ -332,7 +339,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
                 },
                 next.generation
               );
-              await commit((s) => ({ ...s, imports: [job, ...s.imports.filter((j) => j.id !== job.id)] }));
+              await commit((s) => ({ ...s, imports: [{ ...job, baseline, automatic: next.automatic, reconciled: false },
+                ...s.imports.filter((j) => j.id !== job.id)] }));
             }
           }
           await commit((s) => ({
@@ -376,9 +384,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
         }));
       }
       for (const job of [...ref.current.imports])
-        if (!importFinished(job.status)) {
+        if (job.status !== "deferred" && (!importFinished(job.status) || !job.reconciled)) {
           try {
-            const fresh = await api.job(job.id);
+            const fresh = importFinished(job.status) ? job : { ...await api.job(job.id), baseline: job.baseline, automatic: job.automatic };
             let row: BabyRecord | undefined;
             if (fresh.record_id) {
               try { row = await api.record(fresh.record_id); }
@@ -389,11 +397,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
             // A terminal job and its refreshed source become durable together.
             // A failed fetch leaves the previous polling obligation intact.
             await commit((s) => ({ ...s,
-              imports: s.imports.map((j) => (j.id === fresh.id ? fresh : j)),
+              imports: s.imports.map((j) => (j.id === fresh.id ? { ...fresh, reconciled: importFinished(fresh.status) } : j)),
               records: row ? replaceRecord(s.records, row) : s.records,
               // Held edits use the import's final revision. Rejected edits still need review.
               outbox: row && importFinished(fresh.status)
-                ? s.outbox.map(m => m.type === "save" && !m.error && !m.conflict ? advanceAfterImport(m, row!) : m)
+                ? s.outbox.map(m => m.type === "save" && !m.error && !m.conflict ? advanceAfterImport(m, row!, fresh) : m)
                 : s.outbox,
             }));
             if (row && importFinished(fresh.status) && ref.current.outbox.some(m =>

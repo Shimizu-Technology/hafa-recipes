@@ -114,17 +114,49 @@ export function retryMutation<T extends Mutation>(change: T): T {
 
 /** Admission is not completion: an import may still replace source fields. */
 export function waitingForImport(imports: ImportJob[], change: Mutation) {
-  return change.type === "save" && imports.some(job => job.record_id === change.record.id && job.status !== "deferred" && !importFinished(job.status));
+  return change.type === "save" && imports.some(job => job.record_id === change.record.id && job.status !== "deferred" &&
+    (!importFinished(job.status) || !job.reconciled));
 }
 
-/** Source editors change originals, topics and attachments, not processing metadata. */
-export function advanceAfterImport(change: Mutation, result: BabyRecord): Mutation {
-  const advanced = advancePending(change, result);
-  if (advanced.type !== "save" || advanced.record.id !== result.id) return advanced;
-  const computed = Object.fromEntries([
-    "summary", "key_points", "steps", "evidence", "creator", "platform", "thumbnail_url", "coverage_notes", "status",
-  ].filter(key => key in result.data).map(key => [key, result.data[key]]));
-  return { ...advanced, record: { ...advanced.record,
-    title: advanced.record.title === "Saved source" ? result.title : advanced.record.title,
-    data: { ...advanced.record.data, ...computed } } };
+const processingFields = new Set([
+  "url", "source_text", "topics", "attachment_ids", "summary", "key_points", "steps", "evidence",
+  "creator", "platform", "thumbnail_url", "coverage_notes", "status",
+]);
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const keys = Object.keys(a), other = Object.keys(b);
+  return keys.length === other.length && keys.every(key => Object.hasOwn(b, key) &&
+    same((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+}
+/** Admission increments once; the worker increments once only when its baseline
+ * still matches. A later remote
+ * write increments again; a write during processing makes the job incomplete with
+ * an error. Never turn either case (or an old job without a baseline) into a save. */
+export function advanceAfterImport(change: Mutation, result: BabyRecord, job?: ImportJob): Mutation {
+  if (change.type !== "save" || change.record.id !== result.id) return change;
+  const before = job?.baseline, local = change.record;
+  const onlyOwned = before && ["id", "kind", "body", "child_id", "occurred_at"].every(key =>
+    same(before[key as keyof BabyRecord], result[key as keyof BabyRecord])) &&
+    (before.title === result.title || before.title === "Saved source" || job.automatic) &&
+    [...new Set([...Object.keys(before.data), ...Object.keys(result.data)])].every(key =>
+      processingFields.has(key) || same(before.data[key], result.data[key]));
+  const completedWrite = before && result.revision === before.revision + 2 && !job?.error &&
+    (job?.status === "ready" || job?.status === "incomplete");
+  const noWrite = before && result.revision === before.revision + 1 && job?.status !== "ready" && !job?.error &&
+    same({ ...before.data, status: undefined }, { ...result.data, status: undefined }) && before.title === result.title;
+  if (!before || before.cache_partial || local.revision !== before.revision || !onlyOwned || !(completedWrite || noWrite))
+    return { ...change, conflict: true, error: "This source changed while it processed. Your local version is safe. Compare the saved version before retrying." };
+  const data = { ...local.data };
+  for (const key of new Set([...Object.keys(before.data), ...Object.keys(result.data)])) {
+    // Keep deliberate edits, but acquire new originals/metadata when that field
+    // was untouched locally. Processing-only fields always belong to the result.
+    const editable = ["url", "source_text", "topics", "attachment_ids"].includes(key);
+    if (!editable || same(local.data[key], before.data[key])) {
+      if (key in result.data) data[key] = result.data[key];
+      else delete data[key];
+    }
+  }
+  return { ...change, record: { ...local, revision: result.revision, data,
+    title: local.title === before.title ? result.title : local.title } };
 }

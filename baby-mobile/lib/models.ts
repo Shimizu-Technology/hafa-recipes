@@ -105,6 +105,10 @@ export interface ImportJob {
   status: string;
   record_id?: string | null;
   error?: string | null;
+  /** Private device snapshot taken durably before admission, never sent to the API. */
+  baseline?: BabyRecord | null;
+  automatic?: boolean;
+  reconciled?: boolean;
 }
 export interface Citation {
   id: string;
@@ -168,6 +172,7 @@ export type Mutation = { localOnly?: boolean } & (
       id: string;
       generation: number;
       type: "import";
+      baseline?: BabyRecord | null;
       automatic?: boolean;
       automatic_epoch?: number;
       url?: string;

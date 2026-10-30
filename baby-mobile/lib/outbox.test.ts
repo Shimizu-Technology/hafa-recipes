@@ -171,7 +171,8 @@ it("holds saves for active imports but lets deletion cancel the import", () => {
   expect(waitingForImport(jobs, save)).toBe(true);
   expect(waitingForImport(jobs, { ...save, record: { ...row, id: "other" } })).toBe(false);
   expect(waitingForImport(jobs, { id: "delete", type: "delete", generation: 1, record: row })).toBe(false);
-  expect(waitingForImport([{ ...jobs[0], status: "ready" }], save)).toBe(false);
+  expect(waitingForImport([{ ...jobs[0], status: "ready" }], save)).toBe(true);
+  expect(waitingForImport([{ ...jobs[0], status: "ready", reconciled: true }], save)).toBe(false);
   // A deferred native receipt saved only an original; no worker owns the record.
   expect(waitingForImport([{ ...jobs[0], status: "deferred" }], save)).toBe(false);
 });
@@ -179,9 +180,14 @@ it("holds saves for active imports but lets deletion cancel the import", () => {
 it("keeps import metadata while applying the later user's editable source fields", () => {
   const edit: Mutation = { id: "edit", type: "save", generation: 1, files: [],
     record: { ...row, body: "My note", title: "My title", data: { source_text: "My original", topics: ["My topic"], status: "queued" } } };
-  const terminal = { ...row, revision: 3, data: { summary: "Organized", status: "ready", creator: "Example creator", source_text: "Acquired text" } };
-  expect(advanceAfterImport(edit, terminal)).toMatchObject({ record: { revision: 3, title: "My title", body: "My note",
+  const terminal = { ...row, revision: row.revision + 2, data: { summary: "Organized", status: "ready", creator: "Example creator", source_text: "Acquired text" } };
+  const job = { id: "job", status: "ready", baseline: row };
+  expect(advanceAfterImport(edit, terminal, job)).toMatchObject({ record: { revision: terminal.revision, title: "My title", body: "My note",
     data: { source_text: "My original", topics: ["My topic"], summary: "Organized", status: "ready", creator: "Example creator" } } });
-  expect(advanceAfterImport({ ...edit, record: { ...edit.record, title: "Saved source" } }, terminal))
+  expect(advanceAfterImport({ ...edit, record: { ...edit.record, title: "Saved source" } }, terminal,
+    { ...job, baseline: { ...row, title: "Saved source" } }))
     .toMatchObject({ record: { title: terminal.title } });
+  expect(advanceAfterImport({ ...edit, record: { ...edit.record, data: row.data } }, terminal, job))
+    .toMatchObject({ record: { data: { source_text: "Acquired text" } } });
+  expect(advanceAfterImport(edit, terminal)).toMatchObject({ conflict: true, record: { revision: row.revision } });
 });
