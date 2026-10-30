@@ -129,8 +129,8 @@ it.each([false, true])("keeps long choices wrapping or horizontally intrinsic (s
   if (scroll) expect(scrollers[0].props.horizontal).toBe(true);
 });
 
-it.each([1, 3.1])("keeps the actual Undo toast above the actual Add hit target at fontScale %s", async fontScale => {
-  mock.fontScale = fontScale;
+it.each([1, 3.1])("keeps Undo clear of Add through a live fontScale change to %s", async fontScale => {
+  mock.fontScale = 1;
   function Trigger() {
     const toast = useToast();
     return <Button title="Show toast" onPress={() => toast("Diaper logged", { label: "Undo", onPress() {} })} />;
@@ -138,6 +138,10 @@ it.each([1, 3.1])("keeps the actual Undo toast above the actual Add hit target a
   await mount(<ToastProvider><Trigger /><TabLayout /></ToastProvider>);
   const controls = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
   await act(async () => controls().find(n => n.props.accessibilityLabel === "Show toast")!.props.onPress());
+  if (fontScale !== 1) {
+    mock.fontScale = fontScale;
+    await act(async () => renderer!.update(<ToastProvider><Trigger /><TabLayout /></ToastProvider>));
+  }
   const toast = renderer!.root.findByType("AnimatedView" as React.ElementType);
   const add = controls().find(n => n.props.accessibilityLabel === "Add a source, note, or care log")!;
   const addStyle = Object.assign({}, ...add.props.style);
