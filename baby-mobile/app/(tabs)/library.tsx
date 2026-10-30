@@ -65,8 +65,8 @@ export default function Library() {
     </Card> : undefined}>
     <SyncStatus />
     <Field label="Search saved posts" value={q} onChange={setQ} placeholder="Hospital bag, sleep, things to remember…" />
-    <ChildFilter />
-    <Chips value={view} label="Saved posts" options={[
+    <ChildFilter scroll />
+    <Chips scroll value={view} label="Saved posts" options={[
       { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" }, { label: "Categories", value: "categories" },
     ]} onChange={chooseView} />
     {!!error && <Notice error>{error}</Notice>}

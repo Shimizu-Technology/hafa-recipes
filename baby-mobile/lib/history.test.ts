@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHistoryPager, historyRows } from "./history";
+import { createHistoryPager, historyRows, historyKinds } from "./history";
 import { emptyState, optimisticRecord, type Kind, type RecordPage } from "./models";
 
 const view = { filter: "all", childId: "child", query: "" };
@@ -247,4 +247,11 @@ it.each(["empty","total"])("drops stale retained IDs at a completed %s boundary"
   const fetch=vi.fn().mockResolvedValueOnce(page(["removed","retained"])).mockResolvedValueOnce(boundary==="empty"?{items:[],total:20,has_more:true}:{...page(["retained"],true),total:1});
   const pager=createHistoryPager(fetch); pager.reset(view); await pager.next(); pager.reset(view,true); await pager.next();
   expect(pager.snapshot()).toMatchObject({more:false,ids:boundary==="empty"?[]:["retained"]});
+});
+
+it("keeps the Journal's written timeline separate from the pushed care history", () => {
+  expect(historyKinds("writing")).toEqual(["journal", "question"]);
+  expect(historyKinds("care")).toEqual(["feeding", "sleep", "diaper"]);
+  const state = { ...emptyState(), records: [row("note"), row("question", "question"), row("feed", "feeding")] };
+  expect(historyRows(state, { ...view, filter: "writing" }, null).map(r => r.id)).toEqual(["note", "question"]);
 });

@@ -33,7 +33,7 @@ export default function TabLayout() {
         tabBarButton: ({ href: _href, style, onPress, ...props }) => (
           <ScalePressable {...props} style={style} onPress={onPress} />
         ),
-        tabBarActiveTintColor: colors.tint,
+        tabBarActiveTintColor: colors.tabLabelSelected,
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
@@ -76,7 +76,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'globe' : 'globe-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
@@ -89,7 +89,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'book' : 'book-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
@@ -110,7 +110,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'calendar' : 'calendar-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
@@ -123,7 +123,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'cart' : 'cart-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
