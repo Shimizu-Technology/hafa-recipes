@@ -1,3 +1,5 @@
+import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { recoverFailedCaptureSave } from '@/lib/captureSaveRecovery';
 import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
@@ -38,7 +40,7 @@ import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
@@ -120,7 +122,8 @@ const UNIT_OPTIONS = [
 export default function EditRecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { userId } = useAuth();
-  return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
+  const generation = useRecipeOwnerGeneration();
+  return <EditRecipeForm key={`${generation}:${userId ?? 'signed-out'}:${id}`} owner={userId} />;
 }
 
 export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; originalPages?: import('@/lib/api').RecipeImageUpload[]; resume?: boolean; guard: () => void } }) {

@@ -1,3 +1,5 @@
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, userId: null }) }));
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 
