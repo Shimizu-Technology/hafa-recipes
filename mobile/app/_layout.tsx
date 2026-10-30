@@ -1,3 +1,4 @@
+import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/expo';
@@ -160,6 +161,7 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
       });
     }
 
+    if (previousUserId && previousUserId !== currentUserId) void privateRecipeDrafts.clearAll().catch(captureError);
     previousUserIdRef.current = currentUserId;
   }, [user?.id, isLoaded]);
 

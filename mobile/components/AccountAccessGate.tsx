@@ -1,3 +1,4 @@
+import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, TouchableOpacity, View as RNView } from 'react-native';
 import { useAuth, useClerk, useUser } from '@clerk/expo';
@@ -122,6 +123,7 @@ export function AccountAccessGate({ children }: { children: React.ReactNode }) {
     await queryClient.cancelQueries();
     queryClient.clear();
     await clearAllOfflineGroceryData();
+            await privateRecipeDrafts.clearAll();
     await clearAccountOnboarding();
     await signOut();
   }, [queryClient, sessionId, signOut]);

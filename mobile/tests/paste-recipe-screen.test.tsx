@@ -1,3 +1,5 @@
+vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
+vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -293,15 +295,15 @@ describe('PasteRecipeScreen', () => {
     });
   });
 
-  it('does not extract or publish after a declined publishing disclosure', async () => {
+  it('continues the same import privately after choosing Keep private', async () => {
     mocks.params.isPublic = 'true';
     mocks.requestPublishing.mockResolvedValueOnce(false);
     let renderer: ReactTestRenderer;
     await act(async () => { renderer = create(<PasteRecipeScreen />); });
     await act(async () => renderer!.root.findByType('TextInput' as unknown as React.ComponentType).props.onChangeText('1 cup rice. Cook it.'));
     await act(async () => renderer!.root.findByType('Button' as unknown as React.ComponentType).props.onPress());
-    expect(mocks.extract).not.toHaveBeenCalled();
-    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.extract).toHaveBeenCalledOnce();
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ is_public: false }));
     expect(renderer!.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
       .find(node => node.props.accessibilityLabel === 'Private')!.props.accessibilityState.checked).toBe(true);
   });

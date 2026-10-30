@@ -83,6 +83,7 @@ export type SearchFilters = {
 
 export const recipeKeys = {
   all: ['recipes'] as const,
+  plannerSearch: () => [...recipeKeys.all, 'plannerSearch'] as const,
   lists: () => [...recipeKeys.all, 'list'] as const,
   list: (filters: { limit?: number; offset?: number; sourceType?: string }) =>
     [...recipeKeys.lists(), filters] as const,
@@ -154,6 +155,7 @@ function setDiscoverSavedState(
 }
 
 export function invalidateCreatedRecipeQueries(queryClient: QueryClient, recipeId?: string | null) {
+  queryClient.invalidateQueries({ queryKey: recipeKeys.plannerSearch() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.recentRoot() });
   queryClient.invalidateQueries({ queryKey: recipeKeys.countRoot() });
@@ -341,6 +343,22 @@ export function useRecipe(id: string, enabled = true) {
     thumbnailPending,
     preview,
   };
+}
+
+/** Planner searches the entire eligible scope, even with an empty query. */
+export function usePlannerRecipeSearch(
+  scope: 'all' | 'mine' | 'saved' | 'discover', filters: SearchFilters, enabled = true,
+) {
+  return useInfiniteQuery({
+    queryKey: [...recipeKeys.plannerSearch(), scope, filters],
+    queryFn: ({ pageParam = 0, signal }) => scope === 'discover'
+      ? api.searchPublicRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, undefined, undefined, signal)
+      : api.searchRecipes(filters.query || '', PAGE_SIZE, pageParam, undefined, filters.timeFilter, filters.tags, signal, scope === 'mine' ? 'own' : scope),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
+    enabled,
+    staleTime: 30_000,
+  });
 }
 
 /**
@@ -1633,10 +1651,11 @@ export function useSavedRecipesCount() {
  * Check if a specific recipe is saved
  */
 export function useIsRecipeSaved(recipeId: string, enabled = true) {
+  const { isLoaded, userId } = useAuth();
   return useQuery({
     queryKey: ['recipeSaved', recipeId],
     queryFn: () => api.checkRecipeSaved(recipeId),
-    enabled: !!recipeId && enabled,
+    enabled: isLoaded && !!userId && !!recipeId && enabled,
   });
 }
 
@@ -1649,55 +1668,71 @@ function useConfirmedRecipeSave(saved: boolean) {
   const currentSubject = useRef(subject);
   currentSubject.current = subject;
 
+  // Freeze before React Query can yield in onMutate. Retry reuses this exact lease.
+  const freeze = (id: string, extraGuard?: () => void) => {
+    const authScope = api.getAuthScope();
+    const initiatingSubject = subject;
+    const ownerId = queryClient.getQueryData<{ id: string }>(currentUserIdentityKey(subject))?.id;
+    const current = () => {
+      try {
+        extraGuard?.();
+        return Boolean(initiatingSubject) && currentSubject.current === initiatingSubject
+          && api.getAuthScope() === authScope
+          && (!ownerId || queryClient.getQueryData<{ id: string }>(currentUserIdentityKey(initiatingSubject))?.id === ownerId);
+      } catch { return false; }
+    };
+    const guard = () => { if (!current()) throw new CaptureAccountChangedError(); };
+    return { id, current, guard };
+  };
   const mutation = useMutation({
-    mutationFn: (recipeId: string) => saved ? api.saveRecipe(recipeId) : api.unsaveRecipe(recipeId),
-    // Retain the initiating account for late responses and persistent Retry actions.
-    onMutate: async (recipeId) => {
-      const context = { subject, authScope: api.getAuthScope() };
+    mutationFn: ({ id, guard }: ReturnType<typeof freeze>) => { guard(); return saved ? api.saveRecipe(id, guard) : api.unsaveRecipe(id, guard); },
+    onMutate: async (intent) => {
+      intent.guard();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: recipeKeys.discover() }),
-        queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
+        queryClient.cancelQueries({ queryKey: ['recipeSaved', intent.id], exact: true }),
       ]);
-      // An account transition while cancellation yields must not start a write.
-      if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) throw new CaptureAccountChangedError();
-      return context;
+      intent.guard();
     },
-    onSuccess: async (data, recipeId, context) => {
-      if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) return;
-      // Also stop reads started during the write before publishing confirmed state.
+    onSuccess: async (data, intent) => {
+      if (!intent.current()) return;
       await Promise.all([
         queryClient.cancelQueries({ queryKey: recipeKeys.discover() }),
-        queryClient.cancelQueries({ queryKey: ['recipeSaved', recipeId], exact: true }),
+        queryClient.cancelQueries({ queryKey: ['recipeSaved', intent.id], exact: true }),
       ]);
-      if (currentSubject.current !== context.subject || api.getAuthScope() !== context.authScope) return;
-      queryClient.setQueryData(['recipeSaved', recipeId], { is_saved: data.saved });
-      setDiscoverSavedState(queryClient, recipeId, data.saved);
+      if (!intent.current()) return;
+      queryClient.setQueryData(['recipeSaved', intent.id], { is_saved: data.saved });
+      setDiscoverSavedState(queryClient, intent.id, data.saved);
       if (mounted.current && data.saved === saved) haptics.success();
     },
-    onError: async (_error, recipeId, context) => {
-      if (currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
-      await reconcileSavedStateAfterError(queryClient, recipeId);
-      if (!mounted.current || currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
+    onError: async (_error, intent) => {
+      if (!intent.current()) return;
+      try { await reconcileSavedStateAfterError(queryClient, intent.id, intent.guard, () => api.checkRecipeSaved(intent.id, intent.guard)); } catch { /* Retry remains available when reconciliation is offline. */ }
+      if (!mounted.current || !intent.current()) return;
       showToast({
         message: saved ? "Couldn't save. Try again" : "Couldn't remove. Try again",
-        tone: 'error',
-        actionLabel: 'Retry',
-        onAction: () => {
-          if (mounted.current && context?.subject && currentSubject.current === context.subject && api.getAuthScope() === context.authScope) mutation.mutate(recipeId);
-        },
+        tone: 'error', actionLabel: 'Retry',
+        onAction: () => { if (mounted.current && intent.current()) mutation.mutate(intent); },
       });
     },
-    onSettled: (_data, _error, recipeId, context) => {
-      if (currentSubject.current !== context?.subject || api.getAuthScope() !== context?.authScope) return;
-      void queryClient.invalidateQueries({ queryKey: ['savedRecipes'] });
-      void queryClient.invalidateQueries({ queryKey: ['savedRecipesCount'] });
-      void queryClient.invalidateQueries({ queryKey: recipeKeys.discover() });
-      void queryClient.invalidateQueries({ queryKey: ['recipeSaved', recipeId], exact: true });
-      // Search membership cannot be safely patched without every filter's recipe data.
-      if (_data) void queryClient.invalidateQueries({ queryKey: recipeKeys.all });
+    onSettled: (data, _error, intent) => {
+      if (!intent.current()) return;
+      for (const queryKey of [recipeKeys.plannerSearch(), recipeKeys.saved(), ['savedRecipesCount'], recipeKeys.discover(), ['recipeSaved', intent.id], ...(data ? [recipeKeys.all] : [])]) {
+        void queryClient.invalidateQueries({ queryKey, refetchType: 'none' });
+      }
+
     },
   });
-  return mutation;
+  type Options = MutateOptions<Awaited<ReturnType<typeof api.saveRecipe>>, Error, string, void>;
+  const callbacks = (options?: Options): Parameters<typeof mutation.mutate>[1] => options && ({
+    onSuccess: (data, intent, context, mutationContext) => { if (intent.current()) options.onSuccess?.(data, intent.id, context, mutationContext); },
+    onError: (error, intent, context, mutationContext) => { if (intent.current()) options.onError?.(error, intent.id, context, mutationContext); },
+    onSettled: (data, error, intent, context, mutationContext) => { if (intent.current()) options.onSettled?.(data, error, intent.id, context, mutationContext); },
+  });
+  return { ...mutation, variables: mutation.variables?.id,
+    mutate: (id: string, options?: Options, guard?: () => void) => mutation.mutate(freeze(id, guard), callbacks(options)),
+    mutateAsync: (id: string, options?: Options, guard?: () => void) => mutation.mutateAsync(freeze(id, guard), callbacks(options)),
+  };
 }
 
 export function useSaveRecipe() {

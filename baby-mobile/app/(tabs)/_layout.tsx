@@ -1,3 +1,4 @@
+import { floatingLayout } from "../../lib/floating-layout";
 import { Tabs, router, useSegments } from "expo-router";
 import type { Ref } from "react";
 import { Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
@@ -7,7 +8,7 @@ export default function TabLayout() {
   const c = useColors(),
     insets = useSafeAreaInsets(),
     { fontScale } = useWindowDimensions(),
-    barHeight = Math.max(64, Math.ceil(40 + 28 * fontScale)),
+    layout = floatingLayout(fontScale, insets.bottom),
     segments = useSegments(),
     // Ask has its own docked composer; the Add button would sit on top of it.
     showAdd = segments[segments.length - 1] !== "ask";
@@ -21,7 +22,7 @@ export default function TabLayout() {
           tabBarStyle: {
             backgroundColor: c.background,
             borderTopColor: c.border,
-            height: barHeight + insets.bottom,
+            height: layout.barHeight + insets.bottom,
             paddingTop: 8,
             paddingBottom: Math.max(10, insets.bottom),
           },
@@ -86,9 +87,9 @@ export default function TabLayout() {
         style={({ pressed }) => ({
           position: "absolute",
           right: 20,
-          bottom: barHeight + 16 + insets.bottom,
-          width: 54,
-          height: 54,
+          bottom: layout.addBottom,
+          width: layout.addSize,
+          height: layout.addSize,
           borderRadius: 27,
           backgroundColor: c.action,
           justifyContent: "center",
