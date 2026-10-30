@@ -37,3 +37,10 @@ describe('capture save recovery', () => {
     expect(result).toMatchObject({ params: { saveErrorKind: 'invalid', saveErrorMessage: 'Invalid extracted recipe draft' } });
   });
 });
+
+it('carries original pages into save-only recovery without discarding their local files', async () => {
+  const original_pages = [{ uri: 'file:///private-recipe-drafts/account/page.jpg' }];
+  const route = await saveCaptureOrRecover({ extracted: {}, source_type: 'photo', is_public: false, original_pages }, 'Guam',
+    async () => { throw new Error('Original page storage unavailable'); });
+  expect(route).toMatchObject({ params: { originalPages: JSON.stringify(original_pages), saveErrorKind: 'retry' } });
+});

@@ -122,7 +122,7 @@ export default function EditRecipeScreen() {
   return <EditRecipeForm key={`${userId ?? 'signed-out'}:${id}`} owner={userId} />;
 }
 
-export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; resume?: boolean; guard: () => void } }) {
+export function EditRecipeForm({ owner, capture }: { owner: string | null | undefined; capture?: { id: string; ownerId: string; recipe: Recipe; originalPages?: import('@/lib/api').RecipeImageUpload[]; resume?: boolean; guard: () => void } }) {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
@@ -408,7 +408,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
 
     return {
       data,
-      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
+      captureRequest: capture ? JSON.parse(JSON.stringify({ capture_id: capture.id, original_pages: capture.originalPages, source_type: capture.recipe.source_type === 'text' ? 'text' : 'photo', is_public: data.is_public, extracted: applyCaptureEdits(capture.recipe.extracted, data) })) : undefined,
       imageUri: newImageUri,
       publishingPreview: previewRecipe
         ? formatPublishDisclosure(getPublishDisclosure(previewRecipe))

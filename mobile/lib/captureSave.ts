@@ -1,6 +1,7 @@
 import { privateRecipeDrafts } from './privateRecipeDrafts';
 import { CaptureAccountChangedError } from './captureAccount';
 export { CaptureAccountChangedError } from './captureAccount';
+import type { RecipeImageUpload } from './api';
 import { randomUUID } from 'expo-crypto';
 import { captureSaveFailure } from './captureSaveFailure';
 export { captureSaveFailure } from './captureSaveFailure';
@@ -13,6 +14,7 @@ export interface CapturedRecipeSaveInput {
   source_type: 'photo' | 'text';
   is_public: boolean;
   capture_id?: string;
+  original_pages?: RecipeImageUpload[];
   expected_owner_id?: string;
   requestGuard?: () => void;
 }
@@ -51,6 +53,7 @@ export async function saveCaptureOrRecover(
         sourceType: input.source_type,
         saveFailed: 'true',
         captureId: request.capture_id,
+        ...(input.original_pages?.length ? { originalPages: JSON.stringify(input.original_pages) } : {}),
         ...(input.expected_owner_id ? { captureOwnerId: input.expected_owner_id } : {}),
         saveErrorKind: failure.kind,
         saveErrorMessage: failure.message,

@@ -138,10 +138,10 @@ export default function ExtractScreen() {
     const savedRecipe = saved.request ? { ...saved.recipe, extracted: saved.request.extracted, source_type: saved.request.source_type, is_public: saved.request.is_public } : saved.recipe;
     router.push(saved.failure && saved.failure.kind !== 'invalid' ? {
       pathname: '/ocr-review', params: { recipe: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-        captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
+        originalPages: JSON.stringify(saved.request?.original_pages || []), captureOwnerId: inbox.ownerId!, sourceType: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false',
         saveFailed: 'true', saveErrorKind: saved.failure.kind, saveErrorMessage: saved.failure.message },
     } : { pathname: '/edit-capture', params: { initialData: JSON.stringify(savedRecipe.extracted), captureId: saved.captureId,
-      captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
+      originalPages: JSON.stringify(saved.request?.original_pages || []), captureOwnerId: inbox.ownerId!, captureSource: savedRecipe.source_type, isPublic: savedRecipe.is_public ? 'true' : 'false', resumeDraft: 'true' } });
   });
   const [pendingShares, setPendingShares] = useState(0);
   const [isOpeningNextShare, setIsOpeningNextShare] = useState(false);
@@ -276,7 +276,7 @@ export default function ExtractScreen() {
   const handleScanRecipe = async () => {
     Alert.alert(
       'Import Recipe Images',
-      'Take a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
+      'Håfa keeps your original pages privately so you can check them later. You can remove them anytime.\n\nTake a photo or choose up to 10 screenshots, recipe cards, or cookbook pages.',
       [
         {
           text: 'Take Photo',
@@ -388,6 +388,8 @@ export default function ExtractScreen() {
       setOcrProgress(`Extracting recipe with AI vision...`);
 
       guardOwner();
+      await scanDraft.flush();
+      guardOwner();
       // Use single or multi-image API based on count
       const result = imageCount === 1
         ? await api.extractRecipeFromImage(selectedImages[0], selectedLocation)
@@ -399,6 +401,7 @@ export default function ExtractScreen() {
         const destination = await saveCaptureOrRecover({
           extracted: result.recipe,
           source_type: 'photo',
+          original_pages: selectedImages,
           is_public: requestedPublic,
           capture_id: selectedInboxId ?? undefined,
           expected_owner_id: originalOwner, requestGuard: guardOwner,
@@ -714,12 +717,13 @@ export default function ExtractScreen() {
           {/* Info Text */}
           <Text style={[styles.galleryHint, { color: colors.textMuted }]}>
             {selectedImages.length === 1
-              ? 'Add more screenshots or pages for a complete recipe. Source images are not attached to the saved recipe.'
-              : `${selectedImages.length} images will be combined in this order. Source images are not attached to the saved recipe.`}
+              ? 'Add more screenshots or pages for a complete recipe. Original pages are kept privately with your recipe.'
+              : `${selectedImages.length} images will be combined in this order. Original pages are kept privately with your recipe.`}
           </Text>
 
           <RecipeDraftNotice draft={scanDraft} />
           <RecipeDraftNotice draft={recoveryDraft} />
+          <Text>Håfa keeps your original pages privately so you can check them later. You can remove them anytime.</Text>
           <RecipeVisibilitySelector
             compact
             value={isPublic ? 'public' : 'private'}

@@ -697,6 +697,7 @@ describe('classified image recovery', () => {
     expect(mocks.push).toHaveBeenCalledWith({ pathname: '/ocr-review', params: {
       recipe: JSON.stringify(recipe), sourceType: 'photo', isPublic: 'true', location: 'Guam', saveFailed: 'true',
       captureId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', captureOwnerId: 'owner-a', saveErrorKind: 'retry', saveErrorMessage: 'Offline',
+      originalPages: expect.any(String),
     } });
   });
 
