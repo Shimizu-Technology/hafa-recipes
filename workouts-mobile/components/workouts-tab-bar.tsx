@@ -12,7 +12,7 @@ import { useOfflineTraining } from "@/lib/context";
 import { setTabOverlayHeight } from "./tab-chrome";
 
 /** Tabs that show the floating coach button. Add has its own capture flow. */
-const coachTabs = new Set(["discover", "library", "plan", "progress"]);
+const coachTabs = new Set(["discover", "library", "train"]);
 
 /** Recipes-style tab bar: a quiet floating coach button and, during a workout, a Resume bar. */
 export function WorkoutsTabBar(props: BottomTabBarProps) {
@@ -29,7 +29,7 @@ export function WorkoutsTabBar(props: BottomTabBarProps) {
   }, []);
   const route = props.state.routes[props.state.index]?.name;
   // Train shows its own Resume action at the top, so the floating bar would repeat it.
-  const active = route === "plan" ? null : offline.state.active;
+  const active = route === "train" ? null : offline.state.active;
   const showCoach = !keyboard && coachTabs.has(route ?? "");
   const floating = !keyboard && (showCoach || !!active);
   useEffect(() => {
