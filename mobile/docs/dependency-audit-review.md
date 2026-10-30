@@ -157,3 +157,91 @@ all exit 0. Workouts and Baby `npm run export:all` and
 `npm run check:native-bundles` also exit 0. The extra repository-wide
 `./scripts/check.sh` exits 1 during API test setup because `TEST_DATABASE_URL`
 is unset (2,099 passed, 698 skipped, 244 setup errors); its later stages do not run.
+
+## New advisory review — 2026-10-30
+
+Reviewed fresh `origin/main` at `6f083ba9`. These additions retain the existing
+**2026-11-17T00:00:00Z** expiry. They accept specific remaining risks; they do
+not fix the vulnerabilities. No dependency or lockfile changes are made.
+
+### decode-uri-component:1243857 (high)
+
+[GHSA-qr28-fpjm-wq7f](https://github.com/advisories/GHSA-qr28-fpjm-wq7f)
+affects versions through 0.5.0, including the earlier 0.5.0 recursion fix.
+Malformed input with many distinct percent-encoded runs causes quadratic
+replacement work. For a mobile consumer the impact is a **client-side JS-thread
+hang/unresponsive app**, not a shared API outage. Do not apply Node HTTP header
+limits to native deep links: this is not an HTTP server decoder.
+
+Installed Router 57.0.29 declares query-string 7.1.3, which directly requires a
+callable CommonJS `decode-uri-component` and defaults to decoding both query
+keys and values. Router's `react-navigation/core/getStateFromPath.js` calls
+`queryString.parse` in `parseQueryParams`. This helper is bundled and can decode
+URL/deep-link query parameters if selected. External native links, web location
+queries, and application-generated navigation parameters are relevant input
+sources; application/internal strings have no universal Router length cap.
+Router's active `fork/getStateFromPath-forks.js` instead uses URLSearchParams;
+its outgoing `getPathFromState` helpers call stringify, which does not decode.
+That distinction reduces exposure in today's navigation setup but does not make
+the bundled decoder or future use of the public core helper unreachable.
+
+Recipes already overrides decoder 0.2.2 to **0.5.0** on main. That release is
+also affected by this new advisory. Recipes has no `+native-intent` URL guard;
+no application-wide pre-Router input cap was found. The existing ESM override
+also makes the public core helper's query-string.parse throw on ordinary query
+input under Node 22.22.2. This is pre-existing compatibility debt, not proof of
+security: direct/default-import decoding still has the quadratic-work risk,
+and the helper can break if selected. This policy change leaves routing and
+dependencies unchanged and does not claim to repair that fallback helper.
+
+The registry still has no patched 0.2.x/0.3.x; query-string 7 ends at 7.1.3 and
+Router 57 ends at 57.0.29 with the same dependency. The only patched decoder,
+0.5.1, is default-only ESM (`type: module`). A bounded Node 22.22.2 compatibility
+probe substituted its published entry for query-string's required decoder:
+`queryString.parse('x=abc')` throws `TypeError: decodeComponent is not a function`.
+A blind override is therefore not accepted as a safe fix. This temporary
+exception explicitly accepts the remaining client availability risk until the
+existing deadline; adopt a supported compatible Router/parser fix or a reviewed
+CommonJS backport, then remove the exception. New routing consumers or changed
+dependency provenance require reassessment before that deadline.
+
+### deepmerge:1243505 (low)
+
+[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
+affects deepmerge 4.3.1; it is still the latest registry release and no patched
+version is listed. Expo 57.0.31 → @expo/config 57.0.10 → deepmerge 4.3.1 is the
+installed path. `@expo/config/build/Config.js` uses it in
+`mergeConfigModifications` for root Expo config and plugin option objects.
+These are repository/developer-controlled build/configuration inputs. Untrusted
+config/plugin objects could poison the returned object's prototype; this review
+does not permit those inputs or claim the primitive is safe.
+
+No application source imports deepmerge or @expo/config as a runtime value.
+Baby/Workouts' `ExpoConfig` imports are type-only and erased. Fresh native source
+maps exclude deepmerge and @expo/config; Baby/Workouts bundle gates now reject
+either package if future exports introduce it. Recipes also receives a fresh
+iOS source-map inspection in this review. This is a config/build-time
+exception, not a shipped native merge endpoint. Recipe/workout/Baby source
+imports, chat and shared content are not passed to this build configuration API.
+
+The Recipes policy pins the package/parent versions and integrities, exact
+declaring parents/ranges/kinds and rejects new nested copies. Both new advisories
+receive the existing policy regression cases for those boundaries and expiry.
+Existing stream-json/uuid acceptances are unchanged.
+
+Validation results:
+
+Node 22.22.2 validation: fresh `npm ci`, full app tests (1,142 passed),
+`npm run typecheck`, Doctor (21/21), and `npm run audit:runtime` pass.
+Recipes additionally exports iOS with source maps. Native source maps retain
+query-string, the decoder and the
+core parsing helper, and contain no deepmerge or @expo/config sources:
+
+- iOS: 2,913 sources; SHA-256 `86958206319dd08f905ed9e29b490a7fcfbcdd3ad94c52550265e2eebdda925b`.
+
+Exports use `EXPO_NO_DOTENV=1` and two Metro workers. Evidence (logs,
+compatibility probe and source-map inventory) is retained outside Git at
+`output/hafa-impl-2026-10-30/apps/audit-advisories/` under the ShimizuTechnology
+root. No simulator, OAuth, DB, Clerk or installed-app journey test is claimed;
+no application behavior changes. Only the three app sections of
+`scripts/check.sh` are exercised, per the task's overloaded-host constraint.

@@ -33,9 +33,7 @@ export default function Footer() {
               <a href="https://apps.apple.com/us/app/recipe-extractor-gu/id6755892896" target="_blank" rel="noopener noreferrer">
                 App Store
               </a>
-              <a href="#" target="_blank" rel="noopener noreferrer">
-                Google Play (Coming Soon)
-              </a>
+              <span>Android is coming soon</span>
             </div>
           </div>
         </div>

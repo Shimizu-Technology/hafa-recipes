@@ -92,14 +92,83 @@ function hasReviewedStreamJsonPath(lockfile, now) {
     && declaringPackages[0] === 'node_modules/jayson';
 }
 
-// Temporary exceptions for build-tool and unused wallet advisories. These are
-// not runtime vulnerability fixes; see ../docs/dependency-audit-review.md.
+// Temporary exceptions for build-tool, unused wallet and reachable Router
+// advisories. These are not runtime vulnerability fixes; see ../docs/dependency-audit-review.md.
 // Any changed version, integrity, declaring parent/range, duplicate install,
 // or expired review fails closed and requires a fresh reachability assessment.
 const BUILD_TOOL_REVIEW_STARTED = Date.parse('2026-10-24T00:00:00Z');
 export const buildToolReviewExpiresAt = '2026-11-17T00:00:00Z';
 const BUILD_TOOL_REVIEW_EXPIRES = Date.parse(buildToolReviewExpiresAt);
 const reviewedBuildToolAdvisories = {
+  // Router decoding is reachable; this is a bounded risk acceptance, not absence.
+  "decode-uri-component:1243857": {
+    "packages": {
+      "node_modules/decode-uri-component": {
+        "version": "0.5.0",
+        "integrity": "sha512-1BiQVoK8C9gUbQU6NzAtO/tkz2qOFpEObMWpcFvhx4fYnj4Oc5yzaJN/LD36ihkVUdXyh5ZekzX+yM+ty/SrPg=="
+      },
+      "node_modules/query-string": {
+        "version": "7.1.3",
+        "integrity": "sha512-hh2WYhq4fi8+b+/2Kg9CEge4fDPvHS534aOOvOZeQ3+Vf2mCFsaFBYj0i+iXcAq6I9Vzp5fjMFBlONvayDC1qg=="
+      },
+      "node_modules/expo-router": {
+        "version": "57.0.29",
+        "integrity": "sha512-jm3ZVLm40zZc7XpfvGjZqgoaWjNOEht5mXAxi5RC8gqUQxSq4PRTMy49TXsYlDncVPZFgFPXaE2vOLrsv7Cpsw=="
+      }
+    },
+    "declarations": {
+      "decode-uri-component": {
+        "node_modules/query-string": {
+          "dependencies": "^0.2.2"
+        }
+      },
+      "query-string": {
+        "node_modules/expo-router": {
+          "dependencies": "^7.1.3"
+        }
+      }
+    }
+  },
+  "deepmerge:1243505": {
+    "packages": {
+      "node_modules/deepmerge": {
+        "version": "4.3.1",
+        "integrity": "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A=="
+      },
+      "node_modules/@expo/config": {
+        "version": "57.0.10",
+        "integrity": "sha512-YpexTqLWEXdbbXgHh7Zhpq+qA5diuvO46lb7TiY81JwqKLAl9zK31APY1D7jUFlDX56owje5RtK0o5bMmGIMUg=="
+      },
+      "node_modules/expo": {
+        "version": "57.0.31",
+        "integrity": "sha512-+9AJvHZMLIY/Tv6r5Tpu84vWfI75FBTnineYqjjlHAU138IPg2gYQKn9FQFetCB9YScwyc7STk7WGHSCHAdTiQ=="
+      }
+    },
+    "declarations": {
+      "deepmerge": {
+        "node_modules/@expo/config": {
+          "dependencies": "^4.3.1"
+        }
+      },
+      "@expo/config": {
+        "node_modules/@expo/cli": {
+          "dependencies": "~57.0.10"
+        },
+        "node_modules/@expo/local-build-cache-provider": {
+          "dependencies": "~57.0.10"
+        },
+        "node_modules/@expo/metro-config": {
+          "dependencies": "~57.0.10"
+        },
+        "node_modules/@expo/prebuild-config": {
+          "dependencies": "~57.0.10"
+        },
+        "node_modules/expo": {
+          "dependencies": "~57.0.10"
+        }
+      }
+    }
+  },
   // Zod is confined to CLI devtools and the unused Clerk wallet chain.
   "zod:1243066": {
     "packages": {

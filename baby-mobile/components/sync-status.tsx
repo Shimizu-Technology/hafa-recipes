@@ -1,22 +1,18 @@
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { Notice, Row } from "./ui";
+import { Copy, PressTarget, Row } from "./ui";
 export function SyncStatus() {
   const b = useBaby();
-  if (!b.online || b.state.outbox.length)
-    return (
-      <Row
-        title={
-          !b.online
-            ? "You’re offline"
-            : b.syncing
-              ? "Syncing your changes…"
-              : `${b.state.outbox.length} saved change${b.state.outbox.length === 1 ? "" : "s"} on this device`
-        }
-        detail="Your work is kept privately. Review or retry here."
-        icon="cloud-upload-outline"
-        onPress={() => router.push("/sync")}
-      />
-    );
-  return b.error ? <Notice error>{b.error}</Notice> : null;
+  const failed = b.state.outbox.filter(m => (m.error || m.conflict) && !m.localOnly).length;
+  if (failed || b.error)
+    return <Row title={failed ? `${failed} change${failed === 1 ? " needs" : "s need"} attention` : "Sync needs attention"}
+      detail={b.error || "Your work is safe on this phone. Review the failed changes."}
+      icon="cloud-upload-outline" onPress={() => router.push("/sync")} />;
+  if (b.online && !b.state.outbox.length) return null;
+  const message = !b.online ? "Saved on this phone · offline"
+    : b.syncing ? "Saved on this phone · syncing" : "Saved on this phone";
+  return <PressTarget accessibilityRole="button" accessibilityLabel={`${message}. Review sync status`}
+    onPress={() => router.push("/sync")} style={{ minHeight: 44, justifyContent: "center" }}>
+    <Copy kind="small" tone="muted" lines={1}>{message}</Copy>
+  </PressTarget>;
 }

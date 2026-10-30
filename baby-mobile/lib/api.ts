@@ -60,7 +60,14 @@ export function createBabyApi(
     check();
     const captured = epoch;
     if (!base) throw new ApiError("This build needs its Håfa service configuration.", 0);
-    const token = await getToken();
+    let token: string | null;
+    try {
+      token = await getToken();
+    } catch {
+      check();
+      assertLease(captured);
+      throw new ApiError("Couldn’t check your sign-in. Reconnect and try again, or sign in again.", 401);
+    }
     check();
     assertLease(captured);
     if (!token) throw new ApiError("Sign in again to continue.", 401);
@@ -114,7 +121,13 @@ export function createBabyApi(
                         ? dailyLimit
                           ? dailyAiLimitMessage
                           : "Please wait a moment before trying again."
-                        : "Could not reach this part of Håfa Baby. Your local work is safe; try again.";
+                        : response.status === 404
+                          ? "This item is no longer available. Keep your local copy or discard this change."
+                          : response.status >= 500
+                            ? path === "/attachments"
+                              ? "Håfa Baby could not upload this attachment. It is safe on this phone. Retry the upload later."
+                              : "Håfa Baby could not save this change. It is safe on this phone. Retry later."
+                            : "Håfa Baby could not accept this change. Review its details before retrying.";
         throw new ApiError(safe, response.status);
       }
       if (response.status === 204) return undefined as T;
@@ -135,7 +148,7 @@ export function createBabyApi(
       check();
       if (e instanceof ApiError) throw e;
       throw new ApiError(
-        "Could not connect. Your work is saved on this device and can retry when you return online.",
+        "Could not connect. You’re offline. Your work is saved on this phone and can retry when you reconnect.",
         0
       );
     } finally {
