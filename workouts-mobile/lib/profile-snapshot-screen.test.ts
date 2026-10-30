@@ -267,3 +267,21 @@ it("opens a finished profile ready to edit when Coach sends someone to fix it", 
   expect(node("ProfileForm").props.disabled).toBe(false);
   expect(renderer!.root.findAll((entry) => entry.props?.title === "Edit these saved preferences")).toHaveLength(0);
 });
+
+
+it("keeps check-in navigation available after saving while profile edits remain sealed", async () => {
+  await mount(); await click("Save profile");
+  expect(node("ProfileForm").props.disabled).toBe(true);
+  expect(node("ProfileForm").props.checkInDisabled).toBe(false);
+  expect(node("ProfileForm").props.baseline).toEqual(server.profile);
+});
+it("provides no saved baseline for a first profile until its save is confirmed", async () => {
+  server = { profile: null, revision: 0 };
+  cache.setQueryData(key(), server); cache.setQueryData(legacyKey(), null);
+  await mount();
+  expect(node("ProfileForm").props.baseline).toBeNull();
+  await act(async () => { node("ProfileForm").props.update({ ...node("ProfileForm").props.value, adult_confirmed: true }); });
+  await click("Save profile");
+  expect(node("ProfileForm").props.baseline).toEqual(server.profile);
+  expect(node("ProfileForm").props.checkInDisabled).toBe(false);
+});

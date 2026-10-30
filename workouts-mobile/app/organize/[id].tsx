@@ -152,7 +152,7 @@ export default function Organize() {
   return (
     <Screen back title="Organize" subtitle={workout.data?.title}
       footer={draft ? <Button title="Save" busy={busy} onPress={() => { void save(); }} /> : undefined}>
-      <QueryState
+      <QueryState hasData={loaded && q.data !== undefined}
         loading={!loaded || q.isPending}
         error={q.error}
         retry={() => {

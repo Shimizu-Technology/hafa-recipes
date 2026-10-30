@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => ({
   hasScheduledNotification: vi.fn((_stepIndex: number) => false),
   scheduleTimerNotification: vi.fn(async () => undefined),
   back: vi.fn(),
+  retryAlert: vi.fn().mockResolvedValue(undefined),
+  openSettings: vi.fn().mockResolvedValue(undefined),
+  permission: true as boolean | null,
+  alertFailure: false,
   reduceMotionEnabled: false,
   reduceMotionLookup: null as Promise<boolean> | null,
   reduceMotionListeners: [] as ((enabled: boolean) => void)[],
@@ -64,6 +68,7 @@ vi.mock('react-native', async () => {
         } };
       },
     },
+    Linking: { openSettings: mocks.openSettings },
     Dimensions: { get: () => ({ width: 400, height: 800 }) },
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: host('Modal'),
@@ -138,6 +143,10 @@ vi.mock('@/hooks/useTimerSound', () => ({
 }));
 vi.mock('@/hooks/useBackgroundTimer', () => ({
   useBackgroundTimer: () => ({
+    hasPermission: mocks.permission,
+    retryFailedAlerts: mocks.retryAlert,
+    hasAlertFailure: mocks.alertFailure,
+    alertStatus: () => 'scheduled',
     scheduleTimerNotification: mocks.scheduleTimerNotification,
     cancelTimerNotification: vi.fn(async () => undefined),
     cancelAllTimerNotifications: vi.fn(async () => undefined),
@@ -237,6 +246,7 @@ describe('CookModeScreen', () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: new Date('2026-01-01T12:00:00Z') });
     mocks.storage.clear();
+    mocks.permission = true; mocks.alertFailure = false; mocks.openSettings.mockClear();
     mocks.appStateListeners = [];
     mocks.recipeQuery.data = RECIPE;
     mocks.recipeQuery.isLoading = false;
@@ -259,6 +269,24 @@ describe('CookModeScreen', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each(['denied', 'failed'])('distinguishes the running clock from an unavailable alert (%s)', async (reason) => {
+    mocks.permission = reason === 'denied' ? false : true;
+    mocks.alertFailure = reason === 'failed';
+    const r = await renderOnTimedStep();
+    expect(textOf(r.root)).toContain('Alerts are off outside the app');
+    expect(textOf(r.root)).toContain('Clock running · No alert scheduled');
+    await advance(1000);
+    expect(textOf(r.root)).toContain('0:59');
+    if (reason === 'denied') {
+      await act(async () => buttonByLabel(r, 'Open notification settings').props.onPress());
+      expect(mocks.openSettings).toHaveBeenCalledOnce();
+    } else {
+      await act(async () => buttonByLabel(r, 'Retry alert').props.onPress());
+      expect(mocks.retryAlert).toHaveBeenCalledOnce();
+    }
+    await act(async () => r.unmount());
   });
 
   describe('timer completion', () => {

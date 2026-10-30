@@ -140,12 +140,12 @@ async function commitMutations(
   confirmedOffline: boolean,
   lease: GroceryStorageLease,
   prepare: (snapshot: GrocerySnapshot) => GroceryMutationRequest[],
-): Promise<GrocerySnapshot> {
+): Promise<GrocerySnapshot & { syncStatus: 'confirmed' | 'queued' }> {
   return serializeGroceryMutation(async () => {
     assertGroceryStorageLease(lease);
     let snapshot = await baseSnapshot(queryClient, confirmedOffline, lease);
     const mutations = prepare(snapshot);
-    if (mutations.length === 0) return snapshot;
+    if (mutations.length === 0) return { ...snapshot, syncStatus: 'queued' };
 
     for (const mutation of mutations) {
       await addToSyncQueue(mutation, lease);
@@ -155,7 +155,7 @@ async function commitMutations(
     }
     await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
 
-    if (confirmedOffline) return snapshot;
+    if (confirmedOffline) return { ...snapshot, syncStatus: 'queued' };
 
     for (const [index, mutation] of mutations.entries()) {
       try {
@@ -175,7 +175,7 @@ async function commitMutations(
         await cacheGrocerySnapshot(snapshot, lease);
         queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
       } catch (error) {
-        if (isRetryableGroceryError(error)) return snapshot;
+        if (isRetryableGroceryError(error)) return { ...snapshot, syncStatus: 'queued' };
         await removeFromSyncQueue(mutation.mutation_id, lease);
         try {
           const serverSnapshot = await fetchAndCacheSnapshot(lease);
@@ -194,7 +194,7 @@ async function commitMutations(
       }
     }
     await queryClient.invalidateQueries({ queryKey: groceryKeys.pending() });
-    return snapshot;
+    return { ...snapshot, syncStatus: 'confirmed' };
   });
 }
 

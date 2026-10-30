@@ -1,3 +1,4 @@
+import { workoutOrigin } from "@/lib/labels";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, ScrollView, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -241,8 +242,8 @@ export default function Library() {
             <LibraryCard
               view={view}
               title={w.title}
-              meta={workoutCardMeta(w, view === "list")}
-              creator={w.source_creator}
+              meta={workoutCardMeta(w)}
+              creator={w.source_creator} origin={workoutOrigin(w)}
               image={w.source_thumbnail_url}
               icon={kindIcons[w.kind]}
               favorite={!!w.organization?.favorite}

@@ -199,9 +199,9 @@ export default function Profile() {
       subtitle="Choose your goal, equipment and usual schedule. Personal details are optional."
       action={<AccountButton />}
     >
-      <QueryState
+      <QueryState hasData={loaded && (value != null || q.data !== undefined)}
         loading={!loaded || (q.isPending && !!enrollment?.enrolled && !value)}
-        error={value ? null : q.error}
+        error={q.error}
         retry={() => {
           void q.refetch();
         }}
@@ -209,7 +209,7 @@ export default function Profile() {
         {value ? (
           <>
             <View pointerEvents={busy ? "none" : "auto"}>
-              <ProfileForm expandDetails={params.return_to === "coach"} value={value} baseline={q.data?.profile} update={update} disabled={busy || !!command || resolved} />
+              <ProfileForm expandDetails={params.return_to === "coach"} value={value} baseline={q.data?.profile} update={update} checkInDisabled={busy || !!command || conflict} disabled={busy || !!command || resolved} />
             </View>
             {((q.data?.profile?.weight_kg != null && value.weight_kg == null) ||
               (q.data?.profile?.height_cm != null && value.height_cm == null)) && (

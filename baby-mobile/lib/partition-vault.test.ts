@@ -90,3 +90,22 @@ describe("partitioned private persistence", () => {
     expect(await v.read()).toEqual({ outbox: [1, 2] });
   });
 });
+
+it("restores failed phone-only attachments through a new partition-vault instance", async () => {
+  const f = fixture(), first = createPartitionVault(f.secret, "owner", f.uuid, f.files);
+  const outbox = [{ id: "failed", type: "save", error: "Upload failed", localOnly: true,
+    files: [{ id: "photo", uri: "file:///photo.jpg", name: "photo.jpg", mime_type: "image/jpeg" }] }];
+  await first.write({ outbox }); first.retire();
+  const restored = await createPartitionVault(f.secret, "owner", f.uuid, f.files).read<{ outbox: typeof outbox }>();
+  expect(restored?.outbox).toEqual(outbox);
+});
+
+it("keeps the pre-import baseline through admission loss and cold vault restore", async () => {
+  const f = fixture(), first = createPartitionVault(f.secret, "owner", f.uuid, f.files);
+  const baseline = { id: "source", revision: 1, title: "Saved source", body: "Original note",
+    child_id: "child", data: { source_text: "Original", topics: ["Care"], attachment_ids: ["photo"] } };
+  const state = { outbox: [{ id: "job", type: "import", baseline }],
+    imports: [{ id: "other-job", status: "processing", baseline, reconciled: false }] };
+  await first.write(state); first.retire();
+  expect(await createPartitionVault(f.secret, "owner", f.uuid, f.files).read()).toEqual(state);
+});

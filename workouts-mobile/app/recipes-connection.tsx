@@ -120,7 +120,7 @@ export default function RecipesConnection() {
         profile or Health data back into Recipes. This coach currently does not use Recipes context automatically.
       </Notice>
       {!enrollment?.enrolled && <Button title="Set up my training" onPress={() => router.push("/onboarding")} />}
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
         retry={() => {

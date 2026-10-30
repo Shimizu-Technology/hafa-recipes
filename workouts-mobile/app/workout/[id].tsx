@@ -213,7 +213,7 @@ export default function WorkoutDetail() {
         <Notice>This workout is archived. Restore it in Organize when you want it back in the default library.</Notice>
       )}
       {published?.scope === scope && <Notice tone="success">{published.text}</Notice>}
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
         retry={() => {

@@ -5,10 +5,10 @@
  * a local notification for when the timer completes.
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { AppState, AppStateStatus, Platform } from 'react-native';
+import { useEffect, useRef, useCallback, useState, useSyncExternalStore } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { getTimerSoundFile, TimerSoundOption } from './useTimerSound';
+import type { TimerSoundOption } from './useTimerSound';
 
 // Configure how notifications are handled when app is in foreground
 Notifications.setNotificationHandler({
@@ -32,6 +32,9 @@ interface ScheduledNotification {
 // in cook mode), so leaving and re-entering cook mode — which remounts the
 // screen while its timers keep running — can still pause, cancel, and
 // recognize notifications that were scheduled before the remount.
+type AlertAttempt = { endTime: number; stepText: string; sound: TimerSoundOption };
+const attempts = new Map<string, Map<number, AlertAttempt>>();
+
 const scheduledByScope = new Map<string, Map<number, ScheduledNotification>>();
 
 function scheduledFor(scope: string): Map<number, ScheduledNotification> {
@@ -41,6 +44,33 @@ function scheduledFor(scope: string): Map<number, ScheduledNotification> {
     scheduledByScope.set(scope, scheduled);
   }
   return scheduled;
+}
+
+type AlertStatus = 'scheduling' | 'scheduled' | 'off';
+const alerts = new Map<string, Map<number, AlertStatus>>();
+const generations = new Map<string, Map<number, number>>();
+const versions = new Map<string, number>();
+const listeners = new Map<string, Set<() => void>>();
+function statusFor(scope: string) {
+  if (!alerts.has(scope)) alerts.set(scope, new Map());
+  return alerts.get(scope)!;
+}
+function setStatus(scope: string, step: number, status?: AlertStatus) {
+  if (status) statusFor(scope).set(step, status); else statusFor(scope).delete(step);
+  versions.set(scope, (versions.get(scope) || 0) + 1);
+  listeners.get(scope)?.forEach(listener => listener());
+}
+function advance(scope: string, step: number) {
+  if (!generations.has(scope)) generations.set(scope, new Map());
+  const next = (generations.get(scope)!.get(step) || 0) + 1;
+  generations.get(scope)!.set(step, next);
+  return next;
+}
+async function cancelExisting(scope: string, step: number) {
+  const scheduled = scheduledFor(scope).get(step);
+  if (!scheduled) return;
+  await Notifications.cancelScheduledNotificationAsync(scheduled.notificationId);
+  if (scheduledFor(scope).get(step) === scheduled) scheduledFor(scope).delete(step);
 }
 
 /**
@@ -71,113 +101,107 @@ export function useBackgroundTimer(scope = 'default') {
   }).current;
   const appState = useRef<AppStateStatus>(AppState.currentState);
   
-  // Check permissions on mount
+  useSyncExternalStore(
+    useCallback((listener: () => void) => {
+      if (!listeners.has(scope)) listeners.set(scope, new Set());
+      listeners.get(scope)!.add(listener);
+      return () => { listeners.get(scope)?.delete(listener); };
+    }, [scope]),
+    useCallback(() => versions.get(scope) || 0, [scope]),
+  );
+
+  // Re-check after returning from Settings; denial must never stop the clock.
   useEffect(() => {
-    const checkPermissions = async () => {
-      const { granted } = await Notifications.getPermissionsAsync();
-      setHasPermission(granted);
-    };
-    checkPermissions();
+    let mounted = true;
+    const check = () => Notifications.getPermissionsAsync()
+      .then(({ granted }) => { if (mounted) setHasPermission(granted); })
+      .catch(() => { if (mounted) setHasPermission(false); });
+    void check();
+    const subscription = AppState.addEventListener('change', state => { if (state === 'active') void check(); });
+    return () => { mounted = false; subscription.remove(); };
   }, []);
 
-  /**
-   * Schedule a notification for when timer completes
-   */
   const scheduleTimerNotification = useCallback(async (
     stepIndex: number,
     remainingSeconds: number,
     stepText: string,
-    soundPreference: TimerSoundOption = 'default'
+    soundPreference: TimerSoundOption = 'default',
+    deadline?: number,
   ): Promise<string | null> => {
-    // Cancel any existing notification for this step
-    await cancelTimerNotification(stepIndex);
-    
-    // Don't schedule if timer is already done
-    if (remainingSeconds <= 0) return null;
-    
-    // Check permissions
-    const granted = await requestNotificationPermissions();
-    if (!granted) {
-      if (__DEV__) console.log('Notification permission not granted');
-      setHasPermission(false);
-      return null;
-    }
-    setHasPermission(true);
-    
-    const endTime = Date.now() + (remainingSeconds * 1000);
-    
-    // Truncate step text for notification body
-    const truncatedStep = stepText.length > 100 
-      ? stepText.substring(0, 97) + '...' 
-      : stepText;
-    
+    const activeScope = scopeRef.current;
+    const generation = advance(activeScope, stepIndex);
+    const isCurrent = () => generations.get(activeScope)?.get(stepIndex) === generation;
+    const endTime = deadline ?? Date.now() + remainingSeconds * 1000;
+    if (!attempts.has(activeScope)) attempts.set(activeScope, new Map());
+    attempts.get(activeScope)!.set(stepIndex, { endTime, stepText, sound: soundPreference });
+    setStatus(activeScope, stepIndex, 'scheduling');
     try {
-      // Schedule the notification
+      await cancelExisting(activeScope, stepIndex);
+      if (!isCurrent()) return null;
+      if (remainingSeconds <= 0) { setStatus(activeScope, stepIndex); return null; }
+      const granted = await requestNotificationPermissions();
+      if (!isCurrent()) return null;
+      if (scopeRef.current === activeScope) setHasPermission(granted);
+      if (!granted) { setStatus(activeScope, stepIndex, 'off'); return null; }
+      const seconds = Math.ceil((endTime - Date.now()) / 1000);
+      if (seconds <= 0) { setStatus(activeScope, stepIndex); return null; }
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Timer complete!',
-          body: truncatedStep,
+          body: stepText.length > 100 ? stepText.substring(0, 97) + '...' : stepText,
           sound: soundPreference !== 'none' ? getSoundFileName(soundPreference) : undefined,
           priority: Notifications.AndroidNotificationPriority.HIGH,
           vibrate: [0, 500, 200, 500],
         },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          seconds: remainingSeconds,
-        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds },
       });
-      
-      // Track the scheduled notification
-      scheduledNotifications.current.set(stepIndex, {
-        stepIndex,
-        notificationId,
-        endTime,
-      });
-      
-      if (__DEV__) console.log(`Scheduled notification for step ${stepIndex} in ${remainingSeconds}s`);
+      // A stop/pause/restart while permission or scheduling was pending wins.
+      if (!isCurrent()) {
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+        return null;
+      }
+      scheduledFor(activeScope).set(stepIndex, { stepIndex, notificationId, endTime });
+      setStatus(activeScope, stepIndex, 'scheduled');
       return notificationId;
     } catch (error) {
-      console.error('Failed to schedule notification:', error);
+      if (isCurrent()) setStatus(activeScope, stepIndex, 'off');
+      console.error('Failed to schedule timer alert:', error);
       return null;
     }
   }, []);
 
-  /**
-   * Cancel a scheduled notification for a step
-   */
+  const retryFailedAlerts = useCallback(async () => {
+    const activeScope = scopeRef.current;
+    await Promise.all([...statusFor(activeScope)].filter(([, status]) => status === 'off').map(([step]) => {
+      const attempt = attempts.get(activeScope)?.get(step);
+      if (!attempt) return;
+      return scheduleTimerNotification(step, Math.max(0, (attempt.endTime - Date.now()) / 1000), attempt.stepText, attempt.sound, attempt.endTime);
+    }));
+  }, [scheduleTimerNotification]);
+
   const cancelTimerNotification = useCallback(async (stepIndex: number) => {
-    const scheduled = scheduledNotifications.current.get(stepIndex);
-    if (scheduled) {
-      try {
-        await Notifications.cancelScheduledNotificationAsync(scheduled.notificationId);
-        scheduledNotifications.current.delete(stepIndex);
-        if (__DEV__) console.log(`Cancelled notification for step ${stepIndex}`);
-      } catch (error) {
-        console.error('Failed to cancel notification:', error);
-      }
-    }
+    const activeScope = scopeRef.current;
+    advance(activeScope, stepIndex);
+    attempts.get(activeScope)?.delete(stepIndex);
+    setStatus(activeScope, stepIndex);
+    try { await cancelExisting(activeScope, stepIndex); }
+    catch (error) { console.error('Failed to cancel notification:', error); }
   }, []);
 
   /**
    * Cancel all scheduled timer notifications
    */
   const cancelAllTimerNotifications = useCallback(async () => {
-    const promises: Promise<void>[] = [];
-    scheduledNotifications.current.forEach((scheduled) => {
-      promises.push(
-        Notifications.cancelScheduledNotificationAsync(scheduled.notificationId)
-      );
-    });
-    await Promise.all(promises);
-    scheduledNotifications.current.clear();
-    if (__DEV__) console.log('Cancelled all timer notifications');
-  }, []);
+    const steps = new Set([...scheduledNotifications.current.keys(), ...statusFor(scopeRef.current).keys()]);
+    await Promise.all([...steps].map(cancelTimerNotification));
+  }, [cancelTimerNotification]);
 
   /**
    * Get remaining time for a step from its scheduled notification
    * Useful when app comes back from background
    */
   const getRemainingTime = useCallback((stepIndex: number): number | null => {
+    if (statusFor(scopeRef.current).get(stepIndex) !== 'scheduled') return null;
     const scheduled = scheduledNotifications.current.get(stepIndex);
     if (!scheduled) return null;
     
@@ -189,7 +213,8 @@ export function useBackgroundTimer(scope = 'default') {
    * Check if a step has a scheduled notification
    */
   const hasScheduledNotification = useCallback((stepIndex: number): boolean => {
-    return scheduledNotifications.current.has(stepIndex);
+    return statusFor(scopeRef.current).get(stepIndex) === 'scheduled'
+      && scheduledNotifications.current.has(stepIndex);
   }, []);
 
   /**
@@ -222,6 +247,9 @@ export function useBackgroundTimer(scope = 'default') {
 
   return {
     hasPermission,
+    retryFailedAlerts,
+    alertStatus: (stepIndex: number) => statusFor(scope).get(stepIndex),
+    hasAlertFailure: [...statusFor(scope).values()].includes('off'),
     scheduleTimerNotification,
     cancelTimerNotification,
     cancelAllTimerNotifications,

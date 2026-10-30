@@ -1,0 +1,31 @@
+import React, { act } from 'react';
+import { createRoot } from 'test-renderer';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+const m = vi.hoisted(() => ({ join: vi.fn(), success: vi.fn(), warning: vi.fn(), close: vi.fn(), alert: vi.fn() }));
+vi.mock('react-native', () => ({ Modal:'Modal', TouchableOpacity:'TouchableOpacity', TouchableWithoutFeedback:'TouchableWithoutFeedback', View:'View', ScrollView:'ScrollView', TextInput:'TextInput', KeyboardAvoidingView:'KeyboardAvoidingView', ActivityIndicator:'ActivityIndicator', Platform:{ OS:'ios' }, Keyboard:{ dismiss:vi.fn() }, Alert:{ alert:m.alert }, Share:{ share:vi.fn() }, StyleSheet:{ create:(s:unknown)=>s } }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets:()=>({ bottom:0 }) }));
+vi.mock('expo-router', () => ({ useRouter:()=>({ push:vi.fn() }) }));
+vi.mock('@expo/vector-icons/Ionicons', () => ({ default:'Ionicons' }));
+vi.mock('expo-clipboard', () => ({ setStringAsync:vi.fn() }));
+vi.mock('@/components/Themed', () => ({ Text:'Text', View:'View', useColors:()=>({}) }));
+vi.mock('@/utils/haptics', () => ({ haptics:{ success:m.success, warning:m.warning, light:vi.fn() } }));
+vi.mock('@/hooks/useGrocery', () => ({ useGroceryListInfo:()=>({ data:{ members:[], is_shared:false } }), useCreateGroceryInvite:()=>({}), useLeaveGroceryList:()=>({}), useRemoveGroceryMember:()=>({}), useJoinGroceryList:()=>({ mutateAsync:m.join }) }));
+import GroceryListSettingsModal from './GroceryListSettingsModal';
+beforeEach(()=>vi.clearAllMocks());
+describe('join feedback', () => {
+  it.each([true,false])('emits success only after a successful join (%s)', async (success) => {
+    let resolve!:()=>void; let reject!:(e:Error)=>void;
+    m.join.mockReturnValue(new Promise<void>((a,b)=>{ resolve=a; reject=b; }));
+    const r=createRoot(); await act(async()=>r.render(<GroceryListSettingsModal isVisible onClose={m.close} />));
+    await act(async()=>r.container.queryAll(n=>n.type==='TextInput')[0].props.onChangeText('TESTCODE'));
+    const join=r.container.queryAll(n=>n.type==='TouchableOpacity' && n.children.some(c=>typeof c!=='string' && c.type==='Ionicons' && c.props.name==='enter-outline'))[0];
+    let pending!:Promise<void>;
+    await act(async()=>{ pending=join.props.onPress(); });
+    expect(m.success).not.toHaveBeenCalled(); expect(m.close).not.toHaveBeenCalled();
+    await act(async()=>{ if(success)resolve(); else reject(new Error('offline')); await pending; });
+    expect(m.success).toHaveBeenCalledTimes(success?1:0);
+    expect(m.close).toHaveBeenCalledTimes(success?1:0);
+    await act(async()=>r.unmount());
+  });
+});

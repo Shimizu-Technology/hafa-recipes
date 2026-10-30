@@ -798,7 +798,7 @@ it("Library cards retain the source cover and creator while marking unresolved s
   fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
     source_creator: "Creator", extraction_warnings: ["Rest unknown"] }], total: 1, has_more: false });
   await mount(Library);
-  expect(nodes("LibraryCard")[0].props).toMatchObject({ image: "https://example.test/cover.jpg", badge: "Check details", creator: "Creator" });
+  expect(nodes("LibraryCard")[0].props).toMatchObject({ view: "grid", image: "https://example.test/cover.jpg", badge: "Check details", creator: "Creator", origin: expect.any(String) });
 });
 it("Discover detail keeps the real cover instead of replacing it with generic artwork", async () => {
   fixture.params = { id: card.id };
@@ -814,7 +814,7 @@ it("a saved source copy stays recognizable as a source in Library and detail wit
   fixture.searchLibrary.mockResolvedValue({ items: [copy], total: 1, has_more: false });
   await mount(Library);
   await act(async () => listRow("Show as a list")!.props.onPress());
-  expect(nodes("LibraryCard")[0].props).toMatchObject({ view: "list", meta: expect.stringContaining("Saved from the web") });
+  expect(nodes("LibraryCard")[0].props).toMatchObject({ view: "list", origin: "Saved from the web", creator: "Original creator" });
   await act(async () => renderer!.unmount()); cache.clear(); fixture.params = { id: copy.id }; fixture.workout.mockResolvedValue(copy);
   await mount(WorkoutDetail);
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
