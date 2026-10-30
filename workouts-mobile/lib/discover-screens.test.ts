@@ -608,6 +608,9 @@ it("shows owners their own workout with unpublish and no save, report or block",
   expect(button("Save to library")).toBeUndefined();
   expect(nodes("ListRow").find((n) => n.props.title === "Remove from Discover")).toBeDefined();
   expect(headerActions().map((n) => n.props.label)).toEqual(["Share this workout"]);
+  await act(async () => nodes("ListRow").find(n => n.props.title === "Schedule")!.props.onPress());
+  expect(fixture.saveDiscovered).not.toHaveBeenCalled();
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/schedule-once", params: { workout_id: "pub-1" } });
 });
 
 it("Discover detail leads with the cover, keeps one primary save and tucks report and block into more options", async () => {

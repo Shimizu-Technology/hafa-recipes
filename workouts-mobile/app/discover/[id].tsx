@@ -101,7 +101,7 @@ export default function DiscoverWorkout() {
     if (!item || generation == null || busy) return;
     setBusy("save"); setError("");
     try {
-      const id = item.saved_workout_id ?? (await saveCopy())?.id;
+      const id = item.is_owner ? item.id : item.saved_workout_id ?? (await saveCopy())?.id;
       if (id) { setSheet(null); router.push({ pathname: "/schedule-once", params: { workout_id: id } }); }
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
@@ -305,7 +305,7 @@ export default function DiscoverWorkout() {
           )}
           {!!error && <Notice error>{error}</Notice>}
 
-          {generation != null && <ListGroup><ListRow icon="calendar-outline" title="Schedule" detail="Save a private copy and choose a date" disabled={!!busy} onPress={() => void schedule()} /></ListGroup>}
+          {generation != null && <ListGroup><ListRow icon="calendar-outline" title="Schedule" detail={item.is_owner ? "Choose a date for this workout" : savedId ? "Choose a date for your saved copy" : "Save a private copy and choose a date"} disabled={!!busy} onPress={() => void schedule()} /></ListGroup>}
           <SourcePlayback key={item.source_url} url={item.source_url} title={item.title} />
 
           <SectionHeader title="The workout" />
