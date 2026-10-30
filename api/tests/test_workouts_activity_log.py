@@ -244,13 +244,18 @@ async def test_legacy_manual_review_adoption_and_future_exclusion(activity_api):
 async def test_timezone_and_completed_history_bounds(activity_api, monkeypatch):
     await ready_profile(activity_api)
     monkeypatch.setattr(service, "now", lambda: datetime(2026, 10, 10, 18, tzinfo=UTC))
-    assert (await post(activity_api, body(date="2026-10-11"))).status_code == 201  # Guam local date
+    original = body(date="2026-10-11")
+    saved = await post(activity_api, original)
+    assert saved.status_code == 201  # Guam local date
     assert (await post(activity_api, body(date="2026-10-12"))).status_code == 422
     async with activity_api.sessions() as db:
         profile = await db.get(WorkoutsProfile, "owner")
         profile.content = {**profile.content, "timezone": "America/Los_Angeles"}
         await db.commit()
     assert (await post(activity_api, body(date="2026-10-11"))).status_code == 422
+    # A lost successful response is replayed before the changed calendar is validated.
+    replay = await post(activity_api, original)
+    assert replay.status_code == 201 and replay.json() == saved.json()
     page = (
         await activity_api.client.get("/api/v1/workouts/activity-log", headers=GENERATION)
     ).json()

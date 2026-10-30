@@ -74,6 +74,8 @@ export interface ActivityDraft {
   expected_revision?: number;
   confirm_completed: boolean;
   operation?: ActivityOperation;
+  /** Calendar captured on the device; retries never reinterpret the selected date. */
+  timezone?: string;
 }
 export function activityQuery(offset = 0, from?: string, to?: string) {
   const q = new URLSearchParams({ limit: "50", offset: String(offset) });
@@ -198,4 +200,12 @@ export async function weekActivity(load: (offset: number, from?: string, to?: st
     timezone: initial.timezone,
     complete: false,
   };
+}
+
+export function deviceActivityCalendar(now = new Date()) {
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return { today, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+}
+export function activitySavedMessage(body: ActivityWrite, today: string) {
+  return `${body.name?.trim() || activityLabels[body.kind]} · ${body.date === today ? "today" : body.date} · ${body.duration_minutes} min saved`;
 }
