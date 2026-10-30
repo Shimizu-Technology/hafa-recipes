@@ -82,7 +82,7 @@ export default function WorkoutHistory() {
       {!!command && !conflict && <Button title="Reload latest workout" secondary busy={busy} onPress={() => { void reload(); }} />}
     </>}>
     {!selected && !!error && <Notice error>{error}</Notice>}
-    <QueryState loading={q.isPending || versions.isPending} error={q.error ?? versions.error} retry={() => { void q.refetch(); void versions.refetch(); }}>
+    <QueryState hasData={q.data !== undefined && versions.data !== undefined} loading={q.isPending || versions.isPending} error={q.error ?? versions.error} retry={() => { void q.refetch(); void versions.refetch(); }}>
       {!selected && <>
         <SectionHeader title={q.data ? `Current · Version ${q.data.revision}` : "Saved versions"} />
         {versions.data?.pages.flat().map((version) => <Button key={version.id}

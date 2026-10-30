@@ -141,8 +141,8 @@ export default function GroceryListSettingsModal({
     }
 
     try {
-      haptics.success();
       await joinMutation.mutateAsync(code);
+      haptics.success();
       setJoinCode('');
       onClose();
       Alert.alert('Household joined', 'The shared grocery list and pantry are now available. Your private pantry stays yours.');

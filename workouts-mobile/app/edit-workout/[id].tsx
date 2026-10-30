@@ -179,9 +179,9 @@ export default function EditWorkout() {
         />
       </>) : undefined}
     >
-      <QueryState
+      <QueryState hasData={loaded && (value != null || q.data !== undefined)}
         loading={!loaded || (q.isPending && !value)}
-        error={value ? null : q.error}
+        error={q.error}
         retry={() => {
           void q.refetch();
         }}

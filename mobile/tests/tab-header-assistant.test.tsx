@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ isSignedIn: false }));
 
+vi.mock('@/components/Animated', () => ({ ScalePressable: 'ScalePressable' }));
 vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
   View: 'View',

@@ -406,7 +406,7 @@ export default function MeasurementEditor() {
           />
         </Card>
       )}
-      <QueryState
+      <QueryState hasData={restored && (!!draft || !!pendingRemoval || finished || (profile.data !== undefined && (!id || entry.data !== undefined)))}
         loading={!restored || (!pendingRemoval && !finished && !draft && (profile.isPending || (!!id && entry.isPending)))}
         error={profile.error ?? entry.error}
         retry={() => {

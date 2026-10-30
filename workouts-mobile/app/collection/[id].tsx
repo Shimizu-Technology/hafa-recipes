@@ -1,3 +1,4 @@
+import { workoutOrigin } from "@/lib/labels";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, View } from "react-native";
 import { hashKey, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -128,7 +129,7 @@ export default function CollectionDetail() {
           onEndReachedThreshold={0.6}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (
-            <LibraryCard view={view} title={w.title} meta={workoutCardMeta(w, view === "list")} creator={w.source_creator}
+            <LibraryCard view={view} title={w.title} meta={workoutCardMeta(w)} creator={w.source_creator} origin={workoutOrigin(w)}
               image={w.source_thumbnail_url} icon={kindIcons[w.kind]} favorite={!!w.organization?.favorite} badge={workoutCardBadge(w)}
               onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })} />
           )}

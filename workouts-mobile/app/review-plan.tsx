@@ -212,7 +212,7 @@ export default function ReviewPlan() {
       title={isSource ? "Schedule this workout" : "Fit this plan to you"}
       subtitle={isSource ? "Choose which parts happen on which days." : "Check the dates and times before it becomes active."}
     >
-      <QueryState
+      <QueryState hasData={loaded && (isSource ? source.data !== undefined : program.data !== undefined) && profile.data !== undefined}
         loading={!loaded || (isSource ? source.isPending : program.isPending) || profile.isPending}
         error={source.error ?? program.error ?? profile.error}
         retry={() => {

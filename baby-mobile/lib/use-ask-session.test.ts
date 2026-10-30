@@ -4,15 +4,27 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { askDraftKey, useAskSession, type AskContext } from "./use-ask-session";
 import { emptyState, optimisticRecord, type Conversation, type DeviceState, type EditorDraft } from "./models";
 
-const scope = vi.hoisted(() => ({ account: null as unknown, foreground: null as null | ((state: string) => void) }));
+const scope = vi.hoisted(() => ({ account: null as unknown, foreground: null as null | ((state: string) => void),
+  listeners: new Set<(state: string) => void>() }));
 vi.mock("./context", () => ({ useBaby: () => scope.account }));
 vi.mock("react-native", () => ({ AppState: { addEventListener: (_: string, fn: (s: string) => void) => {
-  scope.foreground = fn; return { remove() {} };
+  scope.listeners.add(fn);
+  scope.foreground = state => { for (const listener of scope.listeners) listener(state); };
+  return { remove() { scope.listeners.delete(fn); } };
 } } }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `unique-${++id}` }; });
 let result: ReturnType<typeof useAskSession>, renderer: ReactTestRenderer | undefined;
 const general: AskContext = { scope: "all", record_id: null, child_id: null };
 function Probe({ recordId }: { recordId?: string }) { result = useAskSession(recordId); return null; }
+const screens = new Map<string, ReturnType<typeof useAskSession>>();
+function ScreenProbe({ name, focused, recordId }: { name: string; focused: boolean; recordId?: string }) {
+  screens.set(name, useAskSession(recordId, focused)); return null;
+}
+function Dual({ pushed = false }: { pushed?: boolean }) {
+  return React.createElement(React.Fragment, null,
+    React.createElement(ScreenProbe, { name: "tab", focused: !pushed }),
+    pushed ? React.createElement(ScreenProbe, { name: "entry", focused: true, recordId: "entry" }) : null);
+}
 function held<T>() { let release!: (value: T) => void; const promise = new Promise<T>((resolve) => { release = resolve; }); return { promise, release }; }
 const row = (id = "entry", child_id: string | null = null) => optimisticRecord({
   id, child_id, kind: "source", title: "Saved advice", occurred_at: "2026-10-20T00:00:00Z", body: "", data: {},
@@ -34,7 +46,8 @@ function setup() {
       conversation: vi.fn(async (id: string) => conversation(general, id)),
       chat: vi.fn(async (_body: Record<string, unknown>, _generation: number) => ({ conversation_id: "answer-conversation", message: "Answer", citations: [] })),
     },
-    saveDraft: vi.fn(async (key: string, draft: EditorDraft | null) => {
+    saveDraft: vi.fn(async (key: string, draft: EditorDraft | null, valid?: () => boolean) => {
+      if (valid && !valid()) return;
       const drafts = { ...account.state.drafts }; if (draft) drafts[key] = draft; else delete drafts[key];
       account.state = { ...account.state, drafts };
     }),
@@ -47,11 +60,65 @@ async function mount(recordId?: string) { await act(async () => { renderer = Tes
 async function render(recordId?: string) { await act(async () => renderer!.update(React.createElement(Probe, { recordId }))); }
 async function question(text = "Follow up") { await act(async () => result.setQuestion(text)); }
 beforeEach(() => {
+  screens.clear(); scope.listeners.clear();
   vi.useFakeTimers();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
     if (!String(args[0]).includes("react-test-renderer is deprecated")) throw Error(String(args[0]));
   });
+});
+
+it.each(["general", "history"])("keeps the newer %s draft across tab → focused Ask → Back → background/relaunch (M3)", async context => {
+  const account = setup();
+  await act(async () => { renderer = TestRenderer.create(React.createElement(Dual)); });
+  if (context === "history") await act(async () => screens.get("tab")!.load("history"));
+  await act(async () => screens.get("tab")!.setQuestion("Original tab draft"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  await act(async () => renderer!.update(React.createElement(Dual, { pushed: true })));
+  if (context === "history") await act(async () => screens.get("entry")!.load("history"));
+  else await act(async () => screens.get("entry")!.selectScope("all"));
+  await act(async () => screens.get("entry")!.setQuestion("Newer focused-screen draft"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  await act(async () => renderer!.update(React.createElement(Dual)));
+  expect(screens.get("tab")!.question).toBe("Newer focused-screen draft");
+  await act(async () => scope.foreground!("background"));
+  const key = askDraftKey(general, context === "history" ? "history" : undefined);
+  expect(account.state.drafts[key]?.body).toBe("Newer focused-screen draft");
+  await act(async () => renderer!.unmount());
+  await mount();
+  if (context === "history") await act(async () => result.load("history"));
+  expect(result.question).toBe("Newer focused-screen draft");
+});
+
+it("does not let a hidden focused-screen send clear a newer tab draft (M3)", async () => {
+  const account = setup(), pending = held<Awaited<ReturnType<typeof account.api.chat>>>();
+  account.api.chat.mockReturnValueOnce(pending.promise);
+  await act(async () => { renderer = TestRenderer.create(React.createElement(Dual)); });
+  await act(async () => renderer!.update(React.createElement(Dual, { pushed: true })));
+  await act(async () => screens.get("entry")!.selectScope("all"));
+  await act(async () => screens.get("entry")!.setQuestion("Question in flight"));
+  let sending!: Promise<void>; await act(async () => { sending = screens.get("entry")!.send(); });
+  await act(async () => renderer!.update(React.createElement(Dual)));
+  expect(screens.get("tab")!.question).toBe("Question in flight");
+  await act(async () => screens.get("tab")!.setQuestion("Newer tab draft"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  await act(async () => { pending.release({ conversation_id: "sent", message: "Old answer", citations: [] }); await sending; });
+  expect(account.state.drafts[askDraftKey(general)]?.body).toBe("Newer tab draft");
+  expect(screens.get("tab")!.messages).toEqual([]);
+});
+
+it("rejects a queued older owner write after a focused screen takes over (M3)", async () => {
+  const account = setup(), pending = held<void>(), persist = account.saveDraft.getMockImplementation()!;
+  account.saveDraft.mockImplementationOnce(async (...args) => { await pending.promise; return persist(...args); });
+  await act(async () => { renderer = TestRenderer.create(React.createElement(Dual)); });
+  await act(async () => screens.get("tab")!.setQuestion("Delayed old draft"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  await act(async () => renderer!.update(React.createElement(Dual, { pushed: true })));
+  await act(async () => screens.get("entry")!.selectScope("all"));
+  await act(async () => screens.get("entry")!.setQuestion("New focused draft"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  await act(async () => pending.release(undefined));
+  expect(account.state.drafts[askDraftKey(general)]?.body).toBe("New focused draft");
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
 

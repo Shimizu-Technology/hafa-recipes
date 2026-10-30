@@ -237,6 +237,7 @@ export default function PasteRecipeScreen() {
                 <Chip
                   key={location.code}
                   label={location.name}
+                  accessibilityRole="radio"
                   selected={selectedLocation === location.name}
                   onPress={() => !isExtracting && setSelectedLocation(location.name)}
                 />

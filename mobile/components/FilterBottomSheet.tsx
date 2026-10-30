@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Modal,
-  TouchableOpacity,
   ScrollView,
   View as RNView,
   Pressable,
@@ -11,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { Text, View, useColors } from '@/components/Themed';
+import { ScalePressable } from '@/components/Animated';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 
 // Filter options
@@ -64,6 +64,7 @@ export interface FilterState {
   sortOrder?: SortOption;
   hideMyRecipes?: boolean;
   mealTypeFilter?: MealTypeFilter;
+  ownershipFilter?: OwnershipFilter;
 }
 
 interface FilterBottomSheetProps {
@@ -74,8 +75,6 @@ interface FilterBottomSheetProps {
   popularTags?: { tag: string; count: number }[];
   // Ownership filter (My Recipes page)
   showOwnershipFilter?: boolean;
-  ownershipFilter?: OwnershipFilter;
-  onOwnershipFilterChange?: (value: OwnershipFilter) => void;
   // Discover-specific options
   showSortOption?: boolean;
   showHideMyRecipes?: boolean;
@@ -90,15 +89,13 @@ export default function FilterBottomSheet({
   initialFilters,
   popularTags = [],
   showOwnershipFilter = false,
-  ownershipFilter = 'all',
-  onOwnershipFilterChange,
   showSortOption = false,
   showHideMyRecipes = false,
   showMealTypeFilter = false,
 }: FilterBottomSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+
   // Local state for filters (applied on "Apply" button)
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(initialFilters.sourceFilter);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>(initialFilters.timeFilter);
@@ -107,9 +104,15 @@ export default function FilterBottomSheet({
   const [hideMyRecipes, setHideMyRecipes] = useState<boolean>(initialFilters.hideMyRecipes || false);
   const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>(initialFilters.mealTypeFilter || 'all');
   
-  // Reset local state when modal opens
+  const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>(initialFilters.ownershipFilter || 'all');
+  const incomingFilters = useRef(initialFilters);
+  incomingFilters.current = initialFilters;
+
+  // Snapshot once per opening. Background refetches must not erase an open draft.
   useEffect(() => {
     if (visible) {
+      const initialFilters = incomingFilters.current;
+      setOwnershipFilter(initialFilters.ownershipFilter || 'all');
       setSourceFilter(initialFilters.sourceFilter);
       setTimeFilter(initialFilters.timeFilter);
       setSelectedTags(initialFilters.selectedTags);
@@ -117,20 +120,21 @@ export default function FilterBottomSheet({
       setHideMyRecipes(initialFilters.hideMyRecipes || false);
       setMealTypeFilter(initialFilters.mealTypeFilter || 'all');
     }
-  }, [visible, initialFilters]);
+  }, [visible]);
   
   const toggleTag = (tag: string) => {
     setSelectedTags(prev => 
       prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
     );
   };
-  
+
   const handleApply = () => {
-    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter });
+    onApply({ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter, ownershipFilter });
     onClose();
   };
-  
+
   const handleClear = () => {
+    setOwnershipFilter('all');
     setSourceFilter('all');
     setTimeFilter('all');
     setSelectedTags([]);
@@ -138,14 +142,15 @@ export default function FilterBottomSheet({
     setHideMyRecipes(false);
     setMealTypeFilter('all');
   };
-  
+
   const activeFilterCount = 
+    (ownershipFilter !== 'all' ? 1 : 0) +
     (sourceFilter !== 'all' ? 1 : 0) + 
     (timeFilter !== 'all' ? 1 : 0) + 
     selectedTags.length +
     (hideMyRecipes ? 1 : 0) +
     (mealTypeFilter !== 'all' ? 1 : 0);
-  
+
   return (
     <Modal
       visible={visible}
@@ -170,15 +175,15 @@ export default function FilterBottomSheet({
           <RNView style={styles.handleContainer}>
             <RNView style={[styles.handle, { backgroundColor: colors.border }]} />
           </RNView>
-          
+
           {/* Header */}
           <RNView style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>Filters</Text>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close filters">
+            <ScalePressable onPress={onClose} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityRole="button" accessibilityLabel="Close filters">
               <Ionicons name="close" size={24} color={colors.textMuted} />
-            </TouchableOpacity>
+            </ScalePressable>
           </RNView>
-          
+
           <ScrollView 
             style={styles.content}
             showsVerticalScrollIndicator={false}
@@ -188,19 +193,20 @@ export default function FilterBottomSheet({
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Source</Text>
               <RNView style={styles.chipContainer}>
                 {SOURCE_FILTERS.map((filter) => (
-                  <TouchableOpacity
+                  <ScalePressable
                     key={filter.key}
                     onPress={() => setSourceFilter(filter.key)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: sourceFilter === filter.key }}
+                    accessibilityRole="radio"
+                    accessibilityLabel={filter.label}
+                    accessibilityState={{ selected: sourceFilter === filter.key, checked: sourceFilter === filter.key }}
                     style={[
                       styles.chip,
                       {
                         backgroundColor: sourceFilter === filter.key 
-                          ? colors.tint 
+                          ? colors.text
                           : colors.backgroundSecondary,
                         borderColor: sourceFilter === filter.key 
-                          ? colors.tint 
+                          ? colors.text
                           : colors.border,
                       },
                     ]}
@@ -208,39 +214,40 @@ export default function FilterBottomSheet({
                     <Ionicons
                       name={filter.icon as any}
                       size={16}
-                      color={sourceFilter === filter.key ? '#FFFFFF' : colors.textMuted}
+                      color={sourceFilter === filter.key ? colors.background : colors.textMuted}
                     />
                     <Text
                       style={[
                         styles.chipText,
-                        { color: sourceFilter === filter.key ? '#FFFFFF' : colors.text },
+                        { color: sourceFilter === filter.key ? colors.background : colors.text },
                       ]}
                     >
                       {filter.label}
                     </Text>
-                  </TouchableOpacity>
+                  </ScalePressable>
                 ))}
               </RNView>
             </RNView>
-            
+
             {/* Time Filter */}
             <RNView style={styles.section}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Cook Time</Text>
               <RNView style={styles.chipContainer}>
                 {TIME_FILTERS.map((filter) => (
-                  <TouchableOpacity
+                  <ScalePressable
                     key={filter.key}
                     onPress={() => setTimeFilter(filter.key)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: timeFilter === filter.key }}
+                    accessibilityRole="radio"
+                    accessibilityLabel={filter.label}
+                    accessibilityState={{ selected: timeFilter === filter.key, checked: timeFilter === filter.key }}
                     style={[
                       styles.chip,
                       {
                         backgroundColor: timeFilter === filter.key 
-                          ? colors.success 
+                          ? colors.text
                           : colors.backgroundSecondary,
                         borderColor: timeFilter === filter.key 
-                          ? colors.success 
+                          ? colors.text
                           : colors.border,
                       },
                     ]}
@@ -248,40 +255,41 @@ export default function FilterBottomSheet({
                     <Ionicons
                       name={filter.icon as any}
                       size={16}
-                      color={timeFilter === filter.key ? '#FFFFFF' : colors.textMuted}
+                      color={timeFilter === filter.key ? colors.background : colors.textMuted}
                     />
                     <Text
                       style={[
                         styles.chipText,
-                        { color: timeFilter === filter.key ? '#FFFFFF' : colors.text },
+                        { color: timeFilter === filter.key ? colors.background : colors.text },
                       ]}
                     >
                       {filter.label}
                     </Text>
-                  </TouchableOpacity>
+                  </ScalePressable>
                 ))}
               </RNView>
             </RNView>
-            
+
             {/* Meal Type Filter */}
             {showMealTypeFilter && (
               <RNView style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Meal Type</Text>
                 <RNView style={styles.chipContainer}>
                   {MEAL_TYPE_FILTERS.map((filter) => (
-                    <TouchableOpacity
+                    <ScalePressable
                       key={filter.key}
                       onPress={() => setMealTypeFilter(filter.key)}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: mealTypeFilter === filter.key }}
+                      accessibilityRole="radio"
+                      accessibilityLabel={filter.label}
+                      accessibilityState={{ selected: mealTypeFilter === filter.key, checked: mealTypeFilter === filter.key }}
                       style={[
                         styles.chip,
                         {
                           backgroundColor: mealTypeFilter === filter.key 
-                            ? colors.warning 
+                            ? colors.text
                             : colors.backgroundSecondary,
                           borderColor: mealTypeFilter === filter.key 
-                            ? colors.warning 
+                            ? colors.text
                             : colors.border,
                         },
                       ]}
@@ -289,22 +297,22 @@ export default function FilterBottomSheet({
                       <Ionicons
                         name={filter.icon as any}
                         size={16}
-                        color={mealTypeFilter === filter.key ? '#FFFFFF' : colors.textMuted}
+                        color={mealTypeFilter === filter.key ? colors.background : colors.textMuted}
                       />
                       <Text
                         style={[
                           styles.chipText,
-                          { color: mealTypeFilter === filter.key ? '#FFFFFF' : colors.text },
+                          { color: mealTypeFilter === filter.key ? colors.background : colors.text },
                         ]}
                       >
                         {filter.label}
                       </Text>
-                    </TouchableOpacity>
+                    </ScalePressable>
                   ))}
                 </RNView>
               </RNView>
             )}
-            
+
             {/* Tags Filter */}
             {popularTags.length > 0 && (
               <RNView style={styles.section}>
@@ -313,19 +321,20 @@ export default function FilterBottomSheet({
                 </Text>
                 <RNView style={styles.chipContainer}>
                   {popularTags.map((item) => (
-                    <TouchableOpacity
+                    <ScalePressable
                       key={item.tag}
                       onPress={() => toggleTag(item.tag)}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: selectedTags.includes(item.tag) }}
+                      accessibilityRole="checkbox"
+                      accessibilityLabel={item.tag}
+                      accessibilityState={{ selected: selectedTags.includes(item.tag), checked: selectedTags.includes(item.tag) }}
                       style={[
                         styles.chip,
                         {
                           backgroundColor: selectedTags.includes(item.tag) 
-                            ? colors.tint 
+                            ? colors.text
                             : colors.backgroundSecondary,
                           borderColor: selectedTags.includes(item.tag) 
-                            ? colors.tint 
+                            ? colors.text
                             : colors.border,
                         },
                       ]}
@@ -333,36 +342,37 @@ export default function FilterBottomSheet({
                       <Text
                         style={[
                           styles.chipText,
-                          { color: selectedTags.includes(item.tag) ? '#FFFFFF' : colors.text },
+                          { color: selectedTags.includes(item.tag) ? colors.background : colors.text },
                         ]}
                       >
                         {item.tag} ({item.count})
                       </Text>
-                    </TouchableOpacity>
+                    </ScalePressable>
                   ))}
                 </RNView>
               </RNView>
             )}
-            
+
             {/* Sort Option (for Discover) */}
             {showSortOption && (
               <RNView style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Sort By</Text>
                 <RNView style={styles.chipContainer}>
                   {SORT_OPTIONS.map((option) => (
-                    <TouchableOpacity
+                    <ScalePressable
                       key={option.key}
                       onPress={() => setSortOrder(option.key)}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: sortOrder === option.key }}
+                      accessibilityLabel={option.label}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: sortOrder === option.key, checked: sortOrder === option.key }}
                       style={[
                         styles.chip,
                         {
                           backgroundColor: sortOrder === option.key 
-                            ? colors.tint 
+                            ? colors.text
                             : colors.backgroundSecondary,
                           borderColor: sortOrder === option.key 
-                            ? colors.tint 
+                            ? colors.text
                             : colors.border,
                         },
                       ]}
@@ -370,50 +380,50 @@ export default function FilterBottomSheet({
                       <Ionicons
                         name={option.icon as any}
                         size={16}
-                        color={sortOrder === option.key ? '#FFFFFF' : colors.textMuted}
+                        color={sortOrder === option.key ? colors.background : colors.textMuted}
                       />
                       <Text
                         style={[
                           styles.chipText,
-                          { color: sortOrder === option.key ? '#FFFFFF' : colors.text },
+                          { color: sortOrder === option.key ? colors.background : colors.text },
                         ]}
                       >
                         {option.label}
                       </Text>
-                    </TouchableOpacity>
+                    </ScalePressable>
                   ))}
                 </RNView>
               </RNView>
             )}
-            
+
             {/* Hide My Recipes Toggle (for Discover) */}
             {showHideMyRecipes && (
               <RNView style={styles.section}>
-                <TouchableOpacity
+                <ScalePressable
                   style={[styles.toggleRow, { borderColor: colors.border }]}
                   onPress={() => setHideMyRecipes(!hideMyRecipes)}
                   accessibilityRole="switch"
                   accessibilityState={{ checked: hideMyRecipes }}
                 >
                   <RNView style={styles.toggleLabel}>
-                    <Ionicons 
+                    <Ionicons
                       name={hideMyRecipes ? "eye-off" : "eye-off-outline"}
                       size={20} 
-                      color={hideMyRecipes ? colors.actionText : colors.textMuted} 
+                      color={hideMyRecipes ? colors.text : colors.textMuted}
                     />
                     <Text style={[styles.toggleText, { color: colors.text }]}>
                       Hide My Recipes
                     </Text>
                   </RNView>
-                  <Ionicons 
+                  <Ionicons
                     name={hideMyRecipes ? "checkbox" : "square-outline"} 
                     size={24} 
-                    color={hideMyRecipes ? colors.actionText : colors.textMuted} 
+                    color={hideMyRecipes ? colors.text : colors.textMuted}
                   />
-                </TouchableOpacity>
+                </ScalePressable>
               </RNView>
             )}
-            
+
             {/* Ownership Filter (for My Recipes) */}
             {showOwnershipFilter && (
               <RNView style={styles.section}>
@@ -422,41 +432,42 @@ export default function FilterBottomSheet({
                   {OWNERSHIP_FILTERS.map((filter) => {
                     const isSelected = ownershipFilter === filter.key;
                     return (
-                      <TouchableOpacity
+                      <ScalePressable
                         key={filter.key}
                         style={[
                           styles.chip,
                           { 
-                            backgroundColor: isSelected ? colors.tint : colors.backgroundSecondary,
-                            borderColor: isSelected ? colors.tint : colors.border,
+                            backgroundColor: isSelected ? colors.text : colors.backgroundSecondary,
+                            borderColor: isSelected ? colors.text : colors.border,
                           }
                         ]}
-                        onPress={() => onOwnershipFilterChange?.(filter.key)}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isSelected }}
+                        onPress={() => setOwnershipFilter(filter.key)}
+                        accessibilityLabel={filter.label}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: isSelected, checked: isSelected }}
                       >
-                        <Ionicons 
+                        <Ionicons
                           name={filter.icon as any} 
                           size={16} 
-                          color={isSelected ? '#FFFFFF' : colors.text} 
+                          color={isSelected ? colors.background : colors.text}
                         />
                         <Text style={[
                           styles.chipText,
-                          { color: isSelected ? '#FFFFFF' : colors.text }
+                          { color: isSelected ? colors.background : colors.text }
                         ]}>
                           {filter.label}
                         </Text>
-                      </TouchableOpacity>
+                      </ScalePressable>
                     );
                   })}
                 </RNView>
               </RNView>
             )}
           </ScrollView>
-          
+
           {/* Footer Buttons */}
           <RNView style={styles.footer}>
-            <TouchableOpacity
+            <ScalePressable
               style={[styles.clearButton, { borderColor: colors.border }]}
               onPress={handleClear}
               accessibilityRole="button"
@@ -464,9 +475,9 @@ export default function FilterBottomSheet({
               <Text style={[styles.clearButtonText, { color: colors.text }]}>
                 Clear All
               </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
+            </ScalePressable>
+
+            <ScalePressable
               style={[styles.applyButton, { backgroundColor: colors.tint }]}
               onPress={handleApply}
               accessibilityRole="button"
@@ -474,7 +485,7 @@ export default function FilterBottomSheet({
               <Text style={styles.applyButtonText}>
                 Apply{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </Text>
-            </TouchableOpacity>
+            </ScalePressable>
           </RNView>
         </Pressable>
       </Pressable>
@@ -530,6 +541,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   chip: {
+    minHeight: 44,
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -539,6 +552,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipText: {
+    flexShrink: 1,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
