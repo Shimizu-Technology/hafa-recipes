@@ -55,12 +55,7 @@ import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { SkeletonRecipeList } from '@/components/Skeleton';
 import { AnimatedListItem, ScalePressable, useInitialListEntrance } from '@/components/Animated';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSequence,
-  withSpring,
-} from 'react-native-reanimated';
+
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import {
   RecipeGridCardFrame,
@@ -75,7 +70,7 @@ function getContributorId(value: { contributor_id?: string | null; user_id?: str
   return value.contributor_id ?? value.user_id ?? null;
 }
 
-// Save/Bookmark button component with heart pulse animation
+// Save/Bookmark button reflects confirmed server state.
 function SaveButton({
   recipeId,
   initialIsSaved,
@@ -96,7 +91,6 @@ function SaveButton({
   );
   const saveMutation = useSaveRecipe();
   const unsaveMutation = useUnsaveRecipe();
-  const scale = useSharedValue(1);
 
   // Don't show save button for own recipes
   if (isOwner) return null;
@@ -104,20 +98,8 @@ function SaveButton({
   const isSaved = initialIsSaved ?? savedStatus?.is_saved ?? false;
   const isPending = saveMutation.isPending || unsaveMutation.isPending;
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
   const handlePress = () => {
     if (isPending) return;
-    haptics.medium();
-
-    // Pulse animation
-    scale.value = withSequence(
-      withSpring(1.4, { damping: 8, stiffness: 400 }),
-      withSpring(1, { damping: 8, stiffness: 400 })
-    );
-
     if (isSaved) {
       unsaveMutation.mutate(recipeId);
     } else {
@@ -143,13 +125,13 @@ function SaveButton({
       accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
       accessibilityState={{ selected: isSaved, disabled: isPending }}
     >
-      <Animated.View style={animatedStyle}>
+      <RNView>
         <Ionicons
           name={isSaved ? "heart" : "heart-outline"}
           size={22}
-          color={isSaved ? colors.error : colors.textMuted}
+          color={isSaved ? colors.text : colors.textMuted}
         />
-      </Animated.View>
+      </RNView>
     </TouchableOpacity>
   );
 }
