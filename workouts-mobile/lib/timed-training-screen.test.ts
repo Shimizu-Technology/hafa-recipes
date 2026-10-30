@@ -111,8 +111,19 @@ it("a cap cannot silently discard an entered final exercise", async () => {
 const field = (label: string) => [...renderer!.root.findAllByType("Field" as never), ...renderer!.root.findAllByType("SetNumberField" as never)]
   .find(node => node.props.label === label)!;
 const done = () => renderer!.root.findByType("Screen" as never).props.footer;
-const action = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
-const partial = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Finish as partial session")!;
+function footerAction(title: string) {
+  function find(children: unknown): ReactElement<{ title: string; disabled: boolean; busy: boolean; onPress(): void }> | undefined {
+    for (const child of Children.toArray(children as never)) {
+      if (!isValidElement<{ title?: string; children?: unknown }>(child)) continue;
+      if (child.type === ("Button" as never) && child.props.title === title) return child as never;
+      const nested = find(child.props.children);
+      if (nested) return nested;
+    }
+  }
+  return find(renderer!.root.findByType("Screen" as never).props.footer);
+}
+const action = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title) ?? footerAction(title)!;
+const partial = () => action("Finish");
 const notesAndFeel = () => renderer!.root.findAllByType("ListRow" as never).find(node => node.props.title === "Notes & feel")!;
 const sheet = (title: string) => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === title)!;
 const finishSheet = () => renderer!.root.findAllByType("Sheet" as never).find(node => node.props.title === "Keep your current entry?")!;
@@ -517,4 +528,24 @@ it.each([
     await fixture.store!.start(fixed, { workout_id: "source", workout_revision: 1 }, "fixed-client", Date.now(), { log_as_you_go: true });
   }); await settle();
   expect(text().includes("No set count given")).toBe(showHint);
+});
+
+
+it("keeps labelled Pause/Resume and Finish beside the main logging action", async () => {
+  expect(action("Pause").props.disabled).toBe(false);
+  expect(partial().props.disabled).toBe(false);
+  expect(renderer!.root.findAllByType("IconButton" as never).some(node => node.props.label === "Pause session")).toBe(false);
+  await act(async () => { action("Pause").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.paused).toBe(true);
+  expect(footer().props.disabled).toBe(true);
+  await act(async () => { action("Resume").props.onPress(); }); await settle();
+  expect(fixture.store!.snapshot().active!.paused).toBe(false);
+});
+it("offers discard confirmation when Finish is tapped with zero logged work", async () => {
+  const { Alert } = await import("react-native");
+  vi.mocked(Alert.alert).mockClear();
+  await act(async () => { partial().props.onPress(); }); await settle();
+  expect(Alert.alert).toHaveBeenCalledWith("Discard this session?", expect.any(String), expect.any(Array));
+  expect(fixture.store!.snapshot().active).not.toBeNull();
+  expect(fixture.store!.snapshot().history).toEqual([]);
 });

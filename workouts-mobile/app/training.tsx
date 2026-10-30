@@ -294,6 +294,7 @@ export default function Training() {
   function requestPartialFinish() {
     if (guard.current || !sameSession()) return;
     setMore(false);
+    if (!d?.actuals.length && !hasUnloggedInput(inputRef.current) && !hasUnloggedInput(store!.snapshot().active?.input)) { discard(); return; }
     if (!d?.activity_type || hasUnloggedInput(inputRef.current) || hasUnloggedInput(store!.snapshot().active?.input)) {
       setFinishReview(true);
       return;
@@ -356,14 +357,6 @@ export default function Training() {
       subtitle={e ? [d.workout.title, group].filter(Boolean).join(" · ") : undefined}
       action={
         <Row gap={8}>
-          <IconButton
-            icon={d.paused ? "play" : "pause"}
-            label={capReached ? "Time cap reached" : d.paused ? "Resume session" : "Pause session"}
-            disabled={busy || capReached}
-            onPress={() => {
-              void run(() => store.pause(!d.paused));
-            }}
-          />
           <IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />
         </Row>
       }
@@ -401,6 +394,21 @@ export default function Training() {
             onPress={requestPartialFinish}
           />
         )}
+        <Row gap={12} wrap>
+          <View style={{ flex: 1, minWidth: 120 }}>
+            <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"}
+              variant="secondary" disabled={busy || capReached}
+              accessibilityHint={capReached ? "The time cap has been reached. Finish to save your recorded work." : undefined}
+              onPress={() => { void run(() => store.pause(!d.paused)); }} />
+          </View>
+          <View style={{ flex: 1, minWidth: 120 }}>
+            <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
+              onPress={() => {
+                if ((canFinish || timedComplete) && !pendingEntry) void run(() => finish("completed"));
+                else requestPartialFinish();
+              }} />
+          </View>
+        </Row>
       </>}
     >
       {!!structureWarning && (
@@ -713,13 +721,6 @@ export default function Training() {
           />
         )}
         <ListRow
-          icon="flag-outline"
-          title="Finish as partial session"
-          detail="Saves what you recorded so far"
-          disabled={busy || !d.actuals.length}
-          onPress={requestPartialFinish}
-        />
-        <ListRow
           icon="trash-outline"
           title="Discard this session"
           destructive
@@ -740,7 +741,7 @@ export default function Training() {
         <Button title={pendingEntry ? "Log and finish" : "Finish and save partial session"} icon="checkmark-done" busy={busy}
           disabled={pendingEntry && (!step || !!structureWarning || (d.paused && !capReached))} onPress={finishWithEntry} />
         {pendingEntry && <Button title="Finish without this entry" secondary disabled={busy}
-          onPress={() => { void run(() => finish("partial", true)); }} />}
+          onPress={() => { if (!d.actuals.length) discard(); else void run(() => finish("partial", true)); }} />}
         <Button title="Keep training" variant="ghost" disabled={busy} onPress={() => setFinishReview(false)} />
       </Sheet>
     </Screen>
