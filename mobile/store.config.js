@@ -45,15 +45,20 @@ DISCOVER AND ORGANIZE
 AI can make mistakes. Review extracted ingredients, directions, allergens, temperatures, and food-safety guidance before cooking.
 
 Made in Guam by Shimizu Technology.`;
-const RELEASE_NOTES = `Recipes from more websites, and clearer account controls.
+const RELEASE_NOTES = `A simpler Håfa Recipes, built around your library.
 
-• Recipe links from more websites import, including popular sites that used to block Håfa.
-• When a website can't be read, Håfa tells you why and suggests pasting the recipe or importing a screenshot.
-• Delete Account now explains that one Håfa account works across Håfa apps.
-• Signing in with email is quicker: the return key moves from Email to Password and then signs you in.
-• Better VoiceOver labels on sign-in and Discover.
-
-Includes reliability improvements.`;
+• Four tabs: Recipes, Add, Plan and Grocery. Switch between My Library and Discover at the top of Recipes.
+• Choose Public or Private right beside Import, and keep going in one tap. The share sheet asks too.
+• Save a recipe while browsing as a guest, sign in, and Håfa finishes saving it.
+• Unfinished recipes are kept as private drafts on your phone until you save or discard them.
+• Scanned family recipes keep their original pages privately, so you can check the handwriting later. Remove them anytime.
+• Plan meals with the servings you want, see your week at a glance, and review totals before adding them to your grocery list.
+• Share your grocery list with your household, or export only what is left to buy.
+• Recipes you open recently, and Cook Mode, work without a connection.
+• A recipe shows as saved only once it reaches Håfa, with Retry if something goes wrong.
+• Cook Mode tells you when timer alerts are off.
+• Recipe links from more websites import, with a clear reason when a site can't be read.
+• Clearer dark mode, better large-text layouts and VoiceOver labels throughout.`;
 
 function requiredEnvironmentValue(environment, name) {
   const value = String(environment[name] ?? '').trim();
