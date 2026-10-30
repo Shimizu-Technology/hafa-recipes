@@ -890,9 +890,10 @@ export default function HistoryScreen() {
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search recipes..."
+              accessibilityLabel="Search library recipes"
             />
           </RNView>
-          <TouchableOpacity
+          <ScalePressable
             style={[
               styles.filterButton,
               {
@@ -900,6 +901,11 @@ export default function HistoryScreen() {
                 borderColor: activeFilterCount > 0 ? colors.tint : colors.border,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Filter library recipes"
+            accessibilityValue={{ text: activeFilterCount === 0
+              ? 'No filters applied'
+              : `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} applied` }}
             onPress={() => setShowFilterModal(true)}
           >
             <Ionicons
@@ -914,7 +920,7 @@ export default function HistoryScreen() {
                 </Text>
               </RNView>
             )}
-          </TouchableOpacity>
+          </ScalePressable>
         </RNView>
 
         {/* Active filters summary */}
