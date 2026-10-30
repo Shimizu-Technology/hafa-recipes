@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock('react-native', () => ({ Modal: 'Modal', Pressable: 'Pressable', TouchableOpacity: 'TouchableOpacity', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: (s: unknown) => s } }));
+vi.mock('./Animated', () => ({ ScalePressable: 'TouchableOpacity' }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({ Text: 'Text', View: 'View', useColors: () => ({}) }));

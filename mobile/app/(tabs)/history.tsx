@@ -387,7 +387,8 @@ export default function HistoryScreen() {
     ownership: ownershipFilter,
   }, isAuthenticated);
 
-  const { data: countData } = useRecipeCount(sourceTypeParam, isAuthenticated);
+  const { data: countData } = useRecipeCount(undefined, isAuthenticated);
+  const ownLibraryTotal = countData?.count ?? 0;
 
   // Popular tags for this user
   const { data: popularTags } = usePopularTags('user', isAuthenticated);
@@ -487,11 +488,11 @@ export default function HistoryScreen() {
     if (ownershipFilter === 'saved') {
       return savedTotal;
     } else if (ownershipFilter === 'own') {
-      return recipesTotal;
+      return ownLibraryTotal;
     } else {
-      return recipesTotal + savedTotal;
+      return ownLibraryTotal + savedTotal;
     }
-  }, [ownershipFilter, recipesTotal, savedTotal]);
+  }, [ownershipFilter, ownLibraryTotal, savedTotal]);
   const matchingCount = hasActiveFilters && isServerSearchCurrent && isSearchSuccess ? searchTotal : undefined;
 
   // For display, slice to current page

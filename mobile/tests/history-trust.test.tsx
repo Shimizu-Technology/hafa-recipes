@@ -81,7 +81,7 @@ vi.mock('@/hooks/useRecipes', () => ({
     return { recipes: library.search, total: library.searchTotal ?? library.search.length, isSuccess: true,
       hasNextPage: library.hasMoreSearch, fetchNextPage: library.moreSearch };
   },
-  useRecipeCount: () => ({ data: { count: 0 } }),
+  useRecipeCount: (sourceType?: string) => ({ data: { count: sourceType ? 10 : library.ownTotal } }),
   usePopularTags: () => ({ data: [] }),
 }));
 vi.mock('@/hooks/useCollections', () => ({ useCollections: () => library.collections }));
@@ -298,6 +298,17 @@ describe('Library recipe count', () => {
   const countText = (renderer: ReturnType<typeof createRoot>) =>
     renderer.container.queryAll(instance => instance.type === 'Text' && /^\d+( of \d+)? recipes?$/.test(String(instance.props.children)))
       .map(instance => instance.props.children);
+
+  it('uses the full own and saved totals when a source narrows the matches', async () => {
+    library.ownTotal = 100; library.savedTotal = 72; library.searchTotal = 17;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      const sheet = renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0];
+      await act(async () => sheet.props.onApply({ sourceFilter: 'tiktok', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' }));
+      expect(countText(renderer)).toEqual(['17 of 172 recipes']);
+    } finally { await act(async () => renderer.unmount()); }
+  });
 
   it('uses the server saved total before all pages are loaded', async () => {
     library.ownTotal = 100; library.savedTotal = 72;
