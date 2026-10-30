@@ -154,3 +154,14 @@ describe('updateSavedStateInRecipePages', () => {
     unsubscribe();
   });
 });
+
+it('does not publish an old account reconciliation into the next account cache', async () => {
+  const client = new QueryClient();
+  client.setQueryData(['recipeSaved', 'one'], { is_saved: false });
+  let finish!: (value: { is_saved: boolean }) => void;
+  let authorized = true;
+  const result = reconcileSavedStateAfterError(client, 'one', () => { if (!authorized) throw new Error('Account changed'); }, () => new Promise(resolve => { finish = resolve; }));
+  authorized = false; finish({ is_saved: true });
+  await expect(result).rejects.toThrow('Account changed');
+  expect(client.getQueryData(['recipeSaved', 'one'])).toEqual({ is_saved: false });
+});

@@ -40,6 +40,7 @@ import {
   useClearAllItems,
   useAddGroceryItem,
   useGrocerySync,
+  usePendingGrocerySync,
   useGroceryListInfo,
   useDeleteGroceryItems,
   useUpdateGroceryItem,
@@ -225,7 +226,6 @@ export default function GroceryScreen() {
   // Ref for the add item input to maintain focus
   const addItemInputRef = useRef<TextInput>(null);
   
-  const [newItemName, setNewItemName] = useState('');
   const [addPendingSync, setAddPendingSync] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showChecked, setShowChecked] = useState(false);
@@ -235,6 +235,8 @@ export default function GroceryScreen() {
 
   // Set up offline sync (syncs pending changes when back online)
   const { lastSyncResult, clearSyncResult } = useGrocerySync(isAuthenticated);
+  const { data: hasQueuedChanges } = usePendingGrocerySync(isAuthenticated);
+  const newItemName = searchQuery;
   
   // Show alert when sync has failures
   useEffect(() => {
@@ -259,6 +261,8 @@ export default function GroceryScreen() {
     isLoading,
     isError,
     isRefetchError,
+    serverConfirmedAt,
+    freshness,
     refetch,
     isRefetching,
   } = useGroceryList(showChecked, isAuthenticated);
@@ -522,9 +526,11 @@ export default function GroceryScreen() {
       { name: newItemName.trim() },
       {
         onSuccess: (result) => {
-          if (result.syncStatus === 'confirmed') haptics.success();
+          if (result.syncStatus === 'confirmed') {
+            haptics.success();
+            showToast({ message: 'Item added to grocery list', tone: 'success' });
+          }
           setAddPendingSync(result.syncStatus === 'queued');
-          setNewItemName('');
           setSearchQuery('');
           if (keepInputFocused) {
             // The visible add button supports rapid, repeated entry. The
@@ -544,7 +550,7 @@ export default function GroceryScreen() {
   const formatGroceryListAsText = () => {
     if (!groceryItems || groceryItems.length === 0) return '';
     
-    let text = 'Grocery List\n\n';
+    let text = `Grocery List — ${isSearching ? 'Search matches' : showChecked ? 'All' : 'To buy'}\n\n`;
     
     // Format items with simple list style
     const formatItem = (item: GroceryItem) => {
@@ -570,8 +576,8 @@ export default function GroceryScreen() {
   };
 
   const handleExportList = async () => {
-    if (!groceryItems || groceryItems.length === 0) {
-      Alert.alert('Empty List', 'Add some items to your grocery list first.');
+    if (visibleItems.length === 0) {
+      Alert.alert('No items in this view', 'Add some items to your grocery list first.');
       return;
     }
 
@@ -777,7 +783,7 @@ export default function GroceryScreen() {
     
     if (hasItems) {
       options.push({
-        text: 'Export list',
+        text: `Export text — ${isSearching ? 'Search matches' : showChecked ? 'All' : 'To buy'}`,
         onPress: handleExportList,
       });
       options.push({
@@ -863,43 +869,24 @@ export default function GroceryScreen() {
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
-        <TouchableOpacity
-          onPress={() => router.push(appRoutes.pantry)}
-          style={[styles.pantryLink, { backgroundColor: colors.tint + '14' }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open my pantry"
-        >
-          <Ionicons name="basket-outline" size={19} color={colors.actionText} />
-          <Text style={{ color: colors.actionText, fontWeight: fontWeight.semibold, flex: 1 }}>My Pantry</Text>
-          <Ionicons name="chevron-forward" size={17} color={colors.actionText} />
-        </TouchableOpacity>
-        {readyForPantry.length > 0 && <TouchableOpacity
-          onPress={handleAddCheckedToPantry}
-          disabled={transferToPantry.isPending}
-          style={[styles.pantryLink, { backgroundColor: colors.success + '14' }]}
-          accessibilityRole="button"
-          accessibilityLabel={`Add ${readyForPantry.length} checked items to pantry`}
-        >
-          <Ionicons name="checkmark-circle-outline" size={19} color={colors.success} />
-          <Text style={{ color: colors.success, fontWeight: fontWeight.semibold, flex: 1 }}>
-            {transferToPantry.isPending ? 'Adding to pantry…' : `Add ${readyForPantry.length} checked to pantry`}
-          </Text>
-          <Ionicons name="chevron-forward" size={17} color={colors.success} />
-        </TouchableOpacity>}
         <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
           <TextInput
             ref={addItemInputRef}
             style={[styles.addItemInput, { color: colors.text }]}
-            placeholder="Add an item..."
+            placeholder="Search or add an item"
             placeholderTextColor={colors.textMuted}
             value={newItemName}
-            onChangeText={setNewItemName}
+            onChangeText={setSearchQuery}
             onSubmitEditing={() => handleAddItem(false)}
             returnKeyType="done"
             submitBehavior="blurAndSubmit"
             maxLength={255}
-            accessibilityLabel="Add grocery item"
+            accessibilityLabel="Search grocery items and recipes"
           />
+          {isSearching && <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchButton}
+            accessibilityRole="button" accessibilityLabel="Clear grocery search">
+            <Ionicons name="close-circle" size={20} color={colors.textMuted} />
+          </TouchableOpacity>}
           <TouchableOpacity
             onPress={() => handleAddItem(true)}
             disabled={!newItemName.trim()}
@@ -910,34 +897,22 @@ export default function GroceryScreen() {
             accessibilityRole="button"
             accessibilityLabel="Add item and keep typing"
           >
-            <Ionicons name="add" size={24} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF' }}>Add</Text>
           </TouchableOpacity>
         </RNView>
 
-        {addPendingSync && <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted, paddingHorizontal: spacing.md }}>Saved on this device · waiting to sync</Text>}
-        <RNView style={[styles.searchRow, { backgroundColor: colors.backgroundSecondary }]}>
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search items or recipes"
-            placeholderTextColor={colors.textMuted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            returnKeyType="search"
-            clearButtonMode="never"
-            maxLength={100}
-            accessibilityLabel="Search grocery items and recipes"
-          />
-          {isSearching && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery('')}
-              style={styles.clearSearchButton}
-              accessibilityRole="button"
-              accessibilityLabel="Clear grocery search"
-            >
-              <Ionicons name="close-circle" size={20} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
+        <RNView style={styles.actionRow}>
+          <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted, flex: 1 }}>
+            {addPendingSync || hasQueuedChanges ? 'Saved on this device · waiting to sync'
+              : hasQueuedChanges === undefined || freshness === 'checking' ? 'Checking sync status…'
+              : freshness === 'offline' ? 'Offline · showing this device’s list'
+              : freshness === 'stale' || isRefetchError ? `Couldn’t refresh · ${serverConfirmedAt ? `last confirmed ${new Date(serverConfirmedAt).toLocaleString()}` : 'showing this device’s list'}`
+              : serverConfirmedAt ? `Confirmed ${new Date(serverConfirmedAt).toLocaleString()}` : 'Checking sync status…'}
+          </Text>
+          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.headerIconButton}
+            accessibilityRole="button" accessibilityLabel="Share household">
+            <Text style={{ color: colors.actionText }}>Share household</Text>
+          </TouchableOpacity>
         </RNView>
 
         {/* Focus the shopping view while keeping completed items close by. */}
@@ -991,6 +966,31 @@ export default function GroceryScreen() {
         renderSectionHeader={renderSectionHeader}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={ListEmpty}
+        ListFooterComponent={isAuthenticated ? <RNView>
+        <TouchableOpacity
+          onPress={() => router.push(appRoutes.pantry)}
+          style={[styles.pantryLink, { backgroundColor: colors.backgroundSecondary }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open my pantry"
+        >
+          <Ionicons name="basket-outline" size={19} color={colors.actionText} />
+          <Text style={{ color: colors.actionText, fontWeight: fontWeight.semibold, flex: 1 }}>Pantry</Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.actionText} />
+        </TouchableOpacity>
+        {readyForPantry.length > 0 && <TouchableOpacity
+          onPress={handleAddCheckedToPantry}
+          disabled={transferToPantry.isPending}
+          style={[styles.pantryLink, { backgroundColor: colors.success + '14' }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${readyForPantry.length} checked item${readyForPantry.length === 1 ? '' : 's'} to pantry`}
+        >
+          <Ionicons name="checkmark-circle-outline" size={19} color={colors.success} />
+          <Text style={{ color: colors.success, fontWeight: fontWeight.semibold, flex: 1 }}>
+            {transferToPantry.isPending ? 'Adding to pantry…' : `Add ${readyForPantry.length} checked item${readyForPantry.length === 1 ? '' : 's'} to pantry`}
+          </Text>
+          <Ionicons name="chevron-forward" size={17} color={colors.success} />
+        </TouchableOpacity>}
+</RNView> : null}
         contentContainerStyle={[
           styles.listContent,
           {

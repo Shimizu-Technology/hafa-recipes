@@ -1,7 +1,9 @@
+import { privateRecipeDrafts } from './privateRecipeDrafts';
 import { CaptureAccountChangedError } from './captureAccount';
 export { CaptureAccountChangedError } from './captureAccount';
 import { randomUUID } from 'expo-crypto';
-import { getApiErrorMessage } from './apiErrorMessage';
+import { captureSaveFailure } from './captureSaveFailure';
+export { captureSaveFailure } from './captureSaveFailure';
 
 /** Save a completed capture without asking the cook to certify every field.
  * A failed save keeps the extracted payload available for a save-only retry.
@@ -15,18 +17,6 @@ export interface CapturedRecipeSaveInput {
   requestGuard?: () => void;
 }
 
-/** Only a rejected payload can safely be edited before reconciling the first save. */
-export function captureSaveFailure(error: unknown) {
-  const status = (error as { response?: { status?: number } })?.response?.status;
-  const kind = status === 400 || status === 422 ? 'invalid'
-    : status === 401 || status === 403 ? 'auth'
-    : status === 409 ? 'conflict' : 'retry';
-  const message = kind === 'auth' ? 'Sign in again before retrying this save.'
-    : kind === 'invalid' ? getApiErrorMessage(error, 'Some recipe details could not be saved. Edit the recipe to correct them.')
-    : kind === 'conflict' ? 'This import was already saved with different details. Check your Library for the saved recipe.'
-    : getApiErrorMessage(error, 'The connection was interrupted. Your extracted recipe is still here.');
-  return { kind, message };
-}
 
 export async function saveCaptureOrRecover(
   input: CapturedRecipeSaveInput,
@@ -37,10 +27,21 @@ export async function saveCaptureOrRecover(
   try {
     const result = await save(request);
     if (!result?.id) throw new Error('Recipe save did not return an ID');
+    input.requestGuard?.();
+    if (input.expected_owner_id) {
+      const lease = privateRecipeDrafts.lease(input.expected_owner_id);
+      await privateRecipeDrafts.remove(lease, 'recovery').catch(() => undefined);
+      await privateRecipeDrafts.remove(lease, input.source_type === 'text' ? 'paste' : 'scan').catch(() => undefined);
+    }
     return `/recipe/${result.id}` as const;
   } catch (error) {
     if (error instanceof CaptureAccountChangedError) throw error;
     const failure = captureSaveFailure(error);
+    input.requestGuard?.();
+    let draftStorageError: string | undefined;
+    if (input.expected_owner_id) await privateRecipeDrafts.write(privateRecipeDrafts.lease(input.expected_owner_id), 'recovery', {
+      captureId: request.capture_id, failure, recipe: { id: request.capture_id, extracted: input.extracted, source_type: input.source_type, is_public: input.is_public },
+    }).catch(() => { draftStorageError = 'This recipe is still open, but its local draft could not be written. Keep Håfa open until you save it.'; });
     return {
       pathname: '/ocr-review' as const,
       params: {
@@ -53,6 +54,7 @@ export async function saveCaptureOrRecover(
         ...(input.expected_owner_id ? { captureOwnerId: input.expected_owner_id } : {}),
         saveErrorKind: failure.kind,
         saveErrorMessage: failure.message,
+        ...(draftStorageError ? { draftStorageError } : {}),
       },
     };
   }

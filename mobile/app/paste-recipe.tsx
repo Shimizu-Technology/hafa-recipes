@@ -1,3 +1,5 @@
+import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
+import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
 import { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
@@ -33,6 +35,10 @@ import { importInbox } from '@/lib/importInbox';
 import { useImportInbox } from '@/hooks/useImportInbox';
 
 export default function PasteRecipeScreen() {
+  const { ownerId } = useImportInbox();
+  return <PasteRecipeForm key={ownerId ?? 'guest'} />;
+}
+function PasteRecipeForm() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -94,6 +100,10 @@ export default function PasteRecipeScreen() {
       })
     : [{ code: 'GU', name: 'Guam' }];
 
+  const draft = usePrivateRecipeDraft(inbox.ownerId, 'paste', { recipeText, isPublic, selectedLocation }, !!recipeText.trim(), saved => {
+    setRecipeText(saved.recipeText); setIsPublic(saved.isPublic); setSelectedLocation(saved.selectedLocation);
+  });
+
   const handlePaste = async () => {
     try {
       const clipboardText = normalizePastedRecipeText(await Clipboard.getStringAsync());
@@ -108,17 +118,22 @@ export default function PasteRecipeScreen() {
   };
 
   const handleExtract = async () => {
-    if (!canExtract || importInFlight.current) return;
+    if (!canExtract || importInFlight.current || !draft.ready || draft.available) return;
     const originalOwner = inbox.ownerId;
     if (!originalOwner) { Alert.alert('Sign In to Import', 'Please sign in and wait for your recipe library to load.'); return; }
     const guardOwner = () => {
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) throw new CaptureAccountChangedError();
     };
     importInFlight.current = true;
-    if (isPublic) {
+    let requestedPublic = isPublic;
+    if (requestedPublic) {
       const allowed = await requestPublishing();
       if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
-      if (!allowed) { importInFlight.current = false; if (didChoosePrivate()) setIsPublic(false); return; }
+      if (!allowed) {
+        if (!didChoosePrivate()) { importInFlight.current = false; return; }
+        requestedPublic = false;
+        setIsPublic(false);
+      }
     }
     if (!captureOwner.current.mounted || captureOwner.current.ownerId !== originalOwner) return;
 
@@ -142,7 +157,7 @@ export default function PasteRecipeScreen() {
       const destination = await saveCaptureOrRecover({
         extracted: result.recipe,
         source_type: 'text',
-        is_public: isPublic,
+        is_public: requestedPublic,
         capture_id: params.inboxCaptureId,
         expected_owner_id: originalOwner, requestGuard: guardOwner,
       }, selectedLocation, saveCapturedRecipe.mutateAsync);
@@ -150,6 +165,8 @@ export default function PasteRecipeScreen() {
       if (params.inboxCaptureId && typeof destination === 'string') {
         await importInbox.patch(params.inboxCaptureId, { state: 'accepted', recipeId: destination.split('/').pop() });
       }
+      guardOwner();
+      if (typeof destination === 'string') await draft.finish();
       guardOwner();
       router.replace(destination);
     } catch (error: any) {
@@ -249,7 +266,8 @@ export default function PasteRecipeScreen() {
             <Text style={[styles.limitError, { color: colors.error }]}>Shorten the pasted text before importing.</Text>
           )}
 
-          <RecipeVisibilitySelector
+          <RecipeDraftNotice draft={draft} />
+          <RecipeVisibilitySelector compact
             value={isPublic ? 'public' : 'private'}
             onChange={(value) => setIsPublic(value === 'public')}
             disabled={isExtracting || isCheckingDisclosure}
@@ -258,7 +276,7 @@ export default function PasteRecipeScreen() {
           <Button
             title={isExtracting ? 'Importing Recipe...' : 'Import Recipe'}
             onPress={handleExtract}
-            disabled={!canExtract}
+            disabled={!canExtract || !draft.ready || !!draft.available}
             loading={isExtracting}
             size="lg"
           />
