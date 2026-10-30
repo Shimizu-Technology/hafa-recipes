@@ -483,7 +483,7 @@ it("retains terminal polling until the updated source is safely persisted", asyn
 });
 
 describe("independent durable outbox records", () => {
-  it.each([422, 429, 500, 503])("persists HTTP %i failure while care, source and reminder records continue", async (status) => {
+  it.each([403, 422, 429, 500, 503])("persists HTTP %i failure while care, source and reminder records continue", async (status) => {
     await mount();
     const journal = { ...row("photo"), kind: "journal" as const };
     const rows = [journal, { ...row("care"), kind: "diaper" as const }, { ...row("source"), kind: "source" as const }, row("reminder")];
@@ -520,7 +520,7 @@ describe("independent durable outbox records", () => {
     expect(mock.api.remove.mock.calls[0][0].revision).toBe(3);
     expect(mock.state?.outbox).toEqual([]);
   });
-  it.each([0, 401, 403])("pauses the whole pass on network/auth %i without marking records rejected", async (status) => {
+  it.each([0, 401])("pauses the whole pass on network/auth %i without marking records rejected", async (status) => {
     await mount();
     mock.api.save.mockRejectedValueOnce(new ApiError("Connection or sign in needed", status));
     await act(async () => { await baby.commit(s => ({ ...s, outbox: [row("first"), row("other")].map(record => ({ id: record.id, type: "save", generation: 1, record, files: [] })) })); });

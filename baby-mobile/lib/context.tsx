@@ -352,7 +352,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             await refresh();
             break;
           }
-          if (status === 0 || status === 401 || status === 403) {
+          if (status === 0 || status === 401) {
             setError(messageFor(e));
             break;
           }
