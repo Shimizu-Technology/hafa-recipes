@@ -171,4 +171,6 @@ it("holds saves for active imports but lets deletion cancel the import", () => {
   expect(waitingForImport(jobs, { ...save, record: { ...row, id: "other" } })).toBe(false);
   expect(waitingForImport(jobs, { id: "delete", type: "delete", generation: 1, record: row })).toBe(false);
   expect(waitingForImport([{ ...jobs[0], status: "ready" }], save)).toBe(false);
+  // A deferred native receipt saved only an original; no worker owns the record.
+  expect(waitingForImport([{ ...jobs[0], status: "deferred" }], save)).toBe(false);
 });

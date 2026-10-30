@@ -114,5 +114,5 @@ export function retryMutation<T extends Mutation>(change: T): T {
 
 /** Admission is not completion: an import may still replace source fields. */
 export function waitingForImport(imports: ImportJob[], change: Mutation) {
-  return change.type === "save" && imports.some(job => job.record_id === change.record.id && !importFinished(job.status));
+  return change.type === "save" && imports.some(job => job.record_id === change.record.id && job.status !== "deferred" && !importFinished(job.status));
 }
