@@ -1,3 +1,4 @@
+import { OfflineRecipeControl } from '@/components/OfflineRecipeControl';
 import { guestRecipeIntent, type GuestRecipeAction } from '@/lib/guestRecipeIntent';
 import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { NutritionPanel } from '@/components/NutritionPanel';
@@ -949,6 +950,7 @@ export default function RecipeDetailScreen() {
               </RNView>
             )}
 
+            <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
             {/* Source Button */}
             {hasExternalSource && !sourcePlayback && (
               <TouchableOpacity

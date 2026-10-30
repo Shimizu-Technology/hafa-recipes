@@ -1,3 +1,4 @@
+import { useOfflineRecipe } from '@/hooks/useOfflineRecipe';
 import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
 /**
@@ -300,6 +301,7 @@ export function useRecipe(id: string, enabled = true) {
     },
     refetchIntervalInBackground: false,
   });
+  const offline = useOfflineRecipe(id, userId, query.data, query.error, query.dataUpdatedAt, connected === true && !query.error);
   const deadline = pendingDeadline(query.data);
   const thumbnailPending = deadline > Date.now();
   const hasData = query.data !== undefined;
@@ -338,7 +340,10 @@ export function useRecipe(id: string, enabled = true) {
 
   return {
     ...query,
-    isLoading: query.isLoading || (query.isPending && enabled && foreground && !!id
+    data: query.data && offline.allowed ? query.data : offline.recipe,
+    offlineSavedAt: offline.savedAt,
+    usingOffline: !query.data && !!offline.recipe || connected === false && !!offline.recipe,
+    isLoading: offline.loading && !query.data || query.isLoading || (query.isPending && enabled && foreground && !!id
       && (connected === null || (!isLoaded && connected !== false))),
     thumbnailPending,
     preview,

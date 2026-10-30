@@ -776,6 +776,10 @@ export default function HistoryScreen() {
           </TouchableOpacity>
         </RNView>
 
+        {isSignedIn && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open offline recipes"
+          onPress={() => router.push('/offline-recipes')} style={{ minHeight: 44, justifyContent: 'center' }}>
+          <Text>Available offline ›</Text>
+        </TouchableOpacity>}
         {/* Subtitle row with "What can I make?" */}
         <TouchableOpacity
           style={[styles.ingredientSearchButton, { backgroundColor: colors.tint + '15' }]}

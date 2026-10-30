@@ -1,3 +1,4 @@
+import { offlineRecipes } from './offlineRecipes';
 /** Account-scoped grocery snapshots and durable mutation queue. */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -314,5 +315,6 @@ export function clearAllOfflineGroceryData(): Promise<void> {
   ++scopeEpoch;
   identityReady = false;
   boundIdentityHash = null;
-  return serialized(clearPrivateGroceryStorage);
+  const recipesCleared = offlineRecipes.clear();
+  return Promise.all([serialized(clearPrivateGroceryStorage), recipesCleared]).then(() => undefined);
 }
