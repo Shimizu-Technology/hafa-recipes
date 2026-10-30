@@ -6,6 +6,7 @@ const PREFIX = 'hafa_private_recipe_draft_v1:';
 /** Serialize writes/deletes; invalidated leases cannot resurrect signed-out data. */
 export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
   let epoch = 0;
+  const pendingWrites = new Set<{ value: unknown }>();
   let tail: Promise<unknown> = Promise.resolve();
   const run = <T,>(job: () => Promise<T>) => { const next = tail.then(job); tail = next.catch(() => undefined); return next; };
   const key = (lease: DraftLease, kind: RecipeDraftKind) => `${PREFIX}${encodeURIComponent(lease.owner)}:${kind}`;
@@ -29,11 +30,15 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
       valid(lease); const raw = await storage.getItem(key(lease, kind)); valid(lease);
       return raw ? JSON.parse(raw) : null;
     }),
-    write: (lease: DraftLease, kind: RecipeDraftKind, value: unknown) => run(async () => {
-      valid(lease); const raw = JSON.stringify(value);
-      if (raw.length > 500_000) throw new Error('This draft is too large to save on this device.');
-      await storage.setItem(key(lease, kind), raw); valid(lease);
-    }),
+    write: (lease: DraftLease, kind: RecipeDraftKind, value: unknown) => {
+      // Register before enqueueing: cleanup may already be awaiting storage.
+      const pending = { value }; pendingWrites.add(pending);
+      return run(async () => {
+        valid(lease); const raw = JSON.stringify(value);
+        if (raw.length > 500_000) throw new Error('This draft is too large to save on this device.');
+        await storage.setItem(key(lease, kind), raw); valid(lease);
+      }).finally(() => pendingWrites.delete(pending));
+    },
     remove: (lease: DraftLease, kind: RecipeDraftKind) => run(async () => {
       valid(lease); const raw = await storage.getItem(key(lease, kind));
       await storage.removeItem(key(lease, kind));
@@ -49,7 +54,8 @@ export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
         const clean = (value: any) => {
           if (!value || typeof value !== 'object') return;
           for (const [field, child] of Object.entries(value)) {
-            if ((field === 'uri' || field === 'imageUri') && typeof child === 'string' && child.startsWith(root.uri) && !references.some(reference => reference?.includes(child))) {
+            if ((field === 'uri' || field === 'imageUri') && typeof child === 'string' && child.startsWith(root.uri) && !references.some(reference => reference?.includes(child)) &&
+              ![...pendingWrites].some(pending => JSON.stringify(pending.value)?.includes(child))) {
               const file = new File(child); if (file.exists) file.delete();
             } else if (typeof child === 'object') clean(child);
           }
