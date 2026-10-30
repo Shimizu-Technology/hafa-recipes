@@ -163,14 +163,14 @@ export function WorkoutEditor({
           <Copy kind="label">How it runs</Copy>
           <Columns>
             {groupings.map(([grouping, label]) => (
-              <Column key={grouping}><Choice disabled={disabled} label={label} selected={block.grouping === grouping}
+              <Column key={grouping}><Choice role="radio" disabled={disabled} label={label} selected={block.grouping === grouping}
                 onPress={() => update(changeGrouping(value, bi, grouping))} /></Column>
             ))}
           </Columns>
           {block.grouping === "circuit" && <Columns>
-            <Column><Choice label="Set number of rounds" selected={!block.execution} disabled={disabled}
+            <Column><Choice role="radio" label="Set number of rounds" selected={!block.execution} disabled={disabled}
               onPress={() => update(changeExecution(value, bi, false))} /></Column>
-            <Column><Choice label="As many rounds as possible" selected={block.execution?.mode === "amrap"} disabled={disabled}
+            <Column><Choice role="radio" label="As many rounds as possible" selected={block.execution?.mode === "amrap"} disabled={disabled}
               onPress={() => update(changeExecution(value, bi, true))} /></Column>
           </Columns>}
           {block.execution?.mode === "amrap" ? <>
@@ -259,7 +259,7 @@ export function WorkoutEditor({
                 <>
                   <Columns>
                     {(["kg", "lb"] as const).map((load_unit) => (
-                      <Column key={load_unit}><Choice disabled={disabled} label={load_unit} selected={e.load_unit === load_unit}
+                      <Column key={load_unit}><Choice role="radio" disabled={disabled} label={load_unit} selected={e.load_unit === load_unit}
                         onPress={() => exercise(bi, ei, { load_unit })} /></Column>
                     ))}
                   </Columns>
@@ -356,7 +356,7 @@ function TimeCapField({ seconds, onChange, disabled }: {
   }, [seconds]);
   return <>
     <View style={{ flexDirection: "row", gap: 12 }}>
-      {(["minutes", "seconds"] as const).map(unit => <View key={unit} style={{ flex: 1 }}><Choice label={unit === "minutes" ? "Minutes" : "Seconds"}
+      {(["minutes", "seconds"] as const).map(unit => <View key={unit} style={{ flex: 1 }}><Choice role="radio" label={unit === "minutes" ? "Minutes" : "Seconds"}
         selected={units === unit} disabled={disabled} onPress={() => {
           if (!disabled) { setUnits(unit); setText(display(seconds, unit)); }
         }} /></View>)}

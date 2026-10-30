@@ -313,7 +313,7 @@ export default function ActivityEditor() {
               <Notice>This older entry isn’t confirmed yet. Check the details, then confirm it happened.</Notice>
             )}
             {Object.entries(activityLabels).map(([kind, label]) => (
-              <Choice
+              <Choice role="radio"
                 key={kind}
                 label={label}
                 selected={draft.kind === kind}
@@ -355,13 +355,13 @@ export default function ActivityEditor() {
                   value={draft.distance}
                   onChange={(distance) => update({ distance })}
                 />
-                <Choice
+                <Choice role="radio"
                   label="Kilometers"
                   selected={draft.distance_unit === "km"}
                   disabled={busy || !!draft.operation}
                   onPress={() => changeUnit("km")}
                 />
-                <Choice
+                <Choice role="radio"
                   label="Miles"
                   selected={draft.distance_unit === "mi"}
                   disabled={busy || !!draft.operation}
@@ -377,7 +377,7 @@ export default function ActivityEditor() {
                 { value: true, label: "Strenuous" },
               ] as const
             ).map((choice) => (
-              <Choice
+              <Choice role="radio"
                 key={choice.label}
                 label={choice.label}
                 selected={draft.strenuous === choice.value}
