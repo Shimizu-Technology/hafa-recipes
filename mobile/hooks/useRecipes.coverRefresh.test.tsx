@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+vi.mock('../utils/haptics', () => ({ haptics: { success: vi.fn() } }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: mocks.isLoaded, userId: mocks.userId }) }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('../lib/api', () => ({ api: { getRecipe: mocks.getRecipe } }));

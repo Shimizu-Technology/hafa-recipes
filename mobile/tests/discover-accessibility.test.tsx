@@ -67,7 +67,7 @@ vi.mock('@/constants/Colors', () => ({
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: () => null }));
 vi.mock('@/components/AllContributorsModal', () => ({ default: () => null }));
 vi.mock('@/components/Skeleton', () => ({ SkeletonRecipeList: () => null }));
-vi.mock('@/components/Animated', () => ({ AnimatedListItem: () => null, ScalePressable: () => null, useInitialListEntrance: () => () => false }));
+vi.mock('@/components/Animated', () => ({ AnimatedListItem: () => null, ScalePressable: 'TouchableOpacity', useInitialListEntrance: () => () => false }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: () => null }));
 vi.mock('@/components/RecipeGridCardFrame', () => ({ RecipeGridCardFrame: () => null, RECIPE_GRID_GAP: 8 }));
 vi.mock('react-native-reanimated', () => ({
@@ -177,8 +177,8 @@ describe('Discover accessibility', () => {
     await act(async () => filters.props.onPress());
 
     await act(async () => byText(renderer!, 'YouTube').props.onPress());
-    expect(byText(renderer!, 'YouTube').props.accessibilityState).toEqual({ selected: true });
-    expect(byText(renderer!, 'All Sources').props.accessibilityState).toEqual({ selected: false });
+    expect(byText(renderer!, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
+    expect(byText(renderer!, 'All Sources').props.accessibilityState).toEqual({ selected: false, checked: false });
 
     await act(async () => byText(renderer!, 'Apply (1)').props.onPress());
     expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
@@ -204,13 +204,13 @@ describe('FilterBottomSheet accessibility', () => {
     return { renderer: renderer!, onApply, onClose };
   }
 
-  it('exposes every source filter as a button with its selected state', async () => {
+  it('exposes every source filter as a radio with its selected state', async () => {
     const { renderer } = await renderSheet('tiktok');
 
     for (const label of SOURCE_LABELS) {
       const chip = byText(renderer, label);
-      expect(chip.props.accessibilityRole, label).toBe('button');
-      expect(chip.props.accessibilityState, label).toEqual({ selected: label === 'TikTok' });
+      expect(chip.props.accessibilityRole, label).toBe('radio');
+      expect(chip.props.accessibilityState, label).toEqual({ selected: label === 'TikTok', checked: label === 'TikTok' });
     }
   });
 

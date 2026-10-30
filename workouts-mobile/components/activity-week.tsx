@@ -41,12 +41,16 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
   }, 0) / 60) : 0;
   return (
     <Card>
-      {q.isPending ? (
+      {q.error && q.data && <>
+        <Notice error>Couldn’t refresh this week. Showing saved activity.</Notice>
+        <Button title="Try again" secondary size="sm" onPress={() => { void q.refetch(); }} />
+      </>}
+      {q.isPending && !q.data ? (
         <>
           <Skeleton height={26} width="70%" />
           <Copy tone="muted">Loading saved activity…</Copy>
         </>
-      ) : q.error ? (
+      ) : q.error && !q.data ? (
         <>
           <Notice error>This week’s activity couldn’t load.</Notice>
           <Button
@@ -65,7 +69,7 @@ export function ActivityWeek({ sessions }: { sessions: Array<{ started_at: strin
               {q.data?.complete ? "" : "+"} {summary.days === 1 && q.data?.complete ? "day" : "days"} with training
             </Copy>
             <Copy tone="muted">
-              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {minutes} min · {summary.activities}
+              {summary.sessions} {summary.sessions === 1 ? "session" : "sessions"} · {minutes} workout minutes · {summary.activities}
               {q.data?.complete ? "" : "+"} {summary.activities === 1 && q.data?.complete ? "activity" : "activities"}
             </Copy>
             <Copy kind="small" tone="muted">

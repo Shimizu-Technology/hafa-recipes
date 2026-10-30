@@ -42,7 +42,8 @@ function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): Edit
 }
 /** An untitled journal entry or question is listed by its first words. */
 function firstLine(d: EditorDraft) {
-  if (d.kind === "source") return [...(d.data.source_text || d.body).trim().split(/\r?\n/)[0]].slice(0, 100).join("");
+  // Leave the server-owned source placeholder eligible for a processed title.
+  if (d.kind === "source") return "";
   if (d.kind !== "journal" && d.kind !== "question") return "";
   // Count characters, not UTF-16 units, so an emoji is never cut in half.
   const line = [...d.body.trim().split("\n")[0].trim()];

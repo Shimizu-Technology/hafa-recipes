@@ -39,7 +39,7 @@ export default function SharingLinks() {
   }
   return (
     <Screen back title="Sharing links" subtitle="Turn off a link to stop new visits.">
-      <QueryState
+      <QueryState hasData={q.data !== undefined}
         loading={q.isPending && !!enrollment?.enrolled}
         error={q.error}
         retry={() => {

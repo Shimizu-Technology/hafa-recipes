@@ -4,7 +4,7 @@ import { StyleSheet, useWindowDimensions, View as RNView } from 'react-native';
 import { ScalePressable } from '@/components/Animated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Text, useColors } from '@/components/Themed';
-import { fontFamily, fontSize, radius, shadows, spacing } from '@/constants/Colors';
+import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 
 export const RECIPE_GRID_GAP = spacing.sm;
 
@@ -76,7 +76,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     overflow: 'hidden',
     borderWidth: 1,
-    ...shadows.card,
   },
   imageContainer: {
     width: '100%',
