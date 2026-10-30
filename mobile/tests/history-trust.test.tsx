@@ -411,3 +411,40 @@ describe('Library collection recovery', () => {
     } finally { await act(async () => renderer.unmount()); }
   });
 });
+
+
+describe('Library search and filter accessibility', () => {
+  it('names the Library search field', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      const search = renderer.container.queryAll(n => n.type === 'Input')[0];
+      expect(search.props.accessibilityLabel).toBe('Search library recipes');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('opens filters through a named button and announces the applied count', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      const button = () => renderer.container.queryAll(n =>
+        n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Filter library recipes',
+      )[0];
+      expect(button()).toBeDefined();
+      expect(button().props.accessibilityValue).toEqual({ text: 'No filters applied' });
+      await act(async () => button().props.onPress());
+      const sheet = () => renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0];
+      expect(sheet().props.visible).toBe(true);
+      await act(async () => sheet().props.onApply({
+        sourceFilter: 'manual', timeFilter: 'quick', selectedTags: [], ownershipFilter: 'saved',
+      }));
+      await act(async () => sheet().props.onClose());
+      expect(sheet().props.visible).toBe(false);
+      expect(button().props.accessibilityValue).toEqual({ text: '3 filters applied' });
+      await act(async () => sheet().props.onApply({
+        sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved',
+      }));
+      expect(button().props.accessibilityValue).toEqual({ text: '1 filter applied' });
+    } finally { await act(async () => renderer.unmount()); }
+  });
+});

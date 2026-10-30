@@ -1,6 +1,6 @@
 export type AuthProtectionRedirect = '/(tabs)' | '/(tabs)/discover' | null;
 
-const AUTHENTICATED_CAPTURE_ROUTES = new Set(['add-recipe', 'paste-recipe']);
+const AUTHENTICATED_CAPTURE_ROUTES = new Set(['add-recipe', 'paste-recipe', 'edit-capture', 'ocr-review']);
 
 /** Return the redirect required at an authentication boundary, if any. */
 export function getAuthProtectionRedirect(

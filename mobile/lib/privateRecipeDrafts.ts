@@ -1,0 +1,71 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+export type RecipeDraftKind = 'manual' | 'paste' | 'scan' | 'recovery';
+export type DraftLease = { owner: string; epoch: number };
+const PREFIX = 'hafa_private_recipe_draft_v1:';
+
+/** Serialize writes/deletes; invalidated leases cannot resurrect signed-out data. */
+export function createPrivateRecipeDrafts(storage: typeof AsyncStorage) {
+  let epoch = 0;
+  let tail: Promise<unknown> = Promise.resolve();
+  const run = <T,>(job: () => Promise<T>) => { const next = tail.then(job); tail = next.catch(() => undefined); return next; };
+  const key = (lease: DraftLease, kind: RecipeDraftKind) => `${PREFIX}${encodeURIComponent(lease.owner)}:${kind}`;
+  const valid = (lease: DraftLease) => { if (lease.epoch !== epoch) throw new Error('Account changed. Reopen this draft.'); };
+  return {
+    assert: valid,
+    preserveImage: (lease: DraftLease, uri: string, guard: () => void) => run(async () => {
+      const check = () => { valid(lease); guard(); };
+      check();
+      const { File, Directory, Paths } = await import('expo-file-system'); check();
+      const { randomUUID } = await import('expo-crypto'); check();
+      const root = new Directory(Paths.document, 'private-recipe-drafts', encodeURIComponent(lease.owner));
+      if (uri.startsWith(root.uri)) return uri;
+      root.create({ idempotent: true, intermediates: true });
+      const file = new File(root, `${randomUUID()}.${uri.split('.').pop()?.match(/^[a-zA-Z0-9]{1,5}$/)?.[0] || 'jpg'}`);
+      try { new File(uri).copy(file); check(); return file.uri; }
+      catch (error) { if (file.exists) file.delete(); throw error; }
+    }),
+    lease: (owner: string): DraftLease => ({ owner, epoch }),
+    read: (lease: DraftLease, kind: RecipeDraftKind) => run(async () => {
+      valid(lease); const raw = await storage.getItem(key(lease, kind)); valid(lease);
+      return raw ? JSON.parse(raw) : null;
+    }),
+    write: (lease: DraftLease, kind: RecipeDraftKind, value: unknown) => run(async () => {
+      valid(lease); const raw = JSON.stringify(value);
+      if (raw.length > 500_000) throw new Error('This draft is too large to save on this device.');
+      await storage.setItem(key(lease, kind), raw); valid(lease);
+    }),
+    remove: (lease: DraftLease, kind: RecipeDraftKind) => run(async () => {
+      valid(lease); const raw = await storage.getItem(key(lease, kind));
+      await storage.removeItem(key(lease, kind));
+      if (raw && raw.includes('private-recipe-drafts/')) {
+        const { File, Directory, Paths } = await import('expo-file-system');
+        const root = new Directory(Paths.document, 'private-recipe-drafts', encodeURIComponent(lease.owner));
+        const clean = (value: any) => {
+          if (!value || typeof value !== 'object') return;
+          for (const [field, child] of Object.entries(value)) {
+            if ((field === 'uri' || field === 'imageUri') && typeof child === 'string' && child.startsWith(root.uri)) {
+              const file = new File(child); if (file.exists) file.delete();
+            } else if (typeof child === 'object') clean(child);
+          }
+        };
+        clean(JSON.parse(raw));
+      }
+    }),
+    clearAll() {
+      epoch++;
+      return run(async () => {
+        const keys = (await storage.getAllKeys()).filter(key => key.startsWith(PREFIX));
+        if (keys.length) await storage.multiRemove(keys);
+        const { Directory, Paths } = await import('expo-file-system');
+        const directory = new Directory(Paths.document, 'private-recipe-drafts');
+        if (directory.exists) directory.delete();
+      });
+    },
+  };
+}
+export const privateRecipeDrafts = createPrivateRecipeDrafts(AsyncStorage);
+
+/** Copy picked images out of OS cache before promising a durable draft. */
+export function preserveDraftImage(lease: DraftLease, uri: string, guard: () => void): Promise<string> {
+  return privateRecipeDrafts.preserveImage(lease, uri, guard);
+}
