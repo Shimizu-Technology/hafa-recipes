@@ -228,6 +228,10 @@ export default function Today() {
           ))}
         </Section>
       )}
+      <Row title="See all care" detail="Feeding, sleep and diaper history" icon="time-outline"
+        onPress={() => router.push("/care-history")} />
+      <Row title="Lists & routines" detail="Checklists, chosen plans and reminders" icon="checkmark-circle-outline"
+        onPress={() => router.push("/routines")} />
       {routines.length > 0 && <Section title="Lists & routines">
         {routines.slice(0, 2).map((r) => <RecordRow key={r.id} record={r} />)}
       </Section>}

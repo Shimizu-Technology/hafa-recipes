@@ -1,4 +1,5 @@
 import type { BabyRecord } from "./models";
+export const reminderRoutes = { routines: "/routines" as const };
 /** Notification data is a routing hint, never authorization or a server URL. */
 export interface ReminderTapSession {
   owner: string;
@@ -226,7 +227,7 @@ export function createReminderTapController(
           }
         }
         env.fallback();
-        if (await confirmed("/routines", session, token)) {
+        if (await confirmed(reminderRoutes.routines, session, token)) {
           if (current(session, token)) finish(key);
           else retain();
           return;

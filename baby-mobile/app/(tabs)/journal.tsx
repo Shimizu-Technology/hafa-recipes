@@ -11,10 +11,10 @@ import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, 
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
-export default function Journal() {
+export function JournalContent({ careHistory = false }: { careHistory?: boolean }) {
   const params = useLocalSearchParams<{ filter?: string }>();
   const b = useBaby(),
-    [filter, setFilter] = useState("journal"),
+    [filter, setFilter] = useState(careHistory ? "care" : "journal"),
     [q, setQ] = useState(""),
     [selected, setSelected] = useState<string[]>([]),
     [preparing, setPreparing] = useState(false),
@@ -24,8 +24,12 @@ export default function Journal() {
     [historyError, setHistoryError] = useState(""),
     [page, setPage] = useState<{ key: string; ticket: number; ids: string[] | null; more: boolean } | null>(null);
   useEffect(() => {
-    if (params.filter && ["all", "journal", "care", "question"].includes(params.filter)) setFilter(params.filter);
-  }, [params.filter]);
+    if (careHistory) return;
+    if (params.filter === "care") router.replace("/care-history");
+    else if (params.filter && ["all", "journal", "question"].includes(params.filter))
+      setFilter(params.filter === "all" ? "writing" : params.filter);
+  }, [params.filter, careHistory]);
+  useEffect(() => { setPreparing(false); setSelected([]); }, [filter]);
   const latest = useRef(b);
   latest.current = b;
   const view = { filter, childId: b.state.selectedChild, query: q },
@@ -96,9 +100,10 @@ export default function Journal() {
   }
   return (
     <Screen
-      title="Journal"
-      subtitle="Your thoughts and memories."
-      action={
+      title={careHistory ? "Care history" : "Journal"}
+      back={careHistory}
+      subtitle={careHistory ? "Feeding, sleep and diapers." : "Your thoughts and memories."}
+      action={!careHistory &&
         <Button
           secondary
           title="Write"
@@ -109,19 +114,18 @@ export default function Journal() {
     >
       <SyncStatus />
       <ChildFilter />
-      <Chips
+      {!careHistory && <Chips
         value={filter}
         label="Show"
         options={[
-          { label: "Everything", value: "all" },
+          { label: "Everything", value: "writing" },
           { label: "Journal", value: "journal" },
-          { label: "Care history", value: "care" },
           { label: "Doctor questions", value: "question" },
         ]}
         onChange={setFilter}
-      />
-      <Field label="Search" value={q} onChange={setQ} placeholder="Notes, questions and care history" />
-      {preparing ? (
+      />}
+      <Field label="Search" value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Notes and questions"} />
+      {filter === "question" && (preparing ? (
         <Card tone="soft">
           <Copy kind="label">Choose what to bring to the visit</Copy>
           <Copy kind="small" tone="muted">
@@ -142,14 +146,14 @@ export default function Journal() {
           icon="document-text-outline"
           onPress={() => setPreparing(true)}
         />
-      )}
+      ))}
       {!!error && <Notice error>{error}</Notice>}
       {!!historyError && <>
         <Notice error>{historyError} Entries already on this device are shown below.</Notice>
         <Button secondary title="Try loading again" busy={loading}
           onPress={() => void loadHistory(pager.current.snapshot().ticket, key)} />
       </>}
-      {Object.entries(b.state.drafts)
+      {!careHistory && Object.entries(b.state.drafts)
         .filter(([key, d]) => !key.startsWith("chat:") && (d.kind === "journal" || d.kind === "question"))
         .map(([key, d]) => (
           <Row
@@ -160,8 +164,8 @@ export default function Journal() {
             onPress={() => router.push({ pathname: "/edit", params: { draft: key, kind: d.kind } })}
           />
         ))}
-      {loading && !records.length ? <Loading label="Loading your journal…" /> : records.length ? (
-        <Section title="Your timeline">
+      {loading && !records.length ? <Loading label={careHistory ? "Loading care history…" : "Loading your journal…"} /> : records.length ? (
+        <Section title={careHistory ? "Care logs" : "Your timeline"}>
           {records.map((r) =>
             preparing ? (
               <Card key={r.id} tone="soft">
@@ -186,9 +190,9 @@ export default function Journal() {
       ) : (
         <Empty
           icon="book-outline"
-          title={q.trim() ? "No matching entries" : "A place for your own words."}
-          body={q.trim() ? "Try a different phrase or clear your search." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
-          action={
+          title={q.trim() ? "No matching entries" : careHistory ? "No care logged yet" : "A place for your own words."}
+          body={q.trim() ? "Try a different phrase or clear your search." : careHistory ? "Log a feed, sleep or diaper from Today. Your care history will be here." : "Write a thought, save a photo, or record something you want to ask about. It doesn’t have to be polished."}
+          action={(!careHistory || !!q.trim()) &&
             <Button
               secondary
               title={q.trim() ? "Clear search" : "Write an entry"}
@@ -205,3 +209,5 @@ export default function Journal() {
     </Screen>
   );
 }
+
+export default function Journal() { return <JournalContent />; }
