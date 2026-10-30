@@ -285,7 +285,7 @@ export default function ActivityEditor() {
     >
       {!validId && <Notice error>This activity address is invalid.</Notice>}
       {!enrollment?.enrolled && <Button title="Set up Workouts" onPress={() => router.push("/onboarding")} />}
-      <QueryState
+      <QueryState hasData={calendar.data !== undefined && (!id || entry.data !== undefined)}
         loading={!!enrollment?.enrolled && (calendar.isPending || (!!id && validId && entry.isPending))}
         error={calendar.error ?? entry.error}
         retry={() => {

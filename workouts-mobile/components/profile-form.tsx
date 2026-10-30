@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { ActivityContext } from "./activity-context";
 import { OptionalNumber } from "./optional-number";
 import { CalendarDate } from "./calendar-date";
@@ -19,10 +20,12 @@ export function ProfileForm({
   section,
   baseline,
   disabled = false,
+  checkInDisabled = disabled,
   expandDetails = false
 }: {
   expandDetails?: boolean;
   disabled?: boolean;
+  checkInDisabled?: boolean;
   value: TrainingProfile;
   update(value: TrainingProfile): void;
   section?: number;
@@ -449,16 +452,11 @@ export function ProfileForm({
             selected={value.interrupted ?? false}
             onPress={() => set({ interrupted: !value.interrupted })}
           />
-          <Copy kind="heading">How are you feeling today?</Copy>
-          {(["unknown", "ready", "limited"] as const).map((readiness, index) => (
-            <Choice role="radio"
-              disabled={disabled}
-              key={readiness}
-              label={["Prefer not to say", "Ready to train", "Need to take it easier"][index]}
-              selected={value.readiness === readiness}
-              onPress={() => set({ readiness })}
-            />
-          ))}
+          <Copy kind="heading">Today’s check-in</Copy>
+          <Copy kind="small" tone="muted">Check in with Coach when you’re ready to train. Your check-in expires, so it stays separate from your usual preferences.</Copy>
+          {!baseline && <Copy kind="small" tone="muted">Save your profile first, then check in for today.</Copy>}
+          <Button title="Check in for today" variant="secondary" disabled={checkInDisabled || !baseline}
+            onPress={() => router.push({ pathname: "/coach", params: { check_in: "today" } })} />
         </>
       )}
     </View>

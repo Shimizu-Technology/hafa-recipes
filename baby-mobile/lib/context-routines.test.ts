@@ -64,6 +64,7 @@ vi.mock("./reminders", () => ({
 vi.mock("./share-session-state", () => ({ revokeShareSession: mock.revoke }));
 import { BabyProvider, useBaby } from "./context";
 import { ApiError } from "./api";
+import { uploadFile } from "./files";
 let baby!: ReturnType<typeof useBaby>, renderer: ReactTestRenderer | undefined;
 function Probe() {
   baby = useBaby();
@@ -453,7 +454,8 @@ it("continues original and journal saves when automatic imports hit a quota", as
   ] };
   mock.api.import = vi.fn().mockRejectedValue(new ApiError("Daily allowance reached", 429));
   await mount();
-  expect(mock.api.import).toHaveBeenCalledOnce();
+  expect(mock.api.import).toHaveBeenCalledTimes(2);
+  expect(baby.state.outbox.every(m => m.error === "Daily allowance reached")).toBe(true);
   expect(mock.api.save.mock.calls.map(([record]: [BabyRecord]) => record.id)).toEqual(["A", "B", "journal"]);
   expect(baby.state.outbox.map(m => m.id)).toEqual(["import-A", "import-B"]);
 });
@@ -479,4 +481,158 @@ it("retains terminal polling until the updated source is safely persisted", asyn
   await act(async () => { await baby.sync(); });
   expect(baby.state.imports[0].status).toBe("ready");
   expect(baby.records.find(r => r.id === "source")?.data.summary).toBe("Useful result");
+});
+
+describe("independent durable outbox records", () => {
+  it.each([403, 422, 429, 500, 503])("persists HTTP %i failure while care, source and reminder records continue", async (status) => {
+    await mount();
+    const journal = { ...row("photo"), kind: "journal" as const };
+    const rows = [journal, { ...row("care"), kind: "diaper" as const }, { ...row("source"), kind: "source" as const }, row("reminder")];
+    mock.api.save.mockImplementation(async (r: BabyRecord) => {
+      if (r.id === journal.id) throw new ApiError("Could not save this change", status);
+      return { ...r, revision: (r.revision ?? 0) + 1 };
+    });
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: rows.map(record => ({ id: record.id, type: "save", generation: 1, record, files: [] })) })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save.mock.calls.map(([r]: any[]) => r.id)).toEqual(["photo", "care", "source", "reminder"]);
+    expect(mock.state?.outbox).toMatchObject([{ id: "photo", error: "Could not save this change" }]);
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save).toHaveBeenCalledTimes(4);
+    // A cold provider restores the exact failed mutation; it never retries silently.
+    mock.saved = mock.state;
+    await act(async () => { renderer!.unmount(); });
+    await mount();
+    expect(baby.state.outbox[0].error).toBe("Could not save this change");
+    expect(mock.api.save).toHaveBeenCalledTimes(4);
+  });
+  it("holds a later edit/delete behind failure, then advances revisions in order after Retry", async () => {
+    await mount();
+    const record = { ...row("journal", false, 1), kind: "journal" as const };
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: [
+      { id: "first", type: "save", generation: 1, record, files: [], error: "Upload failed" },
+      { id: "edit", type: "save", generation: 1, record: { ...record, body: "Updated" }, files: [] },
+      { id: "delete", type: "delete", generation: 1, record },
+    ] })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save).not.toHaveBeenCalled(); expect(mock.api.remove).not.toHaveBeenCalled();
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: s.outbox.map(m => m.id === "first" ? { ...m, error: undefined } : m) })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save.mock.calls.map(([r]: any[]) => r.revision)).toEqual([1, 2]);
+    expect(mock.api.remove.mock.calls[0][0].revision).toBe(3);
+    expect(mock.state?.outbox).toEqual([]);
+  });
+  it.each([0, 401])("pauses the whole pass on network/auth %i without marking records rejected", async (status) => {
+    await mount();
+    mock.api.save.mockRejectedValueOnce(new ApiError("Connection or sign in needed", status));
+    await act(async () => { await baby.commit(s => ({ ...s, outbox: [row("first"), row("other")].map(record => ({ id: record.id, type: "save", generation: 1, record, files: [] })) })); });
+    await act(async () => { await baby.sync(); });
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(mock.state?.outbox).toHaveLength(2);
+    expect(mock.state?.outbox.every(m => !m.error)).toBe(true);
+  });
+});
+
+it("keeps local file preparation failures on that entry while unrelated care syncs", async () => {
+  await mount();
+  vi.mocked(uploadFile).mockRejectedValueOnce(Error("Choose a file smaller than 25 MB."));
+  const file = { id: "photo", uri: "file:///large.jpg", name: "large.jpg", mime_type: "image/jpeg" };
+  await act(async () => { await baby.commit(s => ({ ...s, outbox: [
+    { id: "photo", type: "save", generation: 1, record: { ...row("photo"), kind: "journal" }, files: [file] },
+    { id: "care", type: "save", generation: 1, record: { ...row("diaper"), kind: "diaper" }, files: [] },
+  ] })); });
+  await act(async () => { await baby.sync(); });
+  expect(mock.state?.outbox).toMatchObject([{ id: "photo", error: "Choose a file smaller than 25 MB.", files: [file] }]);
+  expect(mock.api.save.mock.calls.map(([r]: any[]) => r.id)).toEqual(["diaper"]);
+  expect(baby.error).toBe("");
+});
+it("holds source edits until a terminal import and rebases them before sending", async () => {
+  const source = { ...row("source", false, 1), kind: "source" as const };
+  mock.saved = { ...emptyState(), bootstrap, records: [source],
+    imports: [{ id: "job", record_id: source.id, status: "queued", baseline: source }], outbox: [
+      { id: "edit", type: "save", generation: 1, record: { ...source, body: "My later edit" }, files: [] },
+    ] };
+  mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "processing" }));
+  mock.api.record = vi.fn(async () => ({ ...source, revision: 2 }));
+  await mount();
+  expect(mock.api.save).not.toHaveBeenCalled();
+  expect(baby.state.outbox[0]).toMatchObject({ id: "edit", record: { revision: 1, body: "My later edit" } });
+  mock.api.job.mockResolvedValue({ id: "job", record_id: source.id, status: "ready" });
+  mock.api.record.mockResolvedValue({ ...source, revision: 3, data: { ...source.data, status: "ready", summary: "Processed summary" } });
+  await act(async () => { await baby.sync(); await settle(); });
+  expect(mock.api.save).toHaveBeenCalledOnce();
+  expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My later edit", data: { status: "ready", summary: "Processed summary" } });
+  expect(baby.state.outbox).toEqual([]);
+});
+it("restores phone-only files and errors without submitting them from a cold provider", async () => {
+  const file = { id: "photo", uri: "file:///photo.jpg", name: "photo.jpg", mime_type: "image/jpeg" };
+  mock.saved = { ...emptyState(), bootstrap, outbox: [
+    { id: "kept", type: "save", generation: 1, record: { ...row("photo"), kind: "journal" }, files: [file], localOnly: true, error: "Upload failed" },
+  ] };
+  await mount();
+  expect(baby.state.outbox[0]).toMatchObject({ localOnly: true, error: "Upload failed", files: [file] });
+  expect(mock.api.save).not.toHaveBeenCalled();
+});
+
+describe("verified import completion (M1)", () => {
+  const changes = [
+    { title: "Other device title" }, { body: "Other device note" }, { child_id: "other-child" },
+    { data: { topics: ["Other topic"] } }, { data: { source_text: "Other original" } },
+    { data: { attachment_ids: ["other-photo"] } },
+  ];
+  it.each(changes)("conflicts instead of adopting a remote edit after import: %j", async (change) => {
+    const source = { ...row("source", false, 1), kind: "source" as const };
+    mock.saved = { ...emptyState(), bootstrap, records: [source], imports: [
+      { id: "job", record_id: source.id, status: "processing", baseline: source },
+    ], outbox: [{ id: "edit", type: "save", generation: 1, record: { ...source, body: "My local note" }, files: [] }] };
+    mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "ready" }));
+    mock.api.record = vi.fn(async () => ({ ...source, ...change, revision: 5 }));
+    await mount();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0]).toMatchObject({ conflict: true, record: { revision: 1, body: "My local note" } });
+  });
+  it.each(changes)("conflicts on edits made during processing: %j", async (change) => {
+    const source = { ...row("source", false, 1), kind: "source" as const };
+    mock.saved = { ...emptyState(), bootstrap, records: [source], imports: [
+      { id: "job", record_id: source.id, status: "processing", baseline: source },
+    ], outbox: [{ id: "edit", type: "save", generation: 1, record: { ...source, body: "My local note" }, files: [] }] };
+    mock.api.job = vi.fn(async () => ({ id: "job", record_id: source.id, status: "incomplete", error: "Edited while processing" }));
+    mock.api.record = vi.fn(async () => ({ ...source, ...change, revision: 3 }));
+    await mount();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0]).toMatchObject({ conflict: true, record: { revision: 1 } });
+  });
+  it("reconciles a completed admission replay after cold restore before releasing a later edit (S1)", async () => {
+    const source = { ...row("source", false, 1), kind: "source" as const };
+    mock.saved = { ...emptyState(), bootstrap, records: [source], outbox: [
+      { id: "job", type: "import", generation: 1, record_id: source.id, files: [] },
+      { id: "edit", type: "save", generation: 1, record: { ...source, body: "My note" }, files: [] },
+    ] };
+    mock.api.import = vi.fn(async () => {
+      expect(mock.state?.outbox[0]).toMatchObject({ baseline: source });
+      throw new ApiError("Offline before the admission receipt arrived", 0);
+    });
+    await mount();
+    expect(baby.state.outbox[0]).toMatchObject({ baseline: source });
+    mock.saved = mock.state;
+    await act(async () => { renderer!.unmount(); });
+    mock.api.import.mockResolvedValue({ id: "job", record_id: source.id, status: "ready" });
+    mock.api.record = vi.fn(async () => ({ ...source, revision: 3, data: { ...source.data, status: "ready", source_text: "Acquired original" } }));
+    await mount(); await act(settle);
+    expect(mock.api.record).toHaveBeenCalledWith(source.id);
+    expect(mock.api.save).toHaveBeenCalledOnce();
+    expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 3, body: "My note", data: { source_text: "Acquired original" } });
+    expect(baby.state.outbox).toEqual([]);
+  });
+});
+
+it("checks Ask draft write leases inside the serialized commit (M3)", async () => {
+  await mount();
+  let valid = true;
+  const draft = { ...row("draft"), kind: "journal" as const, body: "Stale question", files: [] };
+  await act(async () => {
+    const preceding = baby.commit(s => { valid = false; return s; });
+    const saving = baby.saveDraft("chat:v2:guarded", draft, () => valid);
+    await Promise.all([preceding, saving]);
+  });
+  expect(baby.state.drafts["chat:v2:guarded"]).toBeUndefined();
 });

@@ -2,6 +2,7 @@
  * Hook to manage and persist recipe list view preference (grid vs list)
  */
 import { useState, useEffect, useCallback } from 'react';
+import { useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ViewMode = 'list' | 'grid';
@@ -9,6 +10,7 @@ export type ViewMode = 'list' | 'grid';
 const VIEW_PREFERENCE_KEY = '@recipe_view_preference';
 
 export function useViewPreference() {
+  const { fontScale } = useWindowDimensions();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -44,7 +46,7 @@ export function useViewPreference() {
     viewMode,
     toggleViewMode,
     isLoaded,
-    isGrid: viewMode === 'grid',
-    isList: viewMode === 'list',
+    isGrid: viewMode === 'grid' && fontScale < 1.3,
+    isList: viewMode === 'list' || fontScale >= 1.3,
   };
 }

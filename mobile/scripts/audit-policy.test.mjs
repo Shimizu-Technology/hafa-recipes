@@ -50,12 +50,14 @@ describe('mobile runtime audit policy', () => {
 
 const reviewedAt = Date.parse('2026-10-24T12:00:00Z');
 const buildToolAdvisories = [
+  { packageName: 'decode-uri-component', source: 1243857, parent: 'node_modules/query-string' },
+  { packageName: 'deepmerge', source: 1243505, parent: 'node_modules/@expo/config' },
   { packageName: 'zod', source: 1243066, parent: 'node_modules/abitype' },
   { packageName: 'braces', source: 1240992, parent: 'node_modules/micromatch' },
   { packageName: 'node-forge', source: 1240912, parent: 'node_modules/@expo/cli' },
 ];
 
-describe.each(buildToolAdvisories)('$packageName temporary build-tool review', (advisory) => {
+describe.each(buildToolAdvisories)('$packageName temporary dependency review', (advisory) => {
   function accepted(changedLockfile = lockfile, now = reviewedAt, source = advisory.source) {
     return isAcceptedAdvisory({ ...advisory, source, lockfile: changedLockfile, now });
   }

@@ -157,6 +157,7 @@ export function TrainToday() {
       {/* Saved device training stays resumable even when the service can't be reached. */}
       {active && heroCard}
       <QueryState
+        hasData={profile.data !== undefined && programs.data !== undefined && sessions.data !== undefined}
         loading={retryBusy || profile.isPending || programs.isPending || sessions.isPending}
         error={enrollmentQuery.error ?? profile.error ?? programs.error ?? sessions.error}
         retry={() => { void retryToday(); }}

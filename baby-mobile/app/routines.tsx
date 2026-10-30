@@ -36,7 +36,8 @@ export default function Routines() {
   }
   return (
     <Screen
-      title="Routines"
+      title="Lists & routines"
+      back
       onRefresh={() => b.sync()}
       subtitle="Plans you choose. Reminders you control."
       action={

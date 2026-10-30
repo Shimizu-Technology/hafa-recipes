@@ -6,6 +6,7 @@ import { useAuth } from '@clerk/expo';
 
 import Colors, { fontFamily, fontSize } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { ScalePressable } from '@/components/Animated';
 import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
 import { AssistantTabBar } from '@/components/AssistantTabBar';
 import { prefetchTabData } from '@/lib/tabPrefetch';
@@ -29,7 +30,10 @@ export default function TabLayout() {
     <Tabs
       tabBar={(props) => <AssistantTabBar {...props} isSignedIn={Boolean(isSignedIn)} />}
       screenOptions={{
-        tabBarActiveTintColor: colors.tint,
+        tabBarButton: ({ href: _href, style, onPress, ...props }) => (
+          <ScalePressable {...props} style={style} onPress={onPress} />
+        ),
+        tabBarActiveTintColor: colors.tabLabelSelected,
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
@@ -72,7 +76,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'globe' : 'globe-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
@@ -85,7 +89,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'book' : 'book-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
@@ -106,7 +110,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'calendar' : 'calendar-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}
@@ -119,7 +123,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'cart' : 'cart-outline'}
               size={24}
-              color={color}
+              color={focused ? colors.tabIconSelected : color}
             />
           ),
         }}

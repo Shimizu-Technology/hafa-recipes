@@ -63,6 +63,7 @@ const library = vi.hoisted(() => ({
   moreSearch: vi.fn(), moreSaved: vi.fn(), moreOwn: vi.fn(),
   hasMoreSearch: false,
   ownTotal: 0,
+  savedTotal: undefined as number | undefined,
   searchTotal: undefined as number | undefined,
   signedIn: true,
   isGrid: false,
@@ -73,14 +74,14 @@ const library = vi.hoisted(() => ({
   refetchRecipes: vi.fn(), refetchSaved: vi.fn(),
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useRecipes: () => ({ recipes: [], total: library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
-  useSavedRecipes: () => ({ recipes: library.cached, fetchNextPage: library.moreSaved, hasNextPage: true, refetch: library.refetchSaved }),
+  useRecipes: (sourceType?: string) => ({ recipes: [], total: sourceType ? 10 : library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
+  useSavedRecipes: () => ({ recipes: library.cached, total: library.savedTotal ?? library.cached.length, fetchNextPage: library.moreSaved, hasNextPage: true, refetch: library.refetchSaved }),
   useSearchRecipes: (filters: Record<string, unknown>) => {
     library.filters = filters;
     return { recipes: library.search, total: library.searchTotal ?? library.search.length, isSuccess: true,
       hasNextPage: library.hasMoreSearch, fetchNextPage: library.moreSearch };
   },
-  useRecipeCount: () => ({ data: { count: 0 } }),
+  useRecipeCount: (sourceType?: string) => ({ data: { count: sourceType ? 10 : library.ownTotal } }),
   usePopularTags: () => ({ data: [] }),
 }));
 vi.mock('@/hooks/useCollections', () => ({ useCollections: () => library.collections }));
@@ -98,7 +99,7 @@ vi.mock('@/constants/Colors', () => ({
   shadows: { sm: {} },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 },
 }));
-vi.mock('@/utils/haptics', () => ({ haptics: {} }));
+vi.mock('@/utils/haptics', () => ({ haptics: { light: vi.fn(), medium: vi.fn() } }));
 vi.mock('@/lib/recipeSource', () => ({
   getRecipeSourcePresentation: () => ({ icon: 'link-outline', label: 'Website' }),
 }));
@@ -127,6 +128,7 @@ const colors = {
 
 beforeEach(() => {
   library.filters = {}; library.search = []; library.cached = []; library.hasMoreSearch = false;
+  library.savedTotal = undefined;
   library.ownTotal = 0; library.searchTotal = undefined;
   library.moreSearch.mockClear(); library.moreSaved.mockClear(); library.moreOwn.mockClear();
   library.signedIn = true;
@@ -239,7 +241,7 @@ describe('Saved library search', () => {
     try {
       await act(async () => renderer.render(React.createElement(HistoryScreen)));
       await act(async () => {
-        renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.onOwnershipFilterChange('saved');
+        renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved' });
         renderer.container.queryAll(instance => instance.type === 'Input')[0].props.onChangeText('Rice');
       });
       expect(library.filters).toMatchObject({ ownership: 'saved', query: 'Rice' });
@@ -253,7 +255,7 @@ describe('Saved library search', () => {
           expect(emptyView.container.queryAll(instance => instance.props.children === 'Add Your First Recipe')).toHaveLength(0);
           await act(async () => emptyView.container.queryAll(instance => instance.type === 'TouchableOpacity')[0].props.onPress());
           expect(renderer.container.queryAll(instance => instance.type === 'Input')[0].props.value).toBe('');
-          expect(renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.ownershipFilter).toBe('all');
+          expect(renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.initialFilters.ownershipFilter).toBe('all');
           expect(library.filters.query).toBe('');
           expect(library.filters.ownership).toBe('all');
           expect(renderer.container.queryAll(instance => instance.type === 'FlatList')[0].props.data).toEqual(library.cached);
@@ -273,10 +275,52 @@ describe('Saved library search', () => {
   });
 });
 
+describe('Library shown selection', () => {
+  it('selects the displayed page without claiming the full server library', async () => {
+    library.ownTotal = 100;
+    library.cached = Array.from({ length: 25 }, (_, i) => ({ ...recipe('ready'), id: `saved-${i}` }));
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const { Alert } = await import('react-native');
+    await act(async () => renderer.render(<HistoryScreen />));
+    await act(async () => renderer.container.queryAll(n => n.props.accessibilityLabel === 'Library options')[0].props.onPress());
+    const options = vi.mocked(Alert.alert).mock.calls.at(-1)![2]!;
+    await act(async () => options.find(option => option.text === 'Select Recipes')!.onPress!());
+    const select = renderer.container.queryAll(n => n.type === 'TouchableOpacity' && n.children.some(c => typeof c !== 'string' && c.props.children === 'Select shown'))[0];
+    await act(async () => select.props.onPress());
+    const bulk = renderer.container.queryAll(n => n.type === 'BulkAddToCollectionModal')[0];
+    expect(bulk.props.recipeIds).toHaveLength(20);
+    expect(renderer.container.queryAll(n => n.props.children === 'Deselect all')).toHaveLength(1);
+    await act(async () => renderer.unmount());
+  });
+});
+
 describe('Library recipe count', () => {
   const countText = (renderer: ReturnType<typeof createRoot>) =>
     renderer.container.queryAll(instance => instance.type === 'Text' && /^\d+( of \d+)? recipes?$/.test(String(instance.props.children)))
       .map(instance => instance.props.children);
+
+  it('uses the full own and saved totals when a source narrows the matches', async () => {
+    library.ownTotal = 100; library.savedTotal = 72; library.searchTotal = 17;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      const sheet = renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0];
+      await act(async () => sheet.props.onApply({ sourceFilter: 'tiktok', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' }));
+      expect(countText(renderer)).toEqual(['17 of 172 recipes']);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('uses the server saved total before all pages are loaded', async () => {
+    library.ownTotal = 100; library.savedTotal = 72;
+    library.cached = [recipe('ready')];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      expect(countText(renderer)).toEqual(['172 recipes']);
+      await act(async () => renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved' }));
+      expect(countText(renderer)).toEqual(['72 recipes']);
+    } finally { await act(async () => renderer.unmount()); }
+  });
 
   it('shows the library total, then the server match total against it while filtered', async () => {
     library.ownTotal = 100;
