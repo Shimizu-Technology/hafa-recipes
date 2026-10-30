@@ -261,6 +261,8 @@ export default function GroceryScreen() {
     isLoading,
     isError,
     isRefetchError,
+    serverConfirmedAt,
+    freshness,
     refetch,
     isRefetching,
   } = useGroceryList(showChecked, isAuthenticated);
@@ -901,7 +903,11 @@ export default function GroceryScreen() {
 
         <RNView style={styles.actionRow}>
           <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted, flex: 1 }}>
-            {addPendingSync || hasQueuedChanges ? 'Saved on this device · waiting to sync' : 'Up to date'}
+            {addPendingSync || hasQueuedChanges ? 'Saved on this device · waiting to sync'
+              : hasQueuedChanges === undefined || freshness === 'checking' ? 'Checking sync status…'
+              : freshness === 'offline' ? 'Offline · showing this device’s list'
+              : freshness === 'stale' || isRefetchError ? `Couldn’t refresh · ${serverConfirmedAt ? `last confirmed ${new Date(serverConfirmedAt).toLocaleString()}` : 'showing this device’s list'}`
+              : serverConfirmedAt ? `Confirmed ${new Date(serverConfirmedAt).toLocaleString()}` : 'Checking sync status…'}
           </Text>
           <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.headerIconButton}
             accessibilityRole="button" accessibilityLabel="Share household">

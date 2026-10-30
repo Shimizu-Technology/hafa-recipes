@@ -10,13 +10,15 @@ import type { GroceryItem } from '@/types/recipe';
 
 const mocks = vi.hoisted(() => ({
   collapsedSections: JSON.stringify(['recipe:recipe-1']),
-  queued: false,
+  queued: false as boolean | undefined,
   groceryState: {
     items: [] as GroceryItem[] | undefined,
     isLoading: false,
     isError: false,
     isRefetchError: false,
     isRefetching: false,
+    serverConfirmedAt: undefined as string | undefined,
+    freshness: "checking" as string,
   },
   authState: {
     isLoaded: true,
@@ -207,6 +209,8 @@ vi.mock('@/hooks/useGrocery', () => ({
       isError: mocks.groceryState.isError,
       isRefetchError: mocks.groceryState.isRefetchError,
       isRefetching: mocks.groceryState.isRefetching,
+      serverConfirmedAt: mocks.groceryState.serverConfirmedAt,
+      freshness: mocks.groceryState.freshness,
       refetch: mocks.refetch,
     };
   },
@@ -613,4 +617,21 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => renderer.unmount());
     }
   });
+  it.each([
+    [undefined, 'checking', undefined, 'Checking sync status'],
+    [false, 'offline', undefined, 'Offline · showing this device’s list'],
+    [false, 'stale', '2026-10-31T01:00:00Z', 'Couldn’t refresh · last confirmed'],
+    [false, 'confirmed', '2026-10-31T01:00:00Z', 'Confirmed'],
+  ])('reports snapshot freshness honestly (%s, %s)', async (queued, freshness, confirmedAt, text) => {
+    mocks.queued = queued as boolean | undefined;
+    mocks.groceryState.freshness = freshness as string;
+    mocks.groceryState.serverConfirmedAt = confirmedAt as string | undefined;
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(React.createElement(GroceryScreen)));
+      expect(renderedText(renderer)).toContain(text);
+      expect(renderedText(renderer)).not.toContain('Up to date');
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
 });
