@@ -80,3 +80,27 @@ it.each(['transfer','copy'] as const)('retires a queued Pantry %s before it can 
   expect(state.sent.mock.calls.some(([call])=>kind==='copy'?call.entry?.space_id==='space-a':call.entry?.items?.[0]?.item_id==='A private item')).toBe(true);
  }finally{release();state.firstGetGate=null;await act(async()=>root.unmount());client.clear();await offlineRecipes.clear();}
 });
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+it('restores a Pantry acknowledgement dispatched before retirement and replays its original id for A', async () => {
+ await offlineRecipes.clear(); await offlineRecipes.bindSubject('subject'); await offlineRecipes.verify('subject','owner-a'); await bindOfflineGroceryIdentity('subject');
+ state.sent.mockClear(); state.gets=0; state.firstGetGate=null; state.dispatchGate=null; state.responseGate=null; state.token='token-a'; api.setAuthContext(async()=>state.token,'subject');
+ const key='hafa.pending-pantry.v1:owner-a';
+ const job={id:'stable-pantry-id',kind:'write',scope:'active',input:{operation:'add',item:{name:'A private pending item'}}};
+ await AsyncStorage.setItem(key,JSON.stringify([job]));
+ const write=AsyncStorage.setItem; let release!:()=>void,entered!:()=>void;
+ const gate=new Promise<void>(resolve=>{release=resolve}),started=new Promise<void>(resolve=>{entered=resolve}); let paused=false;
+ const spy=vi.spyOn(AsyncStorage,'setItem').mockImplementation(async(k,v)=>{
+   if(k===key&&v==='[]'&&!paused){paused=true; entered(); await gate;}
+   return write(k,v);
+ });
+ const pending=replayPantryWrites().catch(()=>undefined);
+ try {
+   await started; await offlineRecipes.verify('subject','owner-b'); state.token='token-b'; release(); await pending;
+   expect(JSON.parse(await AsyncStorage.getItem(key)||'[]')).toEqual([job]);
+   expect(state.sent.mock.calls.some(([call])=>call.authorization==='Bearer token-b')).toBe(false);
+   await offlineRecipes.verify('subject','owner-a'); state.token='token-a'; await replayPantryWrites();
+   expect(state.sent.mock.calls.filter(([call])=>call.entry?.mutation_id==='stable-pantry-id')).toHaveLength(2);
+   expect(JSON.parse(await AsyncStorage.getItem(key)||'[]')).toEqual([]);
+ } finally { release(); spy.mockRestore(); await offlineRecipes.clear(); }
+});

@@ -30,7 +30,12 @@ export function replayPantryWrites(authority = recipeScope(), requestedScope?: '
       guard(); if (!job) return latest;
       const remove = () => stored(async () => {
         guard(); const jobs = JSON.parse(await AsyncStorage.getItem(key) || '[]') as Job[]; guard();
-        await AsyncStorage.setItem(key, JSON.stringify(jobs.filter(value => value.id !== job.id))); guard();
+        const raw = JSON.stringify(jobs.filter(value => value.id !== job.id));
+        await AsyncStorage.setItem(key, raw);
+        try { guard(); } catch (error) {
+          if (await AsyncStorage.getItem(key) === raw) await AsyncStorage.setItem(key, JSON.stringify(jobs));
+          throw error;
+        }
       });
       try {
         const snapshot = await api.getPantrySnapshot(job.scope, guard); guard();
