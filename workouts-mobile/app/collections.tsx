@@ -160,7 +160,7 @@ export default function Collections() {
     if (await run(() => api.createCollection(submitted, generation)) && current()) setTitle("");
   }
   return (
-    <Screen back title="Collections" subtitle="Group saved workouts for your own routines.">
+    <Screen native grouped back title="Collections" subtitle="Group saved workouts for your own routines.">
       <Card>
         <Field
           label="New collection name"

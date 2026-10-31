@@ -285,3 +285,22 @@ it("proposal review preserves a held conversation load", async () => {
   await act(async()=>{pending.release(conversation({...general,scope:"care"},"history"));await loading;});
   expect(busy).toBe(true); expect(result.conversation).toBe("history"); expect(result.context.scope).toBe("care");
 });
+
+it("leaves History on Send so the pending conversation and answer are visible", async () => {
+  const account = setup(), pending = held<Awaited<ReturnType<typeof account.api.chat>>>();
+  account.api.chat.mockReturnValueOnce(pending.promise);
+  await mount();
+  await question("Find my packing notes");
+  await act(async () => result.openHistory());
+  expect(result.showHistory).toBe(true);
+  let sending!: Promise<void>;
+  await act(async () => { sending = result.send(); });
+  expect(result.showHistory).toBe(false);
+  expect(result.busy).toBe(true);
+  await act(async () => {
+    pending.release({ conversation_id: "answer", message: "Your packing notes are here.", citations: [] });
+    await sending;
+  });
+  expect(result.showHistory).toBe(false);
+  expect(result.messages.map(message => message.content)).toEqual(["Find my packing notes", "Your packing notes are here."]);
+});

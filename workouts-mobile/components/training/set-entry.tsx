@@ -43,7 +43,7 @@ export function SetNumberField({
     </Row>
   );
   return (
-    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, gap: spacing.xs, padding: spacing.sm, borderRadius: radii.lg, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, gap: spacing.xs, padding: spacing.sm, borderRadius: radii.lg, backgroundColor: c.surface, borderWidth: 0 }}>
       {onLabelPress ? (
         <Pressable accessibilityRole="button" accessibilityLabel={`${label} options`} accessibilityHint={labelHint} hitSlop={8}
           onPress={onLabelPress} style={({ pressed }) => ({ minHeight: 32, justifyContent: "center", opacity: pressed ? 0.6 : 1 })}>
@@ -61,7 +61,8 @@ export function SetNumberField({
         keyboardType={decimal ? "decimal-pad" : "number-pad"}
         returnKeyType="done"
         selectTextOnFocus
-        style={[typography.numeric, {
+        style={[typography.heading, {
+          fontVariant: ["tabular-nums"],
           minHeight: 56, textAlign: "center", color: c.text, backgroundColor: c.sunken,
           borderRadius: radii.md, opacity: disabled ? 0.6 : 1,
         }]}

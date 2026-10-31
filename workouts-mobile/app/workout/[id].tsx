@@ -181,7 +181,7 @@ export default function WorkoutDetail() {
         : timedParts ? "More than one timed part — you’ll choose how to track it."
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
-    <Screen
+    <Screen native
       back
       title={workout?.title ?? "Your workout."}
       // The hero leads; the title and meta line follow it in the page body.
@@ -191,16 +191,15 @@ export default function WorkoutDetail() {
           onPress={() => router.push({ pathname: "/share", params: { id: workout.id, kind: "workout" } })} />}
         <IconButton icon="ellipsis-horizontal" label="More workout actions" variant="plain" onPress={() => setMore(true)} />
       </Row> : undefined}
-      footer={primary ? <Stack gap={6}>
-        {!!hint && <Copy kind="small" tone="muted" align="center">{hint}</Copy>}
-        {primary}
-      </Stack> : undefined}
+
     >
       {workout && <WorkoutHero source={workout} />}
       <Stack gap={6}>
-        <Copy kind="title">{workout?.title ?? "Your workout."}</Copy>
-        {!!meta && <Copy tone="muted">{meta}</Copy>}
+        <Copy kind="heading">{workout?.title ?? "Your workout."}</Copy>
+        {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
       </Stack>
+      {primary}
+      {!!hint && <Copy kind="small" tone="muted">{hint}</Copy>}
       {workout && <ListRow icon="chatbubble-ellipses-outline" title="Ask about this workout"
         onPress={() => router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })} />}
       {!!error && <Notice error>{error}</Notice>}
@@ -231,7 +230,7 @@ export default function WorkoutDetail() {
             <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
             {exercises > 0 && <SectionHeader title="Exercises" />}
             {workout.blocks.map((block, index) => block.exercises.length > 0 && (
-              <Card key={index}>
+              <ListGroup key={index}>
                 <Copy kind="caption" tone="muted">
                   {[
                     block.label || null,
@@ -242,7 +241,7 @@ export default function WorkoutDetail() {
                 </Copy>
                 {block.exercises.map((e, i) => (
                   <Row key={i} gap={14} align="flex-start">
-                    <Copy kind="numericSmall" tone="muted" style={{ width: 24 }}>
+                    <Copy kind="numericSmall" tone="muted" style={{ minWidth: 24 }}>
                       {i + 1}
                     </Copy>
                     <Copy kind="label" style={{ flex: 1 }}>
@@ -254,7 +253,7 @@ export default function WorkoutDetail() {
                     </Copy>
                   </Row>
                 ))}
-              </Card>
+              </ListGroup>
             ))}
             {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow

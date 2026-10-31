@@ -193,7 +193,7 @@ export default function Profile() {
     }
   }
   return (
-    <Screen
+    <Screen native grouped
       back
       title={q.data?.profile ? "Training profile" : "Set up training"}
       subtitle="Choose your goal, equipment and usual schedule. Personal details are optional."

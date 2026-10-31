@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
-import { Copy, haptics, useColors, useSurface, type Surface } from "./foundation";
+import { Copy, haptics, useGroupedPage, useColors, useSurface, type Surface } from "./foundation";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
@@ -501,6 +501,7 @@ export function Choice({
   icon?: IconName;
 }) {
   const c = useColors();
+  const grouped = useGroupedPage();
   const press = usePressScale(disabled || busy);
   const AnimatedPressable = animatedPressableComponent();
   return (
@@ -522,10 +523,10 @@ export function Choice({
         minHeight: 56,
         paddingVertical: 14,
         paddingHorizontal: 16,
-        borderRadius: radii.lg,
-        borderWidth: selected ? 2 : 1,
+        borderRadius: grouped ? 10 : radii.lg,
+        borderWidth: grouped ? 0 : selected ? 2 : 1,
         borderColor: selected ? c.onActionSoft : c.border,
-        backgroundColor: selected ? c.actionSoft : c.surface,
+        backgroundColor: grouped ? c.elevated : selected ? c.actionSoft : c.surface,
         opacity: press.opacity,
         transform: [{ scale: press.scale }],
         flexDirection: "row",
