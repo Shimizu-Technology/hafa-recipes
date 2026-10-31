@@ -193,8 +193,8 @@ export default function Discover() {
       ) : (
         <>
           <Stack gap={8}>
-            <Row gap={8} wrap>
-              <View style={{ flex: 1, minWidth: 0, flexBasis: largeText(fontScale) ? "100%" : undefined }}>
+            <Row gap={8} wrap style={largeText(fontScale) ? { flexDirection: "column", alignItems: "stretch" } : undefined}>
+              <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 0 }}>
                 <Field label="Search Discover" hideLabel value={search} onChange={setSearch} placeholder="Search workouts or creators" returnKeyType="search" />
               </View>
               <Button title={active.length ? `Filters · ${active.length}` : "Filters"} icon="options-outline"

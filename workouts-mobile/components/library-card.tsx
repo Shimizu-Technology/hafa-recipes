@@ -34,9 +34,9 @@ function Mark({ kind }: { kind: "favorite" | "selected" | "unselected" }) {
   const selected = kind === "selected";
   return <View style={{
     width: 28, height: 28, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
-    backgroundColor: selected ? c.action : c.overlay, borderWidth: kind === "unselected" ? 1.5 : 0, borderColor: c.onHero,
+    backgroundColor: selected ? c.action : c.imageOverlay, borderWidth: kind === "unselected" ? 1.5 : 0, borderColor: c.onImage,
   }}>
-    {kind !== "unselected" && <Ionicons name={selected ? "checkmark" : "heart"} size={16} color={selected ? c.onAction : c.onHero} />}
+    {kind !== "unselected" && <Ionicons name={selected ? "checkmark" : "heart"} size={16} color={selected ? c.onAction : c.onImage} />}
   </View>;
 }
 
@@ -90,7 +90,7 @@ export function LibraryCard({
         borderRadius: radii.lg - 4,
         overflow: "hidden",
         backgroundColor: c.surface,
-        borderWidth: selected ? 2 : 1,
+        borderWidth: selected ? 2 : 0,
         borderColor: selected ? c.action : c.border,
         opacity: press.opacity,
         transform: [{ scale: press.scale }],
@@ -101,8 +101,8 @@ export function LibraryCard({
         {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
       </View>
       <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 4, padding: grid ? spacing.sm : 0 }}>
-        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid ? { minHeight: Math.ceil(44 * fontScale) } : undefined}>{title}</Copy>
-        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{meta}</Copy>
+        <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid ? { minHeight: Math.ceil(40 * fontScale) } : undefined}>{title}</Copy>
+        <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{meta}</Copy>
         {!!creator && <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>By {creator}</Copy>}
         {!!origin && <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{origin}</Copy>}
         {note}

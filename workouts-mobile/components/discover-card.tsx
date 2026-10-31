@@ -110,7 +110,7 @@ export function DiscoverCardSkeleton() {
       accessible
       accessibilityRole="progressbar"
       accessibilityLabel="Loading workouts"
-      style={{ borderRadius: radii.xl - 4, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, padding: 16, gap: 12 }}
+      style={{ borderRadius: radii.xl - 4, backgroundColor: c.surface, padding: 16, gap: 12 }}
     >
       <Skeleton height={168} radius={radii.lg - 4} />
       <Skeleton height={22} width="70%" />

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { Pressable, TextInput, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { radii, typography } from "@/constants/theme";
 import { Copy, IconButton, useColors } from "@/components/ui";
@@ -12,6 +12,7 @@ export function LibrarySearch({ value, onChange, filterCount, onFilters }: {
   onFilters(): void;
 }) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
   const [focused, setFocused] = useState(false);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -22,6 +23,8 @@ export function LibrarySearch({ value, onChange, filterCount, onFilters }: {
       }}>
         <Ionicons name="search" size={18} color={c.muted} />
         <TextInput
+          key={fontScale}
+          allowFontScaling={false}
           accessibilityLabel="Search workouts"
           value={value}
           onChangeText={onChange}
@@ -33,7 +36,7 @@ export function LibrarySearch({ value, onChange, filterCount, onFilters }: {
           autoCorrect={false}
           returnKeyType="search"
           clearButtonMode="never"
-          style={[typography.body, { flex: 1, color: c.text, paddingVertical: 10 }]}
+          style={[typography.body, { flex: 1, color: c.text, fontSize: typography.body.fontSize * fontScale, lineHeight: typography.body.lineHeight * fontScale, paddingVertical: 10 }]}
         />
         {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={15} onPress={() => onChange("")}>
           <Ionicons name="close-circle" size={18} color={c.muted} />
