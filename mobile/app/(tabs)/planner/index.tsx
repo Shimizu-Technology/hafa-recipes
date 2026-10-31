@@ -738,6 +738,7 @@ function PlannerScreenContent() {
           onContentSizeChange={(_width, height) => { scrollSize.current.contentHeight = height; scrollToRequestedDay(); }}
           scrollToOverflowEnabled
           onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
+          onScrollToTop={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={styles.content}
         contentContainerStyle={styles.contentContainer}

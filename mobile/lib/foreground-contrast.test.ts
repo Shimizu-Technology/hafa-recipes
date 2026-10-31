@@ -2,6 +2,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 // @ts-expect-error Node is available in Vitest but excluded from Expo app types.
 import { join } from 'node:path';
+// @ts-expect-error Node is available in Vitest but excluded from Expo app types.
+import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 
 // Like jsx-text-nodes.test.ts in Workouts, scan every shipped screen/component.
@@ -18,7 +20,7 @@ const allowed: Record<string, string[]> = {
   'components/EnvironmentBanner.tsx': ["color: '#FFFFFF',"], // fixed dark purple/brown
   'components/RecipeTrustBadge.tsx': ["const foreground = inverted ? '#FFFFFF' : colors.warning;"], // rgba(0,0,0,0.72)
 };
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name: string) => {
     const path = join(dir, name);
@@ -32,10 +34,11 @@ function whiteLines(source: string) {
 it('keeps literal white out of theme-filled foregrounds across Recipes', () => {
   const offenders = ['app', 'components'].flatMap(dir => sources(join(root, dir))).flatMap(file =>
     {
-      const exceptions = [...(allowed[file.slice(root.length)] ?? [])];
+      const relative = file.slice(root.length).replace(/\\/g, '/');
+      const exceptions = [...(allowed[relative] ?? [])];
       return whiteLines(readFileSync(file, 'utf8')).flatMap(({ line, number }) => {
         const index = exceptions.indexOf(line);
-        if (index < 0) return [`${file.slice(root.length)}:${number}: ${line}`];
+        if (index < 0) return [`${relative}:${number}: ${line}`];
         exceptions.splice(index, 1);
         return [];
       });

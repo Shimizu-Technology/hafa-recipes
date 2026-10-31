@@ -228,6 +228,12 @@ describe('planner loading recovery', () => {
       routeMocks.headerHeight = 104;
       await act(async () => root.render(<PlannerScreen />));
       expect(routeMocks.scrollTo).not.toHaveBeenCalled();
+      routeMocks.params = { date: '2026-10-27' };
+      await act(async () => root.render(<PlannerScreen />));
+      await act(async () => scroll.props.onScrollToTop());
+      routeMocks.scrollTo.mockClear();
+      await act(async () => scrollContainer.props.onContentSizeChange(402, 2100));
+      expect(routeMocks.scrollTo).not.toHaveBeenCalled();
     } finally { routeMocks.params = {}; vi.mocked(parsePlannerDateParam).mockReset(); await act(async () => root.unmount()); }
   });
 
