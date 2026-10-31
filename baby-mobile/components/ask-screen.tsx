@@ -27,6 +27,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
     c = useColors();
   return (
     <Screen
+      onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}

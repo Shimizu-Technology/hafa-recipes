@@ -103,6 +103,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
   return (
     <Screen
       title={careHistory ? "Care history" : "Journal"}
+      onRefresh={() => b.sync()}
       back={careHistory}
       action={careHistory && <HeaderAction title={searching ? "Close search" : "Search"}
         onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
