@@ -1,3 +1,4 @@
+vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +22,7 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
     ActivityIndicator: host('ActivityIndicator'),
+    useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     Alert: { alert: vi.fn() },
     FlatList: host('FlatList'),
     Keyboard: { dismiss: vi.fn() },
@@ -114,6 +116,7 @@ vi.mock('@/hooks/useRecipes', () => {
     isError: false,
   };
   return {
+    useCurrentUserIdentity: () => ({ data: { id: 'app-user-1' } }),
     useDiscoverRecipes: (_source: unknown, enabled: boolean) => { mocks.feedEnabled = enabled; return page; },
     useSearchPublicRecipes: (args: unknown) => {
       mocks.searchArgs.push(args);
@@ -158,39 +161,20 @@ describe('Discover accessibility', () => {
     mocks.searchArgs = [];
   });
 
-  it('labels the list/grid toggle with the layout it switches to', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(<DiscoverScreen />);
-    });
-
-    const toGrid = () => byLabel(renderer!, 'Show recipes as a grid');
-    const toList = () => byLabel(renderer!, 'Show recipes as a list');
-    expect(toList()?.props.accessibilityRole).toBe('button');
-    expect(toGrid()).toBeUndefined();
-
-    await act(async () => toList()!.props.onPress());
-    expect(toGrid()?.props.accessibilityRole).toBe('button');
-    expect(toList()).toBeUndefined();
-  });
-
-  it('announces the source filter selection through the filter sheet and the filter button', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(<DiscoverScreen />);
-    });
-
-    const filters = byLabel(renderer!, 'Filters')!;
-    expect(filters.props.accessibilityRole).toBe('button');
-    await act(async () => filters.props.onPress());
-
-    await act(async () => byText(renderer!, 'YouTube').props.onPress());
-    expect(byText(renderer!, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
-    expect(byText(renderer!, 'All Sources').props.accessibilityState).toEqual({ selected: false, checked: false });
-
-    await act(async () => byText(renderer!, 'Apply (1)').props.onPress());
-    expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
-    expect(byLabel(renderer!, 'Filters, 1 active')?.props.accessibilityRole).toBe('button');
+  it('keeps Discover as a grid and exposes unique actions through the header menu', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    try {
+      expect(renderer.root.findAllByType('Input' as any)).toHaveLength(0);
+      expect(byLabel(renderer, 'Show recipes as a list')).toBeUndefined();
+      const filter = renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Filter recipes')!;
+      await act(async () => filter.props.onPress());
+      await act(async () => byText(renderer, 'YouTube').props.onPress());
+      expect(byText(renderer, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
+      await act(async () => byText(renderer, 'Apply (1)').props.onPress());
+      expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
+      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Top contributors', 'Surprise me', 'Search recipes']);
+    } finally { await act(async () => renderer.unmount()); }
   });
 });
 
@@ -261,25 +245,6 @@ it('shows a guest Save action and records only the recipe intent before authenti
     expect(mocks.push).toHaveBeenCalledWith('/(auth)/sign-in');
     expect(guestRecipeIntent.bind('session-a')).toMatchObject({ recipeId: 'recipe-a', action: 'save' });
   } finally { mocks.signedIn = true; guestRecipeIntent.clear(); await act(async () => renderer.unmount()); }
-});
-
-it('keeps contributor suggestions, active filters and search progress visible with Browse tools collapsed', async () => {
-  vi.useFakeTimers(); mocks.searching = false;
-  let renderer!: ReactTestRenderer;
-  try {
-    await act(async () => { renderer = create(<DiscoverScreen />); });
-    const input = () => renderer.root.findByType('Input' as any);
-    await act(async () => input().props.onChangeText('@maria'));
-    expect(textOf(renderer.root)).toContain('Filter by contributor:');
-    const suggestion = touchables(renderer).find(node => textOf(node).includes('Maria') && textOf(node).includes('1 recipe'))!;
-    await act(async () => suggestion.props.onPress());
-    expect(textOf(renderer.root)).toContain('Clear all');
-    mocks.searching = true;
-    await act(async () => input().props.onChangeText('rice'));
-    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
-    expect(textOf(renderer.root)).toContain('Searching...');
-    expect(byLabel(renderer, 'What Can I Make?')).toBeUndefined();
-  } finally { await act(async () => renderer?.unmount()); mocks.searching = false; vi.useRealTimers(); }
 });
 
 it('pauses the native Discover tab feed while another tab is focused', async () => {

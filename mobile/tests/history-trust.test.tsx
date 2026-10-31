@@ -1,3 +1,5 @@
+vi.mock('@/components/LibraryStatus', () => ({ LibraryStatus: 'LibraryStatus' }));
+vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
@@ -18,7 +20,7 @@ vi.mock('react-native', () => ({
   RefreshControl: 'RefreshControl',
   ScrollView: 'ScrollView',
   StyleSheet: { create: (styles: unknown) => styles },
-  useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
+  useWindowDimensions: () => ({ width: 390, fontScale: library.fontScale }),
   TouchableOpacity: 'TouchableOpacity',
   TouchableWithoutFeedback: 'TouchableWithoutFeedback',
   View: 'View',
@@ -67,6 +69,7 @@ const library = vi.hoisted(() => ({
   savedTotal: undefined as number | undefined,
   searchTotal: undefined as number | undefined,
   signedIn: true,
+  fontScale: 1,
   isGrid: false,
   collections: {
     data: [] as Collection[] | undefined,
@@ -189,7 +192,7 @@ describe.each([
     const renderer = await renderCard(Card, state);
     try {
       expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === label,
+        (instance) => instance.type === 'ScalePressable' && instance.props.accessibilityLabel?.includes(state === 'needs_review' ? 'Some recipe details are uncertain' : 'Recipe needs source details'),
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
@@ -234,7 +237,7 @@ describe('Library card VoiceOver focus', () => {
   });
 });
 
-describe('Saved library search', () => {
+describe('Saved library filtering', () => {
   it.each([false, true])('uses authoritative saved results, including an empty page (%s)', async empty => {
     library.cached = [{ ...recipe('ready'), id: 'cached-match', title: 'Rice from cached page' }];
     library.search = empty ? [] : [{ ...recipe('ready'), id: 'older-saved-match', title: 'Rice outside cached page' }];
@@ -243,10 +246,9 @@ describe('Saved library search', () => {
     try {
       await act(async () => renderer.render(React.createElement(HistoryScreen)));
       await act(async () => {
-        renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved' });
-        renderer.container.queryAll(instance => instance.type === 'Input')[0].props.onChangeText('Rice');
+        renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'website', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved' });
       });
-      expect(library.filters).toMatchObject({ ownership: 'saved', query: 'Rice' });
+      expect(library.filters).toMatchObject({ ownership: 'saved', sourceType: 'website' });
       const list = renderer.container.queryAll(instance => instance.type === 'FlatList')[0];
       expect(list.props.data).toEqual(library.search);
       if (empty) {
@@ -256,7 +258,6 @@ describe('Saved library search', () => {
           expect(emptyView.container.queryAll(instance => instance.props.children === 'No recipes match')).toHaveLength(1);
           expect(emptyView.container.queryAll(instance => instance.props.children === 'Add Your First Recipe')).toHaveLength(0);
           await act(async () => emptyView.container.queryAll(instance => instance.type === 'TouchableOpacity')[0].props.onPress());
-          expect(renderer.container.queryAll(instance => instance.type === 'Input')[0].props.value).toBe('');
           expect(renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.initialFilters.ownershipFilter).toBe('all');
           expect(library.filters.query).toBe('');
           expect(library.filters.ownership).toBe('all');
@@ -282,49 +283,50 @@ describe('Library shown selection', () => {
     library.ownTotal = 100;
     library.cached = Array.from({ length: 25 }, (_, i) => ({ ...recipe('ready'), id: `saved-${i}` }));
     const renderer = createRoot({ textComponentTypes: ['Text'] });
-    const { Alert } = await import('react-native');
     await act(async () => renderer.render(<HistoryScreen />));
-    await act(async () => renderer.container.queryAll(n => n.props.accessibilityLabel === 'Library options')[0].props.onPress());
-    const options = vi.mocked(Alert.alert).mock.calls.at(-1)![2]!;
-    await act(async () => options.find(option => option.text === 'Select Recipes')!.onPress!());
-    const select = renderer.container.queryAll(n => n.type === 'TouchableOpacity' && n.children.some(c => typeof c !== 'string' && c.props.children === 'Select shown'))[0];
+    await act(async () => renderer.container.queryAll(n => n.props.accessibilityLabel === 'Select recipes')[0].props.onPress());
+    const header = createRoot({ textComponentTypes: ['Text'] });
+    await act(async () => header.render(renderer.container.queryAll(n => n.type === 'FlatList')[0].props.ListHeaderComponent));
+    const select = header.container.queryAll(n => n.type === 'TouchableOpacity' && n.children.some(c => typeof c !== 'string' && c.props.children === 'Select shown'))[0];
     await act(async () => select.props.onPress());
+    await act(async () => header.render(renderer.container.queryAll(n => n.type === 'FlatList')[0].props.ListHeaderComponent));
     const bulk = renderer.container.queryAll(n => n.type === 'BulkAddToCollectionModal')[0];
     expect(bulk.props.recipeIds).toHaveLength(20);
-    expect(renderer.container.queryAll(n => n.props.children === 'Deselect all')).toHaveLength(1);
+    expect(header.container.queryAll(n => n.props.children === 'Deselect all')).toHaveLength(1);
+    await act(async () => header.unmount());
     await act(async () => renderer.unmount());
   });
 });
 
-describe('Library recipe count', () => {
+describe('Library count removal', () => {
   const countText = (renderer: ReturnType<typeof createRoot>) =>
     renderer.container.queryAll(instance => instance.type === 'Text' && /^\d+( of \d+)? recipes?$/.test(String(instance.props.children)))
       .map(instance => instance.props.children);
 
-  it('uses the full own and saved totals when a source narrows the matches', async () => {
+  it('omits the count row when a source narrows the matches', async () => {
     library.ownTotal = 100; library.savedTotal = 72; library.searchTotal = 17;
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(<HistoryScreen />));
       const sheet = renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0];
       await act(async () => sheet.props.onApply({ sourceFilter: 'tiktok', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' }));
-      expect(countText(renderer)).toEqual(['17 of 172 recipes']);
+      expect(countText(renderer)).toEqual([]);
     } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('uses the server saved total before all pages are loaded', async () => {
+  it('omits counts for the full library and saved-only view', async () => {
     library.ownTotal = 100; library.savedTotal = 72;
     library.cached = [recipe('ready')];
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(<HistoryScreen />));
-      expect(countText(renderer)).toEqual(['172 recipes']);
+      expect(countText(renderer)).toEqual([]);
       await act(async () => renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved' }));
-      expect(countText(renderer)).toEqual(['72 recipes']);
+      expect(countText(renderer)).toEqual([]);
     } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('shows the library total, then the server match total against it while filtered', async () => {
+  it('omits count rows while paginating filtered results', async () => {
     library.ownTotal = 100;
     library.searchTotal = 37;
     // Only the first page of matches is loaded; the count must not use its length.
@@ -333,11 +335,11 @@ describe('Library recipe count', () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(React.createElement(HistoryScreen)));
-      expect(countText(renderer)).toEqual(['100 recipes']);
+      expect(countText(renderer)).toEqual([]);
       await act(async () => {
-        renderer.container.queryAll(instance => instance.type === 'Input')[0].props.onChangeText('Rice');
+        renderer.container.queryAll(instance => instance.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'website', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' });
       });
-      expect(countText(renderer)).toEqual(['37 of 100 recipes']);
+      expect(countText(renderer)).toEqual([]);
     } finally { await act(async () => renderer.unmount()); }
   });
 });
@@ -416,50 +418,48 @@ describe('Library collection recovery', () => {
 });
 
 
-describe('Library search and filter accessibility', () => {
-  it('names the Library search field', async () => {
-    const renderer = createRoot({ textComponentTypes: ['Text'] });
+describe('Library browse controls', () => {
+  it('keeps search and count rows out of Library and opens the existing filter sheet', async () => {
+    const renderer = createRoot();
+    const header = createRoot();
     try {
       await act(async () => renderer.render(<HistoryScreen />));
-      const search = renderer.container.queryAll(n => n.type === 'Input')[0];
-      expect(search.props.accessibilityLabel).toBe('Search library recipes');
-    } finally { await act(async () => renderer.unmount()); }
-  });
-
-  it('opens filters through a named button and announces the applied count', async () => {
-    const renderer = createRoot({ textComponentTypes: ['Text'] });
-    try {
-      await act(async () => renderer.render(<HistoryScreen />));
-      const button = () => renderer.container.queryAll(n =>
-        n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Filter library recipes',
-      )[0];
-      expect(button()).toBeDefined();
-      expect(button().props.accessibilityValue).toEqual({ text: 'No filters applied' });
-      await act(async () => button().props.onPress());
+      expect(renderer.container.queryAll(n => n.type === 'Input')).toHaveLength(0);
+      const list = () => renderer.container.queryAll(n => n.type === 'FlatList')[0];
+      await act(async () => header.render(list().props.ListHeaderComponent));
+      const links = header.container.queryAll(n => n.type === 'LibraryStatus')[0];
+      await act(async () => links.props.onFilter());
       const sheet = () => renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0];
       expect(sheet().props.visible).toBe(true);
-      await act(async () => sheet().props.onApply({
-        sourceFilter: 'manual', timeFilter: 'quick', selectedTags: [], ownershipFilter: 'saved',
-      }));
-      await act(async () => sheet().props.onClose());
-      expect(sheet().props.visible).toBe(false);
-      expect(button().props.accessibilityValue).toEqual({ text: '3 filters applied' });
-      await act(async () => sheet().props.onApply({
-        sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'saved',
-      }));
-      expect(button().props.accessibilityValue).toEqual({ text: '1 filter applied' });
-    } finally { await act(async () => renderer.unmount()); }
+      await act(async () => sheet().props.onApply({ sourceFilter: 'manual', timeFilter: 'quick', selectedTags: ['dinner'], ownershipFilter: 'saved' }));
+      await act(async () => header.render(list().props.ListHeaderComponent));
+      expect(header.container.queryAll(n => n.props.accessibilityLabel === 'Clear library filters')).toHaveLength(1);
+      await act(async () => header.container.queryAll(n => n.props.accessibilityLabel === 'Clear library filters')[0].props.onPress());
+      expect(sheet().props.initialFilters).toMatchObject({ sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' });
+    } finally { await act(async () => header.unmount()); await act(async () => renderer.unmount()); }
+  });
+  it('filters the loaded library to recipes needing a check', async () => {
+    library.cached = [{ ...recipe('ready'), id: 'ready' }, recipe('needs_review')];
+    const renderer = createRoot(), header = createRoot();
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      const list = () => renderer.container.queryAll(n => n.type === 'FlatList')[0];
+      await act(async () => header.render(list().props.ListHeaderComponent));
+      const links = header.container.queryAll(n => n.type === 'LibraryStatus')[0];
+      expect(links.props.needsCheck).toBe(1);
+      await act(async () => links.props.onNeedsCheck());
+      expect(list().props.data.map((r: any) => r.id)).toEqual(['recipe-1']);
+    } finally { await act(async () => header.unmount()); await act(async () => renderer.unmount()); }
   });
 });
 
-describe('compact collection entry', () => {
-  it('keeps collection cards off the recipe list and offers an index entry', async () => {
-    library.collections.data = [{ id: 'one', name: 'Family recipes', recipe_count: 9 } as Collection];
-    const renderer = createRoot();
-    try {
-      await act(async () => renderer.render(<HistoryScreen />));
-      expect(renderer.container.queryAll(n => n.props.accessibilityLabel === 'Open collections')).toHaveLength(1);
-      expect(renderer.container.queryAll(n => n.props.children === 'Family recipes')).toHaveLength(0);
-    } finally { await act(async () => renderer.unmount()); }
-  });
+it('uses a single column at the updated accessibility threshold', async () => {
+  library.isGrid = true; library.fontScale = 1.3;
+  const renderer = createRoot();
+  try {
+    await act(async () => renderer.render(<HistoryScreen />));
+    const list = renderer.container.queryAll(n => n.type === 'FlatList')[0];
+    expect(list.props.numColumns).toBe(1);
+    expect(list.props.columnWrapperStyle).toBeUndefined();
+  } finally { library.fontScale = 1; await act(async () => renderer.unmount()); }
 });

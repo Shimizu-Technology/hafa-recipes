@@ -26,6 +26,7 @@ vi.mock('react-native', () => ({
   Platform: { OS: 'web' },
   Keyboard: { dismiss: vi.fn() },
   Image: 'Image',
+  useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
   RefreshControl: 'RefreshControl',
   StyleSheet: { create: (styles: unknown) => styles },
   TouchableOpacity: 'TouchableOpacity',
@@ -136,7 +137,7 @@ describe('collection recipe readiness', () => {
     const renderer = await renderCard(state);
     try {
       expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === label,
+        (instance) => instance.type === 'ScalePressable' && instance.props.accessibilityLabel?.includes(state === 'needs_review' ? 'Some recipe details are uncertain' : 'Recipe needs source details'),
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
@@ -163,9 +164,8 @@ describe('collection recipe readiness', () => {
       expect(card.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove from collection' }]);
       card.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
       expect(onRemove).toHaveBeenCalledOnce();
-      expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection',
-      ).length).toBeGreaterThan(0);
+      expect(renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection')).toHaveLength(1);
+      expect(renderer.container.queryAll(instance => instance.type === 'RecipeTrustBadge')).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }

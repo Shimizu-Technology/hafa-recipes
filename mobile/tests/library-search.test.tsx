@@ -1,9 +1,11 @@
+vi.mock('expo-router/react-navigation', () => ({ useIsFocused: () => true }));
+vi.mock('@/lib/recipeSource', () => ({ getRecipeSourcePresentation: () => ({ label: 'Website' }) }));
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const state = vi.hoisted(() => ({ platform: 'ios', generation: 1, filters: {} as any, push: vi.fn(), next: vi.fn() }));
-vi.mock('expo-router', () => ({ Stack: { SearchBar: 'SearchBar' }, useRouter: () => ({ push: state.push }) }));
+vi.mock('expo-router', () => ({ Stack: { SearchBar: React.forwardRef((props: any, ref: any) => { React.useImperativeHandle(ref, () => ({ setText: vi.fn(), focus: vi.fn() })); return React.createElement('SearchBar', props); }) }, useRouter: () => ({ push: state.push }) }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
 vi.mock('react-native', () => ({ ActivityIndicator: 'ActivityIndicator', View: 'View', Platform: { get OS() { return state.platform; } }, Pressable: 'Pressable', FlatList: ({ data, renderItem, ListHeaderComponent, ...props }: any) => <>{React.createElement('List', props)}{ListHeaderComponent}{data.map((item: any) => <React.Fragment key={item.id}>{renderItem({ item })}</React.Fragment>)}</> }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
@@ -11,7 +13,7 @@ vi.mock('@/components/Themed', () => ({ Text: 'Text', Input: 'Input', Button: 'B
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => state.generation }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (q: string) => q }));
-vi.mock('@/hooks/useRecipes', () => ({ useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any) => { state.filters = filters; return { recipes: [{ id: 'recipe-a', title: 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
+vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: () => ({ recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }), useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any) => { state.filters = filters; return { recipes: [{ id: 'recipe-a', title: 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
 import SearchRoute from '@/app/(tabs)/search';
 it('uses native library search, opens results, paginates, and clears query context for the next owner', async () => {
   const r = createRoot();
@@ -48,4 +50,26 @@ it('offers one labelled web search field without an extra native header control'
     await act(async () => r.unmount());
     state.platform = 'ios';
   }
+});
+
+it('orders library results before public results, remembers submitted searches, and retires history with the owner', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<SearchRoute />));
+    const bar = () => r.container.queryAll(n => n.type === 'SearchBar')[0];
+    await act(async () => bar().props.onChangeText({ nativeEvent: { text: 'Chicken' } }));
+    const headings = r.container.queryAll(n => n.type === 'Text' && ['My recipes', 'Discover'].includes(n.props.children));
+    expect(headings.map(n => n.props.children)).toEqual(['My recipes', 'Discover']);
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Community chicken')).toHaveLength(1);
+    await act(async () => bar().props.onSearchButtonPress());
+    await act(async () => bar().props.onCancelButtonPress());
+    expect(r.container.queryAll(n => n.props.children === 'Recent searches')).toHaveLength(1);
+    const recent = r.container.queryAll(n => n.type === 'Pressable' && n.children.some(c => typeof c !== 'string' && c.props.children === 'Chicken'))[0];
+    await act(async () => recent.props.onPress());
+    expect(state.filters.query).toBe('Chicken');
+    state.generation++;
+    await act(async () => r.render(<SearchRoute />));
+    expect(r.container.queryAll(n => n.props.children === 'Recent searches')).toHaveLength(0);
+    expect(r.container.queryAll(n => n.props.children === 'Search by ingredient')).toHaveLength(1);
+  } finally { await act(async () => r.unmount()); }
 });

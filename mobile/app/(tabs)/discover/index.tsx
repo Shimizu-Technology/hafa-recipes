@@ -1,68 +1,33 @@
-import { useIsFocused } from 'expo-router/react-navigation';
+import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import {
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  RefreshControl,
-  View as RNView,
-  ActivityIndicator,
-  Keyboard,
-  TouchableWithoutFeedback,
-  ScrollView,
-  Alert,
-  Modal,
-  Pressable,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { discoverSections } from '@/lib/recipeBrowse';
 import { useAuth } from '@clerk/expo';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
+import { useIsFocused } from 'expo-router/react-navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, Pressable, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { View, Text, Input, Chip, useColors } from '@/components/Themed';
-import { SignInBanner } from '@/components/SignInBanner';
-import FilterBottomSheet, { FilterState, SourceFilter, TimeFilter, MealTypeFilter } from '@/components/FilterBottomSheet';
 import AllContributorsModal from '@/components/AllContributorsModal';
-import {
-  useDiscoverRecipes,
-  useSearchPublicRecipes,
-  usePublicRecipeCount,
-  useIsRecipeSaved,
-  useSaveRecipe,
-  useUnsaveRecipe,
-  usePopularTags,
-  useTopContributors,
-  filterRecipesLocally,
-  SearchFilters,
-  DiscoverSort,
-} from '@/hooks/useRecipes';
-import { RecipeListItem } from '@/types/recipe';
-import { api } from '@/lib/api';
-import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
-import { haptics } from '@/utils/haptics';
-import { getRecipeSourcePresentation } from '@/lib/recipeSource';
-import {
-  baseDiscoverQueryOptions,
-  canFilterDiscoverLocally,
-  hasServerDiscoverFilters,
-  hideOwnedDiscoverRecipes,
-  resolveDiscoverResults,
-} from '@/lib/discoverResults';
-import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
+import { SignInBanner } from '@/components/SignInBanner';
+import { Text, useColors, View } from '@/components/Themed';
+import { fontFamily, fontSize, fontWeight, radius, shadows, spacing } from '@/constants/Colors';
 import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { DiscoverSort, filterRecipesLocally, SearchFilters, useCurrentUserIdentity, useDiscoverRecipes, useIsRecipeSaved, usePopularTags, usePublicRecipeCount, useSaveRecipe, useSearchPublicRecipes, useTopContributors, useUnsaveRecipe, } from '@/hooks/useRecipes';
+import { api } from '@/lib/api';
+import { baseDiscoverQueryOptions, canFilterDiscoverLocally, hasServerDiscoverFilters, hideOwnedDiscoverRecipes, resolveDiscoverResults, } from '@/lib/discoverResults';
+import { getRecipeSourcePresentation } from '@/lib/recipeSource';
+import { RecipeListItem } from '@/types/recipe';
+import { haptics } from '@/utils/haptics';
 
-import { useViewPreference } from '@/hooks/useViewPreference';
+import { AnimatedListItem, useInitialListEntrance } from '@/components/Animated';
 import { SkeletonRecipeList } from '@/components/Skeleton';
-import { AnimatedListItem, ScalePressable, useInitialListEntrance } from '@/components/Animated';
 
-import { RecipeThumbnail } from '@/components/RecipeThumbnail';
-import {
-  RecipeGridCardFrame,
-  RECIPE_GRID_GAP,
-} from '@/components/RecipeGridCardFrame';
+import { RECIPE_GRID_GAP, RecipeGridCardFrame, } from '@/components/RecipeGridCardFrame';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
 const ITEMS_PER_PAGE = 20;
@@ -128,7 +93,7 @@ export function SaveButton({
   return (
     <TouchableOpacity
       style={styles.saveButton}
-      onPress={handlePress}
+      onPress={event => { event?.stopPropagation(); handlePress(); }}
       disabled={isPending}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       accessibilityRole="button"
@@ -137,186 +102,15 @@ export function SaveButton({
     >
       <RNView>
         <Ionicons
-          name={isSaved ? "heart" : "heart-outline"}
-          size={22}
-          color={isSaved ? colors.text : colors.textMuted}
+          name={isSaved ? "bookmark" : "bookmark-outline"}
+          size={17}
+          color="#FFFFFF"
         />
       </RNView>
     </TouchableOpacity>
   );
 }
 
-// Helper to format relative time
-function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'today';
-  if (diffDays === 1) return 'yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) {
-    const weeks = Math.floor(diffDays / 7);
-    return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
-  }
-  if (diffDays < 365) {
-    const months = Math.floor(diffDays / 30);
-    return months === 1 ? '1 month ago' : `${months} months ago`;
-  }
-  const years = Math.floor(diffDays / 365);
-  return years === 1 ? '1 year ago' : `${years} years ago`;
-}
-
-function RecipeCard({
-  recipe,
-  onPress,
-  onUserPress,
-  colors,
-  currentUserId,
-  imagePriority = 'normal',
-  active = true,
-}: {
-  recipe: RecipeListItem;
-  onPress: () => void;
-  onUserPress?: (userId: string, userName: string) => void;
-  colors: ReturnType<typeof useColors>;
-  currentUserId?: string | null;
-  imagePriority?: 'normal' | 'high';
-  active?: boolean;
-}) {
-  const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
-  const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
-  const contributorId = getContributorId(recipe);
-
-  // Format attribution text
-  const relativeTime = formatRelativeTime(recipe.created_at);
-  const extractorName = isOwner
-    ? 'you'
-    : recipe.extractor_display_name || null;
-  const canFilterByUser = !isOwner && recipe.extractor_display_name && contributorId;
-
-  return (
-    <ScalePressable
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={recipeCardAccessibilityLabel({
-        title: recipe.title,
-        totalTime: recipe.total_time,
-        servings: recipe.servings,
-        sourceLabel,
-        author: extractorName,
-      })}
-    >
-      {/* Thumbnail with gradient overlay */}
-      <RNView style={styles.thumbnailContainer}>
-        <RecipeThumbnail
-          uri={recipe.thumbnail_url}
-          style={styles.thumbnail}
-          accessibilityLabel={`${recipe.title} photo`}
-          priority={imagePriority}
-          overlay={(
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.3)']}
-              style={styles.thumbnailOverlay}
-            />
-          )}
-        />
-        {/* Save button overlay */}
-        {(
-          <RNView style={styles.saveButtonContainer}>
-            <SaveButton active={active}
-              recipeId={recipe.id}
-              initialIsSaved={recipe.is_saved}
-              colors={colors}
-              isOwner={isOwner}
-            />
-          </RNView>
-        )}
-      </RNView>
-
-      {/* Content */}
-      <RNView style={styles.cardContent}>
-        <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
-          {recipe.title}
-        </Text>
-
-        {/* Meta info */}
-        <RNView style={styles.metaRow}>
-          {recipe.total_time && (
-            <RNView style={styles.metaItem}>
-              <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
-              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.total_time}</Text>
-            </RNView>
-          )}
-          {recipe.servings && (
-            <RNView style={styles.metaItem}>
-              <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
-              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.servings}</Text>
-            </RNView>
-          )}
-        </RNView>
-
-        {/* Tags */}
-        {recipe.tags.length > 0 && (
-          <RNView style={styles.tagRow}>
-            {recipe.tags.slice(0, 2).map((tag, index) => (
-              <Chip key={index} label={tag} size="sm" />
-            ))}
-            {recipe.tags.length > 2 && (
-              <Text style={[styles.moreText, { color: colors.textMuted }]}>
-                +{recipe.tags.length - 2}
-              </Text>
-            )}
-          </RNView>
-        )}
-
-        {/* Footer */}
-        <RNView style={styles.cardFooter}>
-          <RNView style={styles.footerLeft}>
-          <RNView style={styles.sourceRow}>
-            <Ionicons name={sourceIcon as any} size={14} color={colors.textMuted} />
-            <Text style={[styles.sourceText, { color: colors.textMuted }]}>
-              {sourceLabel}
-              </Text>
-            </RNView>
-            <RNView style={styles.attributionRow}>
-              {canFilterByUser && onUserPress ? (
-                <>
-                  <Text style={[styles.attributionText, { color: colors.textMuted }]}>by </Text>
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation?.();
-                      onUserPress(contributorId!, recipe.extractor_display_name!);
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                  >
-                    <Text style={[styles.attributionText, { color: colors.actionText, textDecorationLine: 'underline' }]}>
-                      {extractorName}
-                    </Text>
-                  </TouchableOpacity>
-                  <Text style={[styles.attributionText, { color: colors.textMuted }]}> • {relativeTime}</Text>
-                </>
-              ) : (
-                <Text style={[styles.attributionText, { color: colors.textMuted }]}>
-                  {extractorName ? `by ${extractorName} • ${relativeTime}` : relativeTime}
-                </Text>
-              )}
-            </RNView>
-          </RNView>
-          {recipe.has_audio_transcript && (
-            <RNView style={[styles.hdBadge, { backgroundColor: colors.success + '20' }]}>
-              <Text style={[styles.hdText, { color: colors.success }]}>HD</Text>
-            </RNView>
-          )}
-        </RNView>
-      </RNView>
-    </ScalePressable>
-  );
-}
-
-// Keep recipe names on a solid surface so busy video thumbnails stay readable.
 function GridRecipeCard({
   recipe,
   onPress,
@@ -353,54 +147,10 @@ function GridRecipeCard({
         author: recipe.extractor_display_name,
       })}
       imagePriority={imagePriority}
-      imageAdornment={(
-        <>
-          {recipe.total_time && (
-            <RNView style={[
-              styles.gridTimeBadge,
-              { maxWidth: showSaveButton ? '65%' : '85%' },
-              { backgroundColor: 'rgba(0,0,0,0.7)' },
-            ]}>
-              <Ionicons name="time-outline" size={10} color="#FFFFFF" />
-              <Text style={styles.gridTimeText} numberOfLines={1}>{recipe.total_time}</Text>
-            </RNView>
-          )}
-          {showSaveButton && (
-            <RNView style={styles.gridSaveButtonContainer}>
-              <SaveButton active={active}
-                recipeId={recipe.id}
-                initialIsSaved={recipe.is_saved}
-                colors={colors}
-                isOwner={isOwner}
-              />
-            </RNView>
-          )}
-        </>
-      )}
-      footer={recipe.extractor_display_name ? (
-        canFilterByUser && onUserPress ? (
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation?.();
-              haptics.light();
-              onUserPress(contributorId!, recipe.extractor_display_name!);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
-              by {recipe.extractor_display_name}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
-            by {recipe.extractor_display_name}
-          </Text>
-        )
-      ) : (
-        <Text style={[styles.gridCardAuthor, { color: colors.textSecondary }]} numberOfLines={1}>
-          {getRecipeSourcePresentation(recipe.source_type).label}
-        </Text>
-      )}
+      imageAdornment={showSaveButton ? <RNView style={styles.gridSaveButtonContainer}><SaveButton active={active} recipeId={recipe.id} initialIsSaved={recipe.is_saved} colors={colors} isOwner={isOwner} /></RNView> : null}
+      footer={<TouchableOpacity disabled={!canFilterByUser || !onUserPress} accessibilityRole={canFilterByUser ? 'button' : undefined} accessibilityLabel={canFilterByUser ? `Recipes by ${recipe.extractor_display_name}` : undefined} onPress={event => { event.stopPropagation(); onUserPress?.(contributorId!, recipe.extractor_display_name!); }} hitSlop={8}>
+        <Text style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary }} numberOfLines={1}>{[recipe.extractor_display_name || getRecipeSourcePresentation(recipe.source_type).label, recipe.total_time].filter(Boolean).join(' · ')}</Text>
+      </TouchableOpacity>}
     />
   );
 }
@@ -408,10 +158,11 @@ function GridRecipeCard({
 export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
+  const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [showBrowseTools, setShowBrowseTools] = useState(false);
+  const identity = useCurrentUserIdentity(active && Boolean(isSignedIn));
   // The input stays bound to searchQuery; server queries use the debounced value
   // so typing does not fire a request per keystroke.
   const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
@@ -423,7 +174,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
 
   // View preference (grid or list)
-  const { viewMode, toggleViewMode, isGrid } = useViewPreference();
+  const isGrid = true;
 
   // User filter state (for "recipes by user" feature)
   const [selectedExtractor, setSelectedExtractor] = useState<{ id: string; name: string } | null>(null);
@@ -672,57 +423,17 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
               router.push(`/recipe/${item.id}`);
             }}
             onUserPress={handleUserPress}
-            currentUserId={userId}
+            currentUserId={identity.data?.id}
             imagePriority={index < 4 ? 'high' : 'normal'}
           />
         </AnimatedListItem>
       );
     }
-    return (
-      <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
-        <RecipeCard
-          recipe={item} active={active}
-          colors={colors}
-          onPress={() => {
-            haptics.light();
-            router.push(`/recipe/${item.id}`);
-          }}
-          onUserPress={handleUserPress}
-          currentUserId={userId}
-          imagePriority={index < 4 ? 'high' : 'normal'}
-        />
-      </AnimatedListItem>
-    );
+    return null;
   };
-
-  // Memoize header to prevent re-render on search change
-  const ListHeaderTitle = useCallback(() => (
-    <RNView style={styles.titleRow}>
-      {/* View toggle button */}
-      <TouchableOpacity
-        style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-        onPress={() => {
-          haptics.light();
-          toggleViewMode();
-        }}
-        activeOpacity={0.7}
-        accessibilityRole="button"
-        accessibilityLabel={isGrid ? 'Show recipes as a list' : 'Show recipes as a grid'}
-      >
-        <Ionicons
-          name={isGrid ? 'list-outline' : 'grid-outline'}
-          size={18}
-          color={colors.actionText}
-        />
-      </TouchableOpacity>
-    </RNView>
-  ), [colors.text, colors.tint, isGrid, toggleViewMode]);
 
   const ListEmpty = () => (
     <RNView style={styles.emptyContainer}>
-      <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.tint + '15' }]}>
-        <Ionicons name="globe-outline" size={46} color={colors.actionText} />
-      </RNView>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes found
       </Text>
@@ -901,302 +612,33 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         </Pressable>
       </Modal>
 
-      {/* Search remains mounted while results update, preserving keyboard focus. */}
-      <RNView style={styles.header}>
-        {/* Search + Filter row */}
-        <RNView style={styles.searchRow}>
-          <RNView style={styles.searchInputContainer}>
-            <Input
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search recipes or @username..."
-              accessibilityLabel="Search community recipes"
-            />
-          </RNView>
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              {
-                backgroundColor: activeFilterCount > 0 ? colors.tint : colors.backgroundSecondary,
-                borderColor: activeFilterCount > 0 ? colors.tint : colors.border,
-              },
-            ]}
-            onPress={() => setShowFilterModal(true)}
-            accessibilityRole="button"
-            accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
-          >
-            <Ionicons
-              name="options-outline"
-              size={20}
-              color={activeFilterCount > 0 ? '#FFFFFF' : colors.text}
-            />
-            {activeFilterCount > 0 && (
-              <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
-                <Text style={[styles.filterBadgeText, { color: colors.tint }]}>
-                  {activeFilterCount}
-                </Text>
-              </RNView>
-            )}
-          </TouchableOpacity>
-        </RNView>
-
-        <RNView style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <ListHeaderTitle />
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Browse tools"
-            accessibilityState={{ expanded: showBrowseTools }} onPress={() => setShowBrowseTools((shown) => !shown)}
-            style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
-            <Text>Browse tools {showBrowseTools ? '⌃' : '⌄'}</Text>
-          </TouchableOpacity>
-        </RNView>
-        {showBrowseTools && <>
-        {/* Discovery Actions Row */}
-        <RNView style={styles.discoveryRow}>
-          <TouchableOpacity
-            style={[styles.discoveryButton, { backgroundColor: colors.warning + '15' }]}
-            onPress={() => {
-              haptics.light();
-              setShowSurpriseModal(true);
-            }}
-            disabled={isRandomLoading}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Surprise Me"
-          >
-            {isRandomLoading ? (
-              <ActivityIndicator size="small" color={colors.warning} />
-            ) : (
-              <>
-                <Ionicons name="shuffle" size={18} color={colors.warning} />
-                <Text style={[styles.discoveryButtonText, { color: colors.warning }]}>
-                  Surprise Me
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.discoveryButton, { backgroundColor: colors.tint + '15' }]}
-            onPress={() => {
-              haptics.light();
-              router.push('/ingredient-search');
-            }}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="What Can I Make?"
-          >
-            <Ionicons name="nutrition-outline" size={18} color={colors.actionText} />
-            <Text style={[styles.discoveryButtonText, { color: colors.actionText }]}>
-              What Can I Make?
-            </Text>
-          </TouchableOpacity>
-        </RNView>
-
-        </>}
-
-        {/* @username search suggestions */}
-        {usernameSearchMatch && matchingContributors.length > 0 && (
-          <RNView style={[styles.usernameSuggestions, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-            <Text style={[styles.usernameSuggestionsHint, { color: colors.textMuted }]}>
-              Filter by contributor:
-            </Text>
-            {matchingContributors.map((contributor) => (
-              <TouchableOpacity
-                key={getContributorId(contributor)}
-                style={[styles.usernameSuggestionItem, { borderColor: colors.border }]}
-                onPress={() => {
-                  haptics.light();
-                  setSelectedExtractor({ id: getContributorId(contributor)!, name: contributor.display_name });
-                  setSearchQuery('');
-                  setDisplayCount(ITEMS_PER_PAGE);
-                }}
-              >
-                <Ionicons name="person-circle-outline" size={20} color={colors.actionText} />
-                <RNView style={styles.usernameSuggestionInfo}>
-                  <Text style={[styles.usernameSuggestionName, { color: colors.text }]}>
-                    {contributor.display_name}
-                  </Text>
-                  <Text style={[styles.usernameSuggestionCount, { color: colors.textMuted }]}>
-                    {contributor.recipe_count} {contributor.recipe_count === 1 ? 'recipe' : 'recipes'}
-                  </Text>
-                </RNView>
-              </TouchableOpacity>
-            ))}
-          </RNView>
-        )}
-
-        {/* Active filters summary */}
-        {activeFilterCount > 0 && (
-          <RNView style={styles.activeFiltersRow}>
-            {selectedExtractor && (
-              <TouchableOpacity
-                style={[styles.activeFilterChip, styles.extractorFilterChip, { backgroundColor: colors.tint }]}
-                onPress={clearExtractorFilter}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove filter: recipes by ${selectedExtractor.name}`}
-              >
-                <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
-                  by {selectedExtractor.name}{searchTotal > 0 ? ` (${searchTotal})` : ''}
-                </Text>
-                <Ionicons name="close" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
-              </TouchableOpacity>
-            )}
-            {sourceFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
-                <Text style={[styles.activeFilterText, { color: colors.text }]}>
-                  {sourceFilter}
-                </Text>
-              </RNView>
-            )}
-            {timeFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
-                <Text style={[styles.activeFilterText, { color: colors.text }]}>
-                  {timeFilter === 'quick' ? '<30 min' : timeFilter === 'medium' ? '30-60 min' : '60+ min'}
-                </Text>
-              </RNView>
-            )}
-            {selectedTags.length > 0 && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
-                <Text style={[styles.activeFilterText, { color: colors.text }]}>
-                  {selectedTags.length} tag{selectedTags.length > 1 ? 's' : ''}
-                </Text>
-              </RNView>
-            )}
-            {mealTypeFilter !== 'all' && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
-                <Text style={[styles.activeFilterText, { color: colors.text }]}>
-                  {mealTypeFilter[0].toUpperCase() + mealTypeFilter.slice(1)}
-                </Text>
-              </RNView>
-            )}
-            {hideMyRecipes && (
-              <RNView style={[styles.activeFilterChip, { backgroundColor: colors.backgroundSecondary }]}>
-                <Text style={[styles.activeFilterText, { color: colors.text }]}>Mine hidden</Text>
-              </RNView>
-            )}
-            <TouchableOpacity
-              onPress={() => {
-                setSourceFilter('all');
-                setTimeFilter('all');
-                setSelectedTags([]);
-                setSelectedExtractor(null);
-                setMealTypeFilter('all');
-                setHideMyRecipes(false);
-                setSortOrder('recent');
-              }}
-            >
-              <Text style={[styles.clearFiltersText, { color: colors.textMuted }]}>
-                Clear all
-              </Text>
-            </TouchableOpacity>
-          </RNView>
-        )}
-
-        {/* Search loading indicator - shows when server is fetching more results */}
-        {hasTextSearch && isDiscoverSearchFetching && (
-          <RNView style={styles.searchLoadingRow}>
-            <ActivityIndicator size="small" color={colors.actionText} />
-            <Text style={[styles.searchLoadingText, { color: colors.textMuted }]}>
-              Searching...
-            </Text>
-          </RNView>
-        )}
-
-        {showBrowseTools && <>
-        {/* Keep the community filter available without pushing recipes below the fold. */}
-        {!hasTextSearch && topContributors && topContributors.length > 0 && (
-          <RNView style={styles.contributorsSection}>
-            <TouchableOpacity
-              style={styles.contributorsHeader}
-              onPress={() => setShowContributors((shown) => !shown)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: showContributors }}
-              accessibilityLabel="Top contributors"
-            >
-              <Text style={[styles.contributorsSectionTitle, { color: colors.textSecondary }]}>Top contributors</Text>
-              <Ionicons name={showContributors ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textSecondary} />
-            </TouchableOpacity>
-            {showContributors && <>
-              <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.contributorsScroll}
-                keyboardShouldPersistTaps="handled"
-              >
-              {topContributors.map((contributor: { user_id: string; contributor_id?: string; display_name: string; recipe_count: number }) => {
-                const contributorId = getContributorId(contributor)!;
-                const isSelected = selectedExtractor?.id === contributorId;
-                return (
-                  <TouchableOpacity
-                    key={contributorId}
-                    style={[
-                      styles.contributorChip,
-                      {
-                        backgroundColor: isSelected ? colors.tint : colors.backgroundSecondary,
-                        borderColor: isSelected ? colors.tint : colors.border
-                      }
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
-                    onPress={() => {
-                      haptics.light();
-                      if (isSelected) {
-                        clearExtractorFilter();
-                      } else {
-                        setSelectedExtractor({ id: contributorId, name: contributor.display_name });
-                        setDisplayCount(ITEMS_PER_PAGE);
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name="person-circle-outline"
-                      size={18}
-                      color={isSelected ? '#FFFFFF' : colors.textSecondary}
-                    />
-                    <RNView style={styles.contributorInfo}>
-                      <Text
-                        style={[
-                          styles.contributorName,
-                          { color: isSelected ? '#FFFFFF' : colors.text }
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {contributor.display_name}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.contributorCount,
-                          { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }
-                        ]}
-                      >
-                        {contributor.recipe_count} {contributor.recipe_count === 1 ? 'recipe' : 'recipes'}
-                      </Text>
-                    </RNView>
-                  </TouchableOpacity>
-                );
-              })}
-              </ScrollView>
-              <TouchableOpacity onPress={() => setShowAllContributors(true)} accessibilityRole="button">
-                <Text style={[styles.seeAllText, { color: colors.actionText }]}>See all contributors</Text>
-              </TouchableOpacity>
-            </>}
-          </RNView>
-        )}
-        </>}
-      </RNView>
-
+      <RecipeBrowseHeader actions={[
+        { title: 'Filter recipes', onPress: () => setShowFilterModal(true) },
+        { title: 'Top contributors', onPress: () => setShowAllContributors(true) },
+        { title: 'Surprise me', onPress: () => setShowSurpriseModal(true) },
+        { title: 'Search recipes', onPress: () => router.navigate('/(tabs)/search') },
+      ]} />
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
           contentInsetAdjustmentBehavior="automatic"
-          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
+          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={isGrid ? 2 : 1}
-          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
+          numColumns={isGrid && !largeText ? 2 : 1}
+          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
+          ListHeaderComponent={<>
+            {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); setSearchQuery(''); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
+              <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
+            </TouchableOpacity>}
+            {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title}>
+              <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
+              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} onUserPress={handleUserPress} currentUserId={identity.data?.id} />)}</RNView>
+            </RNView>)}
+            {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
+          </>}
           ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[
@@ -1241,387 +683,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
-  },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  titleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: fontSize.xxl,
-    fontFamily: fontFamily.bold, fontWeight: '700',
-  },
-  subtitle: {
-    fontSize: fontSize.sm,
-    marginBottom: spacing.md,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  searchInputContainer: {
-    flex: 1,
-  },
-  discoveryRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  discoveryButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    gap: spacing.xs,
-  },
-  discoveryButtonText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  filterButton: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  filterBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  filterBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-  },
-  activeFiltersRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-  },
-  activeFilterChip: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
-  extractorFilterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activeFilterText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  clearFiltersText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-    marginLeft: spacing.xs,
-  },
-  searchLoadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    gap: spacing.xs,
-  },
-  searchLoadingText: {
-    fontSize: fontSize.xs,
-  },
-  sortRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  sortLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  sortChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    gap: 4,
-  },
-  sortChipText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    gap: 4,
-  },
-  actionButtonText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  hideMyRecipesToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    marginTop: spacing.sm,
-    gap: spacing.xs,
-  },
-  hideMyRecipesText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  contributorsSection: {
-    marginTop: spacing.md,
-  },
-  contributorsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  contributorsSectionTitle: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  seeAllText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  // @username suggestions
-  usernameSuggestions: {
-    marginTop: spacing.sm,
-    padding: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-  },
-  usernameSuggestionsHint: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-    marginBottom: spacing.xs,
-  },
-  usernameSuggestionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
-    borderTopWidth: 1,
-  },
-  usernameSuggestionInfo: {
-    flex: 1,
-  },
-  usernameSuggestionName: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  usernameSuggestionCount: {
-    fontSize: fontSize.xs,
-  },
-  contributorsScroll: {
-    gap: spacing.sm,
-    paddingRight: spacing.lg,
-  },
-  contributorChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: spacing.xs,
-  },
-  contributorInfo: {
-    maxWidth: 100,
-  },
-  contributorName: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-  },
-  contributorCount: {
-    fontSize: fontSize.xs,
-  },
-  card: {
-    flexDirection: 'row',
-    borderRadius: radius.lg,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-    borderWidth: 1,
-    // Subtle shadow for depth
   },
   // Grid view styles
   gridRow: {
     justifyContent: 'space-between',
     gap: RECIPE_GRID_GAP,
   },
-  gridTimeBadge: {
-    position: 'absolute',
-    top: spacing.xs,
-    maxWidth: '75%',
-    left: spacing.xs,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  gridSaveButtonContainer: {
-    position: 'absolute',
-    top: spacing.xs,
-    right: spacing.xs,
-  },
-  gridTimeText: {
-    flexShrink: 1,
-    color: '#FFFFFF',
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium, fontWeight: '500',
-  },
-  gridCardAuthor: {
-    fontSize: fontSize.xs,
-    lineHeight: 16,
-  },
-  viewToggleButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  thumbnailContainer: {
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  thumbnail: {
-    width: 110,
-    height: 130,
-  },
-  thumbnailOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '40%',
-  },
-  saveButtonContainer: {
-    position: 'absolute',
-    top: spacing.xs,
-    right: spacing.xs,
-  },
-  saveButton: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: radius.full,
-    padding: spacing.xs,
-  },
-  cardContent: {
-    flex: 1,
-    padding: spacing.md,
-    justifyContent: 'space-between',
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontFamily: fontFamily.displaySemibold,
-    lineHeight: 21,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.xs,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  metaText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: fontFamily.medium, fontWeight: '500',
-  },
-  tagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-  },
-  moreText: {
-    fontSize: fontSize.xs,
-    alignSelf: 'center',
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  footerLeft: {
-    flex: 1,
-    gap: 2,
-  },
-  sourceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  attributionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  attributionText: {
-    fontSize: fontSize.xs,
-  },
-  sourceText: {
-    fontSize: fontSize.xs,
-    textTransform: 'capitalize',
-  },
-  hdBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-  },
-  hdText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-  },
+  gridSaveButtonContainer: { position: 'absolute', top: 8, right: 8 },
+  saveButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: spacing.xxl,
@@ -1634,9 +705,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.md,
-  },
-  emptyEmoji: {
-    fontSize: 48,
   },
   emptyTitle: {
     fontSize: fontSize.xl,
