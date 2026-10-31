@@ -231,6 +231,24 @@ describe('planner loading recovery', () => {
     } finally { routeMocks.params = {}; vi.mocked(parsePlannerDateParam).mockReset(); await act(async () => root.unmount()); }
   });
 
+  it('focuses Today after the initial week finishes loading', async () => {
+    const start = new Date('2026-10-26T12:00:00Z');
+    vi.mocked(planHooks.getWeekStart).mockReturnValue(start);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: undefined, isLoading: true, refetch } as any);
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [] }, isLoading: false, refetch } as any);
+      await act(async () => root.render(<PlannerScreen />));
+      const days = root.container.queryAll(node => node.type === 'View' && !!node.props.onLayout);
+      await act(async () => days.forEach((day, index) => day.props.onLayout({ nativeEvent: { layout: { y: 100 + index * 200 } } })));
+      routeMocks.scrollTo.mockClear();
+      const today = root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === 'Go to today')[0];
+      await act(async () => today.props.onPress());
+      expect(routeMocks.scrollTo).toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('adds a picked recipe to the chosen day instead of a previously focused day', async () => {
     const start = new Date('2026-10-26T12:00:00Z');
     vi.mocked(planHooks.getWeekStart).mockReturnValue(start);

@@ -467,6 +467,7 @@ function PlannerScreenContent() {
 
   // Navigate between weeks
   const goToPrevWeek = useCallback(() => {
+    pendingScrollDate.current = null;
     lightHaptic();
     const newStart = new Date(
       currentWeekStart.getFullYear(),
@@ -502,7 +503,7 @@ function PlannerScreenContent() {
     }
     setCurrentWeekStart(getWeekStart(today));
     setSelectedDate(today);
-  }, [weekOfStr, headerHeight]);
+  }, [weekOfStr, headerHeight, weekPlan, isLoading, insets.bottom]);
 
   const addRecipeToMeal = useCallback(
     async (recipe: MealPlanRecipe, mealType: MealType, date = selectedDate) => {
