@@ -44,7 +44,7 @@ vi.mock('@/components/Themed', () => ({
     text: '#17120e',
     textSecondary: '#6d5d50',
     textMuted: '#756659',
-    tint: '#155c52',
+    tint: '#5DD3B6', onTint: '#00261F',
   }),
 }));
 
@@ -214,6 +214,9 @@ describe('SourcePlaybackModal', () => {
       const retry = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Try loading the YouTube player again',
       )[0];
+      expect(retry.queryAll(node => node.type === 'Ionicons' && node.props.name === 'refresh')[0].props.color).toBe('#00261F');
+      const retryLabel = retry.queryAll(node => node.type === 'Text')[0];
+      expect(Object.assign({}, ...[retryLabel.props.style].flat(Infinity)).color).toBe('#00261F');
       await act(async () => retry.props.onPress());
       const retriedWebView = renderer.container.queryAll((instance) => instance.type === 'WebView')[0];
       expect(retriedWebView).not.toBe(firstWebView);

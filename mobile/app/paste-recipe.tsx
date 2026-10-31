@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   inputHint: { flex: 1, fontSize: fontSize.xs, lineHeight: 17 },
-  characterCount: { fontSize: fontSize.xs, fontFamily: fontFamily.medium },
+  characterCount: { fontSize: fontSize.xs, fontFamily: fontFamily.medium, fontWeight: '500' },
   privacyNotice: {
     flexDirection: 'row',
     alignItems: 'flex-start',

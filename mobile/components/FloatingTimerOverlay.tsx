@@ -131,31 +131,31 @@ export function FloatingTimerOverlay() {
           <Ionicons
             name={primaryTimer.isPaused ? 'pause-circle' : 'timer-outline'}
             size={18}
-            color="#FFFFFF"
+            color={isUrgent ? colors.onError : colors.onTint}
           />
           
-          <Text style={styles.timerText}>
+          <Text style={[styles.timerText, { color: isUrgent ? colors.onError : colors.onTint }]}>
             {formatTime(primaryTimer.remaining)}
           </Text>
           
           {primaryTimer.isPaused && (
-            <Text style={styles.statusText}>paused</Text>
+            <Text style={[styles.statusText, { color: isUrgent ? colors.onError : colors.onTint }]}>paused</Text>
           )}
           
           {otherTimersCount > 0 && (
-            <Text style={styles.statusText}>+{otherTimersCount}</Text>
+            <Text style={[styles.statusText, { color: isUrgent ? colors.onError : colors.onTint }]}>+{otherTimersCount}</Text>
           )}
           
           <RNView style={styles.separator} />
           
-          <Text style={styles.recipeTitle} numberOfLines={1}>
+          <Text style={[styles.recipeTitle, { color: isUrgent ? colors.onError : colors.onTint }]} numberOfLines={1}>
             {session.recipeTitle}
           </Text>
           
           <Ionicons 
             name="chevron-forward" 
             size={16} 
-            color="rgba(255,255,255,0.8)" 
+            color={isUrgent ? colors.onError : colors.onTint}
           />
         </TouchableOpacity>
       </Animated.View>

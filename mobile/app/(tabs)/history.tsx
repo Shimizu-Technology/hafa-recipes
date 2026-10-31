@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router';
 import { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
+  useWindowDimensions,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -101,7 +102,7 @@ export function RecipeCard({
         {/* Saved badge */}
         {isSavedRecipe && (
           <RNView style={[styles.savedBadge, { backgroundColor: colors.error }]}>
-            <Ionicons name="heart" size={10} color="#FFFFFF" />
+            <Ionicons name="heart" size={10} color={colors.onError} />
           </RNView>
         )}
       </RNView>
@@ -201,7 +202,7 @@ export function GridRecipeCard({
         <>
           {isSavedRecipe && (
             <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
-              <Ionicons name="heart" size={12} color="#FFFFFF" />
+              <Ionicons name="heart" size={12} color={colors.onError} />
             </RNView>
           )}
           {recipe.review_state && recipe.review_state !== 'ready' && (
@@ -232,6 +233,7 @@ export function GridRecipeCard({
 export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
+  const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -560,7 +562,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
                 ]}
               >
                 {isSelected && (
-                  <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                  <Ionicons name="checkmark" size={14} color={colors.onTint} />
                 )}
               </RNView>
             )}
@@ -587,7 +589,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               accessibilityLabel={`Select ${item.title}`}
             >
               {isSelected && (
-                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                <Ionicons name="checkmark" size={16} color={colors.onTint} />
               )}
             </TouchableOpacity>
           )}
@@ -734,8 +736,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/(tabs)')}
         activeOpacity={0.8}
       >
-        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
-        <Text style={styles.emptyButtonText}>{hasPrimaryLoadError ? 'Try Again' : filteredEmpty ? 'Clear search and filters' : 'Add Your First Recipe'}</Text>
+        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color={colors.onTint} />
+        <Text style={[styles.emptyButtonText, { color: colors.onTint }]}>{hasPrimaryLoadError ? 'Try Again' : filteredEmpty ? 'Clear search and filters' : 'Add Your First Recipe'}</Text>
       </TouchableOpacity>
     </RNView>
   );
@@ -819,11 +821,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
             <Ionicons
               name="options-outline"
               size={20}
-              color={activeFilterCount > 0 ? '#FFFFFF' : colors.text}
+              color={activeFilterCount > 0 ? colors.onTint : colors.text}
             />
             {activeFilterCount > 0 && (
               <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
-                <Text style={[styles.filterBadgeText, { color: colors.tint }]}>
+                <Text style={[styles.filterBadgeText, { color: '#1E7F6E' }]}>
                   {activeFilterCount}
                 </Text>
               </RNView>
@@ -903,12 +905,12 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
-          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
+          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={isGrid ? 2 : 1}
-          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
+          numColumns={isGrid && !largeText ? 2 : 1}
+          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListEmptyComponent={ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[
@@ -950,8 +952,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               disabled={selectedRecipeIds.size === 0}
               activeOpacity={0.8}
             >
-              <Ionicons name="folder-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.addToCollectionButtonText}>Add to Collection</Text>
+              <Ionicons name="folder-outline" size={18} color={colors.onTint} />
+              <Text style={[styles.addToCollectionButtonText, { color: colors.onTint }]}>Add to Collection</Text>
             </TouchableOpacity>
           </RNView>
         </RNView>
@@ -1001,7 +1003,7 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: fontSize.md,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   searchRow: {
     flexDirection: 'row',
@@ -1144,7 +1146,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: '#FFFFFF',
     fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   gridSourceRow: {
     flexDirection: 'row',
@@ -1179,9 +1181,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
-    lineHeight: 20,
+    fontSize: 16,
+    fontFamily: fontFamily.displaySemibold,
+    lineHeight: 21,
   },
   cardTrustBadge: {
     marginTop: spacing.xs,
@@ -1197,8 +1199,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   tagRow: {
     flexDirection: 'row',
@@ -1252,7 +1255,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: fontSize.xl,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginBottom: spacing.sm,
   },
   emptySubtitle: {
@@ -1271,7 +1274,7 @@ const styles = StyleSheet.create({
   emptyButtonText: {
     color: '#FFFFFF',
     fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
   footerContainer: {
     paddingVertical: spacing.md,

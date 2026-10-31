@@ -15,6 +15,10 @@ function relativeLuminance(hex: string): number {
 }
 
 function contrastRatio(foreground: string, background: string): number {
+  if (foreground.startsWith('rgba')) {
+    const [r, g, b, a] = foreground.match(/[\d.]+/g)!.map(Number);
+    foreground = composite('#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join(''), a, background);
+  }
   const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
   const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
   return (lighter + 0.05) / (darker + 0.05);
@@ -66,11 +70,12 @@ describe('mobile color contrast', () => {
 
     it(`${themeName} tab and primary-button colors preserve control contrast`, () => {
       expect(contrastRatio(theme.tabIconDefault, theme.backgroundElevated)).toBeGreaterThanOrEqual(3);
-      expect(contrastRatio('#FFFFFF', theme.tint)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme.onTint, theme.tint)).toBeGreaterThanOrEqual(4.5);
     });
   }
 
-  it('keeps light-mode action text identical to the light tint', () => {
-    expect(Colors.light.actionText).toBe(Colors.light.tint);
+  it('keeps light-mode action text distinct from the fill to stay readable on tonal surfaces', () => {
+    expect(Colors.light.tint).toBe('#1E7F6E');
+    expect(contrastRatio(Colors.light.actionText, Colors.light.card)).toBeGreaterThanOrEqual(4.5);
   });
 });

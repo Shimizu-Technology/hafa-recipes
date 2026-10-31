@@ -218,11 +218,11 @@ export default function GroceryListSettingsModal({
                       disabled={createInviteMutation.isPending}
                     >
                       {createInviteMutation.isPending ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <ActivityIndicator size="small" color={colors.onTint} />
                       ) : (
                         <>
-                          <Ionicons name="share-outline" size={20} color="#FFFFFF" />
-                          <Text style={styles.shareButtonText}>Share Invite</Text>
+                          <Ionicons name="share-outline" size={20} color={colors.onTint} />
+                          <Text style={[styles.shareButtonText, { color: colors.onTint }]}>Share Invite</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -282,9 +282,9 @@ export default function GroceryListSettingsModal({
                       disabled={!joinCode.trim() || joinMutation.isPending}
                     >
                       {joinMutation.isPending ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <ActivityIndicator size="small" color={joinCode.trim() ? colors.onTint : colors.textMuted} />
                       ) : (
-                        <Ionicons name="enter-outline" size={20} color="#FFFFFF" />
+                        <Ionicons name="enter-outline" size={20} color={joinCode.trim() ? colors.onTint : colors.textMuted} />
                       )}
                     </TouchableOpacity>
                   </RNView>

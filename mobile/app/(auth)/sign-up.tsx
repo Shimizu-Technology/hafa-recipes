@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },

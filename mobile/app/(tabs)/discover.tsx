@@ -3,6 +3,7 @@ import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
+  useWindowDimensions,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -407,6 +408,7 @@ function GridRecipeCard({
 export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
+  const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -755,8 +757,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         onPress={refreshDiscover}
         activeOpacity={0.8}
       >
-        <Ionicons name="refresh" size={17} color="#FFFFFF" />
-        <Text style={styles.retryButtonText}>Try Again</Text>
+        <Ionicons name="refresh" size={17} color={colors.onTint} />
+        <Text style={[styles.retryButtonText, { color: colors.onTint }]}>Try Again</Text>
       </TouchableOpacity>
     </RNView>
   );
@@ -933,11 +935,11 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             <Ionicons
               name="options-outline"
               size={20}
-              color={activeFilterCount > 0 ? '#FFFFFF' : colors.text}
+              color={activeFilterCount > 0 ? colors.onTint : colors.text}
             />
             {activeFilterCount > 0 && (
               <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
-                <Text style={[styles.filterBadgeText, { color: colors.tint }]}>
+                <Text style={[styles.filterBadgeText, { color: '#1E7F6E' }]}>
                   {activeFilterCount}
                 </Text>
               </RNView>
@@ -1039,10 +1041,10 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
                 accessibilityRole="button"
                 accessibilityLabel={`Remove filter: recipes by ${selectedExtractor.name}`}
               >
-                <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.onTint }]}>
                   by {selectedExtractor.name}{searchTotal > 0 ? ` (${searchTotal})` : ''}
                 </Text>
-                <Ionicons name="close" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+                <Ionicons name="close" size={14} color={colors.onTint} style={{ marginLeft: 4 }} />
               </TouchableOpacity>
             )}
             {sourceFilter !== 'all' && (
@@ -1156,13 +1158,13 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
                     <Ionicons
                       name="person-circle-outline"
                       size={18}
-                      color={isSelected ? '#FFFFFF' : colors.textSecondary}
+                      color={isSelected ? colors.onTint : colors.textSecondary}
                     />
                     <RNView style={styles.contributorInfo}>
                       <Text
                         style={[
                           styles.contributorName,
-                          { color: isSelected ? '#FFFFFF' : colors.text }
+                          { color: isSelected ? colors.onTint : colors.text }
                         ]}
                         numberOfLines={1}
                       >
@@ -1171,7 +1173,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
                       <Text
                         style={[
                           styles.contributorCount,
-                          { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }
+                          { color: isSelected ? colors.onTint : colors.textMuted }
                         ]}
                       >
                         {contributor.recipe_count} {contributor.recipe_count === 1 ? 'recipe' : 'recipes'}
@@ -1194,12 +1196,12 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
-          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
+          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={isGrid ? 2 : 1}
-          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
+          numColumns={isGrid && !largeText ? 2 : 1}
+          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[
@@ -1264,7 +1266,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: fontSize.xxl,
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.bold, fontWeight: '700',
   },
   subtitle: {
     fontSize: fontSize.sm,
@@ -1515,7 +1517,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: '#FFFFFF',
     fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   gridCardAuthor: {
     fontSize: fontSize.xs,
@@ -1560,9 +1562,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
-    lineHeight: 20,
+    fontSize: 16,
+    fontFamily: fontFamily.displaySemibold,
+    lineHeight: 21,
   },
   metaRow: {
     flexDirection: 'row',
@@ -1575,8 +1577,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   tagRow: {
     flexDirection: 'row',
@@ -1642,7 +1645,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: fontSize.xl,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginBottom: spacing.sm,
   },
   emptySubtitle: {
@@ -1704,7 +1707,7 @@ const styles = StyleSheet.create({
   },
   surpriseModalTitle: {
     fontSize: fontSize.lg,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
   surpriseModalOptions: {
     gap: spacing.xs,

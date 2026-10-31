@@ -482,7 +482,7 @@ export default function FilterBottomSheet({
               onPress={handleApply}
               accessibilityRole="button"
             >
-              <Text style={styles.applyButtonText}>
+              <Text style={[styles.applyButtonText, { color: colors.onTint }]}>
                 Apply{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </Text>
             </ScalePressable>
@@ -552,6 +552,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipText: {
+    lineHeight: 18,
+    textAlign: 'center',
+    includeFontPadding: false,
     flexShrink: 1,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,

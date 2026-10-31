@@ -18,7 +18,7 @@ function ImportPanel({ visible, title, onClose, children }: {
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <Text accessibilityRole="header" style={styles.title}>{title}</Text>
             <TouchableOpacity onPress={onClose} style={styles.done} accessibilityRole="button" accessibilityLabel={`Done with ${title.toLowerCase()}`}>
-              <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }}>Done</Text>
+              <Text style={{ color: colors.text, fontFamily: fontFamily.semibold, fontWeight: '600' }}>Done</Text>
             </TouchableOpacity>
           </View>
           <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? undefined : 'height'}>
@@ -109,11 +109,11 @@ export function ImportHelpPanel({ visible, onClose, onWebsiteSupport }: {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.sm },
-  title: { flex: 1, fontFamily: fontFamily.semibold, fontSize: fontSize.lg },
+  title: { flex: 1, fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.lg },
   done: { minHeight: 48, minWidth: 44, justifyContent: 'center', alignItems: 'center' },
   content: { padding: spacing.lg },
   section: { marginBottom: spacing.lg, gap: spacing.sm },
-  label: { fontSize: fontSize.md, fontFamily: fontFamily.semibold },
+  label: { fontSize: fontSize.md, fontFamily: fontFamily.semibold, fontWeight: '600' },
   description: { fontSize: fontSize.sm, lineHeight: 20, marginBottom: spacing.xs },
   choices: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' },
   choice: { flexDirection: 'row', alignItems: 'center', minHeight: 52, padding: spacing.md, gap: spacing.sm },

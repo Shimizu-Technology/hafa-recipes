@@ -44,7 +44,7 @@ export default function TabLayout() {
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
-          fontFamily: 'DMSans_600SemiBold',
+          fontFamily: fontFamily.semibold,
         },
         tabBarItemStyle: {
           paddingTop: 2,

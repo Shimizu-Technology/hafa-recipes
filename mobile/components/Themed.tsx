@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react';
 /**
  * Themed components with clean, minimal styling
  */
@@ -15,7 +16,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import Colors, { spacing, radius, fontSize, fontWeight, fontFamily, shadows } from '@/constants/Colors';
+import Colors, { spacing, radius, fontSize, fontFamily, shadows, typography, lineHeightForSize } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
 import { ScalePressable } from './Animated';
 
@@ -50,23 +51,31 @@ export function useColors() {
   return Colors[theme];
 }
 
-// Basic Text component with Inter font
+const TextMetricsContext = createContext<{ fontSize: number; lineHeight: number } | null>(null);
+
+// Nested text keeps its parent's metrics, including recipe text-size overrides.
 export function Text(props: TextProps) {
   const {
     style,
     lightColor,
     darkColor,
-    maxFontSizeMultiplier = 0,
     ...otherProps
   } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
 
+  const inherited = useContext(TextMetricsContext);
+  const resolved = StyleSheet.flatten(style);
+  const size = resolved?.fontSize ?? inherited?.fontSize ?? typography.body.fontSize;
+  const leading = resolved?.lineHeight ?? (resolved?.fontSize !== undefined
+    ? lineHeightForSize(size)
+    : inherited?.lineHeight ?? lineHeightForSize(size));
+  const defaults = inherited
+    ? { fontSize: size, lineHeight: leading, ...((lightColor || darkColor) ? { color } : {}) }
+    : { color, fontFamily: fontFamily.regular, ...typography.body, fontSize: size, lineHeight: leading };
   return (
-    <DefaultText
-      maxFontSizeMultiplier={maxFontSizeMultiplier}
-      style={[{ color, fontFamily: fontFamily.regular }, style]}
-      {...otherProps}
-    />
+    <TextMetricsContext.Provider value={{ fontSize: size, lineHeight: leading }}>
+      <DefaultText style={[defaults, style]} {...otherProps} />
+    </TextMetricsContext.Provider>
   );
 }
 
@@ -94,9 +103,7 @@ export function Card({ children, style, noPadding, elevated, ...props }: CardPro
       style={[
         {
           backgroundColor: colors.card,
-          borderRadius: radius.xl,
-          borderWidth: 1,
-          borderColor: colors.cardBorder,
+          borderRadius: radius.md,
           padding: noPadding ? 0 : spacing.lg,
           shadowColor: colors.shadowColor,
           ...shadowStyle,
@@ -168,7 +175,6 @@ export function Input({
         ref={inputRef}
         textContentType={textContentType}
         accessibilityLabel={accessibilityLabel}
-        maxFontSizeMultiplier={0}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -188,15 +194,13 @@ export function Input({
         returnKeyType={returnKeyType}
         style={[
           {
-            backgroundColor: colors.backgroundElevated,
-            borderRadius: radius.lg,
+            backgroundColor: colors.surface2,
+            borderRadius: radius.sm,
             padding: spacing.md,
             paddingRight: showClear ? 56 : spacing.md,
-            fontSize: fontSize.md,
+            ...typography.body,
             color: colors.text,
             fontFamily: fontFamily.medium,
-            borderWidth: 1,
-            borderColor: colors.border,
             minHeight: multiline ? 100 : 44,
             textAlignVertical: multiline ? 'top' : 'center',
           },
@@ -244,9 +248,9 @@ export function Button({
       case 'primary':
         return colors.tint;
       case 'secondary':
-        return colors.backgroundSecondary;
-      case 'ghost':
       case 'outline':
+        return colors.surface2;
+      case 'ghost':
         return 'transparent';
       default:
         return colors.tint;
@@ -257,14 +261,14 @@ export function Button({
     if (disabled) return colors.textMuted;
     switch (variant) {
       case 'primary':
-        return '#FFFFFF';
+        return colors.onTint;
       case 'secondary':
+      case 'outline':
         return colors.text;
       case 'ghost':
-      case 'outline':
         return colors.actionText;
       default:
-        return '#FFFFFF';
+        return colors.onTint;
     }
   };
 
@@ -273,9 +277,9 @@ export function Button({
       case 'sm':
         return { paddingVertical: spacing.sm, paddingHorizontal: spacing.md };
       case 'lg':
-        return { paddingVertical: spacing.lg, paddingHorizontal: spacing.xl };
+        return { paddingVertical: 14, paddingHorizontal: spacing.xl };
       default:
-        return { paddingVertical: spacing.md, paddingHorizontal: spacing.lg };
+        return { paddingVertical: 14, paddingHorizontal: spacing.lg };
     }
   };
 
@@ -288,7 +292,7 @@ export function Button({
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       style={[
         {
-          minHeight: 44,
+          minHeight: size === 'sm' ? 44 : 50,
           minWidth: 44,
           backgroundColor: getBackgroundColor(),
           borderRadius: radius.full,
@@ -298,19 +302,16 @@ export function Button({
           gap: spacing.sm,
         },
         getPadding(),
-        variant === 'secondary' && { borderWidth: 1, borderColor: colors.border },
-        variant === 'outline' && { borderWidth: 1, borderColor: colors.tint },
         style,
       ]}
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}
       <DefaultText
-        maxFontSizeMultiplier={0}
         style={{
           color: getTextColor(),
           flexShrink: 1,
           textAlign: 'center',
-          fontSize: size === 'lg' ? fontSize.lg : fontSize.md,
+          ...typography.headline,
           fontFamily: fontFamily.semibold,
         }}
       >
@@ -338,7 +339,7 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
     <DefaultView
       style={[
         {
-          backgroundColor: selected ? colors.text : colors.backgroundSecondary,
+          backgroundColor: selected ? colors.text : colors.surface2,
           minHeight: onPress ? 44 : undefined,
           minWidth: onPress ? 44 : undefined,
           flexDirection: 'row',
@@ -349,19 +350,20 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
           borderRadius: radius.full,
           paddingVertical: size === 'sm' ? spacing.xs : spacing.sm,
           paddingHorizontal: size === 'sm' ? spacing.sm : spacing.md,
-          borderWidth: 1,
-          borderColor: selected ? colors.text : colors.border,
         },
       ]}
     >
       {icon && <Ionicons name={icon} size={16} color={selected ? colors.background : colors.textMuted} />}
       <DefaultText
-        maxFontSizeMultiplier={0}
         style={{
           flexShrink: 1,
           color: selected ? colors.background : colors.text,
           fontSize: size === 'sm' ? fontSize.xs : fontSize.sm,
-          fontFamily: selected ? fontFamily.semibold : fontFamily.medium,
+          fontWeight: selected ? '600' : '500',
+          lineHeight: size === 'sm' ? 13 : 18,
+          textAlign: 'center',
+          includeFontPadding: false,
+          fontFamily: fontFamily.regular,
         }}
       >
         {label}
@@ -422,10 +424,10 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
   return (
     <DefaultView style={{ marginBottom: spacing.md }}>
       <DefaultText
-        maxFontSizeMultiplier={0}
         style={{
-          fontSize: fontSize.sm,
-          fontFamily: fontFamily.semibold,
+          fontSize: 20,
+          lineHeight: 25,
+          fontFamily: fontFamily.displaySemibold,
           color: colors.textSecondary,
           marginBottom: subtitle ? spacing.xs : 0,
         }}
@@ -434,9 +436,8 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
       </DefaultText>
       {subtitle && (
         <DefaultText
-          maxFontSizeMultiplier={0}
-          style={{
-            fontSize: fontSize.sm,
+            style={{
+            ...typography.footnote,
             color: colors.textSecondary,
           }}
         >

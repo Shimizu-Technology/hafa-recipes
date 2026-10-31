@@ -47,7 +47,7 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
       {onRefresh && <TouchableOpacity onPress={onRefresh} disabled={isLoading} style={styles.action}
         accessibilityRole="button" accessibilityLabel={basis ? 'Refresh nutrition' : 'Estimate nutrition'}
         accessibilityState={{ disabled: isLoading, busy: isLoading }}>
-        {isLoading ? <ActivityIndicator color={actionColor} /> : <Text style={[textStyles.body, { color: actionColor, fontFamily: fontFamily.semibold }]}>
+        {isLoading ? <ActivityIndicator color={actionColor} /> : <Text style={[textStyles.body, { color: actionColor, fontFamily: fontFamily.semibold, fontWeight: '600' }]}>
           {basis ? 'Refresh' : 'Estimate'}</Text>}
       </TouchableOpacity>}
     </View>
@@ -69,7 +69,7 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
           <Text style={[textStyles.body, { color: option.id === basis.id ? actionColor : colors.textSecondary,
             fontFamily: option.id === basis.id ? fontFamily.semibold : fontFamily.regular }]}>{option.label}</Text>
         </TouchableOpacity>)}
-      </View> : <Text style={[textStyles.body, { color: colors.text, fontFamily: fontFamily.semibold }]}>{basis.label}</Text>}
+      </View> : <Text style={[textStyles.body, { color: colors.text, fontFamily: fontFamily.semibold, fontWeight: '600' }]}>{basis.label}</Text>}
       {basis.detail && <Text style={[textStyles.body, { color: colors.textSecondary }]}>{basis.detail}</Text>}
       <View style={styles.primaryGrid}>
         {basis.values.filter((item) => ['calories', 'protein', 'carbs', 'fat'].includes(item.key)).map((item) =>
@@ -83,7 +83,7 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
         <View key={item.key} style={[styles.nutrientRow, { borderBottomColor: colors.border }]}
           accessible accessibilityLabel={`${item.label}: ${item.value} ${item.unit}`}>
           <Text style={[textStyles.body, { color: colors.textSecondary }]}>{item.label}</Text>
-          <Text style={[textStyles.body, { color: colors.text, fontFamily: fontFamily.semibold }]}>{item.value} {item.unit}</Text>
+          <Text style={[textStyles.body, { color: colors.text, fontFamily: fontFamily.semibold, fontWeight: '600' }]}>{item.value} {item.unit}</Text>
         </View>)}
     </>}
     <Text style={[textStyles.body, { color: colors.textSecondary }]}>{provenance}</Text>
@@ -108,7 +108,7 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
 const styles = StyleSheet.create({
   container: { gap: spacing.sm, marginBottom: spacing.lg },
   header: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, justifyContent: 'space-between' },
-  title: { fontFamily: fontFamily.semibold, flex: 1, minWidth: 140 },
+  title: { fontFamily: fontFamily.semibold, fontWeight: '600', flex: 1, minWidth: 140 },
   action: { minHeight: 44, minWidth: 44, paddingHorizontal: spacing.sm, justifyContent: 'center', alignItems: 'center' },
   notice: { borderWidth: 1, borderRadius: radius.md, padding: spacing.sm },
   bases: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -116,12 +116,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center', flexShrink: 1 },
   primaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   primaryCell: { padding: spacing.md, borderRadius: radius.md, minWidth: '45%', flexGrow: 1, flexBasis: '45%' },
-  value: { fontFamily: fontFamily.semibold },
+  value: { fontFamily: fontFamily.semibold, fontWeight: '600' },
   nutrientRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm,
     minHeight: 36, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
   details: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.sm },
   detailsToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm },
-  detailsTitle: { flex: 1, fontFamily: fontFamily.semibold },
+  detailsTitle: { flex: 1, fontFamily: fontFamily.semibold, fontWeight: '600' },
   assumptions: { gap: spacing.md, paddingBottom: spacing.sm },
   assumptionRow: { flexDirection: 'row', gap: spacing.sm },
   assumptionText: { flex: 1 },

@@ -903,7 +903,7 @@ function GroceryScreenContent() {
             accessibilityRole="button"
             accessibilityLabel="Add item and keep typing"
           >
-            <Text style={{ color: '#FFFFFF' }}>Add</Text>
+            <Text style={{ color: colors.onTint }}>Add</Text>
           </TouchableOpacity>
         </RNView>
 

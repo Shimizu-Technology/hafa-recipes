@@ -1030,7 +1030,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
           <RNView style={styles.headerContent}>
             <RNView style={[styles.assistantMark, { backgroundColor: colors.tint }]}>
-              <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+              <Ionicons name="sparkles" size={18} color={colors.onTint} />
             </RNView>
             <RNView style={styles.headerTextContainer}>
               <Text style={[styles.headerTitle, { color: colors.text }]}>
@@ -1212,7 +1212,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
                         />
                       </RNView>
                     )}
-                    <Text style={[styles.messageText, { color: '#FFFFFF' }]}>
+                    <Text style={[styles.messageText, { color: colors.onTint }]}>
                       {msg.content}
                     </Text>
                   </>
@@ -1223,7 +1223,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
                     style={{
                       body: { color: colors.text, fontFamily: fontFamily.regular, fontSize: fontSize.md, lineHeight: 24, flexShrink: 1 },
                       paragraph: { marginVertical: 4, flexShrink: 1 },
-                      strong: { fontFamily: fontFamily.bold, color: colors.text },
+                      strong: { fontFamily: fontFamily.bold, fontWeight: '700', color: colors.text },
                       em: { fontStyle: 'italic' },
                       bullet_list: { marginVertical: 4 },
                       ordered_list: { marginVertical: 4 },
@@ -1234,7 +1234,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
                       ordered_list_content: { flexShrink: 1 },
                       heading1: { fontFamily: fontFamily.display, fontSize: fontSize.xl, color: colors.text, marginVertical: 8 },
                       heading2: { fontFamily: fontFamily.displaySemibold, fontSize: fontSize.lg, color: colors.text, marginVertical: 6 },
-                      heading3: { fontFamily: fontFamily.semibold, fontSize: fontSize.md, color: colors.text, marginVertical: 4 },
+                      heading3: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md, color: colors.text, marginVertical: 4 },
                       code_inline: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
                       fence: { backgroundColor: colors.backgroundSecondary, padding: 8, borderRadius: 8, marginVertical: 4 },
                       link: { color: colors.actionText },
@@ -1408,7 +1408,7 @@ const styles = StyleSheet.create({
   },
   recipeBackText: {
     flexShrink: 1,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
     fontSize: fontSize.sm,
   },
   headerButtons: {
@@ -1451,7 +1451,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   previousConvoText: {
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
     fontSize: fontSize.xs,
   },
   messagesContainer: {
@@ -1480,7 +1480,7 @@ const styles = StyleSheet.create({
     width: 52,
   },
   welcomeEyebrow: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.bold, fontWeight: '700',
     fontSize: fontSize.sm,
     marginTop: spacing.md,
   },
@@ -1506,7 +1506,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   suggestionsTitle: {
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.sm,
     marginBottom: spacing.sm,
   },
@@ -1522,7 +1522,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   suggestionText: {
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
     fontSize: fontSize.sm,
   },
   messageWrapper: {
@@ -1550,7 +1550,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   assistantIdentityText: {
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.xs,
   },
   messageBubble: {

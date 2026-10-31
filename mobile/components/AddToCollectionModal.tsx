@@ -322,7 +322,7 @@ export default function AddToCollectionModal({
                               },
                             ]}>
                               {isSelected && (
-                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                                <Ionicons name="checkmark" size={16} color={colors.onTint} />
                               )}
                             </RNView>
                           </TouchableOpacity>

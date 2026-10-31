@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: spacing.sm,
     fontSize: fontSize.md,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
     lineHeight: 20,
   },
   action: {
@@ -162,6 +162,6 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
 });

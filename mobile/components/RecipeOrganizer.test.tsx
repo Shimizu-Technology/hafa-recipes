@@ -32,7 +32,7 @@ vi.mock('@/components/Themed', () => ({
     text: '#111',
     textMuted: '#666',
     textSecondary: '#333',
-    tint: '#155C52',
+    tint: '#5DD3B6', onTint: '#00261F',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
@@ -90,6 +90,22 @@ function organizerProps() {
 }
 
 describe('RecipeOrganizer', () => {
+  it('keeps note save text and its busy indicator readable on the dark tint', async () => {
+    const props = organizerProps();
+    const root = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => root.render(<RecipeOrganizer {...props} />));
+      await act(async () => root.container.queryAll(n => n.props.accessibilityLabel === 'Open Notes. Private note')[0].props.onPress());
+      await act(async () => root.container.queryAll(n => n.props.accessibilityLabel === 'Edit private recipe note')[0].props.onPress());
+      let save = root.container.queryAll(n => n.props.accessibilityLabel === 'Save private recipe note')[0];
+      const label = save.queryAll(n => n.type === 'Text')[0];
+      expect(Object.assign({}, ...[label.props.style].flat(Infinity)).color).toBe('#00261F');
+      await act(async () => root.render(<RecipeOrganizer {...props} isNoteSaving />));
+      save = root.container.queryAll(n => n.props.accessibilityLabel === 'Save private recipe note')[0];
+      expect(save.queryAll(n => n.type === 'ActivityIndicator')[0].props.color).toBe('#00261F');
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('summarizes all three private tools without expanding them inline', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 

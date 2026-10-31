@@ -66,7 +66,7 @@ export default function JoinGroceryListScreen() {
             style={[styles.primaryButton, { backgroundColor: colors.tint }]}
             onPress={() => router.push('/(auth)/sign-in')}
           >
-            <Text style={styles.primaryButtonText}>Sign In</Text>
+            <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>Sign In</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.secondaryButton, { borderColor: colors.border }]}
@@ -109,7 +109,7 @@ export default function JoinGroceryListScreen() {
             style={[styles.primaryButton, { backgroundColor: colors.tint }]}
             onPress={() => router.replace('/(tabs)/grocery')}
           >
-            <Text style={styles.primaryButtonText}>Go to Grocery List</Text>
+            <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>Go to Grocery List</Text>
           </TouchableOpacity>
         </RNView>
       </View>
@@ -132,7 +132,7 @@ export default function JoinGroceryListScreen() {
             style={[styles.primaryButton, { backgroundColor: colors.tint }]}
             onPress={() => router.replace('/(tabs)/grocery')}
           >
-            <Text style={styles.primaryButtonText}>Go to Grocery List</Text>
+            <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>Go to Grocery List</Text>
           </TouchableOpacity>
         </RNView>
       </View>
@@ -182,11 +182,11 @@ export default function JoinGroceryListScreen() {
           disabled={joinMutation.isPending}
         >
           {joinMutation.isPending ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={colors.onTint} />
           ) : (
             <>
-              <Ionicons name="people" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.primaryButtonText}>Join List</Text>
+              <Ionicons name="people" size={20} color={colors.onTint} style={{ marginRight: 8 }} />
+              <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>Join List</Text>
             </>
           )}
         </TouchableOpacity>

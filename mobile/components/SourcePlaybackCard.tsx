@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: spacing.sm,
   },
-  footerTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.md },
+  footerTitle: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md },
   footerText: { fontSize: fontSize.xs, marginTop: 2 },
   openButton: {
     minHeight: 44,

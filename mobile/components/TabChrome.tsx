@@ -57,7 +57,7 @@ export function ImportTabIcon({ focused }: { focused: boolean }) {
 
   return (
     <RNView style={[styles.importIcon, { backgroundColor: colors.tint, opacity: focused ? 1 : 0.9 }]}>
-      <Ionicons name={focused ? 'add' : 'add-outline'} size={24} color="#FFFFFF" />
+      <Ionicons name={focused ? 'add' : 'add-outline'} size={24} color={colors.onTint} />
     </RNView>
   );
 }
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   accountInitialText: {
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.lg,
   },
   // Filled because Import is the primary capture action, but it sits inside the

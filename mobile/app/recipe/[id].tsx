@@ -802,7 +802,7 @@ function RecipeDetailScreenContent() {
               </TouchableOpacity>
             </RNView>}
             {/* Title */}
-            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(30), lineHeight: scaleFontSize(36) }]}>
+            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}>
               {extracted.title}
             </Text>
 
@@ -1251,7 +1251,7 @@ function RecipeDetailScreenContent() {
                       {component.steps.map((step, stepIndex) => (
                         <RNView key={stepIndex} style={styles.stepRow}>
                           <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
-                            <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
+                            <Text style={[styles.stepNumberText, { color: colors.onTint }]}>{stepIndex + 1}</Text>
                           </RNView>
                           <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(24) }]}>
                             {step}
@@ -1299,12 +1299,12 @@ function RecipeDetailScreenContent() {
                   {/* Cost Summary */}
                   <RNView style={styles.costSummaryCard}>
                     <RNView style={[styles.costTotalBox, { backgroundColor: colors.tint }]}>
-                      <Text style={styles.costTotalLabel}>Estimated Total Cost</Text>
-                      <Text style={styles.costTotalValue}>
+                      <Text style={[styles.costTotalLabel, { color: colors.onTint }]}>Estimated Total Cost</Text>
+                      <Text style={[styles.costTotalValue, { color: colors.onTint }]}>
                         ${costSummary.total.toFixed(2)}
                       </Text>
                       {isScaled && (
-                        <Text style={styles.costScaledNote}>
+                        <Text style={[styles.costScaledNote, { color: colors.onTint }]}>
                           (scaled for {currentServings} servings)
                         </Text>
                       )}
@@ -1468,9 +1468,9 @@ function RecipeDetailScreenContent() {
               <Ionicons
                 name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
                 size={22}
-                color="#FFFFFF"
+                color={colors.onTint}
               />
-              <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
+              <Text style={[styles.floatingCookButtonText, { color: colors.onTint }]}>{cookPresentation.buttonLabel}</Text>
             </TouchableOpacity>
           ) : null}
         </RNView>}
@@ -1746,7 +1746,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: fontSize.xxl,
     fontFamily: fontFamily.display,
-    lineHeight: 42,
+    lineHeight: 34,
     marginBottom: spacing.md,
   },
   metaRow: {
@@ -1911,7 +1911,7 @@ const styles = StyleSheet.create({
   startCookingText: {
     color: '#FFFFFF',
     fontSize: fontSize.lg,
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.bold, fontWeight: '700',
   },
   startCookingSubtext: {
     color: 'rgba(255,255,255,0.8)',
@@ -1942,7 +1942,7 @@ const styles = StyleSheet.create({
   floatingCookButtonText: {
     color: '#FFFFFF',
     fontSize: fontSize.lg,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
   floatingDraftButton: {
     minHeight: 44,
@@ -1957,7 +1957,7 @@ const styles = StyleSheet.create({
   },
   floatingDraftButtonText: {
     fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
   sourceButton: {
     minHeight: 44,
