@@ -11,7 +11,7 @@ export const useNativeHeader = () => useContext(NativeHeader);
 export function NativeTabStack({ title, add = false }: { title: string; add?: boolean }) {
   const c = useColors();
   return <NativeHeader.Provider value>
-    <Stack screenOptions={{ title, headerLargeTitleEnabled: true, headerShadowVisible: false,
+    <Stack screenOptions={{ title, headerLargeTitleEnabled: true, headerShadowVisible: false, headerBackTitle: "Back",
       headerStyle: { backgroundColor: c.background }, headerTintColor: c.accent,
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },
       contentStyle: { backgroundColor: c.background },
