@@ -772,6 +772,9 @@ function GroceryScreenContent() {
             onSubmitEditing={() => handleAddItem(true)} returnKeyType="done" submitBehavior="submit" maxLength={255} accessibilityLabel="Add an item" />
         </RNView>
 
+        {Platform.OS === 'web' && <TextInput accessibilityLabel="Search grocery list" placeholder="Search grocery list" placeholderTextColor={colors.textSecondary}
+          value={searchQuery} onChangeText={setSearchQuery} style={{ minHeight: 44, padding: 12, borderRadius: 10, marginBottom: 8, backgroundColor: colors.surface2, color: colors.text }} />}
+
         {(addPendingSync || hasQueuedChanges || hasQueuedChanges === undefined || freshness === 'checking' || freshness === 'offline' || freshness === 'stale' || isRefetchError) && <Text accessibilityLiveRegion="polite" style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>
           {addPendingSync || hasQueuedChanges ? 'Saved on this device · waiting to sync' : hasQueuedChanges === undefined || freshness === 'checking' ? 'Checking sync status…' : freshness === 'offline' ? 'Offline · showing this device’s list' : 'Couldn’t refresh · showing this device’s list'}
         </Text>}
