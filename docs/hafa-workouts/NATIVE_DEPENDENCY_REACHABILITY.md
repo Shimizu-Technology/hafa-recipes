@@ -663,6 +663,8 @@ imports neither package. Native source maps must exclude both before accepting
 these exceptions. Untrusted repositories/configuration remain outside this review.
 Workouts/Baby native bundle checks now reject either package if introduced.
 
+Validation against the 2026-10-31 locks (head `883d7e95`): hosted CI ran `npm run export:all` then `npm run check:native-bundles` (which now rejects `glob` and `minimatch`) for both apps; the iOS and Android source maps passed for Workouts ([run](https://github.com/Shimizu-Technology/hafa-recipes/actions/runs/41163579875)) and Baby ([run](https://github.com/Shimizu-Technology/hafa-recipes/actions/runs/41163579888)). The 2026-10-24 results above predate this lock update.
+
 Recipes pins the exact package and declaring-parent versions/integrities and
 all declaring ranges/kinds below, rejecting additional parents or nested copies.
 Workouts/Baby retain their existing whole-lock SHA-256 policy, which pins all
