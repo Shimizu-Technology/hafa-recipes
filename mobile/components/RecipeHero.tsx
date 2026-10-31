@@ -40,7 +40,9 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
     if (currentImage.current === imageIdentity) setFailedImage(imageIdentity);
   };
 
-  if (photoOnly && !usableThumbnailUrl && !thumbnailPending) return <RNView style={{ height: 120, backgroundColor: colors.background }} />;
+  if (photoOnly && !usableThumbnailUrl) return <RNView style={{ minHeight: 120, backgroundColor: colors.background, justifyContent: 'flex-end', padding: 16 }}>
+    {thumbnailPending && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>Choosing recipe photo…</Text>}
+  </RNView>;
   if (!playback && !usableThumbnailUrl && !thumbnailPending) return null;
 
   return (
