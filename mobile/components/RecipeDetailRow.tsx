@@ -20,7 +20,7 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
       {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
     </View>
-    {accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}
+    <View style={styles.accessory}>{accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}</View>
   </>;
   const style = [styles.row, { borderBottomColor: colors.border, gap: fontScale >= 2 ? 4 : 12 }];
   return onPress
@@ -31,6 +31,7 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
 const styles = StyleSheet.create({
   row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   icon: { width: 20, alignItems: 'center' },
+  accessory: { flexShrink: 0, alignItems: 'center' },
   copy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4 },
   title: { fontSize: 17, lineHeight: 22, flexGrow: 1, flexShrink: 1 },
   value: { fontSize: 15, lineHeight: 20, flexShrink: 1, textAlign: 'right', marginLeft: 'auto' },
