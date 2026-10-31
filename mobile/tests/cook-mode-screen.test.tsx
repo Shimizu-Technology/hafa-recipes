@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { __DEV__: boolean }).__DEV__ = false;
 
 const mocks = vi.hoisted(() => ({
+  params: { id: 'recipe-1' } as Record<string, string>,
+  session: null as any,
+  startSession: vi.fn(),
   storage: new Map<string, string>(),
   appStateListeners: [] as ((state: string) => void)[],
   vibrate: vi.fn(),
@@ -72,6 +75,7 @@ vi.mock('react-native', async () => {
     },
     Linking: { openSettings: mocks.openSettings },
     Dimensions: { get: () => ({ width: 400, height: 800 }) },
+    useWindowDimensions: () => ({ width: 400, height: 800, fontScale: 1 }),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: host('Modal'),
     Platform: { OS: 'ios' },
@@ -84,6 +88,7 @@ vi.mock('react-native', async () => {
     View: host('NativeView'),
   };
 });
+vi.mock('@expo/ui/community/segmented-control', () => ({ default: 'SegmentedControl' }));
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'Light', Medium: 'Medium', Heavy: 'Heavy' },
   NotificationFeedbackType: { Success: 'Success', Warning: 'Warning', Error: 'Error' },
@@ -105,10 +110,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 vi.mock('expo-router', () => {
   const Stack = () => null;
-  Stack.Screen = () => null;
+  Stack.Screen = (props: any) => props.options?.headerLeft?.() ?? null;
   return {
     Stack,
-    useLocalSearchParams: () => ({ id: 'recipe-1' }),
+    useLocalSearchParams: () => mocks.params,
     useRouter: () => ({ back: mocks.back }),
   };
 });
@@ -161,9 +166,9 @@ vi.mock('@/hooks/useBackgroundTimer', () => ({
 vi.mock('@/hooks/useTextSize', () => ({ useTextSize: () => ({ scaleFontSize: (n: number) => n }) }));
 vi.mock('@/contexts/TimerContext', () => {
   const context = {
-    session: null,
+    get session() { return mocks.session; },
     timers: new Map(),
-    startSession: vi.fn(),
+    startSession: mocks.startSession,
     updateSession: vi.fn(),
     syncTimers: vi.fn(),
     endSession: vi.fn(),
@@ -178,6 +183,7 @@ const RECIPE = {
   id: 'recipe-1',
   extracted: {
     title: 'Red Rice',
+    servings: 4,
     components: [{
       name: 'Main',
       ingredients: [],
@@ -248,6 +254,9 @@ async function advance(ms: number) {
 describe('CookModeScreen', () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: new Date('2026-01-01T12:00:00Z') });
+    mocks.params = { id: 'recipe-1' };
+    mocks.session = null;
+    mocks.startSession.mockReset();
     mocks.storage.clear();
     mocks.permission = true; mocks.alertFailure = false; mocks.openSettings.mockClear();
     mocks.appStateListeners = [];
@@ -292,6 +301,23 @@ describe('CookModeScreen', () => {
     await act(async () => r.unmount());
   });
 
+  it('keeps the scaled serving context when returning from the floating timer session', async () => {
+    mocks.params = { id: 'recipe-1', scaleFactor: '2', servings: '8' };
+    let renderer = await renderScreen();
+    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    expect(textOf(renderer.root)).toContain('8 servings (scaled)');
+    const session = mocks.startSession.mock.calls.at(-1)![0];
+    expect(session).toMatchObject({ recipeId: 'recipe-1', scaleFactor: 2, servings: 8 });
+    await act(async () => renderer.unmount());
+    // FloatingTimerOverlay reconstructs these route params from the saved session.
+    mocks.session = session;
+    mocks.params = { id: session.recipeId, scaleFactor: String(session.scaleFactor), servings: String(session.servings) };
+    renderer = await renderScreen();
+    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    expect(textOf(renderer.root)).toContain('8 servings (scaled)');
+    await act(async () => renderer.unmount());
+  });
+
   describe('timer completion', () => {
     it('alerts exactly once when a foreground timer finishes', async () => {
       const renderer = await renderOnTimedStep();
@@ -310,7 +336,7 @@ describe('CookModeScreen', () => {
 
       // Further ticks and re-renders must not replay the alert.
       await advance(10_000);
-      await act(async () => buttonByLabel(renderer, 'Show ingredients').props.onPress());
+      await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
       await flush();
       expect(completionHaptics()).toBe(1);
       expect(mocks.vibrate).toHaveBeenCalledOnce();
@@ -457,7 +483,7 @@ describe('CookModeScreen', () => {
     it('labels the header and navigation controls and reflects the disabled state', async () => {
       const renderer = await renderScreen();
 
-      for (const label of ['Exit cook mode', 'Show ingredients', 'Previous step', 'Next step']) {
+      for (const label of ['Exit cook mode', 'Previous step', 'Next step']) {
         expect(buttonByLabel(renderer, label).props.accessibilityRole).toBe('button');
       }
       expect(buttonByLabel(renderer, 'Previous step').props.disabled).toBe(true);
@@ -482,16 +508,16 @@ describe('CookModeScreen', () => {
       expect(done.props.accessibilityRole).toBe('button');
     });
 
-    it('opens and closes the ingredients sheet through labelled buttons', async () => {
+    it('switches to ingredients and returns to the same cooking step', async () => {
       const renderer = await renderScreen();
-      const ingredientsModal = () => renderer.root.findAllByType('Modal' as unknown as React.ComponentType)
-        .find((modal) => textOf(modal).includes('Ingredients'))!;
-
-      expect(ingredientsModal().props.visible).toBe(false);
-      await act(async () => buttonByLabel(renderer, 'Show ingredients').props.onPress());
-      expect(ingredientsModal().props.visible).toBe(true);
-      await act(async () => buttonByLabel(renderer, 'Close ingredients').props.onPress());
-      expect(ingredientsModal().props.visible).toBe(false);
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      const segment = () => renderer.root.findByType('SegmentedControl' as any);
+      expect(segment().props.values).toEqual(['Steps', 'Ingredients']);
+      await act(async () => segment().props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+      expect(segment().props.selectedIndex).toBe(1);
+      expect(buttonByLabel(renderer, 'Next step')).toBeUndefined();
+      await act(async () => segment().props.onChange({ nativeEvent: { selectedSegmentIndex: 0 } }));
+      expect(stepCounter(renderer)).toBe('Step 2 of 4');
     });
   });
 });
