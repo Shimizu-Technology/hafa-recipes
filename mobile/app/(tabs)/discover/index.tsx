@@ -1,4 +1,3 @@
-import { Redirect } from 'expo-router';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -697,12 +696,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   // Memoize header to prevent re-render on search change
   const ListHeaderTitle = useCallback(() => (
     <RNView style={styles.titleRow}>
-      <RNView style={styles.titleLeft}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          Discover
-        </Text>
-      </RNView>
-
       {/* View toggle button */}
       <TouchableOpacity
         style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
@@ -1122,6 +1115,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             </TouchableOpacity>
             {showContributors && <>
               <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.contributorsScroll}
@@ -1194,6 +1188,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
+          contentInsetAdjustmentBehavior="automatic"
           key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
@@ -1744,6 +1739,6 @@ const styles = StyleSheet.create({
 });
 
 /** Keep existing deep links selecting their original scope. */
-export default function LegacyRecipeRoute() {
-  return <Redirect href={{ pathname: '/(tabs)/recipes', params: { scope: 'discover' } }} />;
+export default function DiscoverRoute() {
+  return <DiscoverScreen />;
 }

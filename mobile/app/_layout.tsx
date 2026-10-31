@@ -12,6 +12,7 @@ import { Button, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
+import { AccountHeaderButton } from '@/components/TabChrome';
 import Colors, { fontFamily } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -301,6 +302,9 @@ function RootLayoutNav() {
                   >
                     <Stack.Screen name="(auth)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="index" options={{ title: 'Add a recipe', headerRight: () => <AccountHeaderButton /> }} />
+                    <Stack.Screen name="history" options={{ headerShown: false }} />
+                    <Stack.Screen name="add-options" options={{ title: 'Add a recipe', presentation: 'formSheet', sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true }} />
                     <Stack.Screen name="pantry" options={{ headerTitle: 'My Pantry' }} />
                     <Stack.Screen
                       name="settings"

@@ -1,111 +1,41 @@
-import React, { useEffect } from 'react';
-import { Tabs } from 'expo-router';
+import { useEffect } from 'react';
+import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/expo';
-
-import Colors, { fontFamily, fontSize } from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { ScalePressable } from '@/components/Animated';
-import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from '@/components/TabChrome';
+import { useColors } from '@/components/Themed';
 import { prefetchTabData } from '@/lib/tabPrefetch';
 
-/** Configure the four primary cooking workflows and their shared app chrome. */
+export const unstable_settings = { initialRouteName: 'recipes' };
+
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
+  const colors = useColors();
   const queryClient = useQueryClient();
   const { isSignedIn, isLoaded, userId } = useAuth();
-
-  // `userId` is only an identity-change signal here. AuthTokenSync clears the
-  // entire QueryClient in a parent layout effect before this descendant effect
-  // runs, so private entries cannot cross accounts and the new account is warmed.
+  // Parent AuthTokenSync clears private queries before warming a new account.
   useEffect(() => {
-    if (!isLoaded) return;
-    prefetchTabData(queryClient, Boolean(isSignedIn));
+    if (isLoaded) prefetchTabData(queryClient, Boolean(isSignedIn));
   }, [queryClient, isSignedIn, isLoaded, userId]);
-
-  return (
-    <Tabs
-      initialRouteName="recipes"
-      screenOptions={{
-        tabBarButton: ({ href: _href, style, onPress, ...props }) => (
-          <ScalePressable {...props} style={style} onPress={onPress} />
-        ),
-        tabBarActiveTintColor: colors.tabLabelSelected,
-        tabBarInactiveTintColor: colors.tabIconDefault,
-        tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          backgroundColor: colors.backgroundElevated,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
-          paddingTop: 6,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-          fontFamily: fontFamily.semibold,
-        },
-        tabBarItemStyle: {
-          paddingTop: 2,
-        },
-        headerStyle: {
-          backgroundColor: colors.background,
-          shadowColor: 'transparent',
-          elevation: 0,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        // Discover carries the brand; the other tabs name the screen you are on.
-        headerTitleStyle: {
-          fontFamily: fontFamily.semibold,
-          fontSize: fontSize.lg,
-          fontWeight: '600',
-          color: colors.text,
-        },
-        headerRight: () => <AccountHeaderButton />,
-        headerRightContainerStyle: { paddingRight: 16 },
-      }}>
-      <Tabs.Screen name="recipes" options={{
-        title: 'Recipes', tabBarAccessibilityLabel: 'Recipes, tab, 1 of 4', headerTitle: () => <TabHeaderBrand />,
-        tabBarIcon: ({ focused, color }) => <Ionicons name={focused ? 'book' : 'book-outline'} size={24} color={color} />,
-      }} />
-      <Tabs.Screen name="discover" options={{ href: null }} />
-      <Tabs.Screen name="history" options={{ href: null }} />
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Add',
-          tabBarAccessibilityLabel: 'Add a recipe, tab, 2 of 4',
-          tabBarIcon: ({ focused }) => <ImportTabIcon focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="planner"
-        options={{
-          title: 'Plan', tabBarAccessibilityLabel: 'Plan, tab, 3 of 4',
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? 'calendar' : 'calendar-outline'}
-              size={24}
-              color={focused ? colors.tabIconSelected : color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="grocery"
-        options={{
-          title: 'Grocery', tabBarAccessibilityLabel: 'Grocery, tab, 4 of 4',
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? 'cart' : 'cart-outline'}
-              size={24}
-              color={focused ? colors.tabIconSelected : color}
-            />
-          ),
-        }}
-      />
-    </Tabs>
-  );
+  return <NativeTabs tintColor={colors.tint} minimizeBehavior="onScrollDown">
+    <NativeTabs.Trigger name="recipes">
+      <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="books.vertical" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="book-outline" />} />
+    </NativeTabs.Trigger>
+    <NativeTabs.Trigger name="discover">
+      <NativeTabs.Trigger.Label>Discover</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="sparkles" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="sparkles-outline" />} />
+    </NativeTabs.Trigger>
+    <NativeTabs.Trigger name="planner">
+      <NativeTabs.Trigger.Label>Plan</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="calendar" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="calendar-outline" />} />
+    </NativeTabs.Trigger>
+    <NativeTabs.Trigger name="grocery">
+      <NativeTabs.Trigger.Label>Grocery</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="cart" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="cart-outline" />} />
+    </NativeTabs.Trigger>
+    <NativeTabs.Trigger name="search" role="search">
+      <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="magnifyingglass" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="search-outline" />} />
+    </NativeTabs.Trigger>
+  </NativeTabs>;
 }

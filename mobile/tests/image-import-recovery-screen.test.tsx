@@ -209,7 +209,7 @@ vi.mock('@/lib/imageImportClassification', async () => (
 ));
 
 import { legacyShareReceipts } from '@/lib/legacyShareReceipts';
-import ExtractScreen from '../app/(tabs)/index';
+import ExtractScreen from '../app/index';
 
 /** Find a screen action by its visible themed-text label. */
 function touchableWithText(renderer: ReactTestRenderer, text: string) {

@@ -61,7 +61,8 @@ function ExtractScreenContent() {
   const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
-  const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId } = useLocalSearchParams<{
+  const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId, entry } = useLocalSearchParams<{
+    entry?: 'scan' | 'photos';
     sharedUrl?: string;
     sharedReceiptId?: string;
     captureToken?: string;
@@ -356,6 +357,16 @@ function ExtractScreenContent() {
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
+
+  const openedEntry = useRef<string | null>(null);
+  useEffect(() => {
+    if (!entry) { openedEntry.current = null; return; }
+    if (!isAuthLoaded || !isSignedIn || !inbox.ownerId || openedEntry.current === entry) return;
+    openedEntry.current = entry;
+    router.setParams({ entry: undefined });
+    void pickImage(entry === 'scan' ? 'camera' : 'library');
+  }, [entry, isAuthLoaded, isSignedIn, inbox.ownerId]);
+
 
   const moveImage = (index: number, direction: -1 | 1) => setSelectedImages((pages) => {
     const next = index + direction;

@@ -731,7 +731,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       </Text>
       <TouchableOpacity
         style={[styles.emptyButton, { backgroundColor: colors.tint }]}
-        onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/(tabs)')}
+        onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/')}
         activeOpacity={0.8}
       >
         <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
@@ -903,6 +903,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
+          contentInsetAdjustmentBehavior="automatic"
           key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}

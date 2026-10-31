@@ -231,7 +231,7 @@ describe('collection recovery', () => {
       await act(async () => screen.render(<CollectionScreen />));
       expect(text(screen, 'Collection unavailable')).toHaveLength(1);
       await act(async () => action(screen, 'Back to library').props.onPress());
-      expect(navigation.replace).toHaveBeenCalledWith('/(tabs)/history');
+      expect(navigation.replace).toHaveBeenCalledWith('/history');
     } finally { await act(async () => screen.unmount()); }
   });
   it('distinguishes a recipe load failure from empty and preserves rows through a refresh error', async () => {

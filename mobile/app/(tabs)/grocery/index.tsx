@@ -63,7 +63,7 @@ import {
   hasStatedIngredientAmount,
   MISSING_AMOUNT_LABEL,
   normalizeIngredientUnit,
-} from '../../lib/recipeTrust';
+} from '@/lib/recipeTrust';
 
 const COLLAPSED_SECTIONS_KEY = 'grocery_collapsed_sections';
 
@@ -821,7 +821,7 @@ function GroceryScreenContent() {
       <RNView style={styles.header}>
         {/* Title row - clean with just title and icons */}
         <RNView style={styles.titleRow}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Grocery List</Text>
+
           {isAuthenticated && <RNView style={styles.headerButtons}>
             <TouchableOpacity 
               onPress={() => {

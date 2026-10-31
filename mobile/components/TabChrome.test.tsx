@@ -51,7 +51,7 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { sm: 8 },
 }));
 
-import { AccountHeaderButton, ImportTabIcon, TabHeaderBrand } from './TabChrome';
+import { AccountHeaderButton } from './TabChrome';
 
 describe('TabChrome', () => {
   beforeEach(() => {
@@ -113,25 +113,4 @@ describe('TabChrome', () => {
     }
   });
 
-  it('renders a branded app header and a visually distinct import action', async () => {
-    const renderer = createRoot({ textComponentTypes: ['Text'] });
-
-    try {
-      await act(async () => renderer.render(
-        <>
-          <TabHeaderBrand />
-          <ImportTabIcon focused />
-        </>,
-      ));
-
-      expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === 'Håfa Recipes',
-      )).toHaveLength(1);
-      expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'add',
-      )).toHaveLength(1);
-    } finally {
-      await act(async () => renderer.unmount());
-    }
-  });
 });

@@ -582,6 +582,7 @@ function PlannerScreenContent() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           style={styles.signedOutScroll}
           contentContainerStyle={[
             styles.signedOutContent,
@@ -724,6 +725,7 @@ function PlannerScreenContent() {
 
       {/* Day Content */}
       <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
         refreshControl={
