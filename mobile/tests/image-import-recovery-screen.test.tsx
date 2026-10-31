@@ -764,6 +764,18 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
     } finally { await act(async () => renderer.unmount()); }
   });
 
+  it.each(['scan', 'photos'])('preserves the guest %s entry through sign-in', async entry => {
+    mocks.signedIn = false; mocks.ownerId = null; mocks.params.entry = entry;
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      const signIn = renderer.root.findAllByType('Button' as any).find(node => node.props.children === 'Sign In to Import')!;
+      await act(async () => signIn.props.onPress());
+      expect(mocks.push).toHaveBeenCalledWith({ pathname: '/(auth)/sign-in', params: { entry } });
+      expect(mocks.launchLibrary).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
   it('opens and cancels the photos entry without requiring broad photo access', async () => {
     const { preserveDraftImage } = await import('@/lib/privateRecipeDrafts');
     vi.mocked(preserveDraftImage).mockClear();

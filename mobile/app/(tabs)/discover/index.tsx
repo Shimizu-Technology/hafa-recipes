@@ -679,7 +679,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   retryButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

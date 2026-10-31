@@ -349,8 +349,8 @@ function PlannerScreenContent() {
     if (!weekPlan || isLoading) return;
     const date = pendingScrollDate.current;
     if (date && dayPositions.current[date] !== undefined) {
-      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[date] - headerHeight), animated: false });
-      pendingScrollDate.current = null;
+      // Automatic insets allow negative offsets while the large native title is expanded.
+      weekScroll.current?.scrollTo({ y: dayPositions.current[date] - headerHeight, animated: false });
     }
   };
 
@@ -415,6 +415,10 @@ function PlannerScreenContent() {
   );
   const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
 
+  // Native-stack reports the expanded header after the first content layout.
+  // Keep the requested heading aligned through that update; a drag ends the handoff.
+  useEffect(() => { scrollToRequestedDay(); }, [headerHeight, weekPlan, isLoading]);
+
   // Mutations
   const addMeal = useAddMeal();
   const updateMeal = useUpdateMeal();
@@ -468,6 +472,7 @@ function PlannerScreenContent() {
   }, [currentWeekStart]);
 
   const goToNextWeek = useCallback(() => {
+    pendingScrollDate.current = null;
     lightHaptic();
     const newStart = new Date(
       currentWeekStart.getFullYear(),
@@ -483,7 +488,8 @@ function PlannerScreenContent() {
     const today = new Date();
     const target = formatDateForApi(today);
     if (formatDateForApi(getWeekStart(today)) === weekOfStr && dayPositions.current[target] !== undefined) {
-      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[target] - headerHeight), animated: false });
+      pendingScrollDate.current = target;
+      weekScroll.current?.scrollTo({ y: dayPositions.current[target] - headerHeight, animated: false });
     } else {
       dayPositions.current = {};
       pendingScrollDate.current = target;
@@ -721,6 +727,7 @@ function PlannerScreenContent() {
     <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
       {/* Day Content */}
       <ScrollView ref={weekScroll} onContentSizeChange={scrollToRequestedDay}
+          onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
@@ -1210,7 +1217,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   groceryButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

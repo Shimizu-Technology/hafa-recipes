@@ -1033,7 +1033,6 @@ const styles = StyleSheet.create({
   shareAppText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
-    color: '#FFFFFF',
   },
   developerFooter: {
     alignItems: 'center',

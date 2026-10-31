@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/expo';
-import { useRouter, useSegments } from 'expo-router';
+import { useRouter, useSegments, useGlobalSearchParams } from 'expo-router';
 
 import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 import { getAuthProtectionRedirect } from '../lib/authProtection';
@@ -8,6 +8,7 @@ import { getAuthProtectionRedirect } from '../lib/authProtection';
 /** Apply the small set of global authentication redirects around root routes. */
 export function AuthProtection({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded, sessionId } = useAuth();
+  const { entry } = useGlobalSearchParams<{ entry?: string }>();
   const firstSegment = useSegments()[0];
   const router = useRouter();
   const previousSegment = useRef(firstSegment);
@@ -22,9 +23,9 @@ export function AuthProtection({ children }: { children: React.ReactNode }) {
       router.replace(`/recipe/${pending.recipeId}`);
       return;
     }
-    const redirect = getAuthProtectionRedirect(isSignedIn, firstSegment);
+    const redirect = getAuthProtectionRedirect(isSignedIn, firstSegment, entry);
     if (redirect) router.replace(redirect);
-  }, [isSignedIn, isLoaded, firstSegment, sessionId, router]);
+  }, [isSignedIn, isLoaded, firstSegment, sessionId, router, entry]);
 
   return <>{children}</>;
 }

@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const clerkMocks = vi.hoisted(() => ({ create: vi.fn(), prepareSecondFactor: vi.fn(), attemptSecondFactor: vi.fn(), setActive: vi.fn(), navigate: vi.fn(() => true) }));
 
 const routerMocks = vi.hoisted(() => ({
+  params: {} as Record<string, string>,
   back: vi.fn(),
   canGoBack: vi.fn(),
   replace: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createEle
     return children;
   },
   useRouter: () => routerMocks,
+  useLocalSearchParams: () => routerMocks.params,
 }));
 vi.mock('expo-apple-authentication', () => ({
   AppleAuthenticationScope: { EMAIL: 0, FULL_NAME: 1 },
@@ -110,6 +112,7 @@ describe('SignInScreen', () => {
   beforeEach(() => {
     Object.values(clerkMocks).forEach((mock) => mock.mockReset());
     clerkMocks.navigate.mockReturnValue(true);
+    routerMocks.params = {};
     routerMocks.back.mockReset();
     routerMocks.canGoBack.mockReset();
     routerMocks.canGoBack.mockReturnValue(false);
@@ -213,6 +216,13 @@ describe('SignInScreen', () => {
       expect(clerkMocks.setActive).toHaveBeenCalledWith({ session: 'session_existing' });
       expect(routerMocks.replace).toHaveBeenCalledWith('/(tabs)/recipes');
     } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it.each(['scan', 'photos'])('returns password sign-in to the %s capture', async entry => {
+    routerMocks.params = { entry };
+    const renderer = await renderPasswordSignIn({ status: 'complete', createdSessionId: 'session_existing' });
+    try { expect(routerMocks.replace).toHaveBeenCalledWith(`/?entry=${entry}`); }
+    finally { await act(async () => renderer.unmount()); }
   });
 
   it('keeps failed codes on the challenge and supports resend without another password attempt', async () => {

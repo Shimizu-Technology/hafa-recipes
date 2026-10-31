@@ -669,7 +669,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   emptyButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontFamily: fontFamily.semibold, fontWeight: '600',
   },
@@ -770,7 +769,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   addToCollectionButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

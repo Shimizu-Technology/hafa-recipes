@@ -125,6 +125,9 @@ it('unmounts collapsed nutrition while retaining the chosen basis across reopeni
     expect(panels()).toHaveLength(0);
     await act(async () => toggle().props.onPress());
     expect(panels()).toHaveLength(1);
+    const order = root.container.queryAll(node => node.type === 'NutritionPanel' ||
+      node.type === 'TouchableOpacity' && ['Nutrition', 'Cost'].includes(node.props.accessibilityLabel));
+    expect(order.map(node => node.type === 'NutritionPanel' ? 'panel' : node.props.accessibilityLabel)).toEqual(['Nutrition', 'panel', 'Cost']);
     await act(async () => panels()[0].props.onBasisChange('whole-recipe'));
     await act(async () => toggle().props.onPress());
     expect(panels()).toHaveLength(0);

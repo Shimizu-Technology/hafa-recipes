@@ -25,6 +25,7 @@ export function CookIngredientsList({
   const colors = useColors();
   return (
     <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+      {ingredients.length === 0 && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }}>No ingredients listed</Text>}
       {ingredients.map((ingredient, index) => {
         const amount = getIngredientAmount(ingredient);
         const scaledQuantity = scaleQuantity(amount.quantity, scaleFactor);
@@ -74,7 +75,6 @@ const styles = StyleSheet.create({
     color: brand.reefHighlight,
   },
   name: {
-    color: '#ffffff',
     fontSize: fontSize.md,
     flex: 1,
   },

@@ -968,7 +968,9 @@ function CookModeScreenContent({ generation }: { generation: string }) {
         </TouchableOpacity>
       </RNView>
 
-            {(hasPermission === false || hasAlertFailure) && (
+      </>}
+
+            {(!showIngredients || activeTimers.size > 0) && (hasPermission === false || hasAlertFailure) && (
               <RNView style={{ paddingHorizontal: 16, paddingBottom: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                 <Text style={{ color: cook.textMuted, fontSize: 13, lineHeight: 18 }} accessibilityLiveRegion="polite">Alerts are off outside the app ·</Text>
                 {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
@@ -978,8 +980,6 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 </TouchableOpacity>}
               </RNView>
             )}
-
-      </>}
 
       {/* Completion Modal */}
       <Modal

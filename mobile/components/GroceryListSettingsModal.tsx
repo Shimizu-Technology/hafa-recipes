@@ -420,7 +420,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   shareButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

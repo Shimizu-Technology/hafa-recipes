@@ -188,7 +188,6 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   timerText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],

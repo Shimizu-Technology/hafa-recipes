@@ -79,7 +79,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   signInButtonText: {
-    color: '#fff',
     fontSize: 17,
     fontWeight: '600',
   },

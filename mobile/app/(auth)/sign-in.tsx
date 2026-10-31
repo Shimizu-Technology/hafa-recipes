@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSignIn } from '@clerk/expo/legacy';
-import { Stack, useRouter, Link } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams, Link } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
@@ -23,6 +23,7 @@ import { View, Text, Input, Button, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { clerkErrorMessage, isCancelledAppleSignIn, shouldNavigateAfterSessionActivation } from '@/lib/accountAccess';
+import { postSignInRoute } from '@/lib/authProtection';
 import { CLERK_ENVIRONMENT } from '@/lib/clerkMigration';
 import {
   MOBILE_OAUTH_CALLBACK_URL,
@@ -42,6 +43,7 @@ WebBrowser.maybeCompleteAuthSession();
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
   const router = useRouter();
+  const { entry } = useLocalSearchParams<{ entry?: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -99,7 +101,7 @@ export default function SignInScreen() {
       });
       if (result.status === 'complete' && result.createdSessionId) {
         await setActive({ session: result.createdSessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace(postSignInRoute(entry));
       } else {
         setErrorMessage('Verification is not complete. Please try again.');
       }
@@ -141,7 +143,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace(postSignInRoute(entry));
       } else if (['needs_second_factor', 'needs_client_trust'].includes(result.status ?? '')) {
         const factors = supportedCodeFactors(result.supportedSecondFactors);
         if (factors.length) {
@@ -201,7 +203,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace(postSignInRoute(entry));
       } else if (result.status === 'account_not_found') {
         setErrorMessage('This Apple account is not connected to an existing library. Restore your library by email below, then connect Apple from inside Håfa.');
       } else if (result.status === 'incomplete') {
@@ -232,7 +234,7 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.sessionId });
-        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace('/(tabs)/recipes');
+        if (shouldNavigateAfterSessionActivation(CLERK_ENVIRONMENT)) router.replace(postSignInRoute(entry));
       } else if (result.status === 'account_not_found') {
         setErrorMessage('This Google account is not connected to an existing library. Restore your library by email below, then connect Google from inside Håfa.');
       } else if (result.status === 'incomplete') {

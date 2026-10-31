@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   intro: { gap: spacing.xs }, heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.bold },
   subheading: { fontSize: fontSize.md, lineHeight: 22 },
   primary: { minHeight: 50, borderRadius: radius.md, flexDirection: 'row', gap: spacing.sm, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-  primaryText: { color: '#fff', fontSize: fontSize.md, fontWeight: fontWeight.semibold },
+  primaryText: { fontSize: fontSize.md, fontWeight: fontWeight.semibold },
   notice: { borderRadius: radius.md, flexDirection: 'row', padding: spacing.md, gap: spacing.sm, alignItems: 'flex-start' },
   noticeText: { flex: 1, lineHeight: 20 },
   personal: { borderWidth: 0, borderRadius: 12, padding: spacing.md, gap: spacing.xs },

@@ -13,10 +13,11 @@ import { shadows, spacing, fontSize, fontWeight, radius } from '@/constants/Colo
 
 interface SignInBannerProps {
   message?: string;
+  onSignIn?: () => void;
 }
 
 /** Show guest account actions in the screen's layout, without covering content. */
-export function SignInBanner({ message = 'Sign in to use this feature' }: SignInBannerProps) {
+export function SignInBanner({ message = 'Sign in to use this feature', onSignIn }: SignInBannerProps) {
   const colors = useColors();
   const router = useRouter();
   const { fontScale } = useWindowDimensions();
@@ -55,7 +56,7 @@ export function SignInBanner({ message = 'Sign in to use this feature' }: SignIn
           usesLargeTextLayout && styles.signInButtonLargeText,
           { backgroundColor: colors.tint },
         ]}
-        onPress={() => router.push('/(auth)/sign-in')}
+        onPress={onSignIn ?? (() => router.push('/(auth)/sign-in'))}
         activeOpacity={0.8}
         accessibilityRole="button"
         accessibilityLabel="Sign in"
@@ -112,7 +113,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   signInButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
   },
