@@ -1340,6 +1340,11 @@ it.each(["ios", "android"])("opted-in detail screens use native navigation and a
   const { Screen } = await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces");
   await act(async () => { view = create(createElement(Screen, { title: "Workout", native: true, grouped: true, back: true, hideTitle: true })); });
   expect(nodes("NativeHeader")[0].props.options).toMatchObject({ headerShown: true, headerTransparent: true, headerLargeTitleEnabled: false });
+  const fallback = nodes("NativeHeader")[0].props.options.headerLeft();
+  expect(fallback.props.label).toBe("Go back");
+  fallback.props.onPress();
+  const { router } = await import("expo-router");
+  expect(router.replace).toHaveBeenLastCalledWith("/(tabs)/library");
   expect(nodes("ScrollView")[0].props.contentInsetAdjustmentBehavior).toBe("automatic");
   expect(nodes("IconButton").some(node => node.props.label === "Go back")).toBe(false);
   expect(nodes("KeyboardAvoidingView")[0].props.style).toMatchObject({ backgroundColor: "grouped", paddingTop: 0 });
