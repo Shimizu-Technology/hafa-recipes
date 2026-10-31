@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     delayNetwork: false,
     networkInitError: false,
     fetchNetwork: vi.fn(),
+    refreshNetwork: vi.fn(),
     appListener: null as null | ((state: string) => void),
     networkListener: null as null | ((state: { isConnected: boolean; isInternetReachable: boolean }) => void),
     removeAppListener: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('react-native', () => ({ AppState: {
 } }));
 vi.mock('@react-native-community/netinfo', () => ({ default: {
   fetch: (...args: unknown[]) => mocks.fetchNetwork(...args),
+  refresh: (...args: unknown[]) => mocks.refreshNetwork(...args),
   addEventListener: (callback: typeof mocks.networkListener) => {
     if (mocks.networkInitError) throw new Error('NetInfo initialization unavailable');
     mocks.networkListener = callback;
@@ -79,6 +81,7 @@ beforeEach(async () => {
   mocks.delayNetwork = false;
   mocks.networkInitError = false;
   mocks.fetchNetwork.mockReset().mockImplementation(async () => ({ isConnected: mocks.initiallyConnected, isInternetReachable: mocks.initiallyConnected }));
+  mocks.refreshNetwork.mockReset().mockImplementation((...args: unknown[]) => mocks.fetchNetwork(...args));
   mocks.appListener = null;
   mocks.networkListener = null;
   mocks.removeAppListener.mockClear();
@@ -363,6 +366,19 @@ describe('recipe connectivity startup and recovery', () => {
     await act(async () => { await result.refetch(); }); await flush();
     expect(result.data?.id).toBe(base.id);
     expect(result.isOffline).toBe(false);
+  });
+
+  it('Retry forces a native connectivity read instead of trusting a cached offline fetch', async () => {
+    mocks.initiallyConnected = false;
+    mocks.fetchNetwork.mockResolvedValue({ isConnected: false, isInternetReachable: false });
+    mocks.getRecipe.mockResolvedValue(base);
+    await mount();
+    expect(result.isOffline).toBe(true);
+    mocks.refreshNetwork.mockResolvedValue({ isConnected: true, isInternetReachable: true });
+    await act(async () => { await result.refetch(); }); await flush();
+    expect(mocks.refreshNetwork).toHaveBeenCalled();
+    expect(mocks.getRecipe).toHaveBeenCalled();
+    expect(result.data?.id).toBe(base.id);
   });
 });
 

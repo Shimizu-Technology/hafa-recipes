@@ -334,7 +334,8 @@ export function useRecipe(id: string, enabled = true) {
     const revision = networkRevision.current;
     try {
       const state = await Promise.race([
-        Promise.resolve().then(() => NetInfo.fetch()),
+        // refresh() forces a native read; fetch() may return the cached offline state.
+        Promise.resolve().then(() => NetInfo.refresh()),
         new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 1_500); }),
       ]);
       assertRecipeScope(authority);
