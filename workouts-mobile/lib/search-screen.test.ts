@@ -8,7 +8,7 @@ vi.mock("expo-router", () => ({ Stack: { Screen: "NativeHeader" }, router: { pus
 vi.mock("@/components/ui", () => ({ Copy: "Copy", Empty: "Empty", Field: "Field", ListGroup: "ListGroup", ListRow: "ListRow", Notice: "Notice", Screen: "Screen" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: f.owner, enrollment: { enrolled: f.enrolled, generation: f.generation }, api: { library: f.library } }) }));
 vi.mock("@/lib/use-focus-refresh", () => ({ useFocusRefresh: () => ({ refreshing: false, onRefresh() {} }) }));
-vi.mock("@tanstack/react-query", () => ({ useQuery: (options: any) => { f.options = options; return { data: [
+vi.mock("@tanstack/react-query", () => ({ useQuery: (options: any) => { if (options.queryKey[1] === "search-library") f.options = options; return { data: [
   { id: "a", title: "Morning strength", equipment_required: ["dumbbell"], blocks: [{ exercises: [{ name: "Goblet squat" }] }] },
   { id: "b", title: "Easy run", equipment_required: [], blocks: [] },
 ] as Workout[], isPending: false }; } }));
@@ -30,7 +30,7 @@ it("searches titles, exercises and equipment with a native search bar, and opens
   act(() => header().onChangeText({ nativeEvent: { text: "missing" } }));
   expect(view.root.findByType("Empty" as never).props.title).toBe("No matching workouts");
   act(() => header().onCancelButtonPress());
-  expect(view.root.findAllByType("ListRow" as never)).toHaveLength(2);
+  expect(view.root.findAllByType("ListRow" as never)).toHaveLength(4);
   f.owner = "owner-b"; f.generation = 2;
   act(() => view.update(createElement(Search)));
   expect(f.options.queryKey).toEqual(["owner-b", "search-library", 2]);

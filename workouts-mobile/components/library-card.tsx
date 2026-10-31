@@ -1,6 +1,6 @@
 import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { useState } from "react";
-import { Animated, View, useWindowDimensions } from "react-native";
+import { Animated, Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { motion, radii, spacing } from "@/constants/theme";
@@ -8,7 +8,7 @@ import { Copy, useColors, useReducedMotion, type IconName } from "@/components/u
 import { animatedPressableComponent, usePressScale } from "@/components/design/press";
 import type { LibraryView } from "@/lib/library-view";
 
-export const LIBRARY_GRID_GAP = spacing.sm;
+export const LIBRARY_GRID_GAP = 12;
 
 /** Width of one grid column inside the screen's content padding. */
 export function useLibraryGridWidth() {
@@ -41,8 +41,10 @@ function Mark({ kind }: { kind: "favorite" | "selected" | "unselected" }) {
 }
 
 export function LibraryCard({
-  view, title, meta, creator, origin, image, icon, favorite, badge, selected, onPress, onLongPress,
+  view, title, meta, creator, origin, image, icon, favorite, badge, selected, onPress, onLongPress, save, fill,
 }: {
+  fill?: boolean;
+  save?: { saved: boolean; busy: boolean; onPress(): void };
   view: LibraryView;
   title: string;
   meta: string;
@@ -66,10 +68,7 @@ export function LibraryCard({
   const AnimatedPressable = animatedPressableComponent();
   const grid = view === "grid";
   const selecting = selected !== undefined;
-  const corner = selecting ? <Mark kind={selected ? "selected" : "unselected"} /> : favorite ? <Mark kind="favorite" /> : null;
-  const note = !!badge && <View style={{ alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: radii.full, backgroundColor: c.sunken }}>
-    <Copy kind="caption" tone="muted">{badge}</Copy>
-  </View>;
+  const corner = selecting ? <Mark kind={selected ? "selected" : "unselected"} /> : null;
   return (
     <AnimatedPressable
       accessibilityRole={selecting ? "checkbox" : "button"}
@@ -82,30 +81,34 @@ export function LibraryCard({
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       style={{
-        width: grid ? width : "100%",
+        width: grid && !fill ? width : "100%",
         flexDirection: grid ? "column" : "row",
         alignItems: grid ? "stretch" : "center",
         gap: grid ? 0 : spacing.sm,
         padding: grid ? 0 : spacing.xs,
         borderRadius: radii.lg - 4,
         overflow: "hidden",
-        backgroundColor: c.surface,
+        backgroundColor: "transparent",
         borderWidth: selected ? 2 : 0,
         borderColor: selected ? c.action : c.border,
         opacity: press.opacity,
         transform: [{ scale: press.scale }],
       }}
     >
-      <View style={grid ? { width: "100%", aspectRatio: 1 } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
+      <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: 14, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
         <Cover uri={image} icon={icon} size={grid ? 36 : 26} />
+        {!!meta && <View style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
+          <Copy kind="caption" color=c.onImage style={{ fontSize: 11, lineHeight: 13, fontWeight: "600" }}>{meta}</Copy>
+        </View>}
+        {save && <Pressable accessibilityRole="button" accessibilityLabel={save.saved ? "Saved to your library" : `Save ${title}`} accessibilityState={{ disabled: save.busy || save.saved, selected: save.saved }} disabled={save.busy || save.saved}
+          onPress={event => { event.stopPropagation(); save.onPress(); }} hitSlop={7} style={{ position: "absolute", right: 7, top: 7, width: 30, height: 30, borderRadius: 15, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name={save.saved ? "bookmark" : "bookmark-outline"} size={17} color=c.onImage />
+        </Pressable>}
         {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
       </View>
-      <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 4, padding: grid ? spacing.sm : 0 }}>
-        <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid ? { minHeight: Math.ceil(40 * fontScale) } : undefined}>{title}</Copy>
-        <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{meta}</Copy>
-        {!!creator && <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>By {creator}</Copy>}
-        {!!origin && <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{origin}</Copy>}
-        {note}
+      <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 2, paddingTop: grid ? 8 : 0 }}>
+        <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2}>{title}</Copy>
+        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{[creator, origin?.replace(/^Saved from /, "")].filter(Boolean).join(" · ") || "Your workout"}</Copy>
       </View>
     </AnimatedPressable>
   );

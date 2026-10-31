@@ -14,10 +14,15 @@ export function NativeTabStack({ title, add = false }: { title: string; add?: bo
       headerStyle: { backgroundColor: c.background }, headerTintColor: c.accent,
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },
       contentStyle: { backgroundColor: c.background },
-      headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-        {add && <IconButton icon="add" label="Add a workout or plan" variant="plain" onPress={() => router.push("/add")} />}
-        <AccountButton />
-      </View>,
+      headerRight: () => <BrowseHeader add={add} />, 
     }} />
   </NativeHeader.Provider>;
+}
+
+export function BrowseHeader({ add = false, onMenu }: { add?: boolean; onMenu?(): void }) {
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+    {onMenu && <IconButton icon="ellipsis-horizontal" label="More options" variant="plain" onPress={onMenu} />}
+    {add && <IconButton icon="add" label="Add a workout or plan" variant="plain" onPress={() => router.push("/add")} />}
+    <AccountButton />
+  </View>;
 }

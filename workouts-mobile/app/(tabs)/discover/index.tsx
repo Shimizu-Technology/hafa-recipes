@@ -1,6 +1,8 @@
+import { BrowseHeader } from "@/components/native-tab-stack";
+import { BrowseLinks } from "@/components/browse-links";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Stack as RouterStack, router, useLocalSearchParams } from "expo-router";
 import { View, useWindowDimensions } from "react-native";
 import { largeText } from "@/lib/readable-layout";
 import {
@@ -12,6 +14,9 @@ import {
   Field,
   IconButton,
   Notice,
+  ListGroup,
+  ListRow,
+  haptics,
   Row,
   Screen,
   Sheet,
@@ -72,9 +77,14 @@ function useDiscoverView() {
 
 export default function Discover() {
   const { api, owner, enrollment } = useTraining();
+  const params = useLocalSearchParams<{ q?: string }>();
+  const cache = useQueryClient();
+  const [menu, setMenu] = useState(false);
+  const [saving, setSaving] = useState<string>();
   const { fontScale } = useWindowDimensions();
-  const [search, setSearch] = useState("");
-  const [settledSearch, setSettledSearch] = useState("");
+  const [search, setSearch] = useState(params.q ?? "");
+  const [settledSearch, setSettledSearch] = useState(params.q ?? "");
+  useEffect(() => { setSearch(params.q ?? ""); setSettledSearch(params.q ?? ""); }, [params.q]);
   const [equipment, setEquipment] = useState<string>();
   const [duration, setDuration] = useState<DurationRange>();
   const [platform, setPlatform] = useState<string>();
@@ -163,8 +173,27 @@ export default function Discover() {
     }
   }
   const open = (card: DiscoverCard) => router.push({ pathname: "/discover/[id]", params: { id: card.id } });
+  async function save(card: DiscoverCard) {
+    if (saving || card.saved_workout_id || !enrollment?.enrolled) return;
+    setSaving(card.id);
+    try {
+      await api.saveDiscovered(card.id, enrollment.generation);
+      await Promise.all([cache.invalidateQueries({ queryKey: [owner, "discover"] }), cache.invalidateQueries({ queryKey: [owner, "library"] }), cache.invalidateQueries({ queryKey: [owner, "search-library"] })]);
+      haptics.tick(); toast("Saved to your library");
+    } catch (error) { toast((error as Error).message, "error"); }
+    finally { setSaving(undefined); }
+  }
+  const recent = cards.filter(card => card.published_at && Date.now() - new Date(card.published_at).getTime() < 7 * 86400000);
+  const quick = cards.filter(card => card.estimated_minutes != null && card.estimated_minutes < 20);
+  const sections = narrowed ? [{ title: "Results", items: cards }] : [
+    ...(recent.length ? [{ title: "New this week", items: recent.slice(0, 4) }] : []),
+    ...(quick.length ? [{ title: "Quick (under 20 min)", items: quick.slice(0, 4) }] : []),
+    { title: "All workouts", items: cards },
+  ];
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
+    <>
+    <RouterStack.Screen options={{ headerRight: () => <BrowseHeader onMenu={() => setMenu(true)} /> }} />
     <Screen
       title="Discover"
       refreshing={pulling}
@@ -190,36 +219,11 @@ export default function Discover() {
         </Stack>
       ) : (
         <>
-          <Stack gap={8}>
-            <Row gap={8} wrap style={largeText(fontScale) ? { flexDirection: "column", alignItems: "stretch" } : undefined}>
-              <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 0 }}>
-                <Field label="Search Discover" hideLabel value={search} onChange={setSearch} placeholder="Search workouts or creators" returnKeyType="search" />
-              </View>
-              <Button title={active.length ? `Filters · ${active.length}` : "Filters"} icon="options-outline"
-                variant="secondary" size="sm" inline accessibilityHint="Time, equipment, source and people"
-                onPress={() => setFiltersOpen(true)} />
-            </Row>
-            {!!cards.length && <Row gap={8} wrap>
-              <Copy kind="small" tone="muted" style={{ flexGrow: 1 }}>{total} {total === 1 ? "workout" : "workouts"}</Copy>
-              <Button title="Share yours" variant="ghost" size="sm" inline disabled={!enrollment?.enrolled}
-                accessibilityHint="Pick a workout from your library to share to Discover" onPress={() => router.push("/discover/share")} />
-              <Button title="Surprise me" icon="shuffle" variant="ghost" size="sm" inline
-                busy={surprising} accessibilityHint="Opens a random shared workout that matches your filters" onPress={() => void surprise()} />
-            </Row>}
-          </Stack>
-          {!!active.length && (
-            <ChipRow label="Active filters">
-              {active.map((filter) => (
-                <Chip
-                  key={filter.key}
-                  label={filter.label}
-                  icon="close"
-                  onPress={() => clearFilter(filter.key)}
-                />
-              ))}
-              <Button title="Clear all" variant="ghost" size="sm" inline onPress={clearFilters} />
-            </ChipRow>
-          )}
+          <BrowseLinks links={[
+            { title: surprising ? "Choosing…" : "Surprise me", onPress: () => void surprise(), disabled: surprising },
+            { title: "Filter", onPress: () => setFiltersOpen(true) },
+          ]} />
+          {(!!active.length || !!settledSearch) && <Button title={`${[settledSearch, ...active.map(f => f.label)].filter(Boolean).join(" · ")} · Clear`} variant="ghost" size="sm" onPress={clear} />}
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
           ) : feed.error && !cards.length ? (
@@ -265,19 +269,11 @@ export default function Discover() {
             )
           ) : (
             <>
-              {view === "grid" ? (
-                <DiscoverGrid>
-                  {cards.map((card) => (
-                    <DiscoverGridCard key={card.id} card={card} onPress={() => open(card)} />
-                  ))}
-                </DiscoverGrid>
-              ) : (
-                <WorkoutGallery>
-                  {cards.map((card) => (
-                    <DiscoverCardView key={card.id} card={card} onPress={() => open(card)} />
-                  ))}
-                </WorkoutGallery>
-              )}
+              {sections.map(section => <View key={section.title} style={{ gap: 12 }}>
+                <Copy kind="heading">{section.title}</Copy>
+                {view === "list" ? <ListGroup>{section.items.map(card => <ListRow key={card.id} title={card.title} detail={[card.source_creator, platformInfo(card.source_platform).label].filter(Boolean).join(" · ")} onPress={() => open(card)} />)}</ListGroup> : <DiscoverGrid>{section.items.map(card => <DiscoverGridCard key={card.id} card={card} onPress={() => open(card)}
+                  onSave={() => enrollment?.enrolled ? void save(card) : router.push("/onboarding")} saving={saving === card.id} />)}</DiscoverGrid>}
+              </View>)}
               {feed.isFetchingNextPage && (view === "grid" ? <DiscoverGridSkeleton count={2} /> : <DiscoverCardSkeleton />)}
               {feed.isFetchNextPageError && <Notice>{feed.error?.message}</Notice>}
               {feed.hasNextPage && !feed.isFetchingNextPage && (
@@ -291,6 +287,10 @@ export default function Discover() {
           )}
         </>
       )}
+      <Sheet visible={menu} onClose={() => setMenu(false)} title="Discover options">
+        <ListRow title={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"} onPress={toggleView} />
+        <Button title="Share yours" variant="ghost" disabled={!enrollment?.enrolled} onPress={() => { setMenu(false); router.push("/discover/share"); }} />
+      </Sheet>
       <Sheet visible={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filters">
         <Stack gap={16}>
           {!!people.length && <FilterGroup title="People">
@@ -331,8 +331,6 @@ export default function Discover() {
             ))}
           </FilterGroup>
           <Row gap={8} wrap justify="flex-end">
-            <IconButton icon={view === "grid" ? "list-outline" : "grid-outline"}
-              label={view === "grid" ? "Show workouts as a list" : "Show workouts as a grid"} onPress={toggleView} />
             {active.length > 0 && (
               <Button
                 title="Clear all"
@@ -346,6 +344,7 @@ export default function Discover() {
         </Stack>
       </Sheet>
     </Screen>
+    </>
   );
 }
 

@@ -1,3 +1,5 @@
+import { LibraryCard } from "./library-card";
+import { platformInfo } from "@/lib/discover";
 import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { Children, useState, type PropsWithChildren } from "react";
 import { View, useWindowDimensions } from "react-native";
@@ -9,13 +11,13 @@ import { SourceArtwork } from "@/components/discover-card";
 import { motion, radii, spacing } from "@/constants/theme";
 import { cardMeta, creatorCredit, gridByline, type DiscoverCard } from "@/lib/discover";
 
-const GRID_GAP = spacing.sm;
+const GRID_GAP = 12;
 /** Card width: two columns on phones, three when a tablet gives each card enough room. */
 function useGridCell() {
   const { width, fontScale } = useWindowDimensions();
   return workoutGridWidth(width, fontScale, true);
 }
-const gridStyle = { flexDirection: "row", flexWrap: "wrap", columnGap: GRID_GAP, rowGap: GRID_GAP } as const;
+const gridStyle = { flexDirection: "row", flexWrap: "wrap", columnGap: GRID_GAP, rowGap: 20 } as const;
 
 export function DiscoverGrid({ children }: PropsWithChildren) {
   const cell = useGridCell();
@@ -26,102 +28,12 @@ export function DiscoverGrid({ children }: PropsWithChildren) {
   );
 }
 
-/** Photo-first Discover card: square cover with a time badge, two-line title, byline. */
-export function DiscoverGridCard({ card, onPress }: { card: DiscoverCard; onPress(): void }) {
-  const c = useColors();
-  const reduced = useReducedMotion();
-  const press = usePressScale();
-  const { fontScale } = useWindowDimensions();
-  const [failed, setFailed] = useState<string | null>(null);
-  const AnimatedPressable = animatedPressableComponent();
-  const image = card.thumbnail_url && card.thumbnail_url !== failed ? card.thumbnail_url : null;
-  const badge = card.is_owner ? "Yours" : card.saved_workout_id ? "Saved" : null;
-  const credit = creatorCredit(card);
-  return (
-    <AnimatedPressable
-      accessibilityRole="button"
-      accessibilityLabel={[
-        card.title,
-        cardMeta(card),
-        credit ? `Original by ${credit}` : null,
-        badge === "Saved" ? "Saved to your library" : null,
-      ]
-        .filter(Boolean)
-        .join(". ")}
-      onPress={onPress}
-      onPressIn={press.onPressIn}
-      onPressOut={press.onPressOut}
-      style={{
-        borderRadius: radii.lg - 4,
-        backgroundColor: c.surface,
-        overflow: "hidden",
-        opacity: press.opacity,
-        transform: [{ scale: press.scale }],
-      }}
-    >
-      <View style={{ width: "100%", aspectRatio: 1, backgroundColor: c.sunken }}>
-        {image ? (
-          <Image
-            source={{ uri: image }}
-            onError={() => setFailed(image)}
-            contentFit="cover"
-            transition={reduced ? 0 : motion.base}
-            style={{ width: "100%", height: "100%" }}
-            accessibilityIgnoresInvertColors
-          />
-        ) : (
-          <SourceArtwork platform={card.source_platform} height="100%" compact />
-        )}
-        {!!card.estimated_minutes && (
-          <Pill icon="time-outline" label={`${card.estimated_minutes} min`} position={{ left: 8, bottom: 8 }} />
-        )}
-        {!!badge && (
-          <Pill icon={badge === "Saved" ? "checkmark-circle" : "person"} label={badge} position={{ right: 8, top: 8 }} />
-        )}
-      </View>
-      <View style={{ padding: spacing.sm, gap: 4 }}>
-        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 2} style={{ minHeight: Math.ceil(44 * fontScale) }}>
-          {card.title}
-        </Copy>
-        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>
-          {gridByline(card)}
-        </Copy>
-      </View>
-    </AnimatedPressable>
-  );
-}
-
-function Pill({
-  icon,
-  label,
-  position,
-}: {
-  icon: "time-outline" | "checkmark-circle" | "person";
-  label: string;
-  position: { left?: number; right?: number; top?: number; bottom?: number };
-}) {
-  const c = useColors();
-  return (
-    <View
-      style={{
-        position: "absolute",
-        ...position,
-        maxWidth: "80%",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: radii.full,
-        backgroundColor: c.elevated,
-      }}
-    >
-      <Ionicons name={icon} size={13} color={c.text} />
-      <Copy kind="caption" numberOfLines={1}>
-        {label}
-      </Copy>
-    </View>
-  );
+/** Discover and Library share the same photo, title and single credit line. */
+export function DiscoverGridCard({ card, onPress, onSave, saving = false }: { card: DiscoverCard; onPress(): void; onSave?(): void; saving?: boolean }) {
+  return <LibraryCard fill view="grid" title={card.title} meta={card.estimated_minutes ? `${card.estimated_minutes} min` : ""}
+    creator={creatorCredit(card) || card.contributor.display_name} origin={platformInfo(card.source_platform).label}
+    image={card.thumbnail_url} icon="barbell-outline" favorite={false} onPress={onPress}
+    save={!card.is_owner && onSave ? { saved: !!card.saved_workout_id, busy: saving, onPress: onSave } : undefined} />;
 }
 
 export function DiscoverGridSkeleton({ count = 4 }: { count?: number }) {
@@ -130,7 +42,7 @@ export function DiscoverGridSkeleton({ count = 4 }: { count?: number }) {
     <View accessible accessibilityRole="progressbar" accessibilityLabel="Loading workouts" style={gridStyle}>
       {Array.from({ length: count }, (_, i) => (
         <View key={i} style={{ width: cell, gap: 8 }}>
-          <Skeleton height={cell} radius={radii.lg - 4} />
+          <Skeleton height={cell * 5 / 4} radius={radii.lg - 4} />
           <Skeleton height={16} width="85%" />
           <Skeleton height={14} width="55%" />
         </View>
