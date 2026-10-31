@@ -39,6 +39,7 @@ type RecipeOrganizerProps = {
   isNoteSaving: boolean;
   onSaveNote: (note: string) => Promise<void>;
   compact?: boolean;
+  panels?: OrganizerPanel[];
 };
 
 const PANEL_TITLES: Record<OrganizerPanel, string> = {
@@ -66,6 +67,7 @@ export function RecipeOrganizer({
   isNoteSaving,
   onSaveNote,
   compact = false,
+  panels,
 }: RecipeOrganizerProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -119,17 +121,17 @@ export function RecipeOrganizer({
   return (
     <>
       <RNView
-        style={[styles.organizer, compact && styles.compactOrganizer, { backgroundColor: compact ? colors.background : colors.backgroundSecondary, borderColor: colors.border }]}
+        style={[styles.organizer, compact && [styles.compactOrganizer, { padding: 0, marginBottom: 0 }], { backgroundColor: compact ? 'transparent' : colors.backgroundSecondary, borderColor: colors.border }]}
       >
         {!compact && <RNView style={styles.organizerHeading}>
           <Text style={[styles.organizerTitle, { color: colors.text }]}>Save &amp; plan</Text>
           <Text style={[styles.organizerHint, { color: colors.textMuted }]}>Your private recipe tools</Text>
         </RNView>}
         <RNView style={[styles.actionRow, compact && { flexDirection: 'column', gap: 0 }]}>
-          {organizerActions.map((action) => (
+          {organizerActions.filter(action => !panels || panels.includes(action.panel)).map((action) => (
             <TouchableOpacity
               key={action.panel}
-              style={[styles.action, compact && styles.compactAction, { backgroundColor: compact ? colors.backgroundSecondary : colors.card, borderColor: colors.border }]}
+              style={[styles.action, compact && styles.compactAction, { backgroundColor: compact ? 'transparent' : colors.card, borderColor: colors.border }]}
               onPress={() => setActivePanel(action.panel)}
               activeOpacity={0.75}
               accessibilityRole="button"

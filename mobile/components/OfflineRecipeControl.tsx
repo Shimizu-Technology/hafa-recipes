@@ -1,13 +1,15 @@
 import { api } from '@/lib/api';
 import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { useEffect, useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, View, Switch } from 'react-native';
 import { useAuth } from '@clerk/expo';
-import { Button, Text } from '@/components/Themed';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { Text, useColors } from '@/components/Themed';
 import { useOfflineLease } from '@/hooks/useOfflineLease';
 import { offlineRecipes, type OfflineRecipe } from '@/lib/offlineRecipes';
 
 export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string; eligible: boolean }) {
+  const colors = useColors();
   const { userId } = useAuth();
   const lease = useOfflineLease(userId);
   const scope = lease ? `${lease.owner}:${lease.generation}` : null;
@@ -22,10 +24,11 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
     return () => { active = false; };
   }, [scope, recipeId, eligible]);
   if (!lease || (!eligible && !row)) return null;
-  return <View style={{ gap: 8, paddingVertical: 8 }}>
-    {row && <Text style={{ fontSize: 13, lineHeight: 18 }}>Offline copy · Updated {new Date(row.savedAt).toLocaleString()}. Changes may be missing while offline.</Text>}
-    <Button variant="secondary" title={row?.pinned ? 'Available offline ✓' : 'Make available offline'} disabled={busy}
-      onPress={() => {
+  return <View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 8 }}>
+      <Ionicons name="cloud-download-outline" size={20} color={colors.actionText} /><Text style={{ flex: 1, fontSize: 17, lineHeight: 22 }}>Available offline</Text>
+      <Switch accessibilityLabel="Available offline" value={Boolean(row?.pinned)} disabled={busy}
+      onValueChange={() => {
         const current = () => { const authority = offlineRecipes.lease(userId); return authority?.owner === lease.owner && authority.generation === lease.generation && authority.epoch === lease.epoch; };
         if (!current()) return;
         setBusy(true);
@@ -38,5 +41,7 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
         })().catch((error: Error) => { if (current()) Alert.alert('Could not update offline recipe', error.message); })
           .finally(() => { if (current()) setBusy(false); });
       }} />
+    </View>
+    {row?.pinned && <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, paddingBottom: 12, fontSize: 13, lineHeight: 18 }}>Offline copy · Updated {new Date(row.savedAt).toLocaleString()}. Changes may be missing while offline.</Text>}
   </View>;
 }

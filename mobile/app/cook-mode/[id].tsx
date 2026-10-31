@@ -811,7 +811,8 @@ function CookModeScreenContent({ generation }: { generation: string }) {
             {currentStep?.step}
           </Text>
 
-        {/* Timer Section */}
+          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { opacity: 0.35, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+        {/* Timer toolbar */}
           <RNView style={styles.timerSection}>
             {currentTimer ? (
               <RNView style={styles.timerCard}>
@@ -897,20 +898,10 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 </TouchableOpacity>
               </RNView>
           ) : (
-            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton} accessibilityRole="button">
+            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={[styles.addTimerButton, { alignSelf: 'flex-start', paddingVertical: 8, marginTop: 0, minHeight: 44 }]} accessibilityRole="button">
               <Ionicons name="add-circle-outline" size={22} color={cook.textSecondary} />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
-            )}
-            {(hasPermission === false || hasAlertFailure) && (
-              <RNView style={{ alignItems: 'center', paddingHorizontal: spacing.md }}>
-                <Text style={{ color: cook.text, textAlign: 'center' }} accessibilityLiveRegion="polite">Alerts are off outside the app</Text>
-                {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
-                  <Text style={{ color: cook.actionText }}>Open Settings</Text>
-                </TouchableOpacity> : <TouchableOpacity onPress={() => { void retryFailedAlerts(); }} accessibilityRole="button" accessibilityLabel="Retry alert" style={{ minHeight: 44, justifyContent: 'center' }}>
-                  <Text style={{ color: cook.actionText }}>Retry alert</Text>
-                </TouchableOpacity>}
-              </RNView>
             )}
             {currentTimer && currentTimer.remaining > 0 && (
               <Text style={{ color: cook.textMuted, textAlign: 'center' }} accessibilityLiveRegion="polite">
@@ -919,7 +910,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
               </Text>
             )}
           </RNView>
-          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { opacity: 0.35, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+
         </ScrollView>
       </Animated.View>
 
@@ -971,6 +962,17 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           />
         </TouchableOpacity>
       </RNView>
+
+            {(hasPermission === false || hasAlertFailure) && (
+              <RNView style={{ paddingHorizontal: 16, paddingBottom: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <Text style={{ color: cook.textMuted, fontSize: 13, lineHeight: 18 }} accessibilityLiveRegion="polite">Alerts are off outside the app ·</Text>
+                {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText, fontSize: 13, lineHeight: 18 }}>Open Settings</Text>
+                </TouchableOpacity> : <TouchableOpacity onPress={() => { void retryFailedAlerts(); }} accessibilityRole="button" accessibilityLabel="Retry alert" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText, fontSize: 13, lineHeight: 18 }}>Retry alert</Text>
+                </TouchableOpacity>}
+              </RNView>
+            )}
 
       </>}
 
