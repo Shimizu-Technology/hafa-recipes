@@ -138,11 +138,13 @@ describe("Workouts native share generation", () => {
     const stock = require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
       .getShareExtensionViewControllerContent("hafaworkouts", "group.com.shimizutechnology.hafaworkouts", true);
     const plist = require("@expo/plist").default;
+    const legacyFonts = ["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"];
     const predecessor = async (config: unknown) => {
       mkdirSync(extension);
       writeFileSync(join(extension, "ShareViewController.swift"), stock);
-      for (const file of ["ShareExtension.entitlements", "ShareExtension-Info.plist"])
-        writeFileSync(join(extension, file), plist.build({}));
+      writeFileSync(join(extension, "ShareExtension.entitlements"), plist.build({}));
+      writeFileSync(join(extension, "ShareExtension-Info.plist"), plist.build({ UIAppFonts: legacyFonts }));
+      for (const font of legacyFonts) writeFileSync(join(extension, font), "legacy font fixture");
       return config;
     };
     const removeResourceFile = vi.fn();
@@ -155,7 +157,6 @@ describe("Workouts native share generation", () => {
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
       const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
       expect(info.UIAppFonts).toBeUndefined();
-      const legacyFonts = ["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"];
       for (const font of legacyFonts) expect(existsSync(join(extension, font))).toBe(false);
       expect(removeResourceFile.mock.calls).toEqual(legacyFonts.map(font => [font, { target: "extension-target" }, "extension-group"]));
       const controller = readFileSync(join(extension, "ShareViewController.swift"), "utf8");
