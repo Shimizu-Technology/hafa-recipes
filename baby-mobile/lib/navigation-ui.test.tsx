@@ -183,6 +183,14 @@ it.each([false, true])("keeps Ask following messages or pending response (busy=%
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.placeholder).toBe("Question");
   if (!busy) expect(renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Find my packing list")!.props.style.lineHeight).toBe(22);
 });
+it("keeps the focused entry notice at the top while its context is resolving", async () => {
+  mock.params = { record_id: "source" };
+  mock.ask = { busy: true, resolving: true };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findByType(Screen).props.followEnd).toBe(false);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t =>
+    t.props.children === "Questions use this saved entry and its own child profile, including general entries.")).toBe(true);
+});
 it("opens history separately from a long conversation and returns without losing its draft", async () => {
   const openHistory = vi.fn();
   mock.ask = { question: "Keep this draft", messages: [{ role: "user", content: "Earlier question" }], showHistory: true, openHistory,
