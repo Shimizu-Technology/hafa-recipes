@@ -124,7 +124,8 @@ vi.mock('@/components/Themed', () => ({
     text: '#111',
     textMuted: '#666',
     textSecondary: '#444',
-    tint: '#087',
+    tint: '#5DD3B6',
+    onTint: '#00261F',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
@@ -276,6 +277,23 @@ describe('RecipeChatModal conversation isolation', () => {
     mocks.clerkUserId = 'clerk-subject';
     resetChatImageCleanupForTests();
     resetChatDraftsForTests();
+  });
+
+
+  it('keeps the assistant mark and user message readable on the bright dark-mode tint', async () => {
+    mocks.recipeMutate.mockResolvedValue({ response: 'Try a little less salt.' });
+    const root = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await renderModal(root, 'recipe');
+      const mark = root.container.queryAll(node => node.type === 'Ionicons' && node.props.name === 'sparkles' && node.props.size === 18);
+      expect(mark).toHaveLength(1);
+      expect(mark[0].props.color).toBe('#00261F');
+      await sendText(root, 'How much salt?');
+      const userText = root.container.queryAll(node => node.type === 'Text' && node.props.children === 'How much salt?');
+      expect(userText).toHaveLength(1);
+      const resolved = Object.assign({}, ...[userText[0].props.style].flat(Infinity));
+      expect(resolved.color).toBe('#00261F');
+    } finally { await act(async () => root.unmount()); }
   });
 
   it('R4 does not write A chat draft on generation-remount cleanup after B is verified', async()=>{

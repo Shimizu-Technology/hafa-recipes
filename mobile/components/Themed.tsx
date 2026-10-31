@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react';
 /**
  * Themed components with clean, minimal styling
  */
@@ -50,7 +51,9 @@ export function useColors() {
   return Colors[theme];
 }
 
-// System text with explicit leading, including legacy point-size overrides.
+const TextMetricsContext = createContext<{ fontSize: number; lineHeight: number } | null>(null);
+
+// Nested text keeps its parent's metrics, including recipe text-size overrides.
 export function Text(props: TextProps) {
   const {
     style,
@@ -60,12 +63,19 @@ export function Text(props: TextProps) {
   } = props;
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
 
+  const inherited = useContext(TextMetricsContext);
   const resolved = StyleSheet.flatten(style);
+  const size = resolved?.fontSize ?? inherited?.fontSize ?? typography.body.fontSize;
+  const leading = resolved?.lineHeight ?? (resolved?.fontSize !== undefined
+    ? lineHeightForSize(size)
+    : inherited?.lineHeight ?? lineHeightForSize(size));
+  const defaults = inherited
+    ? { fontSize: size, lineHeight: leading, ...((lightColor || darkColor) ? { color } : {}) }
+    : { color, fontFamily: fontFamily.regular, ...typography.body, fontSize: size, lineHeight: leading };
   return (
-    <DefaultText
-      style={[{ color, fontFamily: fontFamily.regular, ...typography.body, lineHeight: lineHeightForSize(resolved?.fontSize ?? 17) }, style]}
-      {...otherProps}
-    />
+    <TextMetricsContext.Provider value={{ fontSize: size, lineHeight: leading }}>
+      <DefaultText style={[defaults, style]} {...otherProps} />
+    </TextMetricsContext.Provider>
   );
 }
 
