@@ -173,7 +173,7 @@ export default function Today() {
       : "Log sleep or review your care history.",
     routine = routines[0];
   return (
-    <Screen title={child && showCare ? child.name : "Today"} subtitle={child ? babyAge(child, now) : undefined} numericSubtitle>
+    <Screen title={child && showCare ? child.name : "Today"} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}>
       <Stack.Screen options={{ title: child && showCare ? child.name : "Today" }} />
       <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
