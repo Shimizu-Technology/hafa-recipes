@@ -158,6 +158,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   // Parse scaling params
   const scaleFactor = scaleFactorParam ? parseFloat(scaleFactorParam) : 1;
   const currentServings = servingsParam ? parseInt(servingsParam, 10) : null;
+  const displayedServings = currentServings ?? recipe?.extracted?.servings;
   const isScaled = scaleFactor !== 1 && currentServings !== null;
   
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -769,8 +770,12 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       <SegmentedControl values={['Steps', 'Ingredients']} selectedIndex={showIngredients ? 1 : 0}
         onChange={event => setShowIngredients(event.nativeEvent.selectedSegmentIndex === 1)}
         appearance={appearance} style={{ marginHorizontal: 16, marginVertical: 12, minHeight: 44 }} />
-      {showIngredients ? <CookIngredientsList ingredients={allIngredients} scaleFactor={scaleFactor} isScaled={isScaled}
-        warningColor={colors.warning} scaleFontSize={scaleFontSize} /> : <>
+      {showIngredients ? <>
+        {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
+          {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
+        </Text>}
+        <CookIngredientsList ingredients={allIngredients} scaleFactor={scaleFactor} isScaled={isScaled}
+        warningColor={colors.warning} scaleFontSize={scaleFontSize} /></> : <>
       {/* Step Counter & Progress */}
       <RNView style={styles.progressSection}>
         <Text style={styles.stepCounter}>

@@ -8,7 +8,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ unavailable: false, revision: 1, servings: null as number | null, scaled: 1, push: vi.fn() }));
+const m = vi.hoisted(() => ({ isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
@@ -53,7 +53,7 @@ vi.mock('@/lib/openRecipeSource', () => ({ openRecipeSource: vi.fn() }));
 vi.mock('@/utils/haptics', () => ({ haptics: { selection: vi.fn() } }));
 vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
-    is_owner: true, is_public: false, review_state: 'ready', content_revision: m.revision,
+    is_owner: true, is_public: m.isPublic, moderation_status: m.moderationStatus, review_state: 'ready', content_revision: m.revision,
     extracted: { title: 'Rice', servings: m.servings, tags: [], times: {},
       components: [{ name: 'Main', ingredients: [{ name: 'rice', quantity: '1', unit: 'cup' }], steps: ['Cook'] }] } } }),
   useToggleRecipeSharing: () => ({}), useIsRecipeSaved: () => ({}), useSaveRecipe: () => ({}),
@@ -129,4 +129,22 @@ it('unmounts collapsed nutrition while retaining the chosen basis across reopeni
     await act(async () => toggle().props.onPress());
     expect(panels()[0].props.selectedBasisId).toBe('whole-recipe');
   } finally { await act(async () => root.unmount()); }
+});
+
+
+it.each([
+  [true, null, 'On'],
+  [false, null, 'Off'],
+  [true, 'hidden', 'Under review'],
+] as const)('shows honest Discover visibility (public=%s, moderation=%s)', async (isPublic, status, value) => {
+  m.isPublic = isPublic; m.moderationStatus = status;
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    // Assert the rendered Text, rather than only the VoiceOver label.
+    expect(root.container.queryAll(node => node.type === 'Text' && node.props.children === value)).toHaveLength(1);
+  } finally {
+    await act(async () => root.unmount());
+    m.isPublic = false; m.moderationStatus = null;
+  }
 });

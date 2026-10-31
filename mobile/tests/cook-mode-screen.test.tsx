@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { __DEV__: boolean }).__DEV__ = false;
 
 const mocks = vi.hoisted(() => ({
+  params: { id: 'recipe-1' } as Record<string, string>,
+  session: null as any,
+  startSession: vi.fn(),
   storage: new Map<string, string>(),
   appStateListeners: [] as ((state: string) => void)[],
   vibrate: vi.fn(),
@@ -110,7 +113,7 @@ vi.mock('expo-router', () => {
   Stack.Screen = (props: any) => props.options?.headerLeft?.() ?? null;
   return {
     Stack,
-    useLocalSearchParams: () => ({ id: 'recipe-1' }),
+    useLocalSearchParams: () => mocks.params,
     useRouter: () => ({ back: mocks.back }),
   };
 });
@@ -163,9 +166,9 @@ vi.mock('@/hooks/useBackgroundTimer', () => ({
 vi.mock('@/hooks/useTextSize', () => ({ useTextSize: () => ({ scaleFontSize: (n: number) => n }) }));
 vi.mock('@/contexts/TimerContext', () => {
   const context = {
-    session: null,
+    get session() { return mocks.session; },
     timers: new Map(),
-    startSession: vi.fn(),
+    startSession: mocks.startSession,
     updateSession: vi.fn(),
     syncTimers: vi.fn(),
     endSession: vi.fn(),
@@ -180,6 +183,7 @@ const RECIPE = {
   id: 'recipe-1',
   extracted: {
     title: 'Red Rice',
+    servings: 4,
     components: [{
       name: 'Main',
       ingredients: [],
@@ -250,6 +254,9 @@ async function advance(ms: number) {
 describe('CookModeScreen', () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: new Date('2026-01-01T12:00:00Z') });
+    mocks.params = { id: 'recipe-1' };
+    mocks.session = null;
+    mocks.startSession.mockReset();
     mocks.storage.clear();
     mocks.permission = true; mocks.alertFailure = false; mocks.openSettings.mockClear();
     mocks.appStateListeners = [];
@@ -292,6 +299,23 @@ describe('CookModeScreen', () => {
       expect(mocks.retryAlert).toHaveBeenCalledOnce();
     }
     await act(async () => r.unmount());
+  });
+
+  it('keeps the scaled serving context when returning from the floating timer session', async () => {
+    mocks.params = { id: 'recipe-1', scaleFactor: '2', servings: '8' };
+    let renderer = await renderScreen();
+    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    expect(textOf(renderer.root)).toContain('8 servings (scaled)');
+    const session = mocks.startSession.mock.calls.at(-1)![0];
+    expect(session).toMatchObject({ recipeId: 'recipe-1', scaleFactor: 2, servings: 8 });
+    await act(async () => renderer.unmount());
+    // FloatingTimerOverlay reconstructs these route params from the saved session.
+    mocks.session = session;
+    mocks.params = { id: session.recipeId, scaleFactor: String(session.scaleFactor), servings: String(session.servings) };
+    renderer = await renderScreen();
+    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    expect(textOf(renderer.root)).toContain('8 servings (scaled)');
+    await act(async () => renderer.unmount());
   });
 
   describe('timer completion', () => {

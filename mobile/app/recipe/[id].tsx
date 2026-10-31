@@ -1158,7 +1158,7 @@ function RecipeDetailScreenContent() {
                 accessibilityLabel={`${visibilityPresentation?.label}. ${visibilityPresentation?.subtitle}`}
                 accessibilityHint={visibilityPresentation?.accessibilityHint}
                 accessibilityState={{ busy: toggleSharingMutation.isPending }}
-                value={recipe.is_public ? 'On' : 'Off'} />
+                value={visibilityPresentation?.value} />
             )}
 
             <RecipeDetailRow icon="chatbubbles-outline" title="Ask Håfa"
