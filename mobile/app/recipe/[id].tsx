@@ -1012,17 +1012,15 @@ function RecipeDetailScreenContent() {
                 <Ionicons name={tab.key === 'nutrition' ? 'nutrition-outline' : 'pricetag-outline'} size={20} color={colors.actionText} />
                 <Text style={{ flex: 1 }}>{tab.label}</Text><Ionicons name={activeTab === tab.key ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
               </TouchableOpacity>)}
-              {/* Keep disclosure state when switching tabs so the reading position remains meaningful. */}
-                <RNView key={`nutrition-${id}`} style={{ display: activeTab === 'nutrition' ? 'flex' : 'none' }}
-                  accessibilityElementsHidden={activeTab !== 'nutrition'}
-                  importantForAccessibility={activeTab === 'nutrition' ? 'auto' : 'no-hide-descendants'}>
+              {/* Mount only while open: updating a display:none Fabric subtree crashes native layout. Basis selection stays above the disclosure. */}
+                {activeTab === 'nutrition' && <RNView key={`nutrition-${id}`}>
                   <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
                     recipeServings={extracted.servings ?? null}
                     scaleFactor={scaleFactor}
                     selectedBasisId={nutritionBasis} onBasisChange={setNutritionBasis}
                     isLoading={isRefreshingNutrition} error={nutritionError} onRefresh={isOwner ? refreshNutrition : undefined} />
 
-                </RNView>
+                </RNView>}
 
               {activeTab === 'cost' && costSummary && (
                 <>

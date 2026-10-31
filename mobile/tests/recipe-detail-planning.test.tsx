@@ -25,7 +25,7 @@ vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ t
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
 vi.mock('@/components/OfflineRecipeControl', () => ({ OfflineRecipeControl: () => null }));
 vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => ({ text: '#111', textMuted: '#555', background: '#fff' }) }));
-vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
+vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: host('NutritionPanel') }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));
 vi.mock('@/components/AddIngredientsModal', () => ({ default: () => null }));
 vi.mock('@/components/RecipeChatModal', () => ({ default: () => null }));
@@ -109,5 +109,24 @@ it('checks ingredients independently and keeps the main Plan action scaled', asy
     const plan = root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Plan')[0];
     await act(async () => plan.props.onPress());
     expect(m.push.mock.calls.at(-1)?.[0].params.servings).toBe('8');
+  } finally { await act(async () => root.unmount()); }
+});
+
+
+it('unmounts collapsed nutrition while retaining the chosen basis across reopening', async () => {
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    const panels = () => root.container.queryAll(node => node.type === 'NutritionPanel');
+    const toggle = () => root.container.queryAll(node => node.type === 'TouchableOpacity' &&
+      Array.isArray(node.props.children) && node.props.children.some((child: any) => child?.props?.children === 'Nutrition'))[0];
+    expect(panels()).toHaveLength(0);
+    await act(async () => toggle().props.onPress());
+    expect(panels()).toHaveLength(1);
+    await act(async () => panels()[0].props.onBasisChange('whole-recipe'));
+    await act(async () => toggle().props.onPress());
+    expect(panels()).toHaveLength(0);
+    await act(async () => toggle().props.onPress());
+    expect(panels()[0].props.selectedBasisId).toBe('whole-recipe');
   } finally { await act(async () => root.unmount()); }
 });
