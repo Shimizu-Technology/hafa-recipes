@@ -758,7 +758,7 @@ function ManualRecipeForm() {
               {steps.map((step, index) => (
                 <RNView key={step.id} style={styles.stepRow}>
                   <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
-                    <Text style={styles.stepNumberText}>{index + 1}</Text>
+                    <Text style={[styles.stepNumberText, { color: colors.onTint }]}>{index + 1}</Text>
                   </RNView>
                   <TextInput
                     style={[styles.input, styles.stepInput, { color: colors.text, borderColor: colors.border }]}

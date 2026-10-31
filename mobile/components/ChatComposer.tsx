@@ -102,7 +102,7 @@ export default function ChatComposer({
               accessibilityState={{ disabled: areAttachmentsDisabled }}
               hitSlop={8}
             >
-              <Ionicons name="close" size={15} color="#FFFFFF" />
+              <Ionicons name="close" size={15} color={colors.onError} />
             </TouchableOpacity>
           </RNView>
           <RNView style={styles.attachedImageText}>
@@ -284,7 +284,7 @@ export default function ChatComposer({
           ]}
         >
           {isSending ? (
-            <Ionicons name="stop" size={18} color="#FFFFFF" />
+            <Ionicons name="stop" size={18} color={colors.onError} />
           ) : (
             <Ionicons
               name="arrow-up"

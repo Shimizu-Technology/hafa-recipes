@@ -157,7 +157,7 @@ vi.mock('@/components/Themed', async () => {
     IconButton: host('IconButton'),
     Text: host('ThemedText'),
     View: host('ThemedView'),
-    useColors: () => ({
+    useColors: () => ({ onTint: '#00261F',
       accent: '#b94722', accentSoft: '#fbe8de', background: '#fff',
       backgroundSecondary: '#f7f2e8', border: '#ddd', error: '#b42318',
       success: '#177245', text: '#111', textMuted: '#666', textSecondary: '#555',
@@ -656,6 +656,8 @@ describe('classified image recovery', () => {
     await act(async () => { renderer = create(<ExtractScreen />); });
     await act(async () => touchableWithText(renderer, 'Finish')!.props.onPress());
     await act(async () => renderer.update(<ExtractScreen />));
+    const pageNumber = renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType).find(node => node.props.children === 1)!;
+    expect(Object.assign({}, ...[pageNumber.props.style].flat(Infinity)).color).toBe('#00261F');
     mocks.preferences.ready = true;
     await act(async () => renderer.update(<ExtractScreen />));
     await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
