@@ -5,8 +5,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { View, type ScrollView } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import * as Crypto from "expo-crypto";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AccountButton, Button, Card, Choice, Copy, Field, Grow, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Sheet, useColors, useReducedMotion } from "@/components/ui";
 import { RecentImports } from "@/components/recent-imports";
@@ -22,6 +23,10 @@ import { setNativeShareVisibility } from "@/lib/native-share-session";
 export default function Capture() {
   const { shared, request_id: sharedRequest } = useLocalSearchParams<{ shared?: string; request_id?: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
+  const navigation = useNavigation();
+  const [leaving, setLeaving] = useState(false);
+  const afterSave = useRef<(() => void) | null>(null);
+  const leavingBusy = useRef(false);
   const generation = enrollment?.generation ?? 0;
   const scope = `capture:${generation}`;
   const slot = useMemo(
@@ -74,6 +79,7 @@ export default function Capture() {
   useLayoutEffect(() => {
     const committed = { owner, generation, storage, active: true };
     live.current = committed;
+    setLeaving(false); afterSave.current = null; leavingBusy.current = false;
     return () => { committed.active = false; };
   }, [owner, generation, storage]);
   useEffect(() => {
@@ -82,6 +88,26 @@ export default function Capture() {
       mounted.current = false;
     };
   }, []);
+  // Extract is now a pushed screen: wait for durable local edits before a pop,
+  // including native swipe/back. Never dispatch an old account's navigation.
+  usePreventRemove(ready && !stale && !leaving && storage.isCurrent() && isCurrentAccount(), ({ data }) => {
+    if (leavingBusy.current) return;
+    leavingBusy.current = true;
+    const scope = live.current;
+    void writes.current.catch(() => flush()).then(() => {
+      if (scope !== live.current || !scope.active) return;
+      afterSave.current = () => {
+        if (scope === live.current && scope.active && storage.isCurrent() && isCurrentAccount()) navigation.dispatch(data.action);
+      };
+      setLeaving(true);
+    }).catch(e => {
+      if (scope === live.current && scope.active) setError(e instanceof Error ? e.message : "Could not save this source. Try leaving again.");
+    }).finally(() => { if (scope === live.current) leavingBusy.current = false; });
+  });
+  useEffect(() => {
+    if (!leaving) return;
+    const dispatch = afterSave.current; afterSave.current = null; dispatch?.();
+  }, [leaving]);
   function currentScope() {
     if (
       !mounted.current ||
@@ -531,7 +557,7 @@ export default function Capture() {
   const submittable = draft.kind === "url" ? linkLooksComplete(draft.source_url) : !captureErrors(draft).length;
   const limits = capabilities.data?.limits;
   return (
-    <Screen title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />} scrollRef={scrollRef}>
+    <Screen back title="Add workout" subtitle="Save a workout from a link, text, photos or a PDF." action={<AccountButton />} scrollRef={scrollRef}>
       {(draft.job_id || submittedId) && <Card compact>
         <Row gap={10} align="flex-start">
           <Ionicons name="checkmark-circle" size={22} color={colors.success} />
