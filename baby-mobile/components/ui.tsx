@@ -681,7 +681,6 @@ export function TextLinks({ options, value, onChange, label }: { options: { labe
   return fontScale >= 1.3 ? links : <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">{links}</ScrollView>;
 }
 export function Empty({
-  icon = "leaf-outline",
   title,
   body,
   action,
@@ -692,12 +691,11 @@ export function Empty({
   action?: React.ReactNode;
 }) {
   return (
-    <Card tone="soft">
-      <Icon name={icon} size={30} />
+    <View style={{ gap: 8, paddingVertical: 24 }}>
       <Copy kind="heading">{title}</Copy>
       <Copy tone="muted">{body}</Copy>
       {action}
-    </Card>
+    </View>
   );
 }
 export function Section({
