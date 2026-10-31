@@ -344,6 +344,7 @@ function PlannerScreenContent() {
 
   const weekScroll = useRef<ScrollView>(null);
   const dayPositions = useRef<Record<string, number>>({});
+  const scrollSize = useRef({ height: 0, contentHeight: 0 });
   const pendingScrollDate = useRef<string | null>(null);
   const scrollToRequestedDay = () => {
     if (!weekPlan || isLoading) return;
@@ -351,7 +352,10 @@ function PlannerScreenContent() {
     if (date && dayPositions.current[date] !== undefined) {
       // Near the start, retain the week navigation below the expanded title.
       // Fabric needs scrollToOverflowEnabled to honor the negative automatic inset.
-      const y = dayPositions.current[date] < headerHeight ? -headerHeight : dayPositions.current[date] - headerHeight;
+      const requestedY = dayPositions.current[date] < headerHeight ? -headerHeight : dayPositions.current[date] - headerHeight;
+      // Overflow is needed only for the top inset; keep late-week targets inside the list.
+      const maxY = Math.max(0, scrollSize.current.contentHeight - scrollSize.current.height + insets.bottom);
+      const y = scrollSize.current.height && scrollSize.current.contentHeight ? Math.min(requestedY, maxY) : requestedY;
       weekScroll.current?.scrollTo({ y, animated: false });
     }
   };
@@ -728,7 +732,9 @@ function PlannerScreenContent() {
   return (
     <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
       {/* Day Content */}
-      <ScrollView ref={weekScroll} onContentSizeChange={scrollToRequestedDay}
+      <ScrollView ref={weekScroll}
+          onLayout={event => { scrollSize.current.height = event.nativeEvent.layout.height; scrollToRequestedDay(); }}
+          onContentSizeChange={(_width, height) => { scrollSize.current.contentHeight = height; scrollToRequestedDay(); }}
           scrollToOverflowEnabled
           onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"

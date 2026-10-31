@@ -213,6 +213,12 @@ describe('planner loading recovery', () => {
       routeMocks.params = { date: '2026-10-28' };
       await act(async () => root.render(<PlannerScreen />));
       expect(routeMocks.scrollTo).toHaveBeenCalledWith({ y: 396, animated: false });
+      await act(async () => {
+        scrollContainer.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+        scrollContainer.props.onContentSizeChange(402, 1000);
+      });
+      expect(routeMocks.scrollTo).toHaveBeenLastCalledWith({ y: 200, animated: false });
+      await act(async () => scrollContainer.props.onContentSizeChange(402, 2000));
       routeMocks.headerHeight = 156;
       await act(async () => root.render(<PlannerScreen />));
       expect(routeMocks.scrollTo).toHaveBeenLastCalledWith({ y: 344, animated: false });
