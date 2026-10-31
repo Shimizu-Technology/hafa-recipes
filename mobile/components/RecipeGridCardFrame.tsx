@@ -44,8 +44,8 @@ export function RecipeGridCardFrame({
   const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth - 32 : (contentWidth - 32 - RECIPE_GRID_GAP) / 2;
 
   return (
+    <RNView style={[styles.card, { width: cardWidth }]}>
     <ScalePressable
-      style={[styles.card, { width: cardWidth }]}
       accessibilityActions={accessibilityActions}
       onAccessibilityAction={onAccessibilityAction}
       onPress={onPress}
@@ -61,7 +61,6 @@ export function RecipeGridCardFrame({
           placeholderIconSize={40}
           priority={imagePriority}
         />
-        {imageAdornment}
       </RNView>
       <RNView style={[styles.content, { minHeight: 8 + titleSlotHeight + 2 + footerHeight }]}>
         <Text
@@ -73,6 +72,9 @@ export function RecipeGridCardFrame({
         <RNView style={[styles.footer, { minHeight: footerHeight }]}>{footer}</RNView>
       </RNView>
     </ScalePressable>
+    {/* Keep independent photo actions outside the card’s VoiceOver group. */}
+    {imageAdornment}
+    </RNView>
   );
 }
 
