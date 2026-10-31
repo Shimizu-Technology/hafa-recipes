@@ -271,7 +271,7 @@ describe('Saved library filtering', () => {
       if (empty) {
         const emptyView = createRoot({ textComponentTypes: ['Text'] });
         try {
-          await act(async () => emptyView.render(list.props.ListEmptyComponent));
+          await act(async () => emptyView.render(React.createElement(list.props.ListEmptyComponent)));
           expect(emptyView.container.queryAll(instance => instance.props.children === 'No recipes match')).toHaveLength(1);
           expect(emptyView.container.queryAll(instance => instance.props.children === 'Add Your First Recipe')).toHaveLength(0);
           await act(async () => emptyView.container.queryAll(instance => instance.type === 'TouchableOpacity')[0].props.onPress());
