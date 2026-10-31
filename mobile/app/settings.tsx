@@ -930,6 +930,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   menuItemLeft: {
+    flex: 1,
+    marginRight: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
@@ -942,6 +944,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuLabel: {
+    flexShrink: 1,
     fontSize: fontSize.md,
   },
   menuSubLabel: {
