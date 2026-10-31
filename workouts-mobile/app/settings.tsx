@@ -27,7 +27,7 @@ function IdentityCard() {
       accessibilityLabel={identity.email ? `Signed in as ${identity.name}, ${identity.email}` : `Signed in as ${identity.name}`}
       style={{
         flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md,
-        backgroundColor: c.surface, borderRadius: radii.xl - 4, borderWidth: 1, borderColor: c.border,
+        backgroundColor: c.elevated, borderRadius: 12,
       }}
     >
       <View style={{ width: avatarSize, height: avatarSize, borderRadius: radii.full, backgroundColor: c.actionSoft,
@@ -99,7 +99,7 @@ export default function Settings() {
     );
   }
   return (
-    <Screen back title="Settings">
+    <Screen native grouped back title="Settings">
       <IdentityCard />
       <SectionHeader title="Training" />
       <ListGroup>

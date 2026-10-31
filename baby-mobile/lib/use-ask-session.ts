@@ -185,6 +185,7 @@ export function useAskSession(recordId?: string, active = true) {
     if (!account.state.bootstrap?.profile.ai_consent) { setError("Enable optional AI processing in Settings first."); return; }
     const operation = ticket(), requestId = snapshot.requestId ?? Crypto.randomUUID(), text = snapshot.question.trim(),
       sent = { ...snapshot, question: text, requestId };
+    setShowHistory(false);
     update(sent); working.current = true; setBusy(true); setError("");
     try {
       await save(sent, account);

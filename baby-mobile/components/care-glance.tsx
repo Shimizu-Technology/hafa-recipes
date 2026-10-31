@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Text, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import type { BabyRecord, Child } from "@/lib/models";
-import { careSummary, duration, timeAgo } from "@/lib/care-format";
+import { duration, timeAgo } from "@/lib/care-format";
 import { babyAge, careGlance, nextFeed } from "@/lib/care-glance";
-import { Card, Copy, Icon, fonts, useColors, type IconName } from "./ui";
-import { kindIcon } from "./record-row";
+import { Card, Copy, PressTarget, fonts, typeScale, useColors } from "./ui";
 
-/** Re-render on a slow clock so "2 h 10 min ago" stays true while Today is open. */
+/** Keep elapsed care times current while Today is open. */
 export function useMinuteClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -17,88 +16,39 @@ export function useMinuteClock() {
   return now;
 }
 
-function Line({ icon, title, detail, record, prominent = false }: { icon: IconName; title: string; detail?: string; record?: BabyRecord; prominent?: boolean }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
-  const content = (
-    <View style={{ flexDirection: "row", gap: 12, alignItems: "center", minHeight: 44 }}>
-      <Icon name={icon} size={22} color={c.accentText} />
-      <View style={{ flex: 1, gap: 1 }}>
-        {prominent ? <Text key={fontScale} maxFontSizeMultiplier={0} accessibilityRole="header"
-          style={{ fontFamily: fonts.bold, fontSize: 34, letterSpacing: -0.6, color: c.text, fontVariant: ["tabular-nums"] }}>{title}</Text>
-          : <Copy kind="small" tone="muted">{title}</Copy>}
-        {!!detail && (
-          <Copy kind="small" tone="muted">
-            {detail}
-          </Copy>
-        )}
-      </View>
-    </View>
-  );
-  return record ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={[title, detail].filter(Boolean).join(". ")}
-      accessibilityHint="Opens this entry"
-      onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-    >
-      {content}
-    </Pressable>
-  ) : (
-    <View accessible accessibilityLabel={[title, detail].filter(Boolean).join(". ")}>
-      {content}
-    </View>
-  );
+/** A single readable answer to “when did we last feed?” */
+export function CareGlance({ child, rows, now }: { child: Child; rows: BabyRecord[]; now: Date }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(),
+    feed = careGlance(rows, child.id, now).lastFeed,
+    elapsed = feed ? Math.max(0, Math.floor((now.getTime() - new Date(feed.occurred_at).getTime()) / 60_000)) : 0,
+    value = elapsed < 60 ? `${elapsed}m` : elapsed < 2880 ? `${Math.floor(elapsed / 60)}h ${elapsed % 60}m` : `${Math.floor(elapsed / 1440)}d`,
+    next = nextFeed(feed).side,
+    detail = feed ? [
+      feed.data.method === "breast" && feed.data.side
+        ? { left: "Left side", right: "Right side", both: "Both sides" }[feed.data.side]
+        : feed.data.method === "bottle" ? "Bottle" : "Feeding",
+      feed.data.amount ? `${feed.data.amount} ${feed.data.unit === "oz" ? "oz" : "mL"}` : "",
+      feed.data.duration_minutes ? duration(feed.data.duration_minutes) : "",
+      feed.data.method === "breast" && next && next !== "both" ? `Next: ${next}` : "",
+    ].filter(Boolean).join(" · ") : "Start a timer or add a past feed below.";
+  const content = <Card tone="hero" style={{ gap: 4 }}>
+    <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontWeight: "600", color: c.accentText }}>Last fed</Text>
+    {feed ? <Text key={`value:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={1.4}
+      style={{ ...typeScale.number, color: c.text }}>
+      {value}<Text style={{ fontFamily: fonts.regular, fontWeight: "400", fontSize: 20, lineHeight: 25, color: c.muted }}> ago</Text>
+    </Text> : <Copy kind="heading">No recent feed</Copy>}
+    <Copy numeric kind="small" tone="muted">{detail}</Copy>
+  </Card>;
+  return feed ? <PressTarget accessibilityRole="button"
+    accessibilityLabel={`Last fed ${timeAgo(feed.occurred_at, now)}. ${detail}`}
+    accessibilityHint="Opens this feeding entry"
+    onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.id } })}>{content}</PressTarget> : content;
 }
 
-const sideName = { left: "left side", right: "right side", both: "both sides" } as const;
-
-/** What a parent checks first: when she last ate, whether she is asleep, and today's diapers. */
-export function CareGlance({ child, rows, now }: { child: Child; rows: BabyRecord[]; now: Date }) {
-  const glance = careGlance(rows, child.id, now),
-    age = babyAge(child, now),
-    next = nextFeed(glance.lastFeed).side,
-    { total, wet, dirty } = glance.diapers;
-  return (
-    <Card tone="hero">
-      <Copy kind="small" tone="muted">{child.name}{age ? ` · ${age}` : ""}</Copy>
-      <Line
-        prominent
-        icon={kindIcon.feeding}
-        record={glance.lastFeed}
-        title={glance.lastFeed ? `Last fed ${timeAgo(glance.lastFeed.occurred_at, now)}` : "No feeds logged yet"}
-        detail={
-          glance.lastFeed
-            ? glance.lastFeed.data.method === "breast" && next && next !== "both"
-              ? `Next: ${sideName[next]}`
-              : careSummary("feeding", glance.lastFeed.data, glance.lastFeed.occurred_at, now)
-            : undefined
-        }
-      />
-      <Line
-        icon={kindIcon.sleep}
-        record={glance.openSleep ?? glance.lastSleep}
-        title={
-          glance.openSleep
-            ? careSummary("sleep", glance.openSleep.data, glance.openSleep.occurred_at, now)
-            : glance.lastSleep
-              ? `Awake · woke ${timeAgo(glance.lastSleep.data.end_at!, now)}`
-              : "No sleep logged yet"
-        }
-        detail={
-          !glance.openSleep && glance.lastSleep
-            ? `Last sleep ${duration(
-                (new Date(glance.lastSleep.data.end_at!).getTime() - new Date(glance.lastSleep.occurred_at).getTime()) /
-                  60_000
-              )}`
-            : undefined
-        }
-      />
-      <Line
-        icon={kindIcon.diaper}
-        title={total ? `${total} diaper${total === 1 ? "" : "s"} today` : "No diapers yet today"}
-        detail={total ? `${wet} wet · ${dirty} dirty${glance.feeds ? ` · ${glance.feeds} feed${glance.feeds === 1 ? "" : "s"}` : ""}` : undefined}
-      />
-    </Card>
-  );
+export function FirstStep({ child, now }: { child?: Child | null; now: Date }) {
+  return <Card tone="hero">
+    <Copy kind="small" tone="accent">{child?.due_date ? "Looking ahead" : "A little space for your day"}</Copy>
+    <Copy numeric={!!child?.due_date} kind="heading">{child?.due_date ? babyAge(child, now) : "Start with a small moment"}</Copy>
+    <Copy tone="muted">{child?.due_date ? "Keep your notes, questions and preparations together." : "Save a note, write in your journal, or add a baby profile when you’re ready."}</Copy>
+  </Card>;
 }

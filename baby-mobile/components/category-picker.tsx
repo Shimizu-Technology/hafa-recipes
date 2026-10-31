@@ -32,7 +32,7 @@ export function CategoryPicker({ sourceIds, onClose, onSaved }: {
     finally { working.current = false; setBusy(false); }
   }
   return <Modal visible animationType="slide" onRequestClose={() => !busy && onClose()}>
-    <Screen title="Choose category" subtitle={`${sourceIds.length} selected`}
+    <Screen nativeHeader={false} numericSubtitle title="Choose category" subtitle={`${sourceIds.length} selected`}
       action={<Button variant="ghost" title="Cancel" disabled={busy} onPress={onClose} />}>
       {!!error && <Notice error>{error}</Notice>}
       {creating ? <>
@@ -41,7 +41,7 @@ export function CategoryPicker({ sourceIds, onClose, onSaved }: {
       </> : <Button secondary title="New category" icon="add" disabled={busy} onPress={() => setCreating(true)} />}
       {history.loading && !history.rows.length && <Loading label="Loading categories…" />}
       {history.rows.map((record) => <Row key={record.id} title={record.title} icon="folder-outline"
-        detail={`${record.data.record_ids?.length ?? 0} saved posts`} onPress={() => !busy && void organize(record.id)} />)}
+        numericDetail detail={`${record.data.record_ids?.length ?? 0} saved posts`} onPress={() => !busy && void organize(record.id)} />)}
       {!!history.error && <><Notice error>{history.error}</Notice><Button secondary title="Try again" onPress={history.refresh} /></>}
       {history.more && <Button secondary title="Load more categories" busy={history.loading} onPress={() => void history.loadMore()} />}
       <Copy kind="small" tone="muted">Posts can belong to more than one category. Existing categories are kept.</Copy>
