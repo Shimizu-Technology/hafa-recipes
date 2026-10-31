@@ -41,7 +41,7 @@ vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ t
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
-vi.mock("../components/design/foundation", () => ({ Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => ({ background: "background" }), useReducedMotion: () => true, useSurface: () => "surface" }));
+vi.mock("../components/design/foundation", () => ({ GroupedPage: { Provider: "GroupedPage" }, useGroupedPage: () => false, Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => ({ background: "background", groupedBackground: "grouped" }), useReducedMotion: () => true, useSurface: () => "surface" }));
 vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
 vi.mock("expo-speech", () => ({ speak: f.speak, stop: f.speechStop, isSpeakingAsync: f.speechQuiet,
   getAvailableVoicesAsync: async () => [{ identifier: "local", language: "en-US" }], maxSpeechInputLength: 4000 }));
@@ -50,7 +50,7 @@ vi.mock("expo-crypto", () => ({ randomUUID: () => `request-${++f.uuid}` }));
 vi.mock("expo-router", async () => {
   const React = await import("react");
   f.paramsContext = React.createContext<Record<string, string> | null>(null);
-  return { router: { push: f.push, replace: vi.fn() },
+  return { Stack: { Screen: "NativeHeader" }, router: { push: f.push, replace: vi.fn() },
     useLocalSearchParams: () => React.useContext(f.paramsContext!) ?? f.params,
     useFocusEffect: (fn: () => void) => useEffect(() => f.routeFocused ? fn() : undefined, [fn, f.focusVersion, f.routeFocused]) };
 });
@@ -1333,4 +1333,14 @@ it.each([409, 500])("permits stale-profile source context only for 409, preservi
 it("preserves a stale-profile error for general coaching", async () => {
  f.profileStatus = 409; await mount();
  expect(button("Send message").props.disabled).toBe(true);
+});
+
+it.each(["ios", "android"])("opted-in detail screens use native navigation and automatic safe insets (%s)", async platform => {
+  f.platform = platform as typeof f.platform;
+  const { Screen } = await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces");
+  await act(async () => { view = create(createElement(Screen, { title: "Workout", native: true, grouped: true, back: true, hideTitle: true })); });
+  expect(nodes("NativeHeader")[0].props.options).toMatchObject({ headerShown: true, headerTransparent: true, headerLargeTitleEnabled: false });
+  expect(nodes("ScrollView")[0].props.contentInsetAdjustmentBehavior).toBe("automatic");
+  expect(nodes("IconButton").some(node => node.props.label === "Go back")).toBe(false);
+  expect(nodes("KeyboardAvoidingView")[0].props.style).toMatchObject({ backgroundColor: "grouped", paddingTop: 0 });
 });

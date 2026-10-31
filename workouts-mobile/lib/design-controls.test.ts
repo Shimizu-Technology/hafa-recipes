@@ -9,7 +9,7 @@ vi.mock("react-native", () => {
     Platform: { OS: "ios" }, useWindowDimensions: () => ({ fontScale: 1 }), Easing: { bezier: () => "ease-out" },
     Animated: { Value, createAnimatedComponent: (c: unknown) => c, timing: (...args: unknown[]) => { f.timing(...args); return { start() {} }; } } };
 });
-vi.mock("../components/design/foundation", () => ({ Copy: "Copy", useColors: () => light, useSurface: () => "surface", useReducedMotion: () => f.reduced, haptics: { tick() {} } }));
+vi.mock("../components/design/foundation", () => ({ useGroupedPage: () => false, Copy: "Copy", useColors: () => light, useSurface: () => "surface", useReducedMotion: () => f.reduced, haptics: { tick() {} } }));
 vi.mock("../components/account-identity", () => ({ useAccountIdentity: () => ({}) }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: {} }));

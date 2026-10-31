@@ -164,7 +164,7 @@ export default function Training() {
   }
   if (summary)
     return (
-      <Screen
+      <Screen native
         title={summary.partial ? "Partial session saved" : "Session saved"}
         footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/history-progress")} />}
       >
@@ -178,26 +178,26 @@ export default function Training() {
     );
   if (restoreError)
     return (
-      <Screen back title="Restore session">
+      <Screen native back title="Restore session">
         <Notice error>{restoreError}</Notice>
         <Button title="Try restoring again" onPress={retry} />
       </Screen>
     );
   if (!ready)
     return (
-      <Screen back title="Restore training">
+      <Screen native back title="Restore training">
         <Copy>Loading your saved session…</Copy>
       </Screen>
     );
   if ((!d || !store) && finishing.current)
     return (
-      <Screen title="Saving session">
+      <Screen native title="Saving session">
         <Copy>Saving on this device…</Copy>
       </Screen>
     );
   if (!d || !store)
     return (
-      <Screen back title="Ready when you are">
+      <Screen native back title="Ready when you are">
         <Empty
           icon="fitness-outline"
           title="No active session"
@@ -353,7 +353,7 @@ export default function Training() {
       },
     ]);
   return (
-    <Screen
+    <Screen native
       back
       title={e?.name ?? d.workout.title}
       subtitle={e ? [d.workout.title, group].filter(Boolean).join(" · ") : undefined}
@@ -538,6 +538,7 @@ export default function Training() {
               }}
             />
           ))}
+          {!timed && <Button title="Add set" icon="add" variant="ghost" size="sm" disabled={busy || d.paused || !!structureWarning} onPress={() => { void run(() => store.addSet()); }} />}
           <ListRow icon="create-outline" title="Notes & feel" detail={feel ?? "Effort, how it felt, any pain"} onPress={() => setFeelOpen(true)} />
           {!!e.instructions && (
             <View style={{ gap: 4 }}>

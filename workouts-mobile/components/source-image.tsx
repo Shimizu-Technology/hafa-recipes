@@ -32,7 +32,7 @@ export function SourceImage({ uri, label, cover = false, fallback }: { uri: stri
               if (Number.isFinite(nextRatio) && nextRatio > 0) setRatio(nextRatio);
             }
           }}
-          style={{ width: "100%", height: cover ? 180 : 260, resizeMode: cover ? "cover" : "contain" }}
+          style={{ width: "100%", ...(cover ? { aspectRatio: 4 / 3 } : { height: 260 }), resizeMode: cover ? "cover" : "contain" }}
         />
         {!cover && <Copy kind="small">
           Tap to inspect source image

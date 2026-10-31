@@ -184,7 +184,7 @@ let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
 const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
-const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === undefined)?.children.join("");
+const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === "small")?.children.join("");
 const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
 it("omits an empty reference card when source identity is already in the header", async () => {
   await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
@@ -564,7 +564,7 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   await mount(WorkoutDetail);
   // The page leads with its own hero, then the title and one meta line.
   expect(nodes("Screen")[0].props.hideTitle).toBe(true);
-  expect(nodes("Copy").find((n) => n.props.kind === "title")!.children.join("")).toBe(saved.title);
+  expect(nodes("Copy").find((n) => n.props.kind === "heading")!.children.join("")).toBe(saved.title);
   expect(metaLine()).toBe("30 min · 1 exercise · Dumbbells, Bench");
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
