@@ -94,7 +94,6 @@ export function FeedTimerCard({
           key={fontScale}
           maxFontSizeMultiplier={1.4}
           numberOfLines={1}
-          adjustsFontSizeToFit
           style={{ color: c.text, fontSize: 44, lineHeight: 50, fontFamily: fonts.rounded, fontWeight: "700", fontVariant: ["tabular-nums"] }}
         >
           {clockText(activeMs(timer, now))}
