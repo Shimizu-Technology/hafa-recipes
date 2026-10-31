@@ -296,6 +296,7 @@ function GroceryScreenContent() {
     [groceryItems, normalizedSearchQuery],
   );
   const sections = useMemo(() => groupGroceryItems(visibleItems), [visibleItems]);
+  const fullSections = useMemo(() => groupGroceryItems(allGroceryItems ?? groceryItems ?? []), [allGroceryItems, groceryItems]);
 
   // Title lookup keeps collapse choices saved by older app versions working.
   const isSectionCollapsed = useCallback(
@@ -573,16 +574,17 @@ function GroceryScreenContent() {
     );
   };
 
-  const renderSectionHeader = ({ section }: { section: GrocerySection }) => (
-    <GrocerySectionHeader
-      section={section}
+  const renderSectionHeader = ({ section }: { section: GrocerySection }) => {
+    const fullSection = fullSections.find(candidate => candidate.key === section.key) ?? section;
+    return <GrocerySectionHeader
+      section={fullSection}
       isCollapsed={isSectionCollapsed(section)}
       isCollapsible={!isSearching}
       onToggle={() => toggleSection(section)}
       onOpenRecipe={(recipeId) => router.push(appRoutes.recipe(recipeId))}
-      onClearSection={section.recipeId ? () => handleClearRecipeSection(section) : undefined}
-    />
-  );
+      onClearSection={section.recipeId ? () => handleClearRecipeSection(fullSection) : undefined}
+    />;
+  };
 
   const ListEmpty = () => {
     if (!isLoaded) {

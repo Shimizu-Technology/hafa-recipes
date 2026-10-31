@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   share: vi.fn(),
   refetch: vi.fn(),
   addItem: vi.fn(),
+  deleteItems: vi.fn(),
   success: vi.fn(),
   focusCallback: vi.fn() as () => void,
   routerPush: vi.fn(),
@@ -201,7 +202,7 @@ vi.mock('@/hooks/useGrocery', () => ({
   useClearAllItems: mutation,
   useClearCheckedItems: mutation,
   useDeleteGroceryItem: mutation,
-  useDeleteGroceryItems: mutation,
+  useDeleteGroceryItems: () => ({ ...mutation(), mutate: mocks.deleteItems }),
   useGroceryCount: (isSignedIn: boolean) => {
     mocks.countEnabledArgs.push(isSignedIn);
     const items = mocks.groceryState.items ?? [];
@@ -506,6 +507,22 @@ describe('GroceryScreen shopping views', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('keeps recipe progress and removal complete when checked items are hidden', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice', recipe_id: 'recipe-1', recipe_title: 'Chicken Kelaguen' }), item({ id: 'salt', name: 'Salt', recipe_id: 'recipe-1', recipe_title: 'Chicken Kelaguen', checked: true })];
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      const header = renderer.container.queryAll(node => node.type === 'GrocerySectionHeader')[0];
+      expect(header.props.section.checkedCount).toBe(1);
+      expect(header.props.section.totalCount).toBe(2);
+      await act(async () => header.props.onClearSection());
+      const actions = mocks.alert.mock.calls.at(-1)![2];
+      await act(async () => actions.find((action: any) => action.text === 'Clear').onPress());
+      expect(mocks.deleteItems).toHaveBeenCalledWith(['rice', 'salt'], expect.any(Object));
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('does not turn a quick manual grocery entry into a recipe warning', async () => {
