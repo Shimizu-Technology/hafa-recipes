@@ -238,6 +238,23 @@ describe('Library card VoiceOver focus', () => {
 });
 
 describe('Saved library filtering', () => {
+  it.each([true, false])('announces the server saved state outside the cached saved page (%s)', async isSaved => {
+    const item = { ...recipe('ready'), id: 'outside-page', is_saved: isSaved };
+    library.cached = isSaved ? [] : [item];
+    const screen = createRoot();
+    const row = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => screen.render(<HistoryScreen />));
+      const list = screen.container.queryAll(node => node.type === 'FlatList')[0];
+      await act(async () => row.render(list.props.renderItem({ item, index: 0 })));
+      const card = row.container.queryAll(node => node.type === 'ScalePressable')[0];
+      expect(card.props.accessibilityLabel.endsWith(', Saved')).toBe(isSaved);
+    } finally {
+      await act(async () => row.unmount());
+      await act(async () => screen.unmount());
+    }
+  });
+
   it.each([false, true])('uses authoritative saved results, including an empty page (%s)', async empty => {
     library.cached = [{ ...recipe('ready'), id: 'cached-match', title: 'Rice from cached page' }];
     library.search = empty ? [] : [{ ...recipe('ready'), id: 'older-saved-match', title: 'Rice outside cached page' }];

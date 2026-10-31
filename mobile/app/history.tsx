@@ -347,7 +347,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
 
   const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
     const CardComponent = isGrid ? GridRecipeCard : RecipeCard;
-    const isSaved = ownershipFilter === 'saved' || Boolean(savedRecipes?.some(saved => saved.id === item.id));
+    const isSaved = ownershipFilter === 'saved' || (item.is_saved ?? Boolean(savedRecipes?.some(saved => saved.id === item.id)));
 
     const isSelected = selectedRecipeIds.has(item.id);
 
