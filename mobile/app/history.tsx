@@ -2,7 +2,7 @@ import { LibraryStatus } from '@/components/LibraryStatus';
 import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -176,6 +176,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     refetch: refetchSaved,
     fetchNextPage: fetchNextSaved,
     hasNextPage: hasMoreSaved,
+    isFetchingNextPage: isFetchingNextSaved,
   } = useSavedRecipes(isAuthenticated);
 
   const isLoading = (showOwnRecipes && isLoadingRecipes) || (showSavedRecipes && isLoadingSaved);
@@ -255,14 +256,15 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   }, [recipes, searchResults, isServerSearchCurrent, isSearchSuccess, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
 
   // For display, slice to current page
-  const needsCheckCount = combinedRecipes?.filter(r => r.review_state && r.review_state !== 'ready').length ?? 0;
-  const displayRecipes = (needsCheckOnly ? combinedRecipes?.filter(r => r.review_state && r.review_state !== 'ready') : combinedRecipes)?.slice(0, displayCount);
+  const needsCheckRecipes = useMemo(() => combinedRecipes?.filter(r => r.review_state && r.review_state !== 'ready'), [combinedRecipes]);
+  const filteredRecipes = needsCheckOnly ? needsCheckRecipes : combinedRecipes;
+  const displayRecipes = filteredRecipes?.slice(0, displayCount);
   const canEnterRow = useInitialListEntrance(Boolean(displayRecipes?.length));
 
   const allShownSelected = Boolean(displayRecipes?.length) && displayRecipes!.every(recipe => selectedRecipeIds.has(recipe.id));
 
   // Determine if there's more to load - either from server or locally
-  const hasMoreLocal = combinedRecipes && displayCount < combinedRecipes.length;
+  const hasMoreLocal = filteredRecipes && displayCount < filteredRecipes.length;
   // hasMoreServer depends on ownership filter
   const hasMoreServer = useMemo(() => {
     if (hasActiveFilters) return isServerSearchCurrent && hasMoreSearchResults;
@@ -276,6 +278,24 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     }
   }, [ownershipFilter, hasMoreSaved, hasMoreRecipes, hasMoreSearchResults, hasActiveFilters, isServerSearchCurrent]);
   const hasMore = hasMoreLocal || hasMoreServer;
+  const needsCheckCount = hasMoreServer || isLoading || hasPrimaryLoadError || (hasActiveFilters && !isServerSearchCurrent)
+    ? undefined : needsCheckRecipes?.length ?? 0;
+  const seekingNeedsCheck = needsCheckOnly && !displayRecipes?.length && hasMoreServer && !hasPrimaryLoadError;
+
+  // The API does not filter review state. Search later pages before claiming no matches.
+  useEffect(() => {
+    if (!isAuthenticated || !seekingNeedsCheck) return;
+    if (hasActiveFilters) {
+      if (isServerSearchCurrent && !isSearchFetching) void fetchNextSearchResults();
+    } else {
+      if (showOwnRecipes && hasMoreRecipes && !isLoadingRecipes && !isFetchingNextRecipes) void fetchNextRecipes();
+      if (showSavedRecipes && hasMoreSaved && !isLoadingSaved && !isFetchingNextSaved) void fetchNextSaved();
+    }
+  }, [isAuthenticated, seekingNeedsCheck, hasActiveFilters, isServerSearchCurrent, isSearchFetching,
+    fetchNextSearchResults, showOwnRecipes, hasMoreRecipes, isLoadingRecipes, isFetchingNextRecipes,
+    fetchNextRecipes, showSavedRecipes, hasMoreSaved, isLoadingSaved, isFetchingNextSaved, fetchNextSaved,
+    combinedRecipes]);
+
 
   const refreshLibrary = useCallback(async () => {
     setDisplayCount(ITEMS_PER_PAGE);
@@ -441,7 +461,12 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     setSelectedTags([]); setOwnershipFilter('all'); setDisplayCount(ITEMS_PER_PAGE);
   };
 
-  const ListEmpty = () => (
+  const ListEmpty = () => seekingNeedsCheck ? (
+    <RNView style={styles.emptyContainer}>
+      <ActivityIndicator accessibilityLabel="Looking for recipes needing a check" color={colors.actionText} />
+      <Text style={{ color: colors.textSecondary }}>Looking for recipes needing a check…</Text>
+    </RNView>
+  ) : (
     <RNView style={styles.emptyContainer}>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         {hasPrimaryLoadError ? 'Couldn’t load your recipes' : filteredEmpty ? 'No recipes match' : 'No recipes yet'}
@@ -462,7 +487,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     </RNView>
   );
 
-  const isFetchingMore = isFetchingNextRecipes || isFetchingNextSearchResults;
+  const isFetchingMore = isFetchingNextRecipes || isFetchingNextSearchResults || isFetchingNextSaved;
 
   const ListFooter = () => {
     if (!hasMore) return null;

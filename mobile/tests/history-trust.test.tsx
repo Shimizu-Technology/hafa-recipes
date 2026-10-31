@@ -65,6 +65,9 @@ const library = vi.hoisted(() => ({
   cached: [] as RecipeListItem[],
   moreSearch: vi.fn(), moreSaved: vi.fn(), moreOwn: vi.fn(),
   hasMoreSearch: false,
+  hasMoreOwn: true, hasMoreSaved: true,
+  fetchingOwn: false, fetchingSaved: false,
+  own: [] as RecipeListItem[],
   ownTotal: 0,
   savedTotal: undefined as number | undefined,
   searchTotal: undefined as number | undefined,
@@ -78,8 +81,8 @@ const library = vi.hoisted(() => ({
   refetchRecipes: vi.fn(), refetchSaved: vi.fn(),
 }));
 vi.mock('@/hooks/useRecipes', () => ({
-  useRecipes: (sourceType?: string) => ({ recipes: [], total: sourceType ? 10 : library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: true, refetch: library.refetchRecipes }),
-  useSavedRecipes: () => ({ recipes: library.cached, total: library.savedTotal ?? library.cached.length, fetchNextPage: library.moreSaved, hasNextPage: true, refetch: library.refetchSaved }),
+  useRecipes: (sourceType?: string) => ({ recipes: library.own, total: sourceType ? 10 : library.ownTotal, fetchNextPage: library.moreOwn, hasNextPage: library.hasMoreOwn, isFetchingNextPage: library.fetchingOwn, refetch: library.refetchRecipes }),
+  useSavedRecipes: () => ({ recipes: library.cached, total: library.savedTotal ?? library.cached.length, fetchNextPage: library.moreSaved, hasNextPage: library.hasMoreSaved, isFetchingNextPage: library.fetchingSaved, refetch: library.refetchSaved }),
   useSearchRecipes: (filters: Record<string, unknown>) => {
     library.filters = filters;
     return { recipes: library.search, total: library.searchTotal ?? library.search.length, isSuccess: true,
@@ -133,6 +136,8 @@ const colors = {
 
 beforeEach(() => {
   library.filters = {}; library.search = []; library.cached = []; library.hasMoreSearch = false;
+  library.hasMoreOwn = true; library.hasMoreSaved = true; library.own = [];
+  library.fetchingOwn = false; library.fetchingSaved = false;
   library.savedTotal = undefined;
   library.ownTotal = 0; library.searchTotal = undefined;
   library.moreSearch.mockClear(); library.moreSaved.mockClear(); library.moreOwn.mockClear();
@@ -460,6 +465,7 @@ describe('Library browse controls', () => {
     } finally { await act(async () => header.unmount()); await act(async () => renderer.unmount()); }
   });
   it('filters the loaded library to recipes needing a check', async () => {
+    library.hasMoreOwn = false; library.hasMoreSaved = false;
     library.cached = [{ ...recipe('ready'), id: 'ready' }, recipe('needs_review')];
     const renderer = createRoot(), header = createRoot();
     try {
@@ -483,4 +489,50 @@ it('uses a single column at the updated accessibility threshold', async () => {
     expect(list.props.numColumns).toBe(1);
     expect(list.props.columnWrapperStyle).toBeUndefined();
   } finally { library.fontScale = 1; await act(async () => renderer.unmount()); }
+});
+
+describe('Needs a check pagination', () => {
+  it.each(['own', 'saved', 'search'] as const)('finds an unchecked recipe beyond the first %s page before showing no matches', async source => {
+    const firstPage = Array.from({ length: 20 }, (_, i) => ({ ...recipe('ready'), id: `ready-${i}` }));
+    library.hasMoreOwn = source === 'own'; library.hasMoreSaved = source === 'saved'; library.hasMoreSearch = source === 'search';
+    if (source === 'own') library.own = firstPage;
+    if (source === 'saved') library.cached = firstPage;
+    if (source === 'search') library.search = firstPage;
+    const r = createRoot(), empty = createRoot();
+    try {
+      await act(async () => r.render(<HistoryScreen />));
+      if (source === 'search') await act(async () => r.container.queryAll(n => n.type === 'FilterBottomSheet')[0].props.onApply({ sourceFilter: 'website', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' }));
+      const list = () => r.container.queryAll(n => n.type === 'FlatList')[0];
+      const status = () => r.container.queryAll(n => n.type === 'LibraryStatus')[0];
+      expect(status().props.needsCheck).toBeUndefined();
+      await act(async () => status().props.onNeedsCheck());
+      const next = source === 'own' ? library.moreOwn : source === 'saved' ? library.moreSaved : library.moreSearch;
+      expect(next).toHaveBeenCalledOnce();
+      await act(async () => empty.render(React.createElement(list().props.ListEmptyComponent)));
+      expect(empty.container.queryAll(n => n.props.accessibilityLabel === 'Looking for recipes needing a check')).toHaveLength(1);
+      const match = { ...recipe('needs_review'), id: 'second-page-check' };
+      if (source === 'own') { library.own = [...firstPage, match]; library.hasMoreOwn = false; }
+      if (source === 'saved') { library.cached = [...firstPage, match]; library.hasMoreSaved = false; }
+      if (source === 'search') { library.search = [...firstPage, match]; library.hasMoreSearch = false; }
+      await act(async () => r.render(<HistoryScreen />));
+      expect(list().props.data.map((item: RecipeListItem) => item.id)).toEqual(['second-page-check']);
+      expect(status().props.needsCheck).toBe(1);
+    } finally { await act(async () => empty.unmount()); await act(async () => r.unmount()); }
+  });
+
+  it('only shows no matches after exhausting pages, and does not overlap an in-flight fetch', async () => {
+    library.own = [recipe('ready')]; library.hasMoreSaved = false; library.fetchingOwn = true;
+    const r = createRoot(), empty = createRoot();
+    try {
+      await act(async () => r.render(<HistoryScreen />));
+      const list = () => r.container.queryAll(n => n.type === 'FlatList')[0];
+      await act(async () => r.container.queryAll(n => n.type === 'LibraryStatus')[0].props.onNeedsCheck());
+      expect(library.moreOwn).not.toHaveBeenCalled();
+      library.fetchingOwn = false; library.hasMoreOwn = false;
+      await act(async () => r.render(<HistoryScreen />));
+      await act(async () => empty.render(React.createElement(list().props.ListEmptyComponent)));
+      expect(empty.container.queryAll(n => n.type === 'Text' && n.props.children === 'No recipes match')).toHaveLength(1);
+      expect(r.container.queryAll(n => n.type === 'LibraryStatus')[0].props.needsCheck).toBe(0);
+    } finally { await act(async () => empty.unmount()); await act(async () => r.unmount()); }
+  });
 });

@@ -8,7 +8,7 @@ import { offlineRecipes } from '@/lib/offlineRecipes';
 import { useExtractionJobs } from '@/hooks/useRecipes';
 import { useImportInbox } from '@/hooks/useImportInbox';
 
-export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, active }: { needsCheck: number; checking: boolean; onNeedsCheck: () => void; onFilter: () => void; active: boolean }) {
+export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, active }: { needsCheck: number | undefined; checking: boolean; onNeedsCheck: () => void; onFilter: () => void; active: boolean }) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
