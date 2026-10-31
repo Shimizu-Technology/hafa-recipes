@@ -1,3 +1,4 @@
+import { RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { OfflineRecipeControl } from '@/components/OfflineRecipeControl';
 import { guestRecipeIntent, type GuestRecipeAction } from '@/lib/guestRecipeIntent';
@@ -979,9 +980,8 @@ function RecipeDetailScreenContent() {
               <Text accessibilityRole="header" style={[styles.sectionTitle, { marginTop: 24 }]}>More</Text>
               <RNView style={{ backgroundColor: colors.backgroundSecondary, borderRadius: 12, overflow: 'hidden' }}>
               {cookingNotes && !userId && <>
-                <TouchableOpacity style={styles.secondaryRow} onPress={() => setShowRecipeNotes(!showRecipeNotes)} accessibilityRole="button" accessibilityState={{ expanded: showRecipeNotes }}>
-                  <Ionicons name="document-text-outline" size={20} color={colors.actionText} /><Text style={{ flex: 1 }}>Recipe notes</Text><Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-                </TouchableOpacity>
+                <RecipeDetailRow icon="document-text-outline" title="Recipe notes" onPress={() => setShowRecipeNotes(!showRecipeNotes)} accessibilityState={{ expanded: showRecipeNotes }}
+                  accessory={<Ionicons name={showRecipeNotes ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />
                 {showRecipeNotes && <Text style={{ padding: 16, color: colors.textSecondary, fontSize: 17, lineHeight: 24 }}>{cookingNotes}</Text>}
               </>}
             {userId && (
@@ -1006,12 +1006,11 @@ function RecipeDetailScreenContent() {
               />
             )}
 
-              {tabs.filter(tab => tab.key === 'nutrition' || tab.key === 'cost').map(tab => <TouchableOpacity key={tab.key}
-                style={styles.secondaryRow} accessibilityRole="button" accessibilityState={{ expanded: activeTab === tab.key }}
-                onPress={() => selectTab(activeTab === tab.key ? 'ingredients' : tab.key)}>
-                <Ionicons name={tab.key === 'nutrition' ? 'nutrition-outline' : 'pricetag-outline'} size={20} color={colors.actionText} />
-                <Text style={{ flex: 1 }}>{tab.label}</Text><Ionicons name={activeTab === tab.key ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
-              </TouchableOpacity>)}
+              {tabs.filter(tab => tab.key === 'nutrition' || tab.key === 'cost').map(tab => <RecipeDetailRow key={tab.key}
+                icon={tab.key === 'nutrition' ? 'nutrition-outline' : 'pricetag-outline'} title={tab.label}
+                accessibilityState={{ expanded: activeTab === tab.key }}
+                onPress={() => selectTab(activeTab === tab.key ? 'ingredients' : tab.key)}
+                accessory={<Ionicons name={activeTab === tab.key ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />)}
               {/* Mount only while open: updating a display:none Fabric subtree crashes native layout. Basis selection stays above the disclosure. */}
                 {activeTab === 'nutrition' && <RNView key={`nutrition-${id}`}>
                   <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
@@ -1153,91 +1152,42 @@ function RecipeDetailScreenContent() {
             
             {/* Share to Library Toggle - only show for owner */}
             {isOwner && (
-              <TouchableOpacity
-                style={styles.secondaryRow}
-                onPress={handleToggleSharing}
-                activeOpacity={0.7}
-                disabled={toggleSharingMutation.isPending}
-                accessibilityRole="button"
+              <RecipeDetailRow icon={recipe.is_public ? 'globe' : 'globe-outline'}
+                title={toggleSharingMutation.isPending ? 'Updating visibility...' : 'Public in Discover'}
+                onPress={handleToggleSharing} disabled={toggleSharingMutation.isPending}
                 accessibilityLabel={`${visibilityPresentation?.label}. ${visibilityPresentation?.subtitle}`}
                 accessibilityHint={visibilityPresentation?.accessibilityHint}
                 accessibilityState={{ busy: toggleSharingMutation.isPending }}
-              >
-                <Ionicons
-                  name={recipe.is_public ? 'globe' : 'globe-outline'}
-                  size={20}
-                  color={colors.textSecondary}
-                />
-                <RNView style={styles.shareButtonCopy}>
-                  <Text style={[
-                    styles.shareButtonText,
-                    { color: colors.text }
-                  ]}>
-                    {toggleSharingMutation.isPending
-                      ? 'Updating visibility...'
-                      : 'Public in Discover' 
-                    }
-                  </Text>
-
-                </RNView>
-                <Ionicons
-                  name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'}
-                  size={18}
-                  color={colors.textMuted}
-                />
-              </TouchableOpacity>
+                accessory={<Ionicons name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'} size={18} color={colors.textMuted} />} />
             )}
 
-            <TouchableOpacity onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityRole="button"
-              accessibilityLabel="Ask Håfa about this recipe" style={styles.secondaryRow}>
-              <Ionicons name="chatbubbles-outline" size={20} color={colors.actionText} />
-              <Text style={{ color: colors.actionText }}>Ask Håfa</Text>
-            </TouchableOpacity>
-            {/* Source Button */}
+            <RecipeDetailRow icon="chatbubbles-outline" title="Ask Håfa"
+              onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityLabel="Ask Håfa about this recipe" />
             {hasExternalSource && !sourcePlayback && (
-              <TouchableOpacity
-                style={styles.secondaryRow}
-                onPress={handleOpenSource}
-                activeOpacity={0.7}
-                accessibilityRole="link"
-                accessibilityLabel={`View recipe on ${sourceLabel}`}
-              >
-                <Ionicons name={sourceIcon as any} size={20} color={colors.textSecondary} />
-                <Text style={[styles.sourceButtonText, { color: colors.text }]}>
-                  View on {sourceLabel}
-                </Text>
-                <Ionicons name="open-outline" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
+              <RecipeDetailRow icon={sourceIcon as keyof typeof Ionicons.glyphMap} title={`View on ${sourceLabel}`} onPress={handleOpenSource}
+                accessibilityRole="link" accessibilityLabel={`View recipe on ${sourceLabel}`}
+                accessory={<Ionicons name="open-outline" size={18} color={colors.textMuted} />} />
             )}
 
-            <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-              {!isOwner && <TouchableOpacity onPress={handleSaveToggle} style={styles.headerButton}
-                accessibilityRole="button" accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
-                accessibilityState={{ selected: isSaved, disabled: isSavePending }} disabled={isSavePending}>
-                <Text style={{ color: colors.actionText }}>{isSaved ? 'Saved' : 'Save'}</Text>
-              </TouchableOpacity>}
-              {!userId && <>
-                <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Plan recipe"
-                  onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))}>
-                  <Text style={{ color: colors.actionText }}>Plan</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Add recipe to collection"
-                  onPress={() => requireRecipeAccount('collection', () => setShowCollectionModal(true))}>
-                  <Text style={{ color: colors.actionText }}>Collect</Text>
-                </TouchableOpacity>
-              </>}
-            </RNView>
+            {!isOwner && <RecipeDetailRow icon={isSaved ? 'bookmark' : 'bookmark-outline'} title={isSaved ? 'Saved' : 'Save'}
+              onPress={handleSaveToggle} accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
+              accessibilityState={{ selected: isSaved, disabled: isSavePending }} disabled={isSavePending} />}
+            {!userId && <>
+              <RecipeDetailRow icon="calendar-outline" title="Plan" accessibilityLabel="Plan recipe"
+                onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))} />
+              <RecipeDetailRow icon="folder-outline" title="Collect" accessibilityLabel="Add recipe to collection"
+                onPress={() => requireRecipeAccount('collection', () => setShowCollectionModal(true))} />
+            </>}
 
             {sourcePlayback && <>
-              <TouchableOpacity style={styles.secondaryRow} accessibilityRole="button" accessibilityLabel="Source video" accessibilityState={{ expanded: showSourceTools }} onPress={() => setShowSourceTools(!showSourceTools)}>
-                <Ionicons name="play-circle-outline" size={20} color={colors.actionText} /><Text style={{ flex: 1 }}>Source video</Text><Ionicons name="chevron-down" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
+              <RecipeDetailRow icon="play-circle-outline" title="Source video" accessibilityLabel="Source video" accessibilityState={{ expanded: showSourceTools }} onPress={() => setShowSourceTools(!showSourceTools)}
+                accessory={<Ionicons name={showSourceTools ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />
               {showSourceTools && <RecipeHero recipeTitle={extracted.title} sourceUrl={recipe.source_url} onOpenSource={handleOpenSource} />}
             </>}
 
 
-            {isOwner && recipe.source_type === 'photo' && <TouchableOpacity style={styles.secondaryRow} accessibilityRole="button" accessibilityLabel="Original pages"
-              onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })}><Ionicons name="images-outline" size={20} color={colors.actionText} /><Text style={{ flex: 1 }}>Source pages</Text><Ionicons name="chevron-forward" size={18} color={colors.textMuted} /></TouchableOpacity>}
+            {isOwner && recipe.source_type === 'photo' && <RecipeDetailRow icon="images-outline" title="Source pages" accessibilityLabel="Original pages"
+              onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })} />}
             </RNView>
             </RNView>
             {extracted.tags.length > 0 && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 16 }}>{extracted.tags.join(' · ')}</Text>}
@@ -1444,7 +1394,6 @@ const styles = StyleSheet.create({
   recipeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   servingsStepper: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   ingredientCheck: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  secondaryRow: { minHeight: 52, padding: 12, borderRadius: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
   container: {
     flex: 1,
   },

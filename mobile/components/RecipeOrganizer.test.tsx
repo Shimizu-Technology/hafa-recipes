@@ -90,6 +90,20 @@ function organizerProps() {
 }
 
 describe('RecipeOrganizer', () => {
+  it.each([
+    ['Notes', 'My notes'], ['Collections', 'Collections'], ['Plan', 'Meal plan'],
+  ])('opens the %s sheet from a compact detail row', async (label, sheetTitle) => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<RecipeOrganizer {...organizerProps()} compact />));
+      const row = renderer.container.queryAll(node => node.type === 'TouchableOpacity'
+        && String(node.props.accessibilityLabel).startsWith(`Open ${label}.`))[0];
+      await act(async () => row.props.onPress());
+      expect(renderer.container.queryAll(node => node.type === 'Modal' && node.props.visible)).toHaveLength(1);
+      expect(renderer.container.queryAll(node => node.type === 'Text' && node.props.children === sheetTitle).length).toBeGreaterThan(0);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
   it('summarizes all three private tools without expanding them inline', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 

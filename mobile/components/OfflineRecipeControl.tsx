@@ -3,7 +3,7 @@ import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { useEffect, useState } from 'react';
 import { Alert, View, Switch } from 'react-native';
 import { useAuth } from '@clerk/expo';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { RecipeDetailRow } from './RecipeDetailRow';
 import { Text, useColors } from '@/components/Themed';
 import { useOfflineLease } from '@/hooks/useOfflineLease';
 import { offlineRecipes, type OfflineRecipe } from '@/lib/offlineRecipes';
@@ -25,9 +25,7 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
   }, [scope, recipeId, eligible]);
   if (!lease || (!eligible && !row)) return null;
   return <View>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 8 }}>
-      <Ionicons name="cloud-download-outline" size={20} color={colors.actionText} /><Text style={{ flex: 1, fontSize: 17, lineHeight: 22 }}>Available offline</Text>
-      <Switch accessibilityLabel="Available offline" value={Boolean(row?.pinned)} disabled={busy}
+    <RecipeDetailRow icon="cloud-download-outline" title="Available offline" accessory={<Switch accessibilityLabel="Available offline" value={Boolean(row?.pinned)} disabled={busy}
       onValueChange={() => {
         const current = () => { const authority = offlineRecipes.lease(userId); return authority?.owner === lease.owner && authority.generation === lease.generation && authority.epoch === lease.epoch; };
         if (!current()) return;
@@ -40,8 +38,7 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
           if (current()) setRow(value);
         })().catch((error: Error) => { if (current()) Alert.alert('Could not update offline recipe', error.message); })
           .finally(() => { if (current()) setBusy(false); });
-      }} />
-    </View>
+      }} />} />
     {row?.pinned && <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, paddingBottom: 12, fontSize: 13, lineHeight: 18 }}>Offline copy · Updated {new Date(row.savedAt).toLocaleString()}. Changes may be missing while offline.</Text>}
   </View>;
 }

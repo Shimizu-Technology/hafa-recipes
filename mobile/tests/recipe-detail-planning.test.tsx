@@ -119,7 +119,7 @@ it('unmounts collapsed nutrition while retaining the chosen basis across reopeni
     await act(async () => root.render(<RecipeDetailScreen />));
     const panels = () => root.container.queryAll(node => node.type === 'NutritionPanel');
     const toggle = () => root.container.queryAll(node => node.type === 'TouchableOpacity' &&
-      Array.isArray(node.props.children) && node.props.children.some((child: any) => child?.props?.children === 'Nutrition'))[0];
+      node.props.accessibilityLabel === 'Nutrition')[0];
     expect(panels()).toHaveLength(0);
     await act(async () => toggle().props.onPress());
     expect(panels()).toHaveLength(1);

@@ -16,6 +16,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, View, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import type { Collection, MealPlanEntry } from '@/types/recipe';
+import { RecipeDetailRow } from './RecipeDetailRow';
 import { RecipeCollectionsCard } from './RecipeCollectionsCard';
 import { formatMealPlanDate, RecipeMealPlanCard } from './RecipeMealPlanCard';
 
@@ -130,18 +131,21 @@ export function RecipeOrganizer({
           <Text style={[styles.organizerHint, { color: colors.textMuted }]}>Your private recipe tools</Text>
         </RNView>}
         <RNView style={[styles.actionRow, compact && { flexDirection: 'column', gap: 0 }]}>
-          {organizerActions.filter(action => !panels || panels.includes(action.panel)).map((action) => (
+          {organizerActions.filter(action => !panels || panels.includes(action.panel)).map((action) => compact ? (
+            <RecipeDetailRow key={action.panel} icon={action.icon} title={action.label} value={action.summary}
+              onPress={() => setActivePanel(action.panel)} accessibilityLabel={`Open ${action.label}. ${action.summary}`} />
+          ) : (
             <TouchableOpacity
               key={action.panel}
-              style={[styles.action, compact && styles.compactAction, { backgroundColor: compact ? 'transparent' : colors.card, borderColor: colors.border }]}
+              style={[styles.action, { backgroundColor: colors.card, borderColor: colors.border }]}
               onPress={() => setActivePanel(action.panel)}
               activeOpacity={0.75}
               accessibilityRole="button"
               accessibilityLabel={`Open ${action.label}. ${action.summary}`}
             >
               <Ionicons name={action.icon} size={18} color={colors.actionText} />
-              <Text style={[styles.actionLabel, compact && { marginTop: 0, marginLeft: 8 }, { color: colors.text }]}>{action.label}</Text>
-              <Text style={[styles.actionSummary, compact && { width: undefined, flex: 1, textAlign: 'right', marginTop: 0 }, { color: colors.textMuted }]} numberOfLines={1}>
+              <Text style={[styles.actionLabel, { color: colors.text }]}>{action.label}</Text>
+              <Text style={[styles.actionSummary, { color: colors.textMuted }]} numberOfLines={1}>
                 {action.summary}
               </Text>
             </TouchableOpacity>
@@ -323,7 +327,6 @@ export function RecipeOrganizer({
 
 const styles = StyleSheet.create({
   compactOrganizer: { padding: 0, borderWidth: 0, marginBottom: spacing.md },
-  compactAction: { flex: 0, flexDirection: 'row', gap: 8, minHeight: 52, paddingHorizontal: 12, borderWidth: 0, borderRadius: 10 },
   organizer: {
     borderWidth: 0,
     borderRadius: radius.lg,
