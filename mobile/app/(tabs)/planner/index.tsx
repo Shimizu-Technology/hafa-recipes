@@ -25,6 +25,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
@@ -321,6 +322,7 @@ export default function PlannerScreen() {
 
 function PlannerScreenContent() {
   const { fontScale } = useWindowDimensions();
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const {
     date: requestedDateParam,
@@ -342,7 +344,7 @@ function PlannerScreenContent() {
     if (!weekPlan || isLoading) return;
     const date = pendingScrollDate.current;
     if (date && dayPositions.current[date] !== undefined) {
-      weekScroll.current?.scrollTo({ y: dayPositions.current[date], animated: false });
+      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[date] - headerHeight), animated: false });
       pendingScrollDate.current = null;
     }
   };
@@ -392,9 +394,12 @@ function PlannerScreenContent() {
     );
     if (!requestedDate) return;
 
-    dayPositions.current = {};
+    const requestedWeek = getWeekStart(requestedDate);
+    const sameWeek = formatDateForApi(requestedWeek) === formatDateForApi(currentWeekStart);
+    if (!sameWeek) dayPositions.current = {};
     pendingScrollDate.current = formatDateForApi(requestedDate);
-    setCurrentWeekStart(getWeekStart(requestedDate));
+    if (sameWeek) scrollToRequestedDay();
+    else setCurrentWeekStart(requestedWeek);
     setSelectedDate(requestedDate);
   }, [requestedDateParam]);
 
@@ -473,14 +478,14 @@ function PlannerScreenContent() {
     const today = new Date();
     const target = formatDateForApi(today);
     if (formatDateForApi(getWeekStart(today)) === weekOfStr && dayPositions.current[target] !== undefined) {
-      weekScroll.current?.scrollTo({ y: dayPositions.current[target], animated: false });
+      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[target] - headerHeight), animated: false });
     } else {
       dayPositions.current = {};
       pendingScrollDate.current = target;
     }
     setCurrentWeekStart(getWeekStart(today));
     setSelectedDate(today);
-  }, [weekOfStr]);
+  }, [weekOfStr, headerHeight]);
 
   const addRecipeToMeal = useCallback(
     async (recipe: MealPlanRecipe, mealType: MealType, date = selectedDate) => {

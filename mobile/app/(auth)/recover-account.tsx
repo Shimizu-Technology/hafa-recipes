@@ -168,7 +168,7 @@ export default function RecoverAccountScreen() {
   }
 
   return (
-    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
+    <View collapsable={false} style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
         title: 'Restore my library', headerLeft: () => (<TouchableOpacity
             style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
@@ -187,7 +187,7 @@ export default function RecoverAccountScreen() {
             <Ionicons name="chevron-back" size={22} color={colors.text} />
             <Text style={[styles.backLabel, { color: colors.text }]}>Back</Text>
           </TouchableOpacity>) }} />
-      <KeyboardAvoidingView
+      <KeyboardAvoidingView collapsable={false}
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >

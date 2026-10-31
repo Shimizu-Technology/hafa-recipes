@@ -1,3 +1,4 @@
+const routeMocks = vi.hoisted(() => ({ params: {} as Record<string, string>, scrollTo: vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: { previewMealPlanGroceries: vi.fn() } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'request-id' }));
 const reviewMocks = vi.hoisted(() => ({ session: 'session-a', state: {} as any, update: vi.fn(async () => ({})), add: vi.fn(async (_input: any) => ({ items_added: 2, items_missing_amount: 1 })) }));
@@ -21,14 +22,15 @@ vi.mock('react-native', () => ({
   Dimensions: { get: () => ({ width: 390 }) },
   Image: 'Image',
   RefreshControl: 'RefreshControl',
-  ScrollView: 'ScrollView',
+  ScrollView: React.forwardRef((props: any, ref) => { React.useImperativeHandle(ref, () => ({ scrollTo: routeMocks.scrollTo })); return React.createElement('ScrollView', props, props.children); }),
   StyleSheet: { create: (styles: unknown) => styles },
   TouchableOpacity: 'TouchableOpacity',
   View: 'View',
 }));
+vi.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 104 }));
 vi.mock('expo-router', () => ({
   useFocusEffect: vi.fn(),
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => routeMocks.params,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 vi.mock('react-native-safe-area-context', () => ({
@@ -168,15 +170,36 @@ describe('planner meal readiness', () => {
 describe('planner loading recovery', () => {
   const refetch = vi.fn();
   beforeEach(() => {
+    routeMocks.params = {}; routeMocks.scrollTo.mockClear();
     refetch.mockReset().mockResolvedValue({});
     vi.mocked(planHooks.getWeekStart).mockImplementation((date) => date);
     vi.mocked(planHooks.getWeekEnd).mockImplementation((date) => date);
-    vi.mocked(planHooks.formatDateForApi).mockImplementation((date) => date.toISOString().slice(0, 10));
+    vi.mocked(planHooks.formatDateForApi).mockImplementation((date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`);
     vi.mocked(planHooks.formatDayLabel).mockReturnValue({ day: 'Wed', number: '14' });
     vi.mocked(useRecipe).mockReturnValue({} as any);
     for (const hook of [planHooks.useAddMeal, planHooks.useDeleteMeal, planHooks.useAddPlanToGrocery]) {
       vi.mocked(hook).mockReturnValue({ isPending: false } as any);
     }
+  });
+
+  it('scrolls to another requested day in the same week using its recorded layout', async () => {
+    const start = new Date('2026-10-26T12:00:00Z');
+    vi.mocked(planHooks.getWeekStart).mockReturnValue(start);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [] }, refetch } as any);
+    const { parsePlannerDateParam } = await import('@/lib/plannerNavigation');
+    vi.mocked(parsePlannerDateParam).mockImplementation(value => value ? new Date(`${value}T12:00:00Z`) : null);
+    routeMocks.params = { date: '2026-10-26' };
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      const days = root.container.queryAll(node => node.type === 'View' && !!node.props.onLayout);
+      expect(days).toHaveLength(7);
+      await act(async () => days.forEach((day, index) => day.props.onLayout({ nativeEvent: { layout: { y: 100 + index * 200 } } })));
+      routeMocks.scrollTo.mockClear();
+      routeMocks.params = { date: '2026-10-28' };
+      await act(async () => root.render(<PlannerScreen />));
+      expect(routeMocks.scrollTo).toHaveBeenCalledWith({ y: 396, animated: false });
+    } finally { routeMocks.params = {}; vi.mocked(parsePlannerDateParam).mockReset(); await act(async () => root.unmount()); }
   });
 
   it('adds a picked recipe to the chosen day instead of a previously focused day', async () => {
@@ -194,7 +217,7 @@ describe('planner loading recovery', () => {
       await act(async () => dinners[1].props.onPress());
       const picker = root.container.queryAll(node => node.type === 'RecipePickerModal')[0];
       await act(async () => picker.props.onSelect({ id: 'picked-recipe', title: 'Rice' }));
-      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).toISOString().slice(0, 10);
+      const date = planHooks.formatDateForApi(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1));
       expect(add).toHaveBeenCalledWith({ recipe_id: 'picked-recipe', date, meal_type: 'dinner' });
     } finally { await act(async () => root.unmount()); }
   });
