@@ -15,7 +15,7 @@ export function NativeTabStack({ title, add = false }: { title: string; add?: bo
       headerStyle: { backgroundColor: c.background }, headerTintColor: c.accent,
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },
       contentStyle: { backgroundColor: c.background },
-      headerRight: () => <BrowseHeader add={add} />, 
+      headerRight: () => <BrowseHeader add={add} />,
     }} />
   </NativeHeader.Provider>;
 }
