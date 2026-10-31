@@ -319,13 +319,8 @@ function ExtractScreenContent() {
           Alert.alert('Permission Required', 'Camera permission is needed to take photos.');
           return;
         }
-      } else {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Photo library permission is needed to select images.');
-          return;
-        }
       }
+      // The system photo picker grants access to selected images without broad library permission.
 
       // Launch picker - allow multiple for library, single for camera
       // Note: allowsEditing removed to capture full image (no cropping)
@@ -360,7 +355,7 @@ function ExtractScreenContent() {
 
   const openedEntry = useRef<string | null>(null);
   useEffect(() => {
-    if (!entry) { openedEntry.current = null; return; }
+    if (entry !== 'scan' && entry !== 'photos') { openedEntry.current = null; return; }
     if (!isAuthLoaded || !isSignedIn || !inbox.ownerId || openedEntry.current === entry) return;
     openedEntry.current = entry;
     router.setParams({ entry: undefined });
