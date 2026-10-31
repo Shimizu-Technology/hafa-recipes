@@ -53,7 +53,7 @@ export default function ChildEditor() {
   }
   return (
     <Screen
-      title={child ? "A little update" : "Someone new to love."}
+      title={child ? "Baby profile" : "Add a baby"}
       subtitle="A profile keeps the right memories and care together. No separate login needed."
       back
     >

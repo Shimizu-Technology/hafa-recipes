@@ -13,7 +13,7 @@ import { NotificationResponseHandler } from "@/components/notification-response-
 import { ShareSessionGuard } from "@/lib/use-share-session";
 import { StockShareBoundary } from "@/components/stock-share-boundary";
 import { ShareCapture } from "@/components/share-capture";
-import { Copy, Loading, Notice, Screen, ToastProvider, useColors } from "@/components/ui";
+import { Copy, Loading, Notice, Screen, ToastProvider, NativeHeaderContext, fonts, useColors } from "@/components/ui";
 function Routes() {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth(),
     c = useColors();
@@ -25,7 +25,11 @@ function Routes() {
     );
   const stack = (
     // Native push and sheet transitions, as the system draws them.
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background } }}>
+    <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal", headerShadowVisible: false, headerTintColor: c.action,
+      headerStyle: Platform.OS === "ios" ? undefined : { backgroundColor: c.background },
+      headerBlurEffect: "systemChromeMaterial", headerLargeStyle: { backgroundColor: "transparent" },
+      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text, fontFamily: fonts.regular, fontSize: 34, fontWeight: "700" },
+      contentStyle: { backgroundColor: c.background } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="privacy" />
       <Stack.Protected guard={!isSignedIn}>
@@ -33,7 +37,7 @@ function Routes() {
       </Stack.Protected>
       <Stack.Protected guard={!!isSignedIn}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="add" options={{ presentation: "modal" }} />
+        <Stack.Screen name="add" options={{ presentation: "modal", headerShown: true, title: "What’s on your mind?" }} />
         <Stack.Screen name="edit" />
         <Stack.Screen name="record/[id]" />
         <Stack.Screen name="settings" />
@@ -52,7 +56,7 @@ function Routes() {
       <BabyProvider key={userId}>
         <AccountGate>
           <ShareCapture />
-          {stack}
+          <NativeHeaderContext.Provider value={true}>{stack}</NativeHeaderContext.Provider>
           <NotificationResponseHandler />
         </AccountGate>
       </BabyProvider>

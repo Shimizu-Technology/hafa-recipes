@@ -240,7 +240,7 @@ export function SetRow({
   );
 }
 
-export type DayMark = { label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
+export type DayMark = { today?: boolean; label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
 /** This week at a glance: done, planned and today. No streak pressure. */
 export function WeekStrip({ days }: { days: DayMark[] }) {
   const c = useColors();
@@ -248,7 +248,7 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
     <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 4 }}>
       {days.map((day, i) => {
         const done = day.state === "done";
-        const today = day.state === "today";
+        const today = day.today || day.state === "today";
         return (
           <View key={i} accessible accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
             <Copy kind="caption" tone={today ? "accent" : "muted"}>
@@ -261,15 +261,13 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
                 borderRadius: radii.full,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: done ? c.action : day.state === "planned" ? c.actionSoft : "transparent",
-                borderWidth: today ? 2 : day.state === "rest" ? 1 : 0,
-                borderColor: today ? c.accent : c.border,
+                backgroundColor: done ? c.action : "transparent",
+                borderWidth: today || day.state === "planned" ? 2 : 0,
+                borderColor: today ? c.accent : c.muted,
               }}
             >
               {done ? (
                 <Ionicons name="checkmark" size={18} color={c.onAction} />
-              ) : day.state === "planned" || today ? (
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: today ? c.accent : c.onActionSoft }} />
               ) : null}
             </View>
           </View>

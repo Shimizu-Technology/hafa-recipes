@@ -6,6 +6,7 @@
 export type WeekDayState = "done" | "planned" | "today" | "rest";
 export interface WeekDay {
   date: string;
+  today?: boolean;
   label: string;
   state: WeekDayState;
   accessibilityLabel: string;
@@ -33,6 +34,22 @@ export function weekDays(today: string, done: ReadonlySet<string>, planned: Read
         : date === today
           ? "today"
           : "no session";
-    return { date, label: narrow.format(at), state, accessibilityLabel: `${long.format(at)}, ${detail}` };
+    return { date, today: date === today, label: narrow.format(at), state, accessibilityLabel: `${long.format(at)}, ${detail}` };
   });
+}
+
+/** Counts only recorded work from the already reconciled session selection. */
+export function weekSummary(today: string, sessions: Array<{ started_at: string; finished_at: string; active_seconds?: number; actuals: Array<{ completed: boolean }> }>, timezone: string) {
+  const day = (iso: string) => {
+    const at = new Date(iso);
+    return Number.isNaN(at.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+  };
+  const recorded = sessions.filter(s => s.actuals.some(a => a.completed));
+  const monday = weekDays(today, new Set(), new Set())[0].date;
+  const current = recorded.filter(s => day(s.started_at) >= monday && day(s.started_at) <= today);
+  const dates = new Set(recorded.map(s => day(s.started_at)));
+  let cursor = dates.has(today) ? today : shift(today, -1), streak = 0;
+  while (dates.has(cursor)) { streak++; cursor = shift(cursor, -1); }
+  const seconds = current.reduce((n, s) => n + Math.max(0, s.active_seconds ?? 0), 0);
+  return { sessions: current.length, minutes: Math.round(seconds / 60), streak };
 }

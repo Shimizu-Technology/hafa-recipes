@@ -1,3 +1,4 @@
+import { HeaderMenu, type HeaderMenuItem } from "./header-menu";
 import { createContext, useContext } from "react";
 import { Stack, router } from "expo-router";
 import { View } from "react-native";
@@ -14,10 +15,15 @@ export function NativeTabStack({ title, add = false }: { title: string; add?: bo
       headerStyle: { backgroundColor: c.background }, headerTintColor: c.accent,
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },
       contentStyle: { backgroundColor: c.background },
-      headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-        {add && <IconButton icon="add" label="Add a workout or plan" variant="plain" onPress={() => router.push("/add")} />}
-        <AccountButton />
-      </View>,
+      headerRight: () => <BrowseHeader add={add} />,
     }} />
   </NativeHeader.Provider>;
+}
+
+export function BrowseHeader({ add = false, onMenu, menuItems = [] }: { add?: boolean; onMenu?(): void; menuItems?: HeaderMenuItem[] }) {
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+    {onMenu && <HeaderMenu items={menuItems} onFallback={onMenu} />}
+    {add && <IconButton icon="add" label="Add a workout or plan" variant="plain" onPress={() => router.push("/add")} />}
+    <AccountButton />
+  </View>;
 }

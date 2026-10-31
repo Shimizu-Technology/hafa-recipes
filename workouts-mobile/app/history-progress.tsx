@@ -110,7 +110,7 @@ export default function Progress() {
     ]);
   }
   return (
-    <Screen
+    <Screen native grouped
       back
       title="History & progress"
       refreshing={refreshing}
