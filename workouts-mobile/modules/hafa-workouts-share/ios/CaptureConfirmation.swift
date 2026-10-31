@@ -169,6 +169,9 @@
     let enabled = captureDurable && !captureWriting && !captureImporting && !captureConfirmationFinished
     for button in captureChoices {
       button.isEnabled = enabled; button.isSelected = (button.tag == 1) == captureIsPublic
+      // Explicit trait edits must not retain the initial saving state.
+      button.accessibilityTraits.remove(.notEnabled)
+      if !enabled { button.accessibilityTraits.insert(.notEnabled) }
       if button.isSelected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
       var style = button.configuration
       style?.baseBackgroundColor = button.isSelected ? Self.captureColor(0xC8471C, 0xFF7A50) : .secondarySystemBackground

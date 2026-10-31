@@ -35,6 +35,8 @@ describe("Workouts native share generation", () => {
     expect(confirmation).toContain("writeCapture({ WorkoutsShareStore.promoteStage(key, payload: payload) })");
     expect(promotion).toContain('return capture["isPublic"] as? Bool ?? false');
     expect(confirmation).not.toContain("WorkoutsShareStore.locked");
+    expect(confirmation).toContain("button.accessibilityTraits.remove(.notEnabled)");
+    expect(confirmation).toContain("if !enabled { button.accessibilityTraits.insert(.notEnabled) }");
     expect(confirmation).toContain("WorkoutsShareStore.performCaptureWrite(operation) { [weak self] result in");
     expect(confirmation).toContain("DispatchQueue.main.asyncAfter(deadline: .now() + 8)");
     expect(confirmation.indexOf("DispatchQueue.global(qos: .utility).async")).toBeLessThan(confirmation.indexOf("WorkoutsShareStore.enqueue(key)"));
