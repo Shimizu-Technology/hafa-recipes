@@ -12,7 +12,6 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { useFonts } from "expo-font";
 import { ActivityIndicator, View, Platform } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
@@ -152,13 +151,6 @@ export default function Root() {
   useEffect(() => {
     void recoverCleanup();
   }, []);
-  const [fontsLoaded, fontError] = useFonts({
-    DMSans_400Regular: require("@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf"),
-    DMSans_600SemiBold: require("@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf"),
-    DMSans_700Bold: require("@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"),
-    Fraunces_600SemiBold: require("@expo-google-fonts/fraunces/600SemiBold/Fraunces_600SemiBold.ttf"),
-    Fraunces_700Bold: require("@expo-google-fonts/fraunces/700Bold/Fraunces_700Bold.ttf"),
-  });
   const error = checkAuthConfiguration(
     configuration.clerkKey,
     configuration.clerkEnvironment,
@@ -184,10 +176,6 @@ export default function Root() {
             <ActivityIndicator accessibilityLabel="Checking private device cleanup" />
           )}
         </Screen>
-      ) : !fontsLoaded && !fontError ? (
-        <View style={{ flex: 1, backgroundColor: c.background, justifyContent: "center" }}>
-          <ActivityIndicator accessibilityLabel="Loading Håfa Workouts" />
-        </View>
       ) : error ? (
         <Screen title="Håfa Workouts">
           <Notice>{error} Ask support for the configured build.</Notice>

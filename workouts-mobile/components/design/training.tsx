@@ -32,7 +32,7 @@ export function StatTile({
         gap: 4,
         borderRadius: radii.lg,
         backgroundColor: tone === "accent" ? c.accentSoft : c.surface,
-        borderWidth: tone === "accent" ? 0 : 1,
+        borderWidth: 0,
         borderColor: c.border,
       }}
     >

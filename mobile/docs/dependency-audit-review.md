@@ -245,3 +245,67 @@ compatibility probe and source-map inventory) is retained outside Git at
 root. No simulator, OAuth, DB, Clerk or installed-app journey test is claimed;
 no application behavior changes. Only the three app sections of
 `scripts/check.sh` are exercised, per the task's overloaded-host constraint.
+
+## Dependency advisory fixes and build-tool review — 2026-10-31
+
+Reviewed from `origin/main` at `f449f6fe`. Targeted
+`npm update follow-redirects node-forge --package-lock-only --ignore-scripts`
+changes only the installed Forge node in each app and the follow-redirects node
+in Recipes (plus npm's Forge license metadata). No manifest, Expo, React Native,
+Router, or other lock node changes. Fresh `npm ci` installs the reviewed locks.
+
+Forge **1.4.2** fixes `1240912` and `1244014`–`1244024`; remove the old 1.4.0
+exception rather than renewing it. Recipes' follow-redirects **1.16.2** fixes
+`1244003`. Workouts and Baby contain no follow-redirects node.
+
+New temporary exceptions: [glob:1244013](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4)
+and [minimatch:1244012](https://github.com/advisories/GHSA-g3hv-75wg-m249), both
+moderate. The fixes are glob 14.0.2 and minimatch 11.0.1; installed parents
+require glob ^13 and minimatch ^10, so neither fix is semver-compatible.
+No major override is accepted. Keep the existing review window:
+**2026-10-24T00:00:00Z ≤ now < 2026-11-17T00:00:00Z**.
+
+Glob can continue filesystem traversal after cancellation; minimatch can amplify
+attacker-supplied patterns and exhaust CPU/memory. Installed consumers are Expo
+CLI/config/config-plugins/fingerprint/Metro configuration; Recipes also has
+expo-updates' Node-only `utils/build/vcs.js`. Fingerprint's `utils/Path.js` uses
+minimatch for repository file matching, and glob itself declares minimatch.
+These process developer-controlled local files/configuration during builds;
+recipe/workout/Baby content does not supply their patterns. Application source
+imports neither package. Native source maps must exclude both before accepting
+these exceptions. Untrusted repositories/configuration remain outside this review.
+Workouts/Baby native bundle checks now reject either package if introduced.
+
+Recipes pins the exact package and declaring-parent versions/integrities and
+all declaring ranges/kinds below, rejecting additional parents or nested copies.
+Workouts/Baby retain their existing whole-lock SHA-256 policy, which pins all
+versions, integrities and declarations (including those below), failing on any
+lock change. Regression tests cover the new IDs, provenance drift, expiry,
+unknown IDs, and removal of the old Forge acceptance. Existing unrelated
+exceptions retain their prior limitations; no runtime-risk acceptance is added.
+
+Reviewed mobile lock SHA-256: `cb68c92c3523e7ed63adcbbb88de710115c5a42fdc0338a30ae6ae18c001fc5b`.
+
+| Package/path | Version | Integrity |
+|---|---|---|
+| `node_modules/@expo/cli` | 57.0.32 | `sha512-3p1qL/pvWblGNwDE1bt2wh/NUiGpSer61s5GKKFfpEpBkZTYnqve0pdK1UvEFzJGT6PW9vX2RofQQ2LP6MgvDQ==` |
+| `node_modules/@expo/config` | 57.0.10 | `sha512-YpexTqLWEXdbbXgHh7Zhpq+qA5diuvO46lb7TiY81JwqKLAl9zK31APY1D7jUFlDX56owje5RtK0o5bMmGIMUg==` |
+| `node_modules/@expo/config-plugins` | 57.0.11 | `sha512-lnNF0cNXqLQPpQVeb/AAu7O0KhdwMFx99rJkO11mrd0IbQDhnOVObpgaR/Ja2D1jAOoKuqk55jwS4l+ZD1j7aw==` |
+| `node_modules/@expo/fingerprint` | 0.20.14 | `sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ==` |
+| `node_modules/@expo/metro-config` | 57.0.13 | `sha512-r+YCwqh8FM5cymkC3MdYO32DqLZQ2wDWkGEnzwgwI40Bj355BvL4XoY0hGgao9vNHjYa7be7XxbVqtMTi76snw==` |
+| `node_modules/expo-updates` | 57.0.26 | `sha512-Dloc9rkoR22qx2HtxzDHOZQcU5rABqsvl8QWA0gFx8N6mHicTdbaxuQ6QCK/wp5fXAK6DQnfzTiQtvJ5IfMTew==` |
+| `node_modules/glob` | 13.0.0 | `sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA==` |
+| `node_modules/minimatch` | 10.2.6 | `sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==` |
+
+Declaring dependencies (all are `dependencies`, no optional/peer/dev declarations):
+
+- `glob`: `node_modules/@expo/cli` → `^13.0.0`, `node_modules/@expo/config` → `^13.0.0`, `node_modules/@expo/config-plugins` → `^13.0.0`, `node_modules/@expo/fingerprint` → `^13.0.0`, `node_modules/@expo/metro-config` → `^13.0.0`, `node_modules/expo-updates` → `^13.0.0`.
+- `minimatch`: `node_modules/@expo/fingerprint` → `^10.2.2`, `node_modules/glob` → `^10.1.1`.
+
+Fresh Recipes Node 22.22.2 iOS/Android exports contain 2,936/3,020 sources and
+exclude glob and minimatch. Hermes map SHA-256: iOS
+`926c8fe07c418536c8193ac813d0e6ff1b04f0ee73f1734b1967032d98d3a4b9`;
+Android `5b3150a5284efa003244035383ec39211d53899e0ae1568354a6b0f14e184111`.
+The extra all-platform export again fails web static rendering with the previously
+recorded tslib `__extends` error; the separate native exports pass. No installed
+app, authentication, simulator or user-data journey is claimed for this tooling change.

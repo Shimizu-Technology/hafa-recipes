@@ -466,28 +466,84 @@ const reviewedBuildToolAdvisories = {
       }
     }
   },
-  "node-forge:1240912": {
+  // Expo CLI/config/fingerprint and Metro file matching; absent from native bundles.
+  "glob:1244013": {
     "packages": {
-      "node_modules/node-forge": {
-        "version": "1.4.0",
-        "integrity": "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ=="
+      "node_modules/glob": {
+        "version": "13.0.0",
+        "integrity": "sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA=="
       },
       "node_modules/@expo/cli": {
         "version": "57.0.32",
         "integrity": "sha512-3p1qL/pvWblGNwDE1bt2wh/NUiGpSer61s5GKKFfpEpBkZTYnqve0pdK1UvEFzJGT6PW9vX2RofQQ2LP6MgvDQ=="
       },
-      "node_modules/@expo/code-signing-certificates": {
-        "version": "0.0.6",
-        "integrity": "sha512-iNe0puxwBNEcuua9gmTGzq+SuMDa0iATai1FlFTMHJ/vUmKvN/V//drXoLJkVb5i5H3iE/n/qIJxyoBnXouD0w=="
+      "node_modules/@expo/config": {
+        "version": "57.0.10",
+        "integrity": "sha512-YpexTqLWEXdbbXgHh7Zhpq+qA5diuvO46lb7TiY81JwqKLAl9zK31APY1D7jUFlDX56owje5RtK0o5bMmGIMUg=="
+      },
+      "node_modules/@expo/config-plugins": {
+        "version": "57.0.11",
+        "integrity": "sha512-lnNF0cNXqLQPpQVeb/AAu7O0KhdwMFx99rJkO11mrd0IbQDhnOVObpgaR/Ja2D1jAOoKuqk55jwS4l+ZD1j7aw=="
+      },
+      "node_modules/@expo/fingerprint": {
+        "version": "0.20.14",
+        "integrity": "sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ=="
+      },
+      "node_modules/@expo/metro-config": {
+        "version": "57.0.13",
+        "integrity": "sha512-r+YCwqh8FM5cymkC3MdYO32DqLZQ2wDWkGEnzwgwI40Bj355BvL4XoY0hGgao9vNHjYa7be7XxbVqtMTi76snw=="
+      },
+      "node_modules/expo-updates": {
+        "version": "57.0.26",
+        "integrity": "sha512-Dloc9rkoR22qx2HtxzDHOZQcU5rABqsvl8QWA0gFx8N6mHicTdbaxuQ6QCK/wp5fXAK6DQnfzTiQtvJ5IfMTew=="
       }
     },
     "declarations": {
-      "node-forge": {
+      "glob": {
         "node_modules/@expo/cli": {
-          "dependencies": "^1.3.3"
+          "dependencies": "^13.0.0"
         },
-        "node_modules/@expo/code-signing-certificates": {
-          "dependencies": "^1.3.3"
+        "node_modules/@expo/config": {
+          "dependencies": "^13.0.0"
+        },
+        "node_modules/@expo/config-plugins": {
+          "dependencies": "^13.0.0"
+        },
+        "node_modules/@expo/fingerprint": {
+          "dependencies": "^13.0.0"
+        },
+        "node_modules/@expo/metro-config": {
+          "dependencies": "^13.0.0"
+        },
+        "node_modules/expo-updates": {
+          "dependencies": "^13.0.0"
+        }
+      }
+    }
+  },
+  // Expo fingerprint/glob match developer-controlled build paths; absent from native bundles.
+  "minimatch:1244012": {
+    "packages": {
+      "node_modules/minimatch": {
+        "version": "10.2.6",
+        "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A=="
+      },
+      "node_modules/@expo/fingerprint": {
+        "version": "0.20.14",
+        "integrity": "sha512-7sihStGX1ZepJBNbYgeQY7cU2GQ+PSkSROe3g7JOQqnT6OOuX0rXKY0ZNoVnlB2Y/H5FWnnJ6QrPlK3fNg9+bQ=="
+      },
+      "node_modules/glob": {
+        "version": "13.0.0",
+        "integrity": "sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA=="
+      }
+    },
+    "declarations": {
+      "minimatch": {
+        "node_modules/@expo/fingerprint": {
+          "dependencies": "^10.2.2"
+        },
+        "node_modules/glob": {
+          "dependencies": "^10.1.1"
         }
       }
     }
