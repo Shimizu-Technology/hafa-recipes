@@ -62,10 +62,9 @@ export default function Today() {
     child = glanceChild(b.state),
     records = b.records.filter((r) => !b.state.selectedChild || r.child_id === b.state.selectedChild || !r.child_id),
     latestCare = useTodayCare(),
-    care = latestCare.rows,
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => routineToday(r, now)),
-    showCare = !!child && (!child.due_date || !!child.birth_date || care.length > 0),
+    showCare = !!child && (!child.due_date || !!child.birth_date || latestCare.all.some(row => row.child_id === child.id)),
     timer = activeTimer(b.state),
     timerChild = timer && children.find((c) => c.id === timer.child_id),
     writing = useRef(false);

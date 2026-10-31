@@ -35,7 +35,7 @@ vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/today-care", () => ({
-  useTodayCare: () => ({ rows: [], all: scope.care, loading: false, error: "", refresh: vi.fn() }),
+  useTodayCare: () => ({ rows: scope.care.slice(0, 3), all: scope.care, loading: false, error: "", refresh: vi.fn() }),
 }));
 const ui = vi.hoisted(() => ({
   PressTarget: "Pressable", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Icon: "Icon", Loading: "Loading", Notice: "Notice",
@@ -211,6 +211,7 @@ it("uses the child name in the header, replaces the hero with a timer, and stack
 it("shows a calm first step for pregnancy and no-child states", async () => {
   const account = setup();
   account.state.bootstrap!.children[0].due_date = "2026-11-20";
+  scope.care = [optimisticRecord({ id: "another-baby-feed", kind: "feeding", child_id: "other", title: "Feed", body: "", occurred_at: start.toISOString(), data: { method: "breast" } })];
   await render();
   expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
   expect(find("FirstStep", () => true)).toHaveLength(1);
