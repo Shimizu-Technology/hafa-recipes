@@ -6,7 +6,7 @@ export function TabStack({ title, add }: { title: string; add?: Href }) {
   const c = useColors();
   return <NativeHeaderContext.Provider value={true}>
     <Stack screenOptions={{
-      title, headerLargeTitle: true, headerShadowVisible: false,
+      title, headerLargeTitle: true, headerShadowVisible: false, headerBackTitle: "Back",
       // An opaque native header hides large titles on iOS 26.
       headerStyle: Platform.OS === "ios" ? undefined : { backgroundColor: c.background }, headerTintColor: c.action,
       headerBlurEffect: "systemChromeMaterial", headerLargeStyle: { backgroundColor: "transparent" },
