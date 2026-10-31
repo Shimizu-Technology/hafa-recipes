@@ -181,6 +181,8 @@ function ExtractScreenContent() {
   const importStatus = getImportStatusPresentation(extraction, completedRecipe.data);
   useEffect(() => { setShowProgressDetails(false); }, [extraction.jobId]);
   const recentImports = useExtractionJobs('extract', Boolean(isSignedIn));
+  const signInToImport = () => router.push(entry === 'scan' || entry === 'photos'
+    ? { pathname: '/(auth)/sign-in', params: { entry } } : '/(auth)/sign-in');
   const checkDuplicate = useCheckDuplicate();
   const saveCapturedRecipe = useSaveCapturedRecipe();
   const { requestPublishing, isCheckingDisclosure, didChoosePrivate } = usePublishingDisclosure();
@@ -821,7 +823,7 @@ function ExtractScreenContent() {
               onChange={(value) => { const next = value === 'public'; setIsPublic(next); rememberImportSettings({ isPublic: next }); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} />
             <Button title={!isSignedIn ? 'Sign In to Import' : isPreparingImports ? 'Preparing Imports...' : isChecking ? 'Checking...' : extraction.isExtracting ? 'Add to Queue' : 'Import Recipe'}
-              onPress={!isSignedIn ? () => router.push('/(auth)/sign-in') : () => { Keyboard.dismiss(); return handleExtract(); }}
+              onPress={!isSignedIn ? signInToImport : () => { Keyboard.dismiss(); return handleExtract(); }}
               disabled={Boolean(isSignedIn) && (!preferences.ready || isPreparingImports || isLoading || isCheckingDisclosure || !url.trim())}
               loading={isChecking} size="md" />
           </RNView>
@@ -993,7 +995,7 @@ function ExtractScreenContent() {
           </RNView>
         </ScrollView>
 
-        {!isSignedIn && <SignInBanner message="Sign in to extract recipes" />}
+        {!isSignedIn && <SignInBanner message="Sign in to extract recipes" onSignIn={signInToImport} />}
       </KeyboardAvoidingView>
       <ImportSettingsPanel visible={panel === 'settings'} onClose={() => setPanel(null)}
         isPublic={isPublic} onVisibilityChange={(value) => { setIsPublic(value); rememberImportSettings({ isPublic: value }); }} location={selectedLocation}
@@ -1164,7 +1166,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   galleryImageNumberText: {
-    color: '#FFFFFF',
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
   },

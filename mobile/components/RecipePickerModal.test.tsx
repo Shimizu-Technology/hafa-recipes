@@ -31,12 +31,14 @@ vi.mock('@/components/Themed', () => ({
   View: 'View',
   useColors: () => ({
     background: '#fff', border: '#ddd', card: '#fff', cardBorder: '#ddd',
-    text: '#111', textMuted: '#666', tint: '#155c52', warning: '#8a5a00',
+    text: '#111', textMuted: '#666', warning: '#8a5a00',
+    tint: mocks.theme === 'dark' ? '#5DD3B6' : '#1E7F6E',
+    onTint: mocks.theme === 'dark' ? '#00261F' : '#FFFFFF',
   }),
 }));
 const mocks = vi.hoisted(() => ({
   search: vi.fn(), fetchNextPage: vi.fn(), refetch: vi.fn(),
-  error: false, loading: false, more: true,
+  error: false, loading: false, more: true, theme: 'light' as 'light' | 'dark',
 }));
 vi.mock('@/hooks/useRecipes', () => ({
   usePlannerRecipeSearch: (...args: unknown[]) => {
@@ -45,7 +47,7 @@ vi.mock('@/hooks/useRecipes', () => ({
       hasNextPage: mocks.more, isFetchingNextPage: false, fetchNextPage: mocks.fetchNextPage,
       isFetching: false, refetch: mocks.refetch };
   },
-  usePopularTags: () => ({ data: [] }),
+  usePopularTags: () => ({ data: [{ tag: 'baking', count: 2 }] }),
 }));
 vi.mock('@/constants/Colors', () => ({
   fontSize: { xs: 12, sm: 14, md: 16, lg: 18 },
@@ -171,4 +173,27 @@ describe('planner scoped recipe search', () => {
       expect(mocks.fetchNextPage).not.toHaveBeenCalled();
     } finally { await act(async () => renderer.unmount()); }
   });
+});
+
+it.each(['light', 'dark'] as const)('pairs selected picker foregrounds and fills in %s mode', async theme => {
+  mocks.theme = theme;
+  const tint = theme === 'dark' ? '#5DD3B6' : '#1E7F6E';
+  const onTint = theme === 'dark' ? '#00261F' : '#FFFFFF';
+  const renderer = createRoot();
+  const flatten = (style: any) => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
+  const control = (label: string) => renderer.container.queryAll(node => node.type === 'TouchableOpacity' &&
+    (node.props.children as React.ReactElement<any>)?.props?.children === label)[0];
+  const filter = () => renderer.container.queryAll(node => node.type === 'TouchableOpacity' &&
+    (node.props.children as React.ReactElement<any>)?.props?.name === 'options-outline')[0];
+  try {
+    await act(async () => renderer.render(<RecipePickerModal visible onClose={vi.fn()} onSelect={vi.fn()} />));
+    await act(async () => filter().props.onPress());
+    for (const label of ['< 30 min', 'baking']) {
+      await act(async () => control(label).props.onPress());
+      expect(flatten(control(label).props.style).backgroundColor).toBe(tint);
+      expect(flatten((control(label).props.children as React.ReactElement<any>).props.style).color).toBe(onTint);
+    }
+    expect(flatten(filter().props.style).backgroundColor).toBe(tint);
+    expect((filter().props.children as React.ReactElement<any>).props.color).toBe(onTint);
+  } finally { await act(async () => renderer.unmount()); mocks.theme = 'light'; }
 });

@@ -1,4 +1,4 @@
-const routeMocks = vi.hoisted(() => ({ params: {} as Record<string, string>, scrollTo: vi.fn() }));
+const routeMocks = vi.hoisted(() => ({ params: {} as Record<string, string>, headerHeight: 104, scrollTo: vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: { previewMealPlanGroceries: vi.fn() } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'request-id' }));
 const reviewMocks = vi.hoisted(() => ({ session: 'session-a', state: {} as any, update: vi.fn(async () => ({})), add: vi.fn(async (_input: any) => ({ items_added: 2, items_missing_amount: 1 })) }));
@@ -29,7 +29,7 @@ vi.mock('react-native', () => ({
   TouchableOpacity: 'TouchableOpacity',
   View: 'View',
 }));
-vi.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 104 }));
+vi.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => routeMocks.headerHeight }));
 vi.mock('expo-router', () => ({
   useFocusEffect: vi.fn(),
   useLocalSearchParams: () => routeMocks.params,
@@ -178,7 +178,7 @@ describe('planner loading recovery', () => {
   beforeEach(() => {
     // 04:30 in Guam: the UTC date is still the previous day.
     vi.useFakeTimers({ now: new Date('2026-10-31T18:30:00Z'), toFake: ['Date'] });
-    routeMocks.params = {}; routeMocks.scrollTo.mockClear();
+    routeMocks.params = {}; routeMocks.headerHeight = 104; routeMocks.scrollTo.mockClear();
     refetch.mockReset().mockResolvedValue({});
     vi.mocked(planHooks.getWeekStart).mockImplementation((date) => date);
     vi.mocked(planHooks.getWeekEnd).mockImplementation((date) => date);
@@ -202,14 +202,57 @@ describe('planner loading recovery', () => {
     const root = createRoot();
     try {
       await act(async () => root.render(<PlannerScreen />));
+      const scrollContainer = root.container.queryAll(node => node.type === 'ScrollView' && !!node.props.onScrollBeginDrag)[0];
+      expect(scrollContainer.props.contentInsetAdjustmentBehavior).toBe('automatic');
+      expect(scrollContainer.props.scrollToOverflowEnabled).toBe(true);
       const days = root.container.queryAll(node => node.type === 'View' && !!node.props.onLayout);
       expect(days).toHaveLength(7);
       await act(async () => days.forEach((day, index) => day.props.onLayout({ nativeEvent: { layout: { y: 100 + index * 200 } } })));
+      expect(routeMocks.scrollTo).toHaveBeenCalledWith({ y: -104, animated: false });
       routeMocks.scrollTo.mockClear();
       routeMocks.params = { date: '2026-10-28' };
       await act(async () => root.render(<PlannerScreen />));
       expect(routeMocks.scrollTo).toHaveBeenCalledWith({ y: 396, animated: false });
+      await act(async () => {
+        scrollContainer.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+        scrollContainer.props.onContentSizeChange(402, 1000);
+      });
+      expect(routeMocks.scrollTo).toHaveBeenLastCalledWith({ y: 200, animated: false });
+      await act(async () => scrollContainer.props.onContentSizeChange(402, 2000));
+      routeMocks.headerHeight = 156;
+      await act(async () => root.render(<PlannerScreen />));
+      expect(routeMocks.scrollTo).toHaveBeenLastCalledWith({ y: 344, animated: false });
+      const scroll = root.container.queryAll(node => node.type === 'ScrollView' && !!node.props.onScrollBeginDrag)[0];
+      await act(async () => scroll.props.onScrollBeginDrag());
+      routeMocks.scrollTo.mockClear();
+      routeMocks.headerHeight = 104;
+      await act(async () => root.render(<PlannerScreen />));
+      expect(routeMocks.scrollTo).not.toHaveBeenCalled();
+      routeMocks.params = { date: '2026-10-27' };
+      await act(async () => root.render(<PlannerScreen />));
+      await act(async () => scroll.props.onScrollToTop());
+      routeMocks.scrollTo.mockClear();
+      await act(async () => scrollContainer.props.onContentSizeChange(402, 2100));
+      expect(routeMocks.scrollTo).not.toHaveBeenCalled();
     } finally { routeMocks.params = {}; vi.mocked(parsePlannerDateParam).mockReset(); await act(async () => root.unmount()); }
+  });
+
+  it('focuses Today after the initial week finishes loading', async () => {
+    const start = new Date('2026-10-26T12:00:00Z');
+    vi.mocked(planHooks.getWeekStart).mockReturnValue(start);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: undefined, isLoading: true, refetch } as any);
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [] }, isLoading: false, refetch } as any);
+      await act(async () => root.render(<PlannerScreen />));
+      const days = root.container.queryAll(node => node.type === 'View' && !!node.props.onLayout);
+      await act(async () => days.forEach((day, index) => day.props.onLayout({ nativeEvent: { layout: { y: 100 + index * 200 } } })));
+      routeMocks.scrollTo.mockClear();
+      const today = root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === 'Go to today')[0];
+      await act(async () => today.props.onPress());
+      expect(routeMocks.scrollTo).toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
   });
 
   it('adds a picked recipe to the chosen day instead of a previously focused day', async () => {

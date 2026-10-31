@@ -291,6 +291,8 @@ describe('CookModeScreen', () => {
     expect(textOf(r.root)).toContain('Clock running · No alert scheduled');
     await advance(1000);
     expect(textOf(r.root)).toContain('0:59');
+    await act(async () => r.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    expect(textOf(r.root)).toContain('Alerts are off outside the app');
     if (reason === 'denied') {
       await act(async () => buttonByLabel(r, 'Open notification settings').props.onPress());
       expect(mocks.openSettings).toHaveBeenCalledOnce();

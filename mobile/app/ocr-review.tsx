@@ -554,7 +554,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   stepNumberText: {
-    color: '#FFFFFF',
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
   },

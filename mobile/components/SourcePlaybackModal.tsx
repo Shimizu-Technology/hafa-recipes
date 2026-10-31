@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-  primaryButtonText: { color: '#FFFFFF', fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md },
+  primaryButtonText: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md },
   footer: {
     minHeight: 92,
     paddingTop: spacing.md,

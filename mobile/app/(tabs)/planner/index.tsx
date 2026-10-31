@@ -344,13 +344,19 @@ function PlannerScreenContent() {
 
   const weekScroll = useRef<ScrollView>(null);
   const dayPositions = useRef<Record<string, number>>({});
+  const scrollSize = useRef({ height: 0, contentHeight: 0 });
   const pendingScrollDate = useRef<string | null>(null);
   const scrollToRequestedDay = () => {
     if (!weekPlan || isLoading) return;
     const date = pendingScrollDate.current;
     if (date && dayPositions.current[date] !== undefined) {
-      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[date] - headerHeight), animated: false });
-      pendingScrollDate.current = null;
+      // Near the start, retain the week navigation below the expanded title.
+      // Fabric needs scrollToOverflowEnabled to honor the negative automatic inset.
+      const requestedY = dayPositions.current[date] < headerHeight ? -headerHeight : dayPositions.current[date] - headerHeight;
+      // Overflow is needed only for the top inset; keep late-week targets inside the list.
+      const maxY = Math.max(0, scrollSize.current.contentHeight - scrollSize.current.height + insets.bottom);
+      const y = scrollSize.current.height && scrollSize.current.contentHeight ? Math.min(requestedY, maxY) : requestedY;
+      weekScroll.current?.scrollTo({ y, animated: false });
     }
   };
 
@@ -415,6 +421,10 @@ function PlannerScreenContent() {
   );
   const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
 
+  // Native-stack reports the expanded header after the first content layout.
+  // Keep the requested heading aligned through that update; a drag ends the handoff.
+  useEffect(() => { scrollToRequestedDay(); }, [headerHeight, weekPlan, isLoading]);
+
   // Mutations
   const addMeal = useAddMeal();
   const updateMeal = useUpdateMeal();
@@ -457,6 +467,7 @@ function PlannerScreenContent() {
 
   // Navigate between weeks
   const goToPrevWeek = useCallback(() => {
+    pendingScrollDate.current = null;
     lightHaptic();
     const newStart = new Date(
       currentWeekStart.getFullYear(),
@@ -468,6 +479,7 @@ function PlannerScreenContent() {
   }, [currentWeekStart]);
 
   const goToNextWeek = useCallback(() => {
+    pendingScrollDate.current = null;
     lightHaptic();
     const newStart = new Date(
       currentWeekStart.getFullYear(),
@@ -483,14 +495,15 @@ function PlannerScreenContent() {
     const today = new Date();
     const target = formatDateForApi(today);
     if (formatDateForApi(getWeekStart(today)) === weekOfStr && dayPositions.current[target] !== undefined) {
-      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[target] - headerHeight), animated: false });
+      pendingScrollDate.current = target;
+      scrollToRequestedDay();
     } else {
       dayPositions.current = {};
       pendingScrollDate.current = target;
     }
     setCurrentWeekStart(getWeekStart(today));
     setSelectedDate(today);
-  }, [weekOfStr, headerHeight]);
+  }, [weekOfStr, headerHeight, weekPlan, isLoading, insets.bottom]);
 
   const addRecipeToMeal = useCallback(
     async (recipe: MealPlanRecipe, mealType: MealType, date = selectedDate) => {
@@ -720,7 +733,12 @@ function PlannerScreenContent() {
   return (
     <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
       {/* Day Content */}
-      <ScrollView ref={weekScroll} onContentSizeChange={scrollToRequestedDay}
+      <ScrollView ref={weekScroll}
+          onLayout={event => { scrollSize.current.height = event.nativeEvent.layout.height; scrollToRequestedDay(); }}
+          onContentSizeChange={(_width, height) => { scrollSize.current.contentHeight = height; scrollToRequestedDay(); }}
+          scrollToOverflowEnabled
+          onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
+          onScrollToTop={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
@@ -1210,7 +1228,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   groceryButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

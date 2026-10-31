@@ -219,7 +219,7 @@ export default function RecipePickerModal({
               <Ionicons
                 name="options-outline"
                 size={20}
-                color={hasActiveFilters ? '#FFFFFF' : colors.textMuted}
+                color={hasActiveFilters ? colors.onTint : colors.textMuted}
               />
             </TouchableOpacity>
           </RNView>
@@ -246,7 +246,7 @@ export default function RecipePickerModal({
                       <Text
                         style={[
                           styles.filterChipText,
-                          { color: timeFilter === filter.value ? '#FFFFFF' : colors.text },
+                          { color: timeFilter === filter.value ? colors.onTint : colors.text },
                         ]}
                       >
                         {filter.label}
@@ -276,7 +276,7 @@ export default function RecipePickerModal({
                         <Text
                           style={[
                             styles.filterChipText,
-                            { color: selectedTags.includes(tagItem.tag) ? '#FFFFFF' : colors.text },
+                            { color: selectedTags.includes(tagItem.tag) ? colors.onTint : colors.text },
                           ]}
                         >
                           {tagItem.tag}

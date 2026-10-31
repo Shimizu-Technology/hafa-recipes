@@ -1705,7 +1705,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   aiButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },

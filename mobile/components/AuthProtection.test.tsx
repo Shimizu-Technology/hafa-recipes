@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   sessionId: 'session-a',
+  params: {} as Record<string, string>,
   isLoaded: true,
   isSignedIn: false,
   replace: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('@clerk/expo', () => ({
   useAuth: () => ({ isLoaded: mocks.isLoaded, isSignedIn: mocks.isSignedIn, sessionId: mocks.sessionId }),
 }));
 vi.mock('expo-router', () => ({
+  useGlobalSearchParams: () => mocks.params,
   useRouter: () => ({ replace: mocks.replace }),
   useSegments: () => mocks.segments,
 }));
@@ -30,6 +32,7 @@ import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 describe('AuthProtection', () => {
   beforeEach(() => {
     guestRecipeIntent.clear();
+    mocks.params = {};
     mocks.isLoaded = true;
     mocks.isSignedIn = false;
     mocks.replace.mockReset();
@@ -68,6 +71,15 @@ describe('AuthProtection', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it.each(['scan', 'photos'])('returns authentication to the pending %s capture', async entry => {
+    mocks.isSignedIn = true; mocks.segments = ['(auth)']; mocks.params = { entry };
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(<AuthProtection><TouchableOpacity /></AuthProtection>));
+      expect(mocks.replace).toHaveBeenCalledWith(`/?entry=${entry}`);
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('returns authentication to the requested recipe and clears the intent on guest cancellation', async () => {

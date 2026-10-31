@@ -27,6 +27,13 @@ vi.mock('@/hooks/useScaledServings', () => ({
 import { CookIngredientsList } from './CookIngredientsList';
 
 describe('CookIngredientsList', () => {
+  it('explains an empty ingredient list', async () => {
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(<CookIngredientsList ingredients={[]} scaleFactor={1} isScaled={false} warningColor="#b70" scaleFontSize={size => size} />));
+      expect(renderer.container.queryAll(node => node.type === 'Text').map(node => node.props.children)).toContain('No ingredients listed');
+    } finally { await act(async () => renderer.unmount()); }
+  });
   it('renders scaled amounts and labels missing or legacy-sentinel amounts', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {

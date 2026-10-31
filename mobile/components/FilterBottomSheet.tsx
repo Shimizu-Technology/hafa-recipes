@@ -603,7 +603,6 @@ const styles = StyleSheet.create({
   applyButtonText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
-    color: '#FFFFFF',
   },
 });
 

@@ -241,5 +241,5 @@ const styles = StyleSheet.create({
   helpText: { fontSize: fontSize.xs },
   footer: { borderTopWidth: StyleSheet.hairlineWidth, padding: spacing.md },
   submitButton: { minHeight: 50, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
-  submitText: { color: '#FFFFFF', fontSize: fontSize.md, fontWeight: fontWeight.semibold },
+  submitText: { fontSize: fontSize.md, fontWeight: fontWeight.semibold },
 });

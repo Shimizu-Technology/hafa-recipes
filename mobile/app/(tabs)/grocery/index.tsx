@@ -135,7 +135,7 @@ function GroceryItemRow({
         </Text>}
       </TouchableOpacity>
     </RNView>
-    {swiped && <TouchableOpacity onPress={onDelete} accessibilityRole="button" accessibilityLabel={`Delete ${item.name}`} style={{ backgroundColor: colors.destructive, paddingHorizontal: 16, justifyContent: 'center' }}><Text style={{ color: '#FFFFFF' }}>Delete</Text></TouchableOpacity>}
+    {swiped && <TouchableOpacity onPress={onDelete} accessibilityRole="button" accessibilityLabel={`Delete ${item.name}`} style={{ backgroundColor: colors.destructive, paddingHorizontal: 16, justifyContent: 'center' }}><Text style={{ color: colors.onError }}>Delete</Text></TouchableOpacity>}
   </RNView>;
 }
 

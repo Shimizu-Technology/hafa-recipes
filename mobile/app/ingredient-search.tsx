@@ -591,7 +591,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   searchButtonText: {
-    color: '#ffffff',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
@@ -726,7 +725,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   retryButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

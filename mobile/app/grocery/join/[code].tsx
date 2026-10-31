@@ -288,7 +288,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },

@@ -1006,11 +1006,10 @@ function RecipeDetailScreenContent() {
               />
             )}
 
-              {tabs.filter(tab => tab.key === 'nutrition' || tab.key === 'cost').map(tab => <RecipeDetailRow key={tab.key}
-                icon={tab.key === 'nutrition' ? 'nutrition-outline' : 'pricetag-outline'} title={tab.label}
-                accessibilityState={{ expanded: activeTab === tab.key }}
-                onPress={() => selectTab(activeTab === tab.key ? 'ingredients' : tab.key)}
-                accessory={<Ionicons name={activeTab === tab.key ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />)}
+              <RecipeDetailRow icon="nutrition-outline" title="Nutrition"
+                accessibilityState={{ expanded: activeTab === 'nutrition' }}
+                onPress={() => selectTab(activeTab === 'nutrition' ? 'ingredients' : 'nutrition')}
+                accessory={<Ionicons name={activeTab === 'nutrition' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />
               {/* Mount only while open: updating a display:none Fabric subtree crashes native layout. Basis selection stays above the disclosure. */}
                 {activeTab === 'nutrition' && <RNView key={`nutrition-${id}`}>
                   <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
@@ -1021,6 +1020,10 @@ function RecipeDetailScreenContent() {
 
                 </RNView>}
 
+              {costSummary && <RecipeDetailRow icon="pricetag-outline" title="Cost"
+                accessibilityState={{ expanded: activeTab === 'cost' }}
+                onPress={() => selectTab(activeTab === 'cost' ? 'ingredients' : 'cost')}
+                accessory={<Ionicons name={activeTab === 'cost' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />}
               {activeTab === 'cost' && costSummary && (
                 <>
                   {costStatus && costStatus !== 'current' && (
@@ -1786,7 +1789,6 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
   },
   stepNumberText: {
-    color: '#FFFFFF',
     fontSize: 17, lineHeight: 24,
     fontWeight: fontWeight.semibold,
   },
@@ -1946,7 +1948,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   addToGroceryText: {
-    color: '#FFFFFF',
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
@@ -1967,7 +1968,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   nutritionTotalValue: {
-    color: '#FFFFFF',
     fontSize: 36,
     fontWeight: fontWeight.bold,
   },
@@ -2011,7 +2011,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   costTotalValue: {
-    color: '#FFFFFF',
     fontSize: 36,
     fontWeight: fontWeight.bold,
   },
