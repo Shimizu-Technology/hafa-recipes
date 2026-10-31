@@ -198,10 +198,10 @@ export function Card({
     gap: compact ? spacing.sm : spacing.md - 2,
     borderRadius: radii.xl - 4,
     backgroundColor: bg,
-    borderWidth: tone === "plain" ? 1 : 0,
+    borderWidth: 0,
     borderColor: c.border,
     // Resting cards use the hairline border only; the hero keeps its lift.
-    ...(tone === "hero" ? { shadowColor: c.shadow, ...elevation.raised } : {}),
+
   };
   const content = <SurfaceProvider value={tone === "hero" ? "hero" : "default"}>{children}</SurfaceProvider>;
   if (!onPress) return <View style={[base, style]}>{content}</View>;
@@ -403,8 +403,8 @@ export function ListGroup({ children }: PropsWithChildren) {
     <View
       style={{
         backgroundColor: c.surface,
-        borderRadius: radii.xl - 4,
-        borderWidth: 1,
+        borderRadius: radii.sm,
+        borderWidth: 0,
         borderColor: c.border,
         paddingHorizontal: spacing.md,
         paddingVertical: 4,

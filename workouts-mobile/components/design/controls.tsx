@@ -14,16 +14,12 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive" | 
 export type ButtonSize = "sm" | "md" | "lg";
 
 function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface): { bg: string; fg: string; border?: string } {
-  if (surface === "hero") {
-    if (variant === "primary" || variant === "accent") return { bg: c.onHero, fg: c.hero };
-    return { bg: c.onHeroSoft, fg: c.onHero };
-  }
   switch (variant) {
     case "primary":
       return { bg: c.action, fg: c.onAction };
     case "secondary":
       // Neutral, like Recipes: supporting actions shouldn't compete with the one primary.
-      return { bg: c.elevated, fg: c.text, border: c.border };
+      return { bg: c.sunken, fg: c.text };
     case "ghost":
       return { bg: "transparent", fg: c.onActionSoft };
     case "destructive":
@@ -32,7 +28,7 @@ function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface):
       return { bg: c.accent, fg: c.onAccent };
   }
 }
-const heights: Record<ButtonSize, number> = { sm: 44, md: 52, lg: 60 };
+const heights: Record<ButtonSize, number> = { sm: 36, md: 50, lg: 50 };
 
 /**
  * One clear action. `primary` is the screen's main action (use once per view);
@@ -117,7 +113,7 @@ export function Button({
         <Ionicons name={icon} color={fg} size={size === "sm" ? 18 : 21} />
       ) : null}
       <Copy
-        kind={size === "lg" ? "subheading" : "label"}
+        kind="label"
         color={fg}
         style={{ textAlign: "center", flexShrink: 1 }}
       >
@@ -196,15 +192,15 @@ export function AccountButton() {
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel="Open account and settings"
-      hitSlop={4}
+      hitSlop={7}
       onPress={() => router.push("/settings")}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       style={{
-        width: 40,
-        height: 40,
+        width: 30,
+        height: 30,
         borderRadius: radii.full,
-        borderWidth: 1,
+        borderWidth: 0,
         borderColor: c.border,
         backgroundColor: identity?.initial ? c.actionSoft : c.sunken,
         alignItems: "center",
@@ -215,9 +211,9 @@ export function AccountButton() {
       }}
     >
       {image ? (
-        <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: 40, height: 40 }} accessibilityIgnoresInvertColors />
+        <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: 30, height: 30 }} accessibilityIgnoresInvertColors />
       ) : identity?.initial ? (
-        <Text allowFontScaling={false} style={{ color: c.onActionSoft, fontSize: 17, fontFamily: typography.label.fontFamily }}>{identity.initial}</Text>
+        <Text allowFontScaling={false} style={{ ...typography.label, color: c.text }}>{identity.initial}</Text>
       ) : (
         <Ionicons name="person" size={19} color={c.onActionSoft} />
       )}
@@ -267,7 +263,7 @@ export function Chip({
       ) : icon ? (
         <Ionicons name={icon} size={16} color={fg} />
       ) : null}
-      <Copy kind="label" color={fg} style={{ fontSize: 15 }}>
+      <Copy kind="cardTitle" color={fg} style={{ textAlign: "center" }}>
         {label}
       </Copy>
     </>
@@ -277,11 +273,12 @@ export function Chip({
     paddingHorizontal: onPress ? 14 : 12,
     paddingVertical: 6,
     borderRadius: radii.full,
-    borderWidth: 1,
+    borderWidth: 0,
     borderColor: border,
     backgroundColor: bg,
     flexDirection: "row" as const,
     alignItems: "center" as const,
+    justifyContent: "center" as const,
     gap: 6,
   };
   if (!onPress)
@@ -365,9 +362,9 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
   return <AnimatedPressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: selected }}
     aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}
     style={{ flex: 1, minHeight: 44, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
-      backgroundColor: selected ? c.elevated : "transparent", borderWidth: selected ? 1 : 0, borderColor: c.border,
+      backgroundColor: selected ? c.elevated : "transparent", borderWidth: 0, borderColor: c.border,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-    <Copy kind="label" color={selected ? c.text : c.muted} style={{ fontSize: 15 }}>{label}</Copy>
+    <Copy kind="cardTitle" color={selected ? c.text : c.muted} align="center">{label}</Copy>
   </AnimatedPressable>;
 }
 
@@ -452,7 +449,7 @@ export function Field({
             borderColor: focused ? c.focus : c.borderStrong,
             borderWidth: focused ? 2 : 1,
             backgroundColor: disabled ? c.sunken : c.elevated,
-            borderRadius: radii.md,
+            borderRadius: radii.sm,
             paddingHorizontal: focused ? 15 : 16,
             paddingVertical: large ? 8 : focused ? 13 : 14,
             minHeight: multiline ? compact ? 60 : 110 : large ? 64 : 54,

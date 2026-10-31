@@ -2,22 +2,25 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { dark, hafa, light, markColors, workouts, type ColorTokens } from "@/constants/theme";
+import { dark, hafa, light, markColors, workouts, typography, type ColorTokens } from "@/constants/theme";
 import { markShapes as geometryShapes, concepts, palettes } from "../scripts/brand-geometry.mjs";
 import { markShapes } from "@/components/brand-mark-shapes";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const repo = join(root, "..");
 
-function luminance(hex: string) {
-  const n = hex.replace("#", "");
-  const [r, g, b] = [0, 2, 4]
-    .map((i) => parseInt(n.slice(i, i + 2), 16) / 255)
-    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+function rgb(value: string, behind = [255, 255, 255]): number[] {
+  if (value.startsWith("#")) return [0, 2, 4].map(i => parseInt(value.slice(i + 1, i + 3), 16));
+  const [r, g, b, alpha = 1] = value.match(/[\d.]+/g)!.map(Number);
+  return [r, g, b].map((v, i) => v * alpha + behind[i] * (1 - alpha));
+}
+function luminance(values: number[]) {
+  const [r, g, b] = values.map(v => v / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
-function contrast(a: string, b: string) {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+function contrast(a: string, b: string, page: string) {
+  const bg = rgb(b, rgb(page));
+  const [hi, lo] = [luminance(rgb(a, bg)), luminance(bg)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
 
@@ -67,7 +70,7 @@ describe.each([
   ["dark", dark],
 ] as const)("%s theme", (_, c) => {
   it.each(pairs)("%s on %s meets %s:1", (fg, bg, min) => {
-    expect(contrast(c[fg], c[bg])).toBeGreaterThanOrEqual(min);
+    expect(contrast(c[fg], c[bg], c.background)).toBeGreaterThanOrEqual(min);
   });
 });
 
@@ -108,13 +111,13 @@ describe("one Håfa family", () => {
 
   it("app config backgrounds match the theme", () => {
     const config = readFileSync(join(root, "app.config.ts"), "utf8");
-    expect(config).toContain(`const cream = "${hafa.cream}"`);
+    expect(config).toContain(`const cream = "${light.background}"`);
     expect(config).toContain(`const night = "${dark.background}"`);
   });
 
   it("icon artwork palettes match the theme", () => {
     expect(palettes.light).toMatchObject({ bg: hafa.cream, halo: hafa.bone, ...markColors.light });
-    expect(palettes.dark).toMatchObject({ bg: dark.background, ...markColors.dark });
+    expect(palettes.dark).toMatchObject({ bg: "#101411", ...markColors.dark });
     expect(markColors.light.accent).toBe(workouts.sunrise);
   });
 
@@ -122,39 +125,17 @@ describe("one Håfa family", () => {
     expect(markShapes).toEqual(geometryShapes(concepts.A));
   });
 
-  it("website CSS variables mirror the theme", () => {
-    const css = readFileSync(join(repo, "workouts-web/src/styles.css"), "utf8");
-    const value = (scope: string, name: string) => {
-      const start = css.indexOf(scope);
-      const body = css.slice(start, css.indexOf("}", start));
-      return body.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim().toUpperCase();
-    };
-    const map: [string, keyof ColorTokens][] = [
-      ["bg", "background"],
-      ["surface", "surface"],
-      ["sunken", "sunken"],
-      ["text", "text"],
-      ["muted", "muted"],
-      ["border", "border"],
-      ["border-strong", "borderStrong"],
-      ["action", "action"],
-      ["on-action", "onAction"],
-      ["action-soft", "actionSoft"],
-      ["on-action-soft", "onActionSoft"],
-      ["accent", "accent"],
-      ["accent-text", "accentText"],
-      ["accent-soft", "accentSoft"],
-      ["hero", "hero"],
-      ["on-hero", "onHero"],
-      ["hero-muted", "heroMuted"],
-      ["hero-accent", "heroAccent"],
-      ["on-accent", "onAccent"],
-      ["error", "error"],
-      ["focus", "focus"],
-    ];
-    for (const [cssName, token] of map) {
-      expect(value(":root {", cssName), `light --${cssName}`).toBe(light[token].toUpperCase());
-      expect(value("@media (prefers-color-scheme: dark)", cssName), `dark --${cssName}`).toBe(dark[token].toUpperCase());
+  it("uses neutral pages and coral actions independently of the website artwork", () => {
+    expect([light.background, dark.background]).toEqual(["#FFFFFF", "#000000"]);
+    expect([light.action, dark.action]).toEqual(["#C8471C", "#FF7A50"]);
+    expect([light.hero, dark.hero]).toEqual([light.surface, dark.surface]);
+  });
+  it("uses system UI type with explicit line heights and weights", () => {
+    for (const style of Object.values(typography)) {
+      expect(style.fontFamily).toBeUndefined();
+      expect(style.lineHeight).toBeGreaterThan(style.fontSize);
+      expect(style.fontWeight).toMatch(/400|600|700/);
     }
+    expect(typography.cardTitle).toMatchObject({ fontSize: 15, lineHeight: 20, fontWeight: "600" });
   });
 });

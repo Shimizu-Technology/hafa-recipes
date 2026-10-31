@@ -1,15 +1,4 @@
-/**
- * Håfa Workouts design tokens.
- *
- * One Håfa family: the shared warm neutrals and reef green come straight from
- * Håfa Recipes (`mobile/constants/Colors.ts` → `brand`), and Workouts adds a
- * sunrise-coral accent for energy. Light is the primary design; dark follows
- * the system setting.
- *
- * This is the ONLY file in workouts-mobile that may contain raw hex colours
- * (enforced by lib/theme.test.ts). Screens use semantic tokens via useTheme()
- * or useColors().
- */
+/** Workouts UI: system type, neutral surfaces, coral actions. */
 import type { TextStyle, ViewStyle } from "react-native";
 
 /** Values shared with Håfa Recipes. Must stay identical to mobile/constants/Colors.ts `brand`. */
@@ -45,6 +34,12 @@ export const workouts = {
 } as const;
 
 export type ColorTokens = {
+  groupedBackground: string;
+  surface2: string;
+  secondaryLabel: string;
+  tertiaryLabel: string;
+  destructive: string;
+  dataSuccess: string;
   background: string;
   surface: string;
   elevated: string;
@@ -81,111 +76,62 @@ export type ColorTokens = {
   tint: string;
 };
 
+// Small text uses contrast-strengthened variants where system colours fall below 4.5:1.
+// Semantic UI colours are independent of the retained app-icon artwork palette.
 export const light: ColorTokens = {
-  background: hafa.cream,
-  surface: "#FFFCF7",
-  elevated: "#FFFFFF",
-  sunken: hafa.bone,
-  text: hafa.ink,
-  muted: "#6D5D50",
-  border: hafa.border,
-  borderStrong: "#8F7D6D",
-  action: hafa.reef,
-  onAction: hafa.cream,
-  actionSoft: hafa.reefLight,
-  onActionSoft: hafa.reef,
-  accent: workouts.sunrise,
-  accentText: workouts.ember,
-  onAccent: hafa.ink,
-  accentSoft: workouts.sunriseSoft,
-  hero: hafa.reef,
-  onHero: hafa.cream,
-  heroMuted: "#C9E6DF",
-  heroAccent: "#FFB596",
-  onHeroSoft: "rgba(255, 247, 236, 0.16)",
-  success: "#3F6B33",
-  warning: "#8A5A00",
-  error: "#B3261E",
-  errorSoft: "#FBE3DE",
-  focus: hafa.reefBright,
-  overlay: "rgba(23, 18, 14, 0.42)",
-  skeleton: hafa.parchment,
-  shadow: "#0B3E38",
-  tint: hafa.reefLight,
+  groupedBackground: "#F2F2F7", surface2: "rgba(118,118,128,0.12)",
+  secondaryLabel: "rgba(60,60,67,0.60)", tertiaryLabel: "rgba(60,60,67,0.30)",
+  destructive: "#FF3B30", dataSuccess: "#248A3D",
+  background: "#FFFFFF", surface: "#F2F2F7", elevated: "#FFFFFF", sunken: "rgba(118,118,128,0.12)",
+  text: "#000000", muted: "rgba(60,60,67,0.74)", border: "rgba(60,60,67,0.29)", borderStrong: "#767680",
+  action: "#C8471C", onAction: "#FFFFFF", actionSoft: "rgba(118,118,128,0.12)", onActionSoft: "#B53F17",
+  accent: "#C8471C", accentText: "#B53F17", onAccent: "#FFFFFF", accentSoft: "rgba(118,118,128,0.12)",
+  hero: "#F2F2F7", onHero: "#000000", heroMuted: "rgba(60,60,67,0.74)", heroAccent: "#B53F17",
+  onHeroSoft: "rgba(118,118,128,0.12)", success: "#207A36", warning: "#765300",
+  error: "#BC231A", errorSoft: "#FFF0EF", focus: "#C8471C", overlay: "rgba(0,0,0,0.42)",
+  skeleton: "#E5E5EA", shadow: "#000000", tint: "rgba(118,118,128,0.12)",
 };
-
 export const dark: ColorTokens = {
-  background: "#101411",
-  surface: "#1A201C",
-  elevated: "#242C26",
-  sunken: "#151A17",
-  text: "#F8F0E7",
-  muted: "#B8AEA2",
-  border: "#2D352F",
-  borderStrong: "#6A7A70",
-  // Filled buttons match Recipes' dark tint: reef with light text, not neon mint.
-  action: hafa.reefMid,
-  onAction: hafa.cream,
-  actionSoft: "#1E3A35",
-  onActionSoft: "#8CD8CC",
-  accent: workouts.sunriseNight,
-  accentText: workouts.sunriseNight,
-  onAccent: hafa.ink,
-  accentSoft: workouts.sunriseSoftNight,
-  hero: workouts.reefNight,
-  onHero: "#F8F0E7",
-  heroMuted: "#C9E6DF",
-  heroAccent: "#FFB596",
-  onHeroSoft: "rgba(248, 240, 231, 0.14)",
-  success: "#86B875",
-  warning: hafa.banana,
-  error: "#F07167",
-  errorSoft: "#3A1F1C",
-  focus: hafa.reefHighlight,
-  overlay: "rgba(0, 0, 0, 0.6)",
-  skeleton: "#242C26",
-  shadow: "#000000",
-  tint: "#1E3A35",
+  groupedBackground: "#000000", surface2: "rgba(118,118,128,0.24)",
+  secondaryLabel: "rgba(235,235,245,0.60)", tertiaryLabel: "rgba(235,235,245,0.30)",
+  destructive: "#FF453A", dataSuccess: "#30D158",
+  background: "#000000", surface: "#1C1C1E", elevated: "#1C1C1E", sunken: "rgba(118,118,128,0.24)",
+  text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", border: "rgba(84,84,88,0.65)", borderStrong: "#8E8E93",
+  action: "#FF7A50", onAction: "#2A0D00", actionSoft: "rgba(118,118,128,0.24)", onActionSoft: "#FF7A50",
+  accent: "#FF7A50", accentText: "#FF7A50", onAccent: "#2A0D00", accentSoft: "rgba(118,118,128,0.24)",
+  hero: "#1C1C1E", onHero: "#FFFFFF", heroMuted: "rgba(235,235,245,0.60)", heroAccent: "#FF7A50",
+  onHeroSoft: "rgba(118,118,128,0.24)", success: "#30D158", warning: "#FFD60A",
+  error: "#FF453A", errorSoft: "#301412", focus: "#FF7A50", overlay: "rgba(0,0,0,0.6)",
+  skeleton: "#2C2C2E", shadow: "#000000", tint: "rgba(118,118,128,0.24)",
 };
 
-export const spacing = { xxs: 4, xs: 8, sm: 12, md: 16, lg: 24, xl: 32, xxl: 48 } as const;
-export const radii = { sm: 8, md: 14, lg: 20, xl: 28, full: 999 } as const;
-/** Minimum comfortable touch target (pt). */
-export const touch = { min: 48, comfortable: 56 } as const;
-/** Max readable content width on tablets/web. */
+export const spacing = { xxs: 4, xs: 8, sm: 12, md: 16, lg: 24, xl: 32, xxl: 40 } as const;
+export const radii = { sm: 10, md: 14, lg: 20, xl: 24, full: 999 } as const;
+export const touch = { min: 44, comfortable: 50 } as const;
 export const contentWidth = 660;
-
-export const fonts = {
-  regular: "DMSans_400Regular",
-  semibold: "DMSans_600SemiBold",
-  bold: "DMSans_700Bold",
-  /** Fraunces carries screen and workout titles, as it does in Håfa Recipes. */
-  display: "Fraunces_700Bold",
-  displaySemibold: "Fraunces_600SemiBold",
-} as const;
-
+// Leaving fontFamily unset selects SF Pro on iOS and the system face elsewhere.
+const system = undefined;
+export const fonts = { regular: system, semibold: system, bold: system, display: system, displaySemibold: system } as const;
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 export const typography = {
-  display: { fontFamily: fonts.display, fontSize: 36, lineHeight: 44, letterSpacing: -0.6 },
-  title: { fontFamily: fonts.display, fontSize: 30, lineHeight: 38, letterSpacing: -0.4 },
-  /** Centered navigation-bar title on root tabs. */
-  navTitle: { fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22 },
-  heading: { fontFamily: fonts.bold, fontSize: 21, lineHeight: 27, letterSpacing: -0.3 },
-  subheading: { fontFamily: fonts.semibold, fontSize: 18, lineHeight: 24, letterSpacing: -0.1 },
-  body: { fontFamily: fonts.regular, fontSize: 17, lineHeight: 25 },
-  label: { fontFamily: fonts.semibold, fontSize: 16, lineHeight: 22 },
-  small: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
-  caption: { fontFamily: fonts.semibold, fontSize: 13, lineHeight: 18 },
-  /** Big numbers: reps, weight, timers. Tabular so digits don't jump. */
-  numeric: { fontFamily: fonts.bold, fontSize: 34, lineHeight: 40, letterSpacing: -0.6, fontVariant: tabular },
-  numericSmall: { fontFamily: fonts.semibold, fontSize: 20, lineHeight: 26, fontVariant: tabular },
+  display: { fontFamily: system, fontWeight: "700", fontSize: 34, lineHeight: 41 },
+  title: { fontFamily: system, fontWeight: "700", fontSize: 28, lineHeight: 34 },
+  navTitle: { fontFamily: system, fontWeight: "600", fontSize: 17, lineHeight: 22 },
+  heading: { fontFamily: system, fontWeight: "700", fontSize: 22, lineHeight: 28 },
+  subheading: { fontFamily: system, fontWeight: "600", fontSize: 20, lineHeight: 25 },
+  body: { fontFamily: system, fontWeight: "400", fontSize: 17, lineHeight: 22 },
+  label: { fontFamily: system, fontWeight: "600", fontSize: 17, lineHeight: 22 },
+  small: { fontFamily: system, fontWeight: "400", fontSize: 15, lineHeight: 20 },
+  caption: { fontFamily: system, fontWeight: "400", fontSize: 13, lineHeight: 18 },
+  caption2: { fontFamily: system, fontWeight: "600", fontSize: 11, lineHeight: 13 },
+  callout: { fontFamily: system, fontWeight: "400", fontSize: 16, lineHeight: 21 },
+  cardTitle: { fontFamily: system, fontWeight: "600", fontSize: 15, lineHeight: 20 },
+  numeric: { fontFamily: system, fontWeight: "700", fontSize: 34, lineHeight: 41, fontVariant: tabular },
+  numericSmall: { fontFamily: system, fontWeight: "600", fontSize: 20, lineHeight: 25, fontVariant: tabular },
 } satisfies Record<string, TextStyle>;
 export type TypeKind = keyof typeof typography;
-
 export const elevation = {
-  none: {},
-  card: { shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.07, shadowRadius: 16, elevation: 2 },
-  raised: { shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.12, shadowRadius: 22, elevation: 6 },
+  none: {}, card: {}, raised: {},
   overlay: { shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.2, shadowRadius: 34, elevation: 14 },
 } satisfies Record<string, ViewStyle>;
 
