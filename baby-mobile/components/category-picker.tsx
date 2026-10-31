@@ -32,7 +32,7 @@ export function CategoryPicker({ sourceIds, onClose, onSaved }: {
     finally { working.current = false; setBusy(false); }
   }
   return <Modal visible animationType="slide" onRequestClose={() => !busy && onClose()}>
-    <Screen title="Choose category" subtitle={`${sourceIds.length} selected`}
+    <Screen nativeHeader={false} title="Choose category" subtitle={`${sourceIds.length} selected`}
       action={<Button variant="ghost" title="Cancel" disabled={busy} onPress={onClose} />}>
       {!!error && <Notice error>{error}</Notice>}
       {creating ? <>

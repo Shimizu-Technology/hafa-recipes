@@ -234,6 +234,7 @@ export function Screen({
   subtitle,
   numericSubtitle = false,
   titleKind = "title",
+  nativeHeader: nativeHeaderOverride,
   back = false,
   close = false,
   action,
@@ -246,6 +247,8 @@ export function Screen({
   children: React.ReactNode;
   title: string;
   titleKind?: "title" | "heading";
+  /** Independent RN modals must keep their own title and top safe area. */
+  nativeHeader?: boolean;
   /** Show the Håfa Baby mark above the title (welcome and first-run screens). */
   brand?: boolean;
   /** Docked below the scrolling content and above the keyboard, for example a message composer. */
@@ -262,7 +265,8 @@ export function Screen({
   action?: React.ReactNode;
   scroll?: boolean;
 }) {
-  const nativeHeader = useContext(NativeHeaderContext), insets = useSafeAreaInsets();
+  const inheritedNativeHeader = useContext(NativeHeaderContext),
+    nativeHeader = nativeHeaderOverride ?? inheritedNativeHeader, insets = useSafeAreaInsets();
   const c = useColors(),
     scroller = useRef<ScrollView>(null),
     [refreshing, setRefreshing] = useState(false);

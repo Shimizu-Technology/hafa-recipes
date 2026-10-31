@@ -32,7 +32,7 @@ vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
 
 import { TabStack } from "../components/tab-stack";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -201,4 +201,12 @@ it.each(["light", "dark"])("keeps enabled text at 4.5:1 across all %s surfaces",
     for (const ground of [palette.background, palette.hero, palette.soft, palette.surface, palette.errorBg])
       expect(contrast(ink, ground), `${ink} on ${ground}`).toBeGreaterThanOrEqual(4.5);
   expect(contrast(palette.onAction, palette.action)).toBeGreaterThanOrEqual(4.5);
+});
+
+it("keeps an independent modal title and safe area inside a native tab", async () => {
+  await mount(<NativeHeaderContext.Provider value={true}>
+    <Screen nativeHeader={false} title="Choose category"><Copy>Selected sources stay selected</Copy></Screen>
+  </NativeHeaderContext.Provider>);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).map(t => t.props.children)).toContain("Choose category");
+  expect(renderer!.root.findByType("SafeAreaView" as React.ElementType).props.edges).toContain("top");
 });
