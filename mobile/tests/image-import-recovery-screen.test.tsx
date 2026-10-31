@@ -1,5 +1,5 @@
 vi.mock('@/lib/privateRecipeDrafts', () => ({ preserveDraftImage: vi.fn(async (_owner: string, uri: string) => uri), privateRecipeDrafts: { read: vi.fn(async () => null), assert: vi.fn(), lease: (owner: string) => ({ owner }), write: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } }));
-vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: () => ({ available: null, ready: true, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
+vi.mock('@/hooks/usePrivateRecipeDraft', () => ({ usePrivateRecipeDraft: (_owner: string, kind: string) => ({ available: kind === 'scan' ? mocks.scanAvailable : null, ready: mocks.draftsReady, error: null, flush: vi.fn(), finish: vi.fn(async () => undefined), resume: vi.fn(), discard: vi.fn() }) }));
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  draftsReady: true, scanAvailable: null as any, platform: 'ios',
   focused: true,
   preferences: { ready: true, isPublic: true, location: 'Guam', update: vi.fn(async () => undefined) },
   pendingCapture: null as any,
@@ -107,7 +108,7 @@ vi.mock('react-native', async () => {
     Keyboard: { dismiss: vi.fn(), isVisible: () => false, addListener: () => ({ remove: vi.fn(), removeWaiting: mocks.removeWaiting }) },
     Modal: (props: Record<string, unknown>) => props.visible ? ReactModule.createElement('Modal', props, props.children as React.ReactNode) : null,
     Linking: { openURL: vi.fn() },
-    Platform: { OS: 'ios' },
+    Platform: { get OS() { return mocks.platform; } },
     ScrollView: host('ScrollView'),
     StyleSheet: { create: <T,>(styles: T) => styles },
     TouchableOpacity: host('TouchableOpacity'),
@@ -222,6 +223,7 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
+    mocks.draftsReady = true; mocks.scanAvailable = null; mocks.platform = 'ios';
     mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.inboxEntries = [];
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
     legacyShareReceipts.clearRoute();
@@ -658,6 +660,7 @@ describe('classified image recovery', () => {
     await act(async () => renderer.update(<ExtractScreen />));
     const pageNumber = renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType).find(node => node.props.children === 1)!;
     expect(Object.assign({}, ...[pageNumber.props.style].flat(Infinity)).color).toBe('#00261F');
+    mocks.draftsReady = true; mocks.scanAvailable = null; mocks.platform = 'ios';
     mocks.preferences.ready = true;
     await act(async () => renderer.update(<ExtractScreen />));
     await act(async () => renderer.root.findAllByType('Button' as unknown as React.ComponentType)
@@ -684,6 +687,7 @@ describe('classified image recovery', () => {
     const headerActions = renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType);
     await act(async () => headerActions[0].props.onPress());
     await act(async () => mocks.alert.mock.calls.at(-1)![2].find((action: { text: string }) => action.text === 'Discard').onPress());
+    mocks.draftsReady = true; mocks.scanAvailable = null; mocks.platform = 'ios';
     mocks.preferences.ready = true; mocks.preferences.isPublic = false;
     await act(async () => renderer.update(<ExtractScreen />));
     expect(renderer.root.findAllByType('TouchableOpacity' as unknown as React.ComponentType)
@@ -773,6 +777,32 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
       expect(preserveDraftImage).not.toHaveBeenCalled();
       expect(mocks.alert.mock.calls.some(([title]) => title === 'Permission Required')).toBe(false);
     } finally { await act(async () => renderer.unmount()); mocks.params.entry = undefined; }
+  });
+
+  it('waits for draft loading and refuses to replace an unresolved scan', async () => {
+    mocks.params.entry = 'photos'; mocks.draftsReady = false;
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      expect(mocks.launchLibrary).not.toHaveBeenCalled();
+      mocks.draftsReady = true; mocks.scanAvailable = { selectedImages: ['private-old-page'] };
+      await act(async () => renderer.update(<ExtractScreen />));
+      expect(mocks.launchLibrary).not.toHaveBeenCalled();
+      expect(mocks.alert).toHaveBeenCalledWith('Finish or discard your previous scan', expect.any(String));
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('waits for a direct web action before opening the photo picker', async () => {
+    mocks.platform = 'web'; mocks.params.entry = 'photos';
+    mocks.launchLibrary.mockResolvedValueOnce({ canceled: true, assets: null } as any);
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      expect(mocks.launchLibrary).not.toHaveBeenCalled();
+      const choose = renderer.root.findAll(node => node.props.title === 'Choose photos' && node.props.onPress)[0];
+      await act(async () => choose.props.onPress());
+      expect(mocks.launchLibrary).toHaveBeenCalledOnce();
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('ignores unsupported entry parameters instead of opening photos', async () => {
