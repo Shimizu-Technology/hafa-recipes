@@ -49,7 +49,9 @@ export function Button({
   haptic,
   accessibilityHint,
   disabledReason,
+  textLink = false,
 }: {
+  textLink?: boolean;
   title: string;
   onPress(): void;
   variant?: ButtonVariant;
@@ -93,8 +95,8 @@ export function Button({
       }}
       style={{
         minHeight: heights[size],
-        paddingVertical: size === "sm" ? 8 : 12,
-        paddingHorizontal: size === "sm" ? 16 : 22,
+        paddingVertical: textLink ? 0 : size === "sm" ? 8 : 12,
+        paddingHorizontal: textLink ? 0 : size === "sm" ? 16 : 22,
         borderRadius: radii.full,
         backgroundColor: bg,
         borderWidth: border ? 1 : 0,
@@ -114,7 +116,7 @@ export function Button({
         <Ionicons name={icon} color={fg} size={size === "sm" ? 18 : 21} />
       ) : null}
       <Copy
-        kind="label"
+        kind={textLink ? "small" : "label"}
         color={fg}
         style={{ textAlign: "center", flexShrink: 1 }}
       >
