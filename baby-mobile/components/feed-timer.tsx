@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, AppState, Text, View } from "react-native";
+import { Alert, AppState, Text, View, useWindowDimensions } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { messageFor, type FeedTimer } from "@/lib/models";
@@ -55,6 +55,7 @@ export function FeedTimerCard({
 }) {
   const b = useBaby(),
     c = useColors(),
+    { fontScale } = useWindowDimensions(),
     toast = useToast(),
     paused = isPaused(timer),
     now = useSecondClock(!paused),
@@ -86,7 +87,7 @@ export function FeedTimerCard({
   return (
     <Card tone="hero">
       <View accessible accessibilityLabel={`Feeding ${childName}. ${spokenTimer(timer, now)}`} style={{ gap: 2 }}>
-        <Copy kind="small" tone="muted">
+        <Copy numeric kind="small" tone="muted">
           {`Feeding ${childName} · started ${friendlyTime(timer.started_at, now)}${paused ? " · paused" : ""}`}
         </Copy>
         <Text
@@ -100,8 +101,8 @@ export function FeedTimerCard({
         <Copy kind="small" tone="muted">{sideTitle[side]}</Copy>
       </View>
       <Button icon="stop" title="Stop" busy={busy} onPress={() => void run(() => onDone(timer))} />
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-        <View style={{ flexGrow: 1, flexBasis: 140 }}>
+      <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", flexWrap: "wrap", gap: 12 }}>
+        <View style={{ flexGrow: fontScale >= 1.3 ? 0 : 1, flexBasis: fontScale >= 1.3 ? undefined : 140 }}>
           <Button
             secondary
             icon="swap-horizontal"
@@ -110,7 +111,7 @@ export function FeedTimerCard({
             onPress={() => void change((current) => switchSide(current, new Date()))}
           />
         </View>
-        <View style={{ flexGrow: 1, flexBasis: 140 }}>
+        <View style={{ flexGrow: fontScale >= 1.3 ? 0 : 1, flexBasis: fontScale >= 1.3 ? undefined : 140 }}>
           <Button
             secondary
             icon={paused ? "play" : "pause"}
