@@ -106,7 +106,7 @@ vi.mock('@/components/Themed', async () => {
       text: '#111',
       textMuted: '#666',
       textSecondary: '#555',
-      tint: '#155c52',
+      tint: '#5DD3B6', onTint: '#00261F',
     }),
   };
 });
@@ -204,6 +204,14 @@ describe('AddRecipeScreen visibility', () => {
     mocks.replace.mockClear();
     mocks.requestPublishing.mockReset();
     mocks.requestPublishing.mockResolvedValue(true);
+  });
+
+  it('uses the tint foreground for numbered manual steps', async () => {
+    const renderer = await renderRecipe();
+    try {
+      const number = renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType).find(node => node.props.children === 1 && Object.assign({}, ...[node.props.style].flat(Infinity)).fontWeight === '600')!;
+      expect(Object.assign({}, ...[number.props.style].flat(Infinity)).color).toBe('#00261F');
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('publishes only after the public choice is accepted', async () => {
