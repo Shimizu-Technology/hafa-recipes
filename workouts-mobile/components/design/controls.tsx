@@ -28,7 +28,9 @@ function buttonColors(c: ColorTokens, variant: ButtonVariant, surface: Surface):
       return { bg: c.accent, fg: c.onAccent };
   }
 }
-const heights: Record<ButtonSize, number> = { sm: 36, md: 50, lg: 50 };
+// Compact buttons stay visually light but keep the 44pt touch minimum;
+// hitSlop cannot reach outside a parent Row, so the size itself must comply.
+const heights: Record<ButtonSize, number> = { sm: touch.min, md: 50, lg: 50 };
 
 /**
  * One clear action. `primary` is the screen's main action (use once per view);
@@ -83,7 +85,6 @@ export function Button({
       aria-disabled={inactive}
       aria-busy={busy}
       disabled={inactive}
-      hitSlop={size === "sm" ? 4 : 0}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       onPress={() => {
