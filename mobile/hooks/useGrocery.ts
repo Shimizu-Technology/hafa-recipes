@@ -96,7 +96,7 @@ function useSnapshotQuery(isSignedIn: boolean) {
     refetchOnReconnect: true,
     refetchOnMount: 'always',
   });
-  return { ...query, serverConfirmedAt: query.data?.serverConfirmedAt, freshness: isApiReachable === false ? 'offline' : isApiReachable === null || query.isFetching ? 'checking' : query.data?.freshness ?? 'checking' };
+  return { ...query, serverConfirmedAt: query.data?.serverConfirmedAt, freshness: isApiReachable === false ? 'offline' : query.isFetching ? 'checking' : query.data?.freshness ?? 'checking' };
 }
 
 export function useGroceryList(includeChecked = true, isSignedIn = true) {
