@@ -174,16 +174,30 @@ it("shows completed sleep start, end and duration with rounded numeric text", as
   expect(text.some(t => JSON.stringify(t.props.children).includes("Started"))).toBe(true);
   expect(text.some(t => JSON.stringify(t.props.children).includes("Ended"))).toBe(true);
 });
-it.each([false, true])("keeps Ask following messages or pending response (busy=%s), with readable large input and history", async busy => {
+it.each([false, true])("keeps Ask following messages or pending response (busy=%s), with readable large input", async busy => {
   mock.fontScale = 1.5;
-  mock.ask = { busy, messages: busy ? [] : [{ role: "user", content: "Find my packing list" }], showHistory: true,
+  mock.ask = { busy, messages: busy ? [] : [{ role: "user", content: "Find my packing list" }], showHistory: false,
     history: [{ id: "conversation", title: "Packing notes", updated_at: "2026-10-30T01:30:00Z" }] };
   await mount(<AskEntry />);
   expect(renderer!.root.findByType(Screen).props.followEnd).toBe(true);
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.placeholder).toBe("Question");
-  const history = renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Oct 30, 2026" || t.props.children === new Date("2026-10-30T01:30:00Z").toLocaleDateString());
-  expect(history?.props.style.fontVariant).toEqual(["tabular-nums"]);
   if (!busy) expect(renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Find my packing list")!.props.style.lineHeight).toBe(22);
+});
+it("opens history separately from a long conversation and returns without losing its draft", async () => {
+  const openHistory = vi.fn();
+  mock.ask = { question: "Keep this draft", messages: [{ role: "user", content: "Earlier question" }], showHistory: true, openHistory,
+    history: [{ id: "conversation", title: "Packing notes", updated_at: "2026-10-30T01:30:00Z" }] };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findByType(Screen).props.followEnd).toBe(false);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType);
+  expect(text().some(t => t.props.children === "Earlier question")).toBe(false);
+  expect(text().find(t => t.props.children === new Date("2026-10-30T01:30:00Z").toLocaleDateString())?.props.style.fontVariant).toEqual(["tabular-nums"]);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("Keep this draft");
+  await press("Done"); expect(openHistory).toHaveBeenCalledOnce();
+  mock.ask.showHistory = false;
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(text().some(t => t.props.children === "Earlier question")).toBe(true);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("Keep this draft");
 });
 it("reserves the measured Ask composer, adjusts for keyboard, and removes both subscriptions", async () => {
   await mount(<AskEntry />);

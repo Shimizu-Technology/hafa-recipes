@@ -27,12 +27,13 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
     c = useColors();
   return (
     <Screen
+      key={showHistory ? "history" : "conversation"}
       onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
-      action={back ? <HeaderAction title="History" disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
-      followEnd={messages.length > 0 || busy}
+      action={back ? <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
+      followEnd={!showHistory && (messages.length > 0 || busy)}
       footer={
         <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-end", gap: 10 }}>
           <TextInput
@@ -65,7 +66,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </View>
       }
     >
-      {!back && <Stack.Screen options={{ headerRight: () => <TabActions title="Ask" action={<HeaderAction title="History" disabled={chat.resolving} onPress={() => void openHistory()} />} /> }} />}
+      {!back && <Stack.Screen options={{ headerRight: () => <TabActions title="Ask" action={<HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} /> }} />}
       {!available && (
         <Card tone="soft">
           <Copy kind="heading">AI is optional.</Copy>
@@ -124,7 +125,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
           )}
         </Section>
       )}
-      {!messages.length && available && (
+      {!showHistory && !messages.length && available && (
         <Empty
           icon="sparkles-outline"
           title="Start with something on your mind."
@@ -135,7 +136,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
           }
         />
       )}
-      {messages.map((m, index) =>
+      {!showHistory && messages.map((m, index) =>
         m.role === "user" ? (
           <View
             key={m.id ?? index}
@@ -180,7 +181,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       )}
       {!!error && <Notice error>{error}</Notice>}
       {busy && <Loading label="Looking through your saved entries…" />}
-      {messages.length > 0 && (
+      {!showHistory && messages.length > 0 && (
         <>
           <Copy kind="small" tone="muted">
             Saved advice, your own observations and clinician instructions are different sources. Check the original and
