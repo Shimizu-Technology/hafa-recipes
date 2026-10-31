@@ -636,10 +636,10 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
             {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title} style={{ marginBottom: 8 }}>
-              <Text style={{ fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
+              <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
               <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} onUserPress={handleUserPress} currentUserId={identity.data?.id} />)}</RNView>
             </RNView>)}
-            {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
+            {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}
           ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
           ListFooterComponent={ListFooter}
