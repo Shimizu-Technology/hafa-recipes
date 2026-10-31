@@ -635,9 +635,9 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); setSearchQuery(''); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
-            {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title}>
+            {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title} style={{ marginBottom: 8 }}>
               <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
-              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} onUserPress={handleUserPress} currentUserId={identity.data?.id} />)}</RNView>
+              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} onUserPress={handleUserPress} currentUserId={identity.data?.id} />)}</RNView>
             </RNView>)}
             {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}
@@ -685,6 +685,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
     paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
   },

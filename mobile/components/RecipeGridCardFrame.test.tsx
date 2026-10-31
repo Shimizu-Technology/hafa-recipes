@@ -8,7 +8,7 @@ import { Text } from '@/components/Themed';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const metrics = vi.hoisted(() => ({ width: 390, fontScale: 1 }));
-beforeEach(() => { metrics.fontScale = 1; });
+beforeEach(() => { metrics.fontScale = 1; metrics.width = 390; });
 vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
   useWindowDimensions: () => metrics,
@@ -109,5 +109,14 @@ it('gives large accessibility text the full content width and expands the title 
     expect(title.props.style[1].minHeight).toBe(84);
     expect(card.props.style[0].borderWidth).toBeUndefined();
     expect(card.props.style[1].backgroundColor).toBeUndefined();
+  } finally { await act(async () => renderer.unmount()); }
+});
+
+it('keeps wide web and tablet cards within the readable two-column content area', async () => {
+  metrics.width = 2560;
+  const renderer = await renderCard('No-Knead Sunday Bread');
+  try {
+    const card = renderer.container.queryAll(n => n.type === 'ScalePressable')[0];
+    expect(card.props.style[1].width).toBe(338);
   } finally { await act(async () => renderer.unmount()); }
 });

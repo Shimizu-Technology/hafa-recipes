@@ -40,7 +40,8 @@ export function RecipeGridCardFrame({
   const { width, fontScale } = useWindowDimensions();
   const titleSlotHeight = Math.ceil(42 * fontScale);
   const footerHeight = Math.ceil(18 * fontScale);
-  const cardWidth = fullWidth || fontScale >= 1.3 ? width - 32 : (width - 32 - RECIPE_GRID_GAP) / 2;
+  const contentWidth = Math.min(width, 720);
+  const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth - 32 : (contentWidth - 32 - RECIPE_GRID_GAP) / 2;
 
   return (
     <ScalePressable

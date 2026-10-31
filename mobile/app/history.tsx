@@ -589,6 +589,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
     paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
   },

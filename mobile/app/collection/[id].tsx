@@ -246,6 +246,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   listContent: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
     paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
   },
