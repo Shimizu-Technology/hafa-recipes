@@ -1,3 +1,5 @@
+import { api } from '@/lib/api';
+import { CaptureAccountChangedError } from '@/lib/captureAccount';
 import { useEffect, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
@@ -27,8 +29,13 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
         const current = () => { const authority = offlineRecipes.lease(userId); return authority?.owner === lease.owner && authority.generation === lease.generation && authority.epoch === lease.epoch; };
         if (!current()) return;
         setBusy(true);
-        void offlineRecipes.pin(lease, recipeId, !row?.pinned).then(() => offlineRecipes.read(lease, recipeId))
-          .then(value => { if (current()) setRow(value); }).catch((error: Error) => { if (current()) Alert.alert('Could not update offline recipe', error.message); })
+        void (async () => {
+          if (!row) await api.getRecipe(recipeId, undefined, () => { if (!current()) throw new CaptureAccountChangedError(); });
+          if (!current()) return;
+          await offlineRecipes.pin(lease, recipeId, !row?.pinned);
+          const value = await offlineRecipes.read(lease, recipeId);
+          if (current()) setRow(value);
+        })().catch((error: Error) => { if (current()) Alert.alert('Could not update offline recipe', error.message); })
           .finally(() => { if (current()) setBusy(false); });
       }} />
   </View>;

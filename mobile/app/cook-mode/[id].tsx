@@ -1049,6 +1049,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer hours"
                     value={customHours}
                     onChangeText={setCustomHours}
                     keyboardType="number-pad"
@@ -1062,6 +1063,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer minutes"
                     value={customMinutes}
                     onChangeText={setCustomMinutes}
                     keyboardType="number-pad"
@@ -1075,6 +1077,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer seconds"
                     value={customSeconds}
                     onChangeText={setCustomSeconds}
                     keyboardType="number-pad"
@@ -1144,6 +1147,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer hours"
                     value={customHours}
                     onChangeText={setCustomHours}
                     keyboardType="number-pad"
@@ -1157,6 +1161,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer minutes"
                     value={customMinutes}
                     onChangeText={setCustomMinutes}
                     keyboardType="number-pad"
@@ -1170,6 +1175,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer seconds"
                     value={customSeconds}
                     onChangeText={setCustomSeconds}
                     keyboardType="number-pad"

@@ -21,6 +21,7 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -145,6 +146,7 @@ function RecipeDetailScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
   const { scaleFontSize } = useTextSize();
   const [activeTab, selectTab] = useState<TabType>('ingredients');
   const scrollRef = useRef<ScrollView>(null);
@@ -740,6 +742,7 @@ function RecipeDetailScreenContent() {
         options={{ 
           headerTitle: '',
           headerTransparent: true,
+          headerStyle: { backgroundColor: 'transparent' },
           headerShadowVisible: false,
           headerRight: () => (
             <RNView style={styles.headerButtons}>
@@ -824,9 +827,9 @@ function RecipeDetailScreenContent() {
             <Text style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 20, marginBottom: 20 }}>
               {[sourceLabel, recipe.extractor_display_name].filter(Boolean).join(' · ')}
             </Text>
-            <RNView style={styles.metaRow}>
+            <RNView style={[styles.metaRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'stretch' }]}>
               {[['Serves', hasKnownServings ? String(currentServings) : '—'], ['Prep', extracted.times?.prep || '—'], ['Total', extracted.times?.total || '—']].map(([label, value]) => (
-                <RNView key={label} style={{ flex: 1, minWidth: 80, gap: 4 }}>
+                <RNView key={label} style={{ flex: fontScale >= 1.3 ? 0 : 1, minWidth: 80, gap: 4 }}>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 16 }}>{label}</Text>
                   <Text style={{ fontSize: 17, lineHeight: 22, fontWeight: '600' }}>{value}</Text>
                 </RNView>
@@ -1124,7 +1127,7 @@ function RecipeDetailScreenContent() {
           
           <RNView style={styles.supportingContent}>
             <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
-            {isOwner && recipe.source_type === 'photo' && <Button title="Original pages" variant="outline"
+            {isOwner && recipe.source_type === 'photo' && <Button title="Original pages" variant="secondary"
               onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })} />}
             <TouchableOpacity onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityRole="button"
               accessibilityLabel="Ask Håfa about this recipe" style={[styles.sourceButton, { minHeight: 44, borderColor: colors.border }]}>
@@ -2060,7 +2063,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   addToGroceryButton: {
-    minHeight: 48, borderWidth: 1,
+    minHeight: 48, borderWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

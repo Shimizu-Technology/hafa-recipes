@@ -11,6 +11,7 @@ import { expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ unavailable: false, revision: 1, servings: null as number | null, scaled: 1, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   StyleSheet: { create: (value: any) => value }, Platform: { OS: 'ios' },
   ScrollView: host('ScrollView'), TouchableOpacity: host('TouchableOpacity'),
   View: host('View'), ActivityIndicator: host('ActivityIndicator'), Modal: host('Modal'),
@@ -22,6 +23,7 @@ vi.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'recipe-id' }
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'owner', isLoaded: true }), useUser: () => ({ user: {} }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
+vi.mock('@/components/OfflineRecipeControl', () => ({ OfflineRecipeControl: () => null }));
 vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => ({ text: '#111', textMuted: '#555', background: '#fff' }) }));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));

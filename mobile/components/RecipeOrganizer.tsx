@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   compactOrganizer: { padding: 0, borderWidth: 0, marginBottom: spacing.md },
   compactAction: { flex: 0, flexDirection: 'row', gap: 8, minHeight: 52, paddingHorizontal: 12, borderWidth: 0, borderRadius: 10 },
   organizer: {
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.lg,
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
   },
   actionLabel: {
@@ -395,7 +395,7 @@ const styles = StyleSheet.create({
   sheetContent: { padding: spacing.lg },
   noteCard: {
     padding: spacing.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.lg,
   },
   noteHeader: {
@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
   supportingText: { fontSize: fontSize.sm },
   noteInput: {
     minHeight: 150,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     padding: spacing.md,
     fontSize: fontSize.md,
@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
   secondaryButton: {
     minHeight: 44,
     paddingHorizontal: spacing.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
