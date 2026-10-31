@@ -311,7 +311,7 @@ export default function ImportReview() {
       cache.removeQueries({ queryKey: [owner, "import-source", id] });
       await cache.invalidateQueries({ queryKey: [owner, "imports"] });
       await q.refetch();
-      if (dismiss) { current(); router.replace("/(tabs)/extract"); }
+      if (dismiss) { current(); router.replace("/extract"); }
     } catch (e) {
       if (isCurrent()) setError((e as Error).message);
     } finally {

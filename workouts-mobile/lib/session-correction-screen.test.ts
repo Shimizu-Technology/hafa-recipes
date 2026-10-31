@@ -56,7 +56,7 @@ it("keeps decimal miles, effort and load as typed, then saves their numeric valu
   expect(correction.request.actuals[0]).toMatchObject({ distance_meters: 1.5 * 1609.344, effort: 7.5, load: 12.5 });
   expect(correction.request).toMatchObject({ supersedes_session_id: "saved", active_seconds: 1800 });
   expect(saved.content.actuals[0]).toMatchObject({ distance_meters: 1609.344, effort: 6, load: 10 });
-  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+  expect(fixture.replace).toHaveBeenCalledWith("/progress");
 });
 
 it("keeps an invalid effort draft editable and clears optional values only when saving", async () => {

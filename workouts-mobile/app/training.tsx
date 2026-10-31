@@ -285,7 +285,7 @@ export default function Training() {
     const saved = store!.snapshot().history.find((h) => h.request.client_session_id === d!.id);
     void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
     if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial" });
-    else router.replace("/(tabs)/progress");
+    else router.replace("/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;
   const timed = d.timed_circuit;

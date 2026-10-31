@@ -46,16 +46,13 @@ export {
   type NoticeTone,
 } from "./design/surfaces";
 export {
-  AddTabIcon,
   ProgressRing,
   RestTimer,
   SetRow,
   StatTile,
   StepBar,
-  TabIcon,
   WeekStrip,
   formatClock,
-  tabIcons,
   usePrevious,
   type DayMark,
   type SetState,

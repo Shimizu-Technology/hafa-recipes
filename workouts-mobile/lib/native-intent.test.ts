@@ -59,11 +59,21 @@ it("rejects unrelated origins/schemes, credentials, control characters and ambig
 
 it("accepts the dedicated Extract destination and preserves capture share links", () => {
   expect(incomingNativePath("hafaworkouts://extract")).toBe("/extract");
-  expect(incomingNativePath("/(tabs)/extract")).toBe("/(tabs)/extract");
+  expect(incomingNativePath("/extract")).toBe("/extract");
   expect(incomingNativePath("hafaworkouts://capture?shared=1&request_id=source-request")).toBe("/capture?shared=1&request_id=source-request");
 });
 
-it("keeps legacy and current training links routable with notification parameters", () => {
-  for (const path of ["/(tabs)/index", "/(tabs)/plan", "/(tabs)/progress", "/(tabs)/train", "/history-progress"])
-    expect(incomingNativePath(`${path}?session_id=saved`)).toBe(`${path}?session_id=saved`);
+it("keeps legacy training aliases and notification parameters routable outside native tabs", () => {
+  for (const [from, to] of Object.entries({ "/index": "/legacy-today", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress", "/(tabs)/extract": "/extract" }))
+    expect(incomingNativePath(`${from}?session_id=saved`)).toBe(`${to}?session_id=saved`);
+  for (const path of ["/train", "/discover", "/library", "/search", "/extract", "/plan", "/progress", "/(tabs)/train", "/history-progress"])
+    expect(incomingNativePath(`hafaworkouts://${path.slice(1)}?session_id=saved`)).toBe(`${path}?session_id=saved`);
+});
+it("preserves discover details, shared tokens, Add and native share payloads", () => {
+  expect(incomingNativePath("hafaworkouts://discover/workout-id")).toBe("/discover/workout-id");
+  expect(incomingNativePath(`hafaworkouts://shared/${token}`)).toBe(`/shared/${token}`);
+  expect(incomingNativePath("hafaworkouts://add")).toBe("/add");
+  expect(incomingNativePath("hafaworkouts://add-workout")).toBe("/add-workout");
+  for (const type of ["media", "file", "weburl", "text"])
+    expect(incomingNativePath(`hafaworkouts://dataUrl=hafaworkoutsShareKey#${type}`)).toBe("/capture");
 });

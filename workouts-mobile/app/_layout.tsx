@@ -81,6 +81,11 @@ function Routes() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent }} />
+        <Stack.Screen name="extract" />
+        <Stack.Screen name="plan" />
+        <Stack.Screen name="progress" />
+        <Stack.Screen name="legacy-today" />
         <Stack.Screen name="add-workout" />
         <Stack.Screen name="workout/[id]" />
         <Stack.Screen name="discover/[id]" />

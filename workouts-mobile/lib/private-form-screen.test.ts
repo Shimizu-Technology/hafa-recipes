@@ -237,7 +237,7 @@ vi.mock("expo-share-intent", () => ({
 import { ShareCapture } from "../components/share-capture";
 import ImportReview from "../app/import/[id]";
 import RecoverWorkout from "../app/recover-workout/[id]";
-import Capture from "../app/(tabs)/extract";
+import Capture from "../app/extract";
 import AddWorkout from "../app/add-workout";
 import WorkoutCover from "../app/workout-cover/[id]";
 import Profile from "../app/profile";
@@ -3168,7 +3168,7 @@ it("forwards legacy capture links and native share parameters into Extract", asy
   const { default: CaptureLink } = await import("../app/capture");
   fixture.params = { shared: "1", request_id: "source-request" };
   await mount(CaptureLink);
-  expect(nodes("Redirect")[0].props.href).toEqual({ pathname: "/(tabs)/extract", params: fixture.params });
+  expect(nodes("Redirect")[0].props.href).toEqual({ pathname: "/extract", params: fixture.params });
   expect(fixture.startImport).not.toHaveBeenCalled();
 });
 
