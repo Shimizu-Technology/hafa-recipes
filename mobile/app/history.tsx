@@ -143,6 +143,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     fetchNextPage: fetchNextRecipes,
     hasNextPage: hasMoreRecipes,
     isFetchingNextPage: isFetchingNextRecipes,
+    isFetching: isFetchingRecipes,
   } = useRecipes(sourceTypeParam, isAuthenticated);
 
   // Search/filter results (when filters are active)
@@ -177,6 +178,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     fetchNextPage: fetchNextSaved,
     hasNextPage: hasMoreSaved,
     isFetchingNextPage: isFetchingNextSaved,
+    isFetching: isFetchingSaved,
   } = useSavedRecipes(isAuthenticated);
 
   const isLoading = (showOwnRecipes && isLoadingRecipes) || (showSavedRecipes && isLoadingSaved);
@@ -278,7 +280,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     }
   }, [ownershipFilter, hasMoreSaved, hasMoreRecipes, hasMoreSearchResults, hasActiveFilters, isServerSearchCurrent]);
   const hasMore = hasMoreLocal || hasMoreServer;
-  const needsCheckCount = hasMoreServer || isLoading || hasPrimaryLoadError || (hasActiveFilters && !isServerSearchCurrent)
+  const needsCheckCount = hasMoreServer || isLoading || hasPrimaryLoadError || (hasActiveFilters && (!isServerSearchCurrent || !isSearchSuccess || isSearchFetching))
     ? undefined : needsCheckRecipes?.length ?? 0;
   const seekingNeedsCheck = needsCheckOnly && !displayRecipes?.length && hasMoreServer && !hasPrimaryLoadError;
 
@@ -288,12 +290,12 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     if (hasActiveFilters) {
       if (isServerSearchCurrent && !isSearchFetching) void fetchNextSearchResults();
     } else {
-      if (showOwnRecipes && hasMoreRecipes && !isLoadingRecipes && !isFetchingNextRecipes) void fetchNextRecipes();
-      if (showSavedRecipes && hasMoreSaved && !isLoadingSaved && !isFetchingNextSaved) void fetchNextSaved();
+      if (showOwnRecipes && hasMoreRecipes && !isLoadingRecipes && !isFetchingRecipes && !isFetchingNextRecipes) void fetchNextRecipes();
+      if (showSavedRecipes && hasMoreSaved && !isLoadingSaved && !isFetchingSaved && !isFetchingNextSaved) void fetchNextSaved();
     }
   }, [isAuthenticated, seekingNeedsCheck, hasActiveFilters, isServerSearchCurrent, isSearchFetching,
-    fetchNextSearchResults, showOwnRecipes, hasMoreRecipes, isLoadingRecipes, isFetchingNextRecipes,
-    fetchNextRecipes, showSavedRecipes, hasMoreSaved, isLoadingSaved, isFetchingNextSaved, fetchNextSaved,
+    fetchNextSearchResults, showOwnRecipes, hasMoreRecipes, isLoadingRecipes, isFetchingRecipes, isFetchingNextRecipes,
+    fetchNextRecipes, showSavedRecipes, hasMoreSaved, isLoadingSaved, isFetchingSaved, isFetchingNextSaved, fetchNextSaved,
     combinedRecipes]);
 
 
