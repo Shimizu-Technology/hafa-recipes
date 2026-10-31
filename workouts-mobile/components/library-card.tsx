@@ -90,7 +90,7 @@ export function LibraryCard({
         borderRadius: radii.lg - 4,
         overflow: "hidden",
         backgroundColor: c.surface,
-        borderWidth: selected ? 2 : 1,
+        borderWidth: selected ? 2 : 0,
         borderColor: selected ? c.action : c.border,
         opacity: press.opacity,
         transform: [{ scale: press.scale }],
@@ -101,8 +101,8 @@ export function LibraryCard({
         {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
       </View>
       <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 4, padding: grid ? spacing.sm : 0 }}>
-        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid ? { minHeight: Math.ceil(44 * fontScale) } : undefined}>{title}</Copy>
-        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{meta}</Copy>
+        <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid ? { minHeight: Math.ceil(40 * fontScale) } : undefined}>{title}</Copy>
+        <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{meta}</Copy>
         {!!creator && <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>By {creator}</Copy>}
         {!!origin && <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{origin}</Copy>}
         {note}

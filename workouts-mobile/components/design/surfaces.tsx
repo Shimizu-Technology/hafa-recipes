@@ -196,7 +196,7 @@ export function Card({
   const base: ViewStyle = {
     padding: compact ? spacing.md : spacing.lg - 4,
     gap: compact ? spacing.sm : spacing.md - 2,
-    borderRadius: radii.xl - 4,
+    borderRadius: tone === "hero" ? radii.lg : radii.md,
     backgroundColor: bg,
     borderWidth: 0,
     borderColor: c.border,
@@ -262,7 +262,7 @@ export function MediaCard({
       style={{
         width: stacked ? "100%" : 92,
         height: stacked ? 168 : 92,
-        borderRadius: radii.lg - 4,
+        borderRadius: radii.md,
         overflow: "hidden",
         backgroundColor: showImage ? c.sunken : c.actionSoft,
         alignItems: "center",
@@ -297,7 +297,7 @@ export function MediaCard({
       <View style={{ flexDirection: stacked ? "column" : "row", gap: spacing.md - 2, alignItems: stacked ? "stretch" : "center" }}>
         {thumb}
         <View style={{ flex: stacked ? undefined : 1, gap: 6, minWidth: 0 }}>
-          <Copy kind="subheading" numberOfLines={2}>
+          <Copy kind="cardTitle" numberOfLines={2}>
             {title}
           </Copy>
           {!!meta && (

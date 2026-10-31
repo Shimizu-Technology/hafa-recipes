@@ -111,7 +111,7 @@
   }
   private func showConfirmation(title: String, detail: String, finished: Bool) {
     if captureTitle == nil {
-      view.backgroundColor = Self.captureColor(0xFFF7EC, 0x101411)
+      view.backgroundColor = .systemBackground
       view.isOpaque = true; preferredContentSize = CGSize(width: 420, height: 400)
       let scroll = UIScrollView(); scroll.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(scroll)
       NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
@@ -120,33 +120,34 @@
         scroll.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)])
       let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 20
       stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
-      let brand = UILabel(); brand.text = "Håfa Workouts"; brand.textColor = Self.captureColor(0x17120E, 0xF8F0E7); brand.numberOfLines = 0
+      let brand = UILabel(); brand.text = "Håfa Workouts"; brand.textColor = .label; brand.numberOfLines = 0
       let heading = UILabel(); heading.textColor = brand.textColor; heading.numberOfLines = 0; heading.accessibilityTraits.insert(.header)
-      let message = UILabel(); message.textColor = Self.captureColor(0x6D5D50, 0xB8AEA2); message.numberOfLines = 0
+      let message = UILabel(); message.textColor = Self.captureColor(0x6F6F74, 0xA9A9AF); message.numberOfLines = 0
       let privacy = UILabel(); privacy.textColor = message.textColor; privacy.numberOfLines = 0
       privacy.text = "Only complete workouts can appear in Discover. You can change sharing later in Håfa Workouts."
       let choices = UIStackView(); choices.axis = .vertical; choices.spacing = 8
       for (index, title) in ["Private", "Share to Discover"].enumerated() {
         let button = UIButton(type: .system); button.tag = index
-        var style = UIButton.Configuration.tinted(); style.title = title; style.titleLineBreakMode = .byWordWrapping
-        style.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
-        button.configuration = style; button.contentHorizontalAlignment = .leading
+        var style = UIButton.Configuration.tinted(); style.title = title; style.titleLineBreakMode = .byWordWrapping; style.titleAlignment = .center
+        style.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16); style.cornerStyle = .capsule
+        button.configuration = style; button.contentHorizontalAlignment = .center
         button.titleLabel?.numberOfLines = 0; button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
         button.accessibilityLabel = "Workout visibility, \(title)"
         button.addTarget(self, action: #selector(visibilityChanged(_:)), for: .touchUpInside)
         choices.addArrangedSubview(button); captureChoices.append(button)
       }
-      let spinner = UIActivityIndicatorView(style: .medium); spinner.color = Self.captureColor(0x155C52, 0x8CD8CC); spinner.hidesWhenStopped = true
+      let spinner = UIActivityIndicatorView(style: .medium); spinner.color = Self.captureColor(0xC8471C, 0xFF7A50); spinner.hidesWhenStopped = true
       let done = UIButton(type: .system); var style = UIButton.Configuration.filled()
-      style.baseBackgroundColor = Self.captureColor(0x155C52, 0x347D73); style.baseForegroundColor = Self.captureColor(0xFFF7EC, 0xFFF7EC)
-      style.titleLineBreakMode = .byWordWrapping
+      style.baseBackgroundColor = Self.captureColor(0xC8471C, 0xFF7A50); style.baseForegroundColor = Self.captureColor(0xFFFFFF, 0x2A0D00)
+      style.titleLineBreakMode = .byWordWrapping; style.titleAlignment = .center; style.cornerStyle = .capsule
       style.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
       done.configuration = style; done.titleLabel?.numberOfLines = 0
+      done.heightAnchor.constraint(greaterThanOrEqualToConstant: 50).isActive = true
       done.addTarget(self, action: #selector(beginImport), for: .touchUpInside)
       let close = UIButton(type: .system); close.setTitle("Close", for: .normal)
       close.titleLabel?.adjustsFontForContentSizeCategory = true
-      close.tintColor = Self.captureColor(0x155C52, 0x8CD8CC)
+      close.tintColor = Self.captureColor(0xC8471C, 0xFF7A50)
       captureClose = close
       close.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
       close.addTarget(self, action: #selector(finishConfirmation), for: .touchUpInside)
@@ -170,8 +171,8 @@
       button.isEnabled = enabled; button.isSelected = (button.tag == 1) == captureIsPublic
       if button.isSelected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
       var style = button.configuration
-      style?.baseBackgroundColor = button.isSelected ? Self.captureColor(0xDDF5F1, 0x1E3A35) : Self.captureColor(0xFFFCF7, 0x1A201C)
-      style?.baseForegroundColor = Self.captureColor(0x17120E, 0xF8F0E7); button.configuration = style
+      style?.baseBackgroundColor = button.isSelected ? Self.captureColor(0xC8471C, 0xFF7A50) : .secondarySystemBackground
+      style?.baseForegroundColor = button.isSelected ? Self.captureColor(0xFFFFFF, 0x2A0D00) : .label; button.configuration = style
     }
     captureDone?.isEnabled = !captureWriting && (!captureImporting || captureConfirmationFinished)
     var style = captureDone?.configuration; style?.title = captureDoneTitle; captureDone?.configuration = style
@@ -181,14 +182,14 @@
     if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory { refreshCaptureFonts() }
   }
   private func refreshCaptureFonts() {
-    for (label, name, size, style) in [(captureBrand, "Fraunces-SemiBold", CGFloat(24), UIFont.TextStyle.title2),
-      (captureTitle, "DMSans-SemiBold", 20, .headline), (captureDetail, "DMSans-Regular", 17, .body), (capturePrivacy, "DMSans-Regular", 14, .footnote)] {
-      label?.font = Self.captureFont(name, size: size, style: style, traits: traitCollection)
+    for (label, size, style, weight) in [(captureBrand, CGFloat(22), UIFont.TextStyle.title2, UIFont.Weight.bold),
+      (captureTitle, 20, .title3, .semibold), (captureDetail, 17, .body, .regular), (capturePrivacy, 13, .footnote, .regular)] {
+      label?.font = Self.captureFont(size: size, style: style, weight: weight, traits: traitCollection)
       label?.adjustsFontForContentSizeCategory = true
     }
     // Transformers capture a font value only, so button configurations cannot
     // retain this controller. Rebuild them on a live content-size change.
-    let font = Self.captureFont("DMSans-SemiBold", size: 17, style: .headline, traits: traitCollection)
+    let font = Self.captureFont(size: 17, style: .headline, weight: .semibold, traits: traitCollection)
     captureClose?.titleLabel?.font = font
     for button in captureChoices + [captureDone].compactMap({ $0 }) {
       var style = button.configuration
@@ -209,6 +210,6 @@
         blue: CGFloat(hex & 255) / 255, alpha: 1)
     }
   }
-  private static func captureFont(_ name: String, size: CGFloat, style: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
-    UIFontMetrics(forTextStyle: style).scaledFont(for: UIFont(name: name, size: size) ?? .systemFont(ofSize: size), compatibleWith: traits)
+  private static func captureFont(size: CGFloat, style: UIFont.TextStyle, weight: UIFont.Weight, traits: UITraitCollection) -> UIFont {
+    UIFontMetrics(forTextStyle: style).scaledFont(for: .systemFont(ofSize: size, weight: weight), compatibleWith: traits)
   }
