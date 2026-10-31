@@ -347,7 +347,7 @@ export default function Training() {
         onPress: () => {
           void run(async () => {
             await store.discard();
-            router.replace("/(tabs)");
+            router.replace("/(tabs)/train");
           });
         },
       },

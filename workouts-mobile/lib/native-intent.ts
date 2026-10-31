@@ -103,7 +103,7 @@ export function incomingNativePath(path: string, options: NativeIntentOptions = 
     // Reject encoded path separators/double-encoded route aliases before Router sees them.
     if (route.includes("%") || /[\u0000-\u0020\u007f]/.test(route)) return fallback;
     route = route.length > 1 ? route.replace(/\/$/, "") : route;
-    const aliases: Record<string, string> = { "/index": "/legacy-today", "/(tabs)/extract": "/extract", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress" };
+    const aliases: Record<string, string> = { "/(tabs)": "/(tabs)/train", "/index": "/legacy-today", "/(tabs)/extract": "/extract", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress" };
     route = aliases[route] ?? route;
     if (
       !fixedRoutes.has(route) &&

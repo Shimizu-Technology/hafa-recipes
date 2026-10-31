@@ -64,7 +64,7 @@ it("accepts the dedicated Extract destination and preserves capture share links"
 });
 
 it("keeps legacy training aliases and notification parameters routable outside native tabs", () => {
-  for (const [from, to] of Object.entries({ "/index": "/legacy-today", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress", "/(tabs)/extract": "/extract" }))
+  for (const [from, to] of Object.entries({ "/(tabs)": "/(tabs)/train", "/index": "/legacy-today", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress", "/(tabs)/extract": "/extract" }))
     expect(incomingNativePath(`${from}?session_id=saved`)).toBe(`${to}?session_id=saved`);
   for (const path of ["/train", "/discover", "/library", "/search", "/extract", "/plan", "/progress", "/(tabs)/train", "/history-progress"])
     expect(incomingNativePath(`hafaworkouts://${path.slice(1)}?session_id=saved`)).toBe(`${path}?session_id=saved`);
