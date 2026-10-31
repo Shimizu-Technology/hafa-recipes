@@ -401,7 +401,7 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
       >
         <RNView style={styles.bottomBarButtons}>
           {failure?.kind === 'pages' && failure.savedRecipeId && <Button title="Continue without original pages" onPress={keepWithoutPages} />}
-          {failure?.kind === 'conflict' && <Button title="Open Library" onPress={() => router.replace('/(tabs)/history')} />}
+          {failure?.kind === 'conflict' && <Button title="Open Library" onPress={() => router.replace('/history')} />}
           {/* Edit Button */}
           {canEdit && <TouchableOpacity
             style={[styles.editButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}

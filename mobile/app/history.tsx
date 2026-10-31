@@ -733,7 +733,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       </Text>
       <TouchableOpacity
         style={[styles.emptyButton, { backgroundColor: colors.tint }]}
-        onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/(tabs)')}
+        onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/')}
         activeOpacity={0.8}
       >
         <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color={colors.onTint} />
@@ -770,28 +770,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
-  return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-    <View style={styles.container}>
-      {/* Filter Bottom Sheet */}
-      <FilterBottomSheet
-        visible={active && showFilterModal}
-        onClose={() => setShowFilterModal(false)}
-        onApply={handleApplyFilters}
-        initialFilters={{ sourceFilter, timeFilter, selectedTags, ownershipFilter }}
-        popularTags={popularTags}
-        showOwnershipFilter
-      />
-
-      {/* Bulk Add to Collection Modal */}
-      <BulkAddToCollectionModal
-        visible={active && showBulkAddModal}
-        onClose={() => setShowBulkAddModal(false)}
-        recipeIds={Array.from(selectedRecipeIds)}
-        onComplete={handleBulkAddComplete}
-      />
-
-      {/* Fixed header with search - outside FlatList to prevent focus loss */}
+  // A stable header element lets UIKit inset and collapse the entire browse surface.
+  const browseHeader = (<>
       <RNView style={styles.header}>
         {/* Search + Filter row */}
         <RNView style={styles.searchRow}>
@@ -901,40 +881,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
 
       </RNView>
 
-      {isLoading && !displayRecipes?.length ? (
-        <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} />
-      ) : (
-        <FlatList
-          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
-          data={displayRecipes}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          numColumns={isGrid && !largeText ? 2 : 1}
-          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
-          ListEmptyComponent={ListEmpty}
-          ListFooterComponent={ListFooter}
-          contentContainerStyle={[
-            styles.listContent,
-            {
-              paddingBottom: insets.bottom + spacing.xl + 80,
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={Keyboard.dismiss}
-          refreshControl={
-            <RefreshControl
-              refreshing={isPullRefreshing}
-              onRefresh={onPullRefresh}
-              tintColor={colors.tint}
-            />
-          }
-        />
-      )}
-
-      {/* Sign In Banner for guests */}
-      {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
-
       {/* Selection Action Bar */}
       {isSelectionMode && (
         <RNView style={[styles.selectionActionBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
@@ -958,6 +904,62 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           </RNView>
         </RNView>
       )}
+  </>);
+
+  return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+    <View style={styles.container}>
+      {/* Filter Bottom Sheet */}
+      <FilterBottomSheet
+        visible={active && showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        initialFilters={{ sourceFilter, timeFilter, selectedTags, ownershipFilter }}
+        popularTags={popularTags}
+        showOwnershipFilter
+      />
+
+      {/* Bulk Add to Collection Modal */}
+      <BulkAddToCollectionModal
+        visible={active && showBulkAddModal}
+        onClose={() => setShowBulkAddModal(false)}
+        recipeIds={Array.from(selectedRecipeIds)}
+        onComplete={handleBulkAddComplete}
+      />
+
+      <FlatList
+          contentInsetAdjustmentBehavior="automatic"
+          ListHeaderComponent={browseHeader}
+          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
+          data={displayRecipes}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          numColumns={isGrid && !largeText ? 2 : 1}
+          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
+          ListEmptyComponent={isLoading ? <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} /> : <ListEmpty />}
+          ListFooterComponent={ListFooter}
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingBottom: insets.bottom + spacing.xl + 80,
+            },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={Keyboard.dismiss}
+          refreshControl={
+            <RefreshControl
+              refreshing={isPullRefreshing}
+              onRefresh={onPullRefresh}
+              tintColor={colors.tint}
+            />
+          }
+        />
+
+      {/* Sign In Banner for guests */}
+      {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
+
+
     </View>
     </TouchableWithoutFeedback>
   );
@@ -1360,14 +1362,8 @@ const styles = StyleSheet.create({
     // Card shrinks slightly when checkbox is visible
   },
   selectionActionBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopWidth: 1,
-    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
     paddingVertical: spacing.md,
-    paddingBottom: spacing.xl,
   },
   selectionActionContent: {
     flexDirection: 'row',

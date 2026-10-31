@@ -276,7 +276,7 @@ function RecipeDetailScreenContent() {
               const location = recipe.extracted?.costLocation || 'Guam';
               await extraction.startReExtraction(id, location);
               // Navigate to home tab where the progress UI will show
-              router.replace('/(tabs)');
+              router.replace('/');
             } catch (error: any) {
               const message = error?.message || 'Please try again in a moment.';
               Alert.alert('Couldn’t start re-extraction', message);

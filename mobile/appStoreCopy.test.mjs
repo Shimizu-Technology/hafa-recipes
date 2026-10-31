@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const importScreenSource = readFileSync(
-  fileURLToPath(new URL('./app/(tabs)/index.tsx', import.meta.url)),
+  fileURLToPath(new URL('./app/index.tsx', import.meta.url)),
   'utf8',
 );
 

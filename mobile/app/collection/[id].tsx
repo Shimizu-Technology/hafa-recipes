@@ -184,7 +184,7 @@ export default function CollectionDetailScreen() {
   }, [id, userId, removeFromCollection, committedScope]);
 
   const leaveCollection = () => {
-    router.replace('/(tabs)/history');
+    router.replace('/history');
   };
 
   const renderItem = ({ item, index }: { item: CollectionRecipe; index: number }) => (

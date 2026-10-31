@@ -61,7 +61,8 @@ function ExtractScreenContent() {
   const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
-  const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId } = useLocalSearchParams<{
+  const { sharedUrl, sharedReceiptId, captureToken, inboxCaptureId, entry } = useLocalSearchParams<{
+    entry?: 'scan' | 'photos';
     sharedUrl?: string;
     sharedReceiptId?: string;
     captureToken?: string;
@@ -300,7 +301,11 @@ function ExtractScreenContent() {
 
   const pickImage = async (source: 'camera' | 'library') => {
     const imageOwner = inbox.ownerId;
-    if (!imageOwner) return;
+    if (!imageOwner || !scanDraft.ready || !recoveryDraft.ready) return;
+    if (scanDraft.available) {
+      Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
+      return;
+    }
     const lease = privateRecipeDrafts.lease(imageOwner);
     if (await privateRecipeDrafts.read(lease, 'recovery')) {
       Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
@@ -318,13 +323,8 @@ function ExtractScreenContent() {
           Alert.alert('Permission Required', 'Camera permission is needed to take photos.');
           return;
         }
-      } else {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Photo library permission is needed to select images.');
-          return;
-        }
       }
+      // The system photo picker grants access to selected images without broad library permission.
 
       // Launch picker - allow multiple for library, single for camera
       // Note: allowsEditing removed to capture full image (no cropping)
@@ -356,6 +356,16 @@ function ExtractScreenContent() {
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
+
+  const openedEntry = useRef<string | null>(null);
+  useEffect(() => {
+    if (entry !== 'scan' && entry !== 'photos') { openedEntry.current = null; return; }
+    if (Platform.OS === 'web' || !isAuthLoaded || !isSignedIn || !inbox.ownerId || !scanDraft.ready || !recoveryDraft.ready || openedEntry.current === entry) return;
+    openedEntry.current = entry;
+    router.setParams({ entry: undefined });
+    void pickImage(entry === 'scan' ? 'camera' : 'library');
+  }, [entry, isAuthLoaded, isSignedIn, inbox.ownerId, scanDraft.ready, recoveryDraft.ready]);
+
 
   const moveImage = (index: number, direction: -1 | 1) => setSelectedImages((pages) => {
     const next = index + direction;
@@ -822,6 +832,7 @@ function ExtractScreenContent() {
           {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
 
 
+          {Platform.OS === 'web' && (entry === 'photos' || entry === 'scan') && <Button title={entry === 'photos' ? 'Choose photos' : 'Take photo'} onPress={() => { void pickImage(entry === 'scan' ? 'camera' : 'library'); }} disabled={!scanDraft.ready || !recoveryDraft.ready || !!scanDraft.available || !!recoveryDraft.available} />}
           <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
           <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             {([

@@ -582,6 +582,7 @@ function PlannerScreenContent() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           style={styles.signedOutScroll}
           contentContainerStyle={[
             styles.signedOutContent,
@@ -685,6 +686,19 @@ function PlannerScreenContent() {
 
   return (
     <View style={styles.container}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={isPullRefreshing}
+            onRefresh={onPullRefresh}
+            tintColor={colors.tint}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
       {/* Week Navigation Header */}
       <RNView style={[styles.weekHeader, { backgroundColor: colors.background }]}>
         <TouchableOpacity onPress={goToPrevWeek} accessibilityRole="button" accessibilityLabel="Previous week" style={styles.weekNavButton}>
@@ -722,19 +736,6 @@ function PlannerScreenContent() {
         ))}
       </ScrollView>
 
-      {/* Day Content */}
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.contentContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={isPullRefreshing}
-            onRefresh={onPullRefresh}
-            tintColor={colors.tint}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
         {/* Day Header */}
         <Text style={[styles.dayTitle, { color: colors.text }]}>
           {formatFullDayLabel(selectedDate)}
