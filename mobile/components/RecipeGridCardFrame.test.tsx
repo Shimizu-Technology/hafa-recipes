@@ -1,15 +1,17 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Text } from '@/components/Themed';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+const metrics = vi.hoisted(() => ({ width: 390, fontScale: 1 }));
+beforeEach(() => { metrics.fontScale = 1; });
 vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
-  useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
+  useWindowDimensions: () => metrics,
   View: 'View',
 }));
 vi.mock('@/components/Animated', () => ({ ScalePressable: 'ScalePressable' }));
@@ -95,4 +97,15 @@ describe('recipe grid card accessibility', () => {
       await act(async () => renderer.unmount());
     }
   });
+});
+
+it('gives large accessibility text the full content width and expands the title slot', async () => {
+  metrics.fontScale = 2;
+  const renderer = await renderCard('Creamy Italian Sausage & Gnocchi Soup');
+  try {
+    const card = renderer.container.queryAll(n => n.type === 'ScalePressable')[0];
+    expect(card.props.style[1].width).toBe(342);
+    const title = renderer.container.queryAll(n => n.type === 'Text' && n.props.numberOfLines === 2)[0];
+    expect(title.props.style[1].minHeight).toBe(72);
+  } finally { await act(async () => renderer.unmount()); }
 });

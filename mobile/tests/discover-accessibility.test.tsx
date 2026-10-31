@@ -18,6 +18,7 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
     ActivityIndicator: host('ActivityIndicator'),
+    useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     Alert: { alert: vi.fn() },
     FlatList: host('FlatList'),
     Keyboard: { dismiss: vi.fn() },

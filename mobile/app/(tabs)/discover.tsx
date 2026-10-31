@@ -3,6 +3,7 @@ import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
+  useWindowDimensions,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -407,6 +408,7 @@ function GridRecipeCard({
 export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
+  const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -1194,12 +1196,12 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
-          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
+          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={isGrid ? 2 : 1}
-          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
+          numColumns={isGrid && !largeText ? 2 : 1}
+          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[
