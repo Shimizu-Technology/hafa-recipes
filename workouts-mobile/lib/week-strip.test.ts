@@ -23,3 +23,9 @@ it("weekly numbers count recorded work in the profile timezone and keep active m
   expect(summary).toEqual({ sessions: 2, minutes: 30, streak: 2 });
   expect(weekSummary("2026-10-16", [], "UTC")).toEqual({ sessions: 0, minutes: 0, streak: 0 });
 });
+
+it("never counts a legacy paused session's wall clock as active minutes", () => {
+  const legacy = { started_at: "2026-10-14T00:00:00Z", finished_at: "2026-10-14T12:00:00Z", actuals: [{ completed: true }] };
+  expect(weekSummary("2026-10-14", [legacy], "UTC")).toEqual({ sessions: 1, minutes: 0, streak: 1 });
+  expect(weekSummary("2026-10-14", [legacy, { ...legacy, active_seconds: 600 }], "UTC")).toEqual({ sessions: 2, minutes: 10, streak: 1 });
+});

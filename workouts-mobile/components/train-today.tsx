@@ -71,7 +71,8 @@ export function TrainToday() {
     new Set(ancestryReady ? recordedSessions.filter((s) => s.recorded).flatMap((s) => dayOf(s.started_at)) : []),
     new Set(activePrograms.flatMap((p) => p.sessions.map((s) => s.date)))
   );
-  const summary = weekSummary(date, progress.effective.map(s => s.request), timezone);
+  const summaryReady = sessions.data !== undefined && offline.ready && !offline.error && profile.data !== undefined && ancestryReady;
+  const summary = summaryReady ? weekSummary(date, progress.effective.map(s => s.request), timezone) : null;
   const coach = useQuery({ queryKey: [owner, "coach-history", generation], queryFn: () => api.coachHistory(), enabled });
   useFocusRefresh([coach], { enabled });
   const suggestion = [...(coach.data?.messages ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)).find(message => message.state === "completed" && message.assistant_message)?.assistant_message?.replace(/[#*_`]/g, "").split(/\n/)[0];
@@ -203,9 +204,9 @@ export function TrainToday() {
       </ListGroup>
       <View style={{ gap: 12 }}>
         <Copy kind="heading">This week</Copy>
-        <Pressable accessibilityRole="button" accessibilityLabel={`History & progress. ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak`} onPress={() => router.push("/history-progress")} style={{ flexDirection: "row", flexWrap: "wrap", gap: 24, minHeight: 44 }}>
-          {[[summary.sessions, "Sessions"], [summary.minutes, "Minutes"], [summary.streak, "Day streak"]].map(([value, label]) => <View key={label} style={{ minWidth: 88, gap: 4 }}>
-            <Copy kind="numeric" style={{ fontVariant: ["tabular-nums"] }}>{ancestryReady ? value : "—"}</Copy><Copy kind="small" tone="muted">{label}</Copy>
+        <Pressable accessibilityRole="button" accessibilityLabel={summary ? `History & progress. ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak` : "History & progress. Not available yet"} onPress={() => router.push("/history-progress")} style={{ flexDirection: "row", flexWrap: "wrap", gap: 24, minHeight: 44 }}>
+          {[[summary?.sessions, "Sessions"], [summary?.minutes, "Minutes"], [summary?.streak, "Day streak"]].map(([value, label]) => <View key={label} style={{ minWidth: 88, gap: 4 }}>
+            <Copy kind="numeric" style={{ fontVariant: ["tabular-nums"] }}>{value ?? "—"}</Copy><Copy kind="small" tone="muted">{label}</Copy>
           </View>)}
         </Pressable>
         <Button title="Log an activity you did" variant="ghost" size="sm" onPress={() => router.push("/activity")} />

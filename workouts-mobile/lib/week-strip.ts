@@ -50,6 +50,6 @@ export function weekSummary(today: string, sessions: Array<{ started_at: string;
   const dates = new Set(recorded.map(s => day(s.started_at)));
   let cursor = dates.has(today) ? today : shift(today, -1), streak = 0;
   while (dates.has(cursor)) { streak++; cursor = shift(cursor, -1); }
-  const seconds = current.reduce((n, s) => n + Math.max(0, s.active_seconds ?? ((new Date(s.finished_at).getTime() - new Date(s.started_at).getTime()) / 1000 || 0)), 0);
+  const seconds = current.reduce((n, s) => n + Math.max(0, s.active_seconds ?? 0), 0);
   return { sessions: current.length, minutes: Math.round(seconds / 60), streak };
 }

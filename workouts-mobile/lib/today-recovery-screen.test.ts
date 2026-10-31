@@ -6,7 +6,7 @@ import type { Enrollment, Program, TrainingProfile, Workout, TrainingSession } f
 import type { SavedLocalSession } from "./training";
 
 const fixture = vi.hoisted(() => ({
-  owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false,
+  owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false, deviceReady: true,
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
   active: null as null | { workout: { title: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
@@ -29,7 +29,7 @@ vi.mock("@/lib/context", async () => {
     useOfflineTraining: () => {
       const store = useMemo(() => ({ start: fixture.start, correct: fixture.correct, sync: fixture.sync,
         snapshot: () => ({ active: fixture.active, history: fixture.history }) }), [fixture.owner, fixture.generation, fixture.epoch]);
-      return { state: { active: fixture.active, history: fixture.history }, error: "", ready: true, store };
+      return { state: { active: fixture.active, history: fixture.history }, error: "", ready: fixture.deviceReady, store };
     },
   };
 });
@@ -84,7 +84,7 @@ async function retry() { await act(async () => { buttons("Try again")[0].props.o
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
-  fixture.epoch = 0; fixture.available = false; fixture.active = null; fixture.drafts.clear(); fixture.history = []; fixture.units = "metric";
+  fixture.epoch = 0; fixture.available = false; fixture.deviceReady = true; fixture.active = null; fixture.drafts.clear(); fixture.history = []; fixture.units = "metric";
   for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync, fixture.archiveProgram, fixture.setReadiness]) mock.mockReset();
   const available = () => { if (!fixture.available) throw Error("The training service is unavailable. Your draft is safe."); };
   fixture.enrollment.mockImplementation(async () => { available(); return member(); });
@@ -302,6 +302,8 @@ it("Today pauses recorded-day markers for missing correction ancestry and retrie
   await mount();
   const days = () => renderer!.root.findByType("WeekStrip" as never).props.days as Array<{ state: string }>;
   expect(text()).toContain("Done-day checkmarks are paused");
+  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+  expect(weeklyValues()).toEqual(["—", "—", "—"]);
   expect(text()).not.toContain("PRIVATE transport body");
   expect(days().some(day => day.state === "done")).toBe(false);
   expect(buttons("Check again")).toHaveLength(1);
@@ -820,4 +822,42 @@ it("Train retains cached plan rows after a refetch error and recovers on retry",
   expect(rows()).toHaveLength(1);
   await retry();
   expect(rows()).toHaveLength(1);
+});
+
+const weeklyRow = () => renderer!.root.findAllByType("Pressable" as never).find(node => node.props.accessibilityLabel?.startsWith("History & progress."))!;
+const weeklyLabel = () => weeklyRow().props.accessibilityLabel;
+const weeklyValues = () => weeklyRow().findAllByType("Copy" as never).filter(node => node.props.kind === "numeric").map(node => node.props.children);
+it("shows unavailable weekly totals while the first history read is delayed, then real zeroes", async () => {
+  fixture.available = true;
+  let release!: (value: TrainingSession[]) => void;
+  fixture.sessions.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+  await mount();
+  expect(weeklyValues()).toEqual(["—", "—", "—"]);
+  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+  await act(async () => release([])); await settle();
+  expect(weeklyValues()).toEqual([0, 0, 0]);
+  expect(weeklyLabel()).toBe("History & progress. 0 sessions, 0 minutes, 0 day streak");
+});
+it("shows dashes and no announced zeroes on a cold offline history read", async () => {
+  await mount();
+  expect(weeklyValues()).toEqual(["—", "—", "—"]);
+  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+});
+it.each(["device", "timezone"])("waits for %s readiness before presenting weekly totals", async dependency => {
+  fixture.available = true;
+  if (dependency === "device") fixture.deviceReady = false;
+  else fixture.profile.mockImplementation(() => new Promise(() => {}));
+  await mount();
+  expect(weeklyValues()).toEqual(["—", "—", "—"]);
+  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+});
+it("keeps cached weekly totals when a history refresh fails", async () => {
+  fixture.available = true;
+  fixture.sessions.mockResolvedValue([recordedSession()]);
+  await mount();
+  const values = weeklyValues(), label = weeklyLabel();
+  expect(values.every(value => typeof value === "number")).toBe(true);
+  fixture.sessions.mockRejectedValue(Error("Offline during refresh"));
+  await act(async () => { await cache.invalidateQueries({ queryKey: [fixture.owner, "sessions", fixture.generation] }); }); await settle();
+  expect(weeklyValues()).toEqual(values); expect(weeklyLabel()).toBe(label);
 });
