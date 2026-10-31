@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   pendingCapture: null as any,
   ownerId: 'owner-a' as string | null,
   signedIn: true, authLoaded: true,
-  params: { sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined, captureToken: undefined as string | undefined },
+  params: { entry: undefined as string | undefined, sharedUrl: undefined as string | undefined, sharedReceiptId: undefined as string | undefined, captureToken: undefined as string | undefined },
   uuid: vi.fn(),
   setParams: vi.fn(),
   inboxEntries: [] as any[],
@@ -134,7 +134,7 @@ vi.mock('expo-image-picker', () => ({
   launchCameraAsync: vi.fn(),
   launchImageLibraryAsync: mocks.launchLibrary,
   requestCameraPermissionsAsync: vi.fn(async () => ({ status: 'granted' })),
-  requestMediaLibraryPermissionsAsync: vi.fn(async () => ({ status: 'granted' })),
+  requestMediaLibraryPermissionsAsync: vi.fn(async () => ({ status: 'denied' })),
 }));
 vi.mock('expo-linear-gradient', async () => {
   const ReactModule = await import('react');
@@ -222,7 +222,7 @@ function touchableWithText(renderer: ReactTestRenderer, text: string) {
 
 describe('classified image recovery', () => {
   beforeEach(() => {
-    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.captureToken = undefined; mocks.inboxEntries = [];
+    mocks.preferences.ready = true; mocks.preferences.isPublic = true; mocks.preferences.location = 'Guam'; mocks.pendingCapture = null; mocks.params.entry = undefined; mocks.params.captureToken = undefined; mocks.inboxEntries = [];
     mocks.focused = true; mocks.ownerId = 'owner-a'; mocks.signedIn = true; mocks.authLoaded = true;
     legacyShareReceipts.clearRoute();
     mocks.uuid.mockReset(); mocks.uuid.mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -758,6 +758,30 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
       await act(async () => finish());
       expect(link().props.value).toBe('https://example.com/next');
     } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('opens and cancels the photos entry without requiring broad photo access', async () => {
+    const { preserveDraftImage } = await import('@/lib/privateRecipeDrafts');
+    vi.mocked(preserveDraftImage).mockClear();
+    mocks.params.entry = 'photos';
+    mocks.launchLibrary.mockResolvedValueOnce({ canceled: true, assets: null } as any);
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      expect(mocks.launchLibrary).toHaveBeenCalledOnce();
+      expect(mocks.setParams).toHaveBeenCalledWith({ entry: undefined });
+      expect(preserveDraftImage).not.toHaveBeenCalled();
+      expect(mocks.alert.mock.calls.some(([title]) => title === 'Permission Required')).toBe(false);
+    } finally { await act(async () => renderer.unmount()); mocks.params.entry = undefined; }
+  });
+
+  it('ignores unsupported entry parameters instead of opening photos', async () => {
+    mocks.params.entry = 'link';
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      expect(mocks.launchLibrary).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); mocks.params.entry = undefined; }
   });
 
 });
