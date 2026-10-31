@@ -95,7 +95,7 @@ export function Button({
       }}
       style={{
         minHeight: heights[size],
-        paddingVertical: size === "sm" ? 8 : 12,
+        paddingVertical: textLink ? 0 : size === "sm" ? 8 : 12,
         paddingHorizontal: textLink ? 0 : size === "sm" ? 16 : 22,
         borderRadius: radii.full,
         backgroundColor: bg,

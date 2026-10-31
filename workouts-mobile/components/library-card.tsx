@@ -23,7 +23,7 @@ function Cover({ uri, icon, size }: { uri?: string | null; icon: IconName; size:
   const [failed, setFailed] = useState<string | null>(null);
   if (uri && uri !== failed)
     return <Image source={{ uri }} onError={() => setFailed(uri)} contentFit="cover" transition={reduced ? 0 : motion.base}
-      style={{ width: "100%", height: "100%" }} accessibilityIgnoresInvertColors />;
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} accessibilityIgnoresInvertColors />;
   return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.actionSoft }}>
     <Ionicons name={icon} size={size} color={c.onActionSoft} />
   </View>;
@@ -71,6 +71,7 @@ export function LibraryCard({
   const selecting = selected !== undefined;
   const corner = selecting ? <Mark kind={selected ? "selected" : "unselected"} /> : null;
   return (
+    <View style={{ width: grid && !fill ? width : "100%" }}>
     <AnimatedPressable
       accessibilityRole={selecting ? "checkbox" : "button"}
       accessibilityLabel={[title, meta, creator ? `By ${creator}` : null, origin, favorite ? "Favorite" : null, badge].filter(Boolean).join(", ")}
@@ -82,7 +83,7 @@ export function LibraryCard({
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       style={{
-        width: grid && !fill ? width : "100%",
+        width: "100%",
         flexDirection: grid ? "column" : "row",
         alignItems: grid ? "stretch" : "center",
         gap: grid ? 0 : spacing.sm,
@@ -101,18 +102,20 @@ export function LibraryCard({
         {!!meta && <GlassView glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
           <Copy kind="caption2" color={c.onImage}>{meta}</Copy>
         </GlassView>}
+
+        {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
+      </View>
+      <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 2, paddingTop: grid ? 8 : 0 }}>
+        <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid && !largeText(fontScale) ? { minHeight: Math.ceil(40 * fontScale) } : undefined}>{title}</Copy>
+        <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{[creator, origin?.replace(/^Saved from /, "")].filter(Boolean).join(" · ") || "Your workout"}</Copy>
+      </View>
+    </AnimatedPressable>
         {save && <Pressable accessibilityRole="button" accessibilityLabel={save.saved ? "Saved to your library" : `Save ${title}`} accessibilityState={{ disabled: save.busy || save.saved, selected: save.saved }} disabled={save.busy || save.saved}
           onPress={event => { event.stopPropagation(); save.onPress(); }} hitSlop={7} style={{ position: "absolute", right: 7, top: 7, width: 30, height: 30, borderRadius: 15, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
           <GlassView pointerEvents="none" glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", inset: 0, borderRadius: 15 }} />
           <Ionicons name={save.saved ? "bookmark" : "bookmark-outline"} size={17} color={c.onImage} />
         </Pressable>}
-        {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
-      </View>
-      <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 2, paddingTop: grid ? 8 : 0 }}>
-        <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2}>{title}</Copy>
-        <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{[creator, origin?.replace(/^Saved from /, "")].filter(Boolean).join(" · ") || "Your workout"}</Copy>
-      </View>
-    </AnimatedPressable>
+    </View>
   );
 }
 

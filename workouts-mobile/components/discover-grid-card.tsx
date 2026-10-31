@@ -6,7 +6,7 @@ import { Children, type PropsWithChildren } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { Skeleton } from "@/components/ui";
 import { radii } from "@/constants/theme";
-import { creatorCredit, type DiscoverCard } from "@/lib/discover";
+import { type DiscoverCard } from "@/lib/discover";
 
 const GRID_GAP = 12;
 /** Card width: two columns on phones, three when a tablet gives each card enough room. */
@@ -28,7 +28,7 @@ export function DiscoverGrid({ children }: PropsWithChildren) {
 /** Discover and Library share the same photo, title and single credit line. */
 export function DiscoverGridCard({ card, onPress, onSave, saving = false }: { card: DiscoverCard; onPress(): void; onSave?(): void; saving?: boolean }) {
   return <LibraryCard fill view="grid" title={card.title} meta={workoutCardMeta(card)}
-    creator={creatorCredit(card) || card.contributor.display_name} origin={platformInfo(card.source_platform).label}
+    creator={card.source_creator || card.contributor.display_name} origin={platformInfo(card.source_platform).label}
     image={card.thumbnail_url} icon="barbell-outline" favorite={false} onPress={onPress}
     save={!card.is_owner && onSave ? { saved: !!card.saved_workout_id, busy: saving, onPress: onSave } : undefined} />;
 }
