@@ -81,7 +81,7 @@ async function tapFeedTile(label = "Feed") {
   await render();
 }
 async function press(title: string) {
-  const button = find("Button", (p) => p.title === title)[0];
+  const button = find("Button", (p) => (p.accessibilityLabel ?? p.title) === title)[0];
   expect(button, title).toBeDefined();
   await act(async () => { (button.props.onPress as () => void)(); });
   await render();
@@ -119,6 +119,7 @@ it("offers the suggested side first, times a switched feed, and saves it with Un
   await elapsed(5 * 60_000);
   expect(clock()).toBe("05:00");
   expect(find("View", (p) => p.accessible === true)[0].props.accessibilityLabel).toBe("Feeding Mia. Right side, 5 minutes");
+  expect(find("Button", p => p.title === "Switch")[0].props.accessibilityLabel).toBe("Switch to left");
   await press("Switch to left");
   await elapsed(2 * 60_000);
   await press("Pause");
