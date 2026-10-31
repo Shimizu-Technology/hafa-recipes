@@ -91,6 +91,7 @@ export function FeedTimerCard({
           {`Feeding ${childName} · started ${friendlyTime(timer.started_at, now)}${paused ? " · paused" : ""}`}
         </Copy>
         <Text
+          key={fontScale}
           maxFontSizeMultiplier={1.4}
           numberOfLines={1}
           adjustsFontSizeToFit

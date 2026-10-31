@@ -32,7 +32,7 @@ export function CareGlance({ child, rows, now }: { child: Child; rows: BabyRecor
       feed.data.method === "breast" && next && next !== "both" ? `Next: ${next}` : "",
     ].filter(Boolean).join(" · ") : "Start a timer or add a past feed below.";
   const content = <Card tone="hero" style={{ gap: 4 }}>
-    <Text style={{ ...typeScale.footnote, fontWeight: "600", color: c.accentText }}>Last fed</Text>
+    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontWeight: "600", color: c.accentText }}>Last fed</Text>
     {feed ? <Text key={fontScale} numberOfLines={1} adjustsFontSizeToFit maxFontSizeMultiplier={1.4}
       style={{ ...typeScale.number, color: c.text }}>
       {value}<Text style={{ fontFamily: fonts.regular, fontWeight: "400", fontSize: 20, lineHeight: 25, color: c.muted }}> ago</Text>
