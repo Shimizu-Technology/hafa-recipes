@@ -101,13 +101,13 @@ describe("raw colours", () => {
 });
 
 describe("one Håfa family", () => {
-  it("shares the exact Håfa values with Recipes", () => {
+  it("shares neutral pages with Recipes while each app keeps its own accent", () => {
     const source = readFileSync(join(repo, "mobile/constants/Colors.ts"), "utf8");
-    const block = source.slice(source.indexOf("export const brand = {"), source.indexOf("} as const;"));
-    const recipes = Object.fromEntries([...block.matchAll(/(\w+):\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, k, v]) => [k, v]));
-    for (const [name, value] of Object.entries(hafa)) {
-      expect(recipes[name], `brand.${name}`).toBe(value);
-    }
+    const pages = [...source.matchAll(/\bbackground:\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, value]) => value);
+    const accents = [...source.matchAll(/\btint:\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, value]) => value);
+    expect(pages).toEqual([light.background, dark.background]);
+    expect(accents).toEqual(["#1E7F6E", "#5DD3B6"]);
+    expect(accents).not.toEqual([light.action, dark.action]);
   });
 
   it("app config backgrounds match the theme", () => {
