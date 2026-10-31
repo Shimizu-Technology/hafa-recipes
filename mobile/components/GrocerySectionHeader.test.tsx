@@ -8,7 +8,10 @@ import type { GrocerySection } from '@/lib/grocerySections';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+const menu = vi.hoisted(() => ({ options: null as any, choose: null as any }));
 vi.mock('react-native', () => ({
+  Platform: { OS: 'ios' }, Alert: { alert: vi.fn() },
+  ActionSheetIOS: { showActionSheetWithOptions: (options: any, choose: any) => { menu.options = options; menu.choose = choose; } },
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   StyleSheet: { create: (styles: unknown) => styles },
   TouchableOpacity: 'TouchableOpacity',
@@ -71,14 +74,13 @@ describe('GrocerySectionHeader', () => {
         (instance) => instance.type === 'TouchableOpacity',
       );
       await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Open Chicken Kelaguen recipe',
+        (button) => button.props.accessibilityLabel === 'More actions for Chicken Kelaguen',
       )!.props.onPress());
-      await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Collapse Chicken Kelaguen grocery section',
-      )!.props.onPress());
-      await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Clear Chicken Kelaguen grocery items',
-      )!.props.onPress());
+      expect(buttons).toHaveLength(1);
+      expect(menu.options.title).toContain('1/4 checked');
+      await act(async () => menu.choose(menu.options.options.indexOf('Open recipe')));
+      await act(async () => menu.choose(menu.options.options.indexOf('Collapse section')));
+      await act(async () => menu.choose(menu.options.options.indexOf('Remove recipe items')));
 
       expect(onOpenRecipe).toHaveBeenCalledWith('recipe-1');
       expect(onToggle).toHaveBeenCalledOnce();
@@ -113,9 +115,10 @@ describe('GrocerySectionHeader', () => {
         (button) => button.props.accessibilityLabel?.startsWith('Open '),
       )).toBe(false);
       const toggleButton = buttons.find(
-        (button) => button.props.accessibilityLabel === 'Expand Old Recipe grocery section',
+        (button) => button.props.accessibilityLabel === 'More actions for Old Recipe',
       );
       await act(async () => toggleButton!.props.onPress());
+      await act(async () => menu.choose(menu.options.options.indexOf('Expand section')));
 
       expect(onToggle).toHaveBeenCalledOnce();
     } finally {
@@ -141,7 +144,8 @@ describe('GrocerySectionHeader', () => {
         (instance) => instance.type === 'TouchableOpacity',
       );
       expect(buttons).toHaveLength(1);
-      expect(buttons[0].props.accessibilityLabel).toBe('Open Chicken Kelaguen recipe');
+      await act(async () => buttons[0].props.onPress());
+      expect(menu.options.options).toEqual(['Open recipe', 'Cancel']);
     } finally {
       await act(async () => renderer.unmount());
     }

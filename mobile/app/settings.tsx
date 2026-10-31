@@ -10,7 +10,7 @@ import { Stack, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 
-import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
+import { View, Text, Card, Divider, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { SettingsProfileCard } from '@/components/SettingsProfileCard';
 import { useRecipeCount } from '@/hooks/useRecipes';
@@ -38,6 +38,11 @@ const SUPPORT_URL = 'https://hafa-recipes.com/support';
 const DEVELOPER_URL = 'https://shimizu-technology.com';
 const APP_VERSION = resolveAppVersion(Constants.expoConfig?.version);
 
+function SectionHeader({ title }: { title: string }) {
+  const colors = useColors();
+  return <Text accessibilityRole="header" style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary, marginLeft: 16, marginBottom: 8 }}>{title}</Text>;
+}
+
 interface MenuItemProps {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -51,7 +56,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
     <RNView
       style={[
         styles.menuItem,
-        { backgroundColor: colors.backgroundSecondary }
+        { backgroundColor: colors.backgroundElevated }
       ]}
     >
       <RNView style={styles.menuItemLeft}>
@@ -387,11 +392,11 @@ export default function SettingsScreen() {
         {/* Appearance Section - Combined Theme + Text Size */}
         <RNView style={styles.section}>
           <SectionHeader title="Appearance" />
-          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
+          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
             {/* Theme Row */}
             <RNView style={styles.compactRow}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Theme</Text>
-              <RNView style={[styles.segmentedControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <RNView style={[styles.segmentedControl, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                 {([
                   { key: 'system', label: 'Auto' },
                   { key: 'light', label: 'Light' },
@@ -405,14 +410,14 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: themePreference === theme.key }}
                     style={[
                       styles.segmentedOption,
-                      themePreference === theme.key && { backgroundColor: colors.tint },
+                      themePreference === theme.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
                       index === 0 && styles.segmentedFirst,
                       index === 2 && styles.segmentedLast,
                     ]}
                   >
                     <Text style={[
                       styles.segmentedText,
-                      { color: themePreference === theme.key ? colors.onTint : colors.textSecondary },
+                      { color: themePreference === theme.key ? colors.text : colors.textSecondary },
                     ]}>
                       {theme.label}
                     </Text>
@@ -426,7 +431,7 @@ export default function SettingsScreen() {
             {/* Text Size Row */}
             <RNView style={styles.compactRow}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Text Size</Text>
-              <RNView style={[styles.segmentedControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <RNView style={[styles.segmentedControl, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                 {([
                   { key: 'small', label: 'S' },
                   { key: 'medium', label: 'M' },
@@ -441,14 +446,14 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: textSize === size.key }}
                     style={[
                       styles.segmentedOption,
-                      textSize === size.key && { backgroundColor: colors.tint },
+                      textSize === size.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
                       index === 0 && styles.segmentedFirst,
                       index === 3 && styles.segmentedLast,
                     ]}
                   >
                     <Text style={[
                       styles.segmentedText,
-                      { color: textSize === size.key ? colors.onTint : colors.textSecondary },
+                      { color: textSize === size.key ? colors.text : colors.textSecondary },
                     ]}>
                       {size.label}
                     </Text>
@@ -462,7 +467,7 @@ export default function SettingsScreen() {
         {/* Sound & Voice Section - Compact Pickers */}
         <RNView style={styles.section}>
           <SectionHeader title="Sound & voice" />
-          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
+          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
             {/* Timer Sound Picker */}
             <TouchableOpacity
               style={styles.pickerRow}
@@ -613,7 +618,7 @@ export default function SettingsScreen() {
             <SectionHeader title="Developer" />
             <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
               <TouchableOpacity
-                style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
+                style={[styles.menuItem, { backgroundColor: colors.backgroundElevated }]}
                 onPress={() => setShowDeveloper(!showDeveloper)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -673,7 +678,7 @@ export default function SettingsScreen() {
           <SectionHeader title="About" />
           <Card>
             <RNView style={styles.aboutHeader}>
-              <BrandMark size={58} style={{ backgroundColor: colors.backgroundSecondary }} />
+              <BrandMark size={58} style={{ backgroundColor: colors.backgroundElevated }} />
               <RNView>
                 <Text style={[styles.aboutTitle, { color: colors.text }]}>
                   Håfa Recipes
@@ -753,7 +758,7 @@ export default function SettingsScreen() {
         {isSignedIn && (
           <RNView style={styles.section}>
             <SectionHeader title="Account actions" />
-            <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundSecondary }]}>
+            <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundElevated }]}>
               <TouchableOpacity
                 style={styles.accountActionRow}
                 onPress={handleSignOut}
@@ -854,7 +859,7 @@ export default function SettingsScreen() {
               <Text style={[styles.inputLabel, { color: colors.textMuted }]}>First Name</Text>
               <TextInput
                 style={[styles.textInput, {
-                  backgroundColor: colors.backgroundSecondary,
+                  backgroundColor: colors.backgroundElevated,
                   color: colors.text,
                   borderColor: colors.border,
                 }]}
@@ -871,7 +876,7 @@ export default function SettingsScreen() {
               <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Last Name</Text>
               <TextInput
                 style={[styles.textInput, {
-                  backgroundColor: colors.backgroundSecondary,
+                  backgroundColor: colors.backgroundElevated,
                   color: colors.text,
                   borderColor: colors.border,
                 }]}
@@ -1110,9 +1115,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 0,
     overflow: 'hidden',
+    padding: 3,
   },
   segmentedOption: {
-    paddingHorizontal: spacing.md,
+    borderRadius: 8,
+    minHeight: 44,
+    paddingHorizontal: 12,
     paddingVertical: spacing.sm,
     minWidth: 44,
     alignItems: 'center',

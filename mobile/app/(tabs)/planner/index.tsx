@@ -23,6 +23,8 @@ import {
   ActivityIndicator,
   Modal,
   TextInput,
+  ActionSheetIOS,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
@@ -180,7 +182,9 @@ export function MealSlot({
   pendingRecipeTitle,
   isAdding,
   isAddDisabled,
+  entriesOnly = false,
 }: {
+  entriesOnly?: boolean;
   mealType: MealTypeMeta;
   entries: MealPlanEntry[];
   colors: ReturnType<typeof useColors>;
@@ -194,7 +198,7 @@ export function MealSlot({
 }) {
   return (
     <RNView style={styles.mealSlot}>
-      {entries.length > 0 && <RNView style={styles.mealSlotHeader}>
+      {!entriesOnly && entries.length > 0 && <RNView style={styles.mealSlotHeader}>
         <RNView style={[styles.mealIcon, { backgroundColor: colors.tint + '15' }]}>
           <Ionicons name={mealType.icon} size={18} color={colors.actionText} />
         </RNView>
@@ -203,7 +207,7 @@ export function MealSlot({
         </Text>
       </RNView>}
 
-      {entries.length === 0 ? (
+      {entries.length === 0 ? (entriesOnly ? null : (
         <TouchableOpacity
           style={[
             styles.addMealButton,
@@ -232,7 +236,7 @@ export function MealSlot({
             </>
           )}
         </TouchableOpacity>
-      ) : (
+      )) : (
         <RNView style={styles.mealEntries}>
           {entries.map((entry) => (
             <RNView
@@ -250,7 +254,7 @@ export function MealSlot({
                 placeholderIconSize={16}
               /></TouchableOpacity>
               <RNView style={styles.mealCardContent}>
-                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ minHeight: 44, justifyContent: 'center' }}
+                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ justifyContent: 'center' }}
                   accessibilityRole="button" accessibilityLabel={`Open ${entry.recipe_title}`}>
                 <Text
                   style={[styles.mealCardTitle, { color: colors.text }]}
@@ -259,7 +263,7 @@ export function MealSlot({
                 </Text></ScalePressable>
               <TouchableOpacity onPress={() => onEditServings?.(entry)} style={{ minHeight: 44, justifyContent: 'center' }}
                 accessibilityRole="button" accessibilityLabel={`Edit servings for ${entry.recipe_title}`}>
-                <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{entry.planned_servings ? `${entry.planned_servings} servings` : entry.servings || 'Recipe servings'}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{entry.planned_servings ? `${entry.planned_servings} servings` : entry.servings || 'Recipe servings'} · {mealType.label}</Text>
               </TouchableOpacity>
                 {entry.notes && (
                   <Text
@@ -278,7 +282,7 @@ export function MealSlot({
               />
             </RNView>
           ))}
-          {pendingRecipeTitle ? (
+          {!entriesOnly && (pendingRecipeTitle ? (
             <TouchableOpacity
               style={[styles.planHereButton, { borderColor: colors.tint }]}
               onPress={onAdd}
@@ -308,7 +312,7 @@ export function MealSlot({
             >
               <Ionicons name="add" size={16} color={colors.actionText} /><Text style={{ color: colors.actionText }}>Add</Text>
             </TouchableOpacity>
-          )}
+          ))}
         </RNView>
       )}
     </RNView>
@@ -729,7 +733,7 @@ function PlannerScreenContent() {
         showsVerticalScrollIndicator={false}
       >
       {/* Week Navigation Header */}
-      <RNView style={[styles.weekHeader, { backgroundColor: colors.background }]}>
+      <RNView style={styles.weekHeader}>
         <TouchableOpacity onPress={goToPrevWeek} accessibilityRole="button" accessibilityLabel="Previous week" style={styles.weekNavButton}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
@@ -738,7 +742,7 @@ function PlannerScreenContent() {
           <Text style={[styles.weekLabel, { color: colors.text }]}>
             {weekRangeLabel}
           </Text>
-          <RNView style={[styles.todayButton, { backgroundColor: colors.tint + '15' }]}>
+          <RNView style={styles.todayButton}>
             <Text style={[styles.todayButtonText, { color: colors.actionText }]}>Today</Text>
           </RNView>
         </TouchableOpacity>
@@ -787,13 +791,19 @@ function PlannerScreenContent() {
               return <RNView key={formatDateForApi(date)} style={{ marginBottom: 24 }} onLayout={event => { dayPositions.current[formatDateForApi(date)] = event.nativeEvent.layout.y; scrollToRequestedDay(); }}>
                 <Text accessibilityRole="header" style={[styles.dayTitle, { color: colors.text }]}>{formatFullDayLabel(date)}</Text>
                 <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 12, paddingHorizontal: 12 }}>
-                  {MEAL_TYPES.map(mealType => <MealSlot key={mealType.type} mealType={mealType}
+                  {MEAL_TYPES.map(mealType => <MealSlot entriesOnly key={mealType.type} mealType={mealType}
                     entries={day?.[mealType.type] || []} colors={colors}
                     onAdd={() => handleAddMeal(mealType.type, date)} onRemove={handleRemoveMeal} onViewRecipe={handleViewRecipe}
                     onEditServings={entry => { setEditingServings(entry); setServingsInput(String(entry.planned_servings ?? entry.servings ?? '')); }}
                     pendingRecipeTitle={handoffRecipe?.title}
                     isAdding={addingMealType === mealType.type && formatDateForApi(date) === formatDateForApi(selectedDate)}
                     isAddDisabled={addMeal.isPending || requestedRecipeIsPending} />)}
+                  <TouchableOpacity style={styles.addMealButton} accessibilityRole="button" accessibilityLabel={`Add meal for ${formatFullDayLabel(date)}`}
+                    disabled={addMeal.isPending || requestedRecipeIsPending} onPress={() => {
+                      const actions = MEAL_TYPES.map(meal => ({ text: meal.label, onPress: () => handleAddMeal(meal.type, date) }));
+                      if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title: 'Meal type', options: [...actions.map(action => action.text), 'Cancel'], cancelButtonIndex: actions.length }, index => actions[index]?.onPress());
+                      else Alert.alert('Meal type', undefined, [...actions, { text: 'Cancel' }]);
+                    }}><Ionicons name="add" size={20} color={colors.actionText} /><Text style={{ color: colors.actionText, fontSize: 17, lineHeight: 22 }}>{addingMealType && formatDateForApi(date) === formatDateForApi(selectedDate) ? 'Adding…' : 'Add'}</Text></TouchableOpacity>
                 </RNView>
               </RNView>;
             })}

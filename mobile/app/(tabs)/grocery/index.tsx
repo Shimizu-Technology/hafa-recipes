@@ -8,6 +8,7 @@ import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
+  PanResponder,
   SectionList,
   useWindowDimensions,
   ScrollView,
@@ -108,108 +109,34 @@ function GroceryItemRow({
     .filter(Boolean)
     .join(', ');
 
-  return (
-    <TouchableOpacity activeOpacity={1}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: item.checked }}
-      accessibilityLabel={itemLabel}
-      // The row groups its children for VoiceOver, so expose Edit and Remove as actions.
-      accessibilityActions={[
-        { name: 'edit', label: `Edit ${item.name}` },
-        { name: 'remove', label: `Remove ${item.name}` },
-      ]}
-      onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === 'edit') onEdit();
-        if (event.nativeEvent.actionName === 'remove') onDelete();
-      }}
-      style={[
-        styles.itemRow, 
-        { 
-          backgroundColor: colors.card, 
-
-        }
-      ]}
-      onPress={onToggle}
-    >
-      {/* Checkbox */}
-      <RNView style={styles.checkbox}>
-        <Ionicons
-          name={item.checked ? 'checkmark-circle' : 'ellipse-outline'}
-          size={24}
-          color={item.checked ? colors.tint : colors.textSecondary}
-        />
-      </RNView>
-
-      {/* Item details */}
-      <RNView style={styles.itemContent}>
-        <RNView style={styles.itemNameRow}>
-          <Text
-            style={[
-              styles.itemName,
-              { color: item.checked ? colors.textMuted : colors.text, fontSize: scaleFontSize(17) },
-              item.checked && styles.itemNameChecked,
-              // Allow name to shrink when added_by label is present
-              isSharedList && item.added_by_name && styles.itemNameWithLabel,
-            ]}
-            ellipsizeMode="tail"
-          >
-            {hasAmount && `${item.quantity} `}
-            {hasAmount && normalizedUnit && `${normalizedUnit} `}
-            {item.name}
-          </Text>
-          {isSharedList && item.added_by_name && (
-            <Text 
-              style={[styles.addedByLabel, { color: colors.textMuted }]}
-              numberOfLines={1}
-            >
-              ({item.added_by_name})
-            </Text>
-          )}
-        </RNView>
-        {showMissingAmount && (
-          <Text style={[styles.missingAmount, { color: colors.warning }]}>
-            {MISSING_AMOUNT_LABEL}
-          </Text>
-        )}
-        {showRecipeLabel && item.recipe_title && (
-          <Text style={[styles.recipeLabel, { color: colors.textMuted }]} numberOfLines={1}>
-            from {item.recipe_title}
-          </Text>
-        )}
-        {hasNotes && (
-          <Text style={[styles.itemNotes, { color: colors.textMuted }]} numberOfLines={1}>
-            {item.notes}
-          </Text>
-        )}
-      </RNView>
-
-      {/* Edit button */}
-      <TouchableOpacity 
-        onPress={(e) => {
-          e.stopPropagation?.();
-          onEdit();
-        }} 
-        style={styles.editButton}
-        accessibilityRole="button"
-        accessibilityLabel={`Edit ${item.name}`}
-      >
-        <Ionicons name="pencil-outline" size={18} color={colors.textMuted} />
+  const [swiped, setSwiped] = useState(false);
+  const swipe = PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 20 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 2,
+    onPanResponderRelease: (_, gesture) => setSwiped(gesture.dx < -40),
+  });
+  const openMenu = () => {
+    const actions = [{ text: 'Edit item', onPress: onEdit }, { text: 'Delete item', style: 'destructive' as const, onPress: onDelete }, { text: 'Cancel', style: 'cancel' as const }];
+    if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title: item.name, options: actions.map(action => action.text), cancelButtonIndex: 2, destructiveButtonIndex: 1 }, index => actions[index]?.onPress?.());
+    else Alert.alert(item.name, undefined, actions);
+  };
+  return <RNView {...swipe.panHandlers} style={{ flexDirection: 'row', backgroundColor: colors.backgroundElevated }}>
+    <RNView style={[styles.itemRow, { flex: 1, backgroundColor: colors.backgroundElevated }]}>
+      <TouchableOpacity onPress={onToggle} activeOpacity={1} style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
+        accessibilityRole="checkbox" accessibilityState={{ checked: item.checked }} accessibilityLabel={itemLabel}>
+        <Ionicons name={item.checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={item.checked ? colors.tint : colors.textSecondary} />
       </TouchableOpacity>
-
-      {/* Delete button */}
-      <TouchableOpacity 
-        onPress={(e) => {
-          e.stopPropagation?.();
-          onDelete();
-        }} 
-        style={styles.deleteButton}
-        accessibilityRole="button"
-        accessibilityLabel={`Remove ${item.name}`}
-      >
-        <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
+      <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}
+        accessibilityRole="button" accessibilityLabel={`Edit ${item.name}`}
+        accessibilityActions={[{ name: 'remove', label: `Remove ${item.name}` }]}
+        onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onDelete(); }}>
+        <Text style={[styles.itemName, { fontSize: scaleFontSize(17), lineHeight: scaleFontSize(22), color: item.checked ? colors.textSecondary : colors.text }, item.checked && styles.itemNameChecked]}>{item.name}</Text>
+        {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+          {[hasAmount && [item.quantity, normalizedUnit].filter(Boolean).join(' '), showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
+        </Text>}
       </TouchableOpacity>
-    </TouchableOpacity>
-  );
+    </RNView>
+    {swiped && <TouchableOpacity onPress={onDelete} accessibilityRole="button" accessibilityLabel={`Delete ${item.name}`} style={{ backgroundColor: colors.destructive, paddingHorizontal: 16, justifyContent: 'center' }}><Text style={{ color: '#FFFFFF' }}>Delete</Text></TouchableOpacity>}
+  </RNView>;
 }
 
 export default function GroceryScreen() {
@@ -245,7 +172,7 @@ function GroceryScreenContent() {
   // Set up offline sync (syncs pending changes when back online)
   const { lastSyncResult, clearSyncResult } = useGrocerySync(isAuthenticated);
   const { data: hasQueuedChanges } = usePendingGrocerySync(isAuthenticated);
-  const newItemName = searchQuery;
+  const [newItemName, setNewItemName] = useState('');
   
   // Show alert when sync has failures
   useEffect(() => {
@@ -396,10 +323,9 @@ function GroceryScreenContent() {
   const { isPullRefreshing, onPullRefresh } = usePullToRefresh(refetch);
   
   const handleToggle = (item: GroceryItem) => {
-    haptics.light();
     toggleMutation.mutate(
       { id: item.id, checked: !item.checked },
-      { onError: () => Alert.alert('Couldn’t update item', 'Your change wasn’t saved. Please try again.') },
+      { onSuccess: () => haptics.light(), onError: () => Alert.alert('Couldn’t update item', 'Your change wasn’t saved. Please try again.') },
     );
   };
 
@@ -514,7 +440,7 @@ function GroceryScreenContent() {
   };
 
   const handleAddItem = (keepInputFocused = false) => {
-    if (!newItemName.trim()) return;
+    if (!newItemName.trim() || addItemMutation.isPending) return;
     
     
     // Auto-expand "Other Items" section since that's where new items go
@@ -540,7 +466,7 @@ function GroceryScreenContent() {
             showToast({ message: 'Item added to grocery list', tone: 'success' });
           }
           setAddPendingSync(result.syncStatus === 'queued');
-          setSearchQuery('');
+          setNewItemName('');
           if (keepInputFocused) {
             // The visible add button supports rapid, repeated entry. The
             // keyboard's Done key intentionally ends entry and stays blurred.
@@ -631,6 +557,7 @@ function GroceryScreenContent() {
     }
 
     return (
+      <RNView style={{ overflow: 'hidden', borderTopLeftRadius: index === 0 ? 12 : 0, borderTopRightRadius: index === 0 ? 12 : 0, borderBottomLeftRadius: index === section.data.length - 1 ? 12 : 0, borderBottomRightRadius: index === section.data.length - 1 ? 12 : 0 }}>
       <GroceryItemRow
         item={item}
         colors={colors}
@@ -641,6 +568,8 @@ function GroceryScreenContent() {
         isSharedList={listInfo?.is_shared ?? false}
         scaleFontSize={scaleFontSize}
       />
+      {index < section.data.length - 1 && <RNView style={{ height: StyleSheet.hairlineWidth, marginLeft: 60, backgroundColor: colors.border }} />}
+      </RNView>
     );
   };
 
@@ -826,8 +755,8 @@ function GroceryScreenContent() {
   };
 
   return (
-    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
+    <RNView style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
+      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
         style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="More grocery list actions"><Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
       <SectionList
         key={fontScale}
@@ -836,36 +765,11 @@ function GroceryScreenContent() {
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
-        <RNView style={[styles.addItemRow, { backgroundColor: colors.surface2 }]}>
-          <TextInput
-            ref={addItemInputRef}
-            style={[styles.addItemInput, { color: colors.text }]}
-            placeholder="Search or add an item"
-            placeholderTextColor={colors.textMuted}
-            value={newItemName}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={() => handleAddItem(false)}
-            returnKeyType="done"
-            submitBehavior="blurAndSubmit"
-            maxLength={255}
-            accessibilityLabel="Search grocery items and recipes"
-          />
-          {isSearching && <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchButton}
-            accessibilityRole="button" accessibilityLabel="Clear grocery search">
-            <Ionicons name="close-circle" size={20} color={colors.textMuted} />
-          </TouchableOpacity>}
-          <TouchableOpacity
-            onPress={() => handleAddItem(true)}
-            disabled={!newItemName.trim()}
-            style={[
-              styles.addButton,
-              { backgroundColor: newItemName.trim() ? colors.tint : colors.border },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Add item and keep typing"
-          >
-            <Text style={{ color: colors.onTint }}>Add</Text>
-          </TouchableOpacity>
+        <RNView style={styles.addItemRow}>
+          <Ionicons name="add-circle-outline" size={24} color={colors.actionText} />
+          <TextInput ref={addItemInputRef} style={[styles.addItemInput, { color: colors.text, lineHeight: 22 }]}
+            placeholder="Add an item" placeholderTextColor={colors.textSecondary} value={newItemName} onChangeText={setNewItemName}
+            onSubmitEditing={() => handleAddItem(true)} returnKeyType="done" submitBehavior="submit" maxLength={255} accessibilityLabel="Add an item" />
         </RNView>
 
         {(addPendingSync || hasQueuedChanges || hasQueuedChanges === undefined || freshness === 'checking' || freshness === 'offline' || freshness === 'stale' || isRefetchError) && <Text accessibilityLiveRegion="polite" style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>
@@ -874,36 +778,10 @@ function GroceryScreenContent() {
 
         {/* Focus the shopping view while keeping completed items close by. */}
         {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
-          <RNView style={styles.actionRow}>
-            <RNView
-              style={[styles.viewSelector, { backgroundColor: colors.backgroundSecondary }, fontScale >= 1.3 && { flex: 1, alignItems: 'stretch', flexDirection: 'column' }]}
-              accessibilityRole="tablist"
-            >
-              <TouchableOpacity
-                onPress={() => setShowChecked(false)}
-                style={[styles.viewOption, !showChecked && { backgroundColor: colors.card }]}
-                accessibilityRole="tab"
-                accessibilityLabel={`${countData?.unchecked ?? 0} items to buy`}
-                accessibilityState={{ selected: !showChecked }}
-              >
-                <Text style={[styles.viewOptionText, { color: !showChecked ? colors.text : colors.textMuted }]}>
-                  To buy ({countData?.unchecked ?? 0})
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setShowChecked(true)}
-                style={[styles.viewOption, showChecked && { backgroundColor: colors.card }]}
-                accessibilityRole="tab"
-                accessibilityLabel={`${countData?.total ?? groceryItems?.length ?? 0} total grocery items`}
-                accessibilityState={{ selected: showChecked }}
-              >
-                <Text style={[styles.viewOptionText, { color: showChecked ? colors.text : colors.textMuted }]}>
-                  All ({countData?.total ?? groceryItems?.length ?? 0})
-                </Text>
-              </TouchableOpacity>
-            </RNView>
-
-          </RNView>
+          <TouchableOpacity onPress={() => setShowChecked(!showChecked)} accessibilityRole="button"
+            accessibilityLabel={showChecked ? 'Show items to buy' : 'Show all grocery items'} style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' }}>
+            <Text style={{ color: colors.actionText, fontSize: 15, lineHeight: 20 }}>{showChecked ? 'All · Show to buy' : 'To buy · Show all'}</Text>
+          </TouchableOpacity>
         )}
           </>
         )}

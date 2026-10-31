@@ -14,6 +14,8 @@ import type { MealPlanEntry } from '@/types/recipe';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-native', () => ({
+  Platform: { OS: 'ios' },
+  ActionSheetIOS: { showActionSheetWithOptions: vi.fn() },
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   ActivityIndicator: 'ActivityIndicator',
   Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
@@ -213,8 +215,12 @@ describe('planner loading recovery', () => {
     const root = createRoot();
     try {
       await act(async () => root.render(<PlannerScreen />));
-      const dinners = root.container.queryAll(node => node.props.accessibilityLabel === 'Add Dinner');
+      const dinners = root.container.queryAll(node => node.props.accessibilityLabel?.startsWith('Add meal for '));
+      expect(dinners).toHaveLength(7);
       await act(async () => dinners[1].props.onPress());
+      const { ActionSheetIOS } = await import('react-native');
+      const [options, choose] = vi.mocked(ActionSheetIOS.showActionSheetWithOptions).mock.calls.at(-1)!;
+      await act(async () => choose(options.options.indexOf('Dinner')));
       const picker = root.container.queryAll(node => node.type === 'RecipePickerModal')[0];
       await act(async () => picker.props.onSelect({ id: 'picked-recipe', title: 'Rice' }));
       const date = planHooks.formatDateForApi(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1));
@@ -355,6 +361,6 @@ it('makes planned servings editable on an entry', async () => {
       onEditServings={onEdit} isAdding={false} isAddDisabled={false} />));
     await act(async () => renderer.container.queryAll(node => node.props.accessibilityLabel === 'Edit servings for Chicken Kelaguen')[0].props.onPress());
     expect(onEdit).toHaveBeenCalledWith(selected);
-    expect(renderer.container.queryAll(node => node.props.children === '8 servings')).toHaveLength(1);
+    expect(renderer.container.queryAll(node => Array.isArray(node.props.children) && node.props.children[0] === '8 servings')).toHaveLength(1);
   } finally { await act(async () => renderer.unmount()); }
 });

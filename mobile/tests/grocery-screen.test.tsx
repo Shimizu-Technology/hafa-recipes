@@ -44,6 +44,7 @@ function host(name: string) {
 }
 
 vi.mock('react-native', () => ({
+  PanResponder: { create: (handlers: any) => ({ panHandlers: handlers }) },
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   ActivityIndicator: host('ActivityIndicator'),
   Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
@@ -87,7 +88,7 @@ vi.mock('react-native', () => ({
   View: host('NativeView'),
 }));
 
-vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
+vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.headerSearchBarOptions ? React.createElement('NativeSearch', props.options.headerSearchBarOptions) : null, props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
   useFocusEffect: (callback: () => void) => { mocks.focusCallback = callback; },
   useLocalSearchParams: () => ({}),
   useRouter: () => ({ push: mocks.routerPush, setParams: mocks.routerSetParams }),
@@ -405,9 +406,9 @@ describe('GroceryScreen shopping views', () => {
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(0);
 
       const searchInput = renderer.container.queryAll(
-        (instance) => instance.type === 'TextInput',
-      ).find((input) => input.props.accessibilityLabel === 'Search grocery items and recipes');
-      await act(async () => searchInput!.props.onChangeText('rice'));
+        (instance) => instance.type === 'NativeSearch',
+      )[0];
+      await act(async () => searchInput!.props.onChangeText({ nativeEvent: { text: 'rice' } }));
 
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
       const header = renderer.container.queryAll(
@@ -435,13 +436,13 @@ describe('GroceryScreen shopping views', () => {
 
       const allTab = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel === '2 total grocery items');
+      ).find((button) => button.props.accessibilityLabel === 'Show all grocery items');
       await act(async () => allTab!.props.onPress());
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(2);
 
       const toBuyTab = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel === '1 items to buy');
+      ).find((button) => button.props.accessibilityLabel === 'Show items to buy');
       await act(async () => toBuyTab!.props.onPress());
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
     } finally {
@@ -492,14 +493,14 @@ describe('GroceryScreen shopping views', () => {
       expect(row.props.accessibilityLabel).toBe('Rice, Added by Ana, Amount not stated, Jasmine');
       expect(rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('2'))!.props.accessibilityLabel)
         .toBe('2 piece Lime');
-      expect(row.props.accessibilityActions.map((action: { label: string }) => action.label))
-        .toEqual(['Edit Rice', 'Remove Rice']);
-      for (const label of ['Edit Rice', 'Remove Rice']) {
-        const button = renderer.container.queryAll(
-          (instance) => instance.props.accessibilityLabel === label && instance.props.accessibilityRole === 'button',
-        )[0];
-        expect(button, label).toBeDefined();
-      }
+      const edit = renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Edit Rice' && instance.props.accessibilityRole === 'button')[0];
+      expect(edit).toBeDefined();
+      expect(edit.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove Rice' }]);
+      await act(async () => edit.props.onPress());
+      expect(renderer.container.queryAll(instance => instance.type === 'EditGroceryItemModal')[0].props.item.name).toBe('Rice');
+      await act(async () => edit.props.onLongPress());
+      expect(mocks.alert.mock.calls.at(-1)![2].map((action: any) => action.text)).toContain('Delete item');
+
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -578,14 +579,15 @@ describe('GroceryScreen shopping views', () => {
     } finally { Object.assign(Platform, { OS: 'ios' }); await act(async () => root.unmount()); }
   });
 
-  it('uses one field for search/add and names the exported view', async () => {
+  it('separates native search from quick entry and names the exported view', async () => {
     mocks.groceryState.items = [item({ id: 'rice', name: 'Rice' }), item({ id: 'salt', name: 'Salt' })];
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
-      const inputs = renderer.container.queryAll((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Search grocery items and recipes');
+      const inputs = renderer.container.queryAll(node => node.type === 'NativeSearch');
+      expect(renderer.container.queryAll(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'Add an item')).toHaveLength(1);
       expect(inputs).toHaveLength(1);
-      await act(async () => inputs[0].props.onChangeText('rice'));
+      await act(async () => inputs[0].props.onChangeText({ nativeEvent: { text: 'rice' } }));
       const overflow = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'More grocery list actions')[0];
       await act(async () => overflow.props.onPress());
       const actions = mocks.alert.mock.calls.at(-1)![2];

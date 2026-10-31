@@ -27,7 +27,7 @@ vi.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
 vi.mock('expo-router', () => ({
   useFocusEffect: vi.fn(),
   useRouter: () => ({ push: vi.fn() }),
-  Stack: { Screen: 'StackScreen' },
+  Stack: { Screen: (props: any) => React.createElement('StackScreen', props, props.options?.headerRight?.()) },
 }));
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
@@ -386,7 +386,7 @@ describe('Library collection recovery', () => {
       expect(renderer.container.queryAll(instance =>
         instance.props.children === 'Create your first collection to organize recipes',
       )).toHaveLength(0);
-      const create = renderer.container.queryAll(instance => instance.props.title === 'New collection')[0];
+      const create = renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'New collection')[0];
       await act(async () => { create.props.onPress(); });
       expect(renderer.container.queryAll(instance => instance.type === 'CreateCollectionModal')[0].props.visible).toBe(true);
     } finally { await act(async () => renderer.unmount()); }
