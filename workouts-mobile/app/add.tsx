@@ -4,7 +4,7 @@ import { Copy, ListGroup, ListRow, useColors } from "@/components/ui";
 export default function Add() {
   const c = useColors();
   return <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ backgroundColor: c.groupedBackground }} contentContainerStyle={{ padding: 16, gap: 24 }}>
-    <ListGroup>
+    <ListGroup grouped>
       <ListRow icon="link-outline" title="Paste a link" onPress={() => router.replace("/extract")} />
       <ListRow icon="camera-outline" title="Record/upload" detail="Photos, screenshots, documents or text" onPress={() => router.replace("/capture")} />
       <ListRow icon="barbell-outline" title="Build a workout" onPress={() => router.replace("/add-workout")} />

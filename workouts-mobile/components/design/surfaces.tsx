@@ -389,7 +389,7 @@ export function ListRow({
 }
 
 /** Groups ListRows inside one card with hairline separators. */
-export function ListGroup({ children }: PropsWithChildren) {
+export function ListGroup({ children, grouped = false }: PropsWithChildren<{ grouped?: boolean }>) {
   const c = useColors();
   // Flatten arrays and fragments so every row gets its own separator.
   const flatten = (nodes: ReactNode): ReactNode[] =>
@@ -402,7 +402,7 @@ export function ListGroup({ children }: PropsWithChildren) {
   return (
     <View
       style={{
-        backgroundColor: c.surface,
+        backgroundColor: grouped ? c.elevated : c.surface,
         borderRadius: radii.sm,
         borderWidth: 0,
         borderColor: c.border,

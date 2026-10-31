@@ -16,8 +16,8 @@ export default function Search() {
   const results = filterLibrary(library.data ?? [], query, null, null);
   const placeholder = `Search ${library.data?.length ?? "your"} workouts`;
   return <>
-    <Stack.Screen options={{ headerSearchBarOptions: { placeholder, autoFocus: true, hideWhenScrolling: false,
-      onChangeText: event => setQuery(event.nativeEvent.text), onCancelButtonPress: () => setQuery("") } }} />
+    <Stack.Screen options={{ headerSearchBarOptions: Platform.OS === "ios" ? { placeholder, autoFocus: true, hideWhenScrolling: false,
+      onChangeText: event => setQuery(event.nativeEvent.text), onCancelButtonPress: () => setQuery("") } : undefined }} />
     <Screen title="Search" refreshing={fresh.refreshing} onRefresh={fresh.onRefresh}>
       {Platform.OS !== "ios" && <Field label="Search your library" hideLabel value={query} onChange={setQuery} placeholder={placeholder} />}
       {!!library.error && <Notice error>{library.error.message}</Notice>}
