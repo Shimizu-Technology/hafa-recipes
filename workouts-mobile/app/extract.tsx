@@ -94,7 +94,15 @@ export default function Capture() {
     if (leavingBusy.current) return;
     leavingBusy.current = true;
     const scope = live.current;
-    void writes.current.catch(() => flush()).then(() => {
+    void (async () => {
+      // Edits can enqueue another write while Back awaits storage. Drain every
+      // observed tail before unmount invalidates the draft's storage guard.
+      let tail: Promise<unknown>;
+      do {
+        tail = writes.current;
+        await tail.catch(() => flush());
+      } while (tail !== writes.current);
+    })().then(() => {
       if (scope !== live.current || !scope.active) return;
       afterSave.current = () => {
         if (scope === live.current && scope.active && storage.isCurrent() && isCurrentAccount()) navigation.dispatch(data.action);
@@ -238,7 +246,9 @@ export default function Capture() {
     return () => { active = false; };
   }, [slot, generation, shared, sharedRequest, ready, busy]);
   function update(patch: Partial<Pick<CaptureDraft, "text" | "source_url">>) {
-    if (guard.current || draftRef.current.pending_import || !readyRef.current || stale) return;
+    // Once the stable queue is saved, reject late native input events during
+    // the render that releases usePreventRemove and dispatches the departure.
+    if (leaving || afterSave.current || guard.current || draftRef.current.pending_import || !readyRef.current || stale) return;
     try {
       current();
     } catch (e) {

@@ -22,6 +22,8 @@ import { AccountIdentityProvider } from "@/components/account-identity";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
 
+export const unstable_settings = { anchor: "(tabs)" };
+
 // Screens share cached reads for 30 seconds instead of refetching on every mount.
 // Saves still invalidate or refetch the data they change.
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } });
@@ -81,7 +83,7 @@ function Routes() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
-        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text }, headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.back()} /> }} />
+        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text }, headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /> }} />
         <Stack.Screen name="extract" />
         <Stack.Screen name="plan" />
         <Stack.Screen name="progress" />

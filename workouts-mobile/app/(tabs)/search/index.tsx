@@ -13,7 +13,7 @@ export default function Search() {
   const searchBar = useRef<SearchBarCommands | null>(null);
   const [query, setQuery] = useState("");
   useEffect(() => { setQuery(""); searchBar.current?.clearText(); }, [owner, enrollment?.generation]);
-  const library = useQuery({ queryKey: [owner, "search-library", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
+  const library = useQuery({ queryKey: [owner, "library", "search", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
   const fresh = useFocusRefresh([library], { enabled: !!enrollment?.enrolled });
   const [settled, setSettled] = useState("");
   useEffect(() => { const timer = setTimeout(() => setSettled(query.trim()), 300); return () => clearTimeout(timer); }, [query]);

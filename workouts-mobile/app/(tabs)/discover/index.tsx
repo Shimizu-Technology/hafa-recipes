@@ -172,7 +172,7 @@ export default function Discover() {
     try {
       await api.saveDiscovered(card.id, enrollment.generation);
       if (!isCurrentAccount()) return;
-      await Promise.all([cache.invalidateQueries({ queryKey: [owner, "discover"] }), cache.invalidateQueries({ queryKey: [owner, "library"] }), cache.invalidateQueries({ queryKey: [owner, "search-library"] })]);
+      await Promise.all([cache.invalidateQueries({ queryKey: [owner, "discover"] }), cache.invalidateQueries({ queryKey: [owner, "library"] })]);
       haptics.tick(); toast("Saved to your library");
     } catch (error) { if (isCurrentAccount()) toast((error as Error).message, "error"); }
     finally { saveLock.current = false; setSaving(undefined); }

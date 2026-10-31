@@ -8,14 +8,14 @@ export default function Add() {
   function open(href: Href) {
     if (choosing.current) return;
     choosing.current = true;
-    if (Platform.OS === "web") { router.replace(href); return; }
+    if (Platform.OS === "web" || !router.canGoBack()) { router.replace(href); return; }
     // Commit the dismissal before mounting a full-screen flow. A replace reuses
     // the native form sheet's measured height on iOS.
     router.back();
     requestAnimationFrame(() => router.push(href));
   }
   return <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ backgroundColor: c.groupedBackground }} contentContainerStyle={{ padding: 16, gap: 24 }}>
-    {Platform.OS === "android" && <Row justify="space-between"><Copy kind="heading">Add a workout</Copy><IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.back()} /></Row>}
+    {Platform.OS === "android" && <Row justify="space-between"><Copy kind="heading">Add a workout</Copy><IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /></Row>}
     <ListGroup grouped>
       <ListRow icon="link-outline" title="Paste a link" onPress={() => open("/extract")} />
       <ListRow icon="camera-outline" title="Record/upload" detail="Photos, screenshots, documents or text" onPress={() => open("/capture")} />
