@@ -25,7 +25,7 @@ function Routes() {
     );
   const stack = (
     // Native push and sheet transitions, as the system draws them.
-    <Stack screenOptions={{ headerShown: false, headerBackButtonDisplayMode: "minimal", headerShadowVisible: false, headerTintColor: c.action,
+    <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back", headerBackButtonDisplayMode: "minimal", headerShadowVisible: false, headerTintColor: c.action,
       headerStyle: Platform.OS === "ios" ? undefined : { backgroundColor: c.background },
       headerBlurEffect: "systemChromeMaterial", headerLargeStyle: { backgroundColor: "transparent" },
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text, fontFamily: fonts.regular, fontSize: 34, fontWeight: "700" },
@@ -36,7 +36,7 @@ function Routes() {
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
       <Stack.Protected guard={!!isSignedIn}>
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(tabs)" options={{ title: "Back" }} />
         <Stack.Screen name="add" options={{ presentation: "modal", headerShown: true, title: "What’s on your mind?" }} />
         <Stack.Screen name="edit" />
         <Stack.Screen name="record/[id]" />

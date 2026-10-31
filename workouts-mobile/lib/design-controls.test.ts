@@ -15,7 +15,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-glass-effect", () => ({ GlassView: "GlassView" }));
-vi.mock("@/components/ui", () => ({ Copy: "Copy", useColors: () => light, useReducedMotion: () => false }));
+vi.mock("@/components/ui", () => ({ Copy: "Copy", Button: "Button", useColors: () => light, useReducedMotion: () => false }));
 import { LibraryCard } from "../components/library-card";
 import { Button, Choice, Segmented, Field, Chip } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
@@ -104,4 +104,20 @@ it("places list duration beside the fixed thumbnail so AX5 text can grow", () =>
   expect(duration.parent!.props.style).toMatchObject({ flex: 1, minWidth: 0 });
   expect(duration.props.numberOfLines).toBeUndefined();
   expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain("120 min");
+});
+
+import { BrowseLinks } from "../components/browse-links";
+it.each([1, 3.1])("separates scrollable browse links at font scale %s", scale => {
+  f.fontScale = scale;
+  const onPress = vi.fn();
+  act(() => { view = create(createElement(BrowseLinks, { links: ["Collections", "Programs", "Needs info · 1", "Filter"].map(title => ({ title, onPress })) })); });
+  const scroll = view!.root.findByType("ScrollView" as never);
+  expect(scroll.props.horizontal).toBe(true);
+  const rows = view!.root.findAllByType("View" as never).filter(node => node.props.style?.flexDirection === "row");
+  expect(rows).toHaveLength(scale >= 1.3 ? 2 : 1);
+  for (const row of rows) expect(row.props.style.gap).toBeGreaterThanOrEqual(Math.max(16, 15 * scale * 0.75));
+  const links = view!.root.findAllByType("Button" as never);
+  expect(links.map(node => node.props.title)).toEqual(["Collections", "Programs", "Needs info · 1", "Filter"]);
+  act(() => links[3].props.onPress());
+  expect(onPress).toHaveBeenCalledOnce();
 });
