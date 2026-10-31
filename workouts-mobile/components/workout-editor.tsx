@@ -354,7 +354,7 @@ export function WorkoutEditor({
             onPress={() => { if (!disabled) setRemovingBlock(block.id); }} />}
         </Card>
       ); })}
-      {!reviewing && <>      <Button
+      {!reviewing && <><Button
         disabled={disabled || value.blocks.length >= 100}
         title={value.blocks.length ? "Add another block" : "Add exercises"}
         secondary
