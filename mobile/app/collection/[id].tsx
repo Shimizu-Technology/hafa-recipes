@@ -1,25 +1,34 @@
-import { RECIPE_GRID_GAP, RecipeGridCardFrame } from '@/components/RecipeGridCardFrame';
+import { fontFamily } from '@/constants/Colors';
 /**
  * Collection detail screen - shows all recipes in a collection.
  */
 
+import { useState, useCallback, useRef, useLayoutEffect, useMemo } from 'react';
 import { useAuth } from '@clerk/expo';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { Link, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Platform, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, useWindowDimensions, } from 'react-native';
+import {
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  RefreshControl,
+  View as RNView,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
+import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { AnimatedListItem } from '@/components/Animated';
+import { View, Text, Button, useColors } from '@/components/Themed';
 import CreateCollectionModal from '@/components/CreateCollectionModal';
-import { Button, Text, useColors, View } from '@/components/Themed';
-import { fontSize, fontWeight, spacing } from '@/constants/Colors';
 import { useCollectionRecipes, useCollections, useRemoveFromCollection } from '@/hooks/useCollections';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
-import { getRecipeSourcePresentation } from '@/lib/recipeSource';
-import { CollectionRecipe } from '@/types/recipe';
+import { CollectionRecipe, Collection } from '@/types/recipe';
+import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
+import { getRecipeSourcePresentation } from '@/lib/recipeSource';
+import { AnimatedListItem, ScalePressable } from '@/components/Animated';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
+import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
 /** Render a recipe row within a collection. */
 export function RecipeCard({
@@ -33,26 +42,56 @@ export function RecipeCard({
   onRemove: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
-  const sourceLabel = getRecipeSourcePresentation(recipe.source_type).label;
-  const card = <RecipeGridCardFrame title={recipe.title} thumbnailUrl={recipe.thumbnail_url} colors={colors} onPress={onPress}
-    accessibilityLabel={recipeCardAccessibilityLabel({ title: recipe.title, reviewState: recipe.review_state, totalTime: recipe.total_time, servings: recipe.servings, sourceLabel })}
-    accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
-    onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onRemove(); }}
-    footer={<RNView style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <Text style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary, flex: 1 }} numberOfLines={1}>{[sourceLabel, recipe.total_time].filter(Boolean).join(' · ')}</Text>
-      {Platform.OS !== 'ios' && <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Remove ${recipe.title} from collection`} onPress={event => { event.stopPropagation(); onRemove(); }} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="close" size={16} color={colors.textSecondary} /></TouchableOpacity>}
-    </RNView>} />;
-  if (Platform.OS !== 'ios') return card;
-  return <RNView accessible accessibilityRole="button"
-    accessibilityLabel={recipeCardAccessibilityLabel({ title: recipe.title, reviewState: recipe.review_state, totalTime: recipe.total_time, servings: recipe.servings, sourceLabel })}
-    onAccessibilityTap={onPress}
-    accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
-    onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onRemove(); }}>
-    <Link href={`/recipe/${recipe.id}`} asChild onPress={event => event.preventDefault()}>
-      <Link.Trigger>{card}</Link.Trigger>
-      <Link.Menu><Link.MenuAction icon="minus.circle" onPress={onRemove}>Remove from collection</Link.MenuAction></Link.Menu>
-    </Link>
-  </RNView>;
+  const { label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
+
+  return (
+    <ScalePressable
+      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={recipeCardAccessibilityLabel({
+        title: recipe.title,
+        reviewState: recipe.review_state,
+        totalTime: recipe.total_time,
+        servings: recipe.servings,
+        sourceLabel,
+      })}
+      // The card groups its children for VoiceOver, so expose Remove as an action.
+      accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'remove') onRemove();
+      }}
+    >
+      {/* Thumbnail */}
+      <RecipeThumbnail
+        uri={recipe.thumbnail_url}
+        style={styles.thumbnail}
+        accessibilityLabel={`${recipe.title} photo`}
+      />
+
+      {/* Content */}
+      <RNView style={styles.cardContent}>
+        <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+          {recipe.title}
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+          {[sourceLabel, recipe.total_time, recipe.servings ? `${recipe.servings} servings` : null].filter(Boolean).join(' · ')}
+        </Text>
+      </RNView>
+      <TouchableOpacity
+        style={[styles.removeButton, { backgroundColor: 'transparent' }]}
+        onPress={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${recipe.title} from collection`}
+      >
+        <Ionicons name="close" size={18} color={colors.textSecondary} />
+      </TouchableOpacity>
+    </ScalePressable>
+  );
 }
 
 export default function CollectionDetailScreen() {
@@ -67,7 +106,6 @@ export default function CollectionDetailScreen() {
     return () => { if (scope.current === committedScope) scope.current = null; };
   }, [committedScope]);
   const colors = useColors();
-  const columns = useWindowDimensions().fontScale >= 1.3 ? 1 : 2;
   const insets = useSafeAreaInsets();
 
   const [showEditModal, setShowEditModal] = useState(false);
@@ -151,7 +189,7 @@ export default function CollectionDetailScreen() {
   if (!collection) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerTitle: 'Collection' }} />
+        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerTitle: 'Collection' }} />
         <RNView style={styles.loadingContainer}>
           {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.actionText} /> : (
             <>
@@ -175,9 +213,10 @@ export default function CollectionDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerTitle: collection.name,
+          headerTitle: collection.name, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 },
           headerRight: () => (
-            <TouchableOpacity
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Collection options"
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
               onPress={() => setShowEditModal(true)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
@@ -213,11 +252,8 @@ export default function CollectionDetailScreen() {
         {isLoading && !recipes && <ActivityIndicator size="large" color={colors.actionText} />}
       </RNView>
 
-      <FlatList
+      <FlatList contentInsetAdjustmentBehavior="automatic"
         data={recipes}
-        key={`columns-${columns}`}
-        numColumns={columns}
-        columnWrapperStyle={columns === 2 ? { gap: RECIPE_GRID_GAP } : undefined}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={!isLoading && !isError ? ListEmpty : null}
@@ -245,18 +281,75 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
     paddingVertical: spacing.sm,
   },
   countText: {
     fontSize: fontSize.sm,
   },
   listContent: {
-    width: '100%',
-    maxWidth: 720,
-    alignSelf: 'center',
     paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
+  },
+  card: {
+    alignItems: 'center', padding: 12,
+    flexDirection: 'row',
+    borderRadius: 12,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+    borderWidth: 0,
+  },
+  thumbnail: {
+    width: 44,
+    height: 44, borderRadius: 8,
+  },
+  cardContent: {
+    flex: 1,
+    paddingHorizontal: 12,
+    justifyContent: 'space-between',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontFamily: fontFamily.display,
+    lineHeight: 21,
+  },
+  trustBadge: {
+    marginTop: spacing.xs,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.xs,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaText: {
+    fontSize: fontSize.xs,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  sourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  sourceText: {
+    fontSize: fontSize.xs,
+    textTransform: 'capitalize',
+  },
+  removeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyContainer: {
     alignItems: 'center',

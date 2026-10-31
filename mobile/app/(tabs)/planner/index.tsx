@@ -19,11 +19,15 @@ import {
   RefreshControl,
   Alert,
   Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   Modal,
   TextInput,
+  ActionSheetIOS,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
@@ -63,7 +67,6 @@ import {
   type MealPlanRecipe,
 } from '@/lib/plannerNavigation';
 import { appRoutes } from '@/lib/routes';
-import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm * 6) / 7;
@@ -179,7 +182,9 @@ export function MealSlot({
   pendingRecipeTitle,
   isAdding,
   isAddDisabled,
+  entriesOnly = false,
 }: {
+  entriesOnly?: boolean;
   mealType: MealTypeMeta;
   entries: MealPlanEntry[];
   colors: ReturnType<typeof useColors>;
@@ -193,20 +198,20 @@ export function MealSlot({
 }) {
   return (
     <RNView style={styles.mealSlot}>
-      <RNView style={styles.mealSlotHeader}>
+      {!entriesOnly && entries.length > 0 && <RNView style={styles.mealSlotHeader}>
         <RNView style={[styles.mealIcon, { backgroundColor: colors.tint + '15' }]}>
           <Ionicons name={mealType.icon} size={18} color={colors.actionText} />
         </RNView>
         <Text style={[styles.mealLabel, { color: colors.text }]}>
           {mealType.label}
         </Text>
-      </RNView>
+      </RNView>}
 
-      {entries.length === 0 ? (
+      {entries.length === 0 ? (entriesOnly ? null : (
         <TouchableOpacity
           style={[
             styles.addMealButton,
-            { backgroundColor: colors.card, borderColor: colors.cardBorder },
+            { backgroundColor: 'transparent' },
           ]}
           onPress={onAdd}
           disabled={isAddDisabled}
@@ -231,32 +236,35 @@ export function MealSlot({
             </>
           )}
         </TouchableOpacity>
-      ) : (
+      )) : (
         <RNView style={styles.mealEntries}>
           {entries.map((entry) => (
-            <ScalePressable
+            <RNView
               key={entry.id}
               style={[
                 styles.mealCard,
-                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                { backgroundColor: 'transparent' },
               ]}
-              onPress={() => onViewRecipe(entry.recipe_id)}
-              scaleValue={0.98}
             >
+              <TouchableOpacity onPress={() => onViewRecipe(entry.recipe_id)} accessible={false}>
               <RecipeThumbnail
                 uri={entry.recipe_thumbnail}
                 style={styles.mealThumbnail}
                 accessibilityLabel={`${entry.recipe_title} photo`}
                 placeholderIconSize={16}
-              />
+              /></TouchableOpacity>
               <RNView style={styles.mealCardContent}>
+                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ minHeight: 44, justifyContent: 'center' }}
+                  accessibilityRole="button" accessibilityLabel={`Open ${entry.recipe_title}`}>
                 <Text
                   style={[styles.mealCardTitle, { color: colors.text }]}
-                  numberOfLines={2}
                 >
                   {entry.recipe_title}
-                </Text>
-                <RecipeTrustBadge reviewState={entry.recipe_review_state} />
+                </Text></ScalePressable>
+              <TouchableOpacity onPress={() => onEditServings?.(entry)} style={{ minHeight: 44, justifyContent: 'center' }}
+                accessibilityRole="button" accessibilityLabel={`Edit servings for ${entry.recipe_title}`}>
+                <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{entry.planned_servings ? `${entry.planned_servings} servings` : entry.servings || 'Recipe servings'} · {mealType.label}</Text>
+              </TouchableOpacity>
                 {entry.notes && (
                   <Text
                     style={[styles.mealCardNotes, { color: colors.textMuted }]}
@@ -266,18 +274,15 @@ export function MealSlot({
                   </Text>
                 )}
               </RNView>
-              <TouchableOpacity onPress={() => onEditServings?.(entry)} style={{ minHeight: 44, justifyContent: 'center' }}
-                accessibilityRole="button" accessibilityLabel={`Edit servings for ${entry.recipe_title}`}>
-                <Text style={{ color: colors.actionText }}>{entry.planned_servings ? `${entry.planned_servings} servings` : entry.servings || 'Recipe servings'}</Text>
-              </TouchableOpacity>
+
               <IconButton
                 icon="close-circle-outline"
-                accessibilityLabel={`Remove ${entry.recipe_title || 'recipe'} from ${mealType}`}
+                accessibilityLabel={`Remove ${entry.recipe_title || 'recipe'} from ${mealType.label}`}
                 onPress={() => onRemove(entry.id)}
               />
-            </ScalePressable>
+            </RNView>
           ))}
-          {pendingRecipeTitle ? (
+          {!entriesOnly && (pendingRecipeTitle ? (
             <TouchableOpacity
               style={[styles.planHereButton, { borderColor: colors.tint }]}
               onPress={onAdd}
@@ -305,9 +310,9 @@ export function MealSlot({
               accessibilityLabel={`Add another ${mealType.label}`}
               accessibilityState={{ disabled: isAddDisabled }}
             >
-              <Ionicons name="add" size={16} color={colors.actionText} />
+              <Ionicons name="add" size={16} color={colors.actionText} /><Text style={{ color: colors.actionText }}>Add</Text>
             </TouchableOpacity>
-          )}
+          ))}
         </RNView>
       )}
     </RNView>
@@ -320,6 +325,9 @@ export default function PlannerScreen() {
 }
 
 function PlannerScreenContent() {
+  const { fontScale } = useWindowDimensions();
+  const [mealTypeDate, setMealTypeDate] = useState<Date | null>(null);
+  const headerHeight = useHeaderHeight();
   const router = useRouter();
   const {
     date: requestedDateParam,
@@ -333,6 +341,18 @@ function PlannerScreenContent() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
+
+  const weekScroll = useRef<ScrollView>(null);
+  const dayPositions = useRef<Record<string, number>>({});
+  const pendingScrollDate = useRef<string | null>(null);
+  const scrollToRequestedDay = () => {
+    if (!weekPlan || isLoading) return;
+    const date = pendingScrollDate.current;
+    if (date && dayPositions.current[date] !== undefined) {
+      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[date] - headerHeight), animated: false });
+      pendingScrollDate.current = null;
+    }
+  };
 
   // Current week and selected day
   const [currentWeekStart, setCurrentWeekStart] = useState(() => getWeekStart(new Date()));
@@ -379,7 +399,12 @@ function PlannerScreenContent() {
     );
     if (!requestedDate) return;
 
-    setCurrentWeekStart(getWeekStart(requestedDate));
+    const requestedWeek = getWeekStart(requestedDate);
+    const sameWeek = formatDateForApi(requestedWeek) === formatDateForApi(currentWeekStart);
+    if (!sameWeek) dayPositions.current = {};
+    pendingScrollDate.current = formatDateForApi(requestedDate);
+    if (sameWeek) scrollToRequestedDay();
+    else setCurrentWeekStart(requestedWeek);
     setSelectedDate(requestedDate);
   }, [requestedDateParam]);
 
@@ -456,22 +481,29 @@ function PlannerScreenContent() {
   const goToToday = useCallback(() => {
     lightHaptic();
     const today = new Date();
+    const target = formatDateForApi(today);
+    if (formatDateForApi(getWeekStart(today)) === weekOfStr && dayPositions.current[target] !== undefined) {
+      weekScroll.current?.scrollTo({ y: Math.max(0, dayPositions.current[target] - headerHeight), animated: false });
+    } else {
+      dayPositions.current = {};
+      pendingScrollDate.current = target;
+    }
     setCurrentWeekStart(getWeekStart(today));
     setSelectedDate(today);
-  }, []);
+  }, [weekOfStr, headerHeight]);
 
   const addRecipeToMeal = useCallback(
-    async (recipe: MealPlanRecipe, mealType: MealType) => {
+    async (recipe: MealPlanRecipe, mealType: MealType, date = selectedDate) => {
       setAddingMealType(mealType);
       try {
         await addMeal.mutateAsync(buildMealPlanEntry(
           recipe,
-          formatDateForApi(selectedDate),
+          formatDateForApi(date),
           mealType,
         ));
         successHaptic();
         if (requestedRecipeId) {
-          router.replace(appRoutes.plannerDate(formatDateForApi(selectedDate)));
+          router.replace(appRoutes.plannerDate(formatDateForApi(date)));
         }
       } catch {
         // User-facing alert is sufficient
@@ -484,15 +516,16 @@ function PlannerScreenContent() {
   );
 
   // Add the handed-off recipe directly, or open the normal recipe picker.
-  const handleAddMeal = useCallback((mealType: MealType) => {
+  const handleAddMeal = useCallback((mealType: MealType, date = selectedDate) => {
+    setSelectedDate(date);
     lightHaptic();
     if (handoffRecipe) {
-      void addRecipeToMeal(handoffRecipe, mealType);
+      void addRecipeToMeal(handoffRecipe, mealType, date);
       return;
     }
     setSelectedMealType(mealType);
     setPickerVisible(true);
-  }, [addRecipeToMeal, handoffRecipe]);
+  }, [addRecipeToMeal, handoffRecipe, selectedDate]);
 
   // Handle recipe selection from picker
   const handleRecipeSelected = useCallback(
@@ -611,7 +644,7 @@ function PlannerScreenContent() {
           <RNView
             style={[
               styles.previewPlannerCard,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              { backgroundColor: 'transparent' },
             ]}
           >
             <RNView style={styles.previewPlannerHeader}>
@@ -685,9 +718,10 @@ function PlannerScreenContent() {
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
+    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
+      {/* Day Content */}
+      <ScrollView ref={weekScroll} onContentSizeChange={scrollToRequestedDay}
+          contentInsetAdjustmentBehavior="automatic"
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
         refreshControl={
@@ -700,16 +734,16 @@ function PlannerScreenContent() {
         showsVerticalScrollIndicator={false}
       >
       {/* Week Navigation Header */}
-      <RNView style={[styles.weekHeader, { backgroundColor: colors.background }]}>
+      <RNView style={styles.weekHeader}>
         <TouchableOpacity onPress={goToPrevWeek} accessibilityRole="button" accessibilityLabel="Previous week" style={styles.weekNavButton}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToToday} accessibilityRole="button" accessibilityLabel="Go to today" style={styles.weekLabelContainer}>
+        <TouchableOpacity onPress={goToToday} accessibilityRole="button" accessibilityLabel="Go to today" style={[styles.weekLabelContainer, fontScale >= 1.3 && { flexDirection: 'column' }]}>
           <Text style={[styles.weekLabel, { color: colors.text }]}>
             {weekRangeLabel}
           </Text>
-          <RNView style={[styles.todayButton, { backgroundColor: colors.tint + '15' }]}>
+          <RNView style={styles.todayButton}>
             <Text style={[styles.todayButtonText, { color: colors.actionText }]}>Today</Text>
           </RNView>
         </TouchableOpacity>
@@ -718,28 +752,6 @@ function PlannerScreenContent() {
           <Ionicons name="chevron-forward" size={24} color={colors.text} />
         </TouchableOpacity>
       </RNView>
-
-      {/* Day Strip */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={[styles.dayStrip, { borderBottomColor: colors.border }]}>
-        {weekDates.map((date, index) => (
-          <DayPill
-            key={index}
-            date={date}
-            mealTitles={weekPlan?.days.find(day => day.date === formatDateForApi(date)) ? MEAL_TYPES.flatMap(type => weekPlan.days.find(day => day.date === formatDateForApi(date))?.[type.type] ?? []).map(entry => entry.recipe_title) : undefined}
-            isSelected={formatDateForApi(date) === formatDateForApi(selectedDate)}
-            colors={colors}
-            onPress={() => {
-              lightHaptic();
-              setSelectedDate(date);
-            }}
-          />
-        ))}
-      </ScrollView>
-
-        {/* Day Header */}
-        <Text style={[styles.dayTitle, { color: colors.text }]}>
-          {formatFullDayLabel(selectedDate)}
-        </Text>
 
         {requestedRecipeId && (
           <PlannerRecipeHandoffCard
@@ -775,32 +787,33 @@ function PlannerScreenContent() {
           </RNView>
         ) : !weekPlan && isError ? null : (
           <>
-            {/* Meal Slots */}
-            {MEAL_TYPES.map((mealType) => (
-              <MealSlot
-                key={mealType.type}
-                mealType={mealType}
-                entries={
-                  selectedDayMeals
-                    ? selectedDayMeals[mealType.type] || []
-                    : []
-                }
-                colors={colors}
-                onAdd={() => handleAddMeal(mealType.type)}
-                onRemove={handleRemoveMeal}
-                onViewRecipe={handleViewRecipe}
-            onEditServings={(entry) => { setEditingServings(entry); setServingsInput(String(entry.planned_servings ?? entry.servings ?? '')); }}
-                pendingRecipeTitle={handoffRecipe?.title}
-                isAdding={addingMealType === mealType.type}
-                isAddDisabled={addMeal.isPending || requestedRecipeIsPending}
-              />
-            ))}
+            {weekDates.map(date => {
+              const day = weekPlan?.days.find(value => value.date === formatDateForApi(date));
+              return <RNView key={formatDateForApi(date)} style={{ marginBottom: 24 }} onLayout={event => { dayPositions.current[formatDateForApi(date)] = event.nativeEvent.layout.y; scrollToRequestedDay(); }}>
+                <Text accessibilityRole="header" style={[styles.dayTitle, { color: colors.text }]}>{formatFullDayLabel(date)}</Text>
+                <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 12, paddingHorizontal: 12 }}>
+                  {MEAL_TYPES.map(mealType => <MealSlot entriesOnly key={mealType.type} mealType={mealType}
+                    entries={day?.[mealType.type] || []} colors={colors}
+                    onAdd={() => handleAddMeal(mealType.type, date)} onRemove={handleRemoveMeal} onViewRecipe={handleViewRecipe}
+                    onEditServings={entry => { setEditingServings(entry); setServingsInput(String(entry.planned_servings ?? entry.servings ?? '')); }}
+                    pendingRecipeTitle={handoffRecipe?.title}
+                    isAdding={addingMealType === mealType.type && formatDateForApi(date) === formatDateForApi(selectedDate)}
+                    isAddDisabled={addMeal.isPending || requestedRecipeIsPending} />)}
+                  <TouchableOpacity style={styles.addMealButton} accessibilityRole="button" accessibilityLabel={`Add meal for ${formatFullDayLabel(date)}`}
+                    disabled={addMeal.isPending || requestedRecipeIsPending} onPress={() => {
+                      const actions = MEAL_TYPES.map(meal => ({ text: meal.label, onPress: () => handleAddMeal(meal.type, date) }));
+                      if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title: 'Meal type', options: [...actions.map(action => action.text), 'Cancel'], cancelButtonIndex: actions.length }, index => actions[index]?.onPress());
+                      else setMealTypeDate(date);
+                    }}><Ionicons name="add" size={20} color={colors.actionText} /><Text style={{ color: colors.actionText, fontSize: 17, lineHeight: 22 }}>{addingMealType && formatDateForApi(date) === formatDateForApi(selectedDate) ? 'Adding…' : 'Add'}</Text></TouchableOpacity>
+                </RNView>
+              </RNView>;
+            })}
 
             {/* Add to Grocery Button */}
             <TouchableOpacity
               style={[
                 styles.groceryButton,
-                { backgroundColor: colors.success },
+                { backgroundColor: colors.tint },
               ]}
               onPress={handleAddToGrocery}
               accessibilityRole="button" accessibilityLabel="Review week groceries"
@@ -808,11 +821,11 @@ function PlannerScreenContent() {
               activeOpacity={0.8}
             >
               {addToGrocery.isPending ? (
-                <ActivityIndicator size="small" color={colors.onSuccess} />
+                <ActivityIndicator size="small" color={colors.onTint} />
               ) : (
                 <>
-                  <Ionicons name="cart-outline" size={20} color={colors.onSuccess} />
-                  <Text style={[styles.groceryButtonText, { color: colors.onSuccess }]}>
+                  <Ionicons name="cart-outline" size={20} color={colors.onTint} />
+                  <Text style={[styles.groceryButtonText, { color: colors.onTint }]}>
                     Add Week to Grocery List
                   </Text>
                 </>
@@ -822,6 +835,14 @@ function PlannerScreenContent() {
         )}
       </ScrollView>
 
+      <Modal visible={mealTypeDate !== null} onRequestClose={() => setMealTypeDate(null)} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, padding: 16, gap: 8 }}>
+          <Text accessibilityRole="header" style={{ fontSize: 22, lineHeight: 28 }}>Meal type</Text>
+          {MEAL_TYPES.map(meal => <TouchableOpacity key={meal.type} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}
+            onPress={() => { const date = mealTypeDate; setMealTypeDate(null); if (date) handleAddMeal(meal.type, date); }}><Text>{meal.label}</Text></TouchableOpacity>)}
+          <Button title="Cancel" variant="secondary" onPress={() => setMealTypeDate(null)} />
+        </View>
+      </Modal>
       <Modal visible={!!editingServings} onRequestClose={() => setEditingServings(null)} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md }}>
           <Text>Servings for {editingServings?.recipe_title}</Text>
@@ -869,13 +890,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   signedOutContent: {
-    padding: spacing.lg,
+    padding: 16,
     gap: spacing.lg,
   },
   signedOutHero: {
     padding: spacing.xl,
     borderRadius: radius.xxl,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   signedOutHeroIcon: {
     width: 62,
@@ -901,9 +922,9 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   previewPlannerCard: {
-    padding: spacing.lg,
+    padding: 16,
     borderRadius: radius.xxl,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   previewPlannerHeader: {
     flexDirection: 'row',
@@ -942,7 +963,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 58,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   previewDayText: {
     fontSize: fontSize.xs,
@@ -961,7 +982,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.md,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   previewMealIcon: {
     width: 42,
@@ -1011,14 +1032,20 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   weekNavButton: {
-    padding: spacing.xs,
+    minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center',
   },
   weekLabelContainer: {
+    justifyContent: 'center',
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
   },
   weekLabel: {
+    flexShrink: 1,
+    textAlign: 'center',
+    lineHeight: 22,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
@@ -1028,6 +1055,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   todayButtonText: {
+    lineHeight: 16,
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
   },
@@ -1046,7 +1074,7 @@ const styles = StyleSheet.create({
     width: Math.max(44, DAY_WIDTH),
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
-    borderWidth: 1.5,
+    borderWidth: 0,
   },
   dayPillLabel: {
     fontSize: fontSize.xs,
@@ -1067,13 +1095,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: spacing.lg,
+    padding: 16,
     paddingBottom: 80,
   },
   dayTitle: {
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
-    marginBottom: spacing.lg,
+    marginBottom: 8, fontFamily: fontFamily.display, lineHeight: 25,
   },
   loadingContainer: {
     flex: 1,
@@ -1086,7 +1114,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
   },
   mealSlot: {
-    marginBottom: spacing.lg,
+    marginBottom: 0,
   },
   mealSlotHeader: {
     flexDirection: 'row',
@@ -1108,11 +1136,11 @@ const styles = StyleSheet.create({
   addMealButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+    justifyContent: 'flex-start',
+    minHeight: 44,
+    paddingVertical: 8,
+    borderRadius: 0,
+    borderWidth: 0,
     gap: spacing.xs,
   },
   addMealText: {
@@ -1127,12 +1155,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.sm,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   mealThumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
   },
   mealCardContent: {
     flex: 1,
@@ -1140,8 +1168,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   mealCardTitle: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
+    fontSize: 16, lineHeight: 21, fontFamily: fontFamily.display,
   },
   mealCardNotes: {
     fontSize: fontSize.xs,
@@ -1151,12 +1178,12 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   addAnotherButton: {
+    minHeight: 44, flexDirection: 'row', gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+    borderWidth: 0,
   },
   planHereButton: {
     minHeight: 44,
@@ -1166,7 +1193,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   planHereText: {
     fontSize: fontSize.sm,
@@ -1177,7 +1204,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
+    minHeight: 50,
     marginTop: spacing.lg,
     gap: spacing.sm,
   },

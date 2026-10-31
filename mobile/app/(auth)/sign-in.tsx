@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSignIn } from '@clerk/expo/legacy';
-import { useRouter, Link } from 'expo-router';
+import { Stack, useRouter, Link } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
@@ -246,22 +246,10 @@ export default function SignInScreen() {
   }, [isLoaded, signIn, setActive, router]);
 
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
+        headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
+        title: verification ? 'Check your email' : 'Welcome back', headerLeft: () => (<TouchableOpacity
+            style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
             onPress={() => verification ? leaveVerification() : leaveAuthScreen(router)}
             disabled={isLoading}
             activeOpacity={0.7}
@@ -270,12 +258,26 @@ export default function SignInScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>) }} />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: 16, paddingBottom: insets.bottom + spacing.xl }
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Back Button */}
+
 
           {/* Logo / Header */}
           <RNView style={styles.header}>
-            <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
-            <Text style={[styles.title, { color: colors.text }]}>{verification ? 'Check your email' : 'Welcome back'}</Text>
+
+
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {verification ? 'One more check to keep your recipe library secure.' : 'Sign in to save, plan, shop, and cook from your recipe library.'}
             </Text>
@@ -347,7 +349,7 @@ export default function SignInScreen() {
               <TextInput
                 style={{ backgroundColor: colors.backgroundElevated, borderRadius: radius.lg,
                   padding: spacing.md, fontSize: fontSize.md, color: colors.text,
-                  fontFamily: fontFamily.medium, fontWeight: '500', borderWidth: 1, borderColor: colors.border }}
+                  fontFamily: fontFamily.medium, fontWeight: '500', borderWidth: 0, borderColor: colors.border }}
                 placeholderTextColor={colors.textMuted}
                 accessibilityLabel="Verification code"
                 value={verificationCode}
@@ -502,7 +504,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
   },
   backButton: {
     flexDirection: 'row',
@@ -520,8 +522,8 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   header: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
+    alignItems: 'flex-start',
+    marginBottom: 24,
   },
   eyebrow: {
     fontSize: fontSize.sm,
@@ -537,7 +539,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: fontSize.md,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   oauthContainer: {
     gap: spacing.md,
@@ -550,7 +552,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.md,
     borderRadius: radius.full,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   oauthButtonText: {
     fontSize: fontSize.md,
@@ -575,7 +577,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     marginBottom: spacing.lg,
   },
   errorText: {
@@ -613,7 +615,7 @@ const styles = StyleSheet.create({
   recoveryButton: {
     alignItems: 'center',
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     flexDirection: 'row',
     gap: spacing.sm,
     padding: spacing.md,

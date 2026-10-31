@@ -54,7 +54,7 @@ export function SettingsProfileCard({
       accessibilityHint={!isLoaded ? undefined : isSignedIn ? 'Opens profile editing' : 'Opens sign in'}
       accessibilityState={{ disabled: !isLoaded, busy: !isLoaded }}
     >
-      <Card>
+      <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 12, padding: 16 }}>
         <RNView style={styles.userCard}>
           {isLoaded && isSignedIn && hasProfilePhoto(user) ? (
             <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
@@ -88,7 +88,7 @@ export function SettingsProfileCard({
             <Ionicons name="chevron-forward" size={20} color={isSignedIn ? colors.textMuted : colors.actionText} />
           )}
         </RNView>
-      </Card>
+      </RNView>
     </TouchableOpacity>
   );
 }

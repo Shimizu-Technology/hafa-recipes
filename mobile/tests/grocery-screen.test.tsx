@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Platform } from 'react-native';
 import type { GroceryItem } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   share: vi.fn(),
   refetch: vi.fn(),
   addItem: vi.fn(),
+  deleteItems: vi.fn(),
   success: vi.fn(),
   focusCallback: vi.fn() as () => void,
   routerPush: vi.fn(),
@@ -43,8 +45,13 @@ function host(name: string) {
 }
 
 vi.mock('react-native', () => ({
+  PanResponder: { create: (handlers: any) => ({ panHandlers: handlers }) },
+  useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   ActivityIndicator: host('ActivityIndicator'),
+  Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
+  ScrollView: host('ScrollView'),
   Alert: { alert: mocks.alert },
+  ActionSheetIOS: { showActionSheetWithOptions: (options: any, callback: any) => mocks.alert('Actions', undefined, options.options.map((text: string, index: number) => ({ text, onPress: () => callback(index) }))) },
   Keyboard: { dismiss: vi.fn() },
   Platform: { OS: 'ios' },
   RefreshControl: host('RefreshControl'),
@@ -52,20 +59,17 @@ vi.mock('react-native', () => ({
     sections,
     renderItem,
     renderSectionHeader,
-    ListHeaderComponent,
     ListEmptyComponent,
-    ListFooterComponent,
+    ListFooterComponent, ListHeaderComponent,
   }: {
     sections: Array<{ key: string; data: GroceryItem[] }>;
     renderItem: (info: { item: GroceryItem; index: number; section: unknown }) => React.ReactNode;
     renderSectionHeader: (info: { section: unknown }) => React.ReactNode;
-    ListHeaderComponent: React.ReactNode;
     ListEmptyComponent: React.ComponentType;
-    ListFooterComponent: React.ReactNode;
+    ListFooterComponent: React.ReactNode; ListHeaderComponent: React.ReactNode;
   }) => React.createElement(
     'SectionList',
-    null,
-    ListHeaderComponent,
+    null, ListHeaderComponent,
     sections.length === 0
       ? React.createElement(ListEmptyComponent)
       : sections.flatMap((section) => [
@@ -85,7 +89,7 @@ vi.mock('react-native', () => ({
   View: host('NativeView'),
 }));
 
-vi.mock('expo-router', () => ({
+vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.headerSearchBarOptions ? React.createElement('NativeSearch', props.options.headerSearchBarOptions) : null, props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
   useFocusEffect: (callback: () => void) => { mocks.focusCallback = callback; },
   useLocalSearchParams: () => ({}),
   useRouter: () => ({ push: mocks.routerPush, setParams: mocks.routerSetParams }),
@@ -143,6 +147,7 @@ vi.mock('@/utils/haptics', () => ({
   },
 }));
 vi.mock('@/constants/Colors', () => ({
+  fontFamily: { display: 'Fraunces' },
   fontSize: { xs: 10, sm: 12, md: 14, xl: 20, xxl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },
   radius: { sm: 6, md: 10, full: 999 },
@@ -197,7 +202,7 @@ vi.mock('@/hooks/useGrocery', () => ({
   useClearAllItems: mutation,
   useClearCheckedItems: mutation,
   useDeleteGroceryItem: mutation,
-  useDeleteGroceryItems: mutation,
+  useDeleteGroceryItems: () => ({ ...mutation(), mutate: mocks.deleteItems }),
   useGroceryCount: (isSignedIn: boolean) => {
     mocks.countEnabledArgs.push(isSignedIn);
     const items = mocks.groceryState.items ?? [];
@@ -277,7 +282,9 @@ describe('GroceryScreen shopping views', () => {
     await act(async () => r.container.queryAll(n => n.type === 'TextInput')[0].props.onSubmitEditing());
     expect(mocks.addItem).toHaveBeenCalledOnce();
     expect(mocks.success).not.toHaveBeenCalled();
+    await act(async () => r.container.queryAll(n => n.type === 'TextInput')[0].props.onChangeText('Eggs'));
     await act(async () => mocks.addItem.mock.calls[0][1].onSuccess({ syncStatus: 'confirmed' }));
+    expect(r.container.queryAll(n => n.type === 'TextInput')[0].props.value).toBe('Eggs');
     expect(mocks.success).toHaveBeenCalledOnce();
     mocks.success.mockClear();
     await act(async () => mocks.addItem.mock.calls[0][1].onSuccess({ syncStatus: 'queued' }));
@@ -369,10 +376,10 @@ describe('GroceryScreen shopping views', () => {
         renderer.render(React.createElement(GroceryScreen));
       });
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'ScalePressable',
+        (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
       )).toHaveLength(1);
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'ellipsis-horizontal',
       )).toHaveLength(1);
 
       mocks.authState.isSignedIn = false;
@@ -381,10 +388,10 @@ describe('GroceryScreen shopping views', () => {
       });
 
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'ScalePressable',
+        (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
       )).toHaveLength(0);
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'ellipsis-horizontal',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
@@ -399,14 +406,14 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => {
         renderer.render(React.createElement(GroceryScreen));
       });
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(0);
 
       const searchInput = renderer.container.queryAll(
-        (instance) => instance.type === 'TextInput',
-      ).find((input) => input.props.accessibilityLabel === 'Search grocery items and recipes');
-      await act(async () => searchInput!.props.onChangeText('rice'));
+        (instance) => instance.type === 'NativeSearch',
+      )[0];
+      await act(async () => searchInput!.props.onChangeText({ nativeEvent: { text: 'rice' } }));
 
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
       const header = renderer.container.queryAll(
         (instance) => instance.type === 'GrocerySectionHeader',
       )[0];
@@ -428,19 +435,19 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => {
         renderer.render(React.createElement(GroceryScreen));
       });
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
 
       const allTab = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel === '2 total grocery items');
+      ).find((button) => button.props.accessibilityLabel === 'Show all grocery items');
       await act(async () => allTab!.props.onPress());
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(2);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(2);
 
       const toBuyTab = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel === '1 items to buy');
+      ).find((button) => button.props.accessibilityLabel === 'Show items to buy');
       await act(async () => toBuyTab!.props.onPress());
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -482,24 +489,40 @@ describe('GroceryScreen shopping views', () => {
         renderer.render(React.createElement(GroceryScreen));
       });
 
-      const rows = renderer.container.queryAll((instance) => instance.type === 'ScalePressable');
+      const rows = renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox');
       const row = rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('Rice'))!;
       expect(row.props.accessibilityRole).toBe('checkbox');
       expect(row.props.accessibilityState).toEqual({ checked: false });
       expect(row.props.accessibilityLabel).toBe('Rice, Added by Ana, Amount not stated, Jasmine');
       expect(rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('2'))!.props.accessibilityLabel)
         .toBe('2 piece Lime');
-      expect(row.props.accessibilityActions.map((action: { label: string }) => action.label))
-        .toEqual(['Edit Rice', 'Remove Rice']);
-      for (const label of ['Edit Rice', 'Remove Rice']) {
-        const button = renderer.container.queryAll(
-          (instance) => instance.props.accessibilityLabel === label && instance.props.accessibilityRole === 'button',
-        )[0];
-        expect(button, label).toBeDefined();
-      }
+      const edit = renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Edit Rice' && instance.props.accessibilityRole === 'button')[0];
+      expect(edit).toBeDefined();
+      expect(edit.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove Rice' }]);
+      await act(async () => edit.props.onPress());
+      expect(renderer.container.queryAll(instance => instance.type === 'EditGroceryItemModal')[0].props.item.name).toBe('Rice');
+      await act(async () => edit.props.onLongPress());
+      expect(mocks.alert.mock.calls.at(-1)![2].map((action: any) => action.text)).toContain('Delete item');
+
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('keeps recipe progress and removal complete when checked items are hidden', async () => {
+    mocks.collapsedSections = '[]';
+    mocks.groceryState.items = [item({ id: 'rice', name: 'Rice', recipe_id: 'recipe-1', recipe_title: 'Chicken Kelaguen' }), item({ id: 'salt', name: 'Salt', recipe_id: 'recipe-1', recipe_title: 'Chicken Kelaguen', checked: true })];
+    const renderer = createRoot();
+    try {
+      await act(async () => renderer.render(<GroceryScreen />));
+      const header = renderer.container.queryAll(node => node.type === 'GrocerySectionHeader')[0];
+      expect(header.props.section.checkedCount).toBe(1);
+      expect(header.props.section.totalCount).toBe(2);
+      await act(async () => header.props.onClearSection());
+      const actions = mocks.alert.mock.calls.at(-1)![2];
+      await act(async () => actions.find((action: any) => action.text === 'Clear').onPress());
+      expect(mocks.deleteItems).toHaveBeenCalledWith(['rice', 'salt'], expect.any(Object));
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('does not turn a quick manual grocery entry into a recipe warning', async () => {
@@ -562,21 +585,35 @@ describe('GroceryScreen shopping views', () => {
     }
   });
 
-  it('uses one field for search/add and names the exported view', async () => {
+  it('keeps household sharing reachable on Android without truncating the action list', async () => {
+    Object.assign(Platform, { OS: 'android' });
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<GroceryScreen />));
+      await act(async () => root.container.queryAll(node => node.props.accessibilityLabel === 'More grocery list actions')[0].props.onPress());
+      const household = root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === 'Household sharing & list settings')[0];
+      expect(household).toBeDefined();
+      await act(async () => household.props.onPress());
+      expect(root.container.queryAll(node => node.type === 'GroceryListSettingsModal')[0].props.isVisible).toBe(true);
+    } finally { Object.assign(Platform, { OS: 'ios' }); await act(async () => root.unmount()); }
+  });
+
+  it('separates native search from quick entry and names the exported view', async () => {
     mocks.groceryState.items = [item({ id: 'rice', name: 'Rice' }), item({ id: 'salt', name: 'Salt' })];
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
-      const inputs = renderer.container.queryAll((node) => node.type === 'TextInput');
+      const inputs = renderer.container.queryAll(node => node.type === 'NativeSearch');
+      expect(renderer.container.queryAll(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'Add an item')).toHaveLength(1);
       expect(inputs).toHaveLength(1);
-      await act(async () => inputs[0].props.onChangeText('rice'));
+      await act(async () => inputs[0].props.onChangeText({ nativeEvent: { text: 'rice' } }));
       const overflow = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'More grocery list actions')[0];
       await act(async () => overflow.props.onPress());
       const actions = mocks.alert.mock.calls.at(-1)![2];
       await act(async () => actions.find((action: { text: string }) => action.text === 'Export text — Search matches').onPress());
       expect(mocks.share.mock.calls.at(-1)![0].message).toContain('Grocery List — Search matches');
       expect(mocks.share.mock.calls.at(-1)![0].message).not.toContain('Salt');
-      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Share household')).toHaveLength(1);
+      expect(actions.some((action: { text: string }) => action.text === 'Household sharing & list settings')).toBe(true);
     } finally { await act(async () => renderer.unmount()); }
   });
 
@@ -588,6 +625,7 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
       expect(renderedText(renderer)).toContain('Saved on this device · waiting to sync');
       expect(renderedText(renderer)).not.toContain('Up to date');
+      expect(renderedText(renderer)).not.toContain('Confirmed');
       expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Add 1 checked item to pantry')).toHaveLength(1);
     } finally { await act(async () => renderer.unmount()); }
   });
@@ -623,8 +661,8 @@ describe('GroceryScreen shopping views', () => {
   it.each([
     [undefined, 'checking', undefined, 'Checking sync status'],
     [false, 'offline', undefined, 'Offline · showing this device’s list'],
-    [false, 'stale', '2026-10-31T01:00:00Z', 'Couldn’t refresh · last confirmed'],
-    [false, 'confirmed', '2026-10-31T01:00:00Z', 'Confirmed'],
+    [false, 'stale', '2026-10-31T01:00:00Z', 'Couldn’t refresh · showing this device’s list'],
+    [false, 'confirmed', '2026-10-31T01:00:00Z', ''],
   ])('reports snapshot freshness honestly (%s, %s)', async (queued, freshness, confirmedAt, text) => {
     mocks.queued = queued as boolean | undefined;
     mocks.groceryState.freshness = freshness as string;
@@ -634,6 +672,7 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
       expect(renderedText(renderer)).toContain(text);
       expect(renderedText(renderer)).not.toContain('Up to date');
+      expect(renderedText(renderer)).not.toContain('Confirmed');
     } finally { await act(async () => renderer.unmount()); }
   });
 

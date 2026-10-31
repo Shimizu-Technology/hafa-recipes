@@ -1,3 +1,5 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { fontFamily } from '@/constants/Colors';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useState } from 'react';
 import { ScrollView, TouchableOpacity, View, ActivityIndicator } from 'react-native';
@@ -20,10 +22,9 @@ function CollectionsScreenContent() {
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
   const { data: collections, isLoading: isLoadingCollections, isError: isCollectionsError,
     isFetching: isFetchingCollections, refetch: refetchCollections } = useCollections(Boolean(isSignedIn));
-  return <View style={{ flex: 1, backgroundColor: colors.background }}>
-    <Stack.Screen options={{ title: 'Collections' }} />
-    {!isSignedIn ? <SignInBanner message="Sign in to open your collections" /> : <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
-      <Button title="New collection" onPress={() => setShowCreateCollectionModal(true)} />
+  return <View style={{ flex: 1, backgroundColor: colors.groupedBackground }}>
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Collections', headerRight: () => isSignedIn ? <TouchableOpacity onPress={() => setShowCreateCollectionModal(true)} accessibilityRole="button" accessibilityLabel="New collection" style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="add" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
+    {!isSignedIn ? <SignInBanner message="Sign in to open your collections" /> : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 8 }}>
       {isLoadingCollections && <ActivityIndicator accessibilityLabel="Loading collections" />}
       {isCollectionsError && <View>
         <Text accessibilityRole="alert">{collections === undefined
@@ -32,12 +33,12 @@ function CollectionsScreenContent() {
         <Button title={isFetchingCollections ? 'Trying again…' : 'Try again'} disabled={isFetchingCollections} onPress={() => { void refetchCollections(); }} />
       </View>}
       {!isLoadingCollections && !isCollectionsError && collections?.length === 0 && <Text>Create your first collection to organize recipes</Text>}
-      {collections?.map((collection) => <TouchableOpacity key={collection.id} accessibilityRole="button"
+      <View style={{ borderRadius: 12, overflow: 'hidden' }}>{collections?.map((collection) => <TouchableOpacity key={collection.id} accessibilityRole="button"
         accessibilityLabel={`${collection.name}, ${collection.recipe_count} ${collection.recipe_count === 1 ? 'recipe' : 'recipes'}`}
         onPress={() => router.push(`/collection/${collection.id}`)}
-        style={{ padding: 16, minHeight: 44, borderBottomWidth: 1, borderColor: colors.border }}>
+        style={{ padding: 16, minHeight: 50, backgroundColor: colors.backgroundElevated }}>
         <Text>{collection.name}</Text><Text style={{ color: colors.textSecondary }}>{collection.recipe_count} {collection.recipe_count === 1 ? 'recipe' : 'recipes'}</Text>
-      </TouchableOpacity>)}
+      </TouchableOpacity>)}</View>
     </ScrollView>}
     {isSignedIn && <CreateCollectionModal visible={showCreateCollectionModal} onClose={() => setShowCreateCollectionModal(false)} />}
   </View>;

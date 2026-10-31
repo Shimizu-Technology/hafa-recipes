@@ -1,3 +1,4 @@
+import { fontFamily } from '@/constants/Colors';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
@@ -5,11 +6,11 @@ import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollVie
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 
-import { View, Text, Card, SectionHeader, Divider, useColors } from '@/components/Themed';
+import { View, Text, Card, Divider, useColors } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { SettingsProfileCard } from '@/components/SettingsProfileCard';
 import { useRecipeCount } from '@/hooks/useRecipes';
@@ -37,6 +38,11 @@ const SUPPORT_URL = 'https://hafa-recipes.com/support';
 const DEVELOPER_URL = 'https://shimizu-technology.com';
 const APP_VERSION = resolveAppVersion(Constants.expoConfig?.version);
 
+function SectionHeader({ title }: { title: string }) {
+  const colors = useColors();
+  return <Text accessibilityRole="header" style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary, marginLeft: 16, marginBottom: 8 }}>{title}</Text>;
+}
+
 interface MenuItemProps {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -50,7 +56,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
     <RNView
       style={[
         styles.menuItem,
-        { backgroundColor: colors.backgroundSecondary }
+        { backgroundColor: colors.backgroundElevated }
       ]}
     >
       <RNView style={styles.menuItemLeft}>
@@ -324,8 +330,8 @@ export default function SettingsScreen() {
   const profileName = resolveSettingsProfileName(isSignedIn, user);
 
   return (
-    <View style={styles.container}>
-      <ScrollView
+    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Settings', headerTitle: 'Settings' }} />
+      <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
       >
@@ -386,11 +392,11 @@ export default function SettingsScreen() {
         {/* Appearance Section - Combined Theme + Text Size */}
         <RNView style={styles.section}>
           <SectionHeader title="Appearance" />
-          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
+          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
             {/* Theme Row */}
             <RNView style={styles.compactRow}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Theme</Text>
-              <RNView style={[styles.segmentedControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <RNView style={[styles.segmentedControl, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                 {([
                   { key: 'system', label: 'Auto' },
                   { key: 'light', label: 'Light' },
@@ -404,14 +410,14 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: themePreference === theme.key }}
                     style={[
                       styles.segmentedOption,
-                      themePreference === theme.key && { backgroundColor: colors.tint },
+                      themePreference === theme.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
                       index === 0 && styles.segmentedFirst,
                       index === 2 && styles.segmentedLast,
                     ]}
                   >
-                    <Text style={[
+                    <Text maxFontSizeMultiplier={1.6} style={[
                       styles.segmentedText,
-                      { color: themePreference === theme.key ? colors.onTint : colors.textSecondary },
+                      { color: themePreference === theme.key ? colors.text : colors.textSecondary },
                     ]}>
                       {theme.label}
                     </Text>
@@ -425,7 +431,7 @@ export default function SettingsScreen() {
             {/* Text Size Row */}
             <RNView style={styles.compactRow}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Text Size</Text>
-              <RNView style={[styles.segmentedControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <RNView style={[styles.segmentedControl, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                 {([
                   { key: 'small', label: 'S' },
                   { key: 'medium', label: 'M' },
@@ -440,14 +446,14 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: textSize === size.key }}
                     style={[
                       styles.segmentedOption,
-                      textSize === size.key && { backgroundColor: colors.tint },
+                      textSize === size.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
                       index === 0 && styles.segmentedFirst,
                       index === 3 && styles.segmentedLast,
                     ]}
                   >
-                    <Text style={[
+                    <Text maxFontSizeMultiplier={1.6} style={[
                       styles.segmentedText,
-                      { color: textSize === size.key ? colors.onTint : colors.textSecondary },
+                      { color: textSize === size.key ? colors.text : colors.textSecondary },
                     ]}>
                       {size.label}
                     </Text>
@@ -461,7 +467,7 @@ export default function SettingsScreen() {
         {/* Sound & Voice Section - Compact Pickers */}
         <RNView style={styles.section}>
           <SectionHeader title="Sound & voice" />
-          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundSecondary }]}>
+          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
             {/* Timer Sound Picker */}
             <TouchableOpacity
               style={styles.pickerRow}
@@ -612,7 +618,7 @@ export default function SettingsScreen() {
             <SectionHeader title="Developer" />
             <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
               <TouchableOpacity
-                style={[styles.menuItem, { backgroundColor: colors.backgroundSecondary }]}
+                style={[styles.menuItem, { backgroundColor: colors.backgroundElevated }]}
                 onPress={() => setShowDeveloper(!showDeveloper)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -672,7 +678,7 @@ export default function SettingsScreen() {
           <SectionHeader title="About" />
           <Card>
             <RNView style={styles.aboutHeader}>
-              <BrandMark size={58} style={{ backgroundColor: colors.backgroundSecondary }} />
+              <BrandMark size={58} style={{ backgroundColor: colors.backgroundElevated }} />
               <RNView>
                 <Text style={[styles.aboutTitle, { color: colors.text }]}>
                   Håfa Recipes
@@ -752,7 +758,7 @@ export default function SettingsScreen() {
         {isSignedIn && (
           <RNView style={styles.section}>
             <SectionHeader title="Account actions" />
-            <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundSecondary }]}>
+            <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundElevated }]}>
               <TouchableOpacity
                 style={styles.accountActionRow}
                 onPress={handleSignOut}
@@ -853,7 +859,7 @@ export default function SettingsScreen() {
               <Text style={[styles.inputLabel, { color: colors.textMuted }]}>First Name</Text>
               <TextInput
                 style={[styles.textInput, {
-                  backgroundColor: colors.backgroundSecondary,
+                  backgroundColor: colors.backgroundElevated,
                   color: colors.text,
                   borderColor: colors.border,
                 }]}
@@ -870,7 +876,7 @@ export default function SettingsScreen() {
               <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Last Name</Text>
               <TextInput
                 style={[styles.textInput, {
-                  backgroundColor: colors.backgroundSecondary,
+                  backgroundColor: colors.backgroundElevated,
                   color: colors.text,
                   borderColor: colors.border,
                 }]}
@@ -898,7 +904,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: spacing.lg,
+    padding: 16,
   },
   section: {
     marginBottom: spacing.xl,
@@ -912,7 +918,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   menuGroup: {
-    borderRadius: radius.lg,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   menuItem: {
@@ -924,6 +930,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   menuItemLeft: {
+    flex: 1,
+    marginRight: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
@@ -936,6 +944,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuLabel: {
+    flexShrink: 1,
     fontSize: fontSize.md,
   },
   menuSubLabel: {
@@ -991,7 +1000,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   accountActionsCard: {
-    borderRadius: radius.lg,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   accountActionRow: {
@@ -1046,7 +1055,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: spacing.md,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
   },
   modalCancel: {
     fontSize: fontSize.md,
@@ -1060,7 +1069,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   modalContent: {
-    padding: spacing.lg,
+    padding: 16,
   },
   inputGroup: {
     marginBottom: spacing.lg,
@@ -1076,7 +1085,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     padding: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   profileHint: {
     fontSize: fontSize.sm,
@@ -1085,14 +1094,14 @@ const styles = StyleSheet.create({
   },
   // Compact card styles for combined sections
   compactCard: {
-    borderRadius: radius.lg,
+    borderRadius: 12,
     padding: spacing.md,
     overflow: 'hidden',
   },
   compactRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
     paddingVertical: spacing.sm,
   },
   compactLabel: {
@@ -1107,11 +1116,15 @@ const styles = StyleSheet.create({
   segmentedControl: {
     flexDirection: 'row',
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     overflow: 'hidden',
+    padding: 3,
   },
   segmentedOption: {
-    paddingHorizontal: spacing.md,
+    flex: 1,
+    borderRadius: 8,
+    minHeight: 44,
+    paddingHorizontal: 8,
     paddingVertical: spacing.sm,
     minWidth: 44,
     alignItems: 'center',
@@ -1157,13 +1170,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: 16,
   },
   pickerModal: {
     width: '100%',
     maxWidth: 340,
     borderRadius: radius.xl,
-    padding: spacing.lg,
+    padding: 16,
     maxHeight: '70%',
   },
   pickerModalTitle: {

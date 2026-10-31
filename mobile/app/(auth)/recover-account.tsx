@@ -10,7 +10,7 @@ import {
   View as RNView,
 } from 'react-native';
 import { useSignIn } from '@clerk/expo/legacy';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -168,21 +168,10 @@ export default function RecoverAccountScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
+        headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
+        title: 'Restore my library', headerLeft: () => (<TouchableOpacity
+            style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
             onPress={() => {
               if (step === 'secure') {
                 returnToEmailStep();
@@ -197,12 +186,25 @@ export default function RecoverAccountScreen() {
           >
             <Ionicons name="chevron-back" size={22} color={colors.text} />
             <Text style={[styles.backLabel, { color: colors.text }]}>Back</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>) }} />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={[
+            styles.content,
+            { paddingTop: 16, paddingBottom: insets.bottom + spacing.xl },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+
 
           <RNView style={styles.header}>
-            <BrandMark size={80} style={{ backgroundColor: colors.backgroundSecondary }} />
+
             <Text style={[styles.eyebrow, { color: colors.actionText }]}>Your recipes are safe</Text>
-            <Text style={[styles.title, { color: colors.text }]}>Restore my library</Text>
+
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {step === 'email'
                 ? 'Use the email from your existing Håfa account. We’ll verify it so you can create a password and return to your recipes.'
@@ -401,7 +403,7 @@ export default function RecoverAccountScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flexGrow: 1, paddingHorizontal: spacing.lg },
+  content: { flexGrow: 1, paddingHorizontal: 16 },
   backButton: {
     alignItems: 'center',
     alignSelf: 'flex-start',
@@ -412,7 +414,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   backLabel: { fontFamily: fontFamily.medium, fontWeight: '500', fontSize: fontSize.md },
-  header: { alignItems: 'center', marginBottom: spacing.xl },
+  header: { alignItems: 'flex-start', marginBottom: 24 },
   eyebrow: {
     fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.sm,
@@ -422,19 +424,19 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.display,
     fontSize: fontSize.xxxl,
     marginTop: spacing.xs,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   subtitle: {
     fontFamily: fontFamily.regular,
     fontSize: fontSize.md,
     lineHeight: 23,
     marginTop: spacing.sm,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   statusBanner: {
     alignItems: 'flex-start',
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.lg,
@@ -465,7 +467,7 @@ const styles = StyleSheet.create({
   note: {
     alignItems: 'flex-start',
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.md,

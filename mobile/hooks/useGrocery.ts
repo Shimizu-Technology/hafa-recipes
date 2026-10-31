@@ -60,15 +60,19 @@ function serializeGroceryMutation<T>(operation: () => Promise<T>): Promise<T> {
 async function fetchAndCacheSnapshot(
   lease = getGroceryStorageLease(),
 ): Promise<GrocerySnapshot> {
-  const serverSnapshot = await api.getGrocerySnapshot();
+  const serverSnapshot = confirmedSnapshot(await api.getGrocerySnapshot());
   assertGroceryStorageLease(lease);
   void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
     console.warn('[Grocery Widget] Failed to publish snapshot:', error),
   );
-  return cacheServerGrocerySnapshot({ ...serverSnapshot, serverConfirmedAt: new Date().toISOString(), freshness: 'confirmed' } as FreshSnapshot, lease);
+  return cacheServerGrocerySnapshot(confirmedSnapshot(serverSnapshot), lease);
 }
 
 type FreshSnapshot = GrocerySnapshot & { serverConfirmedAt?: string; freshness?: 'confirmed' | 'offline' | 'stale' };
+
+function confirmedSnapshot(snapshot: GrocerySnapshot): FreshSnapshot {
+  return { ...snapshot, serverConfirmedAt: new Date().toISOString(), freshness: 'confirmed' };
+}
 
 function useSnapshotQuery(isSignedIn: boolean) {
   const { isApiReachable } = useNetworkStatus();
@@ -96,7 +100,7 @@ function useSnapshotQuery(isSignedIn: boolean) {
     refetchOnReconnect: true,
     refetchOnMount: 'always',
   });
-  return { ...query, serverConfirmedAt: query.data?.serverConfirmedAt, freshness: isApiReachable === false ? 'offline' : isApiReachable === null || query.isFetching ? 'checking' : query.data?.freshness ?? 'checking' };
+  return { ...query, serverConfirmedAt: query.data?.serverConfirmedAt, freshness: isApiReachable === false ? 'offline' : query.isFetching ? 'checking' : query.data?.freshness ?? 'checking' };
 }
 
 export function useGroceryList(includeChecked = true, isSignedIn = true) {
@@ -181,7 +185,7 @@ async function commitMutations(
           .slice(index + 1)
           .reduce(
             (current, pending) => applyOptimisticGroceryMutation(current, pending),
-            response.snapshot,
+            confirmedSnapshot(response.snapshot),
           );
         await cacheGrocerySnapshot(snapshot, lease);
         queryClient.setQueryData(groceryKeys.snapshot(), snapshot);
@@ -310,7 +314,7 @@ export function useGrocerySync(enabled = true) {
       assertRecipeScope(creationScope);
       let serverSnapshot: GrocerySnapshot;
       try {
-        serverSnapshot = await api.getGrocerySnapshot();
+        serverSnapshot = confirmedSnapshot(await api.getGrocerySnapshot());
         assertGroceryStorageLease(lease);
         void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
           console.warn('[Grocery Widget] Failed to publish synchronization:', error),
@@ -351,7 +355,7 @@ export function useGrocerySync(enabled = true) {
             api.syncGroceryMutation(request, () => { assertRecipeScope(creationScope); assertGroceryStorageLease(lease); }),
           );
           assertGroceryStorageLease(lease);
-          serverSnapshot = response.snapshot;
+          serverSnapshot = confirmedSnapshot(response.snapshot);
           assertGroceryStorageLease(lease);
         void publishConfirmedGrocerySnapshot(serverSnapshot).catch((error) =>
             console.warn('[Grocery Widget] Failed to publish queued mutation:', error),
@@ -405,13 +409,13 @@ export function useGrocerySync(enabled = true) {
   });
   useEffect(() => {
     if (enabled && isOnline) {
-      void hasPendingSync(getGroceryStorageLease()).then((pending) => {
+      void Promise.resolve().then(() => hasPendingSync(getGroceryStorageLease())).then((pending) => {
         if (pending) {
           void syncPendingChanges().catch((error) =>
             console.warn('[Grocery Sync] Failed to start synchronization:', error),
           );
         }
-      });
+      }).catch((error) => console.warn('[Grocery Sync] Could not check pending changes:', error));
     }
   }, [enabled, isOnline, syncPendingChanges]);
 

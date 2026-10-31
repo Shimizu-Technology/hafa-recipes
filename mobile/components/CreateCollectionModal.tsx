@@ -139,9 +139,9 @@ export default function CreateCollectionModal({
       animationType="fade"
       onRequestClose={close}
     >
-      <TouchableWithoutFeedback onPress={close}>
+      <TouchableWithoutFeedback accessible={false} onPress={close}>
         <RNView style={styles.overlay}>
-          <TouchableWithoutFeedback>
+          <TouchableWithoutFeedback accessible={false}>
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={styles.keyboardView}
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.md,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     gap: spacing.sm,
   },
   previewIcon: {
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     justifyContent: 'center',
     alignItems: 'center',
   },

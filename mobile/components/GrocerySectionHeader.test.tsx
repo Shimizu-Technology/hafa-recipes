@@ -3,12 +3,17 @@ import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
+import { Platform } from 'react-native';
 import type { GrocerySection } from '@/lib/grocerySections';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
+const menu = vi.hoisted(() => ({ options: null as any, choose: null as any }));
 vi.mock('react-native', () => ({
+  Platform: { OS: 'ios' }, Alert: { alert: vi.fn() },
+  ActionSheetIOS: { showActionSheetWithOptions: (options: any, choose: any) => { menu.options = options; menu.choose = choose; } },
+  useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   StyleSheet: { create: (styles: unknown) => styles },
   TouchableOpacity: 'TouchableOpacity',
   View: 'View',
@@ -49,6 +54,18 @@ function section(overrides: Partial<GrocerySection> = {}): GrocerySection {
 }
 
 describe('GrocerySectionHeader', () => {
+  it('keeps all section actions available in the Android menu instead of truncating an Alert', async () => {
+    const showMenu = vi.fn();
+    const renderer = createRoot();
+    const original = Platform.OS;
+    Object.assign(Platform, { OS: 'android' });
+    try {
+      await act(async () => renderer.render(<GrocerySectionHeader section={section()} isCollapsed={false} onToggle={vi.fn()} onOpenRecipe={vi.fn()} onClearSection={vi.fn()} onShowMenu={showMenu} />));
+      await act(async () => renderer.container.queryAll(node => node.type === 'TouchableOpacity')[0].props.onPress());
+      expect(showMenu.mock.calls[0][0].map((action: any) => action.text)).toEqual(['Open recipe', 'Collapse section', 'Remove recipe items', 'Cancel']);
+    } finally { Object.assign(Platform, { OS: original }); await act(async () => renderer.unmount()); }
+  });
+
   it('opens its source recipe while keeping collapse and clear as separate actions', async () => {
     const onOpenRecipe = vi.fn();
     const onToggle = vi.fn();
@@ -70,14 +87,13 @@ describe('GrocerySectionHeader', () => {
         (instance) => instance.type === 'TouchableOpacity',
       );
       await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Open Chicken Kelaguen recipe',
+        (button) => button.props.accessibilityLabel === 'More actions for Chicken Kelaguen',
       )!.props.onPress());
-      await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Collapse Chicken Kelaguen grocery section',
-      )!.props.onPress());
-      await act(async () => buttons.find(
-        (button) => button.props.accessibilityLabel === 'Clear Chicken Kelaguen grocery items',
-      )!.props.onPress());
+      expect(buttons).toHaveLength(1);
+      expect(menu.options.title).toContain('1/4 checked');
+      await act(async () => menu.choose(menu.options.options.indexOf('Open recipe')));
+      await act(async () => menu.choose(menu.options.options.indexOf('Collapse section')));
+      await act(async () => menu.choose(menu.options.options.indexOf('Remove recipe items')));
 
       expect(onOpenRecipe).toHaveBeenCalledWith('recipe-1');
       expect(onToggle).toHaveBeenCalledOnce();
@@ -112,9 +128,10 @@ describe('GrocerySectionHeader', () => {
         (button) => button.props.accessibilityLabel?.startsWith('Open '),
       )).toBe(false);
       const toggleButton = buttons.find(
-        (button) => button.props.accessibilityLabel === 'Expand Old Recipe grocery section',
+        (button) => button.props.accessibilityLabel === 'More actions for Old Recipe',
       );
       await act(async () => toggleButton!.props.onPress());
+      await act(async () => menu.choose(menu.options.options.indexOf('Expand section')));
 
       expect(onToggle).toHaveBeenCalledOnce();
     } finally {
@@ -140,7 +157,8 @@ describe('GrocerySectionHeader', () => {
         (instance) => instance.type === 'TouchableOpacity',
       );
       expect(buttons).toHaveLength(1);
-      expect(buttons[0].props.accessibilityLabel).toBe('Open Chicken Kelaguen recipe');
+      await act(async () => buttons[0].props.onPress());
+      expect(menu.options.options).toEqual(['Open recipe', 'Cancel']);
     } finally {
       await act(async () => renderer.unmount());
     }
