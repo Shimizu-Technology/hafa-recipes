@@ -11,7 +11,7 @@ export default function Search() {
   const { api, owner, enrollment } = useTraining();
   const [query, setQuery] = useState("");
   useEffect(() => setQuery(""), [owner, enrollment?.generation]);
-  const library = useQuery({ queryKey: [owner, "search-library", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
+  const library = useQuery({ queryKey: [owner, "library", "search", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
   const fresh = useFocusRefresh([library], { enabled: !!enrollment?.enrolled });
   const results = filterLibrary(library.data ?? [], query, null, null);
   const placeholder = `Search ${library.data?.length ?? "your"} workouts`;
