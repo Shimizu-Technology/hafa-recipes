@@ -1,5 +1,5 @@
 import { Stack, useRouter } from 'expo-router';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { AccountHeaderButton } from '@/components/TabChrome';
 import { IconButton, useColors } from '@/components/Themed';
 import { fontFamily } from '@/constants/Colors';
@@ -11,7 +11,9 @@ export function RecipeTabStack({ title, library = false }: { title: string; libr
     headerLargeTitleEnabled: true,
     headerLargeTitleStyle: { fontFamily: fontFamily.displaySemibold, fontSize: 32, color: colors.text },
     headerTitleStyle: { fontFamily: fontFamily.displaySemibold, color: colors.text },
-    headerStyle: { backgroundColor: colors.background },
+    // iOS 26 hides large titles behind custom navigation-bar backgrounds.
+    headerTransparent: Platform.OS === 'ios',
+    headerStyle: Platform.OS === 'ios' ? undefined : { backgroundColor: colors.background },
     headerTintColor: colors.actionText,
     headerShadowVisible: false,
     headerRight: () => <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
