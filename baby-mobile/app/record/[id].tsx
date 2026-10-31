@@ -86,6 +86,7 @@ export default function RecordDetail() {
       title={title}
       titleKind={Array.from(title).length > 60 ? "heading" : "title"}
       back
+      numericSubtitle
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
       {!!error && <Notice error>{error}</Notice>}
@@ -105,11 +106,11 @@ export default function RecordDetail() {
       {record.kind === "sleep" && (
         <Card tone="hero">
           <Copy kind="heading">{data.end_at ? "Sleep recorded" : "Sleep in progress"}</Copy>
-          <Copy>Started {friendlyTime(record.occurred_at)}</Copy>
+          <Copy numeric>Started {friendlyTime(record.occurred_at)}</Copy>
           {data.end_at ? (
             <>
-              <Copy>Ended {friendlyTime(data.end_at)}</Copy>
-              <Copy>
+              <Copy numeric>Ended {friendlyTime(data.end_at)}</Copy>
+              <Copy numeric>
                 {duration((new Date(data.end_at).getTime() - new Date(record.occurred_at).getTime()) / 60000)}
               </Copy>
             </>

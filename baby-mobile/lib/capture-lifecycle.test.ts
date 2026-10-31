@@ -296,7 +296,7 @@ it("prefills the other breast, returns to Today and offers an Undo that removes 
   expect(side!.props.value).toBe("right");
   await press("Save feeding");
   await act(async () => { await account.drain(); });
-  expect(scope.dismiss).toHaveBeenCalledWith("/(tabs)");
+  expect(scope.dismiss).toHaveBeenCalledWith("/(tabs)/(today)");
   const [message, action] = scope.toast.mock.calls.at(-1)!;
   expect(message).toContain("Breastfeeding · Right side");
   expect(action.label).toBe("Undo");

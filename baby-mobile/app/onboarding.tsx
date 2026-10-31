@@ -37,7 +37,7 @@ export default function Onboarding() {
           b.state.bootstrap!.generation
         );
       await b.refresh();
-      router.replace("/(tabs)");
+      router.replace("/(tabs)/(today)");
     } catch (e) {
       setError(messageFor(e));
     } finally {

@@ -22,7 +22,6 @@ import {
   type ViewStyle,
   type ColorValue,
 } from "react-native";
-import { floatingLayout } from "../lib/floating-layout";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -30,66 +29,47 @@ import { router } from "expo-router";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
-/**
- * Håfa Baby tokens: "Sand & Cocoa", a warm neutral palette Kami chose. Sand and nude grounds,
- * cocoa ink and actions, and a soft clay accent used for the baby summary's icons. DM Sans and
- * the latte-stone mark keep Baby recognisably part of the Håfa family.
- */
+/** Baby's warm light palette and neutral, true-black dark palette. */
 const light = {
-  background: "#F8F3EE",
-  surface: "#FFFCF9",
-  /** Quiet filled panels (for example the sign-in hint and Google button). */
-  soft: "#EDE3DA",
-  /** Quick-log tiles and grouped panels: a tone step from the ground. */
-  tile: "#EFE6DD",
-  /** The baby summary. */
-  hero: "#F1E3DA",
-  text: "#2D2420",
-  muted: "#6A5A51",
-  action: "#5A4740",
-  onAction: "#F8F3EE",
-  border: "#E6D8CC",
-  /** Outline of secondary buttons, so they stay visible on sand cards. */
-  outline: "#D6C3B4",
-  /** Decorative clay (the mark's moon); never used for text. */
-  accent: "#C9907E",
-  /** Clay for icons and short text (≥4.5:1 on the summary and the ground). */
-  accentText: "#8C5443",
-  error: "#B3261E",
-  errorBg: "#FBE3DE",
-  scrim: "rgba(45, 36, 32, 0.42)",
+  background: "#FFFFFF", groupedBackground: "#F2F2F7", surface: "#FAF7F4",
+  soft: "#F1E8E1", tile: "#F6EFE9", hero: "#F6EFE9",
+  text: "#2D2420", muted: "#6E625B", action: "#5A4740", onAction: "#F8F3EE",
+  border: "rgba(60,60,67,0.29)", outline: "rgba(60,60,67,0.29)",
+  accent: "#C9907E", accentText: "#8C5443", error: "#B3261E", errorBg: "#FBE3DE",
+  scrim: "rgba(45,36,32,0.42)",
 };
 const dark: typeof light = {
-  background: "#14110F",
-  surface: "#1E1A17",
-  soft: "#2E2621",
-  tile: "#231E1A",
-  hero: "#33251F",
-  text: "#F5EDE6",
-  muted: "#BBAEA4",
-  action: "#E7D5C8",
-  onAction: "#2D2420",
-  border: "#382F29",
-  outline: "#4A3E36",
-  accent: "#E7B7A5",
-  accentText: "#E7B7A5",
-  error: "#F07167",
-  errorBg: "#3A1F1C",
-  scrim: "rgba(0, 0, 0, 0.6)",
+  background: "#000000", groupedBackground: "#000000", surface: "#1C1C1E",
+  soft: "#2C2522", tile: "#2A2320", hero: "#2A2320",
+  text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", action: "#E3C9B8", onAction: "#2D2420",
+  border: "rgba(84,84,88,0.65)", outline: "rgba(84,84,88,0.65)",
+  accent: "#E3C9B8", accentText: "#E3C9B8", error: "#FF5148", errorBg: "#3A1F1C",
+  scrim: "rgba(0,0,0,0.6)",
 };
 export function useColors() {
   return useColorScheme() === "dark" ? dark : light;
 }
-
-/** DM Sans, shared with Recipes and Workouts; loaded in app/_layout.tsx. */
-export const fonts = { regular: "DMSans_400Regular", semibold: "DMSans_600SemiBold", bold: "DMSans_700Bold" } as const;
+export const fonts = { regular: "System", rounded: Platform.OS === "ios" ? "ui-rounded" : "System" } as const;
+export const typeScale = {
+  largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: "700" },
+  title1: { fontSize: 28, lineHeight: 34, fontWeight: "700" },
+  title2: { fontSize: 22, lineHeight: 28, fontWeight: "700" },
+  title3: { fontSize: 20, lineHeight: 25, fontWeight: "600" },
+  headline: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  body: { fontSize: 17, lineHeight: 22 },
+  callout: { fontSize: 16, lineHeight: 21 },
+  subhead: { fontSize: 15, lineHeight: 20 },
+  footnote: { fontSize: 13, lineHeight: 18 },
+  caption: { fontSize: 12, lineHeight: 16 },
+  caption2: { fontSize: 11, lineHeight: 13 },
+  number: { fontSize: 44, lineHeight: 50, fontWeight: "700", fontFamily: fonts.rounded, fontVariant: ["tabular-nums"] },
+} satisfies Record<string, TextStyle>;
 const type = {
-  title: { fontFamily: fonts.bold, fontSize: 30, lineHeight: 36, letterSpacing: -0.8, maxFontSizeMultiplier: 1.4 },
-  heading: { fontFamily: fonts.bold, fontSize: 20, lineHeight: 26, letterSpacing: -0.3, maxFontSizeMultiplier: 1.6 },
-  body: { fontFamily: fonts.regular, fontSize: 17, lineHeight: 25, letterSpacing: 0, maxFontSizeMultiplier: 2 },
-  label: { fontFamily: fonts.semibold, fontSize: 16, lineHeight: 22, letterSpacing: 0, maxFontSizeMultiplier: 1.8 },
-  small: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, letterSpacing: 0, maxFontSizeMultiplier: 1.8 },
-} satisfies Record<string, TextStyle & { maxFontSizeMultiplier: number }>;
+  title: typeScale.largeTitle, heading: typeScale.title3, body: typeScale.body,
+  label: typeScale.headline, small: typeScale.footnote,
+};
+/** Tab roots supply their title and controls through a native stack. */
+export const NativeHeaderContext = createContext(false);
 
 /** Gentle confirmation on deliberate choices; skipped where the platform has no haptics. */
 export function tap(kind: "select" | "success" = "select") {
@@ -169,16 +149,17 @@ export function Copy({
   tone,
   align,
   lines,
+  numeric = false,
 }: {
   children: React.ReactNode;
   kind?: "body" | "small" | "heading" | "title" | "label";
   tone?: "muted" | "error" | "accent";
   align?: "left" | "center";
   lines?: number;
+  numeric?: boolean;
 }) {
-  const c = useColors(),
-    { fontScale } = useWindowDimensions(),
-    { maxFontSizeMultiplier: _, lineHeight, ...style } = type[kind];
+  const c = useColors(), { fontScale } = useWindowDimensions(),
+    style = type[kind];
   return (
     <Text
       key={`${kind}:${fontScale}`}
@@ -187,7 +168,8 @@ export function Copy({
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
-        lineHeight: fontScale >= 1.3 ? undefined : lineHeight,
+        fontFamily: numeric ? fonts.rounded : fonts.regular,
+        fontVariant: numeric ? ["tabular-nums"] : undefined,
         flexShrink: 1,
         color: tone === "error" ? c.error : tone === "muted" ? c.muted : tone === "accent" ? c.accentText : c.text,
         textAlign: align,
@@ -200,7 +182,7 @@ export function Copy({
 /** Fixed bar above scrolling content so Back and Close never scroll away. */
 function TopBar({ back, close }: { back: boolean; close: boolean }) {
   const c = useColors(),
-    leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)"));
+    leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
   if (!back && !close) return null;
   return (
     <View
@@ -231,13 +213,13 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
         })}
       >
         {close ? (
-          <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 17, color: c.action }}>
+          <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>
             Close
           </Text>
         ) : (
           <>
             <Icon name="chevron-back" size={24} />
-            <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.regular, fontSize: 17, color: c.action }}>
+            <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.regular, fontSize: 17, lineHeight: 22, color: c.action }}>
               Back
             </Text>
           </>
@@ -250,7 +232,9 @@ export function Screen({
   children,
   title,
   subtitle,
+  numericSubtitle = false,
   titleKind = "title",
+  nativeHeader: nativeHeaderOverride,
   back = false,
   close = false,
   action,
@@ -263,6 +247,8 @@ export function Screen({
   children: React.ReactNode;
   title: string;
   titleKind?: "title" | "heading";
+  /** Independent RN modals must keep their own title and top safe area. */
+  nativeHeader?: boolean;
   /** Show the Håfa Baby mark above the title (welcome and first-run screens). */
   brand?: boolean;
   /** Docked below the scrolling content and above the keyboard, for example a message composer. */
@@ -272,15 +258,28 @@ export function Screen({
   /** Pull to refresh. */
   onRefresh?: () => Promise<unknown> | void;
   subtitle?: string;
+  numericSubtitle?: boolean;
   back?: boolean;
   /** For screens presented as a sheet: a Close button replaces Back. */
   close?: boolean;
   action?: React.ReactNode;
   scroll?: boolean;
 }) {
+  const inheritedNativeHeader = useContext(NativeHeaderContext),
+    nativeHeader = nativeHeaderOverride ?? inheritedNativeHeader, insets = useSafeAreaInsets(),
+    { fontScale } = useWindowDimensions();
   const c = useColors(),
     scroller = useRef<ScrollView>(null),
+    [footerHeight, setFooterHeight] = useState(0),
+    [keyboardVisible, setKeyboardVisible] = useState(false),
     [refreshing, setRefreshing] = useState(false);
+  const hasFooter = !!footer;
+  useEffect(() => {
+    if (!hasFooter) return;
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, [hasFooter]);
   async function pull() {
     setRefreshing(true);
     try {
@@ -292,9 +291,9 @@ export function Screen({
   const content = (
     <View
       style={{
-        paddingHorizontal: 22,
+        paddingHorizontal: 16,
         paddingTop: back || close ? 2 : 14,
-        paddingBottom: footer ? 24 : 110,
+        paddingBottom: footer || nativeHeader ? 24 : Math.max(24, insets.bottom),
         gap: 20,
         width: "100%",
         maxWidth: 720,
@@ -302,10 +301,10 @@ export function Screen({
       }}
     >
       {brand && <BrandMark size={64} />}
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Copy kind={titleKind}>{title}</Copy>
-          {!!subtitle && <Copy tone="muted">{subtitle}</Copy>}
+      <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
+        <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
+          {!nativeHeader && <Copy kind={titleKind}>{title}</Copy>}
+          {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
         </View>
         {action}
       </View>
@@ -313,11 +312,13 @@ export function Screen({
     </View>
   );
   return (
-    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
+    <SafeAreaView collapsable={false} edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
       <TopBar back={back && !close} close={close} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView collapsable={false} behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <View collapsable={false} style={{ flex: 1 }}>
         {scroll ? (
           <ScrollView
+            style={{ flex: 1 }}
             ref={scroller}
             refreshControl={
               onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void pull()} tintColor={c.muted} /> : undefined
@@ -326,7 +327,7 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
-            contentContainerStyle={{ flexGrow: 1 }}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? footerHeight : 0 }}
           >
             {content}
           </ScrollView>
@@ -335,12 +336,13 @@ export function Screen({
         )}
         {footer && (
           <View
+            onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
             style={{
-              borderTopWidth: 1,
-              borderColor: c.border,
+              position: "absolute", bottom: 0,
               backgroundColor: c.background,
               paddingHorizontal: 16,
-              paddingVertical: 10,
+              paddingTop: 10,
+              paddingBottom: keyboardVisible ? 10 : Math.max(10, insets.bottom),
               width: "100%",
               maxWidth: 720,
               alignSelf: "center",
@@ -349,6 +351,7 @@ export function Screen({
             {footer}
           </View>
         )}
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -369,10 +372,9 @@ export function Card({
         {
           padding: 20,
           gap: 12,
-          borderRadius: 24,
+          borderRadius: tone === "hero" ? 20 : 14,
           backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.tile : c.surface,
-          borderWidth: tone === "normal" ? 1 : 0,
-          borderColor: c.border,
+
         },
         style,
       ]}
@@ -390,6 +392,7 @@ export function Button({
   variant,
   icon,
   size,
+  numeric = false,
 }: {
   title: string;
   onPress: () => void;
@@ -400,11 +403,12 @@ export function Button({
   variant?: "ghost" | "destructive";
   icon?: IconName;
   size?: "lg";
+  numeric?: boolean;
 }) {
-  const c = useColors(),
+  const c = useColors(), { fontScale } = useWindowDimensions(),
     plain = variant === "ghost" || variant === "destructive",
     quiet = secondary || plain,
-    ink = variant === "destructive" ? c.error : quiet ? c.action : c.onAction;
+    ink = variant === "destructive" ? c.error : plain ? c.action : quiet ? c.text : c.onAction;
   return (
     <PressTarget
       accessibilityRole="button"
@@ -416,21 +420,21 @@ export function Button({
         minHeight: size === "lg" ? 56 : 50,
         paddingHorizontal: 20,
         paddingVertical: 13,
-        borderRadius: 26,
+        borderRadius: 999,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 9,
-        backgroundColor: plain ? "transparent" : quiet ? c.surface : c.action,
-        borderWidth: quiet && !plain ? 1.5 : 0,
-        borderColor: c.outline,
+        backgroundColor: plain ? "transparent" : quiet ? c.soft : c.action,
+
 
       })}
     >
       {busy ? <ActivityIndicator color={ink} /> : icon && <Icon name={icon} size={19} color={ink} />}
       <Text
+        key={fontScale}
         maxFontSizeMultiplier={0}
-        style={{ fontFamily: fonts.semibold, fontSize: 16, color: ink, textAlign: "center", flexShrink: 1 }}
+        style={{ fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : undefined, fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}
       </Text>
@@ -460,7 +464,7 @@ function KeyboardDone({ id }: { id: string }) {
           onPress={() => Keyboard.dismiss()}
           style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
         >
-          <Text style={{ fontFamily: fonts.semibold, fontSize: 17, color: c.action }}>Done</Text>
+          <Text style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
         </PressTarget>
       </View>
     </InputAccessoryView>
@@ -497,7 +501,7 @@ export function Field({
   maxLength?: number;
   autoFocus?: boolean;
 }) {
-  const c = useColors(),
+  const c = useColors(), { fontScale } = useWindowDimensions(),
     traits = inputTraits(purpose, Platform.OS, numeric),
     pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
@@ -505,6 +509,7 @@ export function Field({
     <View style={{ gap: 7 }}>
       <Copy kind="small">{label}</Copy>
       <TextInput
+        key={fontScale}
         ref={inputRef}
         accessibilityLabel={label}
         value={value}
@@ -524,14 +529,14 @@ export function Field({
         textAlignVertical={multiline ? "top" : "center"}
         maxFontSizeMultiplier={0}
         style={{
-          borderWidth: 1,
-          borderColor: c.border,
           backgroundColor: c.surface,
           color: c.text,
-          borderRadius: 16,
-          padding: 15,
-          fontFamily: fonts.regular,
+          borderRadius: 10,
+          padding: 16,
+          fontFamily: numeric ? fonts.rounded : fonts.regular,
+          fontVariant: numeric ? ["tabular-nums"] : undefined,
           fontSize: 17,
+          lineHeight: 22,
           minHeight: multiline ? 150 : 52,
         }}
       />
@@ -610,7 +615,7 @@ export function Chips({
   /** Single-row filters scroll; form choices keep their wrapping layout. */
   scroll?: boolean;
 }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   const choices = (
     <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: scroll ? "nowrap" : "wrap", gap: 8 }}>
       {options.map((o) => {
@@ -631,18 +636,17 @@ export function Chips({
               maxWidth: scroll ? undefined : "100%",
               paddingHorizontal: 16,
               paddingVertical: 10,
-              borderRadius: 23,
+              borderRadius: 999,
               justifyContent: "center",
-              // Unselected chips are outlined like secondary buttons so they read on sand cards too.
-              backgroundColor: on ? c.tile : c.surface,
-              borderWidth: 1.5,
-              borderColor: on ? c.tile : c.outline,
+              alignItems: "center",
+              backgroundColor: on ? c.action : c.soft,
 
             })}
           >
             <Text
+              key={fontScale}
               maxFontSizeMultiplier={0}
-              style={{ fontFamily: fonts.semibold, fontSize: 15, flexShrink: 1, color: on ? c.text : c.action }}
+              style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.onAction : c.action }}
             >
               {o.label}
             </Text>
@@ -702,6 +706,8 @@ export function Row({
   onPress,
   trailing,
   hint,
+  numericTitle = false,
+  numericDetail = false,
 }: {
   title: string;
   detail?: string;
@@ -709,6 +715,8 @@ export function Row({
   onPress: () => void;
   trailing?: React.ReactNode;
   hint?: string;
+  numericTitle?: boolean;
+  numericDetail?: boolean;
 }) {
   const c = useColors();
   return (
@@ -720,11 +728,10 @@ export function Row({
       style={({ pressed: on }) => ({
         minHeight: 68,
         backgroundColor: c.surface,
-        borderWidth: 1,
-        borderColor: c.border,
+
         paddingVertical: 14,
         paddingHorizontal: 16,
-        borderRadius: 19,
+        borderRadius: 12,
         flexDirection: "row",
         flexWrap: "wrap",
         alignItems: "center",
@@ -734,9 +741,9 @@ export function Row({
     >
       {icon && <Icon name={icon} />}
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Copy kind="label">{title}</Copy>
+        <Copy numeric={numericTitle} kind="label">{title}</Copy>
         {detail && (
-          <Copy kind="small" tone="muted">
+          <Copy numeric={numericDetail} kind="small" tone="muted">
             {detail}
           </Copy>
         )}
@@ -755,8 +762,7 @@ export function useToast() {
   return useContext(ToastContext);
 }
 export function ToastProvider({ children }: PropsWithChildren) {
-  const { fontScale } = useWindowDimensions(), insets = useSafeAreaInsets(),
-    layout = floatingLayout(fontScale, insets.bottom);
+  const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),
     enter = useRef(new Animated.Value(0)).current,
@@ -799,7 +805,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           accessibilityLiveRegion="polite"
           style={{
             position: "absolute",
-            bottom: layout.toastBottom,
+            bottom: insets.bottom + 88,
             left: 22,
             right: 22,
             backgroundColor: c.text,
@@ -821,7 +827,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           }}
         >
           <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15 }}>
+            <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
               {toast.message}
             </Text>
           </PressTarget>
@@ -844,7 +850,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15 }}>
+              <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontWeight: "700", fontSize: 15, lineHeight: 20 }}>
                 {toast.action.label}
               </Text>
             </PressTarget>
