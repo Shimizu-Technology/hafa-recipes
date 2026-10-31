@@ -25,7 +25,7 @@ const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] 
 ];
 
 function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: string; hint: string; onPress: () => void; primary?: boolean }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   return (
     <PressTarget
       accessibilityRole="button"
@@ -33,9 +33,9 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
       accessibilityHint={hint}
       onPress={onPress}
       style={({ pressed }) => ({
-        flexGrow: 1,
+        flexGrow: fontScale >= 1.3 ? 0 : 1,
         minHeight: 84,
-        flexBasis: 0,
+        flexBasis: fontScale >= 1.3 ? undefined : 0,
         flexShrink: 1,
         minWidth: 0,
         paddingVertical: 16,

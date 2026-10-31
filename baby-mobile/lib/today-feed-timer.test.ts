@@ -207,6 +207,7 @@ it("uses the child name in the header, replaces the hero with a timer, and stack
   scope.fontScale = 3.1; await render();
   const feed = find("Pressable", p => p.accessibilityLabel === "Feeding…")[0];
   expect(feed.parent!.parent!.props.style.flexDirection).toBe("column");
+  expect(feed.props.style({ pressed: false }).flexBasis).toBeUndefined();
 });
 it("shows a calm first step for pregnancy and no-child states", async () => {
   const account = setup();
