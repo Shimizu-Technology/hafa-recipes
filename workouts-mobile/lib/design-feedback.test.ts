@@ -14,7 +14,7 @@ vi.mock("../components/design/foundation", () => ({ Copy: "Copy", SurfaceProvide
 vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
 vi.mock("../components/design/press", () => ({ animatedPressableComponent: () => "Pressable", usePressScale: () => ({ scale: 1, opacity: 1 }) }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
-vi.mock("../components/tab-chrome", () => ({ useIsTabRoot: () => false, useTabOverlayHeight: () => 0 }));
+vi.mock("../components/native-tab-stack", () => ({ useNativeHeader: () => false }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock("expo-router", () => ({ router: {} }));

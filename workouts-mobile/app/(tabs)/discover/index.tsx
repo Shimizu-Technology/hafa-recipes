@@ -4,7 +4,6 @@ import { router } from "expo-router";
 import { View, useWindowDimensions } from "react-native";
 import { largeText } from "@/lib/readable-layout";
 import {
-  AccountButton,
   Button,
   Chip,
   ChipRow,
@@ -175,7 +174,6 @@ export default function Discover() {
       onEndReached={() => {
         if (feed.hasNextPage && !feed.isFetchingNextPage && !feed.isFetchNextPageError) void feed.fetchNextPage();
       }}
-      action={<AccountButton />}
     >
       {unavailable ? (
         <Empty
@@ -259,7 +257,7 @@ export default function Discover() {
                       variant="secondary"
                       size="sm"
                       inline
-                      onPress={() => router.navigate("/(tabs)/extract")}
+                      onPress={() => router.navigate("/extract")}
                     />
                   </Row>
                 }

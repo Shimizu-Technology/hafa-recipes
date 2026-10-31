@@ -87,7 +87,7 @@ export default function ShareToDiscover() {
           icon="albums-outline"
           title="Nothing to share yet"
           description="Import a workout from a video, link or photo first. Then you can share it here."
-          action={<Button title="Import a workout" icon="add" onPress={() => router.navigate("/(tabs)/extract")} />}
+          action={<Button title="Import a workout" icon="add" onPress={() => router.navigate("/extract")} />}
         />
       ) : (
         <>

@@ -100,7 +100,7 @@ export function RemindersProvider({ children }: PropsWithChildren) {
       void observeNotificationResponses(scope, (intent) => {
         if (!mounted || current.current !== scope) return;
         if (intent.kind === "rest" && active.current?.id === intent.session_id) router.push("/training");
-        else if (intent.kind === "routine") router.push("/(tabs)");
+        else if (intent.kind === "routine") router.push("/(tabs)/train");
       }).then((value) => {
         if (mounted) clean = value;
         else value();
