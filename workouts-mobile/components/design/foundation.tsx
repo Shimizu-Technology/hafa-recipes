@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   useColorScheme,
+  useWindowDimensions,
   View,
   type StyleProp,
   type TextStyle,
@@ -92,6 +93,7 @@ export function Copy({
   align,
   accessibilityLabel,
   selectable,
+  allowFontScaling,
 }: PropsWithChildren<{
   kind?: TypeKind;
   tone?: Tone;
@@ -102,16 +104,24 @@ export function Copy({
   align?: TextStyle["textAlign"];
   accessibilityLabel?: string;
   selectable?: boolean;
+  allowFontScaling?: boolean;
 }>) {
   const c = useColors();
   const surface = useSurface();
+  const { fontScale } = useWindowDimensions();
+  const textStyle = StyleSheet.flatten([typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
+  const scale = allowFontScaling === false ? 1 : fontScale;
+  // Explicit sizes keep Fabric layout and glyph metrics together on a live Dynamic Type change.
+  const scaled = { ...textStyle, fontSize: (textStyle.fontSize ?? typography[kind].fontSize) * scale,
+    lineHeight: (textStyle.lineHeight ?? typography[kind].lineHeight) * scale };
   return (
     <Text
       accessibilityRole={headerKinds.has(kind) ? "header" : undefined}
       accessibilityLabel={accessibilityLabel}
       selectable={selectable}
+      allowFontScaling={false}
       numberOfLines={numberOfLines}
-      style={[typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]}
+      style={scaled}
     >
       {children}
     </Text>

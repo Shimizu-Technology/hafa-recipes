@@ -35,6 +35,8 @@ describe("Workouts native share generation", () => {
     expect(confirmation).toContain("writeCapture({ WorkoutsShareStore.promoteStage(key, payload: payload) })");
     expect(promotion).toContain('return capture["isPublic"] as? Bool ?? false');
     expect(confirmation).not.toContain("WorkoutsShareStore.locked");
+    expect(confirmation).toContain("button.accessibilityTraits.remove(.notEnabled)");
+    expect(confirmation).toContain("if !enabled { button.accessibilityTraits.insert(.notEnabled) }");
     expect(confirmation).toContain("WorkoutsShareStore.performCaptureWrite(operation) { [weak self] result in");
     expect(confirmation).toContain("DispatchQueue.main.asyncAfter(deadline: .now() + 8)");
     expect(confirmation.indexOf("DispatchQueue.global(qos: .utility).async")).toBeLessThan(confirmation.indexOf("WorkoutsShareStore.enqueue(key)"));
@@ -136,26 +138,30 @@ describe("Workouts native share generation", () => {
     const stock = require("expo-share-intent/plugin/build/ios/writeIosShareExtensionFiles.js")
       .getShareExtensionViewControllerContent("hafaworkouts", "group.com.shimizutechnology.hafaworkouts", true);
     const plist = require("@expo/plist").default;
+    const legacyFonts = ["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"];
     const predecessor = async (config: unknown) => {
       mkdirSync(extension);
       writeFileSync(join(extension, "ShareViewController.swift"), stock);
-      for (const file of ["ShareExtension.entitlements", "ShareExtension-Info.plist"])
-        writeFileSync(join(extension, file), plist.build({}));
+      writeFileSync(join(extension, "ShareExtension.entitlements"), plist.build({}));
+      writeFileSync(join(extension, "ShareExtension-Info.plist"), plist.build({ UIAppFonts: legacyFonts }));
+      for (const font of legacyFonts) writeFileSync(join(extension, font), "legacy font fixture");
       return config;
     };
-    const addResourceFile = vi.fn();
+    const removeResourceFile = vi.fn();
     try {
       const config = plugin({ name: "Workouts", slug: "workouts", mods: { ios: { xcodeproj: predecessor } } });
       expect(existsSync(extension)).toBe(false);
-      await config.mods.ios.xcodeproj({ ...config, modResults: { findTargetKey: (name: string) => name === '"ShareExtension"' ? "extension-target" : null, findPBXGroupKey: () => "extension-group", addResourceFile }, modRequest: {
+      await config.mods.ios.xcodeproj({ ...config, modResults: { findTargetKey: (name: string) => name === '"ShareExtension"' ? "extension-target" : null, findPBXGroupKey: () => "extension-group", removeResourceFile }, modRequest: {
         platformProjectRoot: directory, projectRoot: new URL("..", import.meta.url).pathname,
       } });
       expect(readFileSync(join(extension, "ShareViewController.swift"), "utf8")).toContain("completeRequest(returningItems: []");
       const info = plist.parse(readFileSync(join(extension, "ShareExtension-Info.plist"), "utf8"));
-      expect(info.UIAppFonts).toEqual(["DMSans_400Regular.ttf", "DMSans_600SemiBold.ttf", "Fraunces_600SemiBold.ttf"]);
-      for (const font of info.UIAppFonts) expect(existsSync(join(extension, font))).toBe(true);
-      expect(addResourceFile.mock.calls).toEqual(info.UIAppFonts.map((font: string) =>
-        [font, { target: "extension-target" }, "extension-group"]));
+      expect(info.UIAppFonts).toBeUndefined();
+      for (const font of legacyFonts) expect(existsSync(join(extension, font))).toBe(false);
+      expect(removeResourceFile.mock.calls).toEqual(legacyFonts.map(font => [font, { target: "extension-target" }, "extension-group"]));
+      const controller = readFileSync(join(extension, "ShareViewController.swift"), "utf8");
+      expect(controller).toContain(".systemFont(ofSize: size, weight: weight)");
+      expect(controller).not.toContain("UIFont(name:");
       expect(plist.parse(readFileSync(join(extension, "ShareExtension.entitlements"), "utf8"))["keychain-access-groups"])
         .toEqual(["$(AppIdentifierPrefix)com.shimizutechnology.hafaworkouts.share"]);
     } finally { rmSync(directory, { recursive: true, force: true }); }

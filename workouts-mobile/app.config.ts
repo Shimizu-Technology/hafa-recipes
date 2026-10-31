@@ -1,8 +1,8 @@
 import type { ExpoConfig } from "expo/config";
 
 // Brand backgrounds; lib/theme.test.ts asserts these equal constants/theme.ts (config can't import TS modules).
-const cream = "#FFF7EC";
-const night = "#101411";
+const cream = "#FFFFFF";
+const night = "#000000";
 
 // Independent Workouts identities. Provisioning values must never fall back to Recipes.
 const projectId = "c520b94d-aac7-49a2-be2b-838a6b992001";
