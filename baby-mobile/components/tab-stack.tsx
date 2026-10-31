@@ -7,10 +7,12 @@ export function TabStack({ title, add }: { title: string; add?: Href }) {
   return <NativeHeaderContext.Provider value={true}>
     <Stack screenOptions={{
       title, headerLargeTitle: true, headerShadowVisible: false,
-      headerStyle: { backgroundColor: c.background }, headerTintColor: c.action,
+      // An opaque native header hides large titles on iOS 26.
+      headerStyle: Platform.OS === "ios" ? undefined : { backgroundColor: c.background }, headerTintColor: c.action,
+      headerBlurEffect: "systemChromeMaterial", headerLargeStyle: { backgroundColor: "transparent" },
       headerTitleStyle: { color: c.text },
-      // Native stack titles use UIKit font names; RN text uses the ui-rounded alias.
-      headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".SFUIRounded-Bold" : fonts.regular,
+      // UIKit's rounded-system alias; ui-rounded is resolved only by RN text.
+      headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".AppleSystemUIFontRounded-Bold" : fonts.regular,
         fontSize: 34, fontWeight: "700" },
       contentStyle: { backgroundColor: c.background },
       headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

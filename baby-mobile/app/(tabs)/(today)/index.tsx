@@ -34,6 +34,9 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
       onPress={onPress}
       style={({ pressed }) => ({
         flex: 1,
+        flexBasis: 0,
+        flexShrink: 1,
+        minWidth: 0,
         paddingVertical: 19,
         paddingHorizontal: 8,
         borderRadius: 22,

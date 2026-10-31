@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({
 vi.mock("react-native", () => ({
   RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
-  Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn() }, Alert: { alert: vi.fn() },
+  Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn(), addListener: () => ({ remove() {} }) }, Alert: { alert: vi.fn() },
   useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: 1, height: 844 }),
   AccessibilityInfo: { isReduceMotionEnabled: async () => true, addEventListener: () => ({ remove() {} }) },
   Easing: { bezier: vi.fn() }, Animated: {

@@ -37,7 +37,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
-            placeholder={available ? "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
+            placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
             placeholderTextColor={c.muted}
             editable={available && !busy && !chat.resolving}
             multiline

@@ -182,7 +182,7 @@ export function Copy({
 /** Fixed bar above scrolling content so Back and Close never scroll away. */
 function TopBar({ back, close }: { back: boolean; close: boolean }) {
   const c = useColors(),
-    leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)"));
+    leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
   if (!back && !close) return null;
   return (
     <View
@@ -266,10 +266,20 @@ export function Screen({
   scroll?: boolean;
 }) {
   const inheritedNativeHeader = useContext(NativeHeaderContext),
-    nativeHeader = nativeHeaderOverride ?? inheritedNativeHeader, insets = useSafeAreaInsets();
+    nativeHeader = nativeHeaderOverride ?? inheritedNativeHeader, insets = useSafeAreaInsets(),
+    { fontScale } = useWindowDimensions();
   const c = useColors(),
     scroller = useRef<ScrollView>(null),
+    [footerHeight, setFooterHeight] = useState(0),
+    [keyboardVisible, setKeyboardVisible] = useState(false),
     [refreshing, setRefreshing] = useState(false);
+  const hasFooter = !!footer;
+  useEffect(() => {
+    if (!hasFooter) return;
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, [hasFooter]);
   async function pull() {
     setRefreshing(true);
     try {
@@ -291,8 +301,8 @@ export function Screen({
       }}
     >
       {brand && <BrandMark size={64} />}
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-        <View style={{ flex: 1, gap: 4 }}>
+      <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
+        <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
           {!nativeHeader && <Copy kind={titleKind}>{title}</Copy>}
           {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
         </View>
@@ -302,11 +312,13 @@ export function Screen({
     </View>
   );
   return (
-    <SafeAreaView edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
+    <SafeAreaView collapsable={false} edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
       <TopBar back={back && !close} close={close} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView collapsable={false} behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <View collapsable={false} style={{ flex: 1 }}>
         {scroll ? (
           <ScrollView
+            style={{ flex: 1 }}
             ref={scroller}
             refreshControl={
               onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void pull()} tintColor={c.muted} /> : undefined
@@ -315,7 +327,7 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
-            contentContainerStyle={{ flexGrow: 1 }}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? footerHeight : 0 }}
           >
             {content}
           </ScrollView>
@@ -324,11 +336,13 @@ export function Screen({
         )}
         {footer && (
           <View
+            onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
             style={{
+              position: "absolute", bottom: 0,
               backgroundColor: c.background,
               paddingHorizontal: 16,
               paddingTop: 10,
-              paddingBottom: Math.max(10, insets.bottom),
+              paddingBottom: keyboardVisible ? 10 : Math.max(10, insets.bottom),
               width: "100%",
               maxWidth: 720,
               alignSelf: "center",
@@ -337,6 +351,7 @@ export function Screen({
             {footer}
           </View>
         )}
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -390,7 +405,7 @@ export function Button({
   size?: "lg";
   numeric?: boolean;
 }) {
-  const c = useColors(),
+  const c = useColors(), { fontScale } = useWindowDimensions(),
     plain = variant === "ghost" || variant === "destructive",
     quiet = secondary || plain,
     ink = variant === "destructive" ? c.error : plain ? c.action : quiet ? c.text : c.onAction;
@@ -417,6 +432,7 @@ export function Button({
     >
       {busy ? <ActivityIndicator color={ink} /> : icon && <Icon name={icon} size={19} color={ink} />}
       <Text
+        key={fontScale}
         maxFontSizeMultiplier={0}
         style={{ fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : undefined, fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
       >
@@ -485,7 +501,7 @@ export function Field({
   maxLength?: number;
   autoFocus?: boolean;
 }) {
-  const c = useColors(),
+  const c = useColors(), { fontScale } = useWindowDimensions(),
     traits = inputTraits(purpose, Platform.OS, numeric),
     pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
@@ -493,6 +509,7 @@ export function Field({
     <View style={{ gap: 7 }}>
       <Copy kind="small">{label}</Copy>
       <TextInput
+        key={fontScale}
         ref={inputRef}
         accessibilityLabel={label}
         value={value}
@@ -598,7 +615,7 @@ export function Chips({
   /** Single-row filters scroll; form choices keep their wrapping layout. */
   scroll?: boolean;
 }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   const choices = (
     <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: scroll ? "nowrap" : "wrap", gap: 8 }}>
       {options.map((o) => {
@@ -627,6 +644,7 @@ export function Chips({
             })}
           >
             <Text
+              key={fontScale}
               maxFontSizeMultiplier={0}
               style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.text : c.action }}
             >
