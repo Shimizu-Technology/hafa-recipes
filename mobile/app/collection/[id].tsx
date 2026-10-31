@@ -43,10 +43,16 @@ export function RecipeCard({
       {Platform.OS !== 'ios' && <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Remove ${recipe.title} from collection`} onPress={event => { event.stopPropagation(); onRemove(); }} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="close" size={16} color={colors.textSecondary} /></TouchableOpacity>}
     </RNView>} />;
   if (Platform.OS !== 'ios') return card;
-  return <Link href={`/recipe/${recipe.id}`} asChild onPress={event => event.preventDefault()}>
-    <Link.Trigger>{card}</Link.Trigger>
-    <Link.Menu><Link.MenuAction icon="minus.circle" onPress={onRemove}>Remove from collection</Link.MenuAction></Link.Menu>
-  </Link>;
+  return <RNView accessible accessibilityRole="button"
+    accessibilityLabel={recipeCardAccessibilityLabel({ title: recipe.title, reviewState: recipe.review_state, totalTime: recipe.total_time, servings: recipe.servings, sourceLabel })}
+    onAccessibilityTap={onPress}
+    accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
+    onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onRemove(); }}>
+    <Link href={`/recipe/${recipe.id}`} asChild onPress={event => event.preventDefault()}>
+      <Link.Trigger>{card}</Link.Trigger>
+      <Link.Menu><Link.MenuAction icon="minus.circle" onPress={onRemove}>Remove from collection</Link.MenuAction></Link.Menu>
+    </Link>
+  </RNView>;
 }
 
 export default function CollectionDetailScreen() {

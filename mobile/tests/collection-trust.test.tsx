@@ -175,14 +175,21 @@ describe('collection recipe readiness', () => {
   it('offers native iOS context-menu removal without an inline remove button', async () => {
     const renderer = createRoot();
     const onRemove = vi.fn();
+    const onPress = vi.fn();
     const original = Platform.OS;
     try {
       Platform.OS = 'ios';
-      await act(async () => renderer.render(<RecipeCard recipe={recipe('ready')} colors={colors} onPress={vi.fn()} onRemove={onRemove} />));
+      await act(async () => renderer.render(<RecipeCard recipe={recipe('ready')} colors={colors} onPress={onPress} onRemove={onRemove} />));
       const action = renderer.container.queryAll(n => n.type === 'LinkMenuAction')[0];
       expect(action.props.children).toBe('Remove from collection');
       await act(async () => action.props.onPress());
       expect(onRemove).toHaveBeenCalledOnce();
+      const accessibleCard = renderer.container.queryAll(n => n.type === 'View' && n.props.accessible)[0];
+      expect(accessibleCard.props.accessibilityLabel).toContain('Chicken Kelaguen');
+      await act(async () => accessibleCard.props.onAccessibilityTap());
+      expect(onPress).toHaveBeenCalledOnce();
+      await act(async () => accessibleCard.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } }));
+      expect(onRemove).toHaveBeenCalledTimes(2);
       expect(renderer.container.queryAll(n => n.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection')).toHaveLength(0);
     } finally { await act(async () => renderer.unmount()); Platform.OS = original; }
   });
