@@ -6,7 +6,7 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
-import { Button, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
@@ -65,7 +65,7 @@ export default function Library() {
       <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
     </Card> : undefined}>
     <Stack.Screen options={{ headerRight: () => <TabActions title="Saved" add={{ pathname: "/edit", params: { kind: "source" } }}
-      action={<Button variant="ghost" title={selecting ? "Cancel" : "Select"} disabled={listingCategories || !history.rows.length}
+      action={<HeaderAction title={selecting ? "Cancel" : "Select"} disabled={listingCategories || !history.rows.length}
         onPress={() => { setSelecting(!selecting); setSelected([]); }} />} /> }} />
     <HeaderSearch value={q} onChange={setQ} placeholder="Search saved posts" />
     <SyncStatus />

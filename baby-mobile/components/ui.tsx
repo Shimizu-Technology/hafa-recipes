@@ -319,7 +319,7 @@ export function Screen({
         headerLargeTitle: titleKind !== "heading",
         ...(grouped && action ? { headerRight: () => action } : {}),
         headerLeft: close || (back && !router.canGoBack())
-          ? () => <Button variant="ghost" title={close ? "Close" : "Back"}
+          ? () => <HeaderAction title={close ? "Close" : "Back"}
             onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)")} /> : undefined,
       }} />}
       <TopBar back={!nativeHeader && back && !close} close={!nativeHeader && close} />
@@ -449,6 +449,15 @@ export function Button({
       </Text>
     </PressTarget>
   );
+}
+/** Native bar labels stay within the bar; content text continues to scale fully. */
+export function HeaderAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
+  const c = useColors();
+  return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }}
+    disabled={disabled} onPress={onPress}
+    style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center" }}>
+    <Text maxFontSizeMultiplier={1.4} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
+  </PressTarget>;
 }
 let accessoryCount = 0;
 /** Number pads have no return key on iOS; a Done bar keeps Save reachable. */
