@@ -4,7 +4,7 @@ import {expect,it,vi} from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 vi.mock('@expo/vector-icons/Ionicons',()=>({default:'Ionicons'}));
 vi.mock('@clerk/expo',()=>({useAuth:()=>({userId:'subject'})}));
-vi.mock('react-native',()=>({Alert:{alert:vi.fn()},View:'View',Switch:'Switch',TouchableOpacity:'TouchableOpacity',StyleSheet:{create:(styles:unknown)=>styles,hairlineWidth:0.5}}));
+vi.mock('react-native',()=>({useWindowDimensions:()=>({fontScale:1}),Alert:{alert:vi.fn()},View:'View',Switch:'Switch',TouchableOpacity:'TouchableOpacity',StyleSheet:{create:(styles:unknown)=>styles,hairlineWidth:0.5}}));
 vi.mock('@/components/Themed',()=>({Text:'Text',useColors:()=>({})}));
 vi.mock('@react-native-async-storage/async-storage',()=>{const data=new Map<string,string>();return {default:{getItem:async(k:string)=>data.get(k)??null,setItem:async(k:string,v:string)=>{data.set(k,v)},getAllKeys:async()=>[...data.keys()],multiRemove:async(ks:string[])=>ks.forEach(k=>data.delete(k))}}});
 const readRecipe = vi.hoisted(() => vi.fn());

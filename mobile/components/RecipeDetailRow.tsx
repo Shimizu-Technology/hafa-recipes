@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, TouchableOpacity, View, type TouchableOpacityProps } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, useWindowDimensions, type TouchableOpacityProps } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
 
@@ -13,6 +13,7 @@ type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & 
 /** Shared anatomy for every row in recipe detail's More group. */
 export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...props }: RecipeDetailRowProps) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
   const content = <>
     <View style={styles.icon}><Ionicons name={icon} size={20} color={colors.actionText} /></View>
     <View style={styles.copy}>
@@ -21,7 +22,7 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
     </View>
     {accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}
   </>;
-  const style = [styles.row, { borderBottomColor: colors.border }];
+  const style = [styles.row, { borderBottomColor: colors.border, gap: fontScale >= 2 ? 4 : 12 }];
   return onPress
     ? <TouchableOpacity accessibilityLabel={title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
     : <View style={style}>{content}</View>;
