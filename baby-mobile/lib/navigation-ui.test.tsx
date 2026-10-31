@@ -199,3 +199,12 @@ it("reserves the measured Ask composer, adjusts for keyboard, and removes both s
   await act(async () => renderer!.unmount()); renderer = undefined;
   expect(mock.removed).toEqual(["keyboardWillShow", "keyboardWillHide"]);
 });
+
+it("keeps a full saved-source title readable in the entry content", async () => {
+  const record = mock.baby.records.find((r: any) => r.kind === "source");
+  record.title = "A simple hospital bag checklist";
+  mock.params = { id: record.id };
+  await mount(<RecordDetail />);
+  expect(renderer!.root.findByType(Screen).props.title).toBe("Saved source");
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === record.title)).toBe(true);
+});

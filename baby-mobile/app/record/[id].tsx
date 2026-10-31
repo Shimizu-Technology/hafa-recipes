@@ -83,12 +83,12 @@ export default function RecordDetail() {
     );
   return (
     <Screen
-      title={title}
-      titleKind={Array.from(title).length > 60 ? "heading" : "title"}
+      title={kindName[record.kind]}
       back
       numericSubtitle
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
+      {title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>
