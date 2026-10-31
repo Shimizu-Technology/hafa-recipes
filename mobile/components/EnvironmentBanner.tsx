@@ -20,7 +20,7 @@ export function EnvironmentBanner() {
         },
       ]}
     >
-      <Text style={styles.label}>{ENVIRONMENT_LABEL}</Text>
+      <Text allowFontScaling={false} style={styles.label}>{APP_ENVIRONMENT === 'preview' ? 'PREVIEW' : 'DEVELOPMENT'}</Text>
     </View>
   );
 }
@@ -32,9 +32,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 900,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingBottom: 3,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
   },
   label: {
     color: '#FFFFFF',
