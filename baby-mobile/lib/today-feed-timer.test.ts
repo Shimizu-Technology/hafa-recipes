@@ -10,10 +10,11 @@ const scope = vi.hoisted(() => ({
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   toast: vi.fn(),
   push: vi.fn(),
+  fontScale: 1,
   haptic: vi.fn(async () => undefined),
 }));
 vi.mock("react-native", () => ({
-  useWindowDimensions: () => ({ fontScale: 1 }), Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text",
+  useWindowDimensions: () => ({ fontScale: scope.fontScale }), Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text",
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
   ActionSheetIOS: { showActionSheetWithOptions: (config: { options: string[] }, pick: (index: number) => void) =>
     scope.sheets.push({ options: config.options, pick }) },
@@ -21,10 +22,10 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("expo-router", async () => {
   const React = await import("react");
-  return { router: { push: scope.push },
+  return { Stack: { Screen: "StackScreen" }, router: { push: scope.push },
     useFocusEffect: (callback: () => (() => void) | undefined) => React.useEffect(() => callback(), [callback]) };
 });
-vi.mock("expo-haptics", () => ({ notificationAsync: scope.haptic, NotificationFeedbackType: { Success: "success" } }));
+vi.mock("expo-haptics", () => ({ selectionAsync: scope.haptic, NotificationFeedbackType: { Success: "success" } }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `fixture-${++id}` }; });
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
@@ -34,11 +35,11 @@ vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/feed-timer", () => import("./feed-timer"));
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
 vi.mock("@/lib/today-care", () => ({
-  useTodayCare: () => ({ rows: [], all: scope.care, loading: false, error: "", refresh: vi.fn() }),
+  useTodayCare: () => ({ rows: scope.care.slice(0, 3), all: scope.care, loading: false, error: "", refresh: vi.fn() }),
 }));
 const ui = vi.hoisted(() => ({
   PressTarget: "Pressable", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Icon: "Icon", Loading: "Loading", Notice: "Notice",
-  Screen: "Screen", Row: "Row", Section: "Section", useColors: () => ({ text: "#000", hero: "#fff" }), useToast: () => scope.toast,
+  typeScale: { headline: {} }, Grouped: "Grouped", Screen: "Screen", Row: "Row", Section: "Section", useColors: () => ({ text: "#000", hero: "#fff" }), useToast: () => scope.toast,
   fonts: { regular: "r", semibold: "s", bold: "b" },
 }));
 vi.mock("@/components/ui", () => ui);
@@ -46,7 +47,7 @@ vi.mock("../components/ui", () => ui);
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: { feeding: "f", sleep: "s", diaper: "d" } }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
-vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));
+vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", FirstStep: "FirstStep", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
 import Today from "../app/(tabs)/(today)/index";
 
@@ -80,7 +81,7 @@ async function tapFeedTile(label = "Feed") {
   await render();
 }
 async function press(title: string) {
-  const button = find("Button", (p) => p.title === title)[0];
+  const button = find("Button", (p) => (p.accessibilityLabel ?? p.title) === title)[0];
   expect(button, title).toBeDefined();
   await act(async () => { (button.props.onPress as () => void)(); });
   await render();
@@ -95,7 +96,7 @@ const clock = () => find("Text", () => true).map((node) => node.props.children).
 beforeEach(() => {
   vi.useFakeTimers({ now: start });
   vi.clearAllMocks();
-  scope.sheets = []; scope.alerts = []; scope.care = [];
+  scope.sheets = []; scope.alerts = []; scope.care = []; scope.fontScale = 1;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
     if (!String(args[0]).includes("react-test-renderer is deprecated")) throw Error(String(args[0]));
@@ -108,6 +109,7 @@ it("offers the suggested side first, times a switched feed, and saves it with Un
   scope.care = [optimisticRecord({ id: "last", kind: "feeding", child_id: "baby", title: "Feeding", body: "",
     occurred_at: "2026-10-20T00:00:00.000Z", data: { method: "breast", side: "left" } })];
   await render();
+  expect(find("Row", p => p.title === "Care history")[0].props.detail).toBe("1 feed today · All care logs");
   await tapFeedTile();
   expect(scope.sheets[0].options).toEqual(["Start right side (next)", "Start left side", "Log a bottle or past feed…", "Cancel"]);
   await pick(0);
@@ -117,23 +119,24 @@ it("offers the suggested side first, times a switched feed, and saves it with Un
   await elapsed(5 * 60_000);
   expect(clock()).toBe("05:00");
   expect(find("View", (p) => p.accessible === true)[0].props.accessibilityLabel).toBe("Feeding Mia. Right side, 5 minutes");
+  expect(find("Button", p => p.title === "Switch")[0].props.accessibilityLabel).toBe("Switch to left");
   await press("Switch to left");
   await elapsed(2 * 60_000);
   await press("Pause");
   await elapsed(30 * 60_000);
   await press("Resume");
   await elapsed(60_000);
-  await press("Done");
+  await press("Stop");
 
   expect(account.state.feedTimer).toBeUndefined();
   expect(account.state.outbox).toHaveLength(1);
   const saved = account.state.outbox[0] as Extract<Mutation, { type: "save" }>;
   expect(saved.record).toMatchObject({ kind: "feeding", child_id: "baby", occurred_at: start.toISOString(),
     data: { method: "breast", side: "both", duration_minutes: 8 } });
-  expect(scope.haptic).toHaveBeenCalledWith("success");
+  expect(scope.haptic).toHaveBeenCalledOnce();
   const [message, action] = scope.toast.mock.calls[scope.toast.mock.calls.length - 1];
   expect(message).toBe("Breastfeeding · Both sides · 8 min · logged");
-  expect(find("Button", (p) => p.title === "Done")).toHaveLength(0);
+  expect(find("Button", (p) => p.title === "Stop")).toHaveLength(0);
 
   await act(async () => action.onPress());
   expect(account.state.outbox.map((m) => m.type)).toEqual(["save", "delete"]);
@@ -159,7 +162,7 @@ it("discards a timer only after confirming, and keeps one timer at a time", asyn
   await render();
   expect(account.state.feedTimer).toBeUndefined();
   expect(account.state.outbox).toEqual([]);
-  expect(find("Button", (p) => p.title === "Done")).toHaveLength(0);
+  expect(find("Button", (p) => p.title === "Stop")).toHaveLength(0);
 });
 
 it("restores a persisted timer after restart and hides one from an older space", async () => {
@@ -174,7 +177,7 @@ it("restores a persisted timer after restart and hides one from an older space",
 
   account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, generation: 3 } };
   await render();
-  expect(find("Button", (p) => p.title === "Done")).toHaveLength(0);
+  expect(find("Button", (p) => p.title === "Stop")).toHaveLength(0);
   expect(find("Pressable", (p) => p.accessibilityLabel === "Feed")).toHaveLength(1);
 });
 
@@ -191,4 +194,53 @@ it("renders the initial empty care state without raw text in the screen layout",
   await render();
   const children = React.Children.toArray(find("Screen", () => true)[0].props.children);
   expect(children.filter(child => typeof child === "string")).toEqual([]);
+});
+
+it("uses the child name in the header, replaces the hero with a timer, and stacks quick logs at large text", async () => {
+  const account = setup();
+  account.state.bootstrap!.children[0].birth_date = "2026-08-20";
+  await render();
+  expect(find("StackScreen", () => true)[0].props.options.title).toBe("Mia");
+  expect(find("Screen", () => true)[0].props.subtitle).toBe("2 months old");
+  expect(find("CareGlance", () => true)).toHaveLength(1);
+  await tapFeedTile(); await pick(0);
+  expect(find("CareGlance", () => true)).toHaveLength(0);
+  expect(find("Button", p => p.title === "Stop")).toHaveLength(1);
+  scope.fontScale = 3.1; await render();
+  const feed = find("Pressable", p => p.accessibilityLabel === "Feeding…")[0];
+  expect(feed.parent!.parent!.props.style.flexDirection).toBe("column");
+  expect(feed.props.style({ pressed: false }).flexBasis).toBeUndefined();
+});
+it("shows a calm first step for pregnancy and no-child states", async () => {
+  const account = setup();
+  account.state.bootstrap!.children[0].due_date = "2026-11-20";
+  scope.care = [optimisticRecord({ id: "another-baby-feed", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: start.toISOString(), data: { method: "breast" } })];
+  await render();
+  expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
+  expect(find("FirstStep", () => true)).toHaveLength(1);
+  expect(find("Pressable", p => p.accessibilityLabel === "Feed")).toHaveLength(0);
+  account.state.bootstrap!.children = []; await render();
+  expect(find("FirstStep", () => true)[0].props.child).toBeNull();
+  expect(find("Row", p => p.title === "Add a baby profile")).toHaveLength(1);
+});
+
+it("keeps child B's routine out of child A's Today summary when Everything is selected", async () => {
+  const account = setup();
+  account.state.bootstrap!.children.push({ id: "other-baby", name: "Noah", revision: 1 });
+  const routine = (id: string, child_id: string | null) => optimisticRecord({
+    id, kind: "routine", title: id, body: "", child_id, occurred_at: start.toISOString(),
+    data: { items: [{ id: "pack", label: "Pack bag", done: false }] },
+  });
+  account.records = [routine("Noah's checklist", "other-baby"), routine("Mia's checklist", "baby"), routine("General checklist", null)];
+  await render();
+  expect(find("Screen", () => true)[0].props.title).toBe("Mia");
+  expect(find("Row", p => p.title === "Mia's checklist")).toHaveLength(1);
+  expect(find("Row", p => p.title === "Noah's checklist")).toHaveLength(0);
+  account.records = account.records.filter(row => row.child_id !== "baby");
+  await render();
+  expect(find("Row", p => p.title === "General checklist")).toHaveLength(1);
+  account.state.selectedChild = "other-baby";
+  await render();
+  expect(find("Screen", () => true)[0].props.title).toBe("Noah");
+  expect(find("Row", p => p.title === "Noah's checklist")).toHaveLength(1);
 });

@@ -21,3 +21,17 @@ export function routineToday(record: BabyRecord, now: Date) {
     return today === start;
   } catch { return false; }
 }
+
+/** Recurrences keep the wall clock in the user's chosen schedule timezone. */
+export function routineReminderLabel(record: BabyRecord) {
+  const { reminder_at, repeat, timezone } = record.data;
+  const due = new Date(reminder_at!);
+  const timeZone = timezone ?? undefined;
+  const time = due.toLocaleTimeString(undefined, { timeZone, hour: "numeric", minute: "2-digit" });
+  if (repeat === "daily") return `Daily · ${time}`;
+  if (repeat === "weekly") {
+    const weekday = due.toLocaleDateString(undefined, { timeZone, weekday: "short" });
+    return `Weekly · ${weekday} ${time}`;
+  }
+  return `Reminder ${time}`;
+}
