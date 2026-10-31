@@ -425,7 +425,7 @@ export function Field({
       </Copy>}
       <TextInput
         allowFontScaling={false}
-        key={purpose ?? "general"}
+        key={`${purpose ?? "general"}:${fontScale}`}
         ref={inputRef}
         {...traits}
         inputAccessoryViewID={pad ? accessory : undefined}

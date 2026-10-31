@@ -23,6 +23,7 @@ export function LibrarySearch({ value, onChange, filterCount, onFilters }: {
       }}>
         <Ionicons name="search" size={18} color={c.muted} />
         <TextInput
+          key={fontScale}
           allowFontScaling={false}
           accessibilityLabel="Search workouts"
           value={value}
