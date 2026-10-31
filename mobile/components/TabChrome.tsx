@@ -57,7 +57,7 @@ export function ImportTabIcon({ focused }: { focused: boolean }) {
 
   return (
     <RNView style={[styles.importIcon, { backgroundColor: colors.tint, opacity: focused ? 1 : 0.9 }]}>
-      <Ionicons name={focused ? 'add' : 'add-outline'} size={24} color="#FFFFFF" />
+      <Ionicons name={focused ? 'add' : 'add-outline'} size={24} color={colors.onTint} />
     </RNView>
   );
 }
