@@ -167,10 +167,10 @@ export default function Today() {
     );
   }
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
-    sleepTitle = glance.openSleep ? "Sleeping now" : "Awake",
+    sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
     sleepDetail = glance.openSleep ? careSummary("sleep", glance.openSleep.data, glance.openSleep.occurred_at, now).replace("Sleeping now · ", "")
       : glance.lastSleep ? `Woke ${timeAgo(glance.lastSleep.data.end_at!, now)} · Last sleep ${duration((new Date(glance.lastSleep.data.end_at!).getTime() - new Date(glance.lastSleep.occurred_at).getTime()) / 60_000)}`
-      : "No sleep logged yet",
+      : "Log sleep or review your care history.",
     routine = routines[0];
   return (
     <Screen title={child && showCare ? child.name : "Today"} subtitle={child ? babyAge(child, now) : undefined} numericSubtitle>
@@ -199,7 +199,7 @@ export default function Today() {
       <Grouped>
         {showCare && <Row title={sleepTitle} detail={sleepDetail} icon={kindIcon.sleep}
           onPress={() => router.push(sleepEntry ? { pathname: "/record/[id]", params: { id: sleepEntry.id } } : "/care-history")} />}
-        {showCare && <Row title={`${glance.diapers.total} diapers today`} numericTitle
+        {showCare && <Row title={`${glance.diapers.total} diaper${glance.diapers.total === 1 ? "" : "s"} today`} numericTitle
           detail={`${glance.diapers.wet} wet · ${glance.diapers.dirty} dirty`} icon={kindIcon.diaper}
           onPress={() => router.push("/care-history")} />}
         <Row title={routine?.title || "Lists & routines"}
