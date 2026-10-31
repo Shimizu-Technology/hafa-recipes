@@ -24,6 +24,7 @@ vi.mock('react-native', async () => {
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
+    useWindowDimensions: () => ({ fontScale: 1 }),
     ActivityIndicator: host('ActivityIndicator'),
     Alert: { alert: mocks.alert },
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
