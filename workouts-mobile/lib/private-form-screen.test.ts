@@ -21,6 +21,8 @@ const fixture = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   dismissTo: vi.fn(),
+  dispatch: vi.fn(),
+  removeGuard: null as null | ((event: { data: { action: { type: string } } }) => void),
   importJob: vi.fn(),
   cancelImport: vi.fn(),
   acceptImport: vi.fn(),
@@ -173,6 +175,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-clipboard", () => ({ getStringAsync: fixture.clipboard }));
 vi.mock("expo-router", () => ({
   Redirect: "Redirect",
+  useNavigation: () => ({ dispatch: fixture.dispatch }),
   router: { push: fixture.push, replace: fixture.replace, dismissTo: fixture.dismissTo },
   useFocusEffect(callback: () => void | (() => void)) {
     useLayoutEffect(() => {
@@ -213,6 +216,7 @@ vi.mock("@/components/ui", () => ({
   Skeleton: "Skeleton",
   Stack: "Stack"
 }));
+vi.mock("expo-router/react-navigation", () => ({ usePreventRemove: (enabled: boolean, callback: NonNullable<typeof fixture.removeGuard>) => { fixture.removeGuard = enabled ? callback : null; } }));
 vi.mock("@/components/query-state", () => ({ QueryState: "QueryState" }));
 vi.mock("@/components/publishing-disclosure", async () => {
   const { withPublishingDisclosure } = await import("./discover");
@@ -237,7 +241,7 @@ vi.mock("expo-share-intent", () => ({
 import { ShareCapture } from "../components/share-capture";
 import ImportReview from "../app/import/[id]";
 import RecoverWorkout from "../app/recover-workout/[id]";
-import Capture from "../app/(tabs)/extract";
+import Capture from "../app/extract";
 import AddWorkout from "../app/add-workout";
 import WorkoutCover from "../app/workout-cover/[id]";
 import Profile from "../app/profile";
@@ -316,6 +320,7 @@ function deferred<T>() {
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.map.clear();
+  fixture.removeGuard = null;
   fixture.owner = `owner-${++fixture.run}`;
   fixture.params = {};
   fixture.revision = 1;
@@ -329,7 +334,7 @@ beforeEach(() => {
   fixture.foreground.clear(); fixture.routeListeners.clear(); fixture.photoFocus = false; fixture.routeFocused = true; fixture.appState = "active";
   fixture.os = "android"; fixture.nativeSharing = false;
   fixture.intent = { webUrl: "", text: "", files: [] };
-  for (const value of Object.values(fixture)) if (typeof value === "function") value.mockReset();
+  for (const value of Object.values(fixture)) if (vi.isMockFunction(value)) value.mockReset();
   fixture.aiConsent.mockResolvedValue({ accepted: true, disclosure_version: 1 });
   fixture.capabilities.mockResolvedValue({ imports: true, limits: { successful_or_pending_imports_per_rolling_day: 3 } });
   fixture.publishingRequired = false; fixture.publishingAgreed = true;
@@ -3168,7 +3173,7 @@ it("forwards legacy capture links and native share parameters into Extract", asy
   const { default: CaptureLink } = await import("../app/capture");
   fixture.params = { shared: "1", request_id: "source-request" };
   await mount(CaptureLink);
-  expect(nodes("Redirect")[0].props.href).toEqual({ pathname: "/(tabs)/extract", params: fixture.params });
+  expect(nodes("Redirect")[0].props.href).toEqual({ pathname: "/extract", params: fixture.params });
   expect(fixture.startImport).not.toHaveBeenCalled();
 });
 
@@ -3191,4 +3196,50 @@ it.each([undefined, false, true])("hides the numeric allowance only for server-r
   expect(view.includes("imports in any 24 hours")).toBe(unlimited !== true);
   expect(view).not.toContain("Free beta");
   if (!unlimited) expect(view).toContain("100");
+});
+
+
+it("pushed Extract waits for queued edits before Back and restores them on return", async () => {
+  await mount(Capture);
+  const held = deferred<void>();
+  fixture.persist.mockImplementationOnce(async (key: string, value: string) => { await held.promise; fixture.map.set(key, value); });
+  await act(async () => nodes("Field").find(node => node.props.label === "Workout link")!.props.onChange("https://example.test/keep-on-back"));
+  const action = { type: "GO_BACK" };
+  await act(async () => fixture.removeGuard!({ data: { action } }));
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+  held.resolve(undefined); await settle();
+  expect(fixture.dispatch).toHaveBeenCalledWith(action);
+  await unmount(); await mount(Capture);
+  expect(nodes("Field").find(node => node.props.label === "Workout link")!.props.value).toBe("https://example.test/keep-on-back");
+});
+it("does not finish an old Extract Back action after the account changes", async () => {
+  await mount(Capture);
+  const held = deferred<void>();
+  fixture.persist.mockImplementationOnce(async (key: string, value: string) => { await held.promise; fixture.map.set(key, value); });
+  await act(async () => nodes("Field").find(node => node.props.label === "Workout link")!.props.onChange("https://example.test/old-owner"));
+  await act(async () => fixture.removeGuard!({ data: { action: { type: "GO_BACK" } } }));
+  fixture.owner = "new-navigation-owner"; fixture.storageVersion++;
+  await rerender(Capture); held.resolve(undefined); await settle();
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+  expect(fixture.map.get(draftKey(fixture.owner, "capture:1")) ?? "").not.toContain("old-owner");
+});
+
+
+it("Extract Back drains edits entered after Back while storage is delayed", async () => {
+  await mount(Capture);
+  const first = deferred<void>(), later = deferred<void>();
+  fixture.persist
+    .mockImplementationOnce(async (key: string, value: string) => { await first.promise; fixture.map.set(key, value); })
+    .mockImplementationOnce(async (key: string, value: string) => { await later.promise; fixture.map.set(key, value); });
+  const field = () => nodes("Field").find(node => node.props.label === "Workout link")!;
+  await act(async () => field().props.onChange("https://example.test/before-back"));
+  const action = { type: "GO_BACK" };
+  await act(async () => fixture.removeGuard!({ data: { action } }));
+  await act(async () => field().props.onChange("https://example.test/after-back"));
+  await act(async () => first.resolve()); await settle();
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+  await act(async () => later.resolve()); await settle();
+  expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(action);
+  await unmount(); await mount(Capture);
+  expect(field().props.value).toBe("https://example.test/after-back");
 });

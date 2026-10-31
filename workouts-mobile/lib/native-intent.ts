@@ -27,19 +27,21 @@ const fixedRoutes = new Set([
   "/sharing-links",
   "/(tabs)",
   "/(tabs)/library",
-  "/(tabs)/extract",
+  "/extract",
+  "/search",
+  "/(tabs)/search",
+  "/add",
+  "/add-workout",
+  "/legacy-today",
   "/(tabs)/index",
   "/(tabs)/discover",
   "/(tabs)/train",
   "/history-progress",
   "/train",
   "/discover",
-  "/(tabs)/plan",
-  "/(tabs)/progress",
-  "/library",
-  "/extract",
   "/plan",
   "/progress",
+  "/library",
 ]);
 export function safeIncomingEncoding(value: string) {
   if (
@@ -101,9 +103,11 @@ export function incomingNativePath(path: string, options: NativeIntentOptions = 
     // Reject encoded path separators/double-encoded route aliases before Router sees them.
     if (route.includes("%") || /[\u0000-\u0020\u007f]/.test(route)) return fallback;
     route = route.length > 1 ? route.replace(/\/$/, "") : route;
+    const aliases: Record<string, string> = { "/(tabs)": "/(tabs)/train", "/index": "/legacy-today", "/(tabs)/extract": "/extract", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress" };
+    route = aliases[route] ?? route;
     if (
       !fixedRoutes.has(route) &&
-      !/^\/(workout|edit-workout|organize|session|import|coach-action)\/[A-Za-z0-9_-]{1,100}$/.test(route) &&
+      !/^\/(workout|discover|edit-workout|organize|session|import|coach-action)\/[A-Za-z0-9_-]{1,100}$/.test(route) &&
       !/^\/shared\/[A-Za-z0-9_-]{43}$/.test(route)
     )
       return fallback;

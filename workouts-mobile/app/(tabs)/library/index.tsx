@@ -5,7 +5,6 @@ import { useWindowDimensions, ActivityIndicator, FlatList, ScrollView, View } fr
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import {
-  AccountButton,
   Button,
   Chip,
   ChipRow,
@@ -225,11 +224,11 @@ export default function Library() {
       title="Library"
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
-      action={<AccountButton />}
       footer={selecting ? <Button title="Add selected to collection" icon="folder-open-outline" disabled={!selectedIds.length || bulkBusy}
         onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
+          contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
           data={visible}
           numColumns={view === "grid" ? columns : 1}
