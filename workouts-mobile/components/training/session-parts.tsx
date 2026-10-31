@@ -1,5 +1,6 @@
-import { AccessibilityInfo, Platform, View } from "react-native";
+import { AccessibilityInfo, Platform, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { largeText } from "@/lib/readable-layout";
 import { radii } from "@/constants/theme";
 import type { SetMark } from "@/lib/training-view";
 import { Button, Copy, Grow, Row, useColors } from "@/components/ui";
@@ -23,7 +24,7 @@ export function SetProgress({ sets }: { sets: SetMark[] }) {
         const current = s.state === "current";
         return (
           <View key={s.key} style={{
-            minWidth: 36, height: 36, paddingHorizontal: 6, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
+            minWidth: 36, minHeight: 36, paddingHorizontal: 6, paddingVertical: 6, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
             backgroundColor: done ? c.action : current ? c.accentSoft : "transparent",
             borderWidth: done ? 0 : current ? 2 : 1, borderColor: current ? c.accent : c.borderStrong,
           }}>
@@ -42,15 +43,16 @@ export function LastLogged({ title, summary, skipped = false, onUndo, disabled }
   title: string; summary: string; skipped?: boolean; onUndo?: () => void; disabled?: boolean;
 }) {
   const c = useColors();
+  const expanded = largeText(useWindowDimensions().fontScale);
   return (
-    <Row gap={10} style={{ minHeight: 48 }}>
+    <Row gap={10} style={{ minHeight: 48, flexDirection: expanded ? "column" : "row", alignItems: expanded ? "stretch" : "center" }}>
       <Ionicons name={skipped ? "remove-circle-outline" : "checkmark-circle"} size={24} color={skipped ? c.muted : c.success} />
-      <Grow>
+      <View style={{ flex: expanded ? undefined : 1, minWidth: 0 }}>
         <View accessible accessibilityRole="text" accessibilityLiveRegion="polite" accessibilityLabel={`${title}. ${summary}`}>
-          <Copy kind="label" numberOfLines={1}>{title}</Copy>
-          <Copy kind="small" tone="muted" numberOfLines={1}>{summary}</Copy>
+          <Copy kind="label" numberOfLines={expanded ? undefined : 1}>{title}</Copy>
+          <Copy kind="small" tone="muted" numberOfLines={expanded ? undefined : 1}>{summary}</Copy>
         </View>
-      </Grow>
+      </View>
       {!!onUndo && <Button title="Undo" icon="arrow-undo" variant="ghost" size="sm" inline disabled={disabled} onPress={onUndo} />}
     </Row>
   );

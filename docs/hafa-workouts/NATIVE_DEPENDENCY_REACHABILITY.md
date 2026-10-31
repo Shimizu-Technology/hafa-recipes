@@ -689,3 +689,8 @@ Declaring dependencies (all are `dependencies`, no optional/peer/dev declaration
 
 - `glob`: `node_modules/@expo/config` → `^13.0.0`, `node_modules/@expo/config-plugins` → `^13.0.0`, `node_modules/@expo/fingerprint` → `^13.0.0`, `node_modules/@expo/metro-config` → `^13.0.0`, `node_modules/expo/node_modules/@expo/cli` → `^13.0.0`.
 - `minimatch`: `node_modules/@expo/fingerprint` → `^10.2.2`, `node_modules/glob` → `^10.1.1`.
+
+
+### Workouts photo glass declaration — 2026-10-31
+
+Workouts now directly declares `expo-glass-effect` 57.0.4 for the photo duration/save controls. It was already installed through Expo Router and compiled in the reusable Debug client. Compared with W2 `7084d9f8`, every installed lock node (version, integrity and declarations) is unchanged; the only lock difference is this root dependency entry. No advisory exception or expiry changes. Updated whole-lock SHA-256: `05ed88f3c94f625e8c68d5806e54ed144a6cf753a933decc1fb748a47f263b11`. The existing iOS/Android source-map gate must still pass before this PR is ready.

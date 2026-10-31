@@ -23,6 +23,7 @@ vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("expo-router", () => ({
+  Stack: { Screen: ({ options }: any) => options?.headerRight?.() ?? null },
   useLocalSearchParams: () => mock.params,
   useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
   router: {
@@ -51,6 +52,8 @@ vi.mock("@/lib/history", () => import("./history"));
 vi.mock("@/lib/visit-summary", () => import("./visit-summary"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
+vi.mock("@/components/header-search", () => import("../components/header-search"));
+vi.mock("@/components/tab-stack", () => import("../components/tab-stack"));
 vi.mock("@/components/ui", () => import("../components/ui"));
 vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
@@ -171,16 +174,38 @@ it("shows completed sleep start, end and duration with rounded numeric text", as
   expect(text.some(t => JSON.stringify(t.props.children).includes("Started"))).toBe(true);
   expect(text.some(t => JSON.stringify(t.props.children).includes("Ended"))).toBe(true);
 });
-it.each([false, true])("keeps Ask following messages or pending response (busy=%s), with readable large input and history", async busy => {
+it.each([false, true])("keeps Ask following messages or pending response (busy=%s), with readable large input", async busy => {
   mock.fontScale = 1.5;
-  mock.ask = { busy, messages: busy ? [] : [{ role: "user", content: "Find my packing list" }], showHistory: true,
+  mock.ask = { busy, messages: busy ? [] : [{ role: "user", content: "Find my packing list" }], showHistory: false,
     history: [{ id: "conversation", title: "Packing notes", updated_at: "2026-10-30T01:30:00Z" }] };
   await mount(<AskEntry />);
   expect(renderer!.root.findByType(Screen).props.followEnd).toBe(true);
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.placeholder).toBe("Question");
-  const history = renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Oct 30, 2026" || t.props.children === new Date("2026-10-30T01:30:00Z").toLocaleDateString());
-  expect(history?.props.style.fontVariant).toEqual(["tabular-nums"]);
   if (!busy) expect(renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Find my packing list")!.props.style.lineHeight).toBe(22);
+});
+it("keeps the focused entry notice at the top while its context is resolving", async () => {
+  mock.params = { record_id: "source" };
+  mock.ask = { busy: true, resolving: true };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findByType(Screen).props.followEnd).toBe(false);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t =>
+    t.props.children === "Questions use this saved entry and its own child profile, including general entries.")).toBe(true);
+});
+it("opens history separately from a long conversation and returns without losing its draft", async () => {
+  const openHistory = vi.fn();
+  mock.ask = { question: "Keep this draft", messages: [{ role: "user", content: "Earlier question" }], showHistory: true, openHistory,
+    history: [{ id: "conversation", title: "Packing notes", updated_at: "2026-10-30T01:30:00Z" }] };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findByType(Screen).props.followEnd).toBe(false);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType);
+  expect(text().some(t => t.props.children === "Earlier question")).toBe(false);
+  expect(text().find(t => t.props.children === new Date("2026-10-30T01:30:00Z").toLocaleDateString())?.props.style.fontVariant).toEqual(["tabular-nums"]);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("Keep this draft");
+  await press("Done"); expect(openHistory).toHaveBeenCalledOnce();
+  mock.ask.showHistory = false;
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(text().some(t => t.props.children === "Earlier question")).toBe(true);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("Keep this draft");
 });
 it("reserves the measured Ask composer, adjusts for keyboard, and removes both subscriptions", async () => {
   await mount(<AskEntry />);
@@ -195,4 +220,48 @@ it("reserves the measured Ask composer, adjusts for keyboard, and removes both s
   expect(footer().props.style.paddingBottom).toBe(34);
   await act(async () => renderer!.unmount()); renderer = undefined;
   expect(mock.removed).toEqual(["keyboardWillShow", "keyboardWillHide"]);
+});
+
+it("keeps a full saved-source title readable in the entry content", async () => {
+  const record = mock.baby.records.find((r: any) => r.kind === "source");
+  record.title = "A simple hospital bag checklist";
+  mock.params = { id: record.id };
+  await mount(<RecordDetail />);
+  expect(renderer!.root.findByType(Screen).props.title).toBe("Saved source");
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === record.title)).toBe(true);
+});
+
+it.each([false, true])("refreshes the scoped timeline from page zero after sync, preserving loaded entries (care=%s)", async careHistory => {
+  mock.params = { filter: "question" };
+  mock.baby.state.selectedChild = "baby";
+  const kind = careHistory ? "feeding" : "question";
+  const old = { ...row("Old matching entry", kind), child_id: "baby" };
+  const older = { ...old, id: "older", title: "Older matching entry" };
+  const fresh = { ...old, id: "fresh", title: "New matching entry" };
+  let synced = false;
+  mock.baby.records = [old, older];
+  mock.baby.state.records = [old, older];
+  mock.baby.commit = async (change: any) => { mock.baby.state = change(mock.baby.state); };
+  const records = vi.fn(async ({ offset }: any) => ({
+    items: offset ? [older] : synced ? [fresh] : [old], total: synced ? 3 : 2, has_more: !offset,
+  }));
+  mock.baby.api.records = records;
+  mock.baby.sync = vi.fn(async () => {
+    synced = true;
+    mock.baby.state = { ...mock.baby.state, records: [fresh, ...mock.baby.state.records] };
+  });
+  await mount(<JournalContent careHistory={careHistory} />);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  if (careHistory) await press("Search");
+  const search = renderer!.root.findByType("TextInput" as React.ElementType);
+  await act(async () => search.props.onChangeText("matching"));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
+  await press("Load more matches");
+  const visible = () => renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.id);
+  expect(visible()).toEqual(expect.arrayContaining([old.id, older.id]));
+  await act(async () => { await renderer!.root.findByType(Screen).props.onRefresh(); });
+  expect(mock.baby.sync).toHaveBeenCalledOnce();
+  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? ["feeding", "sleep", "diaper"] : ["question"] });
+  expect(visible()).toEqual(expect.arrayContaining([fresh.id, old.id, older.id]));
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("matching");
 });

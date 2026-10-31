@@ -1,6 +1,6 @@
 import { Stack, router, type Href } from "expo-router";
 import { Icon, NativeHeaderContext, PressTarget, fonts, useColors } from "./ui";
-import { Platform, View } from "react-native";
+import { Platform, View, type ViewProps } from "react-native";
 
 export function TabStack({ title, add }: { title: string; add?: Href }) {
   const c = useColors();
@@ -15,7 +15,15 @@ export function TabStack({ title, add }: { title: string; add?: Href }) {
       headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".AppleSystemUIFontRounded-Bold" : fonts.regular,
         fontSize: 34, fontWeight: "700" },
       contentStyle: { backgroundColor: c.background },
-      headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      headerRight: () => <TabActions title={title} add={add} />,
+    }} />
+  </NativeHeaderContext.Provider>;
+}
+
+/** Keep contextual actions, Add and profile in one native glass group. */
+export function TabActions({ title, add, action }: { title: string; add?: Href; action?: ViewProps["children"] }) {
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {action}
         {add && <PressTarget accessibilityRole="button" accessibilityLabel={title === "Saved" ? "Add a source" : title === "Journal" ? "Write a journal entry" : "Add a source, note, or care log"}
           onPress={() => router.push(add)} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
           <Icon name="add" size={22} />
@@ -24,7 +32,5 @@ export function TabStack({ title, add }: { title: string; add?: Href }) {
           onPress={() => router.push("/settings")} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
           <Icon name="person-circle-outline" size={30} />
         </PressTarget>
-      </View>,
-    }} />
-  </NativeHeaderContext.Provider>;
+      </View>;
 }
