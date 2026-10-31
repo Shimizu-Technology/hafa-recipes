@@ -106,6 +106,8 @@ export function FloatingTimerOverlay() {
     }, 100);
   };
   
+  const foreground = isUrgent ? colors.onError : colors.onTint;
+
   // Position below typical header height (safe area + ~50px for header)
   const topPosition = insets.top + 50;
   
@@ -131,31 +133,31 @@ export function FloatingTimerOverlay() {
           <Ionicons
             name={primaryTimer.isPaused ? 'pause-circle' : 'timer-outline'}
             size={18}
-            color={isUrgent ? colors.onError : colors.onTint}
+            color={foreground}
           />
           
-          <Text style={[styles.timerText, { color: isUrgent ? colors.onError : colors.onTint }]}>
+          <Text style={[styles.timerText, { color: foreground }]}>
             {formatTime(primaryTimer.remaining)}
           </Text>
           
           {primaryTimer.isPaused && (
-            <Text style={[styles.statusText, { color: isUrgent ? colors.onError : colors.onTint }]}>paused</Text>
+            <Text style={[styles.statusText, { color: foreground }]}>paused</Text>
           )}
           
           {otherTimersCount > 0 && (
-            <Text style={[styles.statusText, { color: isUrgent ? colors.onError : colors.onTint }]}>+{otherTimersCount}</Text>
+            <Text style={[styles.statusText, { color: foreground }]}>+{otherTimersCount}</Text>
           )}
           
-          <RNView style={styles.separator} />
+          <RNView style={[styles.separator, { backgroundColor: foreground, opacity: 0.3 }]} />
           
-          <Text style={[styles.recipeTitle, { color: isUrgent ? colors.onError : colors.onTint }]} numberOfLines={1}>
+          <Text style={[styles.recipeTitle, { color: foreground }]} numberOfLines={1}>
             {session.recipeTitle}
           </Text>
           
           <Ionicons 
             name="chevron-forward" 
             size={16} 
-            color={isUrgent ? colors.onError : colors.onTint}
+            color={foreground} 
           />
         </TouchableOpacity>
       </Animated.View>

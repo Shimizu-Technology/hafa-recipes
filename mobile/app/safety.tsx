@@ -1,3 +1,4 @@
+import { fontFamily } from '@/constants/Colors';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -45,7 +46,7 @@ export default function SafetyCenterScreen() {
   if (!isSignedIn) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Safety Center' }} />
+        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Safety Center' }} />
         <SignInRequiredView
           icon="shield-checkmark-outline"
           title="Sign in for safety controls"
@@ -83,9 +84,9 @@ export default function SafetyCenterScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Stack.Screen options={{ title: 'Safety Center' }} />
-      <ScrollView
+    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
+      <Stack.Screen options={{ title: 'Safety Center', headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 } }} />
+      <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={colors.tint} />}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
@@ -258,14 +259,14 @@ const styles = StyleSheet.create({
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   cardTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, flex: 1 },
   cardCopy: { fontSize: fontSize.sm, lineHeight: 20 },
-  secondaryButton: { minHeight: 44, borderWidth: 1, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  secondaryButton: { minHeight: 44, borderWidth: 0, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   secondaryButtonText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
   section: { gap: spacing.sm },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   sectionCount: { fontSize: fontSize.sm },
   loader: { paddingVertical: spacing.xl },
-  listCard: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden' },
+  listCard: { borderWidth: 0, borderRadius: 12, overflow: 'hidden' },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 60 },
   listRow: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md },
   reportRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md },
@@ -273,11 +274,11 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1, gap: 3 },
   rowTitle: { fontSize: fontSize.md, fontWeight: fontWeight.medium },
   rowMeta: { fontSize: fontSize.xs },
-  inlineButton: { borderWidth: 1, borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  inlineButton: { borderWidth: 0, borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   inlineButtonText: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },
   statusPill: { borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   statusText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold },
-  emptyCard: { minHeight: 76, borderWidth: 1, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.md },
+  emptyCard: { minHeight: 76, borderWidth: 0, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.md },
   emptyText: { fontSize: fontSize.sm, textAlign: 'center' },
   retryText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
 });

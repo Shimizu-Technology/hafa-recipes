@@ -1,3 +1,4 @@
+import { RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { OfflineRecipeControl } from '@/components/OfflineRecipeControl';
 import { guestRecipeIntent, type GuestRecipeAction } from '@/lib/guestRecipeIntent';
@@ -5,7 +6,6 @@ import { getIngredientAmount, getCookingNotes } from '@/lib/recipeTrust';
 import { NutritionPanel } from '@/components/NutritionPanel';
 import { useNutritionRefresh } from '@/hooks/useNutritionRefresh';
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { useRecipeTabScroll } from '@/hooks/useRecipeTabScroll';
 import { recipeCost, recipeLoadError, recipeDetailView } from '@/lib/recipeDetailPresentation';
 import { formatNutritionAsText, type NutritionBasisId } from '@/lib/nutritionPresentation';
 import {
@@ -22,12 +22,13 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Button, Text, View, Card, Chip, Divider, useColors } from '@/components/Themed';
+import { Button, Text, View, Card, Divider, useColors } from '@/components/Themed';
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
 import AddIngredientsModal from '@/components/AddIngredientsModal';
 import RecipeChatModal from '@/components/RecipeChatModal';
@@ -146,11 +147,16 @@ function RecipeDetailScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
   const { scaleFontSize } = useTextSize();
-  const { activeTab, selectTab, scrollRef, onScroll, onTabsLayout, onContentSizeChange } = useRecipeTabScroll<TabType>(id, 'ingredients');
+  const [activeTab, selectTab] = useState<TabType>('ingredients');
+  const scrollRef = useRef<ScrollView>(null);
+  const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set());
+  const [showScale, setShowScale] = useState(false);
+  const [showSourceTools, setShowSourceTools] = useState(false);
+  const [showRecipeNotes, setShowRecipeNotes] = useState(false);
   const [nutritionBasis, setNutritionBasis] = useState<NutritionBasisId | undefined>();
   const [showRelated, setShowRelated] = useState(false);
-  const [cookDockHeight, setCookDockHeight] = useState(0);
   
   const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending, preview } = useRecipe(id);
   const handleDelete = useRecipeDeletion(id, () => router.back());
@@ -165,7 +171,6 @@ function RecipeDetailScreenContent() {
   const [reportTarget, setReportTarget] = useState<SafetyTargetType | null>(null);
   const [showRecipeAppeal, setShowRecipeAppeal] = useState(false);
   const [androidMenuActions, setAndroidMenuActions] = useState<RecipeMenuAction[] | null>(null);
-  const [showIngredientsRef, setShowIngredientsRef] = useState(false); // Collapsed by default
   const { userId, sessionId, isLoaded } = useAuth();
   const activeSession = useRef(sessionId);
   activeSession.current = sessionId;
@@ -180,9 +185,11 @@ function RecipeDetailScreenContent() {
     setNutritionBasis(undefined);
   }, [id, recipe?.content_revision]);
   useEffect(() => {
-    setShowIngredientsRef(false);
     setShowRelated(false);
+    setShowRecipeNotes(false);
+    setShowSourceTools(false);
   }, [id]);
+  useEffect(() => { setCheckedIngredients(new Set()); }, [id, recipe?.content_revision]);
 
   // Check if user is admin (from Clerk public metadata)
   const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
@@ -738,7 +745,10 @@ function RecipeDetailScreenContent() {
     <>
       <Stack.Screen 
         options={{ 
-          headerTitle: 'Recipe',
+          headerTitle: '',
+          headerTransparent: true,
+          headerStyle: { backgroundColor: 'transparent' },
+          headerShadowVisible: false,
           headerRight: () => (
             <RNView style={styles.headerButtons}>
               <TouchableOpacity
@@ -770,14 +780,11 @@ function RecipeDetailScreenContent() {
         <ScrollView 
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
-          stickyHeaderIndices={[1]}
-          scrollEventThrottle={16}
-          onScroll={onScroll}
-          onContentSizeChange={onContentSizeChange}
+          contentInsetAdjustmentBehavior="never"
           contentContainerStyle={[
             styles.scrollContent,
             {
-              paddingBottom: (canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? cookDockHeight : 0) + spacing.lg,
+              paddingBottom: insets.bottom + spacing.lg,
             },
           ]}
           keyboardShouldPersistTaps="handled"
@@ -785,6 +792,7 @@ function RecipeDetailScreenContent() {
           <RNView>
           <RecipeHero
             key={recipe.id}
+            photoOnly
             recipeTitle={extracted.title}
             sourceUrl={recipe.source_url}
             thumbnailUrl={recipe.thumbnail_url}
@@ -821,265 +829,59 @@ function RecipeDetailScreenContent() {
               </RNView>
             )}
 
-            {/* Meta Row */}
-            <RNView style={styles.metaRow}>
-              {hasKnownServings && (
-                <RNView style={[styles.metaItemScalable, { backgroundColor: colors.backgroundSecondary }]}>
-                  <TouchableOpacity 
-                    style={[styles.scaleButton, { backgroundColor: colors.tint + '20' }]}
-                    onPress={() => setScaledServings(Math.max(1, currentServings - 1))}
-                    disabled={currentServings <= 1}
-                    accessibilityRole="button" accessibilityLabel="Decrease servings"
-                    accessibilityState={{ disabled: currentServings <= 1 }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="remove" size={16} color={colors.actionText} />
-                  </TouchableOpacity>
-                  <RNView style={styles.servingsDisplay}>
-                    <Ionicons name="people-outline" size={18} color={colors.actionText} />
-                    <Text style={[styles.metaValue, { color: isScaled ? colors.actionText : colors.text }]}>
-                      {currentServings}
-                    </Text>
-                    <Text style={[styles.metaLabel, { color: colors.textMuted }]}>
-                      {isScaled ? `(was ${originalServings})` : 'servings'}
-                    </Text>
-                  </RNView>
-                  <TouchableOpacity 
-                    style={[styles.scaleButton, { backgroundColor: colors.tint + '20' }]}
-                    onPress={() => setScaledServings(currentServings + 1)}
-                    accessibilityRole="button" accessibilityLabel="Increase servings"
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="add" size={16} color={colors.actionText} />
-                  </TouchableOpacity>
-                  {isScaled && (
-                    <TouchableOpacity 
-                      style={styles.resetButton}
-                      onPress={resetServings}
-                      accessibilityRole="button" accessibilityLabel="Reset to original servings"
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="refresh" size={14} color={colors.textMuted} />
-                    </TouchableOpacity>
-                  )}
+            <Text style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 20, marginBottom: 20 }}>
+              {[sourceLabel, recipe.extractor_display_name].filter(Boolean).join(' · ')}
+            </Text>
+            <RNView style={[styles.metaRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'stretch' }]}>
+              {[['Serves', hasKnownServings ? String(currentServings) : '—'], ['Prep', extracted.times?.prep || '—'], ['Total', extracted.times?.total || '—']].map(([label, value]) => (
+                <RNView key={label} style={{ flex: fontScale >= 1.3 ? 0 : 1, minWidth: 80, gap: 4 }}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 16 }}>{label}</Text>
+                  <Text style={{ fontSize: 17, lineHeight: 22, fontWeight: '600' }}>{value}</Text>
                 </RNView>
-              )}
-              {extracted.times?.total && (
-                <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Ionicons name="time-outline" size={18} color={colors.actionText} />
-                  <Text style={[styles.metaValue, { color: colors.text }]}>
-                    {extracted.times.total}
-                  </Text>
-                </RNView>
-              )}
-              {costSummary && (
-                <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                  <Ionicons name="cash-outline" size={18} color={colors.actionText} />
-                  <Text style={[styles.metaValue, { color: colors.text }]}>
-                    ${costSummary.total.toFixed(2)}
-                  </Text>
-                </RNView>
-              )}
-            </RNView>
-
-            {/* Quality Badge - show warning if low confidence, otherwise show quality */}
-            {reviewLabel && !reviewDetails ? (
-              <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
-                <Text style={[styles.qualityText, { color: '#92400e' }]}>
-                  {reviewLabel}
-                </Text>
-              </RNView>
-            ) : !recipe.review_state && extracted.lowConfidence && !reviewDetails ? (
-              <RNView style={[styles.qualityBadge, { backgroundColor: '#fef3c7' }]}>
-                <Text style={[styles.qualityText, { color: '#92400e' }]}>
-                  Some details are uncertain
-                </Text>
-              </RNView>
-            ) : null /* Source method is not an accuracy guarantee. */}
-            {reviewDetails && recipe.review_state !== 'source_incomplete' && (
-              <TouchableOpacity
-                style={[styles.reviewNotice, { borderColor: colors.border }]}
-                onPress={() => setShowDetailsReview(true)}
-                accessibilityRole="button"
-                accessibilityLabel={`${estimateCount ? 'Includes AI estimated amounts.' : 'Some details may need a check.'} Check details, optional`}
-              >
-                <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
-                <Text style={[styles.reviewNoticeText, { color: colors.textSecondary }]}>
-                  {estimateCount ? 'Includes AI estimated amounts' : 'Some details may need a check'}
-                </Text>
-                <Text style={[styles.reviewNoticeAction, { color: colors.actionText }]}>Optional check</Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.actionText} />
-              </TouchableOpacity>
-            )}
-            {reviewDetails && recipe.review_state === 'source_incomplete' && (
-              <RNView
-                style={[
-                  styles.reviewCard,
-                  {
-                    backgroundColor: colors.warning + '10',
-                    borderColor: colors.warning,
-                  },
-                ]}
-                accessibilityRole="summary"
-              >
-                <RNView style={styles.reviewCardHeader}>
-                  <RNView style={[styles.reviewCardIcon, { backgroundColor: colors.warning + '20' }]}>
-                    <Ionicons name="search-outline" size={20} color={colors.warning} />
-                  </RNView>
-                  <RNView style={styles.reviewCardCopy}>
-                    <Text style={[styles.reviewCardTitle, { color: colors.text }]}>
-                      {reviewDetails.heading}
-                    </Text>
-                    <Text style={[styles.reviewCardMessage, { color: colors.textSecondary }]}>
-                      {reviewDetails.message}
-                    </Text>
-                  </RNView>
-                </RNView>
-                <TouchableOpacity
-                  style={[styles.reviewSourceButton, { borderColor: colors.border }]}
-                  onPress={() => recipe.review_state === 'source_incomplete'
-                    ? router.push(`/edit-recipe/${id}`)
-                    : setShowDetailsReview(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel={reviewDetails.actionLabel}
-                >
-                  <Text style={[styles.reviewSourceButtonText, { color: colors.actionText }]}>{reviewDetails.actionLabel}</Text>
-                </TouchableOpacity>
-              </RNView>
-            )}
-
-            <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
-            {isOwner && recipe.source_type === 'photo' && <Button title="Original pages" variant="outline"
-              onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })} />}
-            <TouchableOpacity onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityRole="button"
-              accessibilityLabel="Ask Håfa about this recipe" style={[styles.sourceButton, { minHeight: 44, borderColor: colors.border }]}>
-              <Ionicons name="chatbubbles-outline" size={20} color={colors.actionText} />
-              <Text style={{ color: colors.actionText }}>Ask Håfa</Text>
-            </TouchableOpacity>
-            {/* Source Button */}
-            {hasExternalSource && !sourcePlayback && (
-              <TouchableOpacity
-                style={[styles.sourceButton, { borderColor: colors.border }]}
-                onPress={handleOpenSource}
-                activeOpacity={0.7}
-                accessibilityRole="link"
-                accessibilityLabel={`View recipe on ${sourceLabel}`}
-              >
-                <Ionicons name={sourceIcon as any} size={20} color={colors.textSecondary} />
-                <Text style={[styles.sourceButtonText, { color: colors.text }]}>
-                  View on {sourceLabel}
-                </Text>
-                <Ionicons name="open-outline" size={18} color={colors.textMuted} />
-              </TouchableOpacity>
-            )}
-
-            {/* Share to Library Toggle - only show for owner */}
-            {isOwner && (
-              <TouchableOpacity 
-                style={[
-                  styles.shareButton, 
-                  { 
-                    borderColor: recipe.is_public ? colors.success : colors.border,
-                    backgroundColor: recipe.is_public ? colors.success + '10' : 'transparent',
-                  }
-                ]} 
-                onPress={handleToggleSharing}
-                activeOpacity={0.7}
-                disabled={toggleSharingMutation.isPending}
-                accessibilityRole="button"
-                accessibilityLabel={`${visibilityPresentation?.label}. ${visibilityPresentation?.subtitle}`}
-                accessibilityHint={visibilityPresentation?.accessibilityHint}
-                accessibilityState={{ busy: toggleSharingMutation.isPending }}
-              >
-                <Ionicons 
-                  name={recipe.is_public ? 'globe' : 'globe-outline'} 
-                  size={20} 
-                  color={recipe.is_public ? colors.success : colors.textSecondary} 
-                />
-                <RNView style={styles.shareButtonCopy}>
-                  <Text style={[
-                    styles.shareButtonText,
-                    { color: recipe.is_public ? colors.success : colors.text }
-                  ]}>
-                    {toggleSharingMutation.isPending
-                      ? 'Updating visibility...'
-                      : visibilityPresentation?.label
-                    }
-                  </Text>
-
-                </RNView>
-                <Ionicons 
-                  name={recipe.is_public ? 'checkmark-circle' : 'add-circle-outline'} 
-                  size={18} 
-                  color={recipe.is_public ? colors.success : colors.textMuted} 
-                />
-              </TouchableOpacity>
-            )}
-
-            <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-              {!isOwner && <TouchableOpacity onPress={handleSaveToggle} style={styles.headerButton}
-                accessibilityRole="button" accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
-                accessibilityState={{ selected: isSaved, disabled: isSavePending }} disabled={isSavePending}>
-                <Text style={{ color: colors.actionText }}>{isSaved ? 'Saved' : 'Save'}</Text>
-              </TouchableOpacity>}
-              {!userId && <>
-                <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Plan recipe"
-                  onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))}>
-                  <Text style={{ color: colors.actionText }}>Plan</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Add recipe to collection"
-                  onPress={() => requireRecipeAccount('collection', () => setShowCollectionModal(true))}>
-                  <Text style={{ color: colors.actionText }}>Collect</Text>
-                </TouchableOpacity>
-              </>}
-            </RNView>
-
-            {/* Public badge for non-owner viewing public recipe */}
-            {!isOwner && recipe.is_public && (
-              <RNView style={[styles.publicBadge, { backgroundColor: colors.tint + '15' }]}>
-                <Ionicons name="globe" size={16} color={colors.actionText} />
-                <Text style={[styles.publicBadgeText, { color: colors.actionText }]}>
-                  Public Recipe
-                </Text>
-              </RNView>
-            )}
-
-          </RNView>
-          </RNView>
-            {/* Tabs */}
-            <RNView onLayout={onTabsLayout}
-              style={[styles.tabContainer, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
-              {tabs.map((tab) => (
-                <TouchableOpacity
-                  key={tab.key}
-                  style={[
-                    styles.tab,
-                    activeTab === tab.key && { borderBottomColor: colors.tint },
-                  ]}
-                  onPress={() => selectTab(tab.key)}
-                  accessibilityRole="tab" accessibilityLabel={tab.label}
-                  accessibilityState={{ selected: activeTab === tab.key }}
-                >
-                  <Text 
-                    style={[
-                      styles.tabText, 
-                      { color: activeTab === tab.key ? colors.actionText : colors.textMuted },
-                      activeTab === tab.key && styles.tabTextActive,
-                    ]}
-                  >
-                    {tab.label}
-                  </Text>
-                </TouchableOpacity>
               ))}
-              </ScrollView>
             </RNView>
+            <RNView style={styles.recipeActions}>
+              {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) && <Button title={cookPresentation.canCook ? 'Cook' : 'Add instructions'} size="sm" style={{ paddingHorizontal: 16, minHeight: 50 }} onPress={handleCook} />}
+              <Button title="Plan" size="sm" style={{ paddingHorizontal: 12 }} variant="secondary" onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))} />
+              <Button title="Groceries" size="sm" style={{ paddingHorizontal: 12 }} variant="secondary" onPress={handleAddToGrocery} />
+              {hasKnownServings && <Button title="Scale" size="sm" style={{ paddingHorizontal: 12 }} variant="secondary" onPress={() => setShowScale(value => !value)} />}
+            </RNView>
+            {showScale && hasKnownServings && <RNView style={styles.servingsStepper}>
+              <TouchableOpacity style={styles.scaleButton} onPress={() => setScaledServings(Math.max(1, currentServings - 1))}
+                disabled={currentServings <= 1} accessibilityRole="button" accessibilityLabel="Decrease servings" accessibilityState={{ disabled: currentServings <= 1 }}>
+                <Ionicons name="remove" size={22} color={colors.actionText} />
+              </TouchableOpacity>
+              <Text style={{ flex: 1, textAlign: 'center' }}>{currentServings} servings</Text>
+              <TouchableOpacity style={styles.scaleButton} onPress={() => setScaledServings(currentServings + 1)} accessibilityRole="button" accessibilityLabel="Increase servings">
+                <Ionicons name="add" size={22} color={colors.actionText} />
+              </TouchableOpacity>
+              {isScaled && <TouchableOpacity style={styles.scaleButton} onPress={resetServings} accessibilityRole="button" accessibilityLabel="Reset to original servings"><Ionicons name="refresh" size={20} color={colors.actionText} /></TouchableOpacity>}
+            </RNView>}
+
+            {(reviewDetails || reviewLabel || extracted.lowConfidence) && (
+              <TouchableOpacity style={styles.reviewNotice} accessibilityRole="button"
+                accessibilityLabel={reviewDetails?.actionLabel || 'Check recipe details'}
+                onPress={() => recipe.review_state === 'source_incomplete'
+                  ? (isOwner ? router.push(`/edit-recipe/${id}`) : Alert.alert('Needs a check', reviewDetails?.message)) : (isOwner ? setShowDetailsReview(true) : Alert.alert('Needs a check', reviewDetails?.message || reviewLabel || 'Some details may be uncertain.'))}>
+                <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
+                <RNView style={{ flex: 1 }}>
+                  <Text style={{ color: colors.textSecondary }}>Needs a check</Text>
+                  {recipe.review_state === 'source_incomplete' && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{reviewDetails?.message}</Text>}
+                </RNView>
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+
+          </RNView>
+          </RNView>
             <RNView style={styles.content}>
 
             {/* Tab Content */}
             <RNView style={styles.tabContent}>
-              {activeTab === 'ingredients' && (
+              {(
+
                 <>
+                  <Text accessibilityRole="header" style={styles.sectionTitle}>Ingredients</Text>
                   {extracted.equipment && extracted.equipment.length > 0 && <RNView style={[styles.preparation, { borderColor: colors.border }]}>
                     <Text accessibilityRole="header" style={[styles.notesTitle, { color: colors.text }]}>Equipment</Text>
                     <Text style={[styles.notesText, { color: colors.textSecondary, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(23) }]}>
@@ -1087,7 +889,7 @@ function RecipeDetailScreenContent() {
                     </Text>
                   </RNView>}
                   {extracted.components.map((component, compIndex) => (
-                    <RNView key={compIndex} style={styles.componentSection}>
+                    <RNView key={compIndex} style={[styles.componentSection, { backgroundColor: colors.backgroundSecondary, borderRadius: 12, overflow: 'hidden' }]}>
                       {extracted.components.length > 1 && component.name && typeof component.name === 'string' ? (
                         <Text style={[styles.componentTitle, { color: colors.actionText }]}>
                           {component.name}
@@ -1106,11 +908,15 @@ function RecipeDetailScreenContent() {
                           : null;
                         
                         return (
-                          <RNView key={ingIndex} style={styles.ingredientRow}>
-                            <RNView style={[styles.bullet, { backgroundColor: isScaled ? colors.tint : colors.tint }]} />
+                          <RNView key={ingIndex} style={[styles.ingredientRow, { backgroundColor: colors.backgroundSecondary, borderRadius: 0, paddingHorizontal: 12 }]}>
+                            <TouchableOpacity style={styles.ingredientCheck} accessibilityRole="checkbox"
+                              accessibilityLabel={ing.name} accessibilityState={{ checked: checkedIngredients.has(`${compIndex}:${ingIndex}`) }}
+                              onPress={() => { setCheckedIngredients(previous => { const next = new Set(previous); const key = `${compIndex}:${ingIndex}`; next.has(key) ? next.delete(key) : next.add(key); return next; }); haptics.selection(); }}>
+                              <Ionicons name={checkedIngredients.has(`${compIndex}:${ingIndex}`) ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={checkedIngredients.has(`${compIndex}:${ingIndex}`) ? colors.tint : colors.textSecondary} />
+                            </TouchableOpacity>
                             <RNView style={styles.ingredientContent}>
                               <RNView style={styles.ingredientMain}>
-                                <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }]}>
+                                <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>
                                   {qtyUnit ? (
                                     <Text style={[styles.ingredientQty, isScaled && { color: colors.actionText }]}>
                                       {qtyUnit}
@@ -1141,105 +947,13 @@ function RecipeDetailScreenContent() {
                     </RNView>
                   ))}
                   
-                  {/* Add to Grocery List Button */}
-                  <TouchableOpacity
-                    style={[styles.addToGroceryButton, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-                    onPress={handleAddToGrocery}
-                    activeOpacity={0.8}
-                    disabled={addToGroceryMutation.isPending}
-                    accessibilityRole="button" accessibilityLabel="Add to Grocery List" accessibilityState={{ busy: addToGroceryMutation.isPending }}
-                  >
-                    <Ionicons name="cart-outline" size={20} color={colors.actionText} />
-                    <Text style={[styles.addToGroceryText, { color: colors.actionText }]}>
-                      {addToGroceryMutation.isPending ? 'Adding...' : 'Add to Grocery List'}
-                    </Text>
-                  </TouchableOpacity>
                 </>
               )}
 
-              {activeTab === 'steps' && (
+              {(
+
                 <>
-            {/* Recipe Notes (from creator/extraction) */}
-            {cookingNotes && (
-              <RNView style={[styles.notesSection, { backgroundColor: colors.backgroundSecondary }]}>
-                <RNView style={styles.notesTitleRow}>
-                  <Ionicons name="document-text-outline" size={18} color={colors.actionText} />
-                  <Text style={[styles.notesTitle, { color: colors.text }]}>Recipe Notes</Text>
-                </RNView>
-                <Text style={[styles.notesText, { color: colors.textSecondary }]}>
-                  {cookingNotes}
-                </Text>
-              </RNView>
-            )}
-
-                  {extracted.equipment && extracted.equipment.length > 0 && <TouchableOpacity style={styles.prepLink}
-                    accessibilityRole="button" accessibilityLabel="View equipment in Ingredients" onPress={() => selectTab('ingredients', true)}>
-                    <Ionicons name="construct-outline" size={18} color={colors.actionText} />
-                    <Text style={{ color: colors.actionText }}>Equipment · {extracted.equipment.length} items</Text>
-                    <Ionicons name="chevron-forward" size={16} color={colors.actionText} />
-                  </TouchableOpacity>}
-                  {/* Quick Reference: Ingredients */}
-                  <TouchableOpacity
-                    style={[styles.ingredientsRefHeader, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-                    onPress={() => setShowIngredientsRef(!showIngredientsRef)}
-                    accessibilityRole="button" accessibilityLabel="Quick reference: Ingredients" accessibilityState={{ expanded: showIngredientsRef }}
-                    activeOpacity={0.7}
-                  >
-                    <RNView style={styles.ingredientsRefTitleRow}>
-                      <Ionicons name="list-outline" size={18} color={colors.actionText} />
-                      <Text style={[styles.ingredientsRefTitle, { color: colors.text }]}>
-                        Quick Reference: Ingredients
-                      </Text>
-                      {isScaled && (
-                        <RNView style={[styles.scaledBadge, { backgroundColor: colors.tint + '20' }]}>
-                          <Text style={[styles.scaledBadgeText, { color: colors.actionText }]}>
-                            {currentServings} servings
-                          </Text>
-                        </RNView>
-                      )}
-                    </RNView>
-                    <Ionicons 
-                      name={showIngredientsRef ? 'chevron-up' : 'chevron-down'} 
-                      size={20} 
-                      color={colors.textMuted} 
-                    />
-                  </TouchableOpacity>
-                  
-                  {showIngredientsRef && (
-                    <RNView style={[styles.ingredientsRefContent, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
-                      {extracted.components.map((component, compIndex) => (
-                        <RNView key={compIndex}>
-                          {extracted.components.length > 1 && (
-                            <Text style={[styles.ingredientsRefCompTitle, { color: colors.actionText }]}>
-                              {component.name}
-                            </Text>
-                          )}
-                          {component.ingredients.map((ing, ingIndex) => {
-                            const amount = getIngredientAmount(ing);
-                            const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
-                            const unit = amount.unit || '';
-                            const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
-                            return (
-                              <RNView key={ingIndex} style={styles.ingredientsRefItem}>
-                                <Text style={[styles.ingredientsRefQty, isScaled && { color: colors.actionText }]}>
-                                  {scaledQty || (missingQuantityLabel ? '?' : '•')}{unit ? ` ${unit}` : ''}
-                                </Text>
-                                <Text style={[styles.ingredientsRefName, { color: colors.text }]}>
-                                  {ing.name}
-                                  {missingQuantityLabel ? (
-                                    <Text style={{ color: colors.warning }}>
-                                      {`\n${missingQuantityLabel}`}
-                                    </Text>
-                                  ) : null}
-                                </Text>
-                              </RNView>
-                            );
-                          })}
-                        </RNView>
-                      ))}
-                    </RNView>
-                  )}
-
+                  <Text accessibilityRole="header" style={styles.sectionTitle}>Steps</Text>
                   {/* Steps */}
                   {extracted.components.map((component, compIndex) => (
                     <RNView key={compIndex} style={styles.componentSection}>
@@ -1250,10 +964,10 @@ function RecipeDetailScreenContent() {
                       )}
                       {component.steps.map((step, stepIndex) => (
                         <RNView key={stepIndex} style={styles.stepRow}>
-                          <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
-                            <Text style={[styles.stepNumberText, { color: colors.onTint }]}>{stepIndex + 1}</Text>
+                          <RNView style={styles.stepNumber}>
+                            <Text style={[styles.stepNumberText, { color: colors.textSecondary }]}>{extracted.components.slice(0, compIndex).reduce((sum, part) => sum + part.steps.length, 0) + stepIndex + 1}</Text>
                           </RNView>
-                          <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(24) }]}>
+                          <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>
                             {step}
                           </Text>
                         </RNView>
@@ -1263,17 +977,49 @@ function RecipeDetailScreenContent() {
                 </>
               )}
 
-              {/* Keep disclosure state when switching tabs so the reading position remains meaningful. */}
-                <RNView key={`nutrition-${id}`} style={{ display: activeTab === 'nutrition' ? 'flex' : 'none' }}
-                  accessibilityElementsHidden={activeTab !== 'nutrition'}
-                  importantForAccessibility={activeTab === 'nutrition' ? 'auto' : 'no-hide-descendants'}>
+              <Text accessibilityRole="header" style={[styles.sectionTitle, { marginTop: 24 }]}>More</Text>
+              <RNView style={{ backgroundColor: colors.backgroundSecondary, borderRadius: 12, overflow: 'hidden' }}>
+              {cookingNotes && !userId && <>
+                <RecipeDetailRow icon="document-text-outline" title="Recipe notes" onPress={() => setShowRecipeNotes(!showRecipeNotes)} accessibilityState={{ expanded: showRecipeNotes }}
+                  accessory={<Ionicons name={showRecipeNotes ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />
+                {showRecipeNotes && <Text style={{ padding: 16, color: colors.textSecondary, fontSize: 17, lineHeight: 24 }}>{cookingNotes}</Text>}
+              </>}
+            {userId && (
+              <RecipeOrganizer
+                compact panels={['notes']} recipeNotes={cookingNotes}
+                recipeTitle={extracted.title}
+                collections={recipeCollections}
+                areCollectionsLoading={isCollectionsLoading || isRecipeCollectionsLoading}
+                onOpenCollection={(collectionId) => router.push(appRoutes.collection(collectionId))}
+                onManageCollections={() => setShowCollectionModal(true)}
+                planEntries={recipePlanEntries}
+                isPlanLoading={isRecipePlanLoading}
+                hasPlanError={isRecipePlanError}
+                isPlanRetrying={isRecipePlanRetrying}
+                onOpenPlanDate={(date) => router.push(appRoutes.plannerDate(date))}
+                onPlanRecipe={() => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined))}
+                onRetryPlan={() => { void refetchRecipePlan(); }}
+                savedNote={personalNote?.note_text}
+                isNoteLoading={isNoteLoading}
+                isNoteSaving={updateNoteMutation.isPending}
+                onSaveNote={handleSaveNote}
+              />
+            )}
+
+              {tabs.filter(tab => tab.key === 'nutrition' || tab.key === 'cost').map(tab => <RecipeDetailRow key={tab.key}
+                icon={tab.key === 'nutrition' ? 'nutrition-outline' : 'pricetag-outline'} title={tab.label}
+                accessibilityState={{ expanded: activeTab === tab.key }}
+                onPress={() => selectTab(activeTab === tab.key ? 'ingredients' : tab.key)}
+                accessory={<Ionicons name={activeTab === tab.key ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />)}
+              {/* Mount only while open: updating a display:none Fabric subtree crashes native layout. Basis selection stays above the disclosure. */}
+                {activeTab === 'nutrition' && <RNView key={`nutrition-${id}`}>
                   <NutritionPanel nutrition={extracted.nutrition} metadata={extracted.derivedData?.nutrition}
                     recipeServings={extracted.servings ?? null}
                     scaleFactor={scaleFactor}
                     selectedBasisId={nutritionBasis} onBasisChange={setNutritionBasis}
                     isLoading={isRefreshingNutrition} error={nutritionError} onRefresh={isOwner ? refreshNutrition : undefined} />
 
-                </RNView>
+                </RNView>}
 
               {activeTab === 'cost' && costSummary && (
                 <>
@@ -1380,13 +1126,9 @@ function RecipeDetailScreenContent() {
                   </RNView>
                 </>
               )}
-            </RNView>
-          </RNView>
-          
-          <RNView style={styles.supportingContent}>
             {userId && (
               <RecipeOrganizer
-                compact
+                compact panels={['collections', 'plan']}
                 recipeTitle={extracted.title}
                 collections={recipeCollections}
                 areCollectionsLoading={isCollectionsLoading || isRecipeCollectionsLoading}
@@ -1406,14 +1148,49 @@ function RecipeDetailScreenContent() {
               />
             )}
 
-            {/* Tags */}
-            {extracted.tags.length > 0 && (
-              <RNView style={styles.tagContainer}>
-                {extracted.tags.map((tag, index) => (
-                  <Chip key={index} label={tag} size="sm" />
-                ))}
-              </RNView>
+            <OfflineRecipeControl recipeId={id} eligible={Boolean(recipe.is_owner || savedStatus?.is_saved)} />
+            
+            {/* Share to Library Toggle - only show for owner */}
+            {isOwner && (
+              <RecipeDetailRow icon={recipe.is_public ? 'globe' : 'globe-outline'}
+                title={toggleSharingMutation.isPending ? 'Updating visibility...' : 'Public in Discover'}
+                onPress={handleToggleSharing} disabled={toggleSharingMutation.isPending}
+                accessibilityLabel={`${visibilityPresentation?.label}. ${visibilityPresentation?.subtitle}`}
+                accessibilityHint={visibilityPresentation?.accessibilityHint}
+                accessibilityState={{ busy: toggleSharingMutation.isPending }}
+                value={visibilityPresentation?.value} />
             )}
+
+            <RecipeDetailRow icon="chatbubbles-outline" title="Ask Håfa"
+              onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityLabel="Ask Håfa about this recipe" />
+            {hasExternalSource && !sourcePlayback && (
+              <RecipeDetailRow icon={sourceIcon as keyof typeof Ionicons.glyphMap} title={`View on ${sourceLabel}`} onPress={handleOpenSource}
+                accessibilityRole="link" accessibilityLabel={`View recipe on ${sourceLabel}`}
+                accessory={<Ionicons name="open-outline" size={18} color={colors.textMuted} />} />
+            )}
+
+            {!isOwner && <RecipeDetailRow icon={isSaved ? 'bookmark' : 'bookmark-outline'} title={isSaved ? 'Saved' : 'Save'}
+              onPress={handleSaveToggle} accessibilityLabel={isSaved ? 'Remove recipe from saved' : 'Save recipe'}
+              accessibilityState={{ selected: isSaved, disabled: isSavePending }} disabled={isSavePending} />}
+            {!userId && <>
+              <RecipeDetailRow icon="calendar-outline" title="Plan" accessibilityLabel="Plan recipe"
+                onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))} />
+              <RecipeDetailRow icon="folder-outline" title="Collect" accessibilityLabel="Add recipe to collection"
+                onPress={() => requireRecipeAccount('collection', () => setShowCollectionModal(true))} />
+            </>}
+
+            {sourcePlayback && <>
+              <RecipeDetailRow icon="play-circle-outline" title="Source video" accessibilityLabel="Source video" accessibilityState={{ expanded: showSourceTools }} onPress={() => setShowSourceTools(!showSourceTools)}
+                accessory={<Ionicons name={showSourceTools ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />} />
+              {showSourceTools && <RecipeHero recipeTitle={extracted.title} sourceUrl={recipe.source_url} onOpenSource={handleOpenSource} />}
+            </>}
+
+
+            {isOwner && recipe.source_type === 'photo' && <RecipeDetailRow icon="images-outline" title="Source pages" accessibilityLabel="Original pages"
+              onPress={() => router.push({ pathname: '/recipe-source-pages', params: { id } })} />}
+            </RNView>
+            </RNView>
+            {extracted.tags.length > 0 && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 16 }}>{extracted.tags.join(' · ')}</Text>}
 
 
           </RNView>
@@ -1447,33 +1224,6 @@ function RecipeDetailScreenContent() {
           )}
         </ScrollView>
         
-        {/* Cooking stays primary; review is optional beside the advisory. */}
-        {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) && <RNView
-          onLayout={(event) => setCookDockHeight(event.nativeEvent.layout.height)} style={[
-          styles.floatingButtonContainer,
-          { 
-            backgroundColor: colors.background,
-            borderTopColor: colors.border,
-            paddingBottom: insets.bottom + spacing.sm,
-          }
-        ]}>
-          {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) ? (
-            <TouchableOpacity
-              style={[styles.floatingCookButton, { backgroundColor: colors.tint }]}
-              onPress={handleCook}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel={cookPresentation.buttonLabel}
-            >
-              <Ionicons
-                name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
-                size={22}
-                color={colors.onTint}
-              />
-              <Text style={[styles.floatingCookButtonText, { color: colors.onTint }]}>{cookPresentation.buttonLabel}</Text>
-            </TouchableOpacity>
-          ) : null}
-        </RNView>}
       </KeyboardAvoidingView>
 
       {showDetailsReview && isOwner && (
@@ -1640,11 +1390,15 @@ function RecipeDetailScreenContent() {
 }
 
 const styles = StyleSheet.create({
+  sectionTitle: { fontFamily: fontFamily.display, fontSize: 22, lineHeight: 28, marginBottom: 16, marginTop: 8 },
+  recipeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  servingsStepper: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  ingredientCheck: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   container: {
     flex: 1,
   },
   refreshNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, marginBottom: spacing.md },
-  supportingContent: { paddingHorizontal: spacing.lg },
+  supportingContent: { paddingHorizontal: 16 },
   errorMessage: { textAlign: 'center', marginBottom: spacing.md },
   retryButton: { minHeight: 44, minWidth: 88, alignItems: 'center', justifyContent: 'center' },
   preparation: { paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
@@ -1741,7 +1495,7 @@ const styles = StyleSheet.create({
     width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   content: {
-    padding: spacing.lg,
+    padding: 16,
   },
   title: {
     fontSize: fontSize.xxl,
@@ -1829,7 +1583,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
-  reviewNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, borderTopWidth: 1, borderBottomWidth: 1, marginBottom: spacing.lg },
+  reviewNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, marginBottom: spacing.lg },
   reviewNoticeText: { flex: 1, fontSize: fontSize.sm, lineHeight: 20 },
   reviewNoticeAction: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },
   estimateAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
@@ -1895,70 +1649,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.lg,
   },
-  startCookingButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.lg,
-    marginBottom: spacing.lg,
-  },
-  startCookingTextContainer: {
-    flex: 1,
-    marginLeft: spacing.md,
-  },
-  startCookingText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.lg,
-    fontFamily: fontFamily.bold, fontWeight: '700',
-  },
-  startCookingSubtext: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: fontSize.sm,
-    marginTop: 2,
-  },
   // Floating button styles
-  floatingButtonContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    ...shadows.medium,
-  },
-  floatingCookButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.lg,
-    ...shadows.card,
-  },
-  floatingCookButtonText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.lg,
-    fontFamily: fontFamily.semibold, fontWeight: '600',
-  },
-  floatingDraftButton: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.xl,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-  },
-  floatingDraftButtonText: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold, fontWeight: '600',
-  },
   sourceButton: {
     minHeight: 44,
     flexDirection: 'row',
@@ -2044,8 +1735,8 @@ const styles = StyleSheet.create({
   },
   ingredientRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
+    alignItems: 'center',
+    minHeight: 52, paddingVertical: 4,
   },
   bullet: {
     width: 6,
@@ -2087,8 +1778,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   stepNumber: {
-    width: 44,
-    height: 44,
+    minWidth: 32,
+    minHeight: 24,
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
@@ -2096,7 +1787,7 @@ const styles = StyleSheet.create({
   },
   stepNumberText: {
     color: '#FFFFFF',
-    fontSize: fontSize.sm,
+    fontSize: 17, lineHeight: 24,
     fontWeight: fontWeight.semibold,
   },
   stepText: {
@@ -2245,7 +1936,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   addToGroceryButton: {
-    minHeight: 48, borderWidth: 1,
+    minHeight: 48, borderWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2399,8 +2090,8 @@ const styles = StyleSheet.create({
   },
   similarCard: {
     width: 160,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 0,
     overflow: 'hidden',
   },
   similarImage: {
@@ -2413,10 +2104,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   similarCardTitle: {
-    minHeight: 36,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-    lineHeight: fontSize.sm * 1.3,
+    fontSize: 16,
+    fontFamily: fontFamily.display,
+    lineHeight: 21,
   },
   similarCardMeta: {
     fontSize: fontSize.xs,
