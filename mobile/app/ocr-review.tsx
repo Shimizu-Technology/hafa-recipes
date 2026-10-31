@@ -357,7 +357,7 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
           {allSteps.map((item: any, idx: number) => (
             <RNView key={idx} style={styles.stepRow}>
               <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
-                <Text style={styles.stepNumberText}>{idx + 1}</Text>
+                <Text style={[styles.stepNumberText, { color: colors.onTint }]}>{idx + 1}</Text>
               </RNView>
               <Text style={[styles.stepText, { color: colors.text }]}>
                 {item.step}

@@ -87,7 +87,7 @@ vi.mock('@/components/Themed', async () => {
       text: '#111',
       textMuted: '#666',
       textSecondary: '#555',
-      tint: '#e85d2a',
+      tint: '#5DD3B6', onTint: '#00261F',
       warning: '#f4b942',
     }),
   };
@@ -299,6 +299,8 @@ describe('OCRReviewScreen visibility', () => {
   it('retries a failed save without a tags or nutrition prompt', async () => {
     mocks.params.saveFailed = 'true';
     const renderer = await renderRecipe({ tags: [], nutrition: null, components: [{ ingredients: [{ name: 'rice' }], steps: ['Cook rice.'] }] });
+    const number = renderer.root.findAllByType('ThemedText' as unknown as React.ComponentType).find(node => node.props.children === 1)!;
+    expect(Object.assign({}, ...[number.props.style].flat(Infinity)).color).toBe('#00261F');
     const submit = renderer.root.findAllByType('Button' as unknown as React.ComponentType)
       .find(node => node.props.children === 'Retry Save')!;
     await act(async () => submit.props.onPress());

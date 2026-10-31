@@ -728,7 +728,7 @@ function ExtractScreenContent() {
                   style={[styles.galleryRemoveButton, { backgroundColor: colors.backgroundElevated }]}
                 />
                 <RNView style={[styles.galleryImageNumber, { backgroundColor: colors.tint }]}>
-                  <Text style={styles.galleryImageNumberText}>{index + 1}</Text>
+                  <Text style={[styles.galleryImageNumberText, { color: colors.onTint }]}>{index + 1}</Text>
                 </RNView>
               </RNView>
               <RNView style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
