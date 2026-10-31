@@ -1188,11 +1188,11 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                   disabled={isGeneratingTags}
                 >
                   {isGeneratingTags ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={colors.onTint} />
                   ) : (
                     <>
-                      <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                      <Text style={styles.aiButtonText}>Suggest</Text>
+                      <Ionicons name="sparkles" size={14} color={colors.onTint} />
+                      <Text style={[styles.aiButtonText, { color: colors.onTint }]}>Suggest</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -1216,11 +1216,11 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                   disabled={isEstimatingNutrition}
                 >
                   {isEstimatingNutrition ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={colors.onTint} />
                   ) : (
                     <>
-                      <Ionicons name="calculator" size={14} color="#FFFFFF" />
-                      <Text style={styles.aiButtonText}>Estimate</Text>
+                      <Ionicons name="calculator" size={14} color={colors.onTint} />
+                      <Text style={[styles.aiButtonText, { color: colors.onTint }]}>Estimate</Text>
                     </>
                   )}
                 </TouchableOpacity>

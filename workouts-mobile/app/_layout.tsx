@@ -15,12 +15,14 @@ import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View, Platform } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
-import { Screen, Copy, Notice, Button, ToastProvider, useColors } from "@/components/ui";
+import { Screen, Copy, Notice, Button, IconButton, ToastProvider, useColors } from "@/components/ui";
 import { LogoutRecoveryBoundary } from "@/components/logout-recovery-boundary";
 import { SignupGate } from "@/components/signup-gate";
 import { AccountIdentityProvider } from "@/components/account-identity";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
+
+export const unstable_settings = { anchor: "(tabs)" };
 
 // Screens share cached reads for 30 seconds instead of refetching on every mount.
 // Saves still invalidate or refetch the data they change.
@@ -81,6 +83,11 @@ function Routes() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text }, headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /> }} />
+        <Stack.Screen name="extract" />
+        <Stack.Screen name="plan" />
+        <Stack.Screen name="progress" />
+        <Stack.Screen name="legacy-today" />
         <Stack.Screen name="add-workout" />
         <Stack.Screen name="workout/[id]" />
         <Stack.Screen name="discover/[id]" />

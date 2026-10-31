@@ -57,6 +57,9 @@ export const haptics = {
 };
 
 /** Which surface children sit on, so text and controls pick readable colours automatically. */
+export const GroupedPage = createContext(false);
+export const useGroupedPage = () => useContext(GroupedPage);
+
 export type Surface = "default" | "hero";
 const SurfaceContext = createContext<Surface>("default");
 export const SurfaceProvider = SurfaceContext.Provider;

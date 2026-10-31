@@ -9,7 +9,7 @@ import { careSummary, duration, friendlyTime } from "@/lib/care-format";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { inheritedFiles, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
-import { Button, Card, Chips, Choice, Copy, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
+import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
@@ -83,11 +83,12 @@ export default function RecordDetail() {
     );
   return (
     <Screen
-      title={title}
-      titleKind={Array.from(title).length > 60 ? "heading" : "title"}
+      title={kindName[record.kind]}
       back
+      numericSubtitle
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
+      {title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>
@@ -105,11 +106,11 @@ export default function RecordDetail() {
       {record.kind === "sleep" && (
         <Card tone="hero">
           <Copy kind="heading">{data.end_at ? "Sleep recorded" : "Sleep in progress"}</Copy>
-          <Copy>Started {friendlyTime(record.occurred_at)}</Copy>
+          <Copy numeric>Started {friendlyTime(record.occurred_at)}</Copy>
           {data.end_at ? (
             <>
-              <Copy>Ended {friendlyTime(data.end_at)}</Copy>
-              <Copy>
+              <Copy numeric>Ended {friendlyTime(data.end_at)}</Copy>
+              <Copy numeric>
                 {duration((new Date(data.end_at).getTime() - new Date(record.occurred_at).getTime()) / 60000)}
               </Copy>
             </>
@@ -133,16 +134,14 @@ export default function RecordDetail() {
             record.kind === "source" ? "Your notes" : record.kind === "question" ? "Your question & notes" : "Notes"
           }
         >
-          <Card>
-            <Copy>{record.body}</Copy>
-          </Card>
+          <Copy>{record.body}</Copy>
         </Section>
       )}
       {record.kind === "routine" && (
         <>
           <Section title={data.routine_type === "checklist" ? "Your checklist" : "Your chosen routine"}>
-            {(data.items ?? []).map((item) => (
-              <Card key={item.id} tone="soft">
+            <Grouped>{(data.items ?? []).map((item) => (
+              <View key={item.id} style={{ padding: 12 }}>
                 <Choice
                   label={item.label}
                   selected={item.done}
@@ -153,8 +152,8 @@ export default function RecordDetail() {
                     })
                   }
                 />
-              </Card>
-            ))}
+              </View>
+            ))}</Grouped>
           </Section>
           <Notice>
             {data.enabled && data.reminder_at
@@ -206,12 +205,18 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
-      <Button
-        secondary
+      <Grouped>
+      <Row
         title="Edit this entry"
         icon="pencil-outline"
         onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
       />
+      <Row
+        title="Ask about this entry"
+        icon="sparkles-outline"
+        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
+      />
+      </Grouped>
       {record.kind === "source" && <Disclosure title="Process this post again">
         <Button
           secondary
@@ -236,12 +241,6 @@ export default function RecordDetail() {
           }}
         />
       </Disclosure>}
-      <Button
-        secondary
-        title="Ask about this entry"
-        icon="sparkles-outline"
-        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
-      />
       <Button
         variant="destructive"
         title="Delete this entry"

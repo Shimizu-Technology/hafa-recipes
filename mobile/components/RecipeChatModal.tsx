@@ -1030,7 +1030,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
           <RNView style={styles.headerContent}>
             <RNView style={[styles.assistantMark, { backgroundColor: colors.tint }]}>
-              <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+              <Ionicons name="sparkles" size={18} color={colors.onTint} />
             </RNView>
             <RNView style={styles.headerTextContainer}>
               <Text style={[styles.headerTitle, { color: colors.text }]}>
@@ -1212,7 +1212,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
                         />
                       </RNView>
                     )}
-                    <Text style={[styles.messageText, { color: '#FFFFFF' }]}>
+                    <Text style={[styles.messageText, { color: colors.onTint }]}>
                       {msg.content}
                     </Text>
                   </>

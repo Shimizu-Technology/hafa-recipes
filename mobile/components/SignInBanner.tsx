@@ -60,8 +60,8 @@ export function SignInBanner({ message = 'Sign in to use this feature' }: SignIn
         accessibilityRole="button"
         accessibilityLabel="Sign in"
       >
-        <Text style={styles.signInButtonText}>Sign in</Text>
-        <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+        <Text style={[styles.signInButtonText, { color: colors.onTint }]}>Sign in</Text>
+        <Ionicons name="arrow-forward" size={16} color={colors.onTint} />
       </TouchableOpacity>
     </View>
   );

@@ -1,3 +1,7 @@
+import { useFocusRefresh } from "@/lib/use-focus-refresh";
+import { Pressable, View } from "react-native";
+import { Image } from "expo-image";
+import { useColors } from "@/components/ui";
 import { dayAdjustments } from "@/lib/day-adjustments";
 import { AdjustTraining } from "./adjust-training";
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
@@ -5,13 +9,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
-import { Button, Card, Chip, ChipRow, Copy, Empty, ListGroup, ListRow, Notice, WeekStrip } from "@/components/ui";
+import { Button, Copy, Empty, ListGroup, ListRow, Notice, WeekStrip } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { dateInTimezone } from "@/lib/training";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
-import { weekDays } from "@/lib/week-strip";
+import { weekSummary, weekDays } from "@/lib/week-strip";
 import { formatPlanDate, nextPlannedSession } from "@/lib/plan-presentation";
 import type { Program, ScheduledSession } from "@/lib/models";
 
@@ -19,6 +23,7 @@ import type { Program, ScheduledSession } from "@/lib/models";
 export function TrainToday() {
   const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
+  const c = useColors();
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjust, setAdjust] = useState<{ program: Program; session?: ScheduledSession } | null>(null);
   const [error, setError] = useState("");
@@ -42,7 +47,8 @@ export function TrainToday() {
     ], { signal }),
     enabled: enabled && needsAncestry,
   });
-  const recordedSessions = selectProgressSessions(offline.state.history, sessions.data ?? [], generation, ancestry.data?.records).sessions;
+  const progress = selectProgressSessions(offline.state.history, sessions.data ?? [], generation, ancestry.data?.records);
+  const recordedSessions = progress.sessions;
   const ancestryReady = !needsAncestry || ancestry.data?.complete === true;
   const timezone = profile.data?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = dateInTimezone(new Date(), timezone);
@@ -65,6 +71,11 @@ export function TrainToday() {
     new Set(ancestryReady ? recordedSessions.filter((s) => s.recorded).flatMap((s) => dayOf(s.started_at)) : []),
     new Set(activePrograms.flatMap((p) => p.sessions.map((s) => s.date)))
   );
+  const summaryReady = sessions.data !== undefined && offline.ready && !offline.error && profile.data !== undefined && ancestryReady;
+  const summary = summaryReady ? weekSummary(date, progress.effective.map(s => s.request), timezone) : null;
+  const coach = useQuery({ queryKey: [owner, "coach-history", generation], queryFn: () => api.coachHistory(), enabled });
+  useFocusRefresh([coach], { enabled });
+  const suggestion = [...(coach.data?.messages ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)).find(message => message.state === "completed" && message.assistant_message)?.assistant_message?.replace(/[#*_`]/g, "").split(/\n/)[0];
   async function retryToday() {
     if (retrying.current || !isCurrentAccount() || !storage.isCurrent()) return;
     retrying.current = true;
@@ -100,30 +111,30 @@ export function TrainToday() {
   }
   const active = offline.state.active;
   const recorded = active?.actuals.filter((a) => a.completed).length ?? 0;
-  const library = <Button title="Pick a workout from your library" variant="secondary" size="sm" inline onPress={() => router.push("/(tabs)/library")} />;
+  const library = <Button title="Browse workouts" onPress={() => router.push("/(tabs)/library")} />;
   const buildPlan = (pathname: "/build-plan" | "/profile") => (
     <Button title="Build a plan" icon="add" size="lg" onPress={() =>
       router.push(pathname === "/profile" ? { pathname, params: { return_to: "build-plan" } } : pathname)} />
   );
-  let hero: { title: string; detail: string; meta?: string[]; action?: ReactNode; extra?: ReactNode };
+  let hero: { title: string; detail: string; cover?: string | null; meta?: string[]; action?: ReactNode; extra?: ReactNode };
   if (active) {
-    hero = { title: active.workout.title, detail: `${recorded} ${recorded === 1 ? "set" : "sets"} recorded so far · saved on this device`,
+    hero = { title: active.workout.title, cover: active.workout.source_thumbnail_url, detail: `${recorded} ${recorded === 1 ? "set" : "sets"} recorded so far · saved on this device`,
       action: <Button title="Resume" icon="play" size="lg" onPress={() => router.push("/training")} /> };
   } else if (planned) {
     const workout = planned.session.workout;
-    hero = { title: workout.title, detail: planned.session.purpose,
-      meta: [workout.estimated_minutes ? `${workout.estimated_minutes} min` : null, ...(workout.equipment_required?.slice(0, 2) ?? [])]
+    hero = { title: workout.title, cover: workout.source_thumbnail_url, detail: "",
+      meta: [workout.estimated_minutes ? `${workout.estimated_minutes} min` : null, workout.blocks?.length ? `${workout.blocks.reduce((n, block) => n + block.exercises.length, 0)} exercises` : null, ...(workout.equipment_required?.slice(0, 1) ?? [])]
         .filter((x): x is string => !!x),
       action: <>
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}
         <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => { void start(planned.program, planned.session); }} />
-        <Button title="Adjust today" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} />
+        <Button title="Adjust today" size="sm" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} />
       </> };
   } else if (!profile.data) {
     hero = { title: "Set up your training", detail: "Add your goal and free days, then build a plan that fits your week.",
-      action: buildPlan("/profile"), extra: library };
+      action: buildPlan("/profile") };
   } else if (doneToday) {
-    hero = { title: "Done for today", detail: "Nice work. Rest and recovery are part of the plan." };
+    hero = { title: "Done for today", detail: "Rest and recovery are part of the plan.", action: library };
   } else if (activePrograms.length) {
     hero = { title: "Rest day", extra: library,
       detail: next ? `Next up: ${formatPlanDate(next.s.date)} · ${next.s.workout.title}` : "No more sessions planned. Build your next plan when you’re ready." };
@@ -132,16 +143,17 @@ export function TrainToday() {
   } else if (live.length) {
     hero = { title: "Your plan needs a quick review", detail: "Check it below before you start training.", extra: library };
   } else {
-    hero = { title: "No plan yet", detail: "Build a plan around your goal, equipment and free days.", action: buildPlan("/build-plan"), extra: library };
+    hero = { title: "No plan yet", detail: "Build a plan around your goal, equipment and free days.", action: buildPlan("/build-plan") };
   }
   const heroCard = (
-    <Card tone="hero">
-      <Copy kind="title">{hero.title}</Copy>
-      <Copy tone="muted">{hero.detail}</Copy>
-      {!!hero.meta?.length && <ChipRow wrap>{hero.meta.map((m) => <Chip key={m} label={m} />)}</ChipRow>}
+    <View style={{ gap: 12 }}>
+      {!!hero.cover && <Image source={{ uri: hero.cover }} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
+      <Copy kind="heading">{hero.title}</Copy>
+      {!!hero.detail && <Copy tone="muted">{hero.detail}</Copy>}
+      {!!hero.meta?.length && <Copy kind="small" tone="muted">{hero.meta.join(" · ")}</Copy>}
       {hero.action}
       {hero.extra}
-    </Card>
+    </View>
   );
   if (!enabled)
     return (<>
@@ -161,6 +173,7 @@ export function TrainToday() {
   return (
     <>
       {!!offline.error && <Notice error>{offline.error}</Notice>}
+      <WeekStrip days={week} />
       {/* Saved device training stays resumable even when the service can't be reached. */}
       {active && heroCard}
       <QueryState
@@ -170,8 +183,7 @@ export function TrainToday() {
         retry={() => { void retryToday(); }}
       >
         {!active && heroCard}
-        <Card compact>
-          <WeekStrip days={week} />
+        <View style={{ gap: 12 }}>
           {!!missed.length && <Copy kind="small" tone="warning">
             {missed.length} earlier {missed.length === 1 ? "session needs" : "sessions need"} a new date. Tap one below to move it or
             train it now; nothing moves on its own.
@@ -181,15 +193,24 @@ export function TrainToday() {
             <Copy kind="small" tone="muted">Done-day checkmarks are paused while we check your corrected results. Your saved results are in Progress.</Copy>
             {!ancestry.isPending && <Button title="Check again" variant="secondary" size="sm" inline onPress={() => { void ancestry.refetch(); }} />}
           </>}
-        </Card>
+        </View>
       </QueryState>
       {receipts.data?.map(receipt => <Button key={receipt.proposal.id} title={`Review saved adjustment · ${receipt.program.title}`} secondary
         onPress={() => { setAdjust({ program: receipt.program, session: receipt.session }); setAdjustOpen(true); }} />)}
       {!!receipts.error && <><Notice error>Could not restore saved adjustments.</Notice><Button title="Retry saved adjustments" secondary onPress={() => void receipts.refetch()} /></>}
       <ListGroup>
-        <ListRow icon="chatbubble-ellipses-outline" title="Ask Coach" detail="Questions about training or a change to your plan" onPress={() => router.push("/coach")} />
-        <ListRow icon="walk-outline" title="Log an activity you did" onPress={() => router.push("/activity")} />
+        <ListRow icon="chatbubble-ellipses-outline" title="Ask your coach" detailLines={1} detail={suggestion ?? "Questions about training or a change to your plan"} onPress={() => router.push("/coach")} />
+
       </ListGroup>
+      <View style={{ gap: 12 }}>
+        <Copy kind="heading">This week</Copy>
+        <Pressable accessibilityRole="button" accessibilityLabel={summary ? `History & progress. ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak` : "History & progress. Not available yet"} onPress={() => router.push("/history-progress")} style={{ flexDirection: "row", flexWrap: "wrap", gap: 24, minHeight: 44 }}>
+          {[[summary?.sessions, "Sessions"], [summary?.minutes, "Minutes"], [summary?.streak, "Day streak"]].map(([value, label]) => <View key={label} style={{ minWidth: 88, gap: 4 }}>
+            <Copy kind="numeric" style={{ fontVariant: ["tabular-nums"] }}>{value ?? "—"}</Copy><Copy kind="small" tone="muted">{label}</Copy>
+          </View>)}
+        </Pressable>
+        <Button title="Log an activity you did" variant="ghost" size="sm" onPress={() => router.push("/activity")} />
+      </View>
       {adjust && <AdjustTraining key={`${adjust.program.id}:${adjust.session?.id ?? "missed"}`} visible={adjustOpen} onClose={() => setAdjustOpen(false)} program={programs.data?.find(p => p.id === adjust.program.id) ?? adjust.program} session={adjust.session} />}
       {!!error && <Notice error>{error}</Notice>}
     </>

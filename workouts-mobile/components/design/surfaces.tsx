@@ -20,17 +20,17 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { Stack as NativeStack, router } from "expo-router";
 import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
-import { useIsTabRoot, useTabOverlayHeight } from "../tab-chrome";
-import { Copy, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
+import { useNativeHeader } from "../native-tab-stack";
+import { Copy, GroupedPage, useGroupedPage, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
 import { Chip, IconButton, type IconName } from "./controls";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 /**
- * Standard scrolling screen. Root tabs show a centered title bar with the
- * account button; pushed screens show a back button and a large serif title. `footer` pins actions above the home indicator
+ * Standard scrolling screen. Tab roots use their native stack header;
+ * pushed screens retain their back action. `footer` pins actions above the home indicator
  * so the main action stays in thumb reach.
  */
 export function Screen({
@@ -52,7 +52,11 @@ export function Screen({
   dismiss = false,
   hideTitle = false,
   list,
+  native = false,
+  grouped = false,
 }: PropsWithChildren<{
+  native?: boolean;
+  grouped?: boolean;
   title: string;
   subtitle?: string;
   /** Short context (e.g. the date, or a step count); shown with the subtitle, never above the title. */
@@ -88,8 +92,10 @@ export function Screen({
   const insets = useSafeAreaInsets();
   back = back || dismiss;
   // Main tabs name the screen in a centered bar (like Håfa Recipes) instead of a lockup plus a large title.
-  const root = useIsTabRoot() && !back;
-  const overlay = useTabOverlayHeight();
+  const tabHeader = useNativeHeader();
+  const nativePage = native && Platform.OS !== "web";
+  const root = nativePage || tabHeader && !back;
+  const pageColor = grouped ? c.groupedBackground : c.background;
   const heading = root ? (
     !!(subtitle || eyebrow) && (
       <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>
@@ -102,8 +108,8 @@ export function Screen({
   ) : null;
   const contentContainerStyle: ViewStyle = {
     paddingTop: spacing.md,
-    paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl + (root ? overlay : 0)),
-    paddingHorizontal: spacing.lg - 4,
+    paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl),
+    paddingHorizontal: spacing.md,
     gap: spacing.lg,
     width: "100%",
     maxWidth: contentWidth,
@@ -113,11 +119,16 @@ export function Screen({
     <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={c.action} colors={[c.action]} />
   ) : undefined;
   return (
+    <GroupedPage.Provider value={grouped}>
+    {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: hideTitle, headerLargeTitleEnabled: !hideTitle,
+      headerShadowVisible: false, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: hideTitle ? "transparent" : pageColor },
+      headerLeft: !router.canGoBack?.() ? () => <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.replace("/(tabs)/library")} /> : undefined,
+      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, headerRight: action ? () => action : undefined }} />}
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top }}
+      style={{ flex: 1, backgroundColor: pageColor, paddingTop: root ? 0 : insets.top }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View
+      {!root && <View
         style={{
           borderBottomWidth: root ? 0.5 : 0,
           borderBottomColor: c.border,
@@ -137,8 +148,9 @@ export function Screen({
             {!!action && <View style={{ flexShrink: 0, width: root ? 48 : undefined, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>{action}</View>}
           </View>
         </View>
-      </View>
+      </View>}
       {list ? <>{list({ header: heading, contentContainerStyle, refreshControl })}{children}</> : <ScrollView
+        contentInsetAdjustmentBehavior={root ? "automatic" : "never"}
         ref={scrollRef}
         style={Platform.OS === "web" && disableBrowserScrollAnchoring ? { overflowAnchor: "none" } as ViewStyle : undefined}
         onContentSizeChange={onContentSizeChange}
@@ -159,7 +171,7 @@ export function Screen({
         <View
           style={{
             ...(constrainFooter ? { flexShrink: 1, minHeight: 0 } : {}),
-            paddingHorizontal: spacing.lg - 4,
+            paddingHorizontal: spacing.md,
             paddingTop: spacing.sm,
             paddingBottom: Math.max(insets.bottom, spacing.sm) + 4,
             borderTopWidth: 1,
@@ -171,6 +183,7 @@ export function Screen({
         </View>
       )}
     </KeyboardAvoidingView>
+    </GroupedPage.Provider>
   );
 }
 
@@ -192,7 +205,8 @@ export function Card({
 }>) {
   const c = useColors();
   const press = usePressScale();
-  const bg = { plain: c.surface, hero: c.hero, sunken: c.sunken, accent: c.accentSoft }[tone];
+  const grouped = useGroupedPage();
+  const bg = { plain: grouped ? c.elevated : c.surface, hero: c.hero, sunken: c.sunken, accent: c.accentSoft }[tone];
   const base: ViewStyle = {
     padding: compact ? spacing.md : spacing.lg - 4,
     gap: compact ? spacing.sm : spacing.md - 2,
@@ -324,6 +338,7 @@ export function MediaCard({
 export function ListRow({
   title,
   detail,
+  detailLines,
   icon,
   value,
   onPress,
@@ -333,6 +348,7 @@ export function ListRow({
 }: {
   title: string;
   detail?: string;
+  detailLines?: number;
   icon?: IconName;
   value?: string;
   onPress?: () => void;
@@ -341,6 +357,7 @@ export function ListRow({
   disabled?: boolean;
 }) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
   const surface = useSurface();
   const fg = destructive ? c.error : surface === "hero" ? c.onHero : c.text;
   const body = (
@@ -353,7 +370,7 @@ export function ListRow({
           {title}
         </Copy>
         {!!detail && (
-          <Copy kind="small" tone="muted">
+          <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : detailLines}>
             {detail}
           </Copy>
         )}
@@ -389,8 +406,10 @@ export function ListRow({
 }
 
 /** Groups ListRows inside one card with hairline separators. */
-export function ListGroup({ children }: PropsWithChildren) {
+export function ListGroup({ children, grouped: explicitGrouped }: PropsWithChildren<{ grouped?: boolean }>) {
   const c = useColors();
+  const pageGrouped = useGroupedPage();
+  const grouped = explicitGrouped ?? pageGrouped;
   // Flatten arrays and fragments so every row gets its own separator.
   const flatten = (nodes: ReactNode): ReactNode[] =>
     Children.toArray(nodes).flatMap((child) =>
@@ -402,7 +421,7 @@ export function ListGroup({ children }: PropsWithChildren) {
   return (
     <View
       style={{
-        backgroundColor: c.surface,
+        backgroundColor: grouped ? c.elevated : c.surface,
         borderRadius: radii.sm,
         borderWidth: 0,
         borderColor: c.border,
@@ -569,7 +588,7 @@ export function Sheet({
             backgroundColor: c.elevated,
             borderTopLeftRadius: radii.xl,
             borderTopRightRadius: radii.xl,
-            paddingHorizontal: spacing.lg - 4,
+            paddingHorizontal: spacing.md,
             paddingTop: spacing.sm,
             paddingBottom: insets.bottom + spacing.md,
             gap: spacing.sm,

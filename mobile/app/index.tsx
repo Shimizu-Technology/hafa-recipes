@@ -301,7 +301,11 @@ function ExtractScreenContent() {
 
   const pickImage = async (source: 'camera' | 'library') => {
     const imageOwner = inbox.ownerId;
-    if (!imageOwner) return;
+    if (!imageOwner || !scanDraft.ready || !recoveryDraft.ready) return;
+    if (scanDraft.available) {
+      Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
+      return;
+    }
     const lease = privateRecipeDrafts.lease(imageOwner);
     if (await privateRecipeDrafts.read(lease, 'recovery')) {
       Alert.alert('Finish or discard your previous scan', 'Use Resume draft or Discard draft below before selecting new pages.');
@@ -319,13 +323,8 @@ function ExtractScreenContent() {
           Alert.alert('Permission Required', 'Camera permission is needed to take photos.');
           return;
         }
-      } else {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Photo library permission is needed to select images.');
-          return;
-        }
       }
+      // The system photo picker grants access to selected images without broad library permission.
 
       // Launch picker - allow multiple for library, single for camera
       // Note: allowsEditing removed to capture full image (no cropping)
@@ -360,12 +359,12 @@ function ExtractScreenContent() {
 
   const openedEntry = useRef<string | null>(null);
   useEffect(() => {
-    if (!entry) { openedEntry.current = null; return; }
-    if (!isAuthLoaded || !isSignedIn || !inbox.ownerId || openedEntry.current === entry) return;
+    if (entry !== 'scan' && entry !== 'photos') { openedEntry.current = null; return; }
+    if (Platform.OS === 'web' || !isAuthLoaded || !isSignedIn || !inbox.ownerId || !scanDraft.ready || !recoveryDraft.ready || openedEntry.current === entry) return;
     openedEntry.current = entry;
     router.setParams({ entry: undefined });
     void pickImage(entry === 'scan' ? 'camera' : 'library');
-  }, [entry, isAuthLoaded, isSignedIn, inbox.ownerId]);
+  }, [entry, isAuthLoaded, isSignedIn, inbox.ownerId, scanDraft.ready, recoveryDraft.ready]);
 
 
   const moveImage = (index: number, direction: -1 | 1) => setSelectedImages((pages) => {
@@ -728,7 +727,7 @@ function ExtractScreenContent() {
                   style={[styles.galleryRemoveButton, { backgroundColor: colors.backgroundElevated }]}
                 />
                 <RNView style={[styles.galleryImageNumber, { backgroundColor: colors.tint }]}>
-                  <Text style={styles.galleryImageNumberText}>{index + 1}</Text>
+                  <Text style={[styles.galleryImageNumberText, { color: colors.onTint }]}>{index + 1}</Text>
                 </RNView>
               </RNView>
               <RNView style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -784,9 +783,9 @@ function ExtractScreenContent() {
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
             style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
-            <RNView style={styles.composerLabelRow}>
+            <RNView style={[styles.composerLabelRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'flex-start' }] }>
               <Text style={[styles.composerLabel, { color: colors.text }]}>Recipe link</Text>
-              <TouchableOpacity style={styles.textAction} disabled={isLoading} accessibilityRole="button"
+              <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} disabled={isLoading} accessibilityRole="button"
                 accessibilityLabel="Paste recipe link" onPress={() => {
                   const draft = currentDraft.current;
                   void Clipboard.getStringAsync().then((value) => {
@@ -812,7 +811,7 @@ function ExtractScreenContent() {
               onBlur={() => { linkFocused.current = false; }}
               style={{ backgroundColor: colors.background }} />
             <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
-            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
+            <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
               <Text style={{ color: colors.textSecondary }}>Cost estimates: {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
@@ -833,6 +832,7 @@ function ExtractScreenContent() {
           {preferences.error && <Text style={{ color: colors.error }}>{preferences.error}</Text>}
 
 
+          {Platform.OS === 'web' && (entry === 'photos' || entry === 'scan') && <Button title={entry === 'photos' ? 'Choose photos' : 'Take photo'} onPress={() => { void pickImage(entry === 'scan' ? 'camera' : 'library'); }} disabled={!scanDraft.ready || !recoveryDraft.ready || !!scanDraft.available || !!recoveryDraft.available} />}
           <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
           <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             {([
@@ -931,7 +931,7 @@ function ExtractScreenContent() {
                   size="md"
                   style={styles.openRecipeAction}
                 />
-                <TouchableOpacity style={styles.textAction} onPress={clearCompletedExtraction} accessibilityRole="button" accessibilityLabel="Dismiss saved import">
+                <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={clearCompletedExtraction} accessibilityRole="button" accessibilityLabel="Dismiss saved import">
                   <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Dismiss</Text>
                 </TouchableOpacity>
               </RNView>
@@ -959,7 +959,7 @@ function ExtractScreenContent() {
                 />
               </RNView>
               {extraction.jobId && !extraction.recipeId && !extraction.canRetryStart && <TouchableOpacity
-                style={styles.textAction} onPress={() => handleCancel()} disabled={isSavingSourceDraft}
+                style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => handleCancel()} disabled={isSavingSourceDraft}
                 accessibilityRole="button" accessibilityLabel="Remove unfinished import">
                 <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Remove unfinished import</Text>
               </TouchableOpacity>}
@@ -967,7 +967,7 @@ function ExtractScreenContent() {
           ) : (
             <RNView style={styles.statusActions}>
               <Text style={[styles.hint, { color: colors.textMuted, flex: 1 }]}>You can leave Håfa while this imports.</Text>
-              <TouchableOpacity style={styles.textAction} onPress={() => handleCancel()} accessibilityRole="button" accessibilityLabel="Cancel import">
+              <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => handleCancel()} accessibilityRole="button" accessibilityLabel="Cancel import">
                 <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Cancel import</Text>
               </TouchableOpacity>
             </RNView>
@@ -980,12 +980,12 @@ function ExtractScreenContent() {
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
             onRestore={extraction.restoreJob} onCancel={handleCancel} />
           <RNView style={styles.helpActions}>
-            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
+            <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
               accessibilityRole="button" accessibilityLabel="Import help">
               <Ionicons name="help-circle-outline" size={18} color={colors.textMuted} />
               <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Import help</Text>
             </TouchableOpacity>
-            {isSignedIn && <TouchableOpacity style={styles.textAction} accessibilityRole="button" accessibilityLabel="Ask Håfa"
+            {isSignedIn && <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} accessibilityRole="button" accessibilityLabel="Ask Håfa"
               onPress={() => { Keyboard.dismiss(); setHasOpenedChat(true); setShowChat(true); }}>
               <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.actionText} />
               <Text style={[styles.smallActionText, { color: colors.text }]}>Ask Håfa</Text>
@@ -1011,7 +1011,7 @@ const styles = StyleSheet.create({
   progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   statusActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   openRecipeAction: { flexGrow: 1 },
-  composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
   composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold, fontWeight: '600' },
   textAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
   smallActionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },

@@ -2,13 +2,14 @@ vi.mock('@react-native-async-storage/async-storage', () => { const values = new 
  getItem: async (key: string) => values.get(key) ?? null, setItem: async (key: string, value: string) => { values.set(key, value); },
  getAllKeys: async () => [...values.keys()], multiRemove: async (keys: string[]) => keys.forEach(key => values.delete(key)),
 } }; });
+import Colors from '../constants/Colors';
 import { offlineRecipes } from '../lib/offlineRecipes';
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, push: vi.fn() }));
+const m = vi.hoisted(() => ({ isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
@@ -24,7 +25,7 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'owner', isLoaded: tru
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
 vi.mock('@/components/OfflineRecipeControl', () => ({ OfflineRecipeControl: () => null }));
-vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => ({ text: '#111', textMuted: '#555', background: '#fff' }) }));
+vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => Colors[m.theme] }));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: host('NutritionPanel') }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));
 vi.mock('@/components/AddIngredientsModal', () => ({ default: () => null }));
@@ -38,9 +39,9 @@ vi.mock('@/components/SafetyActionModal', () => ({ SafetyActionModal: () => null
 vi.mock('@/components/Skeleton', () => ({ SkeletonSimilarRecipes: () => null }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: () => null }));
 vi.mock('@/hooks/useNutritionRefresh', () => ({ useNutritionRefresh: () => ({}) }));
-vi.mock('@/hooks/useRecipeTabScroll', () => ({ useRecipeTabScroll: () => ({ activeTab: 'ingredients', scrollRef: { current: null } }) }));
+vi.mock('@/hooks/useRecipeTabScroll', () => ({ useRecipeTabScroll: () => ({ activeTab: m.activeTab, scrollRef: { current: null } }) }));
 vi.mock('@/hooks/useTextSize', () => ({ useTextSize: () => ({ scaleFontSize: (value: number) => value }) }));
-vi.mock('@/hooks/useScaledServings', () => ({ useScaledServings: () => ({ currentServings: m.scaled, scaleFactor: 1 }), scaleQuantity: (value: unknown) => value, scaleIngredient: (value: unknown) => value }));
+vi.mock('@/hooks/useScaledServings', () => ({ useScaledServings: () => ({ currentServings: m.scaled, scaleFactor: m.servings ? m.scaled / m.servings : 1, isScaled: !!m.servings && m.scaled !== m.servings }), scaleQuantity: (value: unknown) => value, scaleIngredient: (value: unknown) => value }));
 vi.mock('@/hooks/useRecipeDeletion', () => ({ useRecipeDeletion: () => vi.fn() }));
 vi.mock('@/hooks/useGrocery', () => ({ useAddFromRecipe: () => ({}) }));
 vi.mock('@/hooks/useCollections', () => ({ useCollections: () => ({ data: [] }), useRecipeCollections: () => ({ data: [] }) }));
@@ -54,7 +55,7 @@ vi.mock('@/utils/haptics', () => ({ haptics: { selection: vi.fn() } }));
 vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
     is_owner: true, is_public: m.isPublic, moderation_status: m.moderationStatus, review_state: 'ready', content_revision: m.revision,
-    extracted: { title: 'Rice', servings: m.servings, tags: [], times: {},
+    extracted: { title: 'Rice', servings: m.servings, totalEstimatedCost: m.totalEstimatedCost, tags: [], times: {},
       components: [{ name: 'Main', ingredients: [{ name: 'rice', quantity: '1', unit: 'cup' }], steps: ['Cook'] }] } } }),
   useToggleRecipeSharing: () => ({}), useIsRecipeSaved: () => ({}), useSaveRecipe: () => ({}),
   useUnsaveRecipe: () => ({}), useRecipeNote: () => ({}), useUpdateRecipeNote: () => ({}), useSimilarRecipes: () => ({ data: [] }),
@@ -146,5 +147,33 @@ it.each([
   } finally {
     await act(async () => root.unmount());
     m.isPublic = false; m.moderationStatus = null;
+  }
+});
+
+function effectiveStyle(style: any): Record<string, any> {
+  return Array.isArray(style) ? Object.assign({}, ...style.map(effectiveStyle)) : style || {};
+}
+
+it.each(['light', 'dark'] as const)('keeps neutral steps and readable cost foregrounds in %s mode', async theme => {
+  m.theme = theme; m.servings = 4; m.scaled = 8; 
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    const stepNumber = root.container.queryAll(node => node.type === 'Text' && node.props.children === 1);
+    expect(stepNumber).toHaveLength(1);
+    expect(effectiveStyle(stepNumber[0].props.style).color).toBe(Colors[theme].textSecondary);
+    // #373 keeps Cook in the action row and removes the floating dock.
+    expect(root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Cook')).toHaveLength(1);
+    const cost = root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === 'Cost')[0];
+    await act(async () => cost.props.onPress());
+    const totalBox = root.container.queryAll(node => node.type === 'View' &&
+      Array.isArray(node.props.children) && node.props.children.some((child: any) => child?.props?.children === 'Estimated Total Cost'));
+    expect(totalBox).toHaveLength(1);
+    const costLabels = totalBox[0].props.children.filter(Boolean);
+    expect(costLabels).toHaveLength(3);
+    for (const label of costLabels) expect(effectiveStyle(label.props.style).color).toBe(Colors[theme].onTint);
+  } finally {
+    await act(async () => root.unmount());
+    m.theme = 'dark'; m.activeTab = 'ingredients'; m.servings = null; m.scaled = 1;
   }
 });

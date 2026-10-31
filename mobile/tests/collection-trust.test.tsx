@@ -2,7 +2,7 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const account = vi.hoisted(() => ({ userId: 'owner-a' }));
@@ -26,6 +26,7 @@ vi.mock('react-native', () => ({
   Platform: { OS: 'web' },
   Keyboard: { dismiss: vi.fn() },
   Image: 'Image',
+  useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
   RefreshControl: 'RefreshControl',
   StyleSheet: { create: (styles: unknown) => styles },
   TouchableOpacity: 'TouchableOpacity',
@@ -33,6 +34,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('expo-router', () => ({
   Stack: { Screen: 'StackScreen' },
+  Link: Object.assign((props: any) => React.createElement('Link', props, props.children), { Trigger: 'LinkTrigger', Menu: 'LinkMenu', MenuAction: 'LinkMenuAction' }),
   useLocalSearchParams: () => ({ id: 'collection-1' }),
   useRouter: () => ({ push: vi.fn(), canGoBack: () => false, replace: navigation.replace }),
 }));
@@ -136,7 +138,7 @@ describe('collection recipe readiness', () => {
     const renderer = await renderCard(state);
     try {
       expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === label,
+        (instance) => instance.type === 'ScalePressable' && instance.props.accessibilityLabel?.includes(state === 'needs_review' ? 'Some recipe details are uncertain' : 'Recipe needs source details'),
       )).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
@@ -163,12 +165,33 @@ describe('collection recipe readiness', () => {
       expect(card.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove from collection' }]);
       card.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
       expect(onRemove).toHaveBeenCalledOnce();
-      expect(renderer.container.queryAll(
-        (instance) => instance.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection',
-      ).length).toBeGreaterThan(0);
+      expect(renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection')).toHaveLength(1);
+      expect(renderer.container.queryAll(instance => instance.type === 'RecipeTrustBadge')).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('offers native iOS context-menu removal without an inline remove button', async () => {
+    const renderer = createRoot();
+    const onRemove = vi.fn();
+    const onPress = vi.fn();
+    const original = Platform.OS;
+    try {
+      Platform.OS = 'ios';
+      await act(async () => renderer.render(<RecipeCard recipe={recipe('ready')} colors={colors} onPress={onPress} onRemove={onRemove} />));
+      const action = renderer.container.queryAll(n => n.type === 'LinkMenuAction')[0];
+      expect(action.props.children).toBe('Remove from collection');
+      await act(async () => action.props.onPress());
+      expect(onRemove).toHaveBeenCalledOnce();
+      const accessibleCard = renderer.container.queryAll(n => n.type === 'View' && n.props.accessible)[0];
+      expect(accessibleCard.props.accessibilityLabel).toContain('Chicken Kelaguen');
+      await act(async () => accessibleCard.props.onAccessibilityTap());
+      expect(onPress).toHaveBeenCalledOnce();
+      await act(async () => accessibleCard.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } }));
+      expect(onRemove).toHaveBeenCalledTimes(2);
+      expect(renderer.container.queryAll(n => n.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection')).toHaveLength(0);
+    } finally { await act(async () => renderer.unmount()); Platform.OS = original; }
   });
 
   it.each(['ready', undefined] as const)('hides a badge for %s recipes', async (state) => {

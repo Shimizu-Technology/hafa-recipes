@@ -52,17 +52,20 @@ vi.mock('react-native', () => ({
     sections,
     renderItem,
     renderSectionHeader,
+    ListHeaderComponent,
     ListEmptyComponent,
     ListFooterComponent,
   }: {
     sections: Array<{ key: string; data: GroceryItem[] }>;
     renderItem: (info: { item: GroceryItem; index: number; section: unknown }) => React.ReactNode;
     renderSectionHeader: (info: { section: unknown }) => React.ReactNode;
+    ListHeaderComponent: React.ReactNode;
     ListEmptyComponent: React.ComponentType;
     ListFooterComponent: React.ReactNode;
   }) => React.createElement(
     'SectionList',
     null,
+    ListHeaderComponent,
     sections.length === 0
       ? React.createElement(ListEmptyComponent)
       : sections.flatMap((section) => [

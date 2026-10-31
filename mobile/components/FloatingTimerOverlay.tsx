@@ -106,7 +106,7 @@ export function FloatingTimerOverlay() {
     }, 100);
   };
   
-  const foreground = isUrgent ? '#FFFFFF' : colors.onTint;
+  const foreground = isUrgent ? colors.onError : colors.onTint;
 
   // Position below typical header height (safe area + ~50px for header)
   const topPosition = insets.top + 50;

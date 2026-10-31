@@ -187,7 +187,7 @@ export function SafetyActionModal({
               { backgroundColor: canSubmit && !isSubmitting ? colors.tint : colors.border },
             ]}
           >
-            <Text style={[styles.submitText, { color: colors.onTint }]}>
+            <Text style={[styles.submitText, { color: canSubmit && !isSubmitting ? colors.onTint : colors.textMuted }]}>
               {isSubmitting ? 'Submitting…' : isReport ? 'Submit report' : 'Submit appeal'}
             </Text>
           </TouchableOpacity>

@@ -1,11 +1,12 @@
+import { BrowseHeader } from "@/components/native-tab-stack";
+import { BrowseLinks } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useWindowDimensions, ActivityIndicator, FlatList, ScrollView, View } from "react-native";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { Stack, router } from "expo-router";
 import {
-  AccountButton,
   Button,
   Chip,
   ChipRow,
@@ -13,7 +14,6 @@ import {
   Copy,
   Empty,
   Field,
-  IconButton,
   ListGroup,
   ListRow,
   Notice,
@@ -24,13 +24,12 @@ import {
   haptics,
   useColors,
 } from "@/components/ui";
-import { CollectionTile, LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
-import { LibrarySearch } from "@/components/library-search";
+import { LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
 import { spacing } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
-import { collectionCovers, useLibraryView, workoutCardBadge, workoutCardMeta, workoutCountLabel } from "@/lib/library-view";
+import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
@@ -43,8 +42,6 @@ export default function Library() {
   const cache = useQueryClient();
   const [view, setView] = useLibraryView(storage, owner);
   const [menu, setMenu] = useState(false);
-  const [search, setSearch] = useState("");
-  const [settledSearch, setSettledSearch] = useState("");
   const [equipment, setEquipment] = useState("");
   const [tags, setTags] = useState("");
   const [kind, setKind] = useState<LibraryFilters["kind"]>();
@@ -52,6 +49,7 @@ export default function Library() {
   const [archived, setArchived] = useState(false);
   const [collection, setCollection] = useState<string>();
   const [maxMinutes, setMaxMinutes] = useState<number>();
+  const [needsInfo, setNeedsInfo] = useState(false);
   const [filters, setFilters] = useState(false);
   const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
@@ -102,17 +100,12 @@ export default function Library() {
     } finally { if (scope.lock === token) scope.lock = null; try { current(); setBulkBusy(false); } catch { /* Current scope owns its controls. */ } }
   }
 
-  useEffect(() => {
-    const timer = setTimeout(() => setSettledSearch(search), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
   const collections = useQuery({
     queryKey: [owner, "collections", enrollment?.generation],
     queryFn: () => api.collections(enrollment?.generation ?? 0),
     enabled: !!enrollment?.enrolled,
   });
   const selected: LibraryFilters = {
-    q: settledSearch.trim(),
     equipment: equipment.trim(),
     kind,
     favorite_only: favorite,
@@ -122,10 +115,24 @@ export default function Library() {
     tags: tagsFromText(tags),
     max_minutes: maxMinutes,
   };
+  const all = useQuery({ queryKey: [owner, "library", "search", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
+  const needsCount = all.data?.filter(w => w.extraction_warnings?.length).length ?? 0;
   const q = useInfiniteQuery({
-    queryKey: [owner, "library", enrollment?.generation, "search", selected],
+    queryKey: [owner, "library", enrollment?.generation, "search", selected, needsInfo],
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => api.searchLibrary(selected, pageParam, enrollment?.generation ?? 0),
+    queryFn: async ({ pageParam }) => {
+      const page = await api.searchLibrary(selected, pageParam, enrollment?.generation ?? 0);
+      if (!needsInfo) return page;
+      // Needs-info is client-side; load the filtered result completely so an empty first page cannot hide matches.
+      const items = [...page.items];
+      let cursor = page.next_cursor;
+      while (cursor) {
+        const next = await api.searchLibrary(selected, cursor, enrollment?.generation ?? 0);
+        items.push(...next.items); cursor = next.has_more ? next.next_cursor : null;
+      }
+      const matches = items.filter(w => w.extraction_warnings?.length);
+      return { ...page, items: matches, total: matches.length, has_more: false, next_cursor: null };
+    },
     getNextPageParam: (page) => (page.has_more ? (page.next_cursor ?? undefined) : undefined),
     // Keep this account's results on screen while a new search loads, so typing never flashes empty.
     placeholderData: (previous, previousQuery) =>
@@ -134,17 +141,16 @@ export default function Library() {
   });
   // Workouts saved on another device or from a share appear without relaunching.
   // Each query refetches only once it is stale; loaded pages refetch together so the list stays consistent.
-  const freshness = useFocusRefresh([q, collections], { enabled: !!enrollment?.enrolled });
+  const freshness = useFocusRefresh([q, collections, all], { enabled: !!enrollment?.enrolled });
   const visible = [
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
-  const covers = collectionCovers(visible);
-  const filterCount = [favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
-  const narrowed = !!search || !!filterCount;
+  const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
+  const narrowed = !!filterCount;
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   function clear() {
-    setSearch("");
+    setNeedsInfo(false);
     setEquipment("");
     setTags("");
     setKind(undefined);
@@ -164,30 +170,13 @@ export default function Library() {
           <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
             onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
         </Row>
-      ) : (
-        <Row justify="space-between">
-          <Copy tone="muted">{q.data ? workoutCountLabel(q.data.pages[0].total, archived) : " "}</Copy>
-          <IconButton icon="ellipsis-horizontal" label="Library options" onPress={() => setMenu(true)} variant="plain" />
-        </Row>
-      )}
-      <LibrarySearch value={search} onChange={setSearch} filterCount={filterCount} onFilters={() => setFilters(true)} />
-      {!!filterCount && <ChipRow label="Active filters">
-        {favorite && <Chip label="Favorites" selected onPress={() => setFavorite(false)} />}
-        {!!kind && <Chip label={kindLabels[kind]} selected onPress={() => setKind(undefined)} />}
-        {!!maxMinutes && <Chip label={`Up to ${maxMinutes} min`} selected onPress={() => setMaxMinutes(undefined)} />}
-        {archived && <Chip label="Archived" selected onPress={() => setArchived(false)} />}
-        {!!collection && <Chip label={collectionTitle ?? "Collection"} selected onPress={() => setCollection(undefined)} />}
-        {!!equipment.trim() && <Chip label={equipment.trim()} selected onPress={() => setEquipment("")} />}
-        {!!tags.trim() && <Chip label={`Tags: ${tagsFromText(tags).join(", ")}`} selected onPress={() => setTags("")} />}
-      </ChipRow>}
-      {!!collections.data?.length && <View style={{ gap: spacing.xs }}>
-        <Copy kind="label">Collections</Copy>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel="Collections"
-          contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.md }}>
-          {collections.data.map(item => <CollectionTile key={item.id} title={item.title} count={item.workout_count} covers={item.preview_thumbnail_urls?.length ? item.preview_thumbnail_urls : [covers.get(item.id)].filter((uri): uri is string => !!uri)}
-            onPress={() => router.push({ pathname: "/collection/[id]", params: { id: item.id } })} />)}
-        </ScrollView>
-      </View>}
+      ) : <BrowseLinks links={[
+        { title: "Collections", onPress: () => router.push("/collections") },
+        { title: "Programs", onPress: () => setKind(kind === "program" ? undefined : "program") },
+        ...(!archived && needsCount ? [{ title: `Needs info · ${needsCount}`, onPress: () => setNeedsInfo(!needsInfo) }] : []),
+        { title: "Filter", onPress: () => setFilters(true) },
+      ]} />}
+      {!!filterCount && <Button title={`${[needsInfo ? "Needs info" : null, favorite ? "Favorites" : null, kind ? kindLabels[kind] : null, maxMinutes ? `Up to ${maxMinutes} min` : null, archived ? "Archived" : null, collectionTitle, equipment.trim(), tags.trim()].filter(Boolean).join(" · ")} · Clear`} variant="ghost" size="sm" onPress={clear} />}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
       {!!q.error && visible.length > 0 && <>
         <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
@@ -221,21 +210,28 @@ export default function Library() {
     />
   );
   return (
+    <>
+    <Stack.Screen options={{ headerRight: () => <BrowseHeader add onMenu={() => setMenu(true)} menuItems={[
+      { title: view === "grid" ? "Show as a list" : "Show as a grid", onPress: () => setView(view === "grid" ? "list" : "grid") },
+      { title: "Select workouts", disabled: !enrollment?.enrolled || bulkBusy, onPress: () => startSelecting() },
+      { title: "Manage collections", onPress: () => router.push("/collections") },
+      { title: archived ? "Show active workouts" : "Show archived workouts", onPress: () => setArchived(!archived) },
+    ]} /> }} />
     <Screen
       title="Library"
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
-      action={<AccountButton />}
       footer={selecting ? <Button title="Add selected to collection" icon="folder-open-outline" disabled={!selectedIds.length || bulkBusy}
         onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
+          contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
           data={visible}
           numColumns={view === "grid" ? columns : 1}
           keyExtractor={(w) => w.id}
           columnWrapperStyle={view === "grid" && columns > 1 ? { gap: LIBRARY_GRID_GAP } : undefined}
-          contentContainerStyle={[contentContainerStyle, { gap: LIBRARY_GRID_GAP }]}
+          contentContainerStyle={[contentContainerStyle, { rowGap: 20 }]}
           refreshControl={refreshControl}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -275,6 +271,7 @@ export default function Library() {
         </ListGroup>
       </Sheet>
       <Sheet visible={filters} onClose={() => setFilters(false)} title="Filter workouts">
+        <Choice label="Needs info" selected={needsInfo} onPress={() => setNeedsInfo(!needsInfo)} />
         <Choice label="Favorites only" selected={favorite} onPress={() => setFavorite(!favorite)} />
         <Copy kind="label">Workout type</Copy>
         <ChipRow wrap>
@@ -317,5 +314,6 @@ export default function Library() {
         <Button title="Keep selecting" secondary disabled={bulkBusy} onPress={() => interact(() => setBulkOpen(false))} />
       </Sheet>
     </Screen>
+    </>
   );
 }

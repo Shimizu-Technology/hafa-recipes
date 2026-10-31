@@ -26,7 +26,7 @@ vi.mock('@/components/Themed', () => ({
     shadowColor: '#0B3E38',
     text: '#17120E',
     textSecondary: '#6D5D50',
-    tint: '#155C52',
+    tint: '#5DD3B6', onTint: '#00261F',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
@@ -64,6 +64,9 @@ describe('SignInBanner', () => {
 
       expect(createAccount.props.accessibilityRole).toBe('button');
       expect(signIn.props.accessibilityRole).toBe('button');
+      expect(signIn.queryAll(n => n.type === 'Ionicons')[0].props.color).toBe('#00261F');
+      const signInLabel = signIn.queryAll(n => n.type === 'Text')[0];
+      expect(Object.assign({}, ...[signInLabel.props.style].flat(Infinity)).color).toBe('#00261F');
 
       const banner = renderer.container.queryAll(
         (instance) => instance.props.accessibilityRole === 'summary',

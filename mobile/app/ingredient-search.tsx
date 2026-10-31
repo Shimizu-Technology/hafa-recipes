@@ -317,8 +317,8 @@ function IngredientSearchScreenContent() {
             accessibilityRole="button"
             accessibilityLabel={searchIngredients.length > 0 ? 'Add ingredients and update results' : 'Find recipes with these ingredients'}
           >
-            <Ionicons name="search" size={18} color="#FFFFFF" />
-            <Text style={styles.searchButtonText}>
+            <Ionicons name="search" size={18} color={inputText.trim() ? colors.onTint : colors.textMuted} />
+            <Text style={[styles.searchButtonText, { color: inputText.trim() ? colors.onTint : colors.textMuted }]}>
               {searchIngredients.length > 0 ? 'Add & Update Results' : 'Find Recipes'}
             </Text>
           </TouchableOpacity>
@@ -455,8 +455,8 @@ function IngredientSearchScreenContent() {
               accessibilityRole="button"
               accessibilityLabel="Retry ingredient search"
             >
-              <Ionicons name="refresh-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.retryButtonText}>Try Again</Text>
+              <Ionicons name="refresh-outline" size={18} color={colors.onTint} />
+              <Text style={[styles.retryButtonText, { color: colors.onTint }]}>Try Again</Text>
             </TouchableOpacity>
           </View>
         ) : (

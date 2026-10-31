@@ -165,15 +165,15 @@ export default function BuildPlan() {
       await api.acceptProgram(draft.receipt!.id, draft.title, draft.receipt!.generation);
       await localDrafts.remove(owner, scope);
       await cache.invalidateQueries({ queryKey: [owner, "programs"] });
-      router.replace("/(tabs)/plan");
+      router.replace("/plan");
     });
   }
-  if ((enrollment?.enrolled && q.isPending) || profileMissing) return <Screen back title="Build a plan"><Copy tone="muted">Loading your training preferences…</Copy></Screen>;
-  if (!enrollment?.enrolled) return <Screen back title="Build a plan" subtitle="Plans use your goal, equipment and the days you can train.">
+  if ((enrollment?.enrolled && q.isPending) || profileMissing) return <Screen native grouped back title="Build a plan"><Copy tone="muted">Loading your training preferences…</Copy></Screen>;
+  if (!enrollment?.enrolled) return <Screen native grouped back title="Build a plan" subtitle="Plans use your goal, equipment and the days you can train.">
     <Button title="Join Workouts" onPress={() => router.push({ pathname: "/onboarding", params: { return_to: "build-plan", ...(include ? { include } : {}) } })} />
   </Screen>;
   return (
-    <Screen
+    <Screen native grouped
       back
       title="Build a plan"
       subtitle="Uses your goal, equipment and the days you can train."

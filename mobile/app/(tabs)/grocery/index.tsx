@@ -817,7 +817,9 @@ function GroceryScreenContent() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Fixed header with input */}
+      <SectionList
+        contentInsetAdjustmentBehavior="automatic"
+        ListHeaderComponent={
       <RNView style={styles.header}>
         {/* Title row - clean with just title and icons */}
         <RNView style={styles.titleRow}>
@@ -964,9 +966,7 @@ function GroceryScreenContent() {
         )}
           </>
         )}
-      </RNView>
-
-      <SectionList
+      </RNView>}
         sections={isAuthenticated ? sections : []}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
