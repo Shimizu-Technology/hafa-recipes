@@ -35,6 +35,7 @@ type RecipeOrganizerProps = {
   onPlanRecipe: () => void;
   onRetryPlan: () => void;
   savedNote?: string | null;
+  recipeNotes?: string | null;
   isNoteLoading: boolean;
   isNoteSaving: boolean;
   onSaveNote: (note: string) => Promise<void>;
@@ -63,6 +64,7 @@ export function RecipeOrganizer({
   onPlanRecipe,
   onRetryPlan,
   savedNote,
+  recipeNotes,
   isNoteLoading,
   isNoteSaving,
   onSaveNote,
@@ -185,6 +187,7 @@ export function RecipeOrganizer({
                 contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.bottom + spacing.xl }]}
                 keyboardShouldPersistTaps="handled"
               >
+                {recipeNotes && <RNView style={{ gap: 8, marginBottom: 24 }}><Text style={{ fontSize: 17, lineHeight: 22, fontWeight: '600' }}>Recipe notes</Text><Text style={{ color: colors.textSecondary, fontSize: 17, lineHeight: 24 }}>{recipeNotes}</Text></RNView>}
                 <RNView style={[styles.noteCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
                   <RNView style={styles.noteHeader}>
                     <RNView style={styles.noteTitleRow}>

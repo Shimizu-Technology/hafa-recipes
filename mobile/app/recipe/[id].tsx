@@ -978,7 +978,7 @@ function RecipeDetailScreenContent() {
 
               <Text accessibilityRole="header" style={[styles.sectionTitle, { marginTop: 24 }]}>More</Text>
               <RNView style={{ backgroundColor: colors.backgroundSecondary, borderRadius: 12, overflow: 'hidden' }}>
-              {cookingNotes && <>
+              {cookingNotes && !userId && <>
                 <TouchableOpacity style={styles.secondaryRow} onPress={() => setShowRecipeNotes(!showRecipeNotes)} accessibilityRole="button" accessibilityState={{ expanded: showRecipeNotes }}>
                   <Ionicons name="document-text-outline" size={20} color={colors.actionText} /><Text style={{ flex: 1 }}>Recipe notes</Text><Ionicons name="chevron-down" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
@@ -986,7 +986,7 @@ function RecipeDetailScreenContent() {
               </>}
             {userId && (
               <RecipeOrganizer
-                compact panels={['notes']}
+                compact panels={['notes']} recipeNotes={cookingNotes}
                 recipeTitle={extracted.title}
                 collections={recipeCollections}
                 areCollectionsLoading={isCollectionsLoading || isRecipeCollectionsLoading}
