@@ -1,6 +1,6 @@
 import { Stack, router, type Href } from "expo-router";
 import { Icon, NativeHeaderContext, PressTarget, fonts, useColors } from "./ui";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 
 export function TabStack({ title, add }: { title: string; add?: Href }) {
   const c = useColors();
@@ -9,7 +9,8 @@ export function TabStack({ title, add }: { title: string; add?: Href }) {
       title, headerLargeTitle: true, headerShadowVisible: false,
       headerStyle: { backgroundColor: c.background }, headerTintColor: c.action,
       headerTitleStyle: { color: c.text },
-      headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" ? fonts.rounded : fonts.regular,
+      // Native stack titles use UIKit font names; RN text uses the ui-rounded alias.
+      headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".SFUIRounded-Bold" : fonts.regular,
         fontSize: 34, fontWeight: "700" },
       contentStyle: { backgroundColor: c.background },
       headerRight: () => <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
