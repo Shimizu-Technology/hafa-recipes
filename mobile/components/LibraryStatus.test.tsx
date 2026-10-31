@@ -25,6 +25,7 @@ it('shows a compact link row, only offers Offline when cached recipes exist, and
     await act(async () => r.render(render(false, 2)));
     expect(labels()).toContain('Offline'); expect(labels()).toContain('Needs a check · 2');
     const buttons = r.container.queryAll(n => n.type === 'Pressable');
+    for (const button of buttons) expect(button.props.style).toMatchObject({ minWidth: 44, minHeight: 44 });
     await act(async () => buttons[0].props.onPress());
     await act(async () => buttons[1].props.onPress());
     await act(async () => buttons[2].props.onPress());

@@ -116,7 +116,6 @@ export function SaveButton({
 function GridRecipeCard({
   recipe,
   onPress,
-  onUserPress,
   colors,
   currentUserId,
   imagePriority = 'normal',
@@ -124,16 +123,12 @@ function GridRecipeCard({
 }: {
   recipe: RecipeListItem;
   onPress: () => void;
-  onUserPress?: (userId: string, userName: string) => void;
   colors: ReturnType<typeof useColors>;
   currentUserId?: string | null;
   imagePriority?: 'normal' | 'high';
   active?: boolean;
 }) {
-  // Can filter by this user if they have a user_id and display name, and it's not the current user
-  const contributorId = getContributorId(recipe);
   const isOwner = recipe.is_owner ?? recipe.user_id === currentUserId;
-  const canFilterByUser = contributorId && recipe.extractor_display_name && !isOwner;
   const showSaveButton = !isOwner;
 
   return (
@@ -150,9 +145,7 @@ function GridRecipeCard({
       })}
       imagePriority={imagePriority}
       imageAdornment={showSaveButton ? <RNView style={styles.gridSaveButtonContainer}><SaveButton active={active} recipeId={recipe.id} initialIsSaved={recipe.is_saved} colors={colors} isOwner={isOwner} /></RNView> : null}
-      footer={<TouchableOpacity disabled={!canFilterByUser || !onUserPress} accessibilityRole={canFilterByUser ? 'button' : undefined} accessibilityLabel={canFilterByUser ? `Recipes by ${recipe.extractor_display_name}` : undefined} onPress={event => { event.stopPropagation(); onUserPress?.(contributorId!, recipe.extractor_display_name!); }} hitSlop={8}>
-        <Text style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary }} numberOfLines={1}>{[recipe.extractor_display_name || getRecipeSourcePresentation(recipe.source_type).label, recipe.total_time].filter(Boolean).join(' · ')}</Text>
-      </TouchableOpacity>}
+      footer={<Text style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary }} numberOfLines={1}>{[recipe.extractor_display_name || getRecipeSourcePresentation(recipe.source_type).label, recipe.total_time].filter(Boolean).join(' · ')}</Text>}
     />
   );
 }
@@ -381,13 +374,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     }
   };
 
-  // Handle user press to filter by extractor
-  const handleUserPress = useCallback((extractorId: string, extractorName: string) => {
-    haptics.light();
-    setSelectedExtractor({ id: extractorId, name: extractorName });
-    setDisplayCount(ITEMS_PER_PAGE); // Reset pagination
-  }, []);
-
   const clearExtractorFilter = useCallback(() => {
     setSelectedExtractor(null);
     setDisplayCount(ITEMS_PER_PAGE);
@@ -424,7 +410,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
               haptics.light();
               router.push(`/recipe/${item.id}`);
             }}
-            onUserPress={handleUserPress}
             currentUserId={identity.data?.id}
             imagePriority={index < 4 ? 'high' : 'normal'}
           />
@@ -637,7 +622,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             </TouchableOpacity>}
             {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title} style={{ marginBottom: 8 }}>
               <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
-              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} onUserPress={handleUserPress} currentUserId={identity.data?.id} />)}</RNView>
+              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} currentUserId={identity.data?.id} />)}</RNView>
             </RNView>)}
             {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}

@@ -73,7 +73,7 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },
 }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: () => null }));
-vi.mock('@/components/AllContributorsModal', () => ({ default: () => null }));
+vi.mock('@/components/AllContributorsModal', () => ({ default: (props: any) => React.createElement('AllContributorsModal', props) }));
 vi.mock('@/components/Skeleton', () => ({ SkeletonRecipeList: () => null }));
 vi.mock('@/components/Animated', () => ({ AnimatedListItem: () => null, ScalePressable: 'TouchableOpacity', useInitialListEntrance: () => () => false }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: () => null }));
@@ -174,6 +174,11 @@ describe('Discover accessibility', () => {
       await act(async () => byText(renderer, 'Apply (1)').props.onPress());
       expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
       expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Top contributors', 'Surprise me', 'Search recipes']);
+      await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Top contributors')!.props.onPress());
+      const contributors = renderer.root.findByType('AllContributorsModal' as any);
+      expect(contributors.props.visible).toBe(true);
+      await act(async () => contributors.props.onSelectContributor({ contributor_id: 'maria', display_name: 'Maria' }));
+      expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ extractorId: 'maria', extractorName: 'Maria' }));
     } finally { await act(async () => renderer.unmount()); }
   });
 });
