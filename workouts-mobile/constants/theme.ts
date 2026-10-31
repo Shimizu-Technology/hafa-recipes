@@ -34,6 +34,8 @@ export const workouts = {
 } as const;
 
 export type ColorTokens = {
+  onImage: string;
+  imageOverlay: string;
   groupedBackground: string;
   surface2: string;
   secondaryLabel: string;
@@ -79,6 +81,7 @@ export type ColorTokens = {
 // Small text uses contrast-strengthened variants where system colours fall below 4.5:1.
 // Semantic UI colours are independent of the retained app-icon artwork palette.
 export const light: ColorTokens = {
+  onImage: "#FFFFFF", imageOverlay: "rgba(0,0,0,0.6)",
   groupedBackground: "#F2F2F7", surface2: "rgba(118,118,128,0.12)",
   secondaryLabel: "rgba(60,60,67,0.60)", tertiaryLabel: "rgba(60,60,67,0.30)",
   destructive: "#FF3B30", dataSuccess: "#248A3D",
@@ -92,6 +95,7 @@ export const light: ColorTokens = {
   skeleton: "#E5E5EA", shadow: "#000000", tint: "rgba(118,118,128,0.12)",
 };
 export const dark: ColorTokens = {
+  onImage: "#FFFFFF", imageOverlay: "rgba(0,0,0,0.6)",
   groupedBackground: "#000000", surface2: "rgba(118,118,128,0.24)",
   secondaryLabel: "rgba(235,235,245,0.60)", tertiaryLabel: "rgba(235,235,245,0.30)",
   destructive: "#FF453A", dataSuccess: "#30D158",

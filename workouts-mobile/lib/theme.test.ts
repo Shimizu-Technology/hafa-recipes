@@ -28,6 +28,7 @@ function contrast(a: string, b: string, page: string) {
 // 4.5 = WCAG AA body text; 3 = large text, icons and control boundaries.
 type Pair = [fg: keyof ColorTokens, bg: keyof ColorTokens, min: number];
 const pairs: Pair[] = [
+  ["onImage", "imageOverlay", 4.5],
   ["text", "background", 4.5],
   ["text", "surface", 4.5],
   ["text", "elevated", 4.5],

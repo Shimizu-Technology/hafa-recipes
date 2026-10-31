@@ -51,8 +51,8 @@ export function WorkoutHero({ source }: { source: Source }) {
           style={{ width: "100%", aspectRatio: 4 / 3, maxHeight: 360, resizeMode: "cover" }} />
         : <View style={{ width: "100%", aspectRatio: 16 / 9 }} />}
       <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" }}>
-        <View style={{ width: 64, height: 64, borderRadius: radii.full, backgroundColor: c.overlay, alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name="play" size={30} color={c.onHero} style={{ marginLeft: 4 }} />
+        <View style={{ width: 64, height: 64, borderRadius: radii.full, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="play" size={30} color={c.onImage} style={{ marginLeft: 4 }} />
         </View>
       </View>
     </Pressable> : image ? <View style={{ borderRadius: radii.lg, overflow: "hidden" }}>

@@ -34,9 +34,9 @@ function Mark({ kind }: { kind: "favorite" | "selected" | "unselected" }) {
   const selected = kind === "selected";
   return <View style={{
     width: 28, height: 28, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
-    backgroundColor: selected ? c.action : c.overlay, borderWidth: kind === "unselected" ? 1.5 : 0, borderColor: c.onHero,
+    backgroundColor: selected ? c.action : c.imageOverlay, borderWidth: kind === "unselected" ? 1.5 : 0, borderColor: c.onImage,
   }}>
-    {kind !== "unselected" && <Ionicons name={selected ? "checkmark" : "heart"} size={16} color={selected ? c.onAction : c.onHero} />}
+    {kind !== "unselected" && <Ionicons name={selected ? "checkmark" : "heart"} size={16} color={selected ? c.onAction : c.onImage} />}
   </View>;
 }
 
