@@ -336,6 +336,7 @@ function PlannerScreenContent() {
   const dayPositions = useRef<Record<string, number>>({});
   const pendingScrollDate = useRef<string | null>(null);
   const scrollToRequestedDay = () => {
+    if (!weekPlan || isLoading) return;
     const date = pendingScrollDate.current;
     if (date && dayPositions.current[date] !== undefined) {
       weekScroll.current?.scrollTo({ y: dayPositions.current[date], animated: false });
@@ -388,6 +389,7 @@ function PlannerScreenContent() {
     );
     if (!requestedDate) return;
 
+    dayPositions.current = {};
     pendingScrollDate.current = formatDateForApi(requestedDate);
     setCurrentWeekStart(getWeekStart(requestedDate));
     setSelectedDate(requestedDate);
@@ -466,9 +468,16 @@ function PlannerScreenContent() {
   const goToToday = useCallback(() => {
     lightHaptic();
     const today = new Date();
+    const target = formatDateForApi(today);
+    if (formatDateForApi(getWeekStart(today)) === weekOfStr && dayPositions.current[target] !== undefined) {
+      weekScroll.current?.scrollTo({ y: dayPositions.current[target], animated: false });
+    } else {
+      dayPositions.current = {};
+      pendingScrollDate.current = target;
+    }
     setCurrentWeekStart(getWeekStart(today));
     setSelectedDate(today);
-  }, []);
+  }, [weekOfStr]);
 
   const addRecipeToMeal = useCallback(
     async (recipe: MealPlanRecipe, mealType: MealType, date = selectedDate) => {
@@ -481,7 +490,7 @@ function PlannerScreenContent() {
         ));
         successHaptic();
         if (requestedRecipeId) {
-          router.replace(appRoutes.plannerDate(formatDateForApi(selectedDate)));
+          router.replace(appRoutes.plannerDate(formatDateForApi(date)));
         }
       } catch {
         // User-facing alert is sufficient
