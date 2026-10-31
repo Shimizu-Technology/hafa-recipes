@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { ActivityIndicator, FlatList, Platform, Pressable, View } from 'react-native';
-import { Image } from 'expo-image';
+import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Input, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -46,7 +46,7 @@ function LibrarySearch() {
         </> : null}
       </View>}
       renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={item.title} onPress={() => router.push(`/recipe/${item.id}`)} style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 64, opacity: pressed ? 0.65 : 1 })}>
-        <Image source={item.thumbnail_url ? { uri: item.thumbnail_url } : undefined} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: colors.surface2 }} contentFit="cover" />
+        <RecipeThumbnail uri={item.thumbnail_url} accessible={false} placeholderIconSize={22} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: colors.surface2 }} />
         <View style={{ flex: 1, gap: 2 }}><Text style={typography.cardTitle}>{item.title}</Text><Text style={{ ...typography.footnote, color: colors.textSecondary }}>{[item.source_type, item.total_time].filter(Boolean).join(' · ')}</Text></View>
       </Pressable>}
       onEndReached={() => { if (isSignedIn && query.trim() && !pending && !search.isFetching && search.hasNextPage) void search.fetchNextPage(); }}
