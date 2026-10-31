@@ -189,7 +189,7 @@ export default function CollectionDetailScreen() {
   if (!collection) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerTitle: 'Collection' }} />
+        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerTitle: 'Collection' }} />
         <RNView style={styles.loadingContainer}>
           {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.actionText} /> : (
             <>
@@ -213,9 +213,10 @@ export default function CollectionDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerTitle: collection.name, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display },
+          headerTitle: collection.name, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 },
           headerRight: () => (
-            <TouchableOpacity
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Collection options"
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
               onPress={() => setShowEditModal(true)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >

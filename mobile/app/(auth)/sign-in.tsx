@@ -246,7 +246,7 @@ export default function SignInScreen() {
   }, [isLoaded, signIn, setActive, router]);
 
   return (
-    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerShadowVisible: false,
+    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
         title: verification ? 'Check your email' : 'Welcome back', headerLeft: () => (<TouchableOpacity
             style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}

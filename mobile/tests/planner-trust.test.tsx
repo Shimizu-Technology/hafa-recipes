@@ -13,6 +13,7 @@ import type { MealPlanEntry } from '@/types/recipe';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   ActivityIndicator: 'ActivityIndicator',
   Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
   TextInput: 'TextInput',

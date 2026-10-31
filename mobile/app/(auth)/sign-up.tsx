@@ -260,7 +260,7 @@ export default function SignUpScreen() {
   // Verification screen
   if (pendingVerification) {
     return (
-      <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerShadowVisible: false,
+      <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
         title: 'Check your email', headerLeft: () => (<TouchableOpacity
             style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
@@ -328,7 +328,7 @@ export default function SignUpScreen() {
   }
 
   return (
-    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerShadowVisible: false,
+    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
         title: 'Create account', headerLeft: () => (<TouchableOpacity
             style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}

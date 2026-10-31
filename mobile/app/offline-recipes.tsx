@@ -22,12 +22,13 @@ export default function OfflineRecipesScreen() {
     if (lease) void offlineRecipes.list(lease).then(value => { if (active) setRows(value); }).catch(() => { if (active) setError(true); });
     return () => { active = false; };
   }, [userId, scope]);
-  return <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }}>
-    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'Available offline' }} />
+  return <View style={{ flex: 1, backgroundColor: colors.groupedBackground }}>
+    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }}>
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Available offline', headerTitle: 'Available offline', headerStyle: { backgroundColor: colors.groupedBackground } }} />
     <Text style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 20 }}>Recently opened saved and own recipes stay on this device. Mark recipes to keep them; up to 100 kept recipes and 20 MB total. Remove copies below to free space; the latest 30 others are kept automatically. Offline copies may be out of date. Sign-out clears them.</Text>
     {error && <Text>Could not read offline recipes on this device. Reopen Håfa to try again.</Text>}
     {!error && !rows.length && <Text>Open a saved or own recipe while connected to keep an offline copy.</Text>}
-    {rows.map(row => <View key={row.recipe.id} style={{ backgroundColor: colors.backgroundSecondary, padding: 16, borderRadius: 12 }}><TouchableOpacity accessibilityRole="button"
+    {rows.map(row => <View key={row.recipe.id} style={{ backgroundColor: colors.backgroundElevated, padding: 16, borderRadius: 12 }}><TouchableOpacity accessibilityRole="button"
       accessibilityLabel={`Open ${row.recipe.extracted.title} offline`}
       onPress={() => router.push(`/recipe/${row.recipe.id}`)} style={{ minHeight: 44 }}>
       <Text>{row.recipe.extracted.title}{row.pinned ? ' · Available offline' : ''}</Text>
@@ -37,5 +38,5 @@ export default function OfflineRecipesScreen() {
       void offlineRecipes.remove(lease, row.recipe.id).then(() => offlineRecipes.list(lease)).then(setRows)
         .catch((failure: Error) => Alert.alert('Could not remove offline copy', failure.message));
     }} /></View>)}
-  </ScrollView>;
+  </ScrollView></View>;
 }

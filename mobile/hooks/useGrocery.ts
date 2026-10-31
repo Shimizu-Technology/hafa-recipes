@@ -405,13 +405,13 @@ export function useGrocerySync(enabled = true) {
   });
   useEffect(() => {
     if (enabled && isOnline) {
-      void hasPendingSync(getGroceryStorageLease()).then((pending) => {
+      void Promise.resolve().then(() => hasPendingSync(getGroceryStorageLease())).then((pending) => {
         if (pending) {
           void syncPendingChanges().catch((error) =>
             console.warn('[Grocery Sync] Failed to start synchronization:', error),
           );
         }
-      });
+      }).catch((error) => console.warn('[Grocery Sync] Could not check pending changes:', error));
     }
   }, [enabled, isOnline, syncPendingChanges]);
 

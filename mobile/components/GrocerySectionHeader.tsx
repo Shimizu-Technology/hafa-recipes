@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   StyleSheet,
+  useWindowDimensions,
   TouchableOpacity,
   View as RNView,
 } from 'react-native';
@@ -31,23 +32,25 @@ export function GrocerySectionHeader({
   onClearSection,
 }: GrocerySectionHeaderProps) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.3;
   const isOther = section.key === OTHER_GROCERY_SECTION_KEY;
   const recipeId = section.recipeId;
   const canOpenRecipe = recipeId !== null && onOpenRecipe !== undefined;
   const canClear = section.recipeId !== null && onClearSection !== undefined;
 
   return (
-    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      <RNView style={styles.main}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }, largeText && { flexWrap: 'wrap' }]}>
+      <RNView style={[styles.main, largeText && { flexBasis: '100%', flexDirection: 'column', alignItems: 'stretch' }]}>
         <Ionicons
           name={isOther ? 'list-outline' : 'restaurant-outline'}
           size={18}
           color={colors.actionText}
-          style={styles.icon}
+          style={[styles.icon, largeText && { display: 'none' }]}
         />
         {canOpenRecipe ? (
           <TouchableOpacity
-            style={styles.titleButton}
+            style={[styles.titleButton, largeText && { flex: 0, minHeight: 44 }]}
             onPress={() => onOpenRecipe(recipeId)}
             activeOpacity={0.7}
             accessibilityRole="link"

@@ -19,6 +19,7 @@ import {
   RefreshControl,
   Alert,
   Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   Modal,
   TextInput,
@@ -233,27 +234,28 @@ export function MealSlot({
       ) : (
         <RNView style={styles.mealEntries}>
           {entries.map((entry) => (
-            <ScalePressable
+            <RNView
               key={entry.id}
               style={[
                 styles.mealCard,
                 { backgroundColor: 'transparent' },
               ]}
-              onPress={() => onViewRecipe(entry.recipe_id)}
-              scaleValue={0.98}
             >
+              <TouchableOpacity onPress={() => onViewRecipe(entry.recipe_id)} accessible={false}>
               <RecipeThumbnail
                 uri={entry.recipe_thumbnail}
                 style={styles.mealThumbnail}
                 accessibilityLabel={`${entry.recipe_title} photo`}
                 placeholderIconSize={16}
-              />
+              /></TouchableOpacity>
               <RNView style={styles.mealCardContent}>
+                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ minHeight: 44, justifyContent: 'center' }}
+                  accessibilityRole="button" accessibilityLabel={`Open ${entry.recipe_title}`}>
                 <Text
                   style={[styles.mealCardTitle, { color: colors.text }]}
                 >
                   {entry.recipe_title}
-                </Text>
+                </Text></ScalePressable>
               <TouchableOpacity onPress={() => onEditServings?.(entry)} style={{ minHeight: 44, justifyContent: 'center' }}
                 accessibilityRole="button" accessibilityLabel={`Edit servings for ${entry.recipe_title}`}>
                 <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{entry.planned_servings ? `${entry.planned_servings} servings` : entry.servings || 'Recipe servings'}</Text>
@@ -273,7 +275,7 @@ export function MealSlot({
                 accessibilityLabel={`Remove ${entry.recipe_title || 'recipe'} from ${mealType.label}`}
                 onPress={() => onRemove(entry.id)}
               />
-            </ScalePressable>
+            </RNView>
           ))}
           {pendingRecipeTitle ? (
             <TouchableOpacity
@@ -318,6 +320,7 @@ export default function PlannerScreen() {
 }
 
 function PlannerScreenContent() {
+  const { fontScale } = useWindowDimensions();
   const router = useRouter();
   const {
     date: requestedDateParam,
@@ -726,7 +729,7 @@ function PlannerScreenContent() {
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToToday} accessibilityRole="button" accessibilityLabel="Go to today" style={styles.weekLabelContainer}>
+        <TouchableOpacity onPress={goToToday} accessibilityRole="button" accessibilityLabel="Go to today" style={[styles.weekLabelContainer, fontScale >= 1.3 && { flexDirection: 'column' }]}>
           <Text style={[styles.weekLabel, { color: colors.text }]}>
             {weekRangeLabel}
           </Text>
@@ -1008,11 +1011,17 @@ const styles = StyleSheet.create({
     minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center',
   },
   weekLabelContainer: {
+    justifyContent: 'center',
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
   },
   weekLabel: {
+    flexShrink: 1,
+    textAlign: 'center',
+    lineHeight: 22,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
@@ -1022,6 +1031,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   todayButtonText: {
+    lineHeight: 16,
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
   },

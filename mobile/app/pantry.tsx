@@ -147,7 +147,7 @@ function PantryScreenContent() {
   );
 
   return <RNView style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
-    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'My Pantry', headerStyle: { backgroundColor: colors.groupedBackground }, headerTintColor: colors.text }} />
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'My Pantry', headerStyle: { backgroundColor: colors.groupedBackground }, headerTintColor: colors.text }} />
     {!isSignedIn ? (
       <RNView style={styles.center}><Text style={styles.heading}>Save what you have</Text><Text style={{ color: colors.textSecondary }}>Sign in to keep a pantry and share it with your household.</Text></RNView>
     ) : active.isLoading ? (

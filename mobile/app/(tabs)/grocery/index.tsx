@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   SectionList,
+  useWindowDimensions,
   ScrollView,
   Modal,
   TouchableOpacity,
@@ -50,7 +51,7 @@ import {
   useUpdateGroceryItem,
 } from '@/hooks/useGrocery';
 import { GroceryItem } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -217,6 +218,7 @@ export default function GroceryScreen() {
 }
 
 function GroceryScreenContent() {
+  const { fontScale } = useWindowDimensions();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { isLoaded, isSignedIn } = useAuth();
@@ -825,9 +827,10 @@ function GroceryScreenContent() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      <Stack.Screen options={{ headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
+      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
         style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="More grocery list actions"><Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
       <SectionList
+        key={fontScale}
         contentInsetAdjustmentBehavior="automatic"
         ListHeaderComponent={<RNView style={styles.header}>
         {/* Editing controls appear only when there is an authenticated list. */}
@@ -873,7 +876,7 @@ function GroceryScreenContent() {
         {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
           <RNView style={styles.actionRow}>
             <RNView
-              style={[styles.viewSelector, { backgroundColor: colors.backgroundSecondary }]}
+              style={[styles.viewSelector, { backgroundColor: colors.backgroundSecondary }, fontScale >= 1.3 && { flex: 1, alignItems: 'stretch', flexDirection: 'column' }]}
               accessibilityRole="tablist"
             >
               <TouchableOpacity
@@ -1000,7 +1003,6 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    overflow: 'hidden',
   },
   listContent: {
     paddingHorizontal: 16,

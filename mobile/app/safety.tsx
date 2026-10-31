@@ -46,7 +46,7 @@ export default function SafetyCenterScreen() {
   if (!isSignedIn) {
     return (
       <>
-        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'Safety Center' }} />
+        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Safety Center' }} />
         <SignInRequiredView
           icon="shield-checkmark-outline"
           title="Sign in for safety controls"
@@ -85,7 +85,7 @@ export default function SafetyCenterScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
-      <Stack.Screen options={{ title: 'Safety Center', headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display } }} />
+      <Stack.Screen options={{ title: 'Safety Center', headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 } }} />
       <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={colors.tint} />}

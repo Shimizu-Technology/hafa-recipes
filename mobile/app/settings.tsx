@@ -325,7 +325,7 @@ export default function SettingsScreen() {
   const profileName = resolveSettingsProfileName(isSignedIn, user);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'Settings', headerTitle: 'Settings' }} />
+    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Settings', headerTitle: 'Settings' }} />
       <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
@@ -745,7 +745,7 @@ export default function SettingsScreen() {
             activeOpacity={0.7}
           >
             <Ionicons name="heart-outline" size={20} color={colors.onTint} />
-            <Text style={styles.shareAppText}>Share App with Friends</Text>
+            <Text style={[styles.shareAppText, { color: colors.onTint }]}>Share App with Friends</Text>
           </TouchableOpacity>
         </RNView>
 

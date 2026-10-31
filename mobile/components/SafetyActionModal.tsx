@@ -85,6 +85,7 @@ export function SafetyActionModal({
         </RNView>
 
         <ScrollView
+          keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
@@ -186,7 +187,7 @@ export function SafetyActionModal({
               { backgroundColor: canSubmit && !isSubmitting ? colors.tint : colors.border },
             ]}
           >
-            <Text style={styles.submitText}>
+            <Text style={[styles.submitText, { color: colors.onTint }]}>
               {isSubmitting ? 'Submitting…' : isReport ? 'Submit report' : 'Submit appeal'}
             </Text>
           </TouchableOpacity>
@@ -217,7 +218,7 @@ const styles = StyleSheet.create({
   options: { gap: spacing.sm },
   option: {
     minHeight: 68,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     padding: spacing.md,
     flexDirection: 'row',
@@ -229,7 +230,7 @@ const styles = StyleSheet.create({
   optionDescription: { fontSize: fontSize.sm, lineHeight: 18 },
   detailsInput: {
     minHeight: 120,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     padding: spacing.md,
     fontSize: fontSize.md,
@@ -239,6 +240,6 @@ const styles = StyleSheet.create({
   inputHelpRow: { marginTop: spacing.xs, flexDirection: 'row', justifyContent: 'space-between' },
   helpText: { fontSize: fontSize.xs },
   footer: { borderTopWidth: StyleSheet.hairlineWidth, padding: spacing.md },
-  submitButton: { minHeight: 50, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  submitButton: { minHeight: 50, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   submitText: { color: '#FFFFFF', fontSize: fontSize.md, fontWeight: fontWeight.semibold },
 });

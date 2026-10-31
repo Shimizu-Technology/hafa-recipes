@@ -44,6 +44,7 @@ function host(name: string) {
 }
 
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
   ActivityIndicator: host('ActivityIndicator'),
   Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
   ScrollView: host('ScrollView'),
@@ -144,6 +145,7 @@ vi.mock('@/utils/haptics', () => ({
   },
 }));
 vi.mock('@/constants/Colors', () => ({
+  fontFamily: { display: 'Fraunces' },
   fontSize: { xs: 10, sm: 12, md: 14, xl: 20, xxl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },
   radius: { sm: 6, md: 10, full: 999 },

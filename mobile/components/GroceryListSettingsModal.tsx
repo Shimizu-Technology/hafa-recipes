@@ -170,9 +170,9 @@ export default function GroceryListSettingsModal({
       transparent={true}
       onRequestClose={handleClose}
     >
-      <TouchableWithoutFeedback onPress={handleClose}>
+      <TouchableWithoutFeedback accessible={false} onPress={handleClose}>
         <RNView style={styles.overlay}>
-          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+          <TouchableWithoutFeedback accessible={false} onPress={(e) => e.stopPropagation()}>
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={[
@@ -218,11 +218,11 @@ export default function GroceryListSettingsModal({
                       disabled={createInviteMutation.isPending}
                     >
                       {createInviteMutation.isPending ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <ActivityIndicator size="small" color={colors.onTint} />
                       ) : (
                         <>
-                          <Ionicons name="share-outline" size={20} color="#FFFFFF" />
-                          <Text style={styles.shareButtonText}>Share Invite</Text>
+                          <Ionicons name="share-outline" size={20} color={colors.onTint} />
+                          <Text style={[styles.shareButtonText, { color: colors.onTint }]}>Share Invite</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -282,9 +282,9 @@ export default function GroceryListSettingsModal({
                       disabled={!joinCode.trim() || joinMutation.isPending}
                     >
                       {joinMutation.isPending ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <ActivityIndicator size="small" color={colors.onTint} />
                       ) : (
-                        <Ionicons name="enter-outline" size={20} color="#FFFFFF" />
+                        <Ionicons name="enter-outline" size={20} color={colors.onTint} />
                       )}
                     </TouchableOpacity>
                   </RNView>
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   copyButtonText: {
     fontSize: fontSize.md,
@@ -444,17 +444,17 @@ const styles = StyleSheet.create({
   },
   joinInput: {
     flex: 1,
-    height: 48,
+    minHeight: 48,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
     letterSpacing: 1,
   },
   joinButton: {
     width: 48,
-    height: 48,
+    minHeight: 48,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -495,7 +495,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   leaveButtonText: {
     fontSize: fontSize.md,
