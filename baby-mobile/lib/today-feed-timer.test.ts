@@ -223,3 +223,24 @@ it("shows a calm first step for pregnancy and no-child states", async () => {
   expect(find("FirstStep", () => true)[0].props.child).toBeNull();
   expect(find("Row", p => p.title === "Add a baby profile")).toHaveLength(1);
 });
+
+it("keeps child B's routine out of child A's Today summary when Everything is selected", async () => {
+  const account = setup();
+  account.state.bootstrap!.children.push({ id: "other-baby", name: "Noah", revision: 1 });
+  const routine = (id: string, child_id: string | null) => optimisticRecord({
+    id, kind: "routine", title: id, body: "", child_id, occurred_at: start.toISOString(),
+    data: { items: [{ id: "pack", label: "Pack bag", done: false }] },
+  });
+  account.records = [routine("Noah's checklist", "other-baby"), routine("Mia's checklist", "baby"), routine("General checklist", null)];
+  await render();
+  expect(find("Screen", () => true)[0].props.title).toBe("Mia");
+  expect(find("Row", p => p.title === "Mia's checklist")).toHaveLength(1);
+  expect(find("Row", p => p.title === "Noah's checklist")).toHaveLength(0);
+  account.records = account.records.filter(row => row.child_id !== "baby");
+  await render();
+  expect(find("Row", p => p.title === "General checklist")).toHaveLength(1);
+  account.state.selectedChild = "other-baby";
+  await render();
+  expect(find("Screen", () => true)[0].props.title).toBe("Noah");
+  expect(find("Row", p => p.title === "Noah's checklist")).toHaveLength(1);
+});

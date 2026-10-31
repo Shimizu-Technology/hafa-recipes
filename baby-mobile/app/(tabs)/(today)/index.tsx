@@ -7,7 +7,7 @@ import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
 import { babyAge, careGlance, glanceChild, nextFeed } from "@/lib/care-glance";
 import { careSummary, duration, friendlyTime, timeAgo } from "@/lib/care-format";
-import { routineToday } from "@/lib/today-routines";
+import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
 import { Button, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, typeScale, useColors, useToast, type IconName } from "@/components/ui";
@@ -60,7 +60,7 @@ export default function Today() {
     { fontScale } = useWindowDimensions(),
     children = b.state.bootstrap!.children,
     child = glanceChild(b.state),
-    records = b.records.filter((r) => !b.state.selectedChild || r.child_id === b.state.selectedChild || !r.child_id),
+    records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => routineToday(r, now)),
@@ -203,7 +203,7 @@ export default function Today() {
           detail={`${glance.diapers.wet} wet · ${glance.diapers.dirty} dirty`} icon={kindIcon.diaper}
           onPress={() => router.push("/care-history")} />}
         <Row numericDetail title={routine?.title || "Lists & routines"}
-          detail={routine?.data.reminder_at ? `Reminder ${friendlyTime(routine.data.reminder_at, now)}` : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
+          detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
         <Row title="Write in your journal" icon="book-outline"
           onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
