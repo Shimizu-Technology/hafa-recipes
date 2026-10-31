@@ -945,7 +945,6 @@ function GroceryScreenContent() {
         stickySectionHeadersEnabled={false}
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
-        onTouchStart={() => Keyboard.dismiss()}
         refreshControl={isAuthenticated ? (
           <RefreshControl
             refreshing={isPullRefreshing}
