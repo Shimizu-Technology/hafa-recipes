@@ -788,122 +788,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
-  return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-    <View style={styles.container}>
-      {/* Filter Bottom Sheet */}
-      <FilterBottomSheet
-        visible={active && showFilterModal}
-        onClose={() => setShowFilterModal(false)}
-        onApply={handleApplyFilters}
-        initialFilters={{ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter }}
-        popularTags={popularTags}
-        showSortOption
-        showHideMyRecipes={!!isSignedIn}
-        showMealTypeFilter
-      />
-
-      {/* Surprise Me Modal */}
-      <Modal
-        visible={active && showSurpriseModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSurpriseModal(false)}
-      >
-        <Pressable
-          style={styles.surpriseModalOverlay}
-          onPress={() => setShowSurpriseModal(false)}
-          accessible={false}
-        >
-          <Pressable
-            style={[styles.surpriseModalContent, { backgroundColor: colors.card }]}
-            onPress={(e) => e.stopPropagation()}
-            accessible={false}
-          >
-            <RNView style={styles.surpriseModalHeader}>
-              <Ionicons name="shuffle" size={24} color={colors.warning} />
-              <Text style={[styles.surpriseModalTitle, { color: colors.text }]}>
-                Surprise Me With...
-              </Text>
-            </RNView>
-
-            <RNView style={styles.surpriseModalOptions}>
-              <TouchableOpacity
-                style={[styles.surpriseOption, { backgroundColor: colors.warning + '15' }]}
-                onPress={() => handleRandomRecipe(undefined)}
-              >
-                <Ionicons name="shuffle" size={24} color={colors.warning} style={styles.surpriseOptionIcon} />
-                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
-                  Anything! (Fully Random)
-                </Text>
-              </TouchableOpacity>
-
-              <RNView style={[styles.surpriseDivider, { backgroundColor: colors.border }]} />
-
-              <TouchableOpacity
-                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
-                onPress={() => handleRandomRecipe('breakfast')}
-              >
-                <Ionicons name="sunny-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
-                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
-                  Random Breakfast
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
-                onPress={() => handleRandomRecipe('lunch')}
-              >
-                <Ionicons name="cafe-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
-                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
-                  Random Lunch
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
-                onPress={() => handleRandomRecipe('dinner')}
-              >
-                <Ionicons name="restaurant-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
-                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
-                  Random Dinner
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
-                onPress={() => handleRandomRecipe('snack')}
-              >
-                <Ionicons name="nutrition-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
-                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
-                  Random Snack
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
-                onPress={() => handleRandomRecipe('dessert')}
-              >
-                <Ionicons name="ice-cream-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
-                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
-                  Random Dessert
-                </Text>
-              </TouchableOpacity>
-            </RNView>
-
-            <TouchableOpacity
-              style={[styles.surpriseCancelButton, { borderColor: colors.border }]}
-              onPress={() => setShowSurpriseModal(false)}
-            >
-              <Text style={[styles.surpriseCancelText, { color: colors.textMuted }]}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Search remains mounted while results update, preserving keyboard focus. */}
+  // A stable header element lets UIKit inset and collapse the entire browse surface.
+  const browseHeader = (
       <RNView style={styles.header}>
         {/* Search + Filter row */}
         <RNView style={styles.searchRow}>
@@ -1187,19 +1073,133 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         )}
         </>}
       </RNView>
+  );
 
-      {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
-        <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
-      ) : (
-        <FlatList
+  return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+    <View style={styles.container}>
+      {/* Filter Bottom Sheet */}
+      <FilterBottomSheet
+        visible={active && showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        initialFilters={{ sourceFilter, timeFilter, selectedTags, sortOrder, hideMyRecipes, mealTypeFilter }}
+        popularTags={popularTags}
+        showSortOption
+        showHideMyRecipes={!!isSignedIn}
+        showMealTypeFilter
+      />
+
+      {/* Surprise Me Modal */}
+      <Modal
+        visible={active && showSurpriseModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSurpriseModal(false)}
+      >
+        <Pressable
+          style={styles.surpriseModalOverlay}
+          onPress={() => setShowSurpriseModal(false)}
+          accessible={false}
+        >
+          <Pressable
+            style={[styles.surpriseModalContent, { backgroundColor: colors.card }]}
+            onPress={(e) => e.stopPropagation()}
+            accessible={false}
+          >
+            <RNView style={styles.surpriseModalHeader}>
+              <Ionicons name="shuffle" size={24} color={colors.warning} />
+              <Text style={[styles.surpriseModalTitle, { color: colors.text }]}>
+                Surprise Me With...
+              </Text>
+            </RNView>
+
+            <RNView style={styles.surpriseModalOptions}>
+              <TouchableOpacity
+                style={[styles.surpriseOption, { backgroundColor: colors.warning + '15' }]}
+                onPress={() => handleRandomRecipe(undefined)}
+              >
+                <Ionicons name="shuffle" size={24} color={colors.warning} style={styles.surpriseOptionIcon} />
+                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
+                  Anything! (Fully Random)
+                </Text>
+              </TouchableOpacity>
+
+              <RNView style={[styles.surpriseDivider, { backgroundColor: colors.border }]} />
+
+              <TouchableOpacity
+                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
+                onPress={() => handleRandomRecipe('breakfast')}
+              >
+                <Ionicons name="sunny-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
+                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
+                  Random Breakfast
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
+                onPress={() => handleRandomRecipe('lunch')}
+              >
+                <Ionicons name="cafe-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
+                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
+                  Random Lunch
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
+                onPress={() => handleRandomRecipe('dinner')}
+              >
+                <Ionicons name="restaurant-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
+                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
+                  Random Dinner
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
+                onPress={() => handleRandomRecipe('snack')}
+              >
+                <Ionicons name="nutrition-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
+                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
+                  Random Snack
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.surpriseOption, { backgroundColor: colors.backgroundSecondary }]}
+                onPress={() => handleRandomRecipe('dessert')}
+              >
+                <Ionicons name="ice-cream-outline" size={24} color={colors.actionText} style={styles.surpriseOptionIcon} />
+                <Text style={[styles.surpriseOptionText, { color: colors.text }]}>
+                  Random Dessert
+                </Text>
+              </TouchableOpacity>
+            </RNView>
+
+            <TouchableOpacity
+              style={[styles.surpriseCancelButton, { borderColor: colors.border }]}
+              onPress={() => setShowSurpriseModal(false)}
+            >
+              <Text style={[styles.surpriseCancelText, { color: colors.textMuted }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <FlatList
           contentInsetAdjustmentBehavior="automatic"
+          ListHeaderComponent={browseHeader}
           key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           numColumns={isGrid && !largeText ? 2 : 1}
           columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
-          ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
+          ListEmptyComponent={isLoading || (hasServerFilters && isDiscoverSearchFetching) ? <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} /> : hasPrimaryLoadError ? <ListError /> : <ListEmpty />}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[
             styles.listContent,
@@ -1218,7 +1218,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             />
           }
         />
-      )}
 
       {/* Sign In Banner for guests - shows save prompt */}
       {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
