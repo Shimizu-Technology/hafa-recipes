@@ -1251,7 +1251,7 @@ function RecipeDetailScreenContent() {
                       {component.steps.map((step, stepIndex) => (
                         <RNView key={stepIndex} style={styles.stepRow}>
                           <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
-                            <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
+                            <Text style={[styles.stepNumberText, { color: colors.onTint }]}>{stepIndex + 1}</Text>
                           </RNView>
                           <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(24) }]}>
                             {step}
@@ -1299,12 +1299,12 @@ function RecipeDetailScreenContent() {
                   {/* Cost Summary */}
                   <RNView style={styles.costSummaryCard}>
                     <RNView style={[styles.costTotalBox, { backgroundColor: colors.tint }]}>
-                      <Text style={styles.costTotalLabel}>Estimated Total Cost</Text>
-                      <Text style={styles.costTotalValue}>
+                      <Text style={[styles.costTotalLabel, { color: colors.onTint }]}>Estimated Total Cost</Text>
+                      <Text style={[styles.costTotalValue, { color: colors.onTint }]}>
                         ${costSummary.total.toFixed(2)}
                       </Text>
                       {isScaled && (
-                        <Text style={styles.costScaledNote}>
+                        <Text style={[styles.costScaledNote, { color: colors.onTint }]}>
                           (scaled for {currentServings} servings)
                         </Text>
                       )}
@@ -1468,9 +1468,9 @@ function RecipeDetailScreenContent() {
               <Ionicons
                 name={cookPresentation.canCook ? 'restaurant' : 'create-outline'}
                 size={22}
-                color="#FFFFFF"
+                color={colors.onTint}
               />
-              <Text style={styles.floatingCookButtonText}>{cookPresentation.buttonLabel}</Text>
+              <Text style={[styles.floatingCookButtonText, { color: colors.onTint }]}>{cookPresentation.buttonLabel}</Text>
             </TouchableOpacity>
           ) : null}
         </RNView>}
