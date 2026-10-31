@@ -6,7 +6,7 @@ vi.mock('@tanstack/react-query', () => ({ useQuery: () => reviewMocks.state }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MealPlanEntry } from '@/types/recipe';
 
@@ -103,6 +103,10 @@ import PlannerScreen, { MealSlot } from '../app/(tabs)/planner';
 import * as planHooks from '@/hooks/useMealPlan';
 import { useRecipe } from '@/hooks/useRecipes';
 
+function localDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 const colors = {
   card: '#fff', cardBorder: '#ddd', text: '#111', textMuted: '#666',
   tint: '#155c52', warning: '#8a5a00',
@@ -172,17 +176,21 @@ describe('planner meal readiness', () => {
 describe('planner loading recovery', () => {
   const refetch = vi.fn();
   beforeEach(() => {
+    // 04:30 in Guam: the UTC date is still the previous day.
+    vi.useFakeTimers({ now: new Date('2026-10-31T18:30:00Z'), toFake: ['Date'] });
     routeMocks.params = {}; routeMocks.scrollTo.mockClear();
     refetch.mockReset().mockResolvedValue({});
     vi.mocked(planHooks.getWeekStart).mockImplementation((date) => date);
     vi.mocked(planHooks.getWeekEnd).mockImplementation((date) => date);
-    vi.mocked(planHooks.formatDateForApi).mockImplementation((date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`);
+    vi.mocked(planHooks.formatDateForApi).mockImplementation(localDate);
     vi.mocked(planHooks.formatDayLabel).mockReturnValue({ day: 'Wed', number: '14' });
     vi.mocked(useRecipe).mockReturnValue({} as any);
     for (const hook of [planHooks.useAddMeal, planHooks.useDeleteMeal, planHooks.useAddPlanToGrocery]) {
       vi.mocked(hook).mockReturnValue({ isPending: false } as any);
     }
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it('scrolls to another requested day in the same week using its recorded layout', async () => {
     const start = new Date('2026-10-26T12:00:00Z');
@@ -242,7 +250,7 @@ describe('planner loading recovery', () => {
 
   it('persists edited entry servings only after the entry form Save', async () => {
     const meal = entry('ready');
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDate(new Date());
     vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
     reviewMocks.update.mockClear();
     const renderer = createRoot({ textComponentTypes: ['Text'] });
@@ -258,7 +266,7 @@ describe('planner loading recovery', () => {
 
   it('reviews week totals and missing amounts before sending a replay-safe addition', async () => {
     const meal = entry('ready');
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDate(new Date());
     vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
     vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ mutateAsync: reviewMocks.add } as any);
     reviewMocks.state = { data: { list_id: 'household-a', preview_token: 'review-token', items_added: 2, items_missing_amount: 1, items_unscaled: 0,
@@ -279,7 +287,7 @@ describe('planner loading recovery', () => {
     reviewMocks.add.mockClear();
     const meal = entry('ready');
     reviewMocks.add.mockRejectedValueOnce(new Error('Network Error'));
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDate(new Date());
     vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
     vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ mutateAsync: reviewMocks.add } as any);
     reviewMocks.state = { data: { list_id: 'household-a', preview_token: 'review-token', items_added: 2, items_missing_amount: 1, items_unscaled: 0,
@@ -307,7 +315,7 @@ describe('planner loading recovery', () => {
     reviewMocks.add.mockClear();
     const meal = entry('ready');
     reviewMocks.add.mockRejectedValueOnce(new Error('Network Error'));
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDate(new Date());
     vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
     vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ mutateAsync: reviewMocks.add } as any);
     reviewMocks.state = { data: { list_id: 'household-a', preview_token: 'review-token', items_added: 2, items_missing_amount: 1, items_unscaled: 0,
@@ -336,7 +344,7 @@ describe('planner loading recovery', () => {
 
   it('keeps cached meals visible after a refresh error and clears the warning on success', async () => {
     const meal = entry('ready');
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDate(new Date());
     const data = { days: [{ date, dinner: [meal] }] };
     vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data, isError: true, refetch } as any);
     const renderer = createRoot({ textComponentTypes: ['Text'] });
@@ -363,4 +371,26 @@ it('makes planned servings editable on an entry', async () => {
     expect(onEdit).toHaveBeenCalledWith(selected);
     expect(renderer.container.queryAll(node => Array.isArray(node.props.children) && node.props.children[0] === '8 servings')).toHaveLength(1);
   } finally { await act(async () => renderer.unmount()); }
+});
+
+
+it('gives the recipe title its own 44pt target, separate from servings and removal', async () => {
+  const root = createRoot();
+  const onView = vi.fn(), onEdit = vi.fn(), onRemove = vi.fn();
+  const meal = entry('ready');
+  try {
+    await act(async () => root.render(<MealSlot mealType={{ type: 'dinner', label: 'Dinner', icon: 'restaurant-outline' }}
+      entries={[meal]} colors={colors} onAdd={vi.fn()} onRemove={onRemove} onViewRecipe={onView}
+      onEditServings={onEdit} isAdding={false} isAddDisabled={false} />));
+    const title = root.container.queryAll(node => node.props.accessibilityLabel === 'Open Chicken Kelaguen')[0];
+    expect(title.props.style.minHeight).toBeGreaterThanOrEqual(44);
+    await act(async () => title.props.onPress());
+    expect(onView).toHaveBeenCalledWith('recipe-1');
+    expect(onEdit).not.toHaveBeenCalled(); expect(onRemove).not.toHaveBeenCalled();
+    await act(async () => root.container.queryAll(node => node.props.accessibilityLabel === 'Edit servings for Chicken Kelaguen')[0].props.onPress());
+    expect(onEdit).toHaveBeenCalledWith(meal);
+    await act(async () => root.container.queryAll(node => node.props.accessibilityLabel === 'Remove Chicken Kelaguen from Dinner')[0].props.onPress());
+    expect(onRemove).toHaveBeenCalledWith('entry-1');
+    expect(onView).toHaveBeenCalledOnce();
+  } finally { await act(async () => root.unmount()); }
 });

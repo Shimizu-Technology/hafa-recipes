@@ -254,7 +254,7 @@ export function MealSlot({
                 placeholderIconSize={16}
               /></TouchableOpacity>
               <RNView style={styles.mealCardContent}>
-                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ justifyContent: 'center' }}
+                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ minHeight: 44, justifyContent: 'center' }}
                   accessibilityRole="button" accessibilityLabel={`Open ${entry.recipe_title}`}>
                 <Text
                   style={[styles.mealCardTitle, { color: colors.text }]}
