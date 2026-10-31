@@ -804,7 +804,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           contentContainerStyle={styles.stepScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { opacity: 0.35, marginBottom: 32 }]}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
+          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { opacity: 0.35, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
           <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }]}>
             {currentStep?.step}
           </Text>
@@ -917,7 +917,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
               </Text>
             )}
           </RNView>
-          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { opacity: 0.35, marginTop: 32 }]}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { opacity: 0.35, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
         </ScrollView>
       </Animated.View>
 
