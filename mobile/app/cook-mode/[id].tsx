@@ -1,3 +1,4 @@
+import SegmentedControl from '@expo/ui/community/segmented-control';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
@@ -9,6 +10,7 @@ import {
   View as RNView,
   TouchableOpacity,
   Dimensions,
+  useWindowDimensions,
   StatusBar,
   ScrollView,
   Animated,
@@ -48,8 +50,6 @@ import {
   type CookTimerState,
 } from '@/lib/cookModeTimers';
 
-// Cook Mode is always a dark, immersive screen regardless of the app theme.
-const cook = Colors.dark;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
@@ -146,7 +146,11 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     servings?: string;
   }>();
   const router = useRouter();
+  const { fontScale } = useWindowDimensions();
   const colors = useColors();
+  const cook = colors;
+  const appearance = colors.background === '#000000' ? 'dark' : 'light';
+  const styles = useMemo(() => createStyles(cook), [cook]);
   const insets = useSafeAreaInsets();
   
   const { data: recipe, isLoading, error, offlineSavedAt, usingOffline } = useRecipe(id);
@@ -154,6 +158,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   // Parse scaling params
   const scaleFactor = scaleFactorParam ? parseFloat(scaleFactorParam) : 1;
   const currentServings = servingsParam ? parseInt(servingsParam, 10) : null;
+  const displayedServings = currentServings ?? recipe?.extracted?.servings;
   const isScaled = scaleFactor !== 1 && currentServings !== null;
   
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -721,8 +726,9 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <StatusBar barStyle="light-content" />
+        <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
+        <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
         <RNView style={styles.loadingContainer}>
           <Ionicons name="restaurant-outline" size={48} color={cook.actionText} />
           <Text style={styles.loadingText}>Preparing your recipe...</Text>
@@ -734,8 +740,9 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   if ((error && !canRetainRecipeOnError(error)) || !recipe || steps.length === 0) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <StatusBar barStyle="light-content" />
+        <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
+        <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
         <RNView style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={64} color={cook.actionText} />
           <Text style={styles.errorText}>
@@ -753,39 +760,22 @@ function CookModeScreenContent({ generation }: { generation: string }) {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar barStyle="light-content" />
+      <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
+      <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
 
       {(usingOffline || error) && <Text accessibilityRole="alert" style={{ color: cook.text, padding: 12 }}>
         Offline copy{offlineSavedAt ? ` · Updated ${new Date(offlineSavedAt).toLocaleDateString()}` : ''}. Changes may be missing.
       </Text>}
-      {/* Header */}
-      <RNView style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
-        <TouchableOpacity
-          onPress={handleClose}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="Exit cook mode"
-        >
-          <Ionicons name="close" size={26} color={cook.text} />
-        </TouchableOpacity>
-        
-        <RNView style={styles.headerCenter}>
-          <Text style={styles.recipeTitle} numberOfLines={1}>
-            {recipe.extracted.title}
-          </Text>
-        </RNView>
-
-        <TouchableOpacity
-          onPress={() => setShowIngredients(true)}
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel="Show ingredients"
-        >
-          <Ionicons name="list-outline" size={24} color={cook.text} />
-        </TouchableOpacity>
-      </RNView>
-
+      <SegmentedControl values={['Steps', 'Ingredients']} selectedIndex={showIngredients ? 1 : 0}
+        onChange={event => setShowIngredients(event.nativeEvent.selectedSegmentIndex === 1)}
+        appearance={appearance} style={{ marginHorizontal: 16, marginVertical: 12, minHeight: 44 }} />
+      {showIngredients ? <>
+        {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
+          {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
+        </Text>}
+        <CookIngredientsList ingredients={allIngredients} scaleFactor={scaleFactor} isScaled={isScaled}
+        warningColor={colors.warning} scaleFontSize={scaleFontSize} /></> : <>
       {/* Step Counter & Progress */}
       <RNView style={styles.progressSection}>
         <Text style={styles.stepCounter}>
@@ -816,17 +806,18 @@ function CookModeScreenContent({ generation }: { generation: string }) {
         )}
 
         {/* Step Text */}
-        <ScrollView 
+        <ScrollView key={currentStepIndex}
           style={styles.stepScrollView}
           contentContainerStyle={styles.stepScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.stepText, { fontSize: scaleFontSize(26), lineHeight: scaleFontSize(40) }]}>
+          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
+          <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }]}>
             {currentStep?.step}
           </Text>
-        </ScrollView>
 
-        {/* Timer Section */}
+          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+        {/* Timer toolbar */}
           <RNView style={styles.timerSection}>
             {currentTimer ? (
               <RNView style={styles.timerCard}>
@@ -912,20 +903,10 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 </TouchableOpacity>
               </RNView>
           ) : (
-            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={styles.addTimerButton} accessibilityRole="button">
+            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={[styles.addTimerButton, { alignSelf: 'flex-start', paddingVertical: 8, marginTop: 0, minHeight: 44 }]} accessibilityRole="button">
               <Ionicons name="add-circle-outline" size={22} color={cook.textSecondary} />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
-            )}
-            {(hasPermission === false || hasAlertFailure) && (
-              <RNView style={{ alignItems: 'center', paddingHorizontal: spacing.md }}>
-                <Text style={{ color: cook.text, textAlign: 'center' }} accessibilityLiveRegion="polite">Alerts are off outside the app</Text>
-                {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
-                  <Text style={{ color: cook.actionText }}>Open Settings</Text>
-                </TouchableOpacity> : <TouchableOpacity onPress={() => { void retryFailedAlerts(); }} accessibilityRole="button" accessibilityLabel="Retry alert" style={{ minHeight: 44, justifyContent: 'center' }}>
-                  <Text style={{ color: cook.actionText }}>Retry alert</Text>
-                </TouchableOpacity>}
-              </RNView>
             )}
             {currentTimer && currentTimer.remaining > 0 && (
               <Text style={{ color: cook.textMuted, textAlign: 'center' }} accessibilityLiveRegion="polite">
@@ -934,13 +915,15 @@ function CookModeScreenContent({ generation }: { generation: string }) {
               </Text>
             )}
           </RNView>
+
+        </ScrollView>
       </Animated.View>
 
       {/* Navigation */}
-      <RNView style={[styles.navigation, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <RNView style={[styles.navigation, fontScale >= 1.3 && { flexWrap: 'wrap', gap: 8 }, { paddingBottom: insets.bottom + spacing.sm }]}>
         <TouchableOpacity
           onPress={goToPrevStep}
-          style={[styles.navButton, currentStepIndex === 0 && styles.navButtonDisabled]}
+          style={[styles.navButton, fontScale >= 1.3 && { flexBasis: '100%' }, currentStepIndex === 0 && styles.navButtonDisabled]}
           disabled={currentStepIndex === 0}
           accessibilityRole="button"
           accessibilityLabel="Previous step"
@@ -952,7 +935,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           </Text>
         </TouchableOpacity>
 
-        <RNView style={styles.stepDots}>
+        <RNView style={[styles.stepDots, fontScale >= 1.3 && { display: 'none' }]}>
           {steps.slice(Math.max(0, currentStepIndex - 2), Math.min(steps.length, currentStepIndex + 3)).map((_, i) => {
             const actualIndex = Math.max(0, currentStepIndex - 2) + i;
             return (
@@ -970,20 +953,33 @@ function CookModeScreenContent({ generation }: { generation: string }) {
 
         <TouchableOpacity
           onPress={goToNextStep}
-          style={[styles.navButton, styles.navButtonNext]}
+          style={[styles.navButton, styles.navButtonNext, fontScale >= 1.3 && { flexBasis: '100%' }]}
           accessibilityRole="button"
           accessibilityLabel={isLastStep ? 'Finish recipe' : 'Next step'}
         >
-          <Text style={styles.navButtonText}>
+          <Text style={[styles.navButtonText, { color: cook.onTint }]}>
             {isLastStep ? 'Finish' : 'Next'}
           </Text>
           <Ionicons 
             name={isLastStep ? "checkmark" : "chevron-forward"} 
             size={28} 
-            color={cook.text} 
+            color={cook.onTint} 
           />
         </TouchableOpacity>
       </RNView>
+
+            {(hasPermission === false || hasAlertFailure) && (
+              <RNView style={{ paddingHorizontal: 16, paddingBottom: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <Text style={{ color: cook.textMuted, fontSize: 13, lineHeight: 18 }} accessibilityLiveRegion="polite">Alerts are off outside the app ·</Text>
+                {hasPermission !== true ? <TouchableOpacity onPress={() => { void Linking.openSettings().catch(() => Alert.alert('Could not open Settings', 'Open your device Settings to allow notifications for Håfa Recipes.')); }} accessibilityRole="button" accessibilityLabel="Open notification settings" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText, fontSize: 13, lineHeight: 18 }}>Open Settings</Text>
+                </TouchableOpacity> : <TouchableOpacity onPress={() => { void retryFailedAlerts(); }} accessibilityRole="button" accessibilityLabel="Retry alert" style={{ minHeight: 44, justifyContent: 'center' }}>
+                  <Text style={{ color: cook.actionText, fontSize: 13, lineHeight: 18 }}>Retry alert</Text>
+                </TouchableOpacity>}
+              </RNView>
+            )}
+
+      </>}
 
       {/* Completion Modal */}
       <Modal
@@ -1009,51 +1005,6 @@ function CookModeScreenContent({ generation }: { generation: string }) {
             </TouchableOpacity>
           </RNView>
         </RNView>
-      </Modal>
-
-      {/* Ingredients Modal */}
-      <Modal
-        visible={showIngredients}
-        animationType="slide"
-        transparent={true}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
-          onPress={() => setShowIngredients(false)}
-          // Backdrop wraps the sheet: keep it out of the accessibility tree so
-          // screen readers can reach the controls inside.
-          accessible={false}
-        >
-          <RNView 
-            style={[styles.ingredientsCard, { paddingBottom: insets.bottom + spacing.lg }]}
-            onStartShouldSetResponder={() => true}
-          >
-            <RNView style={styles.ingredientsHeader}>
-              <RNView>
-                <Text style={styles.ingredientsTitle}>Ingredients</Text>
-                {isScaled && currentServings && (
-                  <Text style={styles.ingredientsSubtitle}>{currentServings} servings (scaled)</Text>
-                )}
-              </RNView>
-              <TouchableOpacity
-                onPress={() => setShowIngredients(false)}
-                style={styles.closeIngredients}
-                accessibilityRole="button"
-                accessibilityLabel="Close ingredients"
-              >
-                <Ionicons name="close" size={28} color={cook.text} />
-              </TouchableOpacity>
-            </RNView>
-            <CookIngredientsList
-              ingredients={allIngredients}
-              scaleFactor={scaleFactor}
-              isScaled={isScaled}
-              warningColor={colors.warning}
-              scaleFontSize={scaleFontSize}
-            />
-          </RNView>
-        </TouchableOpacity>
       </Modal>
 
       {/* Custom Timer Modal */}
@@ -1105,6 +1056,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer hours"
                     value={customHours}
                     onChangeText={setCustomHours}
                     keyboardType="number-pad"
@@ -1118,6 +1070,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer minutes"
                     value={customMinutes}
                     onChangeText={setCustomMinutes}
                     keyboardType="number-pad"
@@ -1131,6 +1084,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer seconds"
                     value={customSeconds}
                     onChangeText={setCustomSeconds}
                     keyboardType="number-pad"
@@ -1200,6 +1154,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer hours"
                     value={customHours}
                     onChangeText={setCustomHours}
                     keyboardType="number-pad"
@@ -1213,6 +1168,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer minutes"
                     value={customMinutes}
                     onChangeText={setCustomMinutes}
                     keyboardType="number-pad"
@@ -1226,6 +1182,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 <RNView style={styles.customInputGroup}>
                   <TextInput
                     style={styles.customTimeInput}
+                    accessibilityLabel="Timer seconds"
                     value={customSeconds}
                     onChangeText={setCustomSeconds}
                     keyboardType="number-pad"
@@ -1270,7 +1227,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: cook.background,
@@ -1298,13 +1255,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   closeErrorButton: {
-    backgroundColor: brand.reef,
+    backgroundColor: cook.tint,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
   },
   closeErrorText: {
-    color: cook.text,
+    color: cook.onTint,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
@@ -1332,7 +1289,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   progressSection: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
     paddingBottom: spacing.md,
   },
   stepCounter: {
@@ -1359,13 +1316,11 @@ const styles = StyleSheet.create({
   },
   stepContainer: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
   },
   componentBadge: {
     alignSelf: 'center',
-    backgroundColor: `${cook.actionText}1F`,
-    borderWidth: 1,
-    borderColor: cook.actionText,
+
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
@@ -1383,16 +1338,14 @@ const styles = StyleSheet.create({
   },
   stepScrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: spacing.lg,
+    paddingVertical: 16,
   },
   stepText: {
     color: cook.text,
-    fontSize: 26,
-    lineHeight: 40,
+    fontSize: 24,
+    lineHeight: 32,
     fontWeight: fontWeight.normal,
-    textAlign: 'center',
-    letterSpacing: 0.3,
+    textAlign: 'left',
   },
   timerSection: {
     paddingVertical: spacing.md,
@@ -1401,21 +1354,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cook.backgroundElevated,
-    borderWidth: 1,
-    borderColor: cook.border,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.lg,
+    backgroundColor: cook.tint + '20',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: radius.full,
     gap: spacing.sm,
-    flex: 1,
+    minHeight: 44,
   },
   timerButtonText: {
-    color: cook.text,
+    color: cook.actionText,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
   detectedTimerRow: {
+    alignSelf: 'flex-start', flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -1423,43 +1375,41 @@ const styles = StyleSheet.create({
   editTimerButton: {
     width: 44,
     height: 44,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
     backgroundColor: cook.backgroundElevated,
-    borderWidth: 1,
-    borderColor: cook.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   timerCard: {
-    backgroundColor: cook.backgroundSecondary,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: cook.border,
+    alignSelf: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+    backgroundColor: cook.tint + '18',
+    borderRadius: 20,
+    padding: 8,
   },
   timerDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.md,
+    gap: 8,
+    marginBottom: 0,
   },
   timerText: {
     color: cook.actionText,
-    fontSize: 42,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
   timerComplete: {
     color: cook.actionText,
-    fontSize: 28,
+    fontSize: 22, lineHeight: 28,
   },
   timerProgress: {
-    height: 4,
+    position: 'absolute', left: 12, right: 12, bottom: 2,
+    height: 2,
     backgroundColor: cook.border,
     borderRadius: 2,
     overflow: 'hidden',
-    marginBottom: spacing.md,
   },
   timerProgressFill: {
     height: '100%',
@@ -1468,15 +1418,13 @@ const styles = StyleSheet.create({
   timerControls: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing.lg,
+    gap: 4,
   },
   timerControlButton: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: 24,
     backgroundColor: cook.backgroundElevated,
-    borderWidth: 1,
-    borderColor: cook.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1484,14 +1432,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: brand.reef,
+    backgroundColor: cook.tint,
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.lg,
+    paddingHorizontal: 16,
+    borderRadius: radius.full,
     gap: spacing.sm,
   },
   timerRestartText: {
-    color: cook.text,
+    color: cook.onTint,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
   },
@@ -1504,23 +1452,27 @@ const styles = StyleSheet.create({
     backgroundColor: cook.background,
   },
   navButton: {
+    backgroundColor: cook.surface2, borderRadius: radius.full,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 16,
+    minHeight: 50,
+    flex: 1,
+    justifyContent: 'center',
     gap: spacing.xs,
   },
   navButtonNext: {
-    backgroundColor: brand.reef,
+    backgroundColor: cook.tint,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
   },
   navButtonDisabled: {
     opacity: 0.45,
   },
   navButtonText: {
     color: cook.text,
-    fontSize: fontSize.md,
+    fontSize: 17, lineHeight: 22,
     fontWeight: fontWeight.semibold,
   },
   navButtonTextDisabled: {
@@ -1528,7 +1480,8 @@ const styles = StyleSheet.create({
   },
   stepDots: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 4,
+    marginHorizontal: 12,
   },
   stepDot: {
     width: 8,
@@ -1561,8 +1514,6 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     alignItems: 'center',
     marginHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: cook.border,
   },
   completeIcon: {
     marginBottom: spacing.md,
@@ -1587,13 +1538,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   completeButton: {
-    backgroundColor: brand.reef,
+    backgroundColor: cook.tint,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl * 2,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
   },
   completeButtonText: {
-    color: cook.text,
+    color: cook.onTint,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
   },
@@ -1640,12 +1591,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: cook.border,
     borderStyle: 'dashed',
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.lg,
+    paddingHorizontal: 16,
+    borderRadius: radius.full,
     gap: spacing.sm,
   },
   addTimerButtonText: {
@@ -1659,8 +1608,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     padding: spacing.xl,
     marginHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: cook.border,
     alignItems: 'center',
   },
   customTimerTitle: {
@@ -1684,12 +1631,10 @@ const styles = StyleSheet.create({
   timerPresetButton: {
     width: 70,
     height: 70,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
     backgroundColor: cook.backgroundElevated,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: cook.border,
   },
   timerPresetValue: {
     color: cook.actionText,
@@ -1725,8 +1670,6 @@ const styles = StyleSheet.create({
     height: 50,
     backgroundColor: cook.backgroundElevated,
     borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: cook.border,
     color: cook.text,
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
@@ -1747,10 +1690,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: brand.reef,
+    backgroundColor: cook.tint,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
     marginTop: spacing.lg,
     gap: spacing.sm,
   },
@@ -1758,7 +1701,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   startCustomButtonText: {
-    color: cook.text,
+    color: cook.onTint,
     fontSize: fontSize.md,
     fontWeight: fontWeight.semibold,
   },
