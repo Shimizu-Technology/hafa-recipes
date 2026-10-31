@@ -98,13 +98,13 @@ it("keeps normal sync quiet but expands rejected changes for action", async () =
   expect(renderer!.root.findByType("Text" as React.ElementType).props.numberOfLines).toBe(1);
 });
 
-it.each(["light", "dark"])("uses a neutral selected chip with readable contrast and radio state in %s", async scheme => {
+it.each(["light", "dark"])("uses a clearly selected cocoa chip with readable contrast and radio state in %s", async scheme => {
   mock.scheme = scheme;
   await mount(<Chips label="Show" value="question" options={[{ label: "Doctor questions", value: "question" }]} onChange={() => {}} />);
   const chip = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
   const style = Object.assign({}, ...chip.props.style);
   const text = renderer!.root.findByType("Text" as React.ElementType).props.style;
-  expect(style.backgroundColor).toBe(scheme === "light" ? "#F6EFE9" : "#2A2320");
+  expect(style.backgroundColor).toBe(scheme === "light" ? "#5A4740" : "#E3C9B8");
   expect(chip.props.accessibilityState).toEqual({ checked: true, selected: true });
   function luminance(hex: string) {
     const rgb = hex.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)

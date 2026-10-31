@@ -646,14 +646,14 @@ export function Chips({
               borderRadius: 999,
               justifyContent: "center",
               alignItems: "center",
-              backgroundColor: on ? c.tile : c.soft,
+              backgroundColor: on ? c.action : c.soft,
 
             })}
           >
             <Text
               key={fontScale}
               maxFontSizeMultiplier={0}
-              style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.text : c.action }}
+              style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.onAction : c.action }}
             >
               {o.label}
             </Text>
