@@ -36,7 +36,7 @@ export function CareGlance({ child, rows, now }: { child: Child; rows: BabyRecor
     {feed ? <Text key={fontScale} numberOfLines={1} adjustsFontSizeToFit maxFontSizeMultiplier={1.4}
       style={{ ...typeScale.number, color: c.text }}>
       {value}<Text style={{ fontFamily: fonts.regular, fontWeight: "400", fontSize: 20, lineHeight: 25, color: c.muted }}> ago</Text>
-    </Text> : <Copy kind="heading">Your first feed</Copy>}
+    </Text> : <Copy kind="heading">No recent feed</Copy>}
     <Copy numeric kind="small" tone="muted">{detail}</Copy>
   </Card>;
   return feed ? <PressTarget accessibilityRole="button"

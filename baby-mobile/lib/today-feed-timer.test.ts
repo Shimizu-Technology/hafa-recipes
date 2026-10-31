@@ -109,6 +109,7 @@ it("offers the suggested side first, times a switched feed, and saves it with Un
   scope.care = [optimisticRecord({ id: "last", kind: "feeding", child_id: "baby", title: "Feeding", body: "",
     occurred_at: "2026-10-20T00:00:00.000Z", data: { method: "breast", side: "left" } })];
   await render();
+  expect(find("Row", p => p.title === "Care history")[0].props.detail).toBe("1 feed today · All care logs");
   await tapFeedTile();
   expect(scope.sheets[0].options).toEqual(["Start right side (next)", "Start left side", "Log a bottle or past feed…", "Cancel"]);
   await pick(0);

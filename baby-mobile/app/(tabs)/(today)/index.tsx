@@ -207,7 +207,7 @@ export default function Today() {
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
         <Row title="Write in your journal" icon="book-outline"
           onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
-        <Row title="Care history" detail="Feeding, sleep and diaper logs" icon="time-outline" onPress={() => router.push("/care-history")} />
+        <Row title="Care history" numericDetail detail={showCare ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
       {!children.length && <Row title="Add a baby profile" detail="Personalize everyday care when you’re ready"
         icon="person-add-outline" onPress={() => router.push("/child")} />}
