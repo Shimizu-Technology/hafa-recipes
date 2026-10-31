@@ -18,7 +18,7 @@ vi.mock('@/components/Animated', () => ({ ScalePressable: 'ScalePressable' }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: 'RecipeThumbnail' }));
 vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => colors }));
 vi.mock('@/constants/Colors', () => ({
-  fontFamily: { semibold: 'System' },
+  fontFamily: { displaySemibold: 'Fraunces' },
   fontSize: { sm: 14 },
   radius: { md: 12 },
   shadows: { card: {} },
@@ -54,14 +54,14 @@ describe('recipe grid card alignment', () => {
           (node) => node.type === 'Text' && node.props.numberOfLines === 2,
         )[0];
         const contentNode = renderer.container.queryAll(
-          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 80,
+          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 88,
         )[0];
         const footerNode = renderer.container.queryAll(
-          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 16,
+          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 18,
         )[0];
 
-        expect(titleNode.props.style[0]).toMatchObject({ lineHeight: 18 });
-        expect(titleNode.props.style[1]).toMatchObject({ minHeight: 36 });
+        expect(titleNode.props.style[0]).toMatchObject({ lineHeight: 21, fontSize: 16, fontFamily: 'Fraunces' });
+        expect(titleNode.props.style[1]).toMatchObject({ minHeight: 42 });
         expect(contentNode.props.style[0]).toMatchObject({ justifyContent: 'space-between' });
         expect(footerNode).toBeDefined();
       } finally {
@@ -106,6 +106,6 @@ it('gives large accessibility text the full content width and expands the title 
     const card = renderer.container.queryAll(n => n.type === 'ScalePressable')[0];
     expect(card.props.style[1].width).toBe(342);
     const title = renderer.container.queryAll(n => n.type === 'Text' && n.props.numberOfLines === 2)[0];
-    expect(title.props.style[1].minHeight).toBe(72);
+    expect(title.props.style[1].minHeight).toBe(84);
   } finally { await act(async () => renderer.unmount()); }
 });

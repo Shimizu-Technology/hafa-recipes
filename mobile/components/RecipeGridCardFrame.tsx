@@ -35,8 +35,8 @@ export function RecipeGridCardFrame({
   selected,
 }: RecipeGridCardFrameProps) {
   const { width, fontScale } = useWindowDimensions();
-  const titleSlotHeight = Math.ceil(36 * fontScale);
-  const footerHeight = Math.ceil(16 * fontScale);
+  const titleSlotHeight = Math.ceil(42 * fontScale);
+  const footerHeight = Math.ceil(18 * fontScale);
   const cardWidth = fontScale >= 1.3
     ? width - spacing.lg * 2
     : (width - spacing.lg * 2 - RECIPE_GRID_GAP) / 2;
@@ -93,9 +93,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   title: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold, fontWeight: '600',
-    lineHeight: 18,
+    fontSize: 16,
+    fontFamily: fontFamily.displaySemibold, fontWeight: '600',
+    lineHeight: 21,
   },
   footer: {
     justifyContent: 'flex-end',
