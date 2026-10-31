@@ -1,11 +1,11 @@
 import { router } from "expo-router";
-import { Row, Screen } from "@/components/ui";
+import { Grouped, Row, Screen } from "@/components/ui";
 import type { Kind } from "@/lib/models";
 import { kindIcon } from "@/components/record-row";
 export default function Add() {
   return (
     <Screen title="What’s on your mind?" subtitle="Save it now. Find it when you need it." close>
-      {(
+      <Grouped>{(
         [
           { kind: "source", title: "Save a source", detail: "Video, link, screenshot, or document" },
           { kind: "journal", title: "Write in your journal", detail: "A thought, a memory, or a photo" },
@@ -24,7 +24,7 @@ export default function Add() {
           icon={kindIcon[item.kind]}
           onPress={() => router.replace({ pathname: "/edit", params: { kind: item.kind } })}
         />
-      ))}
+      ))}</Grouped>
     </Screen>
   );
 }

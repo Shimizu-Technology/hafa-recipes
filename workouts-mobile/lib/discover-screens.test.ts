@@ -11,6 +11,7 @@ import type { Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({
   params: {} as Record<string, string>,
+  library: vi.fn(),
   capabilities: vi.fn(),
   discover: vi.fn(),
   discoverRandom: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock("@/lib/context", () => {
   };
   const localDrafts = { load: fixture.load, save: fixture.saveDraft, remove: async () => undefined };
   const api = {
+    library: fixture.library,
     capabilities: fixture.capabilities,
     discover: fixture.discover,
     discoverRandom: fixture.discoverRandom,
@@ -90,6 +92,7 @@ vi.mock("@/lib/context", () => {
     }),
   };
 });
+vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader" }));
 vi.mock("@/components/publishing-disclosure", async () => {
   const { withPublishingDisclosure } = await import("./discover");
   return {
@@ -132,6 +135,7 @@ vi.mock("react-native", () => ({
 vi.mock("expo-router", async () => {
   const { useEffect } = await import("react");
   return ({
+  Stack: { Screen: "NativeHeader" },
   router: { push: fixture.push, replace: fixture.replace, back: fixture.back, canGoBack: () => true, navigate: fixture.navigate },
   useFocusEffect(callback: () => (() => void) | void) { useEffect(() => fixture.focus ? callback() : undefined, [callback, fixture.focus]); },
   useLocalSearchParams: () => fixture.params,
@@ -184,7 +188,7 @@ let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
 const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
-const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === undefined)?.children.join("");
+const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === "small")?.children.join("");
 const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
 it("omits an empty reference card when source identity is already in the header", async () => {
   await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
@@ -250,6 +254,7 @@ const saved: Workout = { ...detail.workout, id: "copy-1", generation: 1, revisio
 
 beforeEach(() => {
   fixture.map.clear();
+  fixture.library.mockReset().mockResolvedValue([]);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   for (const mock of [fixture.capabilities, fixture.discover, fixture.discoverWorkout, fixture.saveDiscovered, fixture.workout,
@@ -303,18 +308,16 @@ it("turns a 503 from the feed into the unavailable state instead of an error", a
   expect(nodes("Notice")).toHaveLength(0);
 });
 
-it("renders feed cards, passes an abort signal, and debounces search before refetching", async () => {
+it("renders feed cards, passes an abort signal, and accepts Discover search links", async () => {
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  expect(nodes("DiscoverGridCard").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+  expect([...new Set(nodes("DiscoverGridCard").map((n) => n.props.card.id))]).toEqual(["pub-1"]);
   expect(fixture.discover).toHaveBeenCalledTimes(1);
   expect(fixture.discover.mock.calls[0][1]).toBe(0);
   expect(fixture.discover.mock.calls[0][2]).toBeInstanceOf(AbortSignal);
-  await act(async () => nodes("Field")[0].props.onChange("leg"));
-  await act(async () => nodes("Field")[0].props.onChange("legs"));
-  expect(fixture.discover).toHaveBeenCalledTimes(1);
-  await act(async () => void (await new Promise((done) => setTimeout(done, 350))));
+  fixture.params = { q: "legs" };
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Discover))));
   await settle();
   expect(fixture.discover).toHaveBeenCalledTimes(2);
   expect(fixture.discover.mock.calls[1][0]).toMatchObject({ q: "legs" });
@@ -347,40 +350,18 @@ it("a young feed explains Discover and offers sharing or importing instead of a 
   expect(fixture.navigate).toHaveBeenCalledWith("/extract");
 });
 
-it("keeps every filter in one sheet, counts active ones and clears them together", async () => {
-  fixture.capabilities.mockResolvedValue(caps(true));
-  fixture.discover.mockResolvedValue(page());
+it("keeps all Discover filters in one sheet and one dismissible summary", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  const filters = () => nodes("Button").find((n) => String(n.props.title).startsWith("Filters"))!;
-  const sheet = () => nodes("Sheet").find((n) => n.props.title === "Filters")!;
-  expect(filters().props.title).toBe("Filters");
-  expect(nodes("ChipRow").find((n) => n.props.label === "Filter workouts")).toBeUndefined();
-  await act(async () => filters().props.onPress());
-  expect(sheet().props.visible).toBe(true);
-  const inSheet = (label: string) => sheet().findAll((n) => String(n.type) === "Chip" && n.props.label === label)[0];
-  await act(async () => inSheet("Under 15 min").props.onPress());
-  await act(async () => inSheet("Dumbbell").props.onPress());
-  await act(async () => inSheet("YouTube").props.onPress());
+  await act(async () => button("Filter")!.props.onPress());
+  expect(sheet("Filters").props.visible).toBe(true);
+  for (const label of ["Under 15 min", "Dumbbell", "YouTube"]) await act(async () => nodes("Chip").find(n => n.props.label === label)!.props.onPress());
   await settle();
-  expect(filters().props.title).toBe("Filters · 3");
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ duration: "short", equipment: "dumbbell", platform: "youtube" });
-  const summary = nodes("ChipRow").find((n) => n.props.label === "Active filters")!;
-  expect(summary.findAll((n) => String(n.type) === "Chip").map((n) => n.props.label)).toEqual(["Under 15 min", "Dumbbell", "YouTube"]);
-  await act(async () => summary.findAll((n) => String(n.type) === "Chip")[1].props.onPress());
-  await settle();
-  expect(filters().props.title).toBe("Filters · 2");
-  await act(async () => nodes("Field")[0].props.onChange("legs"));
-  await act(async () => nodes("ChipRow").find((n) => n.props.label === "Active filters")!
-    .findAll((n) => String(n.type) === "Button" && n.props.title === "Clear all")[0].props.onPress());
-  expect(filters().props.title).toBe("Filters");
-  expect(nodes("Field")[0].props.value).toBe("legs");
-  await act(async () => nodes("Field")[0].props.onChange(""));
-  await act(async () => inSheet("YouTube").props.onPress());
-  await act(async () => sheet().findAll((n) => String(n.type) === "Button" && n.props.title === "Clear all")[0].props.onPress());
-  await settle();
-  expect(filters().props.title).toBe("Filters");
-  expect(nodes("ChipRow").find((n) => n.props.label === "Active filters")).toBeUndefined();
-  expect(nodes("DiscoverGridCard").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+  const summary = nodes("Button").find(n => String(n.props.title).endsWith(" · Clear"))!;
+  expect(summary.props.title).toContain("Under 15 min · Dumbbell · YouTube");
+  await act(async () => summary.props.onPress()); await settle();
+  expect(nodes("Button").some(n => String(n.props.title).endsWith(" · Clear"))).toBe(false);
 });
 
 it("keeps sharing one of yours reachable once the feed has workouts", async () => {
@@ -434,7 +415,7 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
   await mount(Discover);
   const sheet = nodes("Sheet").find(n => n.props.title === "Filters")!;
   expect(sheet.props.visible).toBe(false);
-  await act(async () => button("Filters")!.props.onPress());
+  await act(async () => button("Filter")!.props.onPress());
   expect(nodes("Sheet").find(n => n.props.title === "Filters")!.props.visible).toBe(true);
   const strip = () => nodes("ChipRow").find((n) => n.props.label === "People")!;
   const people = () => strip().findAll((n) => String(n.type) === "Chip");
@@ -442,13 +423,10 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
   await act(async () => people()[0].props.onPress());
   await settle();
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ contributor: "chef_leon1234" });
-  const summary = nodes("ChipRow").find((n) => n.props.label === "Active filters")!;
-  const chip = summary.findAll((n) => String(n.type) === "Chip")[0];
-  expect(chip.props.label).toBe("by Leon");
+  const summary = nodes("Button").find(n => String(n.props.title).endsWith(" · Clear"))!;
+  expect(summary.props.title).toContain("by Leon");
   expect(people()[0].props.selected).toBe(true);
-  await act(async () => chip.props.onPress());
-  await settle();
-  expect(nodes("ChipRow").find((n) => n.props.label === "Active filters")).toBeUndefined();
+  await act(async () => summary.props.onPress()); await settle();
   expect(people()[0].props.selected).toBe(false);
 });
 
@@ -456,17 +434,17 @@ it("switches between grid and list and remembers the choice for this account", a
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  const toggle = () => nodes("IconButton").find((n) => /as a (list|grid)/.test(n.props.label))!;
-  expect(toggle().props.label).toBe("Show workouts as a list");
+  const toggle = () => nodes("ListRow").find((n) => /as a (list|grid)/.test(n.props.title))!;
+  expect(toggle().props.title).toBe("Show workouts as a list");
   await act(async () => toggle().props.onPress());
   await settle();
   expect(nodes("DiscoverGridCard")).toHaveLength(0);
-  expect(nodes("DiscoverCardView").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+  expect(row(card.title)).toBeDefined();
   expect(fixture.map.get("hafa-workouts:v1:owner:discover-view")).toBe("list");
   await act(async () => renderer!.unmount());
   await mount(Discover);
-  expect(toggle().props.label).toBe("Show workouts as a grid");
-  expect(nodes("DiscoverCardView")).toHaveLength(1);
+  expect(toggle().props.title).toBe("Show workouts as a grid");
+  expect(row(card.title)).toBeDefined();
 });
 
 it("shares a private library workout to Discover from the picker, asking for the disclosure once", async () => {
@@ -564,7 +542,7 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   await mount(WorkoutDetail);
   // The page leads with its own hero, then the title and one meta line.
   expect(nodes("Screen")[0].props.hideTitle).toBe(true);
-  expect(nodes("Copy").find((n) => n.props.kind === "title")!.children.join("")).toBe(saved.title);
+  expect(nodes("Copy").find((n) => n.props.kind === "heading")!.children.join("")).toBe(saved.title);
   expect(metaLine()).toBe("30 min · 1 exercise · Dumbbells, Bench");
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
@@ -1046,7 +1024,7 @@ it("shows the saved timed prescription, source details and cues without missing-
   expect(text).toContain("1 min between rounds");
   expect(text).toContain("Stay comfortable");
   expect(text).not.toContain("Reps not specified");
-  expect(button("Open original source")).toBeDefined();
+  expect(nodes("IconButton").find(node => node.props.label === "Open original source")).toBeDefined();
 });
 
 
@@ -1309,13 +1287,16 @@ it("serializes deletion and suppresses navigation after an account change", asyn
   expect(fixture.toast).not.toHaveBeenCalled();
 });
 
-it("Library shows the favorite heart even when a workout still needs a check", async () => {
-  fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, extraction_warnings: ["Rest unknown"],
-    organization: { ...emptyOrganization(), favorite: true } }], total: 1, has_more: false });
+it("Library omits the count row and offers Needs info only when it has content", async () => {
+  const incomplete = { ...saved, extraction_warnings: ["Rest unknown"] };
+  fixture.library.mockResolvedValue([incomplete]);
+  fixture.searchLibrary.mockResolvedValue({ items: [incomplete], total: 1, has_more: false });
   await mount(Library);
-  expect(libraryCard(saved.title)!.props).toMatchObject({ favorite: true, badge: "Check details", view: "grid" });
-  expect(nodes("Copy").some(node => node.props.children === "1 workout")).toBe(true);
+  expect(button("Needs info · 1")).toBeDefined();
+  expect(nodes("Copy").some(node => node.props.children === "1 workout")).toBe(false);
+  expect(nodes("LibrarySearch")).toHaveLength(0);
 });
+
 it("Library long-press starts selecting that workout, and Select all covers every loaded workout", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
   fixture.searchLibrary.mockResolvedValue({ items: [saved, second], total: 2, has_more: false });
@@ -1351,7 +1332,7 @@ it("Library remembers grid or list for this account and covers collections from 
   fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
     organization: { ...emptyOrganization(), collection_ids: ["gym"] } }], total: 1, has_more: false });
   await mount(Library);
-  expect(nodes("CollectionTile")[0].props).toMatchObject({ title: "Gym days", count: 1, covers: ["https://example.test/cover.jpg"] });
+  expect(button("Collections")).toBeDefined();
   expect(nodes("FlatList")[0].props.numColumns).toBe(2);
   await act(async () => listRow("Show as a list")!.props.onPress()); await settle();
   expect(nodes("FlatList")[0].props.numColumns).toBe(1);
@@ -1365,23 +1346,23 @@ it("surfaces collection filters and management directly beside library search", 
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await mount(Library);
   expect(listRow("Manage collections")).toBeDefined();
-  await act(async () => nodes("CollectionTile").find(node => node.props.title === "Gym days")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/collection/[id]", params: { id: "gym" } });
+  await act(async () => button("Collections")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith("/collections");
   await act(async () => filterChoice("Gym days").props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("gym");
   await act(async () => nodes("Chip").find(node => node.props.label === "Up to 15 min")!.props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ collection_id: "gym", max_minutes: 15 });
-  expect(nodes("LibrarySearch")[0].props.filterCount).toBe(2);
+  expect(nodes("Button").some(n => n.props.title === "Up to 15 min · Gym days · Clear")).toBe(true);
 });
-it("collection tiles prefer server cover previews over loaded workout covers", async () => {
-  const previews = ["https://example.test/1.jpg", "https://example.test/2.jpg", "https://example.test/3.jpg", "https://example.test/4.jpg"];
-  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 4, preview_thumbnail_urls: previews },
-    { id: "home", title: "Home", workout_count: 0, preview_thumbnail_urls: [] }]);
-  fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
-    organization: { ...emptyOrganization(), collection_ids: ["gym"] } }], total: 1, has_more: false });
+it("Needs info finds matches after the first library page", async () => {
+  const incomplete = { ...saved, id: "needs", title: "Needs timing", extraction_warnings: ["Rest unknown"] };
+  fixture.library.mockResolvedValue([saved, incomplete]);
+  fixture.searchLibrary.mockImplementation(async (_filters, cursor) => cursor ? { items: [incomplete], total: 2, has_more: false, next_cursor: null } : { items: [saved], total: 2, has_more: true, next_cursor: "next" });
   await mount(Library);
-  expect(nodes("CollectionTile").map(node => node.props.covers)).toEqual([previews, []]);
+  await act(async () => button("Needs info · 1")!.props.onPress()); await settle();
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Needs timing"]);
 });
+
 const gym = { id: "gym", title: "Gym days", revision: 3, workout_count: 1 };
 const sheet = (title: string) => nodes("Sheet").find(node => node.props.title === title)!;
 it("a collection opens its own workouts and renames from its options", async () => {
@@ -1703,16 +1684,13 @@ it.each([undefined, false, true])("gates the owner cover editor on actual server
   }
 });
 
-it("keeps Discover search and Filters together and moves People into the sheet", async () => {
+it("Discover has one text-link row and no inline search or count", async () => {
   fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  const search = nodes("Field").find(n => n.props.label === "Search Discover")!;
-  expect(search.props.hideLabel).toBe(true);
-  const row = search.parent!.parent!;
-  expect(row.findAll(n => String(n.type) === "Button").map(n => n.props.title)).toContain("Filters");
-  expect(nodes("Button").filter(n => n.props.title === "Share yours")).toHaveLength(1);
-  expect(button("Surprise me")!.props.variant).toBe("ghost");
-  expect(nodes("Copy").some(n => n.children.join("") === "People sharing")).toBe(false);
+  expect(nodes("Field")).toHaveLength(0);
+  expect(button("Filter")).toBeDefined(); expect(button("Surprise me")).toBeDefined();
+  expect(button("Share yours")).toBeDefined();
+  expect(nodes("Copy").some(n => n.children.join("") === "All workouts")).toBe(true);
 });
 
 it("Library keeps cached cards and offers an explicit retry when refreshing workouts fails", async () => {
@@ -1727,4 +1705,36 @@ it("Library keeps cached cards and offers an explicit retry when refreshing work
   await act(async () => button("Retry loading workouts")!.props.onPress()); await settle();
   expect(button("Retry loading workouts")).toBeUndefined();
   expect(nodes("LibraryCard")).toHaveLength(1);
+});
+
+it("saving a Discover photo is serialized and refreshes the library", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
+  let finish!: (value: Workout) => void;
+  fixture.saveDiscovered.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await mount(Discover);
+  const save = nodes("DiscoverGridCard")[0].props.onSave;
+  await act(async () => { save(); save(); });
+  expect(fixture.saveDiscovered).toHaveBeenCalledTimes(1);
+  expect(fixture.saveDiscovered).toHaveBeenCalledWith(card.id, 1);
+  await act(async () => finish(saved)); await settle();
+  expect(fixture.toast).toHaveBeenCalledWith("Saved to your library");
+});
+
+it("Collections opens a collection's saved workouts after moving the Library carousel", async () => {
+  fixture.collections.mockResolvedValue([gym]);
+  await mount(Collections);
+  await act(async () => row("Gym days")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/collection/[id]", params: { id: "gym" } });
+});
+
+it("hides the active Needs info count in archived scope and restores it in active scope", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  fixture.library.mockResolvedValue([{ ...saved, extraction_warnings: ["Rest unknown"] }]);
+  await mount(Library);
+  expect(button("Needs info · 1")).toBeDefined();
+  await act(async () => listRow("Show archived workouts")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ archived_only: true });
+  expect(button("Needs info · 1")).toBeUndefined();
+  await act(async () => listRow("Show active workouts")!.props.onPress()); await settle();
+  expect(button("Needs info · 1")).toBeDefined();
 });

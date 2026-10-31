@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
-import { Copy, haptics, useColors, useSurface, type Surface } from "./foundation";
+import { Copy, haptics, useGroupedPage, useColors, useSurface, type Surface } from "./foundation";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 export type IconName = keyof typeof Ionicons.glyphMap;
@@ -49,7 +49,9 @@ export function Button({
   haptic,
   accessibilityHint,
   disabledReason,
+  textLink = false,
 }: {
+  textLink?: boolean;
   title: string;
   onPress(): void;
   variant?: ButtonVariant;
@@ -93,8 +95,8 @@ export function Button({
       }}
       style={{
         minHeight: heights[size],
-        paddingVertical: size === "sm" ? 8 : 12,
-        paddingHorizontal: size === "sm" ? 16 : 22,
+        paddingVertical: textLink ? 0 : size === "sm" ? 8 : 12,
+        paddingHorizontal: textLink ? 0 : size === "sm" ? 16 : 22,
         borderRadius: radii.full,
         backgroundColor: bg,
         borderWidth: border ? 1 : 0,
@@ -114,7 +116,7 @@ export function Button({
         <Ionicons name={icon} color={fg} size={size === "sm" ? 18 : 21} />
       ) : null}
       <Copy
-        kind="label"
+        kind={textLink ? "small" : "label"}
         color={fg}
         style={{ textAlign: "center", flexShrink: 1 }}
       >
@@ -499,6 +501,7 @@ export function Choice({
   icon?: IconName;
 }) {
   const c = useColors();
+  const grouped = useGroupedPage();
   const press = usePressScale(disabled || busy);
   const AnimatedPressable = animatedPressableComponent();
   return (
@@ -520,10 +523,10 @@ export function Choice({
         minHeight: 56,
         paddingVertical: 14,
         paddingHorizontal: 16,
-        borderRadius: radii.lg,
-        borderWidth: selected ? 2 : 1,
+        borderRadius: grouped ? 10 : radii.lg,
+        borderWidth: grouped ? 0 : selected ? 2 : 1,
         borderColor: selected ? c.onActionSoft : c.border,
-        backgroundColor: selected ? c.actionSoft : c.surface,
+        backgroundColor: grouped ? c.elevated : selected ? c.actionSoft : c.surface,
         opacity: press.opacity,
         transform: [{ scale: press.scale }],
         flexDirection: "row",
