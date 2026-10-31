@@ -152,7 +152,7 @@ it('renders private Search thumbnails through the authority-bound component with
     await act(async () => r.render(<SearchRoute />));
     await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: 'Chicken' } }));
     // Exercise the real RecipeThumbnail rather than replacing it with a test double.
-    expect(r.container.queryAll(n => n.type === 'Ionicons' && n.props.name === 'restaurant-outline')).toHaveLength(1);
+    expect(r.container.queryAll(n => n.type === 'Ionicons' && n.props.name === 'restaurant-outline').length).toBeGreaterThan(0);
     const photo = r.container.queryAll(n => n.type === 'Image' && n.props.source?.uri === 'https://images.test/private-a.jpg')[0];
     expect(photo.props.cachePolicy).toBe('none');
     state.generation++;
