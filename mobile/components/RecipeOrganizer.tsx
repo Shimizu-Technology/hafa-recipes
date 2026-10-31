@@ -269,8 +269,8 @@ export function RecipeOrganizer({
                             busy: isNoteSaveInFlight,
                           }}
                         >
-                          {isNoteSaveInFlight && <ActivityIndicator size="small" color="#FFFFFF" />}
-                          <Text style={styles.primaryButtonText}>
+                          {isNoteSaveInFlight && <ActivityIndicator size="small" color={colors.onTint} />}
+                          <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>
                             {isNoteSaveInFlight ? 'Saving…' : 'Save note'}
                           </Text>
                         </TouchableOpacity>
