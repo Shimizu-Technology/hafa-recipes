@@ -318,7 +318,9 @@ export function Screen({
       {nativeHeader && <Stack.Screen options={{ title: titleKind === "heading" ? "Entry" : title, headerShown: true,
         headerLargeTitle: titleKind !== "heading",
         ...(grouped && action ? { headerRight: () => action } : {}),
-        ...(close ? { headerLeft: () => <Button variant="ghost" title="Close" onPress={() => router.back()} /> } : {}),
+        headerLeft: close || (back && !router.canGoBack())
+          ? () => <Button variant="ghost" title={close ? "Close" : "Back"}
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)")} /> : undefined,
       }} />}
       <TopBar back={!nativeHeader && back && !close} close={!nativeHeader && close} />
       <KeyboardAvoidingView collapsable={false} behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>

@@ -2,6 +2,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  back: vi.fn(), replace: vi.fn(), canGoBack: false,
   options: [] as any[],
   fontScale: 1, reduced: false, scheme: "light", listener: null as null | ((value: boolean) => void),
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
@@ -26,7 +27,7 @@ vi.mock("react-native", () => ({
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
-vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), { Screen: ({ options }: any) => { mock.options.push(options); return options?.headerRight?.() ?? null; } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
+vi.mock("expo-router", () => ({ router: { push: mock.push, back: mock.back, replace: mock.replace, canGoBack: () => mock.canGoBack }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), { Screen: ({ options }: any) => { mock.options.push(options); return options?.headerRight?.() ?? null; } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("@/lib/care-format", () => import("./care-format"));
@@ -46,7 +47,7 @@ async function mount(element: React.ReactElement) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mock.push.mockClear(); mock.options = [];
+  mock.push.mockClear(); mock.back.mockClear(); mock.replace.mockClear(); mock.canGoBack = false; mock.options = [];
   mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
   mock.baby = { online: true, syncing: false, error: "", state: { outbox: [] } };
 });
@@ -247,4 +248,15 @@ it("uses native header search and clears its query from app actions without rese
   expect(setText).toHaveBeenLastCalledWith("");
   await act(async () => search.onCancelButtonPress());
   expect(onChange).toHaveBeenLastCalledWith("");
+});
+
+it.each(["back", "close"])("keeps a cold-linked native %s screen escapable without navigation history", async action => {
+  await mount(<NativeHeaderContext.Provider value={true}><Screen title="Entry" back={action === "back"} close={action === "close"}><Copy>Saved content</Copy></Screen></NativeHeaderContext.Provider>);
+  const control = mock.options.at(-1).headerLeft();
+  expect(control.props.title).toBe(action === "back" ? "Back" : "Close");
+  await act(async () => control.props.onPress());
+  expect(mock.replace).toHaveBeenCalledWith("/(tabs)/(today)");
+  mock.canGoBack = true;
+  await act(async () => control.props.onPress());
+  expect(mock.back).toHaveBeenCalledOnce();
 });
