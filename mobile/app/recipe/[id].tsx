@@ -158,7 +158,7 @@ function RecipeDetailScreenContent() {
   const [nutritionBasis, setNutritionBasis] = useState<NutritionBasisId | undefined>();
   const [showRelated, setShowRelated] = useState(false);
   
-  const { data: recipe, isLoading, isFetching, error, refetch, thumbnailPending, preview } = useRecipe(id);
+  const { data: recipe, isLoading, isFetching, isOffline, error, refetch, thumbnailPending, preview } = useRecipe(id);
   const handleDelete = useRecipeDeletion(id, () => router.back());
   const toggleSharingMutation = useToggleRecipeSharing();
   const addToGroceryMutation = useAddFromRecipe();
@@ -642,7 +642,7 @@ function RecipeDetailScreenContent() {
     ? getRecipeVisibilityPresentation(recipe.is_public, recipe.moderation_status)
     : null;
 
-  const view = recipeDetailView({ isLoading, hasPreview: !!preview, hasRecipe: !!recipe, error });
+  const view = recipeDetailView({ isLoading, isOffline, hasPreview: !!preview, hasRecipe: !!recipe, error });
   if (view === 'preview' && preview) {
     return <RecipeDetailPreview preview={preview} />;
   }
@@ -659,7 +659,9 @@ function RecipeDetailScreenContent() {
   }
 
   if (view === 'unavailable' || !recipe) {
-    const loadError = recipeLoadError(error);
+    const loadError = view === 'offline'
+      ? { title: 'You’re offline', message: 'Reconnect to load this recipe. Saved offline recipes are still available in your library.', canRetry: true }
+      : recipeLoadError(error);
     return (
       <View style={styles.centerContainer}>
         <Ionicons

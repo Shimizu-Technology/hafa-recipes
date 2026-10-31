@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => {
     userId: 'account-a' as string | null,
     isLoaded: true,
     appState: 'active',
-    initiallyConnected: true,
+    initiallyConnected: true as boolean | null,
+    delayNetwork: false,
+    networkInitError: false,
+    fetchNetwork: vi.fn(),
     appListener: null as null | ((state: string) => void),
     networkListener: null as null | ((state: { isConnected: boolean; isInternetReachable: boolean }) => void),
     removeAppListener: vi.fn(),
@@ -32,9 +35,11 @@ vi.mock('react-native', () => ({ AppState: {
   },
 } }));
 vi.mock('@react-native-community/netinfo', () => ({ default: {
+  fetch: (...args: unknown[]) => mocks.fetchNetwork(...args),
   addEventListener: (callback: typeof mocks.networkListener) => {
+    if (mocks.networkInitError) throw new Error('NetInfo initialization unavailable');
     mocks.networkListener = callback;
-    callback?.({ isConnected: mocks.initiallyConnected, isInternetReachable: mocks.initiallyConnected });
+    if (!mocks.delayNetwork) callback?.({ isConnected: mocks.initiallyConnected, isInternetReachable: mocks.initiallyConnected } as any);
     return mocks.removeNetworkListener;
   },
 } }));
@@ -71,6 +76,9 @@ beforeEach(async () => {
   mocks.isLoaded = true;
   mocks.appState = 'active';
   mocks.initiallyConnected = true;
+  mocks.delayNetwork = false;
+  mocks.networkInitError = false;
+  mocks.fetchNetwork.mockReset().mockImplementation(async () => ({ isConnected: mocks.initiallyConnected, isInternetReachable: mocks.initiallyConnected }));
   mocks.appListener = null;
   mocks.networkListener = null;
   mocks.removeAppListener.mockClear();
@@ -299,3 +307,94 @@ describe('recipe detail cold-load preview', () => {
   });
 });
 
+
+describe('recipe connectivity startup and recovery', () => {
+  it('keeps on-demand detail working if NetInfo cannot initialize, without cover polling', async () => {
+    mocks.networkInitError = true;
+    mocks.fetchNetwork.mockRejectedValue(new Error('Native network state unavailable'));
+    mocks.getRecipe.mockResolvedValue(pending());
+    await mount();
+    expect(result.data?.id).toBe(base.id);
+    expect(result.isOffline).toBe(false);
+    await flush(10_000);
+    expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+    await act(async () => { await result.refetch(); });
+    expect(mocks.getRecipe).toHaveBeenCalledTimes(2);
+    expect(result.error).toBeNull();
+  });
+
+  it('loads during a delayed listener and starts cover polling only after confirmed online', async () => {
+    mocks.delayNetwork = true;
+    mocks.fetchNetwork.mockReturnValue(new Promise(() => {}));
+    mocks.getRecipe.mockResolvedValue(pending());
+    await mount();
+    expect(result.data?.id).toBe(base.id);
+    await flush(10_000);
+    expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+    await act(async () => { mocks.networkListener?.({ isConnected: true, isInternetReachable: true }); });
+    await flush(3_010);
+    expect(mocks.getRecipe).toHaveBeenCalledTimes(2);
+  });
+
+  it('Try again while connectivity is unknown performs a real request instead of throwing paused', async () => {
+    mocks.delayNetwork = true;
+    mocks.fetchNetwork.mockResolvedValue({ isConnected: null, isInternetReachable: null });
+    mocks.getRecipe.mockRejectedValueOnce(new Error('API stopped')).mockRejectedValueOnce(new Error('API stopped')).mockResolvedValue(base);
+    await mount(); await flush(100);
+    expect(result.error?.message).toBe('API stopped');
+    await act(async () => { await result.refetch(); }); await flush();
+    expect(result.data?.id).toBe(base.id);
+    expect(result.error).toBeNull();
+  });
+
+  it('bounds a delayed Retry probe while preserving confirmed offline and ownership gates', async () => {
+    mocks.initiallyConnected = false;
+    mocks.fetchNetwork.mockResolvedValue({ isConnected: false, isInternetReachable: false });
+    mocks.getRecipe.mockResolvedValue(base);
+    await mount();
+    expect(result.isOffline).toBe(true);
+    expect(mocks.getRecipe).not.toHaveBeenCalled();
+    mocks.fetchNetwork.mockReturnValue(new Promise(() => {}));
+    let retry!: Promise<unknown>;
+    await act(async () => { retry = result.refetch(); });
+    await flush(1_510); await retry;
+    expect(mocks.getRecipe).not.toHaveBeenCalled();
+    mocks.fetchNetwork.mockResolvedValue({ isConnected: true, isInternetReachable: true });
+    await act(async () => { await result.refetch(); }); await flush();
+    expect(result.data?.id).toBe(base.id);
+    expect(result.isOffline).toBe(false);
+  });
+});
+
+it('a stale Retry probe cannot override a newer offline event or launch work after unmount', async () => {
+  mocks.delayNetwork = true;
+  mocks.fetchNetwork.mockReturnValue(new Promise(() => {}));
+  mocks.getRecipe.mockResolvedValue(base);
+  await mount();
+  let finish!: (state: unknown) => void;
+  mocks.fetchNetwork.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  let retry!: Promise<unknown>;
+  await act(async () => { retry = result.refetch(); });
+  await act(async () => { mocks.networkListener?.({ isConnected: false, isInternetReachable: false }); });
+  await act(async () => { finish({ isConnected: true, isInternetReachable: true }); await retry; });
+  expect(result.isOffline).toBe(true);
+  expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+  mocks.fetchNetwork.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await act(async () => { retry = result.refetch(); });
+  await act(async () => { renderer!.unmount(); }); renderer = undefined;
+  await act(async () => { finish({ isConnected: true, isInternetReachable: true }); await retry; });
+  expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+});
+
+
+it('initializes from a native fetch without waiting for the listener', async () => {
+  mocks.delayNetwork = true;
+  mocks.fetchNetwork.mockResolvedValue({ isConnected: false, isInternetReachable: false });
+  mocks.getRecipe.mockResolvedValue(base);
+  await mount();
+  expect(result.isOffline).toBe(true);
+  // An initial on-demand read may start before the first native state arrives.
+  expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+  await flush(10_000);
+  expect(mocks.getRecipe).toHaveBeenCalledTimes(1);
+});

@@ -1,3 +1,4 @@
+vi.mock('@react-native-community/netinfo', () => ({ default: {} }));
 import { recipeScope } from '../lib/recipeQueryScope';
 // Extraction recovery owns its identity fixture; stable-owner privacy is exercised
 // with the real authority store in useRecipes.ownerBoundary.test.tsx.

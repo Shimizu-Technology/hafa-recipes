@@ -46,3 +46,16 @@ describe('recipe detail loading transition', () => {
     expect(view({ hasRecipe: true, error: new Error('offline') })).toBe('recipe');
   });
 });
+
+describe('disabled and offline detail states', () => {
+  const state = { isLoading: false, hasPreview: false, hasRecipe: false, error: null };
+  it('shows waiting content for a disabled pending/idle query, never a fabricated load error', () => {
+    expect(recipeDetailView(state)).toBe('loading');
+    expect(recipeDetailView({ ...state, hasPreview: true })).toBe('preview');
+  });
+  it('shows explicit offline recovery with no recipe and retains an authorized offline recipe', () => {
+    expect(recipeDetailView({ ...state, isOffline: true })).toBe('offline');
+    expect(recipeDetailView({ ...state, isOffline: true, hasRecipe: true })).toBe('recipe');
+    expect(recipeDetailView({ ...state, isOffline: true, hasRecipe: true, error: { response: { status: 403 } } })).toBe('unavailable');
+  });
+});
