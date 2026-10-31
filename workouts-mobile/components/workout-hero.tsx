@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
-import { Button, Copy, Notice, Row, useColors } from "@/components/ui";
+import { Copy, IconButton, Notice, Row, useColors } from "@/components/ui";
 import { animatedPressableComponent, usePressScale } from "@/components/design/press";
 import { SourceImage } from "@/components/source-image";
 import { embeddedSourcesEnabled, sourcePlayer, sourceURL } from "@/lib/source-playback";
@@ -60,7 +60,7 @@ export function WorkoutHero({ source }: { source: Source }) {
     </View> : null}
     {(!!credit || !!url) && <Row gap={8}>
       {!!credit && <Copy kind="small" tone="muted" numberOfLines={2} style={{ flex: 1 }}>{credit}</Copy>}
-      {!!url && <Button title="Open original source" icon="open-outline" variant="ghost" size="sm" inline onPress={openOriginal} />}
+      {!!url && <IconButton label="Open original source" icon="open-outline" variant="plain" onPress={openOriginal} />}
     </Row>}
     {embedded && <Copy kind="small" tone="muted">Playing loads the {player!.provider} player; its privacy terms apply.</Copy>}
     {!!error && <Notice error>{error}</Notice>}
