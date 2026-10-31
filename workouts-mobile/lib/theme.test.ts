@@ -26,9 +26,9 @@ function contrast(a: string, b: string, page: string) {
 
 // Every foreground/background pair the components actually render.
 // 4.5 = WCAG AA body text; 3 = large text, icons and control boundaries.
-type Pair = [fg: keyof ColorTokens, bg: keyof ColorTokens, min: number];
+type Pair = [fg: keyof ColorTokens, bg: keyof ColorTokens, min: number, backdrop?: string];
 const pairs: Pair[] = [
-  ["onImage", "imageOverlay", 4.5],
+  ["onImage", "imageOverlay", 4.5, "#FFFFFF"],
   ["text", "background", 4.5],
   ["text", "surface", 4.5],
   ["text", "elevated", 4.5],
@@ -70,8 +70,8 @@ describe.each([
   ["light", light],
   ["dark", dark],
 ] as const)("%s theme", (_, c) => {
-  it.each(pairs)("%s on %s meets %s:1", (fg, bg, min) => {
-    expect(contrast(c[fg], c[bg], c.background)).toBeGreaterThanOrEqual(min);
+  it.each(pairs)("%s on %s meets %s:1", (fg, bg, min, backdrop) => {
+    expect(contrast(c[fg], c[bg], backdrop ?? c.background)).toBeGreaterThanOrEqual(min);
   });
 });
 
