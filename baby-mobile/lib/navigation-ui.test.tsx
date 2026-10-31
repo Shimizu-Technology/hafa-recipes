@@ -2,21 +2,22 @@ import React, { useEffect } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  fontScale: 1, ask: {} as any, keyboard: {} as Record<string, () => void>, removed: [] as string[],
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any,
   exportVisit: vi.fn(async (_text: string, _owner: string) => {}),
 }));
 vi.mock("react-native", () => ({
   RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
-  Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn() }, Alert: { alert: vi.fn() },
-  useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: 1, height: 844 }),
+  Platform: { OS: "ios" }, Keyboard: { dismiss: vi.fn(), addListener: (event: string, fn: () => void) => { mock.keyboard[event] = fn; return { remove() { mock.removed.push(event); } }; } }, Alert: { alert: vi.fn() },
+  useColorScheme: () => "light", useWindowDimensions: () => ({ fontScale: mock.fontScale, height: 844 }),
   AccessibilityInfo: { isReduceMotionEnabled: async () => true, addEventListener: () => ({ remove() {} }) },
   Easing: { bezier: vi.fn() }, Animated: {
     Value: class { setValue() {} stopAnimation() {} }, createAnimatedComponent: () => "AnimatedPressable",
     timing: () => ({}), parallel: () => ({ start() {} }),
   },
 }));
-vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView" }));
+vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
@@ -42,7 +43,7 @@ vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateA
 vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => ({
   context: { scope: "all", record_id, child_id: null }, focusedTitle: "Saved source", question: "", messages: [],
-  history: [], showHistory: false, resolving: false, busy: false, error: "", openHistory() {},
+  history: [], showHistory: false, resolving: false, busy: false, error: "", openHistory() {}, ...mock.ask,
 }) }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
@@ -65,10 +66,11 @@ vi.mock("@/components/import-updates", () => ({ ImportUpdates: () => null }));
 import Library from "../app/(tabs)/library";
 import Journal, { JournalContent } from "../app/(tabs)/journal";
 import RecordDetail from "../app/record/[id]";
+import { Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
 import { emptyState, optimisticRecord } from "./models";
 let renderer: ReactTestRenderer | undefined;
-const row = (id: string, kind: "journal" | "feeding" | "question" | "source") => optimisticRecord({
+const row = (id: string, kind: "journal" | "feeding" | "question" | "source" | "sleep") => optimisticRecord({
   id, kind, title: id, body: `Observation ${id}`, child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z",
 });
 async function mount(element: React.ReactElement) { await act(async () => { renderer = create(element); }); }
@@ -81,6 +83,7 @@ async function press(label: string) {
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mock.params = {}; mock.stack = []; mock.exportVisit.mockClear();
+  mock.fontScale = 1; mock.ask = {}; mock.keyboard = {}; mock.removed = [];
   const records = [row("Journal observation", "journal"), row("Bottle observation", "feeding"), row("Doctor question", "question"), row("Saved source", "source")];
   mock.baby = {
     owner: "owner", records, online: true, current: () => true,
@@ -155,4 +158,41 @@ it("keeps untitled sources distinguishable when selecting posts for categories",
     .filter(node => node.props.accessibilityRole === "checkbox");
   expect(choices.map(node => node.props.accessibilityLabel)).toEqual(["Pack spare diapers before leaving home."]);
   expect(record.title).toBe("Saved source");
+});
+
+it("shows completed sleep start, end and duration with rounded numeric text", async () => {
+  const sleep = { ...row("Nap", "sleep"), occurred_at: "2026-10-30T00:00:00Z", data: { end_at: "2026-10-30T01:30:00Z" } };
+  mock.baby.records.push(sleep); mock.params = { id: "Nap" };
+  await mount(<RecordDetail />);
+  expect(renderer!.root.findByType(Screen).props.numericSubtitle).toBe(true);
+  const text = renderer!.root.findAllByType("Text" as React.ElementType);
+  const duration = text.find(t => t.props.children === "1 h 30 min")!;
+  expect(duration.props.style.fontVariant).toEqual(["tabular-nums"]);
+  expect(text.some(t => JSON.stringify(t.props.children).includes("Started"))).toBe(true);
+  expect(text.some(t => JSON.stringify(t.props.children).includes("Ended"))).toBe(true);
+});
+it.each([false, true])("keeps Ask following messages or pending response (busy=%s), with readable large input and history", async busy => {
+  mock.fontScale = 1.5;
+  mock.ask = { busy, messages: busy ? [] : [{ role: "user", content: "Find my packing list" }], showHistory: true,
+    history: [{ id: "conversation", title: "Packing notes", updated_at: "2026-10-30T01:30:00Z" }] };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findByType(Screen).props.followEnd).toBe(true);
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.placeholder).toBe("Question");
+  const history = renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Oct 30, 2026" || t.props.children === new Date("2026-10-30T01:30:00Z").toLocaleDateString());
+  expect(history?.props.style.fontVariant).toEqual(["tabular-nums"]);
+  if (!busy) expect(renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.children === "Find my packing list")!.props.style.lineHeight).toBe(22);
+});
+it("reserves the measured Ask composer, adjusts for keyboard, and removes both subscriptions", async () => {
+  await mount(<AskEntry />);
+  const footer = () => renderer!.root.findAllByType("View" as React.ElementType).find(v => v.props.onLayout)!;
+  expect(Object.keys(mock.keyboard)).toEqual(["keyboardWillShow", "keyboardWillHide"]);
+  await act(async () => footer().props.onLayout({ nativeEvent: { layout: { height: 150 } } }));
+  expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).find(s => !s.props.horizontal)!.props.contentContainerStyle.paddingBottom).toBe(150);
+  expect(footer().props.style.paddingBottom).toBe(34);
+  await act(async () => mock.keyboard.keyboardWillShow());
+  expect(footer().props.style.paddingBottom).toBe(10);
+  await act(async () => mock.keyboard.keyboardWillHide());
+  expect(footer().props.style.paddingBottom).toBe(34);
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  expect(mock.removed).toEqual(["keyboardWillShow", "keyboardWillHide"]);
 });

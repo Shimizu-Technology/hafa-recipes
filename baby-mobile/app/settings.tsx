@@ -68,6 +68,7 @@ export default function Settings() {
           <Row
             key={child.id}
             title={child.name}
+            numericDetail
             detail={
               child.birth_date
                 ? "Born " + friendlyDate(child.birth_date)
@@ -130,6 +131,7 @@ export default function Settings() {
       <Section title="Your device">
         <Row
           title="Saved changes & recovery"
+          numericDetail
           detail={`${pendingChanges(b.state.outbox.length)} · ${b.online ? "Online" : "Offline"}`}
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}

@@ -48,7 +48,7 @@ vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
-import Today from "../app/(tabs)/index";
+import Today from "../app/(tabs)/(today)/index";
 
 const start = new Date("2026-10-20T03:00:00.000Z");
 let renderer: ReactTestRenderer | undefined;
