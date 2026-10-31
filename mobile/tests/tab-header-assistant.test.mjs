@@ -20,3 +20,12 @@ describe('native tab shell', () => {
     expect(readFileSync(new URL('../app/history.tsx', import.meta.url), 'utf8')).toContain("pathname: '/(tabs)/recipes'");
   });
 });
+
+// Keep the workaround scoped to UIKit 26 while older platforms retain a solid header.
+describe('tab header compatibility', () => {
+  it.each([['ios', 26, true], ['ios', '26.5', true], ['ios', 18, false], ['android', 36, false]])('%s %s header transparency is %s', (os, version, expected) => {
+    const code = readFileSync(new URL('../components/RecipeTabStack.tsx', import.meta.url), 'utf8');
+    const expression = code.match(/const transparentHeader = (.*);/)[1];
+    expect(new Function('Platform', `return ${expression}`)({ OS: os, Version: version })).toBe(expected);
+  });
+});

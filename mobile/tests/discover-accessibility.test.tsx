@@ -24,7 +24,7 @@ vi.mock('react-native', async () => {
     ActivityIndicator: host('ActivityIndicator'),
     useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     Alert: { alert: vi.fn() },
-    FlatList: host('FlatList'),
+    FlatList: (props: any) => ReactModule.createElement('FlatList', props, props.ListHeaderComponent),
     Keyboard: { dismiss: vi.fn() },
     Modal: host('Modal'),
     Platform: { OS: 'ios' },
