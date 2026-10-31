@@ -10,9 +10,15 @@ const labels: Record<string, string> = {
   ready: "", incomplete: "Some details unavailable", failed: "Original saved · processing needs another try",
   cancelled: "Original saved · processing stopped",
 };
+// Originals remain saved when optional organization fails; describe that state precisely.
+const updates: Record<string, string> = {
+  queued: "Waiting to organize…", processing: "Organizing…",
+  failed: "Couldn’t organize · Review", incomplete: "Some details unavailable", cancelled: "Organizing stopped",
+};
 export function SavedPostRow({ record, pending }: { record: BabyRecord; pending: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), title = sourceTitle(record),
-    status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved";
+    status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved",
+    update = pending ? status : updates[record.data.status ?? ""];
   let inferred: string | undefined;
   try {
     const url = new URL(record.data.url ?? "");
@@ -42,8 +48,8 @@ export function SavedPostRow({ record, pending }: { record: BabyRecord; pending:
     </View>
     <View style={{ flex: 1, gap: 4 }}>
       <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
-      <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>
-        {pending ? status : [record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
+      <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={fontScale >= 1.3 ? undefined : 1}>
+        {update || [record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
       </Copy>
     </View>
     <Icon name="chevron-forward" size={16} color={c.muted} />
