@@ -155,7 +155,7 @@ function effectiveStyle(style: any): Record<string, any> {
 }
 
 it.each(['light', 'dark'] as const)('keeps neutral steps and readable cost foregrounds in %s mode', async theme => {
-  m.theme = theme; m.servings = 4; m.scaled = 8; 
+  m.theme = theme; m.servings = 4; m.scaled = 8;
   const root = createRoot();
   try {
     await act(async () => root.render(<RecipeDetailScreen />));
