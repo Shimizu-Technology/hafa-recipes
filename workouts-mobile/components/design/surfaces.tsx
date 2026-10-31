@@ -121,7 +121,7 @@ export function Screen({
   return (
     <GroupedPage.Provider value={grouped}>
     {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: hideTitle, headerLargeTitleEnabled: !hideTitle,
-      headerShadowVisible: false, headerTintColor: c.accent, headerStyle: { backgroundColor: hideTitle ? "transparent" : pageColor },
+      headerShadowVisible: false, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: hideTitle ? "transparent" : pageColor },
       headerLeft: !router.canGoBack?.() ? () => <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.replace("/(tabs)/library")} /> : undefined,
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, headerRight: action ? () => action : undefined }} />}
     <KeyboardAvoidingView
