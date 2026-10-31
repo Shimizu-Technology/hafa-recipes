@@ -37,7 +37,7 @@ export default function SessionDetail() {
       });
       await offline.store.correct(q.data, actuals, notes, Crypto.randomUUID());
       void offline.store.sync(api.saveSession).then(() => cache.invalidateQueries({ queryKey: [owner, "sessions"] }));
-      router.replace("/(tabs)/progress");
+      router.replace("/progress");
     } catch (e) {
       setError((e as Error).message);
     } finally {

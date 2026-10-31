@@ -199,7 +199,7 @@ export default function ReviewPlan() {
       await localDrafts.remove(owner, scope);
       await cache.invalidateQueries({ queryKey: [owner, "programs"] });
       await cache.invalidateQueries({ queryKey: [owner, "program", id] });
-      router.replace("/(tabs)/plan");
+      router.replace("/plan");
     });
   }
   const current = profile.data?.profile;
