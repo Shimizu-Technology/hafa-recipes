@@ -466,7 +466,7 @@ function GroceryScreenContent() {
             showToast({ message: 'Item added to grocery list', tone: 'success' });
           }
           setAddPendingSync(result.syncStatus === 'queued');
-          setNewItemName('');
+          setNewItemName(draft => draft.trim() === newItemName.trim() ? '' : draft);
           if (keepInputFocused) {
             // The visible add button supports rapid, repeated entry. The
             // keyboard's Done key intentionally ends entry and stays blurred.
