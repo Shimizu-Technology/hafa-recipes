@@ -28,9 +28,13 @@ vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Stack: ({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
+vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
 
+import { CareGlance } from "../components/care-glance";
+import { optimisticRecord } from "./models";
 import { TabStack } from "../components/tab-stack";
 import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
@@ -209,4 +213,19 @@ it("keeps an independent modal title and safe area inside a native tab", async (
   </NativeHeaderContext.Provider>);
   expect(renderer!.root.findAllByType("Text" as React.ElementType).map(t => t.props.children)).toContain("Choose category");
   expect(renderer!.root.findByType("SafeAreaView" as React.ElementType).props.edges).toContain("top");
+});
+
+it.each([1, 3.1])("keeps the feed number on one line at scale %s while preserving readable facts and body scaling", async fontScale => {
+  mock.fontScale = fontScale;
+  const now = new Date("2026-10-31T06:00:00Z"),
+    feed = optimisticRecord({ id: "feed", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: "2026-10-31T00:50:00Z", data: { method: "breast", side: "left", duration_minutes: 15 } });
+  await mount(<CareGlance child={{ id: "baby", name: "Isla", revision: 1 }} rows={[feed]} now={now} />);
+  const texts = renderer!.root.findAllByType("Text" as React.ElementType), number = texts.find(t => t.props.maxFontSizeMultiplier === 1.4)!;
+  expect(number.props.children[0]).toBe("5h 10m");
+  expect(number.props.numberOfLines).toBe(1);
+  expect(number.props.style.fontSize).toBe(44);
+  const detail = texts.find(t => t.props.children === "Left side · 15 min · Next: right")!;
+  expect(detail.props.maxFontSizeMultiplier).toBe(0);
+  await act(async () => renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.onPress());
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "feed" } });
 });

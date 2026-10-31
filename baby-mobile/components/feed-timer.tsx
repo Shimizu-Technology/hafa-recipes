@@ -84,21 +84,22 @@ export function FeedTimerCard({
     ]);
   }
   return (
-    // A plain surface card keeps the secondary buttons visible; the blush summary below stays the baby's status.
-    <Card style={{ borderColor: c.action, borderWidth: 2 }}>
+    <Card tone="hero">
       <View accessible accessibilityLabel={`Feeding ${childName}. ${spokenTimer(timer, now)}`} style={{ gap: 2 }}>
         <Copy kind="small" tone="muted">
           {`Feeding ${childName} · started ${friendlyTime(timer.started_at, now)}${paused ? " · paused" : ""}`}
         </Copy>
-        <Copy kind="heading">{sideTitle[side]}</Copy>
         <Text
+          maxFontSizeMultiplier={1.4}
           numberOfLines={1}
           adjustsFontSizeToFit
           style={{ color: c.text, fontSize: 44, lineHeight: 50, fontFamily: fonts.rounded, fontWeight: "700", fontVariant: ["tabular-nums"] }}
         >
           {clockText(activeMs(timer, now))}
         </Text>
+        <Copy kind="small" tone="muted">{sideTitle[side]}</Copy>
       </View>
+      <Button icon="stop" title="Stop" busy={busy} onPress={() => void run(() => onDone(timer))} />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
         <View style={{ flexGrow: 1, flexBasis: 140 }}>
           <Button
@@ -123,7 +124,6 @@ export function FeedTimerCard({
           />
         </View>
       </View>
-      <Button size="lg" icon="checkmark" title="Done" busy={busy} onPress={() => void run(() => onDone(timer))} />
       <Button variant="ghost" title="Cancel timer" disabled={busy} onPress={cancel} />
     </Card>
   );

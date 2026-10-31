@@ -1,4 +1,4 @@
-import { forwardRef, createContext, useContext, useEffect, useRef, useState, type PropsWithChildren, type RefObject } from "react";
+import { Children, forwardRef, createContext, useContext, useEffect, useRef, useState, type PropsWithChildren, type RefObject } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -698,6 +698,16 @@ export function Section({
       {children}
     </View>
   );
+}
+/** Inset grouped cells share one quiet surface and text-inset separators. */
+export function Grouped({ children }: PropsWithChildren) {
+  const c = useColors(), rows = Children.toArray(children);
+  return <View style={{ borderRadius: 12, overflow: "hidden", backgroundColor: c.surface }}>
+    {rows.map((row, index) => <View key={index}>
+      {index > 0 && <View style={{ marginLeft: 52, height: 0.5, backgroundColor: c.border }} />}
+      {row}
+    </View>)}
+  </View>;
 }
 export function Row({
   title,
