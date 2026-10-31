@@ -48,7 +48,7 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
       })}
     >
       <Icon name={icon} size={22} color={primary ? c.onAction : c.action} />
-      <Text style={{ ...typeScale.headline, color: primary ? c.onAction : c.text, textAlign: "center" }}>{label}</Text>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: primary ? c.onAction : c.text, textAlign: "center" }}>{label}</Text>
     </PressTarget>
   );
 }
