@@ -3223,3 +3223,23 @@ it("does not finish an old Extract Back action after the account changes", async
   expect(fixture.dispatch).not.toHaveBeenCalled();
   expect(fixture.map.get(draftKey(fixture.owner, "capture:1")) ?? "").not.toContain("old-owner");
 });
+
+
+it("Extract Back drains edits entered after Back while storage is delayed", async () => {
+  await mount(Capture);
+  const first = deferred<void>(), later = deferred<void>();
+  fixture.persist
+    .mockImplementationOnce(async (key: string, value: string) => { await first.promise; fixture.map.set(key, value); })
+    .mockImplementationOnce(async (key: string, value: string) => { await later.promise; fixture.map.set(key, value); });
+  const field = () => nodes("Field").find(node => node.props.label === "Workout link")!;
+  await act(async () => field().props.onChange("https://example.test/before-back"));
+  const action = { type: "GO_BACK" };
+  await act(async () => fixture.removeGuard!({ data: { action } }));
+  await act(async () => field().props.onChange("https://example.test/after-back"));
+  await act(async () => first.resolve()); await settle();
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+  await act(async () => later.resolve()); await settle();
+  expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(action);
+  await unmount(); await mount(Capture);
+  expect(field().props.value).toBe("https://example.test/after-back");
+});
