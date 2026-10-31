@@ -1169,7 +1169,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
                       <Text
                         style={[
                           styles.contributorCount,
-                          { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }
+                          { color: isSelected ? colors.onTint : colors.textMuted }
                         ]}
                       >
                         {contributor.recipe_count} {contributor.recipe_count === 1 ? 'recipe' : 'recipes'}

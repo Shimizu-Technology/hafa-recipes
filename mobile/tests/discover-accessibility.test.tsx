@@ -58,7 +58,7 @@ vi.mock('@/components/Themed', async () => {
       text: '#111',
       textMuted: '#666',
       textSecondary: '#555',
-      tint: '#155c52',
+      tint: '#5DD3B6', onTint: '#00261F',
       warning: '#f90',
     }),
   };
@@ -293,4 +293,17 @@ it('pauses the native Discover tab feed while another tab is focused', async () 
     await act(async () => renderer.update(<DiscoverRoute />));
     expect(mocks.feedEnabled).toBe(true);
   } finally { mocks.focused = true; await act(async () => renderer?.unmount()); }
+});
+
+it('uses the tint foreground for a selected contributor count', async () => {
+  let renderer!: ReactTestRenderer;
+  try {
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    await act(async () => byLabel(renderer, 'Browse tools')!.props.onPress());
+    await act(async () => byLabel(renderer, 'Top contributors')!.props.onPress());
+    const contributor = () => touchables(renderer).find(node => textOf(node).includes('Maria') && textOf(node).includes('1 recipe'))!;
+    await act(async () => contributor().props.onPress());
+    const count = contributor().findAllByType('ThemedText' as any).find(node => textOf(node) === '1 recipe')!;
+    expect(Object.assign({}, ...[count.props.style].flat(Infinity)).color).toBe('#00261F');
+  } finally { await act(async () => renderer?.unmount()); }
 });
