@@ -1,12 +1,13 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, Card, Chips, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, Card, TextLinks, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { TabActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
@@ -29,7 +30,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       back={back}
       title={focused ? "Ask about this" : "Ask"}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
-      action={<Button secondary title="History" icon="time-outline" disabled={chat.resolving} onPress={() => void openHistory()} />}
+      action={back ? <Button variant="ghost" title="History" disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
       followEnd={messages.length > 0 || busy}
       footer={
         <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-end", gap: 10 }}>
@@ -45,7 +46,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             maxFontSizeMultiplier={0}
             scrollEnabled
             style={{ flex: fontScale >= 1.5 ? undefined : 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
-              minHeight: composerMinimum, borderWidth: 1, borderColor: c.border, borderRadius: 22,
+              minHeight: composerMinimum, borderRadius: 22,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
               fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
           />
@@ -63,6 +64,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </View>
       }
     >
+      {!back && <Stack.Screen options={{ headerRight: () => <TabActions title="Ask" action={<Button variant="ghost" title="History" disabled={chat.resolving} onPress={() => void openHistory()} />} /> }} />}
       {!available && (
         <Card tone="soft">
           <Copy kind="heading">AI is optional.</Copy>
@@ -77,7 +79,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </Card>
       )}
       {!focused && (
-        <Chips
+        <TextLinks
           value={chat.context.scope}
           label="Search in"
           options={[

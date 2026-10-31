@@ -2,6 +2,7 @@ import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
+  options: [] as any[],
   fontScale: 1, reduced: false, scheme: "light", listener: null as null | ((value: boolean) => void),
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
   baby: { online: true, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock("react-native", () => ({
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
-vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Stack: ({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
+vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), { Screen: ({ options }: any) => { mock.options.push(options); return options?.headerRight?.() ?? null; } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("@/lib/care-format", () => import("./care-format"));
@@ -35,6 +36,7 @@ vi.mock("@/components/ui", () => import("../components/ui"));
 
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
+import { HeaderSearch } from "../components/header-search";
 import { TabStack } from "../components/tab-stack";
 import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
@@ -44,7 +46,7 @@ async function mount(element: React.ReactElement) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mock.push.mockClear();
+  mock.push.mockClear(); mock.options = [];
   mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
   mock.baby = { online: true, syncing: false, error: "", state: { outbox: [] } };
 });
@@ -228,4 +230,21 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
   expect(detail.props.maxFontSizeMultiplier).toBe(0);
   await act(async () => renderer!.root.findByType("AnimatedPressable" as React.ElementType).props.onPress());
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "feed" } });
+});
+
+it("uses native header search and clears its query from app actions without resetting typed text", async () => {
+  const onChange = vi.fn(), setText = vi.fn();
+  await mount(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>);
+  expect(renderer!.root.findAllByType("TextInput" as React.ElementType)).toHaveLength(0);
+  const search = mock.options.at(-1).headerSearchBarOptions;
+  expect(search.hideWhenScrolling).toBe(false);
+  search.ref.current = { setText };
+  await act(async () => search.onChangeText({ nativeEvent: { text: "hospital bag" } }));
+  expect(onChange).toHaveBeenLastCalledWith("hospital bag");
+  await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="hospital bag" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
+  expect(setText).not.toHaveBeenCalled();
+  await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
+  expect(setText).toHaveBeenLastCalledWith("");
+  await act(async () => search.onCancelButtonPress());
+  expect(onChange).toHaveBeenLastCalledWith("");
 });

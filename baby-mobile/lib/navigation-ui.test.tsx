@@ -22,6 +22,7 @@ vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("expo-router", () => ({
+  Stack: { Screen: ({ options }: any) => options?.headerRight?.() ?? null },
   useLocalSearchParams: () => mock.params,
   useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
   router: {
@@ -50,6 +51,8 @@ vi.mock("@/lib/history", () => import("./history"));
 vi.mock("@/lib/visit-summary", () => import("./visit-summary"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
+vi.mock("@/components/header-search", () => import("../components/header-search"));
+vi.mock("@/components/tab-stack", () => import("../components/tab-stack"));
 vi.mock("@/components/ui", () => import("../components/ui"));
 vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));

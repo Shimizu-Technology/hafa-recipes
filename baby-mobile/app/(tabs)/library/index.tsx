@@ -1,17 +1,19 @@
 import { useRef, useState } from "react";
-import { router } from "expo-router";
+import { Stack, router } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { sourceTitle } from "@/lib/source-title";
 import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
-import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen, Section } from "@/components/ui";
+import { Button, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
 import { CategoryPicker } from "@/components/category-picker";
 import { ImportUpdates } from "@/components/import-updates";
+import { HeaderSearch } from "@/components/header-search";
+import { TabActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
 
 export default function Library() {
@@ -54,20 +56,21 @@ export default function Library() {
     finally { undoBusy.current = false; setUndoing(false); }
   }
   const listingCategories = view === "categories" && !collection;
-  return <Screen title="Saved" subtitle={category?.title || "The useful part, kept for later."}
+  return <Screen title="Saved"
     onRefresh={() => { history.refresh(); categories.refresh(); }}
-    action={<Button variant="ghost" title={selecting ? "Cancel" : "Select"}
-      disabled={listingCategories || !history.rows.length} onPress={() => { setSelecting(!selecting); setSelected([]); }} />}
     footer={selecting ? <Button title={`Choose category · ${selected.length} selected`} disabled={!selected.length}
       onPress={() => setOrganizing(true)} /> : lastChange ? <Card tone="soft">
       <Copy lines={2}>Saved to {lastChange.record.title}.</Copy>
       {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
       <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
     </Card> : undefined}>
+    <Stack.Screen options={{ headerRight: () => <TabActions title="Saved" add={{ pathname: "/edit", params: { kind: "source" } }}
+      action={<Button variant="ghost" title={selecting ? "Cancel" : "Select"} disabled={listingCategories || !history.rows.length}
+        onPress={() => { setSelecting(!selecting); setSelected([]); }} />} /> }} />
+    <HeaderSearch value={q} onChange={setQ} placeholder="Search saved posts" />
     <SyncStatus />
-    <Field label="Search saved posts" value={q} onChange={setQ} placeholder="Hospital bag, sleep, things to remember…" />
     <ChildFilter scroll />
-    <Chips scroll value={view} label="Saved posts" options={[
+    <TextLinks value={view} label="Saved posts" options={[
       { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" }, { label: "Categories", value: "categories" },
     ]} onChange={chooseView} />
     {!!error && <Notice error>{error}</Notice>}
@@ -85,11 +88,11 @@ export default function Library() {
       {!!history.error && <><Notice error>{history.error} Saved posts already on this device remain available.</Notice>
         <Button secondary title="Try loading posts again" onPress={history.refresh} busy={history.loading} /></>}
       {history.loading && !history.rows.length ? <Loading label="Loading saved posts…" /> : history.rows.length ? (
-        <Section title={selecting ? "Choose posts to organize" : category?.title || (view === "inbox" ? "Ready to organize" : "Your saved posts")}>
+        <Grouped>
           {history.rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
             : <RecordRow key={record.id} record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />)}
-        </Section>
+        </Grouped>
       ) : <Empty title={q ? "No matching posts" : view === "inbox" ? "You’re caught up." : "Keep something worth remembering."}
         body={q ? "Try another phrase. Search includes text inside saved posts." : view === "inbox"
           ? "New saves stay here until you choose a category. Your organized posts are in All saved."
@@ -99,7 +102,6 @@ export default function Library() {
       {history.more && !history.error && <Button secondary title="Load more posts" busy={history.loading} onPress={() => void history.loadMore()} />}
       {selecting && <Copy kind="small" tone="muted">Select up to 100 posts. Your selection stays while you choose a category.</Copy>}
     </>}
-    {!selecting && <Button secondary title="Save a post" icon="add" onPress={() => router.push({ pathname: "/edit", params: { kind: "source" } })} />}
     <ImportUpdates />
     {drafts.length > 0 && <Disclosure title={`Unfinished drafts · ${drafts.length}`}>
       {drafts.map(([key, draft]) => <Row key={key} title={draft.title || "Continue your draft"} detail="Saved privately on this device"

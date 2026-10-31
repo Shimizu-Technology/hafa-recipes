@@ -1,9 +1,9 @@
 import { sourceTitle } from "@/lib/source-title";
-import { Pressable, View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import type { BabyRecord } from "@/lib/models";
-import { Copy, Icon, useColors, type IconName } from "./ui";
+import { Copy, Icon, PressTarget, useColors, type IconName } from "./ui";
 
 const labels: Record<string, string> = {
   saved: "Original saved", queued: "Waiting to process", processing: "Processing…",
@@ -11,7 +11,7 @@ const labels: Record<string, string> = {
   cancelled: "Original saved · processing stopped",
 };
 export function SavedPostRow({ record, pending }: { record: BabyRecord; pending: boolean }) {
-  const c = useColors(), title = sourceTitle(record),
+  const c = useColors(), { fontScale } = useWindowDimensions(), title = sourceTitle(record),
     status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved";
   let inferred: string | undefined;
   try {
@@ -31,22 +31,21 @@ export function SavedPostRow({ record, pending }: { record: BabyRecord; pending:
   try { const url = new URL(record.data.thumbnail_url ?? "");
     if (url.protocol === "https:" && !url.username && !url.password) thumbnail = url.toString();
   } catch { /* A thumbnail is optional; the saved post stays readable. */ }
-  return <Pressable accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
+  return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
-    style={({ pressed }) => ({ minHeight: 90, flexDirection: "row", gap: 13, alignItems: "center",
-      paddingVertical: 14, borderBottomWidth: 1, borderColor: c.border, opacity: pressed ? 0.65 : 1 })}>
-    <View style={{ width: 54, height: 68, borderRadius: 12, overflow: "hidden", backgroundColor: c.tile,
+    style={({ pressed }) => ({ minHeight: 80, flexDirection: "row", gap: 13, alignItems: "center",
+      padding: 12, backgroundColor: c.surface })}>
+    <View style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", backgroundColor: c.tile,
       alignItems: "center", justifyContent: "center" }}>
-      {thumbnail ? <Image source={{ uri: thumbnail }} style={{ width: 54, height: 68 }} cachePolicy="none" contentFit="cover" />
+      {thumbnail ? <Image source={{ uri: thumbnail }} style={{ width: 56, height: 56 }} cachePolicy="none" contentFit="cover" />
         : <Icon name={marks[platform] ?? "bookmark-outline"} size={23} />}
     </View>
     <View style={{ flex: 1, gap: 4 }}>
-      <Copy kind="label">{title}</Copy>
-      {!!(record.data.creator || identity) && <Copy kind="small" tone="muted" lines={1}>
-        {[record.data.creator, identity].filter(Boolean).join(" · ")}
-      </Copy>}
-      {!!status && <Copy kind="small" tone="muted">{status}</Copy>}
+      <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
+      <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>
+        {pending ? status : [record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
+      </Copy>
     </View>
     <Icon name="chevron-forward" size={16} />
-  </Pressable>;
+  </PressTarget>;
 }

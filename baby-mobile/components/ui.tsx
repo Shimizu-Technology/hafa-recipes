@@ -25,7 +25,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { Stack, router } from "expo-router";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
@@ -70,6 +70,7 @@ const type = {
 };
 /** Tab roots supply their title and controls through a native stack. */
 export const NativeHeaderContext = createContext(false);
+const GroupedPageContext = createContext(false);
 
 /** Gentle confirmation on deliberate choices; skipped where the platform has no haptics. */
 export function tap(kind: "select" | "success" = "select") {
@@ -288,6 +289,7 @@ export function Screen({
       setRefreshing(false);
     }
   }
+  const grouped = back || close;
   const content = (
     <View
       style={{
@@ -301,19 +303,24 @@ export function Screen({
       }}
     >
       {brand && <BrandMark size={64} />}
-      <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
+      {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading") && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
         <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
-          {!nativeHeader && <Copy kind={titleKind}>{title}</Copy>}
+          {(!nativeHeader || titleKind === "heading") && <Copy kind={titleKind}>{title}</Copy>}
           {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
         </View>
-        {action}
-      </View>
-      {children}
+        {(!nativeHeader || !grouped) && action}
+      </View>}
+      <GroupedPageContext.Provider value={grouped}>{children}</GroupedPageContext.Provider>
     </View>
   );
   return (
-    <SafeAreaView collapsable={false} edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
-      <TopBar back={back && !close} close={close} />
+    <SafeAreaView collapsable={false} edges={nativeHeader ? ["left", "right"] : ["top", "left", "right"]} style={{ flex: 1, backgroundColor: grouped ? c.groupedBackground : c.background }}>
+      {nativeHeader && <Stack.Screen options={{ title: titleKind === "heading" ? "Entry" : title, headerShown: true,
+        headerLargeTitle: titleKind !== "heading",
+        ...(grouped && action ? { headerRight: () => action } : {}),
+        ...(close ? { headerLeft: () => <Button variant="ghost" title="Close" onPress={() => router.back()} /> } : {}),
+      }} />}
+      <TopBar back={!nativeHeader && back && !close} close={!nativeHeader && close} />
       <KeyboardAvoidingView collapsable={false} behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View collapsable={false} style={{ flex: 1 }}>
         {scroll ? (
@@ -658,6 +665,19 @@ export function Chips({
   return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
     contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
+/** One compact filter row; wraps instead of truncating at accessibility sizes. */
+export function TextLinks({ options, value, onChange, label }: { options: { label: string; value: string }[]; value: string; onChange: (value: string) => void; label: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  const links = <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: fontScale >= 1.3 ? "wrap" : "nowrap", columnGap: 16 }}>
+    {options.map(option => <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
+      accessibilityState={{ selected: value === option.value, checked: value === option.value }}
+      onPress={() => { if (value !== option.value) tap(); onChange(option.value); }}
+      style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}>
+      <Text style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400" }}>{option.label}</Text>
+    </PressTarget>)}
+  </View>;
+  return fontScale >= 1.3 ? links : <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">{links}</ScrollView>;
+}
 export function Empty({
   icon = "leaf-outline",
   title,
@@ -687,8 +707,9 @@ export function Section({
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const c = useColors(), grouped = useContext(GroupedPageContext);
   return (
-    <View style={{ gap: 12 }}>
+    <View style={{ gap: 12, ...(grouped ? { padding: 16, borderRadius: 12, backgroundColor: c.surface } : {}) }}>
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <View style={{ flex: 1 }}>
           <Copy kind="heading">{title}</Copy>
@@ -728,7 +749,7 @@ export function Row({
   numericTitle?: boolean;
   numericDetail?: boolean;
 }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   return (
     <PressTarget
       accessibilityRole="button"
@@ -749,11 +770,11 @@ export function Row({
 
       })}
     >
-      {icon && <Icon name={icon} />}
+      {icon && <View style={{ width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Copy numeric={numericTitle} kind="label">{title}</Copy>
+        <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
-          <Copy numeric={numericDetail} kind="small" tone="muted">
+          <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>
             {detail}
           </Copy>
         )}

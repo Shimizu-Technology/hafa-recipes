@@ -69,7 +69,7 @@ export default function Routines() {
                   : "No active reminders"}
               </Copy>
               <Button
-                secondary
+                variant="ghost"
                 title="Review or edit"
                 onPress={() => router.push({ pathname: "/record/[id]", params: { id: r.id } })}
               />

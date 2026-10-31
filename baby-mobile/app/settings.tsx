@@ -7,7 +7,7 @@ import { useBaby } from "@/lib/context";
 import { messageFor, pendingChanges } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
-import { Button, Card, Choice, Copy, Field, Notice, Row, Screen, Section, useToast } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { friendlyDate } from "@/lib/care-format";
 export default function Settings() {
   const b = useBaby(),
@@ -40,12 +40,12 @@ export default function Settings() {
     });
   }
   return (
-    <Screen title="Make it yours." subtitle="A private space, with choices you control." back>
+    <Screen title="Settings" subtitle="A private space, with choices you control." back>
       {!!error && <Notice error>{error}</Notice>}
       <Section title="Your details">
         <Field label="Your name" value={name} onChange={setName} />
         <Button
-          secondary
+          variant="ghost"
           title="Save name"
           busy={busy}
           onPress={() =>
@@ -64,7 +64,7 @@ export default function Settings() {
         </Copy>
       </Section>
       <Section title="Your little ones">
-        {b.state.bootstrap!.children.map((child) => (
+        <Grouped>{b.state.bootstrap!.children.map((child) => (
           <Row
             key={child.id}
             title={child.name}
@@ -79,8 +79,8 @@ export default function Settings() {
             icon="person-outline"
             onPress={() => router.push({ pathname: "/child", params: { id: child.id } })}
           />
-        ))}
-        <Button secondary title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />
+        ))}</Grouped>
+        <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />
       </Section>
       <Card tone="soft">
         <Copy kind="heading">Optional AI processing</Copy>

@@ -7,7 +7,8 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { exportVisit } from "@/lib/files";
 import { visitSummary } from "@/lib/visit-summary";
-import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, Card, TextLinks, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -103,13 +104,13 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     <Screen
       title={careHistory ? "Care history" : "Journal"}
       back={careHistory}
-      action={<Button variant="ghost" title={searching ? "Close search" : "Search"} icon="search-outline"
+      action={careHistory && <Button variant="ghost" title={searching ? "Close search" : "Search"} icon="search-outline"
         onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
     >
+      {!careHistory && <HeaderSearch value={q} onChange={setQ} placeholder="Search notes and questions" />}
       <SyncStatus />
       <ChildFilter scroll />
-      {!careHistory && <Chips
-        scroll
+      {!careHistory && <TextLinks
         value={filter}
         label="Show"
         options={[
@@ -160,7 +161,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
           />
         ))}
       {loading && !records.length ? <Loading label={careHistory ? "Loading care history…" : "Loading your journal…"} /> : records.length ? (
-        <View style={{ gap: 12 }}>
+        <Grouped>
           {records.map((r) =>
             preparing ? (
               <Card key={r.id} tone="soft">
@@ -181,7 +182,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
               />
             )
           )}
-        </View>
+        </Grouped>
       ) : (
         <Empty
           icon="book-outline"

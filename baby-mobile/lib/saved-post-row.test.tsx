@@ -1,11 +1,11 @@
 import React from "react";
 import { act, create } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
-vi.mock("react-native", () => ({ Pressable: "Pressable", View: "View" }));
+vi.mock("react-native", () => ({ Pressable: "Pressable", View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
-vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", useColors: () => ({ tile: "#eee", border: "#ddd" }) }));
+vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", PressTarget: "Pressable", useColors: () => ({ tile: "#eee", border: "#ddd" }) }));
 import { SavedPostRow } from "../components/saved-post-row";
 import { optimisticRecord } from "./models";
 const row = optimisticRecord({ id: "post", kind: "source", title: "Packing a diaper bag", body: "", child_id: null,
