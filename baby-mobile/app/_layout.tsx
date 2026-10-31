@@ -37,9 +37,7 @@ function Routes() {
       </Stack.Protected>
       <Stack.Protected guard={!!isSignedIn}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="add" options={Platform.OS === "ios"
-          ? { presentation: "formSheet", sheetAllowedDetents: [0.75, 1], sheetGrabberVisible: true }
-          : { presentation: "modal" }} />
+        <Stack.Screen name="add" options={{ presentation: "modal", headerShown: true, title: "What’s on your mind?" }} />
         <Stack.Screen name="edit" />
         <Stack.Screen name="record/[id]" />
         <Stack.Screen name="settings" />
