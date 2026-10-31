@@ -86,7 +86,7 @@ export function FeedTimerCard({
   return (
     <Card tone="hero">
       <View accessible accessibilityLabel={`Feeding ${childName}. ${spokenTimer(timer, now)}`} style={{ gap: 2 }}>
-        <Copy kind="small" tone="muted">
+        <Copy numeric kind="small" tone="muted">
           {`Feeding ${childName} · started ${friendlyTime(timer.started_at, now)}${paused ? " · paused" : ""}`}
         </Copy>
         <Text

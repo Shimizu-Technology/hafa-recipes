@@ -175,7 +175,7 @@ export default function Today() {
   return (
     <Screen title={child && showCare ? child.name : "Today"} subtitle={child ? babyAge(child, now) : undefined} numericSubtitle>
       <Stack.Screen options={{ title: child && showCare ? child.name : "Today" }} />
-      <Copy kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
+      <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
       {timer && timerChild ? <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />
@@ -197,12 +197,12 @@ export default function Today() {
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />
       </View>}
       <Grouped>
-        {showCare && <Row title={sleepTitle} detail={sleepDetail} icon={kindIcon.sleep}
+        {showCare && <Row title={sleepTitle} detail={sleepDetail} numericDetail icon={kindIcon.sleep}
           onPress={() => router.push(sleepEntry ? { pathname: "/record/[id]", params: { id: sleepEntry.id } } : "/care-history")} />}
-        {showCare && <Row title={`${glance.diapers.total} diaper${glance.diapers.total === 1 ? "" : "s"} today`} numericTitle
+        {showCare && <Row title={`${glance.diapers.total} diaper${glance.diapers.total === 1 ? "" : "s"} today`} numericTitle numericDetail
           detail={`${glance.diapers.wet} wet · ${glance.diapers.dirty} dirty`} icon={kindIcon.diaper}
           onPress={() => router.push("/care-history")} />}
-        <Row title={routine?.title || "Lists & routines"}
+        <Row numericDetail title={routine?.title || "Lists & routines"}
           detail={routine?.data.reminder_at ? `Reminder ${friendlyTime(routine.data.reminder_at, now)}` : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
         <Row title="Write in your journal" icon="book-outline"
