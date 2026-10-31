@@ -11,6 +11,8 @@ describe('native launch destination', () => {
     ['hafarecipes://history', '/history'], ['/index?sharedUrl=https%3A%2F%2Fexample.com', '/?sharedUrl=https%3A%2F%2Fexample.com'],
     ['exp://127.0.0.1:8083/--/(tabs)/history', '/history'],
     ['hafarecipes:///(tabs)/index?sharedReceiptId=receipt', '/?sharedReceiptId=receipt'],
+    ['hafarecipes://(tabs)/index?captureToken=abc#receipt', '/?captureToken=abc#receipt'],
+    ['hafarecipes://(tabs)/history?scope=library', '/history?scope=library'],
   ])('preserves the destination and parameters of %s', (path, expected) => {
     expect(redirectSystemPath({ path, initial: true })).toBe(expected);
     expect(redirectSystemPath({ path, initial: false })).toBe(expected);
