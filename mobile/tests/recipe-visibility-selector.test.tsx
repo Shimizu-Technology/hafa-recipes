@@ -15,7 +15,8 @@ vi.mock('@/components/Themed', async () => {
       border: '#ddd',
       text: '#111',
       textMuted: '#666',
-      textSecondary: '#555',
+      textSecondary: 'rgba(235,235,245,0.60)',
+      surface2: 'rgba(118,118,128,0.24)',
       tint: '#155c52',
     }),
   };
@@ -63,6 +64,14 @@ describe('RecipeVisibilitySelector', () => {
 
     expect(screen.getByLabelText('Private').props.accessibilityState.checked).toBe(false);
     expect(screen.getByLabelText('Public in Discover').props.accessibilityState.checked).toBe(true);
+  });
+
+  it('keeps selected fills valid when the secondary text token is RGBA', async () => {
+    const screen = await render(<RecipeVisibilitySelector value="public" onChange={vi.fn()} />);
+    for (const label of ['Private', 'Public in Discover']) {
+      const colors = screen.getByLabelText(label).props.style.flat().filter(Boolean).flatMap((style: Record<string, unknown>) => [style.backgroundColor, style.borderColor]).filter(Boolean);
+      for (const color of colors) expect(color).toMatch(/^(?:#[0-9a-f]{3,8}|rgba?\([\d.,\s]+\))$/i);
+    }
   });
 
   it('reports the requested choice without changing it internally', async () => {

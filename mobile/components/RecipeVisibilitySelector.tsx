@@ -71,7 +71,7 @@ export function RecipeVisibilitySelector({
                 compact && { flex: 1, padding: spacing.sm, minHeight: 48, gap: spacing.sm },
                 {
                   backgroundColor: selected
-                    ? selectedColor + '12'
+                    ? colors.surface2
                     : colors.backgroundElevated,
                   borderColor: selected ? selectedColor : colors.border,
                 },
@@ -87,7 +87,7 @@ export function RecipeVisibilitySelector({
               {!compact && <RNView
                 style={[
                   styles.optionIcon,
-                  { backgroundColor: selected ? selectedColor + '18' : colors.backgroundSecondary },
+                  { backgroundColor: selected ? colors.surface2 : colors.backgroundSecondary },
                 ]}
               >
                 <Ionicons
