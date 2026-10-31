@@ -683,7 +683,7 @@ export function TextLinks({ options, value, onChange, label }: { options: { labe
     {options.map(option => <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
       accessibilityState={{ selected: value === option.value, checked: value === option.value }}
       onPress={() => { if (value !== option.value) tap(); onChange(option.value); }}
-      style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}>
+      style={{ minHeight: 44, justifyContent: "center", maxWidth: fontScale >= 1.3 ? "100%" : undefined, flexShrink: fontScale >= 1.3 ? 1 : 0 }}>
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400", textDecorationLine: value === option.value ? "underline" : "none" }}>{option.label}</Text>
     </PressTarget>)}
   </View>;

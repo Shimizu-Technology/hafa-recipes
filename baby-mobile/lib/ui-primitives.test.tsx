@@ -35,6 +35,7 @@ vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
 
+import { View } from "react-native";
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
@@ -271,13 +272,14 @@ it.each([1, 3.1])("changes the active text-link filter and exposes its radio sel
       options={[{ label: "Everything", value: "all" }, { label: "Doctor questions", value: "question" }]}
       onChange={next => { changed(next); setValue(next); }} />;
   }
-  await mount(<Filters />);
+  await mount(<View style={{ width: 288 }}><Filters /></View>);
   const choices = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
   expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
     { selected: true, checked: true }, { selected: false, checked: false },
   ]);
   await act(async () => choices()[1].props.onPress());
   expect(changed).toHaveBeenCalledExactlyOnceWith("question");
+  if (fontScale >= 1.3) expect(choices()[1].props.style).toEqual(expect.arrayContaining([expect.objectContaining({ maxWidth: "100%", flexShrink: 1 })]));
   expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
     { selected: false, checked: false }, { selected: true, checked: true },
   ]);
