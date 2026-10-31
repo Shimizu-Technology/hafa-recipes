@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Platform } from 'react-native';
 import type { GroceryItem } from '@/types/recipe';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -44,6 +45,8 @@ function host(name: string) {
 
 vi.mock('react-native', () => ({
   ActivityIndicator: host('ActivityIndicator'),
+  Modal: (props: any) => props.visible ? React.createElement('Modal', props, props.children) : null,
+  ScrollView: host('ScrollView'),
   Alert: { alert: mocks.alert },
   ActionSheetIOS: { showActionSheetWithOptions: (options: any, callback: any) => mocks.alert('Actions', undefined, options.options.map((text: string, index: number) => ({ text, onPress: () => callback(index) }))) },
   Keyboard: { dismiss: vi.fn() },
@@ -558,6 +561,19 @@ describe('GroceryScreen shopping views', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('keeps household sharing reachable on Android without truncating the action list', async () => {
+    Object.assign(Platform, { OS: 'android' });
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<GroceryScreen />));
+      await act(async () => root.container.queryAll(node => node.props.accessibilityLabel === 'More grocery list actions')[0].props.onPress());
+      const household = root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === 'Household sharing & list settings')[0];
+      expect(household).toBeDefined();
+      await act(async () => household.props.onPress());
+      expect(root.container.queryAll(node => node.type === 'GroceryListSettingsModal')[0].props.isVisible).toBe(true);
+    } finally { Object.assign(Platform, { OS: 'ios' }); await act(async () => root.unmount()); }
   });
 
   it('uses one field for search/add and names the exported view', async () => {

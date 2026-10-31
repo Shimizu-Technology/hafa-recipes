@@ -9,6 +9,8 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   SectionList,
+  ScrollView,
+  Modal,
   TouchableOpacity,
   RefreshControl,
   View as RNView,
@@ -236,6 +238,7 @@ function GroceryScreenContent() {
   const [editingItem, setEditingItem] = useState<GroceryItem | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
+  const [overflowActions, setOverflowActions] = useState<{ text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] | null>(null);
 
   // Set up offline sync (syncs pending changes when back online)
   const { lastSyncResult, clearSyncResult } = useGrocerySync(isAuthenticated);
@@ -806,7 +809,7 @@ function GroceryScreenContent() {
       options: options.map(option => option.text), cancelButtonIndex: options.length - 1,
       destructiveButtonIndex: options.findIndex(option => option.text === 'Clear all items'),
     }, index => options[index]?.onPress?.());
-    else Alert.alert('Actions', undefined, options);
+    else setOverflowActions(options);
   };
 
   // Build subtitle text
@@ -951,6 +954,19 @@ function GroceryScreenContent() {
           />
         ) : undefined}
       />
+
+      {isAuthenticated && <Modal visible={overflowActions !== null} transparent animationType="fade" onRequestClose={() => setOverflowActions(null)}>
+        <RNView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <RNView style={{ backgroundColor: colors.backgroundElevated, padding: 16, paddingBottom: Math.max(16, insets.bottom), borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' }}>
+            <ScrollView>
+              {overflowActions?.map(action => <TouchableOpacity key={action.text} accessibilityRole="button" accessibilityLabel={action.text}
+                style={{ minHeight: 50, paddingVertical: 12 }} onPress={() => { setOverflowActions(null); action.onPress?.(); }}>
+                <Text style={{ color: action.style === 'destructive' ? colors.destructive : colors.text }}>{action.text}</Text>
+              </TouchableOpacity>)}
+            </ScrollView>
+          </RNView>
+        </RNView>
+      </Modal>}
 
       {/* Edit Modal */}
       {isAuthenticated && <EditGroceryItemModal
