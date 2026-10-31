@@ -1,3 +1,4 @@
+vi.mock('@react-native-community/netinfo', () => ({ default: {} }));
 import { scopedRecipeKey } from '../lib/recipeQueryScope';
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';

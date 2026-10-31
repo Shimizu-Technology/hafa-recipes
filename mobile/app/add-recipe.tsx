@@ -558,6 +558,11 @@ function ManualRecipeForm() {
       <Stack.Screen
         options={{
           headerTitle: initialData ? 'Edit Recipe' : 'Add Recipe',
+          headerLeft: () => <TouchableOpacity onPress={() => router.back()}
+            accessibilityRole="button" accessibilityLabel={initialData ? 'Cancel editing recipe' : 'Cancel adding recipe'}
+            style={{ minHeight: 44, minWidth: 44, justifyContent: 'center' }}>
+            <Text style={{ color: colors.actionText }}>Cancel</Text>
+          </TouchableOpacity>,
 
         }}
       />

@@ -626,10 +626,10 @@ function PlannerScreenContent() {
   // Auth check
   if (isLoaded && !isSignedIn) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
-          style={styles.signedOutScroll}
+          style={[styles.signedOutScroll, { backgroundColor: colors.background }]}
           contentContainerStyle={[
             styles.signedOutContent,
             {
@@ -726,12 +726,12 @@ function PlannerScreenContent() {
           </RNView>
         </ScrollView>
         <SignInBanner message="Sign in to plan your meals for the week!" />
-      </View>
+      </>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
+    <>
       {/* Day Content */}
       <ScrollView ref={weekScroll}
           onLayout={event => { scrollSize.current.height = event.nativeEvent.layout.height; scrollToRequestedDay(); }}
@@ -740,7 +740,7 @@ function PlannerScreenContent() {
           onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
           onScrollToTop={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
-        style={styles.content}
+        style={[styles.content, { backgroundColor: colors.groupedBackground }]}
         contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl
@@ -896,7 +896,7 @@ function PlannerScreenContent() {
         onSelect={handleRecipeSelected}
         title={`Add ${selectedMealType}`}
       />
-    </View>
+    </>
   );
 }
 

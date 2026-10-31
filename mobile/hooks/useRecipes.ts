@@ -13,6 +13,7 @@ import type { CapturedRecipeSaveInput } from '@/lib/captureSave';
 import { keepPreviousData, type InfiniteData, type QueryClient, type MutateOptions } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuth } from '@clerk/expo';
 import { AppState, AppStateStatus } from 'react-native';
 import { api, type CaptureSourceType } from '../lib/api';
@@ -236,6 +237,8 @@ export function useRecipe(id: string, enabled = true) {
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [connected, setConnected] = useState<boolean | null>(null);
   const [, updateClock] = useState(0);
+  const mountedDetail = useRef(true);
+  const networkRevision = useRef(0);
   const requestScope = useRef({ userId, foreground, connected });
   requestScope.current = { userId, foreground, connected };
   const coverWindow = useRef<{ key: string; deadline: number } | null>(null);
@@ -243,27 +246,39 @@ export function useRecipe(id: string, enabled = true) {
 
   useEffect(() => {
     let mounted = true;
+    mountedDetail.current = true;
     let unsubscribe: (() => void) | undefined;
     const appState = AppState.addEventListener('change', (state) => {
       if (!mounted) return;
       requestScope.current.foreground = state === 'active';
       setForeground(state === 'active');
     });
-    // Load the native subscription only for mounted details, without extra API probes.
-    void import('@react-native-community/netinfo').then(({ default: netInfo }) => {
+    const updateConnection = (state: Awaited<ReturnType<typeof NetInfo.fetch>>) => {
       if (!mounted) return;
-      unsubscribe = netInfo.addEventListener((state) => {
-        if (!mounted) return;
-        const online = state.isConnected === true && state.isInternetReachable !== false;
-        requestScope.current.connected = online;
-        setConnected(online);
+      const online = state.isConnected === null ? null
+        : state.isConnected === true && state.isInternetReachable !== false;
+      requestScope.current.connected = online;
+      setConnected(online);
+    };
+    // NetInfo is already part of native query lifecycle. A lazy import here can
+    // fail to load Metro's split URL when dependencies live outside a worktree.
+    try {
+      unsubscribe = NetInfo.addEventListener((state) => {
+        networkRevision.current += 1;
+        updateConnection(state);
       });
-    }).catch(() => {
-      // Keep cached detail available and avoid an indefinite initial loading state.
-      if (mounted) setConnected(false);
-    });
+    } catch {
+      // An unavailable observer is unknown connectivity, not proof of offline.
+      // On-demand reads still work; cover polling requires confirmed online.
+    }
+    const revision = networkRevision.current;
+    // Bootstrap independently of the first listener event; ignore stale probes.
+    void Promise.resolve().then(() => NetInfo.fetch()).then(state => {
+      if (networkRevision.current === revision) updateConnection(state);
+    }).catch(() => undefined);
     return () => {
       mounted = false;
+      mountedDetail.current = false;
       appState.remove();
       unsubscribe?.();
     };
@@ -293,23 +308,51 @@ export function useRecipe(id: string, enabled = true) {
       const assertCanRequest = () => {
         assertCurrent();
         const scope = requestScope.current;
-        if (!scope.foreground || !scope.connected) throw new Error('Recipe refresh paused');
+        if (!scope.foreground || scope.connected === false) throw new Error('Recipe refresh paused');
       };
       assertCanRequest();
       const recipe = await api.getRecipe(id, signal, assertCanRequest);
       assertCurrent();
       return recipe;
     },
-    enabled: enabled && !!id && isLoaded && foreground && connected === true,
-    retry: (failureCount, error) => !(error instanceof CaptureAccountChangedError) && failureCount < 1,
+    enabled: enabled && !!id && isLoaded && foreground && connected !== false,
+    retry: (failureCount, error) => !(error instanceof CaptureAccountChangedError)
+      && requestScope.current.foreground && requestScope.current.connected !== false && failureCount < 1,
     refetchInterval: (currentQuery) => {
-      if (!foreground || !connected || currentQuery.state.status === 'error') return false;
+      if (!foreground || connected !== true || currentQuery.state.status === 'error') return false;
       const remaining = pendingDeadline(currentQuery.state.data) - Date.now();
       return remaining > COVER_POLL_INTERVAL_MS ? COVER_POLL_INTERVAL_MS : false;
     },
     refetchIntervalInBackground: false,
   });
-  const offline = useOfflineRecipe(id, userId, query.data, query.error, connected === true && !query.error, query.refetch);
+  const refetch = useCallback(async (...args: Parameters<typeof query.refetch>) => {
+    assertRecipeScope(authority);
+    if (!mountedDetail.current || !enabled || !id || !isLoaded || !requestScope.current.foreground) return query;
+    // Explicit Retry rechecks the native state, even if its listener is delayed.
+    // A stalled native probe must not prevent an on-demand request indefinitely.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const revision = networkRevision.current;
+    try {
+      const state = await Promise.race([
+        // refresh() forces a native read; fetch() may return the cached offline state.
+        Promise.resolve().then(() => NetInfo.refresh()),
+        new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 1_500); }),
+      ]);
+      assertRecipeScope(authority);
+      if (mountedDetail.current && state && networkRevision.current === revision) {
+        const online = state.isConnected === null ? null
+          : state.isConnected === true && state.isInternetReachable !== false;
+        requestScope.current.connected = online;
+        setConnected(online);
+      }
+    } catch {
+      assertRecipeScope(authority);
+      // Keep the last known connection state when the native probe is unavailable.
+    } finally { clearTimeout(timer); }
+    if (!mountedDetail.current || !requestScope.current.foreground || requestScope.current.connected === false) return query;
+    return query.refetch(...args);
+  }, [authority, enabled, id, isLoaded, query.refetch]);
+  const offline = useOfflineRecipe(id, userId, query.data, query.error, connected === true && !query.error, refetch);
   const deadline = pendingDeadline(query.data);
   const thumbnailPending = deadline > Date.now();
   const hasData = query.data !== undefined;
@@ -348,11 +391,13 @@ export function useRecipe(id: string, enabled = true) {
 
   return {
     ...query,
+    refetch,
+    isOffline: connected === false,
     data: query.data && offline.allowed ? query.data : offline.recipe,
     offlineSavedAt: offline.savedAt,
     usingOffline: !query.data && !!offline.recipe || connected === false && !!offline.recipe,
     isLoading: offline.loading && !query.data || query.isLoading || (query.isPending && enabled && foreground && !!id
-      && (connected === null || (!isLoaded && connected !== false))),
+      && connected !== false),
     thumbnailPending,
     preview,
   };

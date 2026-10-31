@@ -758,10 +758,11 @@ function GroceryScreenContent() {
   };
 
   return (
-    <RNView style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
+    <>
       <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
         style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="More grocery list actions"><Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
       <SectionList
+        style={[styles.container, { backgroundColor: colors.groupedBackground }]}
         key={fontScale}
         contentInsetAdjustmentBehavior="automatic"
         ListHeaderComponent={<RNView style={styles.header}>
@@ -871,7 +872,7 @@ function GroceryScreenContent() {
       
       {/* Sign In Banner for guests */}
       {isGuest && <SignInBanner message="Sign in to create grocery lists" />}
-    </RNView>
+    </>
   );
 }
 

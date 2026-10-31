@@ -1,3 +1,4 @@
+vi.mock('@react-native-community/netinfo', () => ({ default: {} }));
 import React, {act} from 'react';
 import {createRoot} from 'test-renderer';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
