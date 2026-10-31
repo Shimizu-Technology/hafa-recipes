@@ -10,6 +10,7 @@ import {
   View as RNView,
   TouchableOpacity,
   Dimensions,
+  useWindowDimensions,
   StatusBar,
   ScrollView,
   Animated,
@@ -145,6 +146,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     servings?: string;
   }>();
   const router = useRouter();
+  const { fontScale } = useWindowDimensions();
   const colors = useColors();
   const cook = colors;
   const appearance = colors.background === '#000000' ? 'dark' : 'light';
@@ -922,10 +924,10 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       </Animated.View>
 
       {/* Navigation */}
-      <RNView style={[styles.navigation, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <RNView style={[styles.navigation, fontScale >= 1.3 && { flexWrap: 'wrap', gap: 8 }, { paddingBottom: insets.bottom + spacing.sm }]}>
         <TouchableOpacity
           onPress={goToPrevStep}
-          style={[styles.navButton, currentStepIndex === 0 && styles.navButtonDisabled]}
+          style={[styles.navButton, fontScale >= 1.3 && { flexBasis: '100%' }, currentStepIndex === 0 && styles.navButtonDisabled]}
           disabled={currentStepIndex === 0}
           accessibilityRole="button"
           accessibilityLabel="Previous step"
@@ -937,7 +939,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           </Text>
         </TouchableOpacity>
 
-        <RNView style={styles.stepDots}>
+        <RNView style={[styles.stepDots, fontScale >= 1.3 && { display: 'none' }]}>
           {steps.slice(Math.max(0, currentStepIndex - 2), Math.min(steps.length, currentStepIndex + 3)).map((_, i) => {
             const actualIndex = Math.max(0, currentStepIndex - 2) + i;
             return (
@@ -955,17 +957,17 @@ function CookModeScreenContent({ generation }: { generation: string }) {
 
         <TouchableOpacity
           onPress={goToNextStep}
-          style={[styles.navButton, styles.navButtonNext]}
+          style={[styles.navButton, styles.navButtonNext, fontScale >= 1.3 && { flexBasis: '100%' }]}
           accessibilityRole="button"
           accessibilityLabel={isLastStep ? 'Finish recipe' : 'Next step'}
         >
-          <Text style={styles.navButtonText}>
+          <Text style={[styles.navButtonText, { color: cook.onTint }]}>
             {isLastStep ? 'Finish' : 'Next'}
           </Text>
           <Ionicons 
             name={isLastStep ? "checkmark" : "chevron-forward"} 
             size={28} 
-            color={cook.text} 
+            color={cook.onTint} 
           />
         </TouchableOpacity>
       </RNView>
@@ -1339,12 +1341,12 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cook.backgroundElevated,
-    paddingVertical: spacing.md,
+    backgroundColor: cook.tint + '20',
+    paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: radius.full,
     gap: spacing.sm,
-    flex: 1,
+    minHeight: 44,
   },
   timerButtonText: {
     color: cook.actionText,
@@ -1352,6 +1354,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   detectedTimerRow: {
+    alignSelf: 'flex-start', flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -1365,34 +1368,35 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     justifyContent: 'center',
   },
   timerCard: {
-    backgroundColor: cook.backgroundSecondary,
+    alignSelf: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+    backgroundColor: cook.tint + '18',
     borderRadius: 20,
-    padding: spacing.lg,
+    padding: 8,
   },
   timerDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.md,
+    gap: 8,
+    marginBottom: 0,
   },
   timerText: {
     color: cook.actionText,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: fontWeight.bold,
     fontVariant: ['tabular-nums'],
   },
   timerComplete: {
     color: cook.actionText,
-    fontSize: 28,
+    fontSize: 22, lineHeight: 28,
   },
   timerProgress: {
-    height: 4,
+    position: 'absolute', left: 12, right: 12, bottom: 2,
+    height: 2,
     backgroundColor: cook.border,
     borderRadius: 2,
     overflow: 'hidden',
-    marginBottom: spacing.md,
   },
   timerProgressFill: {
     height: '100%',
@@ -1401,11 +1405,11 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
   timerControls: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing.lg,
+    gap: 4,
   },
   timerControlButton: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: 24,
     backgroundColor: cook.backgroundElevated,
     justifyContent: 'center',
@@ -1435,6 +1439,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     backgroundColor: cook.background,
   },
   navButton: {
+    backgroundColor: cook.surface2, borderRadius: radius.full,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
@@ -1445,7 +1450,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     gap: spacing.xs,
   },
   navButtonNext: {
-    backgroundColor: cook.surface2,
+    backgroundColor: cook.tint,
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,
   },
@@ -1454,7 +1459,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
   },
   navButtonText: {
     color: cook.text,
-    fontSize: fontSize.md,
+    fontSize: 17, lineHeight: 22,
     fontWeight: fontWeight.semibold,
   },
   navButtonTextDisabled: {

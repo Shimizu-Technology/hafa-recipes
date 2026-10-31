@@ -72,6 +72,7 @@ vi.mock('react-native', async () => {
     },
     Linking: { openSettings: mocks.openSettings },
     Dimensions: { get: () => ({ width: 400, height: 800 }) },
+    useWindowDimensions: () => ({ width: 400, height: 800, fontScale: 1 }),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: host('Modal'),
     Platform: { OS: 'ios' },
