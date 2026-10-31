@@ -385,6 +385,7 @@ export function Card({
 }
 export function Button({
   title,
+  accessibilityLabel,
   onPress,
   busy = false,
   disabled = false,
@@ -395,6 +396,7 @@ export function Button({
   numeric = false,
 }: {
   title: string;
+  accessibilityLabel?: string;
   onPress: () => void;
   busy?: boolean;
   disabled?: boolean;
@@ -412,7 +414,7 @@ export function Button({
   return (
     <PressTarget
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: disabled || busy, busy }}
       disabled={disabled || busy}
       onPress={onPress}

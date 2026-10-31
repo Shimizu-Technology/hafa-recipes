@@ -102,17 +102,18 @@ export function FeedTimerCard({
         <Copy kind="small" tone="muted">{sideTitle[side]}</Copy>
       </View>
       <Button icon="stop" title="Stop" busy={busy} onPress={() => void run(() => onDone(timer))} />
-      <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", flexWrap: "wrap", gap: 12 }}>
-        <View style={{ flexGrow: fontScale >= 1.3 ? 0 : 1, flexBasis: fontScale >= 1.3 ? undefined : 140 }}>
+      <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
+        <View style={{ flexGrow: fontScale >= 1.3 ? 0 : 1, flexBasis: fontScale >= 1.3 ? undefined : 0, minWidth: 0 }}>
           <Button
             secondary
             icon="swap-horizontal"
-            title={`Switch to ${side === "left" ? "right" : "left"}`}
+            title="Switch"
+            accessibilityLabel={`Switch to ${side === "left" ? "right" : "left"}`}
             disabled={busy}
             onPress={() => void change((current) => switchSide(current, new Date()))}
           />
         </View>
-        <View style={{ flexGrow: fontScale >= 1.3 ? 0 : 1, flexBasis: fontScale >= 1.3 ? undefined : 140 }}>
+        <View style={{ flexGrow: fontScale >= 1.3 ? 0 : 1, flexBasis: fontScale >= 1.3 ? undefined : 0, minWidth: 0 }}>
           <Button
             secondary
             icon={paused ? "play" : "pause"}
