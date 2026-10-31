@@ -5,7 +5,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const state = vi.hoisted(() => ({ platform: 'ios', generation: 1, filters: {} as any, push: vi.fn(), next: vi.fn() }));
-vi.mock('expo-router', () => ({ Stack: { SearchBar: React.forwardRef((props: any, ref: any) => { React.useImperativeHandle(ref, () => ({ setText: vi.fn(), focus: vi.fn() })); return React.createElement('SearchBar', props); }) }, useRouter: () => ({ push: state.push }) }));
+vi.mock('expo-router', () => ({ Stack: { SearchBar: React.forwardRef((props: any, ref: any) => { React.useImperativeHandle(ref, () => ({ setText: vi.fn(), focus: vi.fn(), blur: vi.fn() })); return React.createElement('SearchBar', props); }) }, useRouter: () => ({ push: state.push }) }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
 vi.mock('react-native', () => ({ ActivityIndicator: 'ActivityIndicator', View: 'View', Platform: { get OS() { return state.platform; } }, Pressable: 'Pressable', FlatList: ({ data, renderItem, ListHeaderComponent, ...props }: any) => <>{React.createElement('List', props)}{ListHeaderComponent}{data.map((item: any) => <React.Fragment key={item.id}>{renderItem({ item })}</React.Fragment>)}</> }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));

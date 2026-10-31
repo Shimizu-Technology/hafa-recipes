@@ -14,7 +14,7 @@ import { SignInBanner } from '@/components/SignInBanner';
 import { SkeletonRecipeList } from '@/components/Skeleton';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
-import { filterRecipesLocally, SearchFilters, usePopularTags, useRecipeCount, useRecipes, useSavedRecipes, useSearchRecipes, } from '@/hooks/useRecipes';
+import { filterRecipesLocally, SearchFilters, usePopularTags, useRecipes, useSavedRecipes, useSearchRecipes, } from '@/hooks/useRecipes';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { RecipeListItem } from '@/types/recipe';
 import { haptics } from '@/utils/haptics';
@@ -88,7 +88,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
-  const { userId, isSignedIn } = useAuth();
+  const { isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
   const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
@@ -163,9 +163,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     ownership: ownershipFilter,
   }, isAuthenticated);
-
-  const { data: countData } = useRecipeCount(undefined, isAuthenticated);
-  const ownLibraryTotal = countData?.count ?? 0;
 
   // Popular tags for this user
   const { data: popularTags } = usePopularTags('user', isAuthenticated);
@@ -256,20 +253,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     // Combine: own recipes first, then saved
     return [...ownRecipes, ...filteredSaved];
   }, [recipes, searchResults, isServerSearchCurrent, isSearchSuccess, savedRecipes, ownershipFilter, hasActiveFilters, sourceTypeParam, currentFilters]);
-
-  // Calculate total count based on ownership filter
-  // The library total ignores search filters; matches are the server's total for
-  // the current filtered search, never the length of the pages loaded so far.
-  const libraryCount = useMemo(() => {
-    if (ownershipFilter === 'saved') {
-      return savedTotal;
-    } else if (ownershipFilter === 'own') {
-      return ownLibraryTotal;
-    } else {
-      return ownLibraryTotal + savedTotal;
-    }
-  }, [ownershipFilter, ownLibraryTotal, savedTotal]);
-  const matchingCount = hasActiveFilters && isServerSearchCurrent && isSearchSuccess ? searchTotal : undefined;
 
   // For display, slice to current page
   const needsCheckCount = combinedRecipes?.filter(r => r.review_state && r.review_state !== 'ready').length ?? 0;
@@ -364,12 +347,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
 
   const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
     const CardComponent = isGrid ? GridRecipeCard : RecipeCard;
-    // Show heart badge for saved recipes:
-    // - In "saved" mode: ALL recipes are saved, show heart on all
-    // - In "all" mode: Show heart only for recipes from other users (saved ones)
-    // - In "own" mode: Never show heart (all are user's own)
-    const showSavedBadge = ownershipFilter === 'saved' ||
-      (ownershipFilter === 'all' && item.user_id !== userId);
+    const isSaved = ownershipFilter === 'saved' || Boolean(savedRecipes?.some(saved => saved.id === item.id));
 
     const isSelected = selectedRecipeIds.has(item.id);
 
@@ -388,8 +366,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       }
     };
 
-    // Grid view: overlay checkbox on card
-    if (isGrid) {
       return (
         <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
           <TouchableOpacity
@@ -405,7 +381,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               recipe={item}
               colors={colors}
               onPress={handlePress}
-              isSavedRecipe={showSavedBadge}
+              isSavedRecipe={isSaved}
               selected={isSelectionMode ? isSelected : undefined}
             />
             {isSelectionMode && (
@@ -424,51 +400,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           </TouchableOpacity>
         </AnimatedListItem>
       );
-    }
-
-    // List view: checkbox beside card
-    return (
-      <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
-        <RNView style={styles.selectableCardContainer}>
-          {isSelectionMode && (
-            <TouchableOpacity
-              style={[
-                styles.selectionCheckbox,
-                isSelected && { backgroundColor: colors.tint, borderColor: colors.tint },
-                !isSelected && { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
-              ]}
-              onPress={() => toggleRecipeSelection(item.id)}
-              activeOpacity={0.7}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: isSelected }}
-              accessibilityLabel={`Select ${item.title}`}
-            >
-              {isSelected && (
-                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-              )}
-            </TouchableOpacity>
-          )}
-          <RNView style={[styles.selectableCardWrapper, isSelectionMode && styles.selectableCardShifted]}>
-            <TouchableOpacity
-              onPress={handlePress}
-              onLongPress={handleLongPress}
-              delayLongPress={400}
-              activeOpacity={0.9}
-              // VoiceOver focuses the labelled card inside, not this wrapper.
-              accessible={false}
-            >
-              <CardComponent
-                recipe={item}
-                colors={colors}
-                onPress={handlePress}
-                isSavedRecipe={showSavedBadge}
-                selected={isSelectionMode ? isSelected : undefined}
-              />
-            </TouchableOpacity>
-          </RNView>
-        </RNView>
-      </AnimatedListItem>
-    );
   };
 
   // Memoize header to prevent re-render on search change

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { useIsFocused } from 'expo-router/react-navigation';
 import { useAuth } from '@clerk/expo';
@@ -28,6 +28,7 @@ function LibrarySearch() {
   // Session-only history retires with the account generation, along with the query.
   const [recent, setRecent] = useState<string[]>([]);
   const bar = useRef<SearchBarCommands>(null);
+  useEffect(() => { if (active) bar.current?.focus(); else bar.current?.blur(); }, [active]);
   const remember = () => { const text = query.trim(); if (text) setRecent(rows => [text, ...rows.filter(row => row.toLowerCase() !== text.toLowerCase())].slice(0, 6)); };
   const chooseRecent = (text: string) => { setQuery(text); bar.current?.setText(text); bar.current?.focus(); };
   const debounced = useDebouncedSearchQuery(query);

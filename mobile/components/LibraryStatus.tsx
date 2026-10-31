@@ -23,10 +23,10 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
   }, [lease?.owner, lease?.generation, lease?.epoch, active]);
   const jobs = useExtractionJobs('extract', active && Boolean(isSignedIn));
   const inbox = useImportInbox();
-  const importing = jobs.data?.some(job => ['queued', 'claimed', 'processing'].includes(job.status)) || inbox.entries.some(entry => ['ready', 'submitting'].includes(entry.state));
+  const importing = Boolean(isSignedIn) && (jobs.data?.some(job => ['queued', 'claimed', 'processing'].includes(job.status)) || inbox.entries.some(entry => ['ready', 'submitting'].includes(entry.state)));
   const links = [
     ...(isSignedIn ? [{ title: 'Collections', onPress: () => router.push('/collections') }] : []),
-    ...(offlineCount ? [{ title: 'Offline', onPress: () => router.push('/offline-recipes') }] : []),
+    ...(isSignedIn && lease && offlineCount ? [{ title: 'Offline', onPress: () => router.push('/offline-recipes') }] : []),
     { title: `Needs a check${needsCheck ? ` · ${needsCheck}` : ''}`, onPress: onNeedsCheck },
     { title: 'Filter', onPress: onFilter },
   ];
