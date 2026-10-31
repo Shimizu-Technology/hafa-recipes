@@ -46,6 +46,6 @@ export function SavedPostRow({ record, pending }: { record: BabyRecord; pending:
         {pending ? status : [record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
       </Copy>
     </View>
-    <Icon name="chevron-forward" size={16} />
+    <Icon name="chevron-forward" size={16} color={c.muted} />
   </PressTarget>;
 }

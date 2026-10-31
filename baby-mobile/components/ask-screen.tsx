@@ -171,7 +171,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
               <Card tone="soft">
                 <Copy kind="heading">Proposed: {m.proposal.title}</Copy>
                 <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
-                <Button title="Review suggestion" onPress={() => void review(m.proposal!)} />
+                <Button secondary title="Review suggestion" onPress={() => void review(m.proposal!)} />
               </Card>
             )}
           </View>
