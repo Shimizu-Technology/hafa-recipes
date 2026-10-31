@@ -7,7 +7,7 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { exportVisit } from "@/lib/files";
 import { visitSummary } from "@/lib/visit-summary";
-import { Button, Card, TextLinks, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
 import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -104,7 +104,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     <Screen
       title={careHistory ? "Care history" : "Journal"}
       back={careHistory}
-      action={careHistory && <Button variant="ghost" title={searching ? "Close search" : "Search"} icon="search-outline"
+      action={careHistory && <HeaderAction title={searching ? "Close search" : "Search"}
         onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
     >
       {!careHistory && <HeaderSearch value={q} onChange={setQ} placeholder="Search notes and questions" />}
