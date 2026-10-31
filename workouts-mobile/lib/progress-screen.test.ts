@@ -200,7 +200,7 @@ it.each([403, 404, 409, 410, 422])("routes a permanently rejected recovery to Pr
   const buttons = renderer!.root.findAllByType("Button" as never);
   expect(buttons.some(node => /Continue saving|Save private/.test(node.props.title))).toBe(false);
   await act(async () => buttons.find(node => node.props.title === "Review in Progress")!.props.onPress());
-  expect(fixture.replace).toHaveBeenCalledWith("/(tabs)/progress");
+  expect(fixture.replace).toHaveBeenCalledWith("/progress");
   expect(fixture.store.recoverResult).not.toHaveBeenCalled();
 });
 
