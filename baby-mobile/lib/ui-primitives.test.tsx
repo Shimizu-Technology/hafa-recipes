@@ -39,7 +39,7 @@ import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
 import { TabStack } from "../components/tab-stack";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TextLinks } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -259,4 +259,33 @@ it.each(["back", "close"])("keeps a cold-linked native %s screen escapable witho
   mock.canGoBack = true;
   await act(async () => control.props.onPress());
   expect(mock.back).toHaveBeenCalledOnce();
+});
+
+
+it.each([1, 3.1])("changes the active text-link filter and exposes its radio selection at scale %s", async fontScale => {
+  mock.fontScale = fontScale;
+  const changed = vi.fn();
+  function Filters() {
+    const [value, setValue] = React.useState("all");
+    return <TextLinks label="Journal filters" value={value}
+      options={[{ label: "Everything", value: "all" }, { label: "Doctor questions", value: "question" }]}
+      onChange={next => { changed(next); setValue(next); }} />;
+  }
+  await mount(<Filters />);
+  const choices = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
+    { selected: true, checked: true }, { selected: false, checked: false },
+  ]);
+  await act(async () => choices()[1].props.onPress());
+  expect(changed).toHaveBeenCalledExactlyOnceWith("question");
+  expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
+    { selected: false, checked: false }, { selected: true, checked: true },
+  ]);
+  const group = renderer!.root.findAllByType("View" as React.ElementType)
+    .find(view => view.props.accessibilityRole === "radiogroup")!;
+  expect(group.props.accessibilityLabel).toBe("Journal filters");
+  expect(group.props.style.flexWrap).toBe(fontScale >= 1.3 ? "wrap" : "nowrap");
+  const horizontal = renderer!.root.findAllByType("ScrollView" as React.ElementType)
+    .filter(view => view.props.horizontal);
+  expect(horizontal).toHaveLength(fontScale >= 1.3 ? 0 : 1);
 });
