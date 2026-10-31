@@ -22,7 +22,7 @@ vi.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'recipe-id' }
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'owner', isLoaded: true }), useUser: () => ({ user: {} }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
-vi.mock('@/components/Themed', () => ({ Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => ({ text: '#111', textMuted: '#555', background: '#fff' }) }));
+vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => ({ text: '#111', textMuted: '#555', background: '#fff' }) }));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: () => null }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));
 vi.mock('@/components/AddIngredientsModal', () => ({ default: () => null }));
@@ -48,7 +48,7 @@ vi.mock('@/hooks/useCommunitySafety', () => ({ useBlockContributor: () => ({}), 
 vi.mock('@/contexts/ExtractionContext', () => ({ useAsyncExtraction: () => ({}) }));
 vi.mock('@/lib/toast', () => ({ showToast: vi.fn() }));
 vi.mock('@/lib/openRecipeSource', () => ({ openRecipeSource: vi.fn() }));
-vi.mock('@/utils/haptics', () => ({ haptics: {} }));
+vi.mock('@/utils/haptics', () => ({ haptics: { selection: vi.fn() } }));
 vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
     is_owner: true, is_public: false, review_state: 'ready', content_revision: 1,
@@ -86,4 +86,22 @@ it('retires the mounted detail contents when the same subject changes stable own
     await act(async () => { await offlineRecipes.verify('detail-subject', 'owner-b'); });
     expect(root.container.queryAll(node => node.props.children === 'Rice')).toHaveLength(0);
   } finally { await act(async () => root.unmount()); m.unavailable = false; await offlineRecipes.clear(); }
+});
+
+
+it('checks ingredients independently and keeps the main Plan action scaled', async () => {
+  m.servings = 4; m.scaled = 8; m.push.mockClear();
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    const checkbox = () => root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityRole === 'checkbox')[0];
+    expect(checkbox().props.accessibilityState.checked).toBe(false);
+    await act(async () => checkbox().props.onPress());
+    expect(checkbox().props.accessibilityState.checked).toBe(true);
+    await act(async () => checkbox().props.onPress());
+    expect(checkbox().props.accessibilityState.checked).toBe(false);
+    const plan = root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Plan')[0];
+    await act(async () => plan.props.onPress());
+    expect(m.push.mock.calls.at(-1)?.[0].params.servings).toBe('8');
+  } finally { await act(async () => root.unmount()); }
 });

@@ -84,6 +84,7 @@ vi.mock('react-native', async () => {
     View: host('NativeView'),
   };
 });
+vi.mock('@expo/ui/community/segmented-control', () => ({ default: 'SegmentedControl' }));
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'Light', Medium: 'Medium', Heavy: 'Heavy' },
   NotificationFeedbackType: { Success: 'Success', Warning: 'Warning', Error: 'Error' },
@@ -105,7 +106,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 vi.mock('expo-router', () => {
   const Stack = () => null;
-  Stack.Screen = () => null;
+  Stack.Screen = (props: any) => props.options?.headerLeft?.() ?? null;
   return {
     Stack,
     useLocalSearchParams: () => ({ id: 'recipe-1' }),
@@ -310,7 +311,7 @@ describe('CookModeScreen', () => {
 
       // Further ticks and re-renders must not replay the alert.
       await advance(10_000);
-      await act(async () => buttonByLabel(renderer, 'Show ingredients').props.onPress());
+      await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
       await flush();
       expect(completionHaptics()).toBe(1);
       expect(mocks.vibrate).toHaveBeenCalledOnce();
@@ -457,7 +458,7 @@ describe('CookModeScreen', () => {
     it('labels the header and navigation controls and reflects the disabled state', async () => {
       const renderer = await renderScreen();
 
-      for (const label of ['Exit cook mode', 'Show ingredients', 'Previous step', 'Next step']) {
+      for (const label of ['Exit cook mode', 'Previous step', 'Next step']) {
         expect(buttonByLabel(renderer, label).props.accessibilityRole).toBe('button');
       }
       expect(buttonByLabel(renderer, 'Previous step').props.disabled).toBe(true);
@@ -482,16 +483,16 @@ describe('CookModeScreen', () => {
       expect(done.props.accessibilityRole).toBe('button');
     });
 
-    it('opens and closes the ingredients sheet through labelled buttons', async () => {
+    it('switches to ingredients and returns to the same cooking step', async () => {
       const renderer = await renderScreen();
-      const ingredientsModal = () => renderer.root.findAllByType('Modal' as unknown as React.ComponentType)
-        .find((modal) => textOf(modal).includes('Ingredients'))!;
-
-      expect(ingredientsModal().props.visible).toBe(false);
-      await act(async () => buttonByLabel(renderer, 'Show ingredients').props.onPress());
-      expect(ingredientsModal().props.visible).toBe(true);
-      await act(async () => buttonByLabel(renderer, 'Close ingredients').props.onPress());
-      expect(ingredientsModal().props.visible).toBe(false);
+      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
+      const segment = () => renderer.root.findByType('SegmentedControl' as any);
+      expect(segment().props.values).toEqual(['Steps', 'Ingredients']);
+      await act(async () => segment().props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+      expect(segment().props.selectedIndex).toBe(1);
+      expect(buttonByLabel(renderer, 'Next step')).toBeUndefined();
+      await act(async () => segment().props.onChange({ nativeEvent: { selectedSegmentIndex: 0 } }));
+      expect(stepCounter(renderer)).toBe('Step 2 of 4');
     });
   });
 });

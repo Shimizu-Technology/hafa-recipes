@@ -21,8 +21,8 @@ export function OfflineRecipeControl({ recipeId, eligible }: { recipeId: string;
   }, [scope, recipeId, eligible]);
   if (!lease || (!eligible && !row)) return null;
   return <View style={{ gap: 8, paddingVertical: 8 }}>
-    {row && <Text>Offline copy · Updated {new Date(row.savedAt).toLocaleString()}. Changes may be missing while offline.</Text>}
-    <Button title={row?.pinned ? 'Available offline ✓' : 'Make available offline'} disabled={busy}
+    {row && <Text style={{ fontSize: 13, lineHeight: 18 }}>Offline copy · Updated {new Date(row.savedAt).toLocaleString()}. Changes may be missing while offline.</Text>}
+    <Button variant="secondary" title={row?.pinned ? 'Available offline ✓' : 'Make available offline'} disabled={busy}
       onPress={() => {
         const current = () => { const authority = offlineRecipes.lease(userId); return authority?.owner === lease.owner && authority.generation === lease.generation && authority.epoch === lease.epoch; };
         if (!current()) return;

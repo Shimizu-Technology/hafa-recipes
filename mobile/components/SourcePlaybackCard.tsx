@@ -150,7 +150,7 @@ export function SourcePlaybackCard({
 }
 
 const styles = StyleSheet.create({
-  card: { width: '100%', alignSelf: 'center', borderWidth: 1, borderRadius: radius.xl, overflow: 'hidden' },
+  card: { width: '100%', alignSelf: 'center', borderWidth: 0, borderRadius: radius.md, overflow: 'hidden' },
   preview: { width: '100%' },
   previewImage: { width: '100%', maxHeight: 340 },
   sourceAction: { minHeight: 80, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
