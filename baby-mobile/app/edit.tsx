@@ -283,7 +283,7 @@ export default function Edit() {
           },
         });
         void b.sync();
-        router.dismissTo("/(tabs)");
+        router.dismissTo("/(tabs)/(today)");
         return;
       }
       toast(

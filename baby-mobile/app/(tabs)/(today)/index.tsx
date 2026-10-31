@@ -34,6 +34,9 @@ function Tile({ icon, label, hint, onPress }: { icon: IconName; label: string; h
       onPress={onPress}
       style={({ pressed }) => ({
         flex: 1,
+        flexBasis: 0,
+        flexShrink: 1,
+        minWidth: 0,
         paddingVertical: 19,
         paddingHorizontal: 8,
         borderRadius: 22,
@@ -166,17 +169,9 @@ export default function Today() {
   }
   return (
     <Screen
-      title={now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-      action={
-        <PressTarget
-          accessibilityRole="button"
-          accessibilityLabel="Settings and profiles"
-          onPress={() => router.push("/settings")}
-          style={{ padding: 10 }}
-        >
-          <Icon name="person-circle-outline" size={30} />
-        </PressTarget>
-      }
+      title="Today"
+      numericSubtitle
+      subtitle={now.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
     >
       <SyncStatus />
       {!children.length && <Row title="Add a baby profile" detail="Optional · personalize everyday care when you’re ready"
