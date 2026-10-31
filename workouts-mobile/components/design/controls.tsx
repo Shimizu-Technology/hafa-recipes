@@ -362,9 +362,9 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
   return <AnimatedPressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: selected }}
     aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}
     style={{ flex: 1, minHeight: 44, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
-      backgroundColor: selected ? c.elevated : "transparent", borderWidth: 0, borderColor: c.border,
+      backgroundColor: selected ? c.action : "transparent", borderWidth: 0, borderColor: c.border,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-    <Copy kind="cardTitle" color={selected ? c.text : c.muted} align="center">{label}</Copy>
+    <Copy kind="cardTitle" color={selected ? c.onAction : c.muted} align="center">{label}</Copy>
   </AnimatedPressable>;
 }
 
