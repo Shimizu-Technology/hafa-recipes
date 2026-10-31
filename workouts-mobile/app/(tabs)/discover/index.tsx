@@ -74,6 +74,7 @@ export default function Discover() {
   const { api, owner, enrollment, isCurrentAccount } = useTraining();
   const params = useLocalSearchParams<{ q?: string }>();
   const cache = useQueryClient();
+  const [expandedSection, setExpandedSection] = useState<string>();
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState<string>();
   const saveLock = useRef(false);
@@ -173,14 +174,14 @@ export default function Discover() {
       if (!isCurrentAccount()) return;
       await Promise.all([cache.invalidateQueries({ queryKey: [owner, "discover"] }), cache.invalidateQueries({ queryKey: [owner, "library"] }), cache.invalidateQueries({ queryKey: [owner, "search-library"] })]);
       haptics.tick(); toast("Saved to your library");
-    } catch (error) { toast((error as Error).message, "error"); }
+    } catch (error) { if (isCurrentAccount()) toast((error as Error).message, "error"); }
     finally { saveLock.current = false; setSaving(undefined); }
   }
-  const recent = cards.filter(card => card.published_at && Date.now() - new Date(card.published_at).getTime() < 7 * 86400000);
+  const recent = cards.filter(card => card.published_at && new Date(card.published_at).getTime() <= Date.now() && Date.now() - new Date(card.published_at).getTime() < 7 * 86400000);
   const quick = cards.filter(card => card.estimated_minutes != null && card.estimated_minutes < 20);
-  const sections = narrowed ? [{ title: "Results", items: cards }] : [
-    ...(recent.length ? [{ title: "New this week", items: recent.slice(0, 4) }] : []),
-    ...(quick.length ? [{ title: "Quick (under 20 min)", items: quick.slice(0, 4) }] : []),
+  const sections: Array<{ title: string; items: DiscoverCard[]; more?: boolean }> = narrowed ? [{ title: "Results", items: cards }] : [
+    ...(recent.length ? [{ title: "New this week", more: recent.length > 4, items: expandedSection === "New this week" ? recent : recent.slice(0, 4) }] : []),
+    ...(quick.length ? [{ title: "Quick (under 20 min)", more: quick.length > 4, items: expandedSection === "Quick (under 20 min)" ? quick : quick.slice(0, 4) }] : []),
     { title: "All workouts", items: cards },
   ];
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
@@ -266,7 +267,10 @@ export default function Discover() {
           ) : (
             <>
               {sections.map(section => <View key={section.title} style={{ gap: 12 }}>
-                <Copy kind="subheading">{section.title}</Copy>
+                <Row justify="space-between" wrap>
+                  <Copy kind="subheading">{section.title}</Copy>
+                  {section.more && <Button title={expandedSection === section.title ? "Show less" : "See all"} variant="ghost" textLink size="sm" inline onPress={() => setExpandedSection(expandedSection === section.title ? undefined : section.title)} />}
+                </Row>
                 {view === "list" ? <ListGroup>{section.items.map(card => <ListRow key={card.id} title={card.title} detail={[card.source_creator, platformInfo(card.source_platform).label].filter(Boolean).join(" · ")} onPress={() => open(card)} />)}</ListGroup> : <DiscoverGrid>{section.items.map(card => <DiscoverGridCard key={card.id} card={card} onPress={() => open(card)}
                   onSave={() => enrollment?.enrolled ? void save(card) : router.push("/onboarding")} saving={saving === card.id} />)}</DiscoverGrid>}
               </View>)}

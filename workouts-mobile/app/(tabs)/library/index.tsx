@@ -2,7 +2,7 @@ import { BrowseHeader } from "@/components/native-tab-stack";
 import { BrowseLinks } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
@@ -42,8 +42,6 @@ export default function Library() {
   const cache = useQueryClient();
   const [view, setView] = useLibraryView(storage, owner);
   const [menu, setMenu] = useState(false);
-  const [search, setSearch] = useState("");
-  const [settledSearch, setSettledSearch] = useState("");
   const [equipment, setEquipment] = useState("");
   const [tags, setTags] = useState("");
   const [kind, setKind] = useState<LibraryFilters["kind"]>();
@@ -102,17 +100,12 @@ export default function Library() {
     } finally { if (scope.lock === token) scope.lock = null; try { current(); setBulkBusy(false); } catch { /* Current scope owns its controls. */ } }
   }
 
-  useEffect(() => {
-    const timer = setTimeout(() => setSettledSearch(search), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
   const collections = useQuery({
     queryKey: [owner, "collections", enrollment?.generation],
     queryFn: () => api.collections(enrollment?.generation ?? 0),
     enabled: !!enrollment?.enrolled,
   });
   const selected: LibraryFilters = {
-    q: settledSearch.trim(),
     equipment: equipment.trim(),
     kind,
     favorite_only: favorite,
@@ -153,12 +146,11 @@ export default function Library() {
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
   const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
-  const narrowed = !!search || !!filterCount;
+  const narrowed = !!filterCount;
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   function clear() {
     setNeedsInfo(false);
-    setSearch("");
     setEquipment("");
     setTags("");
     setKind(undefined);
