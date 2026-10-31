@@ -42,7 +42,7 @@ export default function Sync() {
   }
   return (
     <Screen
-      title="Saved, even offline."
+      title="Sync & recovery"
       subtitle="Review what’s waiting, recover a conflict, or keep a text backup."
       back
     >

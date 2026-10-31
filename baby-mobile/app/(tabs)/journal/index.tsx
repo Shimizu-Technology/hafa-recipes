@@ -7,7 +7,8 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { exportVisit } from "@/lib/files";
 import { visitSummary } from "@/lib/visit-summary";
-import { Button, Card, Chips, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -83,6 +84,16 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     const timer = setTimeout(() => void loadHistory(ticket, key), q.trim() ? 350 : 0);
     return () => { clearTimeout(timer); pager.current.cancel(); };
   }, [key]));
+  async function refreshHistory() {
+    const capturedTicket = pager.current.snapshot().ticket;
+    await b.sync();
+    // Sync can outlive this child/filter view or a navigation away.
+    if (!b.current() || key !== viewKey.current || !pager.current.current(capturedTicket)) return;
+    const ticket = pager.current.reset(view, true);
+    setPage({ key, ticket, ids: pager.current.snapshot().ids, more: true });
+    setHistoryError("");
+    await loadHistory(ticket, key);
+  }
   const records = historyRows(b.state, view, page?.key === key ? page.ids : null, [...localChanges.current.ids]);
   async function share() {
     setBusy(true);
@@ -102,14 +113,15 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
   return (
     <Screen
       title={careHistory ? "Care history" : "Journal"}
+      onRefresh={refreshHistory}
       back={careHistory}
-      action={<Button variant="ghost" title={searching ? "Close search" : "Search"} icon="search-outline"
+      action={careHistory && <HeaderAction title={searching ? "Close search" : "Search"}
         onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
     >
+      {!careHistory && <HeaderSearch value={q} onChange={setQ} placeholder="Search notes and questions" />}
       <SyncStatus />
       <ChildFilter scroll />
-      {!careHistory && <Chips
-        scroll
+      {!careHistory && <TextLinks
         value={filter}
         label="Show"
         options={[
@@ -160,7 +172,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
           />
         ))}
       {loading && !records.length ? <Loading label={careHistory ? "Loading care history…" : "Loading your journal…"} /> : records.length ? (
-        <View style={{ gap: 12 }}>
+        <Grouped>
           {records.map((r) =>
             preparing ? (
               <Card key={r.id} tone="soft">
@@ -181,7 +193,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
               />
             )
           )}
-        </View>
+        </Grouped>
       ) : (
         <Empty
           icon="book-outline"
