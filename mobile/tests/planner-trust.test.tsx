@@ -42,7 +42,7 @@ vi.mock('@/components/Themed', () => ({
   View: 'View',
   useColors: () => ({
     card: '#fff', cardBorder: '#ddd', text: '#111', textMuted: '#666',
-    tint: '#155c52', warning: '#8a5a00',
+    tint: '#5DD3B6', onTint: '#00261F', success: '#30D158', onSuccess: '#00261F', warning: '#8a5a00',
   }),
 }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
@@ -100,7 +100,7 @@ import { useRecipe } from '@/hooks/useRecipes';
 
 const colors = {
   card: '#fff', cardBorder: '#ddd', text: '#111', textMuted: '#666',
-  tint: '#155c52', warning: '#8a5a00',
+  tint: '#5DD3B6', onTint: '#00261F', success: '#30D158', onSuccess: '#00261F', warning: '#8a5a00',
 } as any;
 
 function entry(
@@ -176,6 +176,25 @@ describe('planner loading recovery', () => {
     for (const hook of [planHooks.useAddMeal, planHooks.useDeleteMeal, planHooks.useAddPlanToGrocery]) {
       vi.mocked(hook).mockReturnValue({ isPending: false } as any);
     }
+  });
+
+
+  it('keeps week grocery text, cart and pending indicator readable on the dark success fill', async () => {
+    const meal = entry('ready');
+    const date = new Date().toISOString().slice(0, 10);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
+    const root = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      let button = root.container.queryAll(n => n.props.accessibilityLabel === 'Review week groceries')[0];
+      const label = button.queryAll(n => n.type === 'Text')[0];
+      expect(Object.assign({}, ...[label.props.style].flat(Infinity)).color).toBe('#00261F');
+      expect(button.queryAll(n => n.type === 'Ionicons')[0].props.color).toBe('#00261F');
+      vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ isPending: true } as any);
+      await act(async () => root.render(<PlannerScreen />));
+      button = root.container.queryAll(n => n.props.accessibilityLabel === 'Review week groceries')[0];
+      expect(button.queryAll(n => n.type === 'ActivityIndicator')[0].props.color).toBe('#00261F');
+    } finally { await act(async () => root.unmount()); }
   });
 
   it('shows a retry instead of empty meal slots after initial load fails', async () => {

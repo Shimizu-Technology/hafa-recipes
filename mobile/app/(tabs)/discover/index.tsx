@@ -752,7 +752,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         onPress={refreshDiscover}
         activeOpacity={0.8}
       >
-        <Ionicons name="refresh" size={17} color="#FFFFFF" />
+        <Ionicons name="refresh" size={17} color={colors.onTint} />
         <Text style={styles.retryButtonText}>Try Again</Text>
       </TouchableOpacity>
     </RNView>
@@ -930,11 +930,11 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             <Ionicons
               name="options-outline"
               size={20}
-              color={activeFilterCount > 0 ? '#FFFFFF' : colors.text}
+              color={activeFilterCount > 0 ? colors.onTint : colors.text}
             />
             {activeFilterCount > 0 && (
               <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
-                <Text style={[styles.filterBadgeText, { color: colors.tint }]}>
+                <Text style={[styles.filterBadgeText, { color: '#1E7F6E' }]}>
                   {activeFilterCount}
                 </Text>
               </RNView>
@@ -1036,10 +1036,10 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
                 accessibilityRole="button"
                 accessibilityLabel={`Remove filter: recipes by ${selectedExtractor.name}`}
               >
-                <Text style={[styles.activeFilterText, { color: '#FFFFFF' }]}>
+                <Text style={[styles.activeFilterText, { color: colors.onTint }]}>
                   by {selectedExtractor.name}{searchTotal > 0 ? ` (${searchTotal})` : ''}
                 </Text>
-                <Ionicons name="close" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+                <Ionicons name="close" size={14} color={colors.onTint} style={{ marginLeft: 4 }} />
               </TouchableOpacity>
             )}
             {sourceFilter !== 'all' && (
@@ -1154,13 +1154,13 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
                     <Ionicons
                       name="person-circle-outline"
                       size={18}
-                      color={isSelected ? '#FFFFFF' : colors.textSecondary}
+                      color={isSelected ? colors.onTint : colors.textSecondary}
                     />
                     <RNView style={styles.contributorInfo}>
                       <Text
                         style={[
                           styles.contributorName,
-                          { color: isSelected ? '#FFFFFF' : colors.text }
+                          { color: isSelected ? colors.onTint : colors.text }
                         ]}
                         numberOfLines={1}
                       >

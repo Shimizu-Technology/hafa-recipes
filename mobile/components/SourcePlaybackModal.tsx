@@ -175,8 +175,8 @@ export function SourcePlaybackModal({
                   accessibilityRole="button"
                   accessibilityLabel={`Try loading the ${playback.providerLabel} player again`}
                 >
-                  <Ionicons name="refresh" size={19} color="#FFFFFF" />
-                  <Text style={styles.primaryButtonText}>Try again</Text>
+                  <Ionicons name="refresh" size={19} color={colors.onTint} />
+                  <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>Try again</Text>
                 </TouchableOpacity>
               </RNView>
             </RNView>

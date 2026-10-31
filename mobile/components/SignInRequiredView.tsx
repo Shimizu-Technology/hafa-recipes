@@ -26,8 +26,8 @@ export function SignInRequiredView({ icon, title, message }: SignInRequiredViewP
         onPress={() => router.push('/(auth)/sign-in')}
         activeOpacity={0.8}
       >
-        <Ionicons name="log-in-outline" size={20} color="#fff" />
-        <Text style={styles.signInButtonText}>Sign In</Text>
+        <Ionicons name="log-in-outline" size={20} color={colors.onTint} />
+        <Text style={[styles.signInButtonText, { color: colors.onTint }]}>Sign In</Text>
       </TouchableOpacity>
       <TouchableOpacity 
         onPress={() => router.push('/(auth)/sign-up')}
