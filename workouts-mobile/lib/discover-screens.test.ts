@@ -1046,7 +1046,7 @@ it("shows the saved timed prescription, source details and cues without missing-
   expect(text).toContain("1 min between rounds");
   expect(text).toContain("Stay comfortable");
   expect(text).not.toContain("Reps not specified");
-  expect(button("Open original source")).toBeDefined();
+  expect(nodes("IconButton").find(node => node.props.label === "Open original source")).toBeDefined();
 });
 
 
