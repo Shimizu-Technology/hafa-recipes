@@ -10,6 +10,23 @@ function setup() {
   return { values, storage: storage as never, store: createOfflineRecipes(storage as never) };
 }
 const recipe = (id: string, own = true) => ({ id, is_owner: own, extracted: { title: id, ingredients: [{ name: 'rice' }], steps: ['Cook'] } }) as Recipe;
+it('notifies subscribers of cache membership and pin updates without changing owner authority', async () => {
+  const { store } = setup();
+  await store.bindSubject('subject'); await store.verify('subject', 'stable-owner');
+  const lease = store.lease('subject')!;
+  const scope = store.scope();
+  const changed = vi.fn(); const unsubscribe = store.subscribe(changed);
+  await store.observe(lease, recipe('own'));
+  await store.pin(lease, 'own', true);
+  await store.observe(lease, recipe('public', false));
+  await store.markSaved(lease, 'public', true);
+  await store.markSaved(lease, 'public', false);
+  await store.remove(lease, 'own');
+  expect(changed).toHaveBeenCalledTimes(5);
+  expect(store.scope()).toBe(scope);
+  expect(await store.list(lease)).toEqual([]);
+  unsubscribe();
+});
 describe('offline recipe authority and retention', () => {
   it('persists own and confirmed saved recipes, never a merely browsed public recipe', async () => {
     const { store } = setup();

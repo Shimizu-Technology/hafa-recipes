@@ -149,9 +149,9 @@ export default function BulkAddToCollectionModal({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={onClose} accessible={false}>
           <RNView style={styles.overlay}>
-            <TouchableWithoutFeedback>
+            <TouchableWithoutFeedback accessible={false}>
               <RNView style={[styles.modal, { backgroundColor: colors.background }]}>
                 {/* Header */}
                 <RNView style={styles.header}>
@@ -164,6 +164,8 @@ export default function BulkAddToCollectionModal({
                     </Text>
                   </RNView>
                   <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Close collection picker"
                     onPress={onClose}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     disabled={isAdding}

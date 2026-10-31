@@ -8,7 +8,7 @@ import { Text } from '@/components/Themed';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const metrics = vi.hoisted(() => ({ width: 390, fontScale: 1 }));
-beforeEach(() => { metrics.fontScale = 1; });
+beforeEach(() => { metrics.fontScale = 1; metrics.width = 390; });
 vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
   useWindowDimensions: () => metrics,
@@ -54,7 +54,7 @@ describe('recipe grid card alignment', () => {
           (node) => node.type === 'Text' && node.props.numberOfLines === 2,
         )[0];
         const contentNode = renderer.container.queryAll(
-          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 88,
+          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 70,
         )[0];
         const footerNode = renderer.container.queryAll(
           (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 18,
@@ -103,9 +103,31 @@ it('gives large accessibility text the full content width and expands the title 
   metrics.fontScale = 2;
   const renderer = await renderCard('Creamy Italian Sausage & Gnocchi Soup');
   try {
-    const card = renderer.container.queryAll(n => n.type === 'ScalePressable')[0];
-    expect(card.props.style[1].width).toBe(342);
+    const card = renderer.container.queryAll(n => n.type === 'View' && n.props.style?.[1]?.width === 358)[0];
+    expect(card.props.style[1].width).toBe(358);
     const title = renderer.container.queryAll(n => n.type === 'Text' && n.props.numberOfLines === 2)[0];
     expect(title.props.style[1].minHeight).toBe(84);
+    expect(card.props.style[0].borderWidth).toBeUndefined();
+    expect(card.props.style[1].backgroundColor).toBeUndefined();
+  } finally { await act(async () => renderer.unmount()); }
+});
+
+it('keeps wide web and tablet cards within the readable two-column content area', async () => {
+  metrics.width = 2560;
+  const renderer = await renderCard('No-Knead Sunday Bread');
+  try {
+    const card = renderer.container.queryAll(n => n.type === 'View' && n.props.style?.[1]?.width === 338)[0];
+    expect(card.props.style[1].width).toBe(338);
+  } finally { await act(async () => renderer.unmount()); }
+});
+
+it('keeps the bookmark independently reachable outside the card accessibility group', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  await act(async () => renderer.render(<RecipeGridCardFrame title="Red Rice" onPress={vi.fn()} colors={colors} footer={null}
+    imageAdornment={React.createElement('SaveButton', { accessibilityRole: 'button', accessibilityLabel: 'Save recipe' })} />));
+  try {
+    const card = renderer.container.queryAll(n => n.type === 'ScalePressable')[0];
+    expect(card.queryAll(n => n.props.accessibilityLabel === 'Save recipe')).toHaveLength(0);
+    expect(renderer.container.queryAll(n => n.props.accessibilityLabel === 'Save recipe')).toHaveLength(1);
   } finally { await act(async () => renderer.unmount()); }
 });
