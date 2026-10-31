@@ -324,6 +324,7 @@ export function MediaCard({
 export function ListRow({
   title,
   detail,
+  detailLines,
   icon,
   value,
   onPress,
@@ -333,6 +334,7 @@ export function ListRow({
 }: {
   title: string;
   detail?: string;
+  detailLines?: number;
   icon?: IconName;
   value?: string;
   onPress?: () => void;
@@ -341,6 +343,7 @@ export function ListRow({
   disabled?: boolean;
 }) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
   const surface = useSurface();
   const fg = destructive ? c.error : surface === "hero" ? c.onHero : c.text;
   const body = (
@@ -353,7 +356,7 @@ export function ListRow({
           {title}
         </Copy>
         {!!detail && (
-          <Copy kind="small" tone="muted">
+          <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : detailLines}>
             {detail}
           </Copy>
         )}

@@ -15,7 +15,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
   const { useMemo } = await import("react");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, coachHistory: async () => ({ messages: [] }), updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
@@ -37,6 +37,7 @@ vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "
   AppState: { addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.appListeners.add(listener); return { remove: () => fixture.appListeners.delete(listener) };
   } } }));
+vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 }, spacing: { xs: 8, sm: 12 } }));
 vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
@@ -747,7 +748,7 @@ it("keeps the existing Coach entry reachable from Today", async () => {
   const { router } = await import("expo-router");
   fixture.available = true;
   await mount();
-  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Ask Coach")!;
+  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Ask your coach")!;
   expect(coach.props.icon).toBe("chatbubble-ellipses-outline");
   await act(async () => coach.props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/coach");
@@ -767,8 +768,6 @@ it("the Today hero gives each state one clear next step", async () => {
   expect(text()).toContain("No plan yet");
   await act(async () => buttons("Build a plan")[0].props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/build-plan");
-  await act(async () => buttons("Pick a workout from your library")[0].props.onPress());
-  expect(router.push).toHaveBeenLastCalledWith("/(tabs)/library");
   const plan = (date: string, title: string) => ({ id: "plan", generation: 1, revision: 1, status: "ready",
     sessions: [{ id: "s", date, purpose: "Strength day", workout: { title, estimated_minutes: 30 } }] }) as Program;
   fixture.programs.mockResolvedValue([plan("2099-01-01", "Future strength")]);

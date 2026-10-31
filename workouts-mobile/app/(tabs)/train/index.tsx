@@ -371,12 +371,11 @@ export default function Plan() {
   return (
     <Screen
       title="Today"
-      subtitle={new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}
+
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
     >
-      <ListRow icon="stats-chart-outline" title="History & progress"
-        detail="Sessions, activities, records and your week" onPress={() => router.push("/history-progress")} />
+      <Copy kind="caption" tone="muted">{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}</Copy>
       <TrainToday />
       {loaded && (!!shownPrograms?.length || view === "archived" || archivedCount > 0) && (
         <SectionHeader
