@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { contentWidth, elevation, motion, radii, spacing } from "@/constants/theme";
+import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { useIsTabRoot, useTabOverlayHeight } from "../tab-chrome";
 import { Copy, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
@@ -124,7 +124,7 @@ export function Screen({
         }}
       >
         <View style={{ paddingHorizontal: spacing.md, paddingVertical: 6, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 44 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: root ? Math.max(44, Math.ceil(typography.navTitle.lineHeight * fontScale)) : 44 }}>
             {back ? (
               <IconButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"} variant={dismiss ? "soft" : "plain"}
                 onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
@@ -133,7 +133,7 @@ export function Screen({
             ) : (
               <BrandLockup fill />
             )}
-            {root && <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}><Copy kind="navTitle" align="center">{title}</Copy></View>}
+            {root && <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}><Copy kind="navTitle" align="center" allowFontScaling={false} style={{ fontSize: typography.navTitle.fontSize * fontScale, lineHeight: typography.navTitle.lineHeight * fontScale }}>{title}</Copy></View>}
             {!!action && <View style={{ flexShrink: 0, width: root ? 48 : undefined, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>{action}</View>}
           </View>
         </View>
@@ -196,12 +196,12 @@ export function Card({
   const base: ViewStyle = {
     padding: compact ? spacing.md : spacing.lg - 4,
     gap: compact ? spacing.sm : spacing.md - 2,
-    borderRadius: radii.xl - 4,
+    borderRadius: tone === "hero" ? radii.lg : radii.md,
     backgroundColor: bg,
-    borderWidth: tone === "plain" ? 1 : 0,
+    borderWidth: 0,
     borderColor: c.border,
     // Resting cards use the hairline border only; the hero keeps its lift.
-    ...(tone === "hero" ? { shadowColor: c.shadow, ...elevation.raised } : {}),
+
   };
   const content = <SurfaceProvider value={tone === "hero" ? "hero" : "default"}>{children}</SurfaceProvider>;
   if (!onPress) return <View style={[base, style]}>{content}</View>;
@@ -262,7 +262,7 @@ export function MediaCard({
       style={{
         width: stacked ? "100%" : 92,
         height: stacked ? 168 : 92,
-        borderRadius: radii.lg - 4,
+        borderRadius: radii.md,
         overflow: "hidden",
         backgroundColor: showImage ? c.sunken : c.actionSoft,
         alignItems: "center",
@@ -297,7 +297,7 @@ export function MediaCard({
       <View style={{ flexDirection: stacked ? "column" : "row", gap: spacing.md - 2, alignItems: stacked ? "stretch" : "center" }}>
         {thumb}
         <View style={{ flex: stacked ? undefined : 1, gap: 6, minWidth: 0 }}>
-          <Copy kind="subheading" numberOfLines={2}>
+          <Copy kind="cardTitle" numberOfLines={2}>
             {title}
           </Copy>
           {!!meta && (
@@ -403,8 +403,8 @@ export function ListGroup({ children }: PropsWithChildren) {
     <View
       style={{
         backgroundColor: c.surface,
-        borderRadius: radii.xl - 4,
-        borderWidth: 1,
+        borderRadius: radii.sm,
+        borderWidth: 0,
         borderColor: c.border,
         paddingHorizontal: spacing.md,
         paddingVertical: 4,

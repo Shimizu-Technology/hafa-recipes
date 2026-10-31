@@ -24,7 +24,7 @@ function texts() {
 
 it("renders the wordmark as two single-line texts that grow to 1.2x on regular phones", () => {
   f.width = 390;
-  expect(texts()).toEqual([{ multiplier: 1.2, fontSize: 18, lines: 1 }, { multiplier: 1.2, fontSize: 18, lines: 1 }]);
+  expect(texts()).toEqual([{ multiplier: 1.2, fontSize: 20, lines: 1 }, { multiplier: 1.2, fontSize: 20, lines: 1 }]);
   expect(renderer!.root.findByType("Svg" as never).props.height).toBe(24);
 });
 

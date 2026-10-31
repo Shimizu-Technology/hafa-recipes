@@ -53,8 +53,6 @@ export function DiscoverGridCard({ card, onPress }: { card: DiscoverCard; onPres
       onPressOut={press.onPressOut}
       style={{
         borderRadius: radii.lg - 4,
-        borderWidth: 1,
-        borderColor: c.border,
         backgroundColor: c.surface,
         overflow: "hidden",
         opacity: press.opacity,
