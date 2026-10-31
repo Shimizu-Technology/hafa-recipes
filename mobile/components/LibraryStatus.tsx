@@ -15,14 +15,18 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
   const { userId, isSignedIn } = useAuth();
   const lease = useOfflineLease(userId);
   const [offlineCount, setOfflineCount] = useState(0);
+  const [offlineError, setOfflineError] = useState(false);
   useEffect(() => {
     let current = true;
     setOfflineCount(0);
-    if (lease) void offlineRecipes.list(lease).then(rows => { if (current) setOfflineCount(rows.length); }).catch(() => undefined);
+    setOfflineError(false);
+    if (lease) void offlineRecipes.list(lease).then(rows => { if (current) setOfflineCount(rows.length); }).catch(() => { if (current) setOfflineError(true); });
     return () => { current = false; };
   }, [lease?.owner, lease?.generation, lease?.epoch, active]);
   const jobs = useExtractionJobs('extract', active && Boolean(isSignedIn));
   const inbox = useImportInbox();
+  const needsAttention = Boolean(isSignedIn) && (jobs.data?.some(job => ['failed', 'expired'].includes(job.status) && !job.recipe_id) || inbox.entries.some(entry => entry.state === 'error'));
+  const needsReview = Boolean(isSignedIn) && inbox.entries.some(entry => entry.state === 'waiting');
   const importing = Boolean(isSignedIn) && (jobs.data?.some(job => ['queued', 'claimed', 'processing'].includes(job.status)) || inbox.entries.some(entry => ['ready', 'submitting'].includes(entry.state)));
   const links = [
     ...(isSignedIn ? [{ title: 'Collections', onPress: () => router.push('/collections') }] : []),
@@ -39,8 +43,11 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
         </Pressable>
       </View>)}
     </ScrollView>
-    {importing && <Pressable onPress={() => router.push('/')} accessibilityRole="button" accessibilityLabel="Import in progress, view progress" style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <ActivityIndicator size="small" color={colors.textSecondary} /><Text style={{ color: colors.textSecondary }}>Import in progress</Text>
+    {(needsAttention || needsReview || importing) && <Pressable onPress={() => router.push('/')} accessibilityRole="button" accessibilityLabel={needsAttention ? 'Imports need attention, view options' : needsReview ? 'Import ready to review, view options' : 'Import in progress, view progress'} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {!needsAttention && !needsReview && <ActivityIndicator size="small" color={colors.textSecondary} />}
+      <Text style={{ fontSize: 13, lineHeight: 18, color: needsAttention ? colors.error : colors.textSecondary }}>{needsAttention ? 'Imports need attention · View options' : needsReview ? 'Import ready to review' : 'Import in progress'}</Text>
     </Pressable>}
+    {isSignedIn && lease && offlineError && <Pressable onPress={() => router.push('/offline-recipes')} accessibilityRole="button" accessibilityLabel="Offline recipes unavailable, view offline recipes" style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ fontSize: 13, lineHeight: 18, color: colors.error }}>Offline recipes unavailable · View options</Text></Pressable>}
+
   </View>;
 }
