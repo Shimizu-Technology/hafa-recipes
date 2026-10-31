@@ -577,6 +577,7 @@ function GroceryScreenContent() {
   const renderSectionHeader = ({ section }: { section: GrocerySection }) => {
     const fullSection = fullSections.find(candidate => candidate.key === section.key) ?? section;
     return <GrocerySectionHeader
+      onShowMenu={setOverflowActions}
       section={fullSection}
       isCollapsed={isSectionCollapsed(section)}
       isCollapsible={!isSearching}

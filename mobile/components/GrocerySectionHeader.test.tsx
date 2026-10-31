@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
+import { Platform } from 'react-native';
 import type { GrocerySection } from '@/lib/grocerySections';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -53,6 +54,18 @@ function section(overrides: Partial<GrocerySection> = {}): GrocerySection {
 }
 
 describe('GrocerySectionHeader', () => {
+  it('keeps all section actions available in the Android menu instead of truncating an Alert', async () => {
+    const showMenu = vi.fn();
+    const renderer = createRoot();
+    const original = Platform.OS;
+    Object.assign(Platform, { OS: 'android' });
+    try {
+      await act(async () => renderer.render(<GrocerySectionHeader section={section()} isCollapsed={false} onToggle={vi.fn()} onOpenRecipe={vi.fn()} onClearSection={vi.fn()} onShowMenu={showMenu} />));
+      await act(async () => renderer.container.queryAll(node => node.type === 'TouchableOpacity')[0].props.onPress());
+      expect(showMenu.mock.calls[0][0].map((action: any) => action.text)).toEqual(['Open recipe', 'Collapse section', 'Remove recipe items', 'Cancel']);
+    } finally { Object.assign(Platform, { OS: original }); await act(async () => renderer.unmount()); }
+  });
+
   it('opens its source recipe while keeping collapse and clear as separate actions', async () => {
     const onOpenRecipe = vi.fn();
     const onToggle = vi.fn();

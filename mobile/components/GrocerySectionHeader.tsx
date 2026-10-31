@@ -3,8 +3,9 @@ import { ActionSheetIOS, Alert, Platform, TouchableOpacity, View } from 'react-n
 import { Text, useColors } from '@/components/Themed';
 import type { GrocerySection } from '@/lib/grocerySections';
 
-type Props = { section: GrocerySection; isCollapsed: boolean; isCollapsible?: boolean; onToggle: () => void; onOpenRecipe?: (id: string) => void; onClearSection?: () => void };
-export function GrocerySectionHeader({ section, isCollapsed, isCollapsible = true, onToggle, onOpenRecipe, onClearSection }: Props) {
+type MenuAction = { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' };
+type Props = { onShowMenu?: (actions: MenuAction[]) => void; section: GrocerySection; isCollapsed: boolean; isCollapsible?: boolean; onToggle: () => void; onOpenRecipe?: (id: string) => void; onClearSection?: () => void };
+export function GrocerySectionHeader({ section, isCollapsed, isCollapsible = true, onToggle, onOpenRecipe, onClearSection, onShowMenu }: Props) {
   const colors = useColors();
   const openMenu = () => {
     const actions: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [];
@@ -14,6 +15,7 @@ export function GrocerySectionHeader({ section, isCollapsed, isCollapsible = tru
     actions.push({ text: 'Cancel', style: 'cancel' });
     const title = `${section.title} · ${section.checkedCount}/${section.totalCount} checked`;
     if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title, options: actions.map(action => action.text), cancelButtonIndex: actions.length - 1, destructiveButtonIndex: actions.findIndex(action => action.style === 'destructive') }, index => actions[index]?.onPress?.());
+    else if (onShowMenu) onShowMenu(actions);
     else Alert.alert(title, undefined, actions);
   };
   return <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 4 }}>

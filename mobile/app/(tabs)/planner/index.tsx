@@ -326,6 +326,7 @@ export default function PlannerScreen() {
 
 function PlannerScreenContent() {
   const { fontScale } = useWindowDimensions();
+  const [mealTypeDate, setMealTypeDate] = useState<Date | null>(null);
   const headerHeight = useHeaderHeight();
   const router = useRouter();
   const {
@@ -802,7 +803,7 @@ function PlannerScreenContent() {
                     disabled={addMeal.isPending || requestedRecipeIsPending} onPress={() => {
                       const actions = MEAL_TYPES.map(meal => ({ text: meal.label, onPress: () => handleAddMeal(meal.type, date) }));
                       if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({ title: 'Meal type', options: [...actions.map(action => action.text), 'Cancel'], cancelButtonIndex: actions.length }, index => actions[index]?.onPress());
-                      else Alert.alert('Meal type', undefined, [...actions, { text: 'Cancel' }]);
+                      else setMealTypeDate(date);
                     }}><Ionicons name="add" size={20} color={colors.actionText} /><Text style={{ color: colors.actionText, fontSize: 17, lineHeight: 22 }}>{addingMealType && formatDateForApi(date) === formatDateForApi(selectedDate) ? 'Adding…' : 'Add'}</Text></TouchableOpacity>
                 </RNView>
               </RNView>;
@@ -834,6 +835,14 @@ function PlannerScreenContent() {
         )}
       </ScrollView>
 
+      <Modal visible={mealTypeDate !== null} onRequestClose={() => setMealTypeDate(null)} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, padding: 16, gap: 8 }}>
+          <Text accessibilityRole="header" style={{ fontSize: 22, lineHeight: 28 }}>Meal type</Text>
+          {MEAL_TYPES.map(meal => <TouchableOpacity key={meal.type} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}
+            onPress={() => { const date = mealTypeDate; setMealTypeDate(null); if (date) handleAddMeal(meal.type, date); }}><Text>{meal.label}</Text></TouchableOpacity>)}
+          <Button title="Cancel" variant="secondary" onPress={() => setMealTypeDate(null)} />
+        </View>
+      </Modal>
       <Modal visible={!!editingServings} onRequestClose={() => setEditingServings(null)} animationType="slide" presentationStyle="pageSheet">
         <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md }}>
           <Text>Servings for {editingServings?.recipe_title}</Text>
