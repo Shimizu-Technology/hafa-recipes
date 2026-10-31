@@ -5,7 +5,7 @@ import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import type { BabyRecord } from "@/lib/models";
 import { messageFor } from "@/lib/models";
-import { Button, Card, Choice, Copy, Empty, Notice, Row, Screen, Section } from "@/components/ui";
+import { Button, HeaderAction, Card, Choice, Copy, Empty, Notice, Row, Screen, Section } from "@/components/ui";
 import { friendlyTime } from "@/lib/care-format";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -41,10 +41,8 @@ export default function Routines() {
       onRefresh={() => b.sync()}
       subtitle="Plans you choose. Reminders you control."
       action={
-        routines.length > 0 && <Button
-          secondary
+        routines.length > 0 && <HeaderAction
           title="Create"
-          icon="add"
           onPress={() => router.push({ pathname: "/edit", params: { kind: "routine" } })}
         />
       }
@@ -69,7 +67,7 @@ export default function Routines() {
                   : "No active reminders"}
               </Copy>
               <Button
-                secondary
+                variant="ghost"
                 title="Review or edit"
                 onPress={() => router.push({ pathname: "/record/[id]", params: { id: r.id } })}
               />

@@ -34,6 +34,8 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
     <Row
       title={care ? careSummary(record.kind, record.data, record.occurred_at, now) : label || kindName[record.kind]}
       detail={details}
+      numericTitle={care}
+      numericDetail
       icon={kindIcon[record.kind]}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     />
