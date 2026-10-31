@@ -102,7 +102,7 @@ export function RecipeCard({
         {/* Saved badge */}
         {isSavedRecipe && (
           <RNView style={[styles.savedBadge, { backgroundColor: colors.error }]}>
-            <Ionicons name="heart" size={10} color="#FFFFFF" />
+            <Ionicons name="heart" size={10} color={colors.onError} />
           </RNView>
         )}
       </RNView>
@@ -202,7 +202,7 @@ export function GridRecipeCard({
         <>
           {isSavedRecipe && (
             <RNView style={[styles.gridSavedBadge, { backgroundColor: colors.error }]}>
-              <Ionicons name="heart" size={12} color="#FFFFFF" />
+              <Ionicons name="heart" size={12} color={colors.onError} />
             </RNView>
           )}
           {recipe.review_state && recipe.review_state !== 'ready' && (
