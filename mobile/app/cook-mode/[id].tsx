@@ -806,12 +806,12 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           contentContainerStyle={styles.stepScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { opacity: 0.35, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
+          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
           <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }]}>
             {currentStep?.step}
           </Text>
 
-          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { opacity: 0.35, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
         {/* Timer toolbar */}
           <RNView style={styles.timerSection}>
             {currentTimer ? (
