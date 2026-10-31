@@ -23,7 +23,7 @@ export function SetProgress({ sets }: { sets: SetMark[] }) {
         const current = s.state === "current";
         return (
           <View key={s.key} style={{
-            minWidth: 36, height: 36, paddingHorizontal: 6, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
+            minWidth: 36, minHeight: 36, paddingHorizontal: 6, paddingVertical: 6, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
             backgroundColor: done ? c.action : current ? c.accentSoft : "transparent",
             borderWidth: done ? 0 : current ? 2 : 1, borderColor: current ? c.accent : c.borderStrong,
           }}>

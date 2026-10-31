@@ -397,21 +397,21 @@ export default function Training() {
             onPress={requestPartialFinish}
           />
         )}
-        <Row gap={12} wrap>
-          <View style={{ flex: 1, minWidth: 120 }}>
+        <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
+          <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 120 }}>
             <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"}
               variant="secondary" disabled={busy || capReached}
               accessibilityHint={capReached ? "The time cap has been reached. Finish to save your recorded work." : undefined}
               onPress={() => { void run(() => store.pause(!d.paused)); }} />
           </View>
-          <View style={{ flex: 1, minWidth: 120 }}>
+          <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 120 }}>
             <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
               onPress={() => {
                 if ((canFinish || timedComplete) && !pendingEntry) void run(() => finish("completed"));
                 else requestPartialFinish();
               }} />
           </View>
-        </Row>
+        </View>
       </>}
     >
       {!!structureWarning && (
