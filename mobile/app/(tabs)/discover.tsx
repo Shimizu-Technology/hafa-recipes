@@ -1264,7 +1264,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: fontSize.xxl,
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.bold, fontWeight: '700',
   },
   subtitle: {
     fontSize: fontSize.sm,
@@ -1515,7 +1515,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: '#FFFFFF',
     fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   gridCardAuthor: {
     fontSize: fontSize.xs,
@@ -1560,9 +1560,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
-    lineHeight: 20,
+    fontSize: 16,
+    fontFamily: fontFamily.displaySemibold,
+    lineHeight: 21,
   },
   metaRow: {
     flexDirection: 'row',
@@ -1575,8 +1575,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   tagRow: {
     flexDirection: 'row',
@@ -1642,7 +1643,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: fontSize.xl,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginBottom: spacing.sm,
   },
   emptySubtitle: {
@@ -1704,7 +1705,7 @@ const styles = StyleSheet.create({
   },
   surpriseModalTitle: {
     fontSize: fontSize.lg,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
   surpriseModalOptions: {
     gap: spacing.xs,

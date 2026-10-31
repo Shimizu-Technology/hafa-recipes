@@ -4,16 +4,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } fro
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/expo';
 import { useFonts } from 'expo-font';
-import {
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_600SemiBold,
-  DMSans_700Bold,
-} from '@expo-google-fonts/dm-sans';
-import {
-  Fraunces_600SemiBold,
-  Fraunces_700Bold,
-} from '@expo-google-fonts/fraunces';
+import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -21,7 +12,7 @@ import { Button, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
-import Colors from '@/constants/Colors';
+import Colors, { fontFamily } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { TimerProvider } from '@/contexts/TimerContext';
@@ -63,12 +54,7 @@ SplashScreen.preventAutoHideAsync();
 function RootLayout() {
   const [loaded, error] = useFonts({
     // Håfa Recipes brand typography
-    DMSans_400Regular,
-    DMSans_500Medium,
-    DMSans_600SemiBold,
-    DMSans_700Bold,
     Fraunces_600SemiBold,
-    Fraunces_700Bold,
   });
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
@@ -308,7 +294,7 @@ function RootLayoutNav() {
                     screenOptions={{
                       headerStyle: { backgroundColor: colors.background },
                       headerTintColor: colors.tint,
-                      headerTitleStyle: { color: colors.text, fontWeight: '600', fontFamily: 'DMSans_600SemiBold' },
+                      headerTitleStyle: { color: colors.text, fontWeight: '600', fontFamily: fontFamily.semibold },
                       headerShadowVisible: false,
                       headerBackTitle: 'Back',
                     }}

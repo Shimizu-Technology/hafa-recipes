@@ -15,7 +15,7 @@ export function EnvironmentBanner() {
       style={[
         styles.banner,
         {
-          paddingTop: insets.top,
+          paddingTop: Math.max(0, insets.top - 16),
           backgroundColor: APP_ENVIRONMENT === 'preview' ? '#7C3AED' : '#9A3412',
         },
       ]}
@@ -39,6 +39,7 @@ const styles = StyleSheet.create({
   label: {
     color: '#FFFFFF',
     fontSize: 10,
+    lineHeight: 12,
     fontWeight: '700',
     letterSpacing: 0.7,
   },

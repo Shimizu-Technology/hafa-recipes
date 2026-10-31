@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import Colors from '@/constants/Colors';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-vi.mock('react-native', () => ({ Text: 'Text', View: 'View', TextInput: 'TextInput', ActivityIndicator: 'ActivityIndicator', StyleSheet: { create: (s: unknown) => s } }));
+vi.mock('react-native', () => ({ Text: 'Text', View: 'View', TextInput: 'TextInput', ActivityIndicator: 'ActivityIndicator', StyleSheet: { create: (s: unknown) => s, flatten: (s: unknown) => Array.isArray(s) ? Object.assign({}, ...s) : s } }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('./useColorScheme', () => ({ useColorScheme: () => 'dark' }));
 vi.mock('./Animated', () => ({ ScalePressable: 'ScalePressable' }));
@@ -16,7 +16,16 @@ describe('shared controls', () => {
     await act(async () => r.render(<><Text>Recipe</Text><Input value="" onChangeText={vi.fn()} /><Chip label="A long choice" onPress={vi.fn()} /><Button title="Apply filters" onPress={vi.fn()} /></>));
     const labels = r.container.queryAll(n => n.type === 'Text' || n.type === 'TextInput');
     expect(labels.length).toBe(4);
-    labels.forEach(n => expect(n.props.maxFontSizeMultiplier).toBe(0));
+    labels.forEach(n => expect(n.props.maxFontSizeMultiplier).toBeUndefined());
+    await act(async () => r.unmount());
+  });
+
+  it('centres multiline chip labels and gives body overrides proportional leading', async () => {
+    const r = createRoot();
+    await act(async () => r.render(<><Text style={{ fontSize: 28 }}>A long recipe</Text><Chip label="Under thirty minutes" selected onPress={vi.fn()} /></>));
+    const labels = r.container.queryAll(n => n.type === 'Text');
+    expect(labels[0].props.style[0].lineHeight).toBe(34);
+    expect(labels[1].props.style).toMatchObject({ lineHeight: 18, textAlign: 'center', includeFontPadding: false });
     await act(async () => r.unmount());
   });
 
@@ -68,11 +77,11 @@ describe('shared controls', () => {
     await act(async () => r.unmount());
   });
 
-  it('gives resting cards a border, reserving shadows for elevated layers', async () => {
+  it('gives resting cards no border, reserving shadows for elevated layers', async () => {
     const r = createRoot();
     await act(async () => r.render(<><Card>Resting</Card><Card elevated>Floating</Card></>));
     const cards = r.container.queryAll(n => n.type === 'View');
-    expect(cards[0].props.style[0]).toMatchObject({ borderWidth: 1 });
+    expect(cards[0].props.style[0].borderWidth).toBeUndefined();
     expect(cards[0].props.style[0].shadowOpacity).toBeUndefined();
     expect(cards[1].props.style[0].shadowOpacity).toBeGreaterThan(0);
     await act(async () => r.unmount());

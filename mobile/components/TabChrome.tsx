@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   accountInitialText: {
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.lg,
   },
   // Filled because Import is the primary capture action, but it sits inside the

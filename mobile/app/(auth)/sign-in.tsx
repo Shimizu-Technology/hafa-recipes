@@ -347,7 +347,7 @@ export default function SignInScreen() {
               <TextInput
                 style={{ backgroundColor: colors.backgroundElevated, borderRadius: radius.lg,
                   padding: spacing.md, fontSize: fontSize.md, color: colors.text,
-                  fontFamily: fontFamily.medium, borderWidth: 1, borderColor: colors.border }}
+                  fontFamily: fontFamily.medium, fontWeight: '500', borderWidth: 1, borderColor: colors.border }}
                 placeholderTextColor={colors.textMuted}
                 accessibilityLabel="Verification code"
                 value={verificationCode}
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },
@@ -619,7 +619,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   recoveryCopy: { flex: 1, gap: 2 },
-  recoveryTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.sm },
+  recoveryTitle: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.sm },
   recoverySubtitle: { fontFamily: fontFamily.regular, fontSize: fontSize.xs },
   footer: {
     flexDirection: 'row',

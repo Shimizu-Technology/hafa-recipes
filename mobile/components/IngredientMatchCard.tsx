@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.lg,
     lineHeight: 25,
   },

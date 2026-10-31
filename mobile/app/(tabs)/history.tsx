@@ -735,7 +735,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         activeOpacity={0.8}
       >
         <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
-        <Text style={styles.emptyButtonText}>{hasPrimaryLoadError ? 'Try Again' : filteredEmpty ? 'Clear search and filters' : 'Add Your First Recipe'}</Text>
+        <Text style={[styles.emptyButtonText, { color: colors.onTint }]}>{hasPrimaryLoadError ? 'Try Again' : filteredEmpty ? 'Clear search and filters' : 'Add Your First Recipe'}</Text>
       </TouchableOpacity>
     </RNView>
   );
@@ -819,7 +819,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
             <Ionicons
               name="options-outline"
               size={20}
-              color={activeFilterCount > 0 ? '#FFFFFF' : colors.text}
+              color={activeFilterCount > 0 ? colors.onTint : colors.text}
             />
             {activeFilterCount > 0 && (
               <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
@@ -951,7 +951,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               activeOpacity={0.8}
             >
               <Ionicons name="folder-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.addToCollectionButtonText}>Add to Collection</Text>
+              <Text style={[styles.addToCollectionButtonText, { color: colors.onTint }]}>Add to Collection</Text>
             </TouchableOpacity>
           </RNView>
         </RNView>
@@ -1001,7 +1001,7 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: fontSize.md,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   searchRow: {
     flexDirection: 'row',
@@ -1144,7 +1144,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: '#FFFFFF',
     fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   gridSourceRow: {
     flexDirection: 'row',
@@ -1179,9 +1179,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
-    lineHeight: 20,
+    fontSize: 16,
+    fontFamily: fontFamily.displaySemibold,
+    lineHeight: 21,
   },
   cardTrustBadge: {
     marginTop: spacing.xs,
@@ -1197,8 +1197,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fontFamily.medium, fontWeight: '500',
   },
   tagRow: {
     flexDirection: 'row',
@@ -1252,7 +1253,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: fontSize.xl,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginBottom: spacing.sm,
   },
   emptySubtitle: {
@@ -1271,7 +1272,7 @@ const styles = StyleSheet.create({
   emptyButtonText: {
     color: '#FFFFFF',
     fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
   },
   footerContainer: {
     paddingVertical: spacing.md,

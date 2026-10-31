@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     lineHeight: 18,
   },
   footer: {

@@ -1,107 +1,33 @@
-/**
- * Håfa Recipes brand system.
- *
- * Direction: island-modern pantry — deep reef-green confidence, warm food
- * neutrals, a restrained clay accent, and no pure black/white surfaces.
- */
+/** Neutral iOS surfaces with one reef accent. Semantic aliases keep existing screens compatible. */
 
 export const brand = {
-  cream: '#FFF7EC',
-  bone: '#F8EFE3',
-  parchment: '#F3E4D2',
-  ink: '#17120E',
-  charcoal: '#27211B',
-
-  clay: '#B94722',
-  clayLight: '#FBE8DE',
-
-  reef: '#155C52',
-  reefMid: '#347D73',
-  reefBright: '#2F8F83',
-  reefHighlight: '#69C8BA',
-  reefLight: '#DDF5F1',
-
-  herb: '#4F7A41',
-  banana: '#F2B84B',
-
-  border: '#E8D8C8',
+  cream: '#FFFFFF', bone: '#F2F2F7', parchment: '#F2F2F7', ink: '#000000', charcoal: '#1C1C1E',
+  clay: '#1E7F6E', clayLight: 'rgba(118,118,128,0.12)',
+  reef: '#1E7F6E', reefMid: '#1E7F6E', reefBright: '#1E7F6E', reefHighlight: '#5DD3B6',
+  reefLight: 'rgba(118,118,128,0.12)', herb: '#248A3D', banana: '#8A5A00',
+  border: 'rgba(60,60,67,0.29)',
 } as const;
-
-const tintColorLight = brand.reef;
-const tintColorDark = brand.reefMid;
 
 export default {
   light: {
-    // Base colors
-    text: brand.ink,
-    textSecondary: '#6D5D50',
-    textMuted: '#756659',
-    background: brand.cream,
-    backgroundSecondary: brand.bone,
-    backgroundElevated: '#FFFCF7',
-
-    // UI elements
-    tint: tintColorLight,
-    actionText: brand.reef,
-    accent: brand.clay,
-    accentSoft: brand.clayLight,
-    border: brand.border,
-    borderLight: '#F1E4D7',
-
-    // Tab bar
-    tabIconDefault: '#756659',
-    tabIconSelected: tintColorLight,
-    tabLabelSelected: brand.reef,
-
-    // Cards and surfaces
-    card: '#FFFCF7',
-    cardBackground: '#FFFCF7',
-    cardBorder: '#EAD9C7',
-
-    // Status colors
-    success: brand.herb,
-    onSuccess: '#FFFFFF',
-    warning: '#8A5A00',
-    error: '#C43C2E',
-
-    // Shadows
-    shadowColor: '#0B3E38',
+    text: '#000000', secondaryLabel: 'rgba(60,60,67,0.60)', textSecondary: '#68686D', textMuted: '#68686D',
+    tertiaryLabel: 'rgba(60,60,67,0.30)', background: '#FFFFFF', groupedBackground: '#F2F2F7',
+    backgroundSecondary: '#F2F2F7', backgroundElevated: '#FFFFFF', surface2: 'rgba(118,118,128,0.12)',
+    tint: '#1E7F6E', onTint: '#FFFFFF', actionText: '#166456', accent: '#176557',
+    accentSoft: 'rgba(118,118,128,0.12)', border: 'rgba(60,60,67,0.29)', borderLight: 'rgba(60,60,67,0.29)',
+    tabIconDefault: '#68686D', tabIconSelected: '#1E7F6E', tabLabelSelected: '#1E7F6E',
+    card: '#F2F2F7', cardBackground: '#F2F2F7', cardBorder: 'transparent',
+    success: '#1F7534', onSuccess: '#FFFFFF', warning: '#8A5A00', destructive: '#FF3B30', error: '#B42318', shadowColor: '#000000',
   },
   dark: {
-    // Base colors
-    text: '#F8F0E7',
-    textSecondary: '#B8AEA2',
-    textMuted: '#A79D92',
-    background: '#101411',
-    backgroundSecondary: '#171D1A',
-    backgroundElevated: '#202820',
-
-    // UI elements
-    tint: tintColorDark,
-    actionText: brand.reefHighlight,
-    accent: '#E58A68',
-    accentSoft: 'rgba(229, 138, 104, 0.16)',
-    border: '#2D352F',
-    borderLight: '#222A25',
-
-    // Tab bar
-    tabIconDefault: '#A79D92',
-    tabIconSelected: tintColorDark,
-    tabLabelSelected: brand.reefHighlight,
-
-    // Cards and surfaces
-    card: '#1E2520',
-    cardBackground: '#1E2520',
-    cardBorder: '#2D352F',
-
-    // Status colors
-    success: '#86B875',
-    onSuccess: brand.ink,
-    warning: '#F2B84B',
-    error: '#F07167',
-
-    // Shadows
-    shadowColor: '#000000',
+    text: '#FFFFFF', secondaryLabel: 'rgba(235,235,245,0.60)', textSecondary: 'rgba(235,235,245,0.60)', textMuted: 'rgba(235,235,245,0.60)',
+    tertiaryLabel: 'rgba(235,235,245,0.30)', background: '#000000', groupedBackground: '#000000',
+    backgroundSecondary: '#1C1C1E', backgroundElevated: '#1C1C1E', surface2: 'rgba(118,118,128,0.24)',
+    tint: '#5DD3B6', onTint: '#00261F', actionText: '#5DD3B6', accent: '#5DD3B6',
+    accentSoft: 'rgba(118,118,128,0.24)', border: 'rgba(84,84,88,0.65)', borderLight: 'rgba(84,84,88,0.65)',
+    tabIconDefault: 'rgba(235,235,245,0.60)', tabIconSelected: '#5DD3B6', tabLabelSelected: '#5DD3B6',
+    card: '#1C1C1E', cardBackground: '#1C1C1E', cardBorder: 'transparent',
+    success: '#30D158', onSuccess: '#00261F', warning: '#FFD60A', destructive: '#FF453A', error: '#FF6961', shadowColor: '#000000',
   },
 };
 
@@ -112,7 +38,7 @@ export const spacing = {
   md: 16,
   lg: 24,
   xl: 32,
-  xxl: 48,
+  xxl: 40,
 };
 
 // Border radius scale
@@ -133,8 +59,8 @@ export const fontSize = {
   md: 15,
   lg: 17,
   xl: 20,
-  xxl: 30,
-  xxxl: 38,
+  xxl: 28,
+  xxxl: 32,
 };
 
 // Font weights
@@ -145,24 +71,34 @@ export const fontWeight = {
   bold: '700' as const,
 };
 
-// Font families
+// The OS supplies UI/body type; Fraunces is reserved for editorial titles.
+const systemFont = 'System';
 export const fontFamily = {
-  regular: 'DMSans_400Regular',
-  medium: 'DMSans_500Medium',
-  semibold: 'DMSans_600SemiBold',
-  bold: 'DMSans_700Bold',
-  display: 'Fraunces_700Bold',
-  displaySemibold: 'Fraunces_600SemiBold',
+  regular: systemFont, medium: systemFont, semibold: systemFont, bold: systemFont,
+  display: 'Fraunces_600SemiBold', displaySemibold: 'Fraunces_600SemiBold',
 };
+
+export const typography = {
+  largeTitle: { fontSize: 32, lineHeight: 38, fontFamily: fontFamily.display },
+  title1: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
+  title2: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
+  title3: { fontSize: 20, lineHeight: 25, fontWeight: '600' },
+  headline: { fontSize: 17, lineHeight: 22, fontWeight: '600' },
+  body: { fontSize: 17, lineHeight: 22 }, callout: { fontSize: 16, lineHeight: 21 },
+  subhead: { fontSize: 15, lineHeight: 20 }, footnote: { fontSize: 13, lineHeight: 18 },
+  caption: { fontSize: 12, lineHeight: 16 }, caption2: { fontSize: 11, lineHeight: 13 },
+  cardTitle: { fontSize: 16, lineHeight: 21, fontFamily: fontFamily.display },
+} as const;
+
+/** Supply leading for older screens that only specify a point size. */
+export function lineHeightForSize(size: number): number {
+  const leading: Record<number, number> = { 11: 13, 12: 16, 13: 18, 15: 20, 16: 21, 17: 22, 20: 25, 22: 28, 28: 34, 32: 38, 34: 41 };
+  return leading[size] ?? Math.ceil(size * 1.3);
+}
 
 // Shadow presets for cards and elevated surfaces
 export const shadows = {
-  card: {
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 3,
-  },
+  card: { shadowOpacity: 0, elevation: 0 },
   medium: {
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.14,

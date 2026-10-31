@@ -877,7 +877,7 @@ function ExtractScreenContent() {
                 {extraction.isExtracting ? <ActivityIndicator color={colors.actionText} /> : <Ionicons
                   name={extraction.isFailed ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={22} color={extraction.isFailed ? colors.error : colors.actionText} />}
                 <RNView style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontFamily: fontFamily.semibold }} accessibilityRole="header">
+                  <Text style={{ color: colors.text, fontFamily: fontFamily.semibold, fontWeight: '600' }} accessibilityRole="header">
                     {importStatus.title}
                     {extraction.sourceUrl ? ` · ${importSourceLabel(extraction.sourceUrl)}` : ''}
                   </Text>
@@ -1001,14 +1001,14 @@ const styles = StyleSheet.create({
   statusActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   openRecipeAction: { flexGrow: 1 },
   composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold },
+  composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold, fontWeight: '600' },
   textAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
-  smallActionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium },
+  smallActionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },
   supportedSources: { fontSize: fontSize.xs, lineHeight: 18 },
   settingsSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 56 },
   settingsCopy: { flex: 1 },
-  settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium },
-  otherWaysLabel: { fontSize: fontSize.sm, fontFamily: fontFamily.semibold, marginBottom: spacing.sm },
+  settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },
+  otherWaysLabel: { fontSize: fontSize.sm, fontFamily: fontFamily.semibold, fontWeight: '600', marginBottom: spacing.sm },
   alternateMethods: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', marginBottom: spacing.md },
   alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
   alternateTitle: { flex: 1, fontSize: fontSize.md },
@@ -1056,7 +1056,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     marginBottom: spacing.sm,
   },
   hint: {

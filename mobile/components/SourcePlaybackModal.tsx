@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerCopy: { flex: 1, alignItems: 'center', paddingHorizontal: spacing.xs },
-  headerTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.md },
+  headerTitle: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md },
   status: {
     minHeight: 22,
     marginTop: 2,
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  errorTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.lg },
+  errorTitle: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.lg },
   errorText: {
     marginTop: spacing.sm,
     fontSize: fontSize.sm,
@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-  primaryButtonText: { color: '#FFFFFF', fontFamily: fontFamily.semibold, fontSize: fontSize.md },
+  primaryButtonText: { color: '#FFFFFF', fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md },
   footer: {
     minHeight: 92,
     paddingTop: spacing.md,
@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   footerCopy: { flex: 1 },
-  footerTitle: { fontFamily: fontFamily.semibold, fontSize: fontSize.sm },
+  footerTitle: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.sm },
   footerText: { fontSize: fontSize.xs, marginTop: 2 },
   openButton: {
     minHeight: 44,
@@ -329,5 +329,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  openButtonText: { fontFamily: fontFamily.semibold, fontSize: fontSize.sm },
+  openButtonText: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.sm },
 });

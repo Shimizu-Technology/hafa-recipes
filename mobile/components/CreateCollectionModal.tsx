@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
   },
   previewName: {
     fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     flex: 1,
   },
   actions: {

@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   organizerTitle: {
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.semibold, fontWeight: '600',
     fontSize: fontSize.md,
   },
   organizerHint: {
