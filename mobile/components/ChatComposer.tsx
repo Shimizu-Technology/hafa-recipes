@@ -102,7 +102,7 @@ export default function ChatComposer({
               accessibilityState={{ disabled: areAttachmentsDisabled }}
               hitSlop={8}
             >
-              <Ionicons name="close" size={15} color="#FFFFFF" />
+              <Ionicons name="close" size={15} color={colors.onError} />
             </TouchableOpacity>
           </RNView>
           <RNView style={styles.attachedImageText}>
@@ -178,7 +178,7 @@ export default function ChatComposer({
           <Ionicons
             name={attachmentsOpen ? 'close' : 'add'}
             size={24}
-            color={attachmentsOpen ? '#FFFFFF' : colors.textSecondary}
+            color={attachmentsOpen ? colors.onTint : colors.textSecondary}
           />
         </TouchableOpacity>
 
@@ -261,7 +261,7 @@ export default function ChatComposer({
           <Ionicons
             name={isListening ? 'mic' : 'mic-outline'}
             size={20}
-            color={isListening ? '#FFFFFF' : colors.textSecondary}
+            color={isListening ? colors.onTint : colors.textSecondary}
           />
         </TouchableOpacity>
 
@@ -284,12 +284,12 @@ export default function ChatComposer({
           ]}
         >
           {isSending ? (
-            <Ionicons name="stop" size={18} color="#FFFFFF" />
+            <Ionicons name="stop" size={18} color={colors.onError} />
           ) : (
             <Ionicons
               name="arrow-up"
               size={21}
-              color={canSend ? '#FFFFFF' : colors.textMuted}
+              color={canSend ? colors.onTint : colors.textMuted}
             />
           )}
         </TouchableOpacity>

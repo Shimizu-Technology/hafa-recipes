@@ -75,6 +75,9 @@ export default function AllContributorsModal({
             borderColor: colors.border,
           }
         ]}
+        accessibilityRole="button"
+        accessibilityLabel={`${item.display_name}, ${item.recipe_count} ${item.recipe_count === 1 ? 'recipe' : 'recipes'}`}
+        accessibilityState={{ selected: isSelected }}
         onPress={() => handleSelectContributor(item)}
         activeOpacity={0.7}
       >
@@ -107,8 +110,8 @@ export default function AllContributorsModal({
         style={styles.keyboardAvoid}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable style={styles.overlay} onPress={onClose}>
-          <Pressable 
+        <Pressable accessible={false} style={styles.overlay} onPress={onClose}>
+          <Pressable accessible={false}
             style={[
               styles.sheet, 
               { 
@@ -122,7 +125,7 @@ export default function AllContributorsModal({
           {/* Header */}
           <RNView style={styles.header}>
             <Text style={[styles.title, { color: colors.text }]}>All Contributors</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close contributors" onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons name="close" size={24} color={colors.textMuted} />
             </TouchableOpacity>
           </RNView>
@@ -140,7 +143,7 @@ export default function AllContributorsModal({
               autoCorrect={false}
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear contributor search" onPress={() => setSearchQuery('')}>
                 <Ionicons name="close-circle" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             )}

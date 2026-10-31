@@ -1,12 +1,13 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, Card, Chips, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, HeaderAction, Card, TextLinks, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { TabActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
@@ -26,18 +27,20 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
     c = useColors();
   return (
     <Screen
+      key={showHistory ? "history" : "conversation"}
+      onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
-      action={<Button secondary title="History" icon="time-outline" disabled={chat.resolving} onPress={() => void openHistory()} />}
-      followEnd
+      action={back ? <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
+      followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={
         <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-end", gap: 10 }}>
           <TextInput
             accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
-            placeholder={available ? "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
+            placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
             placeholderTextColor={c.muted}
             editable={available && !busy && !chat.resolving}
             multiline
@@ -45,9 +48,9 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             maxFontSizeMultiplier={0}
             scrollEnabled
             style={{ flex: fontScale >= 1.5 ? undefined : 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
-              minHeight: composerMinimum, borderWidth: 1, borderColor: c.border, borderRadius: 22,
+              minHeight: composerMinimum, borderRadius: 22,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
-              fontFamily: fonts.regular, fontSize: 17 }}
+              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
           />
           <PressTarget
             accessibilityRole="button"
@@ -63,6 +66,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </View>
       }
     >
+      {!back && <Stack.Screen options={{ headerRight: () => <TabActions title="Ask" action={<HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} /> }} />}
       {!available && (
         <Card tone="soft">
           <Copy kind="heading">AI is optional.</Copy>
@@ -77,7 +81,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </Card>
       )}
       {!focused && (
-        <Chips
+        <TextLinks
           value={chat.context.scope}
           label="Search in"
           options={[
@@ -110,6 +114,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
               <Row
                 key={h.id}
                 title={h.title || "A previous conversation"}
+                numericDetail
                 detail={h.updated_at ? new Date(h.updated_at).toLocaleDateString() : undefined}
                 icon="chatbubbles-outline"
                 onPress={() => void load(h.id)}
@@ -120,7 +125,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
           )}
         </Section>
       )}
-      {!messages.length && available && (
+      {!showHistory && !messages.length && available && (
         <Empty
           icon="sparkles-outline"
           title="Start with something on your mind."
@@ -131,7 +136,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
           }
         />
       )}
-      {messages.map((m, index) =>
+      {!showHistory && messages.map((m, index) =>
         m.role === "user" ? (
           <View
             key={m.id ?? index}
@@ -140,7 +145,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: 20,
               borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
           >
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}>
               {m.content}
             </Text>
           </View>
@@ -168,7 +173,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
               <Card tone="soft">
                 <Copy kind="heading">Proposed: {m.proposal.title}</Copy>
                 <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
-                <Button title="Review suggestion" onPress={() => void review(m.proposal!)} />
+                <Button secondary title="Review suggestion" onPress={() => void review(m.proposal!)} />
               </Card>
             )}
           </View>
@@ -176,7 +181,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       )}
       {!!error && <Notice error>{error}</Notice>}
       {busy && <Loading label="Looking through your saved entries…" />}
-      {messages.length > 0 && (
+      {!showHistory && messages.length > 0 && (
         <>
           <Copy kind="small" tone="muted">
             Saved advice, your own observations and clinician instructions are different sources. Check the original and

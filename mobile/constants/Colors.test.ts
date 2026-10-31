@@ -25,6 +25,7 @@ type Token = keyof typeof Colors.light;
 // Opaque foreground/background pairs rendered by FilterBottomSheet and Tabs.
 // Labels are small text, so the icon-only 3:1 threshold is insufficient.
 const pairs: [label: string, fg: Token, bg: Token, minimum: number][] = [
+  ['error-filled control foregrounds', 'onError', 'error', 4.5],
   ['selected cook-time label and icon', 'onSuccess', 'success', 4.5],
   ['active tab label', 'tabLabelSelected', 'backgroundElevated', 4.5],
   ['active tab icon', 'tabIconSelected', 'backgroundElevated', 3],

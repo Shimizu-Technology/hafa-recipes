@@ -2,7 +2,7 @@ import { Button, Card, Copy, Screen, Section } from "@/components/ui";
 import { router } from "expo-router";
 export default function Privacy() {
   return (
-    <Screen title="Your space stays personal." subtitle="Privacy & processing in Håfa Baby" back>
+    <Screen title="Privacy" subtitle="Privacy & processing in Håfa Baby" back>
       <Section title="Your information">
         <Copy>
           Håfa Baby stores the profiles, care entries, journal writing, sources, files, routines, and conversations you

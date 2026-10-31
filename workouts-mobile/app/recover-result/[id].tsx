@@ -83,7 +83,7 @@ function RecoveryScreen({ id }: { id: string }) {
         <PrescriptionPreview workout={original.workout} />
         {needsReview ? <>
           <Notice error>{item.problem || "The recovered result needs review before saving again."} Your recorded work stays on this device.</Notice>
-          <Button title="Review in Progress" onPress={() => { if (current()) router.replace("/(tabs)/progress"); }} />
+          <Button title="Review in Progress" onPress={() => { if (current()) router.replace("/progress"); }} />
         </> : allowed ? <>
           {!!error && <Notice error>{error}</Notice>}
           <Button title={command || item.recovery || continuedRecovery ? "Continue saving recovered result" : "Save private workout and result"}

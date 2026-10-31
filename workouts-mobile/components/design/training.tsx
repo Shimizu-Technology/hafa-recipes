@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Pressable, View, type ColorValue } from "react-native";
+import { Pressable, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { radii, spacing } from "@/constants/theme";
@@ -240,7 +240,7 @@ export function SetRow({
   );
 }
 
-export type DayMark = { label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
+export type DayMark = { today?: boolean; label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
 /** This week at a glance: done, planned and today. No streak pressure. */
 export function WeekStrip({ days }: { days: DayMark[] }) {
   const c = useColors();
@@ -248,7 +248,7 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
     <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 4 }}>
       {days.map((day, i) => {
         const done = day.state === "done";
-        const today = day.state === "today";
+        const today = day.today || day.state === "today";
         return (
           <View key={i} accessible accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
             <Copy kind="caption" tone={today ? "accent" : "muted"}>
@@ -261,15 +261,13 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
                 borderRadius: radii.full,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: done ? c.action : day.state === "planned" ? c.actionSoft : "transparent",
-                borderWidth: today ? 2 : day.state === "rest" ? 1 : 0,
-                borderColor: today ? c.accent : c.border,
+                backgroundColor: done ? c.action : "transparent",
+                borderWidth: today || day.state === "planned" ? 2 : 0,
+                borderColor: today ? c.accent : c.muted,
               }}
             >
               {done ? (
                 <Ionicons name="checkmark" size={18} color={c.onAction} />
-              ) : day.state === "planned" || today ? (
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: today ? c.accent : c.onActionSoft }} />
               ) : null}
             </View>
           </View>
@@ -280,50 +278,12 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
 }
 
 /** Tab-bar icon: filled glyph on a soft coral pill when active. */
-export const tabIcons = {
-  index: ["sunny", "sunny-outline"],
-  discover: ["compass", "compass-outline"],
-  extract: ["add", "add-outline"],
-  library: ["albums", "albums-outline"],
-  plan: ["barbell", "barbell-outline"],
-  progress: ["stats-chart", "stats-chart-outline"],
-} as const satisfies Record<string, readonly [IconName, IconName]>;
-export function TabIcon({ route, focused, color }: { route: keyof typeof tabIcons; focused: boolean; color: ColorValue }) {
-  const [active, idle] = tabIcons[route];
-  return <Ionicons name={focused ? active : idle} size={24} color={color} />;
-}
-
-/** Add is the primary capture action: a filled tile that still sits on the shared icon baseline. */
-export function AddTabIcon({ focused }: { focused: boolean }) {
-  const c = useColors();
-  return (
-    <View
-      style={{
-        width: 36,
-        height: 36,
-        marginTop: -6,
-        borderRadius: radii.md,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: c.action,
-        opacity: focused ? 1 : 0.92,
-      }}
-    >
-      <Ionicons name="add" size={26} color={c.onAction} />
-    </View>
-  );
-}
-
-/** Keeps a value's previous render (used for one-shot haptics on state changes). */
 export function usePrevious<T>(value: T) {
-  const ref = useRef<T>(value);
-  useEffect(() => {
-    ref.current = value;
-  }, [value]);
+  const ref = useRef(value);
+  useEffect(() => { ref.current = value; }, [value]);
   return ref.current;
 }
 
-/** Segmented step indicator (onboarding, multi-step forms). */
 export function StepBar({ step, total, label }: { step: number; total: number; label?: string }) {
   const c = useColors();
   return (

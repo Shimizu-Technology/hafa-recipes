@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, useWindowDimensions, View as RNView } from 'react-native';
+import { type PressableProps, StyleSheet, useWindowDimensions, View as RNView } from 'react-native';
 
 import { ScalePressable } from '@/components/Animated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Text, useColors } from '@/components/Themed';
-import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
+import { fontFamily } from '@/constants/Colors';
 
-export const RECIPE_GRID_GAP = spacing.sm;
+export const RECIPE_GRID_GAP = 12;
 
 type RecipeGridCardFrameProps = {
   title: string;
@@ -20,6 +20,9 @@ type RecipeGridCardFrameProps = {
   accessibilityLabel?: string;
   /** Selection state while the surrounding list is in multi-select mode. */
   selected?: boolean;
+  fullWidth?: boolean;
+  accessibilityActions?: PressableProps['accessibilityActions'];
+  onAccessibilityAction?: PressableProps['onAccessibilityAction'];
 };
 
 /** Keep the image, two-line title slot, and footer aligned across recipe grids. */
@@ -32,16 +35,19 @@ export function RecipeGridCardFrame({
   imageAdornment,
   imagePriority = 'normal',
   accessibilityLabel,
-  selected,
+  selected, fullWidth = false, accessibilityActions, onAccessibilityAction,
 }: RecipeGridCardFrameProps) {
   const { width, fontScale } = useWindowDimensions();
-  const titleSlotHeight = Math.ceil(36 * fontScale);
-  const footerHeight = Math.ceil(16 * fontScale);
-  const cardWidth = (width - spacing.lg * 2 - RECIPE_GRID_GAP) / 2;
+  const titleSlotHeight = Math.ceil(42 * fontScale);
+  const footerHeight = Math.ceil(18 * fontScale);
+  const contentWidth = Math.min(width, 720);
+  const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth - 32 : (contentWidth - 32 - RECIPE_GRID_GAP) / 2;
 
   return (
+    <RNView style={[styles.card, { width: cardWidth }]}>
     <ScalePressable
-      style={[styles.card, { width: cardWidth, backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
@@ -55,9 +61,8 @@ export function RecipeGridCardFrame({
           placeholderIconSize={40}
           priority={imagePriority}
         />
-        {imageAdornment}
       </RNView>
-      <RNView style={[styles.content, { minHeight: spacing.sm * 2 + titleSlotHeight + footerHeight + 12 }]}>
+      <RNView style={[styles.content, { minHeight: 8 + titleSlotHeight + 2 + footerHeight }]}>
         <Text
           style={[styles.title, { color: colors.text, minHeight: titleSlotHeight }]}
           numberOfLines={2}
@@ -67,33 +72,36 @@ export function RecipeGridCardFrame({
         <RNView style={[styles.footer, { minHeight: footerHeight }]}>{footer}</RNView>
       </RNView>
     </ScalePressable>
+    {/* Keep independent photo actions outside the card’s VoiceOver group. */}
+    {imageAdornment}
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-    borderWidth: 1,
+    marginBottom: 20,
   },
   imageContainer: {
     width: '100%',
     aspectRatio: 1,
     position: 'relative',
+    borderRadius: 14,
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
     height: '100%',
   },
   content: {
-    padding: spacing.sm,
+    paddingTop: 8,
+    gap: 2,
     justifyContent: 'space-between',
   },
   title: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold, fontWeight: '600',
-    lineHeight: 18,
+    fontSize: 16,
+    fontFamily: fontFamily.displaySemibold, fontWeight: '600',
+    lineHeight: 21,
   },
   footer: {
     justifyContent: 'flex-end',

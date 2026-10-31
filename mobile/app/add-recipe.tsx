@@ -758,7 +758,7 @@ function ManualRecipeForm() {
               {steps.map((step, index) => (
                 <RNView key={step.id} style={styles.stepRow}>
                   <RNView style={[styles.stepNumber, { backgroundColor: colors.tint }]}>
-                    <Text style={styles.stepNumberText}>{index + 1}</Text>
+                    <Text style={[styles.stepNumberText, { color: colors.onTint }]}>{index + 1}</Text>
                   </RNView>
                   <TextInput
                     style={[styles.input, styles.stepInput, { color: colors.text, borderColor: colors.border }]}
@@ -806,11 +806,11 @@ function ManualRecipeForm() {
                   style={[styles.aiButton, { backgroundColor: colors.tint }]}
                 >
                   {isGeneratingTags ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={colors.onTint} />
                   ) : (
                     <>
-                      <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                      <Text style={styles.aiButtonText}>Suggest</Text>
+                      <Ionicons name="sparkles" size={14} color={colors.onTint} />
+                      <Text style={[styles.aiButtonText, { color: colors.onTint }]}>Suggest</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -847,11 +847,11 @@ function ManualRecipeForm() {
                   style={[styles.aiButton, { backgroundColor: colors.tint }]}
                 >
                   {isEstimatingNutrition ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={colors.onTint} />
                   ) : (
                     <>
-                      <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                      <Text style={styles.aiButtonText}>Estimate</Text>
+                      <Ionicons name="sparkles" size={14} color={colors.onTint} />
+                      <Text style={[styles.aiButtonText, { color: colors.onTint }]}>Estimate</Text>
                     </>
                   )}
                 </TouchableOpacity>

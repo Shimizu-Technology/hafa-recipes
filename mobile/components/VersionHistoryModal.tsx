@@ -107,7 +107,7 @@ export default function VersionHistoryModal({
       <View style={[styles.container, { paddingTop: insets.top }]}>
         {/* Header */}
         <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close version history">
             <Ionicons name="close" size={24} color={colors.text} />
           </TouchableOpacity>
           <RNView style={styles.headerCenter}>
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: spacing.xs,
-    width: 40,
+    minWidth: 44, minHeight: 44,
   },
   headerCenter: {
     flex: 1,
@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   headerRight: {
-    width: 40,
+    minWidth: 44, minHeight: 44,
   },
   loadingContainer: {
     flex: 1,

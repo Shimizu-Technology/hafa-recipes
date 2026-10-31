@@ -87,7 +87,7 @@ export function RecipeCollectionsCard({
 
 const styles = StyleSheet.create({
   container: {
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
   },
   collectionEmoji: {

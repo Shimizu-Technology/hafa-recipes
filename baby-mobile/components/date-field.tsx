@@ -38,6 +38,7 @@ export function DateField({
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <Button
           secondary
+          numeric
           title={
             value
               ? valid.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
@@ -48,6 +49,7 @@ export function DateField({
         {!dateOnly && (
           <Button
             secondary
+            numeric
             title={valid.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
             onPress={() => open("time")}
           />

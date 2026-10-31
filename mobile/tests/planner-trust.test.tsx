@@ -47,7 +47,7 @@ vi.mock('@/components/Themed', () => ({
   View: 'View',
   useColors: () => ({
     card: '#fff', cardBorder: '#ddd', text: '#111', textMuted: '#666',
-    tint: '#155c52', warning: '#8a5a00',
+    tint: '#5DD3B6', onTint: '#00261F', success: '#30D158', onSuccess: '#00261F', warning: '#8a5a00',
   }),
 }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
@@ -109,7 +109,7 @@ function localDate(date: Date) {
 
 const colors = {
   card: '#fff', cardBorder: '#ddd', text: '#111', textMuted: '#666',
-  tint: '#155c52', warning: '#8a5a00',
+  tint: '#5DD3B6', onTint: '#00261F', success: '#30D158', onSuccess: '#00261F', warning: '#8a5a00',
 } as any;
 
 function entry(
@@ -233,6 +233,24 @@ describe('planner loading recovery', () => {
       await act(async () => picker.props.onSelect({ id: 'picked-recipe', title: 'Rice' }));
       const date = planHooks.formatDateForApi(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1));
       expect(add).toHaveBeenCalledWith({ recipe_id: 'picked-recipe', date, meal_type: 'dinner' });
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it('keeps week grocery text, cart and pending indicator readable on the dark tint fill', async () => {
+    const meal = entry('ready');
+    const date = localDate(new Date());
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [{ date, dinner: [meal] }] }, refetch } as any);
+    const root = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      let button = root.container.queryAll(n => n.props.accessibilityLabel === 'Review week groceries')[0];
+      const label = button.queryAll(n => n.type === 'Text')[0];
+      expect(Object.assign({}, ...[label.props.style].flat(Infinity)).color).toBe('#00261F');
+      expect(button.queryAll(n => n.type === 'Ionicons')[0].props.color).toBe('#00261F');
+      vi.mocked(planHooks.useAddPlanToGrocery).mockReturnValue({ isPending: true } as any);
+      await act(async () => root.render(<PlannerScreen />));
+      button = root.container.queryAll(n => n.props.accessibilityLabel === 'Review week groceries')[0];
+      expect(button.queryAll(n => n.type === 'ActivityIndicator')[0].props.color).toBe('#00261F');
     } finally { await act(async () => root.unmount()); }
   });
 

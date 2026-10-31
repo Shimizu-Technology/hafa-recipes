@@ -282,9 +282,9 @@ export default function GroceryListSettingsModal({
                       disabled={!joinCode.trim() || joinMutation.isPending}
                     >
                       {joinMutation.isPending ? (
-                        <ActivityIndicator size="small" color={colors.onTint} />
+                        <ActivityIndicator size="small" color={joinCode.trim() ? colors.onTint : colors.textMuted} />
                       ) : (
-                        <Ionicons name="enter-outline" size={20} color={colors.onTint} />
+                        <Ionicons name="enter-outline" size={20} color={joinCode.trim() ? colors.onTint : colors.textMuted} />
                       )}
                     </TouchableOpacity>
                   </RNView>

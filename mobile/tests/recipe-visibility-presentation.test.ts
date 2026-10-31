@@ -8,6 +8,7 @@ describe('getRecipeVisibilityPresentation', () => {
 
     expect(presentation).toEqual({
       label: 'Public — under review',
+      value: 'Under review',
       subtitle: 'Hidden from Discover · Tap to review',
       accessibilityHint:
         'A moderation hold is hiding this public recipe. Tap to review or make private.',

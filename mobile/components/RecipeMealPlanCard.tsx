@@ -137,7 +137,7 @@ export function RecipeMealPlanCard({
 
 const styles = StyleSheet.create({
   container: {
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     minHeight: 40,
     paddingHorizontal: spacing.md,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.full,
   },
   retryText: {
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
   },
   dateIcon: {

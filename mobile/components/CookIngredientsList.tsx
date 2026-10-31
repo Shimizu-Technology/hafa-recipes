@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, View as RNView } from 'react-native';
 
-import { Text } from '@/components/Themed';
+import { Text, useColors } from '@/components/Themed';
 import { brand, fontSize, fontWeight, spacing } from '@/constants/Colors';
 import { scaleQuantity } from '@/hooks/useScaledServings';
 import { formatIngredientAmount, hasStatedIngredientAmount, getIngredientAmount } from '../lib/recipeTrust';
@@ -22,6 +22,7 @@ export function CookIngredientsList({
   warningColor,
   scaleFontSize,
 }: CookIngredientsListProps) {
+  const colors = useColors();
   return (
     <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
       {ingredients.map((ingredient, index) => {
@@ -29,18 +30,19 @@ export function CookIngredientsList({
         const scaledQuantity = scaleQuantity(amount.quantity, scaleFactor);
         const hasAmount = hasStatedIngredientAmount(amount.quantity);
         return (
-          <RNView key={index} style={styles.row}>
+          <RNView key={index} style={[styles.row, { borderBottomColor: colors.border }]}>
             <Text
               style={[
                 styles.quantity,
-                isScaled && styles.scaledQuantity,
+                { color: colors.actionText, flexShrink: 1 },
+                isScaled && { color: colors.actionText },
                 !hasAmount && { color: warningColor },
                 { fontSize: scaleFontSize(hasAmount ? fontSize.md : fontSize.sm) },
               ]}
             >
               {formatIngredientAmount(amount.quantity, amount.unit, scaledQuantity)}
             </Text>
-            <Text style={[styles.name, { fontSize: scaleFontSize(fontSize.md) }]}>
+            <Text style={[styles.name, { color: colors.text, fontSize: scaleFontSize(fontSize.md) }]}>
               {ingredient.name}
               {amount.isEstimate && <Text style={{ color: warningColor, fontSize: scaleFontSize(fontSize.sm) }}>{'\nAI estimate'}</Text>}
             </Text>
@@ -65,7 +67,8 @@ const styles = StyleSheet.create({
     color: brand.reefHighlight,
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
-    width: 124,
+    width: '34%',
+    paddingRight: 8,
   },
   scaledQuantity: {
     color: brand.reefHighlight,

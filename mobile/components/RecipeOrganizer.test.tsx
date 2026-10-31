@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ fontScale: 1 }),
   ActivityIndicator: 'ActivityIndicator',
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Modal: 'Modal',
@@ -32,7 +33,7 @@ vi.mock('@/components/Themed', () => ({
     text: '#111',
     textMuted: '#666',
     textSecondary: '#333',
-    tint: '#155C52',
+    tint: '#5DD3B6', onTint: '#00261F',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
@@ -90,6 +91,36 @@ function organizerProps() {
 }
 
 describe('RecipeOrganizer', () => {
+  it.each([
+    ['Notes', 'My notes'], ['Collections', 'Collections'], ['Plan', 'Meal plan'],
+  ])('opens the %s sheet from a compact detail row', async (label, sheetTitle) => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => renderer.render(<RecipeOrganizer {...organizerProps()} compact />));
+      const row = renderer.container.queryAll(node => node.type === 'TouchableOpacity'
+        && String(node.props.accessibilityLabel).startsWith(`Open ${label}.`))[0];
+      await act(async () => row.props.onPress());
+      expect(renderer.container.queryAll(node => node.type === 'Modal' && node.props.visible)).toHaveLength(1);
+      expect(renderer.container.queryAll(node => node.type === 'Text' && node.props.children === sheetTitle).length).toBeGreaterThan(0);
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('keeps note save text and its busy indicator readable on the dark tint', async () => {
+    const props = organizerProps();
+    const root = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await act(async () => root.render(<RecipeOrganizer {...props} />));
+      await act(async () => root.container.queryAll(n => n.props.accessibilityLabel === 'Open Notes. Private note')[0].props.onPress());
+      await act(async () => root.container.queryAll(n => n.props.accessibilityLabel === 'Edit private recipe note')[0].props.onPress());
+      let save = root.container.queryAll(n => n.props.accessibilityLabel === 'Save private recipe note')[0];
+      const label = save.queryAll(n => n.type === 'Text')[0];
+      expect(Object.assign({}, ...[label.props.style].flat(Infinity)).color).toBe('#00261F');
+      await act(async () => root.render(<RecipeOrganizer {...props} isNoteSaving />));
+      save = root.container.queryAll(n => n.props.accessibilityLabel === 'Save private recipe note')[0];
+      expect(save.queryAll(n => n.type === 'ActivityIndicator')[0].props.color).toBe('#00261F');
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('summarizes all three private tools without expanding them inline', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -141,11 +172,12 @@ describe('RecipeOrganizer', () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
-      await act(async () => renderer.render(React.createElement(RecipeOrganizer, props)));
+      await act(async () => renderer.render(React.createElement(RecipeOrganizer, { ...props, recipeNotes: 'Let the dough rest before baking.' })));
       const openNotes = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Open Notes. Private note',
       )[0];
       await act(async () => openNotes.props.onPress());
+      expect(renderer.container.queryAll(node => node.props.children === 'Let the dough rest before baking.')).toHaveLength(1);
       const editNote = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Edit private recipe note',
       )[0];

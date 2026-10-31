@@ -1,3 +1,4 @@
+vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   signedIn: true, searching: false, focused: true, feedEnabled: false,
   push: vi.fn(),
-  save: vi.fn(),
+  save: vi.fn(), unsave: vi.fn(),
   searchArgs: [] as unknown[],
 }));
 
@@ -21,8 +22,9 @@ vi.mock('react-native', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
     ActivityIndicator: host('ActivityIndicator'),
+    useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
     Alert: { alert: vi.fn() },
-    FlatList: host('FlatList'),
+    FlatList: (props: any) => ReactModule.createElement('FlatList', props, props.ListHeaderComponent),
     Keyboard: { dismiss: vi.fn() },
     Modal: host('Modal'),
     Platform: { OS: 'ios' },
@@ -71,7 +73,7 @@ vi.mock('@/constants/Colors', () => ({
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },
 }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: () => null }));
-vi.mock('@/components/AllContributorsModal', () => ({ default: () => null }));
+vi.mock('@/components/AllContributorsModal', () => ({ default: (props: any) => React.createElement('AllContributorsModal', props) }));
 vi.mock('@/components/Skeleton', () => ({ SkeletonRecipeList: () => null }));
 vi.mock('@/components/Animated', () => ({ AnimatedListItem: () => null, ScalePressable: 'TouchableOpacity', useInitialListEntrance: () => () => false }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: () => null }));
@@ -114,6 +116,7 @@ vi.mock('@/hooks/useRecipes', () => {
     isError: false,
   };
   return {
+    useCurrentUserIdentity: () => ({ data: { id: 'app-user-1' } }),
     useDiscoverRecipes: (_source: unknown, enabled: boolean) => { mocks.feedEnabled = enabled; return page; },
     useSearchPublicRecipes: (args: unknown) => {
       mocks.searchArgs.push(args);
@@ -122,7 +125,7 @@ vi.mock('@/hooks/useRecipes', () => {
     usePublicRecipeCount: () => ({ data: { count: 12 } }),
     useIsRecipeSaved: () => ({ data: false }),
     useSaveRecipe: () => ({ mutate: mocks.save }),
-    useUnsaveRecipe: () => ({ mutate: vi.fn() }),
+    useUnsaveRecipe: () => ({ mutate: mocks.unsave }),
     usePopularTags: () => ({ data: [] }),
     useTopContributors: () => ({ data: [{ user_id: 'maria', contributor_id: 'maria', display_name: 'Maria', recipe_count: 1 }] }),
     filterRecipesLocally: () => [],
@@ -133,6 +136,7 @@ import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 import DiscoverRoute, { SaveButton } from '../app/(tabs)/discover';
 import { DiscoverScreen } from '../app/(tabs)/discover';
 import FilterBottomSheet from '../components/FilterBottomSheet';
+import { api } from '@/lib/api';
 
 function textOf(node: ReactTestInstance | string | number): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -158,39 +162,43 @@ describe('Discover accessibility', () => {
     mocks.searchArgs = [];
   });
 
-  it('labels the list/grid toggle with the layout it switches to', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(<DiscoverScreen />);
-    });
-
-    const toGrid = () => byLabel(renderer!, 'Show recipes as a grid');
-    const toList = () => byLabel(renderer!, 'Show recipes as a list');
-    expect(toList()?.props.accessibilityRole).toBe('button');
-    expect(toGrid()).toBeUndefined();
-
-    await act(async () => toList()!.props.onPress());
-    expect(toGrid()?.props.accessibilityRole).toBe('button');
-    expect(toList()).toBeUndefined();
+  it('keeps a single Surprise request in flight and shows progress until navigation', async () => {
+    let finish!: (recipe: any) => void;
+    vi.mocked(api.getRandomRecipe).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    mocks.push.mockClear();
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    try {
+      await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Surprise me')!.props.onPress());
+      const option = byText(renderer, 'Random Dinner');
+      await act(async () => { void option.props.onPress(); void option.props.onPress(); });
+      expect(api.getRandomRecipe).toHaveBeenCalledOnce();
+      expect(renderer.root.findAllByType('ActivityIndicator' as any).some(n => n.props.accessibilityLabel === 'Finding a recipe')).toBe(true);
+      await act(async () => { finish({ id: 'random-one' }); });
+      expect(mocks.push.mock.calls).toEqual([['/recipe/random-one']]);
+      expect(renderer.root.findAllByType('ActivityIndicator' as any).some(n => n.props.accessibilityLabel === 'Finding a recipe')).toBe(false);
+    } finally { await act(async () => renderer.unmount()); }
   });
 
-  it('announces the source filter selection through the filter sheet and the filter button', async () => {
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(<DiscoverScreen />);
-    });
-
-    const filters = byLabel(renderer!, 'Filters')!;
-    expect(filters.props.accessibilityRole).toBe('button');
-    await act(async () => filters.props.onPress());
-
-    await act(async () => byText(renderer!, 'YouTube').props.onPress());
-    expect(byText(renderer!, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
-    expect(byText(renderer!, 'All Sources').props.accessibilityState).toEqual({ selected: false, checked: false });
-
-    await act(async () => byText(renderer!, 'Apply (1)').props.onPress());
-    expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
-    expect(byLabel(renderer!, 'Filters, 1 active')?.props.accessibilityRole).toBe('button');
+  it('keeps Discover as a grid and exposes unique actions through the header menu', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    try {
+      expect(renderer.root.findAllByType('Input' as any)).toHaveLength(0);
+      expect(byLabel(renderer, 'Show recipes as a list')).toBeUndefined();
+      const filter = renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Filter recipes')!;
+      await act(async () => filter.props.onPress());
+      await act(async () => byText(renderer, 'YouTube').props.onPress());
+      expect(byText(renderer, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
+      await act(async () => byText(renderer, 'Apply (1)').props.onPress());
+      expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
+      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Top contributors', 'Surprise me', 'Search recipes']);
+      await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Top contributors')!.props.onPress());
+      const contributors = renderer.root.findByType('AllContributorsModal' as any);
+      expect(contributors.props.visible).toBe(true);
+      await act(async () => contributors.props.onSelectContributor({ contributor_id: 'maria', display_name: 'Maria' }));
+      expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ extractorId: 'maria', extractorName: 'Maria' }));
+    } finally { await act(async () => renderer.unmount()); }
   });
 });
 
@@ -263,25 +271,6 @@ it('shows a guest Save action and records only the recipe intent before authenti
   } finally { mocks.signedIn = true; guestRecipeIntent.clear(); await act(async () => renderer.unmount()); }
 });
 
-it('keeps contributor suggestions, active filters and search progress visible with Browse tools collapsed', async () => {
-  vi.useFakeTimers(); mocks.searching = false;
-  let renderer!: ReactTestRenderer;
-  try {
-    await act(async () => { renderer = create(<DiscoverScreen />); });
-    const input = () => renderer.root.findByType('Input' as any);
-    await act(async () => input().props.onChangeText('@maria'));
-    expect(textOf(renderer.root)).toContain('Filter by contributor:');
-    const suggestion = touchables(renderer).find(node => textOf(node).includes('Maria') && textOf(node).includes('1 recipe'))!;
-    await act(async () => suggestion.props.onPress());
-    expect(textOf(renderer.root)).toContain('Clear all');
-    mocks.searching = true;
-    await act(async () => input().props.onChangeText('rice'));
-    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
-    expect(textOf(renderer.root)).toContain('Searching...');
-    expect(byLabel(renderer, 'What Can I Make?')).toBeUndefined();
-  } finally { await act(async () => renderer?.unmount()); mocks.searching = false; vi.useRealTimers(); }
-});
-
 it('pauses the native Discover tab feed while another tab is focused', async () => {
   let renderer!: ReactTestRenderer;
   try {
@@ -292,4 +281,25 @@ it('pauses the native Discover tab feed while another tab is focused', async () 
     await act(async () => renderer.update(<DiscoverRoute />));
     expect(mocks.feedEnabled).toBe(true);
   } finally { mocks.focused = true; await act(async () => renderer?.unmount()); }
+});
+
+it('keeps the 30-point Discover save circle in a 44-point target and preserves save state/actions', async () => {
+  mocks.signedIn = true; mocks.save.mockClear(); mocks.unsave.mockClear(); mocks.push.mockClear();
+  let renderer!: ReactTestRenderer;
+  const colors = { text: '#111', textMuted: '#666' } as React.ComponentProps<typeof SaveButton>['colors'];
+  const stopPropagation = vi.fn();
+  try {
+    await act(async () => { renderer = create(<SaveButton recipeId="public-a" initialIsSaved={false} isOwner={false} colors={colors} />); });
+    expect(renderer.root.findAllByType('NativeView' as any).some(node => node.props.style?.width === 44 && node.props.style?.height === 44)).toBe(true);
+    const save = byLabel(renderer, 'Save recipe')!;
+    expect(save.props.style).toMatchObject({ width: 30, height: 30 });
+    await act(async () => save.props.onPress({ stopPropagation }));
+    expect(stopPropagation).toHaveBeenCalledOnce(); expect(mocks.save).toHaveBeenCalledWith('public-a'); expect(mocks.push).not.toHaveBeenCalled();
+    await act(async () => renderer.update(<SaveButton recipeId="public-a" initialIsSaved isOwner={false} colors={colors} />));
+    const unsave = byLabel(renderer, 'Remove recipe from saved')!;
+    expect(unsave.props.accessibilityState.selected).toBe(true);
+    await act(async () => unsave.props.onPress({ stopPropagation })); expect(mocks.unsave).toHaveBeenCalledWith('public-a');
+    await act(async () => renderer.update(<SaveButton recipeId="public-a" initialIsSaved isOwner colors={colors} />));
+    expect(touchables(renderer)).toHaveLength(0);
+  } finally { await act(async () => renderer.unmount()); }
 });

@@ -23,3 +23,23 @@ describe('native launch destination', () => {
   });
   it('keeps the warm root capture route', () => expect(redirectSystemPath({ path: '/', initial: false })).toBe('/'));
 });
+
+// Both cold launch and warm delivery use the same legacy route translation.
+describe.each([true, false])('legacy trailing slashes (initial=%s)', initial => {
+  it.each(['index', 'history'])('preserves query and hash for %s across relative, app and Expo URLs', route => {
+    const suffix = '?scope=library&captureToken=a%2Fb#receipt';
+    const destination = route === 'index' ? '/' : '/history';
+    const paths = [
+      `/(tabs)/${route}/`, `hafarecipes://(tabs)/${route}/`,
+      `hafarecipes:///(tabs)/${route}/`, `hafarecipes://${route}/`,
+      `exp://127.0.0.1:8083/--/(tabs)/${route}/`,
+      `exps://example.test/--/(tabs)/${route}/`,
+      `exp+hafarecipes://127.0.0.1:8083/--/(tabs)/${route}/`,
+    ];
+    if (route === 'index') paths.push('/index/');
+    for (const path of paths) {
+      expect(redirectSystemPath({ path, initial })).toBe(destination);
+      expect(redirectSystemPath({ path: path + suffix, initial })).toBe(destination + suffix);
+    }
+  });
+});

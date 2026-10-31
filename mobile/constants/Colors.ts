@@ -17,7 +17,7 @@ export default {
     accentSoft: 'rgba(118,118,128,0.12)', border: 'rgba(60,60,67,0.29)', borderLight: 'rgba(60,60,67,0.29)',
     tabIconDefault: '#68686D', tabIconSelected: '#1E7F6E', tabLabelSelected: '#1E7F6E',
     card: '#F2F2F7', cardBackground: '#F2F2F7', cardBorder: 'transparent',
-    success: '#1F7534', onSuccess: '#FFFFFF', warning: '#8A5A00', destructive: '#FF3B30', error: '#B42318', shadowColor: '#000000',
+    success: '#1F7534', onSuccess: '#FFFFFF', warning: '#8A5A00', destructive: '#FF3B30', error: '#B42318', onError: '#FFFFFF', shadowColor: '#000000',
   },
   dark: {
     text: '#FFFFFF', secondaryLabel: 'rgba(235,235,245,0.60)', textSecondary: 'rgba(235,235,245,0.60)', textMuted: 'rgba(235,235,245,0.60)',
@@ -27,7 +27,7 @@ export default {
     accentSoft: 'rgba(118,118,128,0.24)', border: 'rgba(84,84,88,0.65)', borderLight: 'rgba(84,84,88,0.65)',
     tabIconDefault: 'rgba(235,235,245,0.60)', tabIconSelected: '#5DD3B6', tabLabelSelected: '#5DD3B6',
     card: '#1C1C1E', cardBackground: '#1C1C1E', cardBorder: 'transparent',
-    success: '#30D158', onSuccess: '#00261F', warning: '#FFD60A', destructive: '#FF453A', error: '#FF6961', shadowColor: '#000000',
+    success: '#30D158', onSuccess: '#00261F', warning: '#FFD60A', destructive: '#FF453A', error: '#FF6961', onError: '#00261F', shadowColor: '#000000',
   },
 };
 

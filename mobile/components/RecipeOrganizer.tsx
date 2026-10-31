@@ -16,6 +16,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, View, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import type { Collection, MealPlanEntry } from '@/types/recipe';
+import { RecipeDetailRow } from './RecipeDetailRow';
 import { RecipeCollectionsCard } from './RecipeCollectionsCard';
 import { formatMealPlanDate, RecipeMealPlanCard } from './RecipeMealPlanCard';
 
@@ -35,10 +36,12 @@ type RecipeOrganizerProps = {
   onPlanRecipe: () => void;
   onRetryPlan: () => void;
   savedNote?: string | null;
+  recipeNotes?: string | null;
   isNoteLoading: boolean;
   isNoteSaving: boolean;
   onSaveNote: (note: string) => Promise<void>;
   compact?: boolean;
+  panels?: OrganizerPanel[];
 };
 
 const PANEL_TITLES: Record<OrganizerPanel, string> = {
@@ -62,10 +65,12 @@ export function RecipeOrganizer({
   onPlanRecipe,
   onRetryPlan,
   savedNote,
+  recipeNotes,
   isNoteLoading,
   isNoteSaving,
   onSaveNote,
   compact = false,
+  panels,
 }: RecipeOrganizerProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -119,17 +124,20 @@ export function RecipeOrganizer({
   return (
     <>
       <RNView
-        style={[styles.organizer, compact && styles.compactOrganizer, { backgroundColor: compact ? colors.background : colors.backgroundSecondary, borderColor: colors.border }]}
+        style={[styles.organizer, compact && [styles.compactOrganizer, { padding: 0, marginBottom: 0 }], { backgroundColor: compact ? 'transparent' : colors.backgroundSecondary, borderColor: colors.border }]}
       >
         {!compact && <RNView style={styles.organizerHeading}>
           <Text style={[styles.organizerTitle, { color: colors.text }]}>Save &amp; plan</Text>
           <Text style={[styles.organizerHint, { color: colors.textMuted }]}>Your private recipe tools</Text>
         </RNView>}
-        <RNView style={styles.actionRow}>
-          {organizerActions.map((action) => (
+        <RNView style={[styles.actionRow, compact && { flexDirection: 'column', gap: 0 }]}>
+          {organizerActions.filter(action => !panels || panels.includes(action.panel)).map((action) => compact ? (
+            <RecipeDetailRow key={action.panel} icon={action.icon} title={action.label} value={action.summary}
+              onPress={() => setActivePanel(action.panel)} accessibilityLabel={`Open ${action.label}. ${action.summary}`} />
+          ) : (
             <TouchableOpacity
               key={action.panel}
-              style={[styles.action, compact && styles.compactAction, { backgroundColor: compact ? colors.backgroundSecondary : colors.card, borderColor: colors.border }]}
+              style={[styles.action, { backgroundColor: colors.card, borderColor: colors.border }]}
               onPress={() => setActivePanel(action.panel)}
               activeOpacity={0.75}
               accessibilityRole="button"
@@ -183,6 +191,7 @@ export function RecipeOrganizer({
                 contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.bottom + spacing.xl }]}
                 keyboardShouldPersistTaps="handled"
               >
+                {recipeNotes && <RNView style={{ gap: 8, marginBottom: 24 }}><Text style={{ fontSize: 17, lineHeight: 22, fontWeight: '600' }}>Recipe notes</Text><Text style={{ color: colors.textSecondary, fontSize: 17, lineHeight: 24 }}>{recipeNotes}</Text></RNView>}
                 <RNView style={[styles.noteCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
                   <RNView style={styles.noteHeader}>
                     <RNView style={styles.noteTitleRow}>
@@ -269,8 +278,8 @@ export function RecipeOrganizer({
                             busy: isNoteSaveInFlight,
                           }}
                         >
-                          {isNoteSaveInFlight && <ActivityIndicator size="small" color="#FFFFFF" />}
-                          <Text style={styles.primaryButtonText}>
+                          {isNoteSaveInFlight && <ActivityIndicator size="small" color={colors.onTint} />}
+                          <Text style={[styles.primaryButtonText, { color: colors.onTint }]}>
                             {isNoteSaveInFlight ? 'Saving…' : 'Save note'}
                           </Text>
                         </TouchableOpacity>
@@ -318,9 +327,8 @@ export function RecipeOrganizer({
 
 const styles = StyleSheet.create({
   compactOrganizer: { padding: 0, borderWidth: 0, marginBottom: spacing.md },
-  compactAction: { minHeight: 64, borderWidth: 0, borderRadius: radius.sm },
   organizer: {
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.lg,
@@ -351,7 +359,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.sm,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
   },
   actionLabel: {
@@ -395,7 +403,7 @@ const styles = StyleSheet.create({
   sheetContent: { padding: spacing.lg },
   noteCard: {
     padding: spacing.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.lg,
   },
   noteHeader: {
@@ -435,7 +443,7 @@ const styles = StyleSheet.create({
   supportingText: { fontSize: fontSize.sm },
   noteInput: {
     minHeight: 150,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     padding: spacing.md,
     fontSize: fontSize.md,
@@ -456,7 +464,7 @@ const styles = StyleSheet.create({
   secondaryButton: {
     minHeight: 44,
     paddingHorizontal: spacing.lg,
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',

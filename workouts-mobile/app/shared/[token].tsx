@@ -71,7 +71,7 @@ function CopyControls({ token, share }: { token: string; share: PublicShare }) {
       clearPendingShare();
       await cache.invalidateQueries({ queryKey: [owner, result.kind === "workout" ? "library" : "programs"] });
       router.replace(
-        result.kind === "workout" ? { pathname: "/workout/[id]", params: { id: result.record.id } } : "/(tabs)/plan"
+        result.kind === "workout" ? { pathname: "/workout/[id]", params: { id: result.record.id } } : "/plan"
       );
     } catch (e) {
       setError((e as Error).message);

@@ -68,7 +68,7 @@ export default function ScheduleOnce() {
   }
   return <Screen dismiss title="Schedule" subtitle={workout.data?.title}
     footer={!saved && input && workout.data ? <Button title={command ? "Retry schedule" : "Save session"} busy={busy} onPress={() => void save()} /> : undefined}>
-    {saved ? <><Notice>Session scheduled.</Notice><Button title="Open Train" onPress={() => router.replace("/(tabs)/plan")} /><Button title="Schedule another session" secondary busy={busy} onPress={() => void scheduleAnother()} /></> : <>
+    {saved ? <><Notice>Session scheduled.</Notice><Button title="Open Train" onPress={() => router.replace("/plan")} /><Button title="Schedule another session" secondary busy={busy} onPress={() => void scheduleAnother()} /></> : <>
       {input && <>
         <CalendarDate label="Workout date" value={input.date} disabled={busy || !!command} onChange={date => update({ date: date ?? "" })} />
         <Field label="Time · HH:MM" optional placeholder="18:30" value={input.time} disabled={busy || !!command} onChange={time => update({ time })} />
