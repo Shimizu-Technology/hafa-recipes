@@ -41,9 +41,9 @@ function LibrarySearch() {
   const placeholder = `Search ${(count?.count ?? 0) + (savedTotal ?? 0)} recipes`;
   const rows: SearchRow[] = query.trim() ? [
     ...(isSignedIn ? [{ id: 'my-heading', heading: 'My recipes' } as SearchRow] : []),
-    ...(!waiting && !search.isError && isSignedIn ? search.recipes.map(recipe => ({ id: `my-${recipe.id}`, recipe })) : []),
+    ...(!waiting && isSignedIn ? search.recipes.map(recipe => ({ id: `my-${recipe.id}`, recipe })) : []),
     { id: 'discover-heading', heading: 'Discover' },
-    ...(!waiting && !discover.isError ? discover.recipes.map(recipe => ({ id: `public-${recipe.id}`, recipe })) : []),
+    ...(!waiting ? discover.recipes.map(recipe => ({ id: `public-${recipe.id}`, recipe })) : []),
   ] : [];
   const status = (scope: 'My recipes' | 'Discover') => {
     const result = scope === 'My recipes' ? search : discover;

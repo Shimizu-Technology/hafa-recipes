@@ -15,9 +15,8 @@ import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilte
 import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, shadows, spacing } from '@/constants/Colors';
-import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import { DiscoverSort, filterRecipesLocally, SearchFilters, useCurrentUserIdentity, useDiscoverRecipes, useIsRecipeSaved, usePopularTags, usePublicRecipeCount, useSaveRecipe, useSearchPublicRecipes, useTopContributors, useUnsaveRecipe, } from '@/hooks/useRecipes';
+import { DiscoverSort, filterRecipesLocally, SearchFilters, useCurrentUserIdentity, useDiscoverRecipes, useIsRecipeSaved, usePopularTags, useSaveRecipe, useSearchPublicRecipes, useUnsaveRecipe, } from '@/hooks/useRecipes';
 import { api } from '@/lib/api';
 import { baseDiscoverQueryOptions, canFilterDiscoverLocally, hasServerDiscoverFilters, hideOwnedDiscoverRecipes, resolveDiscoverResults, } from '@/lib/discoverResults';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
@@ -156,32 +155,15 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
-  const [searchQuery, setSearchQuery] = useState('');
   const identity = useCurrentUserIdentity(active && Boolean(isSignedIn));
-  // The input stays bound to searchQuery; server queries use the debounced value
-  // so typing does not fire a request per keystroke.
-  const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showAllContributors, setShowAllContributors] = useState(false);
-  const [showContributors, setShowContributors] = useState(false);
   const [isRandomLoading, setIsRandomLoading] = useState(false);
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
 
-  // View preference (grid or list)
-  const isGrid = true;
-
   // User filter state (for "recipes by user" feature)
   const [selectedExtractor, setSelectedExtractor] = useState<{ id: string; name: string } | null>(null);
-
-  // @username search pattern detection
-  const usernameSearchMatch = useMemo(() => {
-    const match = searchQuery.match(/^@(.+)/);
-    if (match) {
-      return match[1].toLowerCase().trim();
-    }
-    return null;
-  }, [searchQuery]);
 
   // Filter state
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
@@ -210,7 +192,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   // feed stays enabled and can continue paginating while the local view hides
   // the current user's cards.
   const hasServerFilters = hasServerDiscoverFilters({
-    query: debouncedSearchQuery,
+    query: '',
     sourceFilter,
     timeFilter,
     mealTypeFilter,
@@ -262,7 +244,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     isError: isSearchError,
     refetch: refetchSearch,
   } = useSearchPublicRecipes({
-    query: debouncedSearchQuery,
+    query: '',
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
@@ -271,21 +253,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     mealType: mealTypeParam,
   }, canBrowseDiscover);
 
-  const { data: countData } = usePublicRecipeCount(sourceTypeParam, canBrowseDiscover);
-
-  // Popular tags from all public recipes
   const { data: popularTags } = usePopularTags('public', canBrowseDiscover);
-
-  // Top contributors (users with most public recipes)
-  const { data: topContributors } = useTopContributors(canBrowseDiscover);
-
-  // Filter contributors based on @username search
-  const matchingContributors = useMemo(() => {
-    if (!usernameSearchMatch || !topContributors) return [];
-    return topContributors.filter(c =>
-      c.display_name.toLowerCase().includes(usernameSearchMatch)
-    ).slice(0, 5); // Limit to 5 suggestions
-  }, [usernameSearchMatch, topContributors]);
 
   // Handle filter apply
   const handleApplyFilters = useCallback((filters: FilterState) => {
@@ -300,20 +268,17 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
 
   // Build current filter state for optimistic filtering
   const currentFilters: SearchFilters = useMemo(() => ({
-    query: debouncedSearchQuery || undefined,
     sourceType: sourceTypeParam,
     timeFilter: timeFilterParam,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     extractorId: selectedExtractor?.id,
     extractorName: selectedExtractor?.name,
     mealType: mealTypeParam,
-  }), [debouncedSearchQuery, sourceTypeParam, timeFilterParam, selectedTags, selectedExtractor, mealTypeParam]);
+  }), [sourceTypeParam, timeFilterParam, selectedTags, selectedExtractor, mealTypeParam]);
 
   // Determine what to display:
-  // - For text search: ONLY use server results (local can't search ingredients)
   // - For filters represented in cached cards: show accurate local matches
   // - For meal/contributor filters: wait for the authoritative server result
-  const hasTextSearch = !!debouncedSearchQuery?.trim();
   const canUseLocalFallback = canFilterDiscoverLocally({
     mealType: mealTypeParam,
     extractorId: selectedExtractor?.id,
@@ -321,7 +286,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
 
   const filteredRecipes = useMemo(() => {
     const result = resolveDiscoverResults({
-      hasTextSearch,
+      hasTextSearch: false,
       hasActiveFilters: hasServerFilters,
       hasResolvedSearchResults,
       canUseLocalFallback,
@@ -331,7 +296,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     });
 
     return hideOwnedDiscoverRecipes(result, hideMyRecipes);
-  }, [hasTextSearch, hasServerFilters, recipes, searchResults, hasResolvedSearchResults, canUseLocalFallback, currentFilters, hideMyRecipes]);
+  }, [hasServerFilters, recipes, searchResults, hasResolvedSearchResults, canUseLocalFallback, currentFilters, hideMyRecipes]);
 
   const displayRecipes = useMemo(
     () => filteredRecipes?.slice(0, displayCount),
@@ -374,11 +339,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     }
   };
 
-  const clearExtractorFilter = useCallback(() => {
-    setSelectedExtractor(null);
-    setDisplayCount(ITEMS_PER_PAGE);
-  }, []);
-
   // Handle random recipe selection
   const handleRandomRecipe = useCallback(async (selectedMealType?: string) => {
     setShowSurpriseModal(false);
@@ -400,8 +360,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   }, [mealTypeParam, sourceTypeParam, router]);
 
   const renderItem = ({ item, index }: { item: RecipeListItem; index: number }) => {
-    if (isGrid) {
-      return (
+    return (
         <AnimatedListItem index={index} delay={40} enter={canEnterRow()}>
           <GridRecipeCard
             recipe={item} active={active}
@@ -414,9 +373,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             imagePriority={index < 4 ? 'high' : 'normal'}
           />
         </AnimatedListItem>
-      );
-    }
-    return null;
+    );
   };
 
   const ListEmpty = () => (
@@ -426,7 +383,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
       </Text>
       <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
         {hasVisibleFilters
-          ? 'Try adjusting your filters or search term'
+          ? 'Try adjusting your filters'
           : 'Be the first to share a recipe with the community!'}
       </Text>
     </RNView>
@@ -606,18 +563,18 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         { title: 'Search recipes', onPress: () => router.navigate('/(tabs)/search') },
       ]} />
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
-        <SkeletonRecipeList count={isGrid ? 6 : 5} layout={isGrid ? 'grid' : 'list'} />
+        <SkeletonRecipeList count={6} layout="grid" />
       ) : (
         <FlatList
           contentInsetAdjustmentBehavior="automatic"
-          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
+          key={!largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={isGrid && !largeText ? 2 : 1}
-          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
+          numColumns={!largeText ? 2 : 1}
+          columnWrapperStyle={!largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
-            {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); setSearchQuery(''); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
+            {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
             {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title} style={{ marginBottom: 8 }}>

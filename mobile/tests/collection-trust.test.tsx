@@ -2,7 +2,7 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const account = vi.hoisted(() => ({ userId: 'owner-a' }));
@@ -34,6 +34,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('expo-router', () => ({
   Stack: { Screen: 'StackScreen' },
+  Link: Object.assign((props: any) => React.createElement('Link', props, props.children), { Trigger: 'LinkTrigger', Menu: 'LinkMenu', MenuAction: 'LinkMenuAction' }),
   useLocalSearchParams: () => ({ id: 'collection-1' }),
   useRouter: () => ({ push: vi.fn(), canGoBack: () => false, replace: navigation.replace }),
 }));
@@ -169,6 +170,21 @@ describe('collection recipe readiness', () => {
     } finally {
       await act(async () => renderer.unmount());
     }
+  });
+
+  it('offers native iOS context-menu removal without an inline remove button', async () => {
+    const renderer = createRoot();
+    const onRemove = vi.fn();
+    const original = Platform.OS;
+    try {
+      Platform.OS = 'ios';
+      await act(async () => renderer.render(<RecipeCard recipe={recipe('ready')} colors={colors} onPress={vi.fn()} onRemove={onRemove} />));
+      const action = renderer.container.queryAll(n => n.type === 'LinkMenuAction')[0];
+      expect(action.props.children).toBe('Remove from collection');
+      await act(async () => action.props.onPress());
+      expect(onRemove).toHaveBeenCalledOnce();
+      expect(renderer.container.queryAll(n => n.props.accessibilityLabel === 'Remove Chicken Kelaguen from collection')).toHaveLength(0);
+    } finally { await act(async () => renderer.unmount()); Platform.OS = original; }
   });
 
   it.each(['ready', undefined] as const)('hides a badge for %s recipes', async (state) => {
