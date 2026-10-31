@@ -638,10 +638,10 @@ function PlannerScreenContent() {
                       },
                     ]}
                   >
-                    <Text style={[styles.previewDayText, { color: today ? '#FFFFFF' : colors.textMuted }]}>
+                    <Text style={[styles.previewDayText, { color: today ? colors.onTint : colors.textMuted }]}>
                       {label.day}
                     </Text>
-                    <Text style={[styles.previewDayNumber, { color: today ? '#FFFFFF' : colors.text }]}>
+                    <Text style={[styles.previewDayNumber, { color: today ? colors.onTint : colors.text }]}>
                       {label.number}
                     </Text>
                   </RNView>
@@ -807,11 +807,11 @@ function PlannerScreenContent() {
               activeOpacity={0.8}
             >
               {addToGrocery.isPending ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={colors.onSuccess} />
               ) : (
                 <>
-                  <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
-                  <Text style={styles.groceryButtonText}>
+                  <Ionicons name="cart-outline" size={20} color={colors.onSuccess} />
+                  <Text style={[styles.groceryButtonText, { color: colors.onSuccess }]}>
                     Add Week to Grocery List
                   </Text>
                 </>

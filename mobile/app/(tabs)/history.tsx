@@ -562,7 +562,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
                 ]}
               >
                 {isSelected && (
-                  <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                  <Ionicons name="checkmark" size={14} color={colors.onTint} />
                 )}
               </RNView>
             )}
@@ -589,7 +589,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               accessibilityLabel={`Select ${item.title}`}
             >
               {isSelected && (
-                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                <Ionicons name="checkmark" size={16} color={colors.onTint} />
               )}
             </TouchableOpacity>
           )}
@@ -736,7 +736,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         onPress={hasPrimaryLoadError ? handleRefreshAll : filteredEmpty ? clearSearchAndFilters : () => router.push('/(tabs)')}
         activeOpacity={0.8}
       >
-        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color="#FFFFFF" />
+        <Ionicons name={hasPrimaryLoadError ? 'refresh-outline' : filteredEmpty ? 'close-circle-outline' : 'add-circle-outline'} size={20} color={colors.onTint} />
         <Text style={[styles.emptyButtonText, { color: colors.onTint }]}>{hasPrimaryLoadError ? 'Try Again' : filteredEmpty ? 'Clear search and filters' : 'Add Your First Recipe'}</Text>
       </TouchableOpacity>
     </RNView>
@@ -825,7 +825,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
             />
             {activeFilterCount > 0 && (
               <RNView style={[styles.filterBadge, { backgroundColor: '#FFFFFF' }]}>
-                <Text style={[styles.filterBadgeText, { color: colors.tint }]}>
+                <Text style={[styles.filterBadgeText, { color: '#1E7F6E' }]}>
                   {activeFilterCount}
                 </Text>
               </RNView>
@@ -952,7 +952,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               disabled={selectedRecipeIds.size === 0}
               activeOpacity={0.8}
             >
-              <Ionicons name="folder-outline" size={18} color="#FFFFFF" />
+              <Ionicons name="folder-outline" size={18} color={colors.onTint} />
               <Text style={[styles.addToCollectionButtonText, { color: colors.onTint }]}>Add to Collection</Text>
             </TouchableOpacity>
           </RNView>
