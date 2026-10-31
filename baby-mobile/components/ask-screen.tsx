@@ -30,7 +30,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       title={focused ? "Ask about this" : "Ask"}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       action={<Button secondary title="History" icon="time-outline" disabled={chat.resolving} onPress={() => void openHistory()} />}
-      followEnd
+      followEnd={messages.length > 0 || busy}
       footer={
         <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-end", gap: 10 }}>
           <TextInput
