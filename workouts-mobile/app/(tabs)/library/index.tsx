@@ -173,7 +173,7 @@ export default function Library() {
       ) : <BrowseLinks links={[
         { title: "Collections", onPress: () => router.push("/collections") },
         { title: "Programs", onPress: () => setKind(kind === "program" ? undefined : "program") },
-        ...(needsCount ? [{ title: `Needs info · ${needsCount}`, onPress: () => setNeedsInfo(!needsInfo) }] : []),
+        ...(!archived && needsCount ? [{ title: `Needs info · ${needsCount}`, onPress: () => setNeedsInfo(!needsInfo) }] : []),
         { title: "Filter", onPress: () => setFilters(true) },
       ]} />}
       {!!filterCount && <Button title={`${[needsInfo ? "Needs info" : null, favorite ? "Favorites" : null, kind ? kindLabels[kind] : null, maxMinutes ? `Up to ${maxMinutes} min` : null, archived ? "Archived" : null, collectionTitle, equipment.trim(), tags.trim()].filter(Boolean).join(" · ")} · Clear`} variant="ghost" size="sm" onPress={clear} />}

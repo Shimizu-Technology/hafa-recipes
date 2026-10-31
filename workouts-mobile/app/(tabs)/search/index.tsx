@@ -37,7 +37,7 @@ export default function Search() {
       {!!query.trim() && caps.data?.discover && <>
         <Copy kind="heading">Discover</Copy>
         {discover.isPending ? <Copy tone="muted">Searching Discover…</Copy> : discover.error ? <ListRow title={`Search Discover for '${query.trim()}'`} onPress={() => router.push({ pathname: "/(tabs)/discover", params: { q: query.trim() } })} /> :
-          discover.data?.items.length ? <ListGroup>{discover.data.items.map(card => <ListRow key={card.id} title={card.title} detail={card.source_creator ?? card.contributor.display_name} onPress={() => router.push({ pathname: "/discover/[id]", params: { id: card.id } })} />)}</ListGroup> : <Copy tone="muted">No matching shared workouts.</Copy>}
+          discover.data?.items.length ? <ListGroup>{discover.data.items.map(card => <ListRow key={card.id} title={card.title} detail={card.source_creator ?? card.contributor.display_name} onPress={() => router.push({ pathname: "/discover/[id]", params: { id: card.id } })} />)}{discover.data.has_more && <ListRow title="See all in Discover" onPress={() => router.push({ pathname: "/(tabs)/discover", params: { q: settled } })} />}</ListGroup> : <Copy tone="muted">No matching shared workouts.</Copy>}
       </>}
     </Screen>
   </>;

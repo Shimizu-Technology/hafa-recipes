@@ -1726,3 +1726,15 @@ it("Collections opens a collection's saved workouts after moving the Library car
   await act(async () => row("Gym days")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/collection/[id]", params: { id: "gym" } });
 });
+
+it("hides the active Needs info count in archived scope and restores it in active scope", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  fixture.library.mockResolvedValue([{ ...saved, extraction_warnings: ["Rest unknown"] }]);
+  await mount(Library);
+  expect(button("Needs info · 1")).toBeDefined();
+  await act(async () => listRow("Show archived workouts")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ archived_only: true });
+  expect(button("Needs info · 1")).toBeUndefined();
+  await act(async () => listRow("Show active workouts")!.props.onPress()); await settle();
+  expect(button("Needs info · 1")).toBeDefined();
+});

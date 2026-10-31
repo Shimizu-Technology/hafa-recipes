@@ -89,7 +89,6 @@ export function LibraryCard({
         gap: grid ? 0 : spacing.sm,
         padding: grid ? 0 : spacing.xs,
         borderRadius: radii.lg - 4,
-        overflow: "hidden",
         backgroundColor: "transparent",
         borderWidth: selected ? 2 : 0,
         borderColor: selected ? c.action : c.border,
@@ -99,7 +98,7 @@ export function LibraryCard({
     >
       <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: 14, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
         <Cover uri={image} icon={icon} size={grid ? 36 : 26} />
-        {!!meta && <GlassView glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
+        {grid && !!meta && <GlassView glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
           <Copy kind="caption2" color={c.onImage}>{meta}</Copy>
         </GlassView>}
 
@@ -107,6 +106,7 @@ export function LibraryCard({
       </View>
       <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 2, paddingTop: grid ? 8 : 0 }}>
         <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2} style={grid && !largeText(fontScale) ? { minHeight: Math.ceil(40 * fontScale) } : undefined}>{title}</Copy>
+        {!grid && !!meta && <Copy kind="caption" tone="muted">{meta}</Copy>}
         <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{[creator, origin?.replace(/^Saved from /, "")].filter(Boolean).join(" · ") || "Your workout"}</Copy>
       </View>
     </AnimatedPressable>

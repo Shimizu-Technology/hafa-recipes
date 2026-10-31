@@ -81,3 +81,16 @@ it("shows suggestions when empty and searches Discover with the settled query", 
   act(() => shared.props.onPress());
   expect(f.push).toHaveBeenLastCalledWith({ pathname: "/discover/[id]", params: { id: "public" } });
 });
+
+it("offers all 21 Discover matches in the paginated feed with the settled query preserved", async () => {
+  const matches = Array.from({ length: 21 }, (_, i) => ({ id: `shared-${i}`, title: `Strength ${i + 1}`, contributor: { display_name: "Kai" } }));
+  f.capabilities.mockResolvedValue({ discover: true });
+  f.discover.mockResolvedValue({ items: matches.slice(0, 20), total: 21, has_more: true, next_offset: 20 });
+  await act(() => { view = create(screen()); }); await settle();
+  act(() => view.root.findByType("NativeHeader" as never).props.options.headerSearchBarOptions.onChangeText({ nativeEvent: { text: " strength " } }));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); }); await settle();
+  const rows = view.root.findAllByType("ListRow" as never);
+  expect(rows.filter(row => row.props.title.startsWith("Strength "))).toHaveLength(20);
+  act(() => rows.find(row => row.props.title === "See all in Discover")!.props.onPress());
+  expect(f.push).toHaveBeenLastCalledWith({ pathname: "/(tabs)/discover", params: { q: "strength" } });
+});
