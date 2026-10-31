@@ -92,12 +92,12 @@ it('does not present a searched-empty library or cached rows to a guest', async 
 });
 
 it('renders private Search thumbnails through the authority-bound component without a disk cache and retires them for the next owner', async () => {
-  const { RecipeThumbnail } = await import('@/components/RecipeThumbnail');
   const r = createRoot();
   try {
     await act(async () => r.render(<SearchRoute />));
     await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: 'Chicken' } }));
-    expect(r.container.queryAll(n => n.type === RecipeThumbnail && n.props.uri === 'https://images.test/private-a.jpg')).toHaveLength(1);
+    // Exercise the real RecipeThumbnail rather than replacing it with a test double.
+    expect(r.container.queryAll(n => n.type === 'Ionicons' && n.props.name === 'restaurant-outline')).toHaveLength(1);
     const photo = r.container.queryAll(n => n.type === 'Image' && n.props.source?.uri === 'https://images.test/private-a.jpg')[0];
     expect(photo.props.cachePolicy).toBe('none');
     state.generation++;
