@@ -69,7 +69,7 @@ function LibrarySearch() {
         </>}
       </View>}
       renderItem={({ item }) => 'heading' in item ? <View style={{ gap: 12, marginTop: 8 }}><Text style={typography.headline}>{item.heading}</Text>{status(item.heading)}</View> : <Pressable accessibilityRole="button" accessibilityLabel={item.recipe.title} onPress={() => { remember(); router.push(`/recipe/${item.recipe.id}`); }} style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 64, opacity: pressed ? 0.65 : 1 })}>
-        <Image source={item.recipe.thumbnail_url ? { uri: item.recipe.thumbnail_url } : undefined} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: colors.surface2 }} />
+        <RecipeThumbnail uri={item.recipe.thumbnail_url} accessible={false} placeholderIconSize={22} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: colors.surface2 }} />
         <View style={{ flex: 1, gap: 2 }}><Text style={typography.cardTitle}>{item.recipe.title}</Text><Text style={{ ...typography.footnote, color: colors.textSecondary }}>{[item.id.startsWith('public-') ? item.recipe.extractor_display_name : getRecipeSourcePresentation(item.recipe.source_type).label, item.recipe.total_time].filter(Boolean).join(' · ')}</Text></View>
       </Pressable>}
       onEndReached={() => { if (waiting || !query.trim()) return; if (!search.isFetching && isSignedIn && search.hasNextPage) void search.fetchNextPage(); if (!discover.isFetching && discover.hasNextPage) void discover.fetchNextPage(); }}
