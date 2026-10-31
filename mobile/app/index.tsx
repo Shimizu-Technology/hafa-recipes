@@ -784,9 +784,9 @@ function ExtractScreenContent() {
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
             style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
-            <RNView style={styles.composerLabelRow}>
+            <RNView style={[styles.composerLabelRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'flex-start' }] }>
               <Text style={[styles.composerLabel, { color: colors.text }]}>Recipe link</Text>
-              <TouchableOpacity style={styles.textAction} disabled={isLoading} accessibilityRole="button"
+              <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} disabled={isLoading} accessibilityRole="button"
                 accessibilityLabel="Paste recipe link" onPress={() => {
                   const draft = currentDraft.current;
                   void Clipboard.getStringAsync().then((value) => {
@@ -812,7 +812,7 @@ function ExtractScreenContent() {
               onBlur={() => { linkFocused.current = false; }}
               style={{ backgroundColor: colors.background }} />
             <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
-            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
+            <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
               <Text style={{ color: colors.textSecondary }}>Cost estimates: {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
@@ -931,7 +931,7 @@ function ExtractScreenContent() {
                   size="md"
                   style={styles.openRecipeAction}
                 />
-                <TouchableOpacity style={styles.textAction} onPress={clearCompletedExtraction} accessibilityRole="button" accessibilityLabel="Dismiss saved import">
+                <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={clearCompletedExtraction} accessibilityRole="button" accessibilityLabel="Dismiss saved import">
                   <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Dismiss</Text>
                 </TouchableOpacity>
               </RNView>
@@ -959,7 +959,7 @@ function ExtractScreenContent() {
                 />
               </RNView>
               {extraction.jobId && !extraction.recipeId && !extraction.canRetryStart && <TouchableOpacity
-                style={styles.textAction} onPress={() => handleCancel()} disabled={isSavingSourceDraft}
+                style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => handleCancel()} disabled={isSavingSourceDraft}
                 accessibilityRole="button" accessibilityLabel="Remove unfinished import">
                 <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Remove unfinished import</Text>
               </TouchableOpacity>}
@@ -967,7 +967,7 @@ function ExtractScreenContent() {
           ) : (
             <RNView style={styles.statusActions}>
               <Text style={[styles.hint, { color: colors.textMuted, flex: 1 }]}>You can leave Håfa while this imports.</Text>
-              <TouchableOpacity style={styles.textAction} onPress={() => handleCancel()} accessibilityRole="button" accessibilityLabel="Cancel import">
+              <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => handleCancel()} accessibilityRole="button" accessibilityLabel="Cancel import">
                 <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Cancel import</Text>
               </TouchableOpacity>
             </RNView>
@@ -980,12 +980,12 @@ function ExtractScreenContent() {
             onOpenRecipe={(job) => { if (job.recipe_id) router.push(`/recipe/${job.recipe_id}`); }}
             onRestore={extraction.restoreJob} onCancel={handleCancel} />
           <RNView style={styles.helpActions}>
-            <TouchableOpacity style={styles.textAction} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
+            <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => { Keyboard.dismiss(); setPanel('help'); }}
               accessibilityRole="button" accessibilityLabel="Import help">
               <Ionicons name="help-circle-outline" size={18} color={colors.textMuted} />
               <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Import help</Text>
             </TouchableOpacity>
-            {isSignedIn && <TouchableOpacity style={styles.textAction} accessibilityRole="button" accessibilityLabel="Ask Håfa"
+            {isSignedIn && <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} accessibilityRole="button" accessibilityLabel="Ask Håfa"
               onPress={() => { Keyboard.dismiss(); setHasOpenedChat(true); setShowChat(true); }}>
               <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.actionText} />
               <Text style={[styles.smallActionText, { color: colors.text }]}>Ask Håfa</Text>
@@ -1011,9 +1011,9 @@ const styles = StyleSheet.create({
   progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   statusActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   openRecipeAction: { flexGrow: 1 },
-  composerLabelRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
+  composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
   composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold, fontWeight: '600' },
-  textAction: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
+  textAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
   smallActionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },
   supportedSources: { fontSize: fontSize.xs, lineHeight: 18 },
   settingsSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 56 },
