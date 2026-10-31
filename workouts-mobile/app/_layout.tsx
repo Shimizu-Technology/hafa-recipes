@@ -68,7 +68,7 @@ function Routes() {
   const stack = (
     <Stack
       initialRouteName="index"
-      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.background } }}
+      screenOptions={{ headerShown: false, headerBackTitle: "Back", contentStyle: { backgroundColor: c.background } }}
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="shared/[token]" />
@@ -79,7 +79,7 @@ function Routes() {
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
       <Stack.Protected guard={!!isSignedIn}>
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(tabs)" options={{ title: "Back" }} />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
