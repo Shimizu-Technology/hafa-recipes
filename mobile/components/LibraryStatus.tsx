@@ -37,9 +37,9 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
   ];
   return <View style={{ gap: 4, marginBottom: 12 }}>
     <ScrollView horizontal={!largeText} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', flexWrap: largeText ? 'wrap' : 'nowrap', alignItems: 'center' }}>
-      {links.map((link, i) => <View key={link.title} style={{ flexDirection: 'row', alignItems: 'center' }}>
+      {links.map((link, i) => <View key={link.title} style={{ flexDirection: 'row', alignItems: 'center', maxWidth: '100%' }}>
         {i > 0 && <Text style={{ color: colors.textSecondary }}> · </Text>}
-        <Pressable onPress={link.onPress} accessibilityRole="button" accessibilityState={link.title.startsWith('Needs') ? { selected: checking } : undefined} style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
+        <Pressable onPress={link.onPress} accessibilityRole="button" accessibilityState={link.title.startsWith('Needs') ? { selected: checking } : undefined} style={{ minWidth: 44, minHeight: 44, flexShrink: 1, justifyContent: 'center' }}>
           <Text style={{ fontSize: 15, lineHeight: 20, color: colors.actionText }}>{link.title}</Text>
         </Pressable>
       </View>)}
