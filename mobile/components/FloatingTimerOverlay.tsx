@@ -155,7 +155,7 @@ export function FloatingTimerOverlay() {
           <Ionicons 
             name="chevron-forward" 
             size={16} 
-            color={isUrgent ? colors.onError : colors.onTint} 
+            color={isUrgent ? colors.onError : colors.onTint}
           />
         </TouchableOpacity>
       </Animated.View>
