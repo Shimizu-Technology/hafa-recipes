@@ -230,3 +230,38 @@ it("keeps a full saved-source title readable in the entry content", async () => 
   expect(renderer!.root.findByType(Screen).props.title).toBe("Saved source");
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === record.title)).toBe(true);
 });
+
+it.each([false, true])("refreshes the scoped timeline from page zero after sync, preserving loaded entries (care=%s)", async careHistory => {
+  mock.params = { filter: "question" };
+  mock.baby.state.selectedChild = "baby";
+  const kind = careHistory ? "feeding" : "question";
+  const old = { ...row("Old matching entry", kind), child_id: "baby" };
+  const older = { ...old, id: "older", title: "Older matching entry" };
+  const fresh = { ...old, id: "fresh", title: "New matching entry" };
+  let synced = false;
+  mock.baby.records = [old, older];
+  mock.baby.state.records = [old, older];
+  mock.baby.commit = async (change: any) => { mock.baby.state = change(mock.baby.state); };
+  const records = vi.fn(async ({ offset }: any) => ({
+    items: offset ? [older] : synced ? [fresh] : [old], total: synced ? 3 : 2, has_more: !offset,
+  }));
+  mock.baby.api.records = records;
+  mock.baby.sync = vi.fn(async () => {
+    synced = true;
+    mock.baby.state = { ...mock.baby.state, records: [fresh, ...mock.baby.state.records] };
+  });
+  await mount(<JournalContent careHistory={careHistory} />);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  if (careHistory) await press("Search");
+  const search = renderer!.root.findByType("TextInput" as React.ElementType);
+  await act(async () => search.props.onChangeText("matching"));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
+  await press("Load more matches");
+  const visible = () => renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.id);
+  expect(visible()).toEqual(expect.arrayContaining([old.id, older.id]));
+  await act(async () => { await renderer!.root.findByType(Screen).props.onRefresh(); });
+  expect(mock.baby.sync).toHaveBeenCalledOnce();
+  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? ["feeding", "sleep", "diaper"] : ["question"] });
+  expect(visible()).toEqual(expect.arrayContaining([fresh.id, old.id, older.id]));
+  expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("matching");
+});

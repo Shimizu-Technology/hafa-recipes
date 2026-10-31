@@ -291,3 +291,19 @@ it.each([1, 3.1])("changes the active text-link filter and exposes its radio sel
     .filter(view => view.props.horizontal);
   expect(horizontal).toHaveLength(fontScale >= 1.3 ? 0 : 1);
 });
+
+it.each([1, 3.1])("gives short text-link filters a centered 44pt target at scale %s", async fontScale => {
+  mock.fontScale = fontScale;
+  const onChange = vi.fn();
+  await mount(<TextLinks label="Show" value="all" options={[{ label: "All", value: "all" }, { label: "Care", value: "care" }]} onChange={onChange} />);
+  const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  for (const control of controls) {
+    const style = Object.assign({}, ...control.props.style);
+    expect(style.minWidth).toBeGreaterThanOrEqual(44);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+    expect(style.alignItems).toBe("center");
+    expect(style.justifyContent).toBe("center");
+  }
+  await act(async () => controls[1].props.onPress());
+  expect(onChange).toHaveBeenCalledWith("care");
+});

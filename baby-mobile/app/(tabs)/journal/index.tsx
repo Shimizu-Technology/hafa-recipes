@@ -84,6 +84,16 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     const timer = setTimeout(() => void loadHistory(ticket, key), q.trim() ? 350 : 0);
     return () => { clearTimeout(timer); pager.current.cancel(); };
   }, [key]));
+  async function refreshHistory() {
+    const capturedTicket = pager.current.snapshot().ticket;
+    await b.sync();
+    // Sync can outlive this child/filter view or a navigation away.
+    if (!b.current() || key !== viewKey.current || !pager.current.current(capturedTicket)) return;
+    const ticket = pager.current.reset(view, true);
+    setPage({ key, ticket, ids: pager.current.snapshot().ids, more: true });
+    setHistoryError("");
+    await loadHistory(ticket, key);
+  }
   const records = historyRows(b.state, view, page?.key === key ? page.ids : null, [...localChanges.current.ids]);
   async function share() {
     setBusy(true);
@@ -103,7 +113,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
   return (
     <Screen
       title={careHistory ? "Care history" : "Journal"}
-      onRefresh={() => b.sync()}
+      onRefresh={refreshHistory}
       back={careHistory}
       action={careHistory && <HeaderAction title={searching ? "Close search" : "Search"}
         onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
