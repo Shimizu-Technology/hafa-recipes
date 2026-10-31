@@ -47,7 +47,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             style={{ flex: fontScale >= 1.5 ? undefined : 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
               minHeight: composerMinimum, borderWidth: 1, borderColor: c.border, borderRadius: 22,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
-              fontFamily: fonts.regular, fontSize: 17 }}
+              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
           />
           <PressTarget
             accessibilityRole="button"
@@ -110,6 +110,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
               <Row
                 key={h.id}
                 title={h.title || "A previous conversation"}
+                numericDetail
                 detail={h.updated_at ? new Date(h.updated_at).toLocaleDateString() : undefined}
                 icon="chatbubbles-outline"
                 onPress={() => void load(h.id)}
@@ -140,7 +141,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: 20,
               borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
           >
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}>
               {m.content}
             </Text>
           </View>

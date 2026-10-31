@@ -25,13 +25,14 @@ vi.mock("react-native", () => ({
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
-vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
+vi.mock("expo-router", () => ({ router: { push: mock.push }, useSegments: () => ["(tabs)", "index"], Stack: ({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
-import TabLayout from "../app/(tabs)/_layout";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen } from "../components/ui";
+
+import { TabStack } from "../components/tab-stack";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -39,6 +40,7 @@ async function mount(element: React.ReactElement) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  mock.push.mockClear();
   mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
   mock.baby = { online: true, syncing: false, error: "", state: { outbox: [] } };
 });
@@ -59,12 +61,12 @@ it("uses short native press feedback and honours a live Reduce Motion change", a
 it("remeasures visible text after a live scale change without clipping line heights or capping content", async () => {
   await mount(<Copy kind="title">A longer entry heading</Copy>);
   const original = renderer!.root.findByType("Text" as React.ElementType);
-  expect(original.props.style.lineHeight).toBe(36);
+  expect(original.props.style.lineHeight).toBe(41);
   mock.fontScale = 3.1;
   await act(async () => renderer!.update(<Copy kind="title">A longer entry heading</Copy>));
   const large = renderer!.root.findByType("Text" as React.ElementType);
   expect(large).not.toBe(original);
-  expect(large.props.style.lineHeight).toBeUndefined();
+  expect(large.props.style.lineHeight).toBe(41);
   expect(large.props.maxFontSizeMultiplier).toBe(0);
 });
 it("keeps full row labels and wrapping choices reachable at large text", async () => {
@@ -96,7 +98,7 @@ it.each(["light", "dark"])("uses a neutral selected chip with readable contrast 
   const chip = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
   const style = Object.assign({}, ...chip.props.style);
   const text = renderer!.root.findByType("Text" as React.ElementType).props.style;
-  expect(style.backgroundColor).toBe(scheme === "light" ? "#EFE6DD" : "#231E1A");
+  expect(style.backgroundColor).toBe(scheme === "light" ? "#F6EFE9" : "#2A2320");
   expect(chip.props.accessibilityState).toEqual({ checked: true, selected: true });
   function luminance(hex: string) {
     const rgb = hex.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)
@@ -129,23 +131,21 @@ it.each([false, true])("keeps long choices wrapping or horizontally intrinsic (s
   if (scroll) expect(scrollers[0].props.horizontal).toBe(true);
 });
 
-it.each([1, 3.1])("keeps Undo clear of Add through a live fontScale change to %s", async fontScale => {
+it.each([1, 3.1])("keeps Undo above the native tab bar through a live fontScale change to %s", async fontScale => {
   mock.fontScale = 1;
   function Trigger() {
     const toast = useToast();
     return <Button title="Show toast" onPress={() => toast("Diaper logged", { label: "Undo", onPress() {} })} />;
   }
-  await mount(<ToastProvider><Trigger /><TabLayout /></ToastProvider>);
+  await mount(<ToastProvider><Trigger /></ToastProvider>);
   const controls = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
   await act(async () => controls().find(n => n.props.accessibilityLabel === "Show toast")!.props.onPress());
   if (fontScale !== 1) {
     mock.fontScale = fontScale;
-    await act(async () => renderer!.update(<ToastProvider><Trigger /><TabLayout /></ToastProvider>));
+    await act(async () => renderer!.update(<ToastProvider><Trigger /></ToastProvider>));
   }
   const toast = renderer!.root.findByType("AnimatedView" as React.ElementType);
-  const add = controls().find(n => n.props.accessibilityLabel === "Add a source, note, or care log")!;
-  const addStyle = Object.assign({}, ...add.props.style);
-  expect(toast.props.style.bottom).toBeGreaterThanOrEqual(addStyle.bottom + addStyle.height + 12);
+  expect(toast.props.style.bottom).toBeGreaterThanOrEqual(34 + 80);
   expect(controls().some(n => n.props.accessibilityLabel === "Undo")).toBe(true);
 });
 
@@ -157,4 +157,48 @@ it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside
   const text = renderer!.root.findAllByType("Text" as React.ElementType).map(node => node.props.children);
   expect(text).toContain("Today");
   if (subtitle) expect(text).toContain(subtitle);
+});
+
+
+it.each([
+  ["Today", "/add", "/add"],
+  ["Saved", { pathname: "/edit", params: { kind: "source" } }, { pathname: "/edit", params: { kind: "source" } }],
+  ["Journal", { pathname: "/edit", params: { kind: "journal" } }, { pathname: "/edit", params: { kind: "journal" } }],
+] as const)("keeps %s's contextual Add destination in its native header", async (title, add, expected) => {
+  await mount(<TabStack title={title} add={add} />);
+  const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  await act(async () => controls[0].props.onPress());
+  expect(mock.push).toHaveBeenLastCalledWith(expected);
+  await act(async () => controls[1].props.onPress());
+  expect(mock.push).toHaveBeenLastCalledWith("/settings");
+});
+it("leaves Ask's composer unobstructed by an Add control", async () => {
+  await mount(<TabStack title="Ask" />);
+  const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  expect(controls.map(c => c.props.accessibilityLabel)).toEqual(["Settings and profiles"]);
+});
+
+
+it.each(["light", "dark"])("keeps enabled text at 4.5:1 across all %s surfaces", async scheme => {
+  mock.scheme = scheme;
+  let palette!: ReturnType<typeof useColors>;
+  function Probe() { palette = useColors(); return null; }
+  await mount(<Probe />);
+  function rgb(value: string): number[] {
+    return value.startsWith("#") ? value.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)
+      : value.match(/[\d.]+/g)!.map(Number).map((v, i) => i < 3 ? v / 255 : v);
+  }
+  function luminance(channels: number[]) {
+    const linear = channels.map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  }
+  function contrast(ink: string, ground: string) {
+    const bg = rgb(ground), fg = rgb(ink), alpha = fg[3] ?? 1;
+    const a = luminance(fg.slice(0, 3).map((v, i) => v * alpha + bg[i] * (1 - alpha))), b = luminance(bg);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  }
+  for (const ink of [palette.text, palette.muted, palette.accentText, palette.error])
+    for (const ground of [palette.background, palette.hero, palette.soft, palette.surface, palette.errorBg])
+      expect(contrast(ink, ground), `${ink} on ${ground}`).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(palette.onAction, palette.action)).toBeGreaterThanOrEqual(4.5);
 });
