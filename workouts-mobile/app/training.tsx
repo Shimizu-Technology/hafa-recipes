@@ -164,7 +164,7 @@ export default function Training() {
   }
   if (summary)
     return (
-      <Screen
+      <Screen native
         title={summary.partial ? "Partial session saved" : "Session saved"}
         footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/history-progress")} />}
       >
@@ -178,26 +178,26 @@ export default function Training() {
     );
   if (restoreError)
     return (
-      <Screen back title="Restore session">
+      <Screen native back title="Restore session">
         <Notice error>{restoreError}</Notice>
         <Button title="Try restoring again" onPress={retry} />
       </Screen>
     );
   if (!ready)
     return (
-      <Screen back title="Restore training">
+      <Screen native back title="Restore training">
         <Copy>Loading your saved session…</Copy>
       </Screen>
     );
   if ((!d || !store) && finishing.current)
     return (
-      <Screen title="Saving session">
+      <Screen native title="Saving session">
         <Copy>Saving on this device…</Copy>
       </Screen>
     );
   if (!d || !store)
     return (
-      <Screen back title="Ready when you are">
+      <Screen native back title="Ready when you are">
         <Empty
           icon="fitness-outline"
           title="No active session"
@@ -353,7 +353,7 @@ export default function Training() {
       },
     ]);
   return (
-    <Screen
+    <Screen native
       back
       title={e?.name ?? d.workout.title}
       subtitle={e ? [d.workout.title, group].filter(Boolean).join(" · ") : undefined}
@@ -397,21 +397,21 @@ export default function Training() {
             onPress={requestPartialFinish}
           />
         )}
-        <Row gap={12} wrap>
-          <View style={{ flex: 1, minWidth: 120 }}>
+        <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
+          <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 120 }}>
             <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"}
               variant="secondary" disabled={busy || capReached}
               accessibilityHint={capReached ? "The time cap has been reached. Finish to save your recorded work." : undefined}
               onPress={() => { void run(() => store.pause(!d.paused)); }} />
           </View>
-          <View style={{ flex: 1, minWidth: 120 }}>
+          <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 120 }}>
             <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
               onPress={() => {
                 if ((canFinish || timedComplete) && !pendingEntry) void run(() => finish("completed"));
                 else requestPartialFinish();
               }} />
           </View>
-        </Row>
+        </View>
       </>}
     >
       {!!structureWarning && (
@@ -538,6 +538,7 @@ export default function Training() {
               }}
             />
           ))}
+          {!timed && <Button title="Add set" icon="add" variant="ghost" size="sm" disabled={busy || d.paused || !!structureWarning} onPress={() => { void run(() => store.addSet()); }} />}
           <ListRow icon="create-outline" title="Notes & feel" detail={feel ?? "Effort, how it felt, any pain"} onPress={() => setFeelOpen(true)} />
           {!!e.instructions && (
             <View style={{ gap: 4 }}>

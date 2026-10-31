@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
-import { Button, Copy, Notice, Row, useColors } from "@/components/ui";
+import { Copy, IconButton, Notice, Row, useColors } from "@/components/ui";
 import { animatedPressableComponent, usePressScale } from "@/components/design/press";
 import { SourceImage } from "@/components/source-image";
 import { embeddedSourcesEnabled, sourcePlayer, sourceURL } from "@/lib/source-playback";
@@ -44,23 +44,23 @@ export function WorkoutHero({ source }: { source: Source }) {
       onPress={() => { setError(""); if (embedded) setPlaying(true); else openOriginal(); }}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
-      style={{ borderRadius: radii.lg, overflow: "hidden", backgroundColor: c.sunken, opacity: press.opacity, transform: [{ scale: press.scale }] }}
+      style={{ borderRadius: 20, overflow: "hidden", backgroundColor: c.sunken, opacity: press.opacity, transform: [{ scale: press.scale }] }}
     >
       {image
         ? <Image source={{ uri: image }} accessibilityIgnoresInvertColors onError={() => setFailed(image)}
           style={{ width: "100%", aspectRatio: 4 / 3, maxHeight: 360, resizeMode: "cover" }} />
         : <View style={{ width: "100%", aspectRatio: 16 / 9 }} />}
       <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" }}>
-        <View style={{ width: 64, height: 64, borderRadius: radii.full, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name="play" size={30} color={c.onImage} style={{ marginLeft: 4 }} />
+        <View style={{ width: 44, height: 44, borderRadius: radii.full, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="play" size={20} color={c.onImage} style={{ marginLeft: 4 }} />
         </View>
       </View>
-    </Pressable> : image ? <View style={{ borderRadius: radii.lg, overflow: "hidden" }}>
+    </Pressable> : image ? <View style={{ borderRadius: 20, overflow: "hidden" }}>
       <SourceImage uri={image} cover label={label} fallback={null} />
     </View> : null}
     {(!!credit || !!url) && <Row gap={8}>
       {!!credit && <Copy kind="small" tone="muted" numberOfLines={2} style={{ flex: 1 }}>{credit}</Copy>}
-      {!!url && <Button title="Open original source" icon="open-outline" variant="ghost" size="sm" inline onPress={openOriginal} />}
+      {!!url && <IconButton label="Open original source" icon="open-outline" variant="plain" onPress={openOriginal} />}
     </Row>}
     {embedded && <Copy kind="small" tone="muted">Playing loads the {player!.provider} player; its privacy terms apply.</Copy>}
     {!!error && <Notice error>{error}</Notice>}
