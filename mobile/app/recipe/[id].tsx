@@ -2214,8 +2214,8 @@ const styles = StyleSheet.create({
   },
   similarCard: {
     width: 160,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 0,
     overflow: 'hidden',
   },
   similarImage: {
@@ -2228,10 +2228,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   similarCardTitle: {
-    minHeight: 36,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-    lineHeight: fontSize.sm * 1.3,
+    fontSize: 16,
+    fontFamily: fontFamily.display,
+    lineHeight: 21,
   },
   similarCardMeta: {
     fontSize: fontSize.xs,
