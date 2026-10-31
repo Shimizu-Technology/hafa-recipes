@@ -54,7 +54,8 @@ const buildToolAdvisories = [
   { packageName: 'deepmerge', source: 1243505, parent: 'node_modules/@expo/config' },
   { packageName: 'zod', source: 1243066, parent: 'node_modules/abitype' },
   { packageName: 'braces', source: 1240992, parent: 'node_modules/micromatch' },
-  { packageName: 'node-forge', source: 1240912, parent: 'node_modules/@expo/cli' },
+  { packageName: 'glob', source: 1244013, parent: 'node_modules/@expo/cli' },
+  { packageName: 'minimatch', source: 1244012, parent: 'node_modules/glob' },
 ];
 
 describe.each(buildToolAdvisories)('$packageName temporary dependency review', (advisory) => {
@@ -279,4 +280,8 @@ describe('npm audit report validation', () => {
     const unknown = { severity: 'high', via: [{ source: 999999999, severity: 'high', title: 'New advisory' }] };
     expect((await runAudit(result(report({ uuid: unknown })))).status).toBe(1);
   });
+});
+
+it('removes the obsolete node-forge acceptance after patching', () => {
+  expect(isAcceptedAdvisory({ packageName: 'node-forge', source: 1240912, lockfile, now: reviewedAt })).toBe(false);
 });

@@ -3,7 +3,7 @@ import type { ColorValue } from "react-native";
 import { AddTabIcon, TabIcon, useColors } from "@/components/ui";
 import { WorkoutsTabBar } from "@/components/workouts-tab-bar";
 import { TabRootContext } from "@/components/tab-chrome";
-import { fonts } from "@/constants/theme";
+import { typography } from "@/constants/theme";
 
 const visible = ["Discover", "Library", "Add", "Train"];
 
@@ -29,7 +29,7 @@ export default function Layout() {
         tabBarActiveTintColor: c.onActionSoft,
         tabBarInactiveTintColor: c.muted,
         tabBarStyle: { backgroundColor: c.surface, borderTopColor: c.border },
-        tabBarLabelStyle: { fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.2 },
+        tabBarLabelStyle: typography.caption2,
         sceneStyle: { backgroundColor: c.background },
       }}
     >
