@@ -260,7 +260,7 @@ export default function SignUpScreen() {
   // Verification screen
   if (pendingVerification) {
     return (
-      <View collapsable={false} style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
+      <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
         title: 'Check your email', headerLeft: () => (<TouchableOpacity
             style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
@@ -328,7 +328,7 @@ export default function SignUpScreen() {
   }
 
   return (
-    <View collapsable={false} style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
+    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerShadowVisible: false,
         headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
         title: 'Create account', headerLeft: () => (<TouchableOpacity
             style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
@@ -340,7 +340,7 @@ export default function SignUpScreen() {
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
           </TouchableOpacity>) }} />
-      <KeyboardAvoidingView collapsable={false}
+      <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
