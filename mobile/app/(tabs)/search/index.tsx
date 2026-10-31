@@ -34,12 +34,13 @@ function LibrarySearch() {
   const debounced = useDebouncedSearchQuery(query);
   const { data: count } = useRecipeCount(undefined, active && Boolean(isSignedIn));
   const { total: savedTotal } = useSavedRecipes(active && Boolean(isSignedIn));
-  const search = useSearchRecipes({ query: debounced, ownership: 'all' }, active && Boolean(isSignedIn));
-  const discover = useSearchPublicRecipes({ query: debounced }, active && Boolean(debounced.trim()));
-  const waiting = query !== debounced;
+  const term = debounced.trim();
+  const search = useSearchRecipes({ query: term, ownership: 'all' }, active && Boolean(isSignedIn && term));
+  const discover = useSearchPublicRecipes({ query: term }, active && Boolean(term));
+  const waiting = query.trim() !== term;
   const placeholder = `Search ${(count?.count ?? 0) + (savedTotal ?? 0)} recipes`;
   const rows: SearchRow[] = query.trim() ? [
-    { id: 'my-heading', heading: 'My recipes' },
+    ...(isSignedIn ? [{ id: 'my-heading', heading: 'My recipes' } as SearchRow] : []),
     ...(!waiting && !search.isError && isSignedIn ? search.recipes.map(recipe => ({ id: `my-${recipe.id}`, recipe })) : []),
     { id: 'discover-heading', heading: 'Discover' },
     ...(!waiting && !discover.isError ? discover.recipes.map(recipe => ({ id: `public-${recipe.id}`, recipe })) : []),

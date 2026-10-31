@@ -463,7 +463,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         onPress={refreshDiscover}
         activeOpacity={0.8}
       >
-        <Ionicons name="refresh" size={17} color="#FFFFFF" />
+        <Ionicons name="refresh" size={17} color={colors.onTint} />
         <Text style={styles.retryButtonText}>Try Again</Text>
       </TouchableOpacity>
     </RNView>

@@ -288,6 +288,9 @@ describe('RecipeChatModal conversation isolation', () => {
       const mark = root.container.queryAll(node => node.type === 'Ionicons' && node.props.name === 'sparkles' && node.props.size === 18);
       expect(mark).toHaveLength(1);
       expect(mark[0].props.color).toBe('#00261F');
+      const input = root.container.queryAll(n => n.type === 'TextInput')[0];
+      await act(async () => input.props.onChangeText('How much salt?'));
+      expect(root.container.queryAll(n => n.type === 'Ionicons' && n.props.name === 'arrow-up')[0].props.color).toBe('#00261F');
       await sendText(root, 'How much salt?');
       const userText = root.container.queryAll(node => node.type === 'Text' && node.props.children === 'How much salt?');
       expect(userText).toHaveLength(1);

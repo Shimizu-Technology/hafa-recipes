@@ -2,19 +2,20 @@ vi.mock('expo-router/react-navigation', () => ({ useIsFocused: () => true }));
 vi.mock('@/lib/recipeSource', () => ({ getRecipeSourcePresentation: () => ({ label: 'Website' }) }));
 import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const state = vi.hoisted(() => ({ platform: 'ios', generation: 1, filters: {} as any, push: vi.fn(), next: vi.fn() }));
+const state = vi.hoisted(() => ({ signedIn: true, fetching: false, fetchingNext: false, enabled: false, publicEnabled: false, platform: 'ios', generation: 1, filters: {} as any, push: vi.fn(), next: vi.fn() }));
 vi.mock('expo-router', () => ({ Stack: { SearchBar: React.forwardRef((props: any, ref: any) => { React.useImperativeHandle(ref, () => ({ setText: vi.fn(), focus: vi.fn(), blur: vi.fn() })); return React.createElement('SearchBar', props); }) }, useRouter: () => ({ push: state.push }) }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: state.signedIn }) }));
 vi.mock('react-native', () => ({ ActivityIndicator: 'ActivityIndicator', View: 'View', Platform: { get OS() { return state.platform; } }, Pressable: 'Pressable', FlatList: ({ data, renderItem, ListHeaderComponent, ...props }: any) => <>{React.createElement('List', props)}{ListHeaderComponent}{data.map((item: any) => <React.Fragment key={item.id}>{renderItem({ item })}</React.Fragment>)}</> }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@/components/Themed', () => ({ Text: 'Text', Input: 'Input', Button: 'Button', useColors: () => ({}) }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => state.generation }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (q: string) => q }));
-vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: () => ({ recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }), useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any) => { state.filters = filters; return { recipes: [{ id: 'recipe-a', title: 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
+vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: (_filters: any, enabled: boolean) => { state.publicEnabled = enabled; return ({ recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }); }, useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any, enabled: boolean) => { state.filters = filters; state.enabled = enabled; return { isFetching: state.fetching, isFetchingNextPage: state.fetchingNext, recipes: [{ id: 'recipe-a', title: 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
 import SearchRoute from '@/app/(tabs)/search';
+beforeEach(() => { state.signedIn = true; state.fetching = false; state.fetchingNext = false; state.next.mockClear(); state.push.mockClear(); });
 it('uses native library search, opens results, paginates, and clears query context for the next owner', async () => {
   const r = createRoot();
   try {
@@ -71,5 +72,42 @@ it('orders library results before public results, remembers submitted searches, 
     await act(async () => r.render(<SearchRoute />));
     expect(r.container.queryAll(n => n.props.children === 'Recent searches')).toHaveLength(0);
     expect(r.container.queryAll(n => n.props.children === 'Search by ingredient')).toHaveLength(1);
+  } finally { await act(async () => r.unmount()); }
+});
+
+it.each([false, true])('keeps Search rows mounted during a background/next-page fetch (%s)', async nextPage => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<SearchRoute />));
+    await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: 'Chicken' } }));
+    state.fetching = true; state.fetchingNext = nextPage;
+    await act(async () => r.render(<SearchRoute />));
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Chicken with herbs')).toHaveLength(1);
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Searching My recipes')).toHaveLength(0);
+    await act(async () => r.container.queryAll(n => n.type === 'List')[0].props.onEndReached());
+    expect(state.next).not.toHaveBeenCalled();
+    const list = r.container.queryAll(n => n.type === 'List')[0];
+    expect(Boolean(list.props.ListFooterComponent)).toBe(nextPage);
+  } finally { await act(async () => r.unmount()); }
+});
+it('does not run a whitespace-only query', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<SearchRoute />));
+    await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: '   ' } }));
+    expect(state.filters.query).toBe(''); expect(state.enabled).toBe(false); expect(state.publicEnabled).toBe(false);
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Chicken with herbs')).toHaveLength(0);
+  } finally { await act(async () => r.unmount()); }
+});
+it('does not present a searched-empty library or cached rows to a guest', async () => {
+  state.signedIn = false;
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<SearchRoute />));
+    await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: 'Chicken' } }));
+    expect(state.enabled).toBe(false);
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Chicken with herbs')).toHaveLength(0);
+    expect(r.container.queryAll(n => n.type === 'Text' && ['My recipes', 'No recipes found.'].includes(n.props.children))).toHaveLength(0);
+    expect(r.container.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
   } finally { await act(async () => r.unmount()); }
 });
