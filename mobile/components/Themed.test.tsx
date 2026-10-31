@@ -87,3 +87,13 @@ describe('shared controls', () => {
     await act(async () => r.unmount());
   });
 });
+
+it('keeps ingredient quantities and notes at the parent’s scaled text size and leading', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<Text style={{ fontSize: 28, lineHeight: 40 }}><Text style={{ fontWeight: '600' }}>2 cups </Text>flour<Text style={{ color: Colors.dark.textMuted }}> (sifted)</Text></Text>));
+    const nodes = r.container.queryAll(n => n.type === 'Text');
+    expect(nodes).toHaveLength(3);
+    for (const node of nodes) expect(node.props.style[0]).toMatchObject({ fontSize: 28, lineHeight: 40 });
+  } finally { await act(async () => r.unmount()); }
+});
