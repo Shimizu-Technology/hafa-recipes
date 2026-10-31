@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { contentWidth, elevation, motion, radii, spacing } from "@/constants/theme";
+import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { useIsTabRoot, useTabOverlayHeight } from "../tab-chrome";
 import { Copy, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
@@ -124,7 +124,7 @@ export function Screen({
         }}
       >
         <View style={{ paddingHorizontal: spacing.md, paddingVertical: 6, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 44 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: root ? Math.max(44, Math.ceil(typography.navTitle.lineHeight * fontScale)) : 44 }}>
             {back ? (
               <IconButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"} variant={dismiss ? "soft" : "plain"}
                 onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/library")} />
@@ -133,7 +133,7 @@ export function Screen({
             ) : (
               <BrandLockup fill />
             )}
-            {root && <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}><Copy kind="navTitle" align="center">{title}</Copy></View>}
+            {root && <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}><Copy kind="navTitle" align="center" allowFontScaling={false} style={{ fontSize: typography.navTitle.fontSize * fontScale, lineHeight: typography.navTitle.lineHeight * fontScale }}>{title}</Copy></View>}
             {!!action && <View style={{ flexShrink: 0, width: root ? 48 : undefined, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>{action}</View>}
           </View>
         </View>

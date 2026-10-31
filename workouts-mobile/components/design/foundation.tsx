@@ -92,6 +92,7 @@ export function Copy({
   align,
   accessibilityLabel,
   selectable,
+  allowFontScaling,
 }: PropsWithChildren<{
   kind?: TypeKind;
   tone?: Tone;
@@ -102,6 +103,7 @@ export function Copy({
   align?: TextStyle["textAlign"];
   accessibilityLabel?: string;
   selectable?: boolean;
+  allowFontScaling?: boolean;
 }>) {
   const c = useColors();
   const surface = useSurface();
@@ -110,6 +112,7 @@ export function Copy({
       accessibilityRole={headerKinds.has(kind) ? "header" : undefined}
       accessibilityLabel={accessibilityLabel}
       selectable={selectable}
+      allowFontScaling={allowFontScaling}
       numberOfLines={numberOfLines}
       style={[typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]}
     >

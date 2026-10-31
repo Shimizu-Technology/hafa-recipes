@@ -1,5 +1,5 @@
 import { useState, type PropsWithChildren, type Ref } from "react";
-import { Text, ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, View, type TextInputProps } from "react-native";
+import { Text, ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { Image } from "expo-image";
@@ -409,6 +409,8 @@ export function Field({
   hideLabel?: boolean;
 }) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
+  const fieldType = large ? typography.numeric : typography.body;
   const [focused, setFocused] = useState(false);
   const traits = inputTraits(purpose, Platform.OS, numeric);
   // iOS number pads have no return key; without a Done bar the keyboard hides
@@ -422,6 +424,7 @@ export function Field({
         {optional ? <Copy kind="small" tone="muted"> · optional</Copy> : null}
       </Copy>}
       <TextInput
+        allowFontScaling={false}
         key={purpose ?? "general"}
         ref={inputRef}
         {...traits}
@@ -443,7 +446,7 @@ export function Field({
         secureTextEntry={secret}
         autoCapitalize="none"
         style={[
-          large ? typography.numeric : typography.body,
+          { ...fieldType, fontSize: fieldType.fontSize * fontScale, lineHeight: fieldType.lineHeight * fontScale },
           {
             color: c.text,
             borderColor: focused ? c.focus : c.borderStrong,

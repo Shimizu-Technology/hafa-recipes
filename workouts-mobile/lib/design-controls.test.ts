@@ -6,7 +6,7 @@ const f = vi.hoisted(() => ({ reduced: false, timing: vi.fn() }));
 vi.mock("react-native", () => {
   class Value { value: number; constructor(v: number) { this.value = v; } setValue(v: number) { this.value = v; } }
   return { View: "View", Pressable: "Pressable", ScrollView: "ScrollView", ActivityIndicator: "Spinner", TextInput: "Input", InputAccessoryView: "Accessory", Keyboard: {},
-    Platform: { OS: "ios" }, Easing: { bezier: () => "ease-out" },
+    Platform: { OS: "ios" }, useWindowDimensions: () => ({ fontScale: 1 }), Easing: { bezier: () => "ease-out" },
     Animated: { Value, createAnimatedComponent: (c: unknown) => c, timing: (...args: unknown[]) => { f.timing(...args); return { start() {} }; } } };
 });
 vi.mock("../components/design/foundation", () => ({ Copy: "Copy", useColors: () => light, useSurface: () => "surface", useReducedMotion: () => f.reduced, haptics: { tick() {} } }));
