@@ -528,6 +528,31 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
             <ListHeaderTitle />
+            {/* Selection Action Bar */}
+            {isSelectionMode && (
+              <RNView style={[styles.selectionActionBar, { backgroundColor: colors.background }]}>
+                <RNView style={styles.selectionActionContent}>
+                  <Text style={[styles.selectionActionText, { color: colors.textSecondary }]}>
+                    {selectedRecipeIds.size} recipe{selectedRecipeIds.size !== 1 ? 's' : ''} selected
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.addToCollectionButton,
+                      { backgroundColor: colors.tint },
+                      selectedRecipeIds.size === 0 && { opacity: 0.5 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add selected recipes to collection"
+                    onPress={() => setShowBulkAddModal(true)}
+                    disabled={selectedRecipeIds.size === 0}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="folder-outline" size={18} color={colors.onTint} />
+                    <Text style={[styles.addToCollectionButtonText, { color: colors.onTint }]}>Add to Collection</Text>
+                  </TouchableOpacity>
+                </RNView>
+              </RNView>
+            )}
             {activeFilterCount > 0 && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear library filters" onPress={clearSearchAndFilters} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && (timeFilter === 'quick' ? 'Under 30 min' : timeFilter === 'medium' ? '30–60 min' : '60+ min'), ...selectedTags, ownershipFilter !== 'all' && ownershipFilter].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
@@ -556,29 +581,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       {/* Sign In Banner for guests */}
       {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
 
-      {/* Selection Action Bar */}
-      {isSelectionMode && (
-        <RNView style={[styles.selectionActionBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
-          <RNView style={styles.selectionActionContent}>
-            <Text style={[styles.selectionActionText, { color: colors.textSecondary }]}>
-              {selectedRecipeIds.size} recipe{selectedRecipeIds.size !== 1 ? 's' : ''} selected
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.addToCollectionButton,
-                { backgroundColor: colors.tint },
-                selectedRecipeIds.size === 0 && { opacity: 0.5 },
-              ]}
-              onPress={() => setShowBulkAddModal(true)}
-              disabled={selectedRecipeIds.size === 0}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="folder-outline" size={18} color={colors.onTint} />
-              <Text style={[styles.addToCollectionButtonText, { color: colors.onTint }]}>Add to Collection</Text>
-            </TouchableOpacity>
-          </RNView>
-        </RNView>
-      )}
     </View>
     </TouchableWithoutFeedback>
   );
@@ -719,17 +721,13 @@ const styles = StyleSheet.create({
     // Card shrinks slightly when checkbox is visible
   },
   selectionActionBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopWidth: 1,
-    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
     paddingVertical: spacing.md,
-    paddingBottom: spacing.xl,
   },
   selectionActionContent: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     alignItems: 'center',
     justifyContent: 'space-between',
   },

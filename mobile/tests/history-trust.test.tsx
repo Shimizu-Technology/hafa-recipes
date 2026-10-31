@@ -310,6 +310,10 @@ describe('Library shown selection', () => {
     const bulk = renderer.container.queryAll(n => n.type === 'BulkAddToCollectionModal')[0];
     expect(bulk.props.recipeIds).toHaveLength(20);
     expect(header.container.queryAll(n => n.props.children === 'Deselect all')).toHaveLength(1);
+    const add = header.container.queryAll(n => n.props.accessibilityLabel === 'Add selected recipes to collection')[0];
+    expect(add.props.disabled).toBe(false);
+    await act(async () => add.props.onPress());
+    expect(renderer.container.queryAll(n => n.type === 'BulkAddToCollectionModal')[0].props.visible).toBe(true);
     await act(async () => header.unmount());
     await act(async () => renderer.unmount());
   });
