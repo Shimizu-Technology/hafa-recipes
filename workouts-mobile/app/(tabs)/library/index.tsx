@@ -115,7 +115,7 @@ export default function Library() {
     tags: tagsFromText(tags),
     max_minutes: maxMinutes,
   };
-  const all = useQuery({ queryKey: [owner, "search-library", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
+  const all = useQuery({ queryKey: [owner, "library", "search", enrollment?.generation], queryFn: api.library, enabled: !!enrollment?.enrolled });
   const needsCount = all.data?.filter(w => w.extraction_warnings?.length).length ?? 0;
   const q = useInfiniteQuery({
     queryKey: [owner, "library", enrollment?.generation, "search", selected, needsInfo],
