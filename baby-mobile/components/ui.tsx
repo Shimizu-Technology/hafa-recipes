@@ -673,7 +673,7 @@ export function TextLinks({ options, value, onChange, label }: { options: { labe
       accessibilityState={{ selected: value === option.value, checked: value === option.value }}
       onPress={() => { if (value !== option.value) tap(); onChange(option.value); }}
       style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}>
-      <Text style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400" }}>{option.label}</Text>
+      <Text style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400", textDecorationLine: value === option.value ? "underline" : "none" }}>{option.label}</Text>
     </PressTarget>)}
   </View>;
   return fontScale >= 1.3 ? links : <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">{links}</ScrollView>;
