@@ -2,7 +2,7 @@ import { fontFamily } from '@/constants/Colors';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { useWindowDimensions, StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
@@ -88,6 +88,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
 
 /** Account and app preferences, presented from the root stack rather than as a tab. */
 export default function SettingsScreen() {
+  const { fontScale } = useWindowDimensions();
   const creationScope = recipeScope();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -394,7 +395,7 @@ export default function SettingsScreen() {
           <SectionHeader title="Appearance" />
           <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
             {/* Theme Row */}
-            <RNView style={styles.compactRow}>
+            <RNView style={[styles.compactRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Theme</Text>
               <RNView style={[styles.segmentedControl, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                 {([
@@ -429,7 +430,7 @@ export default function SettingsScreen() {
             <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
 
             {/* Text Size Row */}
-            <RNView style={styles.compactRow}>
+            <RNView style={[styles.compactRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Text Size</Text>
               <RNView style={[styles.segmentedControl, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
                 {([
@@ -1118,9 +1119,10 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   segmentedOption: {
+    flex: 1,
     borderRadius: 8,
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: spacing.sm,
     minWidth: 44,
     alignItems: 'center',
