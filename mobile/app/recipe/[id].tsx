@@ -181,8 +181,8 @@ function RecipeDetailScreenContent() {
   }, [id, recipe?.content_revision]);
   useEffect(() => {
     setShowRelated(false);
-    setCheckedIngredients(new Set());
   }, [id]);
+  useEffect(() => { setCheckedIngredients(new Set()); }, [id, recipe?.content_revision]);
 
   // Check if user is admin (from Clerk public metadata)
   const isAdmin = (user?.publicMetadata as any)?.role === 'admin';
@@ -881,7 +881,7 @@ function RecipeDetailScreenContent() {
                     </Text>
                   </RNView>}
                   {extracted.components.map((component, compIndex) => (
-                    <RNView key={compIndex} style={styles.componentSection}>
+                    <RNView key={compIndex} style={[styles.componentSection, { backgroundColor: colors.backgroundSecondary, borderRadius: 12, overflow: 'hidden' }]}>
                       {extracted.components.length > 1 && component.name && typeof component.name === 'string' ? (
                         <Text style={[styles.componentTitle, { color: colors.actionText }]}>
                           {component.name}
@@ -900,7 +900,7 @@ function RecipeDetailScreenContent() {
                           : null;
                         
                         return (
-                          <RNView key={ingIndex} style={[styles.ingredientRow, { backgroundColor: colors.backgroundSecondary, borderRadius: 10, paddingHorizontal: 8 }]}>
+                          <RNView key={ingIndex} style={[styles.ingredientRow, { backgroundColor: colors.backgroundSecondary, borderRadius: 0, paddingHorizontal: 12 }]}>
                             <TouchableOpacity style={styles.ingredientCheck} accessibilityRole="checkbox"
                               accessibilityLabel={ing.name} accessibilityState={{ checked: checkedIngredients.has(`${compIndex}:${ingIndex}`) }}
                               onPress={() => { setCheckedIngredients(previous => { const next = new Set(previous); const key = `${compIndex}:${ingIndex}`; next.has(key) ? next.delete(key) : next.add(key); return next; }); haptics.selection(); }}>
@@ -1859,8 +1859,8 @@ const styles = StyleSheet.create({
   },
   ingredientRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
+    alignItems: 'center',
+    minHeight: 52, paddingVertical: 4,
   },
   bullet: {
     width: 6,
@@ -1902,8 +1902,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   stepNumber: {
-    width: 44,
-    height: 44,
+    minWidth: 32,
+    minHeight: 24,
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1911,7 +1911,7 @@ const styles = StyleSheet.create({
   },
   stepNumberText: {
     color: '#FFFFFF',
-    fontSize: fontSize.sm,
+    fontSize: 17, lineHeight: 24,
     fontWeight: fontWeight.semibold,
   },
   stepText: {

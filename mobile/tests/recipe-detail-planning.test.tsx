@@ -8,7 +8,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ unavailable: false, servings: null as number | null, scaled: 1, push: vi.fn() }));
+const m = vi.hoisted(() => ({ unavailable: false, revision: 1, servings: null as number | null, scaled: 1, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   StyleSheet: { create: (value: any) => value }, Platform: { OS: 'ios' },
@@ -51,7 +51,7 @@ vi.mock('@/lib/openRecipeSource', () => ({ openRecipeSource: vi.fn() }));
 vi.mock('@/utils/haptics', () => ({ haptics: { selection: vi.fn() } }));
 vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
-    is_owner: true, is_public: false, review_state: 'ready', content_revision: 1,
+    is_owner: true, is_public: false, review_state: 'ready', content_revision: m.revision,
     extracted: { title: 'Rice', servings: m.servings, tags: [], times: {},
       components: [{ name: 'Main', ingredients: [{ name: 'rice', quantity: '1', unit: 'cup' }], steps: ['Cook'] }] } } }),
   useToggleRecipeSharing: () => ({}), useIsRecipeSaved: () => ({}), useSaveRecipe: () => ({}),
@@ -98,6 +98,10 @@ it('checks ingredients independently and keeps the main Plan action scaled', asy
     expect(checkbox().props.accessibilityState.checked).toBe(false);
     await act(async () => checkbox().props.onPress());
     expect(checkbox().props.accessibilityState.checked).toBe(true);
+    m.revision += 1;
+    await act(async () => root.render(<RecipeDetailScreen />));
+    expect(checkbox().props.accessibilityState.checked).toBe(false);
+    await act(async () => checkbox().props.onPress());
     await act(async () => checkbox().props.onPress());
     expect(checkbox().props.accessibilityState.checked).toBe(false);
     const plan = root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Plan')[0];
