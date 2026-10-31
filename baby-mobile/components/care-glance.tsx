@@ -24,10 +24,10 @@ function Line({ icon, title, detail, record, prominent = false }: { icon: IconNa
       <Icon name={icon} size={22} color={c.accentText} />
       <View style={{ flex: 1, gap: 1 }}>
         {prominent ? <Text key={fontScale} maxFontSizeMultiplier={0} accessibilityRole="header"
-          style={{ fontFamily: fonts.bold, fontSize: 34, letterSpacing: -0.6, color: c.text, fontVariant: ["tabular-nums"] }}>{title}</Text>
-          : <Copy kind="small" tone="muted">{title}</Copy>}
+          style={{ fontFamily: fonts.rounded, fontWeight: "700", fontSize: 34, lineHeight: 41, letterSpacing: -0.6, color: c.text, fontVariant: ["tabular-nums"] }}>{title}</Text>
+          : <Copy numeric kind="small" tone="muted">{title}</Copy>}
         {!!detail && (
-          <Copy kind="small" tone="muted">
+          <Copy numeric kind="small" tone="muted">
             {detail}
           </Copy>
         )}
@@ -61,7 +61,7 @@ export function CareGlance({ child, rows, now }: { child: Child; rows: BabyRecor
     { total, wet, dirty } = glance.diapers;
   return (
     <Card tone="hero">
-      <Copy kind="small" tone="muted">{child.name}{age ? ` · ${age}` : ""}</Copy>
+      <Copy numeric kind="small" tone="muted">{child.name}{age ? ` · ${age}` : ""}</Copy>
       <Line
         prominent
         icon={kindIcon.feeding}
