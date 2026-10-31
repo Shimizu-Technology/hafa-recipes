@@ -38,7 +38,8 @@ function LibrarySearch() {
   const search = useSearchRecipes({ query: term, ownership: 'all' }, active && Boolean(isSignedIn && term));
   const discover = useSearchPublicRecipes({ query: term }, active && Boolean(term));
   const waiting = query.trim() !== term;
-  const placeholder = `Search ${(count?.count ?? 0) + (savedTotal ?? 0)} recipes`;
+  const libraryTotal = (count?.count ?? 0) + (savedTotal ?? 0);
+  const placeholder = isSignedIn && libraryTotal > 0 ? `Search ${libraryTotal} recipes` : 'Search recipes';
   const rows: SearchRow[] = query.trim() ? [
     ...(isSignedIn ? [{ id: 'my-heading', heading: 'My recipes' } as SearchRow] : []),
     ...(!waiting && isSignedIn ? search.recipes.map(recipe => ({ id: `my-${recipe.id}`, recipe })) : []),

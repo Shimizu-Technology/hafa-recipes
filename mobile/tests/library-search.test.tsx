@@ -13,7 +13,7 @@ vi.mock('@/components/Themed', () => ({ Text: 'Text', Input: 'Input', Button: 'B
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => state.generation }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (q: string) => state.debounced ?? q }));
-vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: (_filters: any, enabled: boolean) => { state.publicEnabled = enabled; return ({ isError: state.error, refetch: vi.fn(), recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }); }, useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any, enabled: boolean) => { state.filters = filters; state.enabled = enabled; return { isError: state.error, refetch: vi.fn(), isFetching: state.fetching, isFetchingNextPage: state.fetchingNext, recipes: [{ id: 'recipe-a', title: 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
+vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: (_filters: any, enabled: boolean) => { state.publicEnabled = enabled; return ({ isError: state.error, refetch: vi.fn(), recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }); }, useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any, enabled: boolean) => { state.filters = filters; state.enabled = enabled; return { isError: state.error, refetch: vi.fn(), isFetching: state.fetching, isFetchingNextPage: state.fetchingNext, recipes: [{ id: 'recipe-a', title: filters.query === 'Rice' ? 'Rice pilaf' : 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
 import SearchRoute from '@/app/(tabs)/search';
 beforeEach(() => { state.signedIn = true; state.error = false; state.debounced = null; state.fetching = false; state.fetchingNext = false; state.next.mockClear(); state.push.mockClear(); });
 it('uses native library search, opens results, paginates, and clears query context for the next owner', async () => {
@@ -106,6 +106,7 @@ it('does not present a searched-empty library or cached rows to a guest', async 
     await act(async () => r.render(<SearchRoute />));
     await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: 'Chicken' } }));
     expect(state.enabled).toBe(false);
+    expect(r.container.queryAll(n => n.type === 'SearchBar')[0].props.placeholder).toBe('Search recipes');
     expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Chicken with herbs')).toHaveLength(0);
     expect(r.container.queryAll(n => n.type === 'Text' && ['My recipes', 'No recipes found.'].includes(n.props.children))).toHaveLength(0);
     expect(r.container.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
@@ -137,6 +138,7 @@ it('hides stale rows during the debounce interval and restores results for the n
     state.debounced = 'Rice';
     await act(async () => r.render(<SearchRoute />));
     expect(state.filters.query).toBe('Rice');
-    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Chicken with herbs')).toHaveLength(1);
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Rice pilaf')).toHaveLength(1);
+    expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Chicken with herbs')).toHaveLength(0);
   } finally { await act(async () => r.unmount()); }
 });

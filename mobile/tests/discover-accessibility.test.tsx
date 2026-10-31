@@ -136,6 +136,7 @@ import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 import DiscoverRoute, { SaveButton } from '../app/(tabs)/discover';
 import { DiscoverScreen } from '../app/(tabs)/discover';
 import FilterBottomSheet from '../components/FilterBottomSheet';
+import { api } from '@/lib/api';
 
 function textOf(node: ReactTestInstance | string | number): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -159,6 +160,24 @@ const SOURCE_LABELS = ['All Sources', 'TikTok', 'YouTube', 'Instagram', 'Website
 describe('Discover accessibility', () => {
   beforeEach(() => {
     mocks.searchArgs = [];
+  });
+
+  it('keeps a single Surprise request in flight and shows progress until navigation', async () => {
+    let finish!: (recipe: any) => void;
+    vi.mocked(api.getRandomRecipe).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    mocks.push.mockClear();
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<DiscoverScreen />); });
+    try {
+      await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Surprise me')!.props.onPress());
+      const option = byText(renderer, 'Random Dinner');
+      await act(async () => { void option.props.onPress(); void option.props.onPress(); });
+      expect(api.getRandomRecipe).toHaveBeenCalledOnce();
+      expect(renderer.root.findAllByType('ActivityIndicator' as any).some(n => n.props.accessibilityLabel === 'Finding a recipe')).toBe(true);
+      await act(async () => { finish({ id: 'random-one' }); });
+      expect(mocks.push.mock.calls).toEqual([['/recipe/random-one']]);
+      expect(renderer.root.findAllByType('ActivityIndicator' as any).some(n => n.props.accessibilityLabel === 'Finding a recipe')).toBe(false);
+    } finally { await act(async () => renderer.unmount()); }
   });
 
   it('keeps Discover as a grid and exposes unique actions through the header menu', async () => {

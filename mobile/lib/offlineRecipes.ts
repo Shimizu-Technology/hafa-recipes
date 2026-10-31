@@ -47,6 +47,7 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
     const ids = rows.map(row => row.recipe.id);
     // Retire IDs before erasing bytes: failed cleanup cannot resurrect a revoked copy.
     await storage.setItem(key(lease), JSON.stringify(ids));
+    if (valid(lease)) emit();
     const removed = prior.filter(id => !ids.includes(id)).map(id => recordKey(lease, id));
     if (removed.length) await storage.multiRemove(removed);
   };
@@ -56,6 +57,7 @@ export function createOfflineRecipes(storage: typeof AsyncStorage) {
     const ids = await readIndex(lease);
     if (!valid(lease)) return;
     await storage.setItem(key(lease), JSON.stringify(ids.filter(value => value !== id)));
+    if (valid(lease)) emit();
     await storage.multiRemove([recordKey(lease, id)]);
   };
   const erase = async () => {

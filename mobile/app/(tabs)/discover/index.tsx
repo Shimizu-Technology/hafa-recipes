@@ -160,6 +160,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showAllContributors, setShowAllContributors] = useState(false);
   const [isRandomLoading, setIsRandomLoading] = useState(false);
+  const randomRequestPending = useRef(false);
   const [showSurpriseModal, setShowSurpriseModal] = useState(false);
 
   // User filter state (for "recipes by user" feature)
@@ -341,6 +342,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
 
   // Handle random recipe selection
   const handleRandomRecipe = useCallback(async (selectedMealType?: string) => {
+    if (randomRequestPending.current) return;
+    randomRequestPending.current = true;
     setShowSurpriseModal(false);
     setIsRandomLoading(true);
     haptics.medium();
@@ -355,6 +358,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         error?.response?.data?.detail || 'Try removing some filters and try again.'
       );
     } finally {
+      randomRequestPending.current = false;
       setIsRandomLoading(false);
     }
   }, [mealTypeParam, sourceTypeParam, router]);
@@ -376,7 +380,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
-  const ListEmpty = () => (
+  const renderEmpty = () => (
     <RNView style={styles.emptyContainer}>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
         No recipes found
@@ -389,7 +393,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     </RNView>
   );
 
-  const ListError = () => (
+  const renderError = () => (
     <RNView style={styles.emptyContainer}>
       <RNView style={[styles.emptyIconContainer, { backgroundColor: colors.error + '12' }]}>
         <Ionicons name="cloud-offline-outline" size={46} color={colors.error} />
@@ -411,7 +415,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     </RNView>
   );
 
-  const ListFooter = () => {
+  const renderFooter = () => {
     if (!hasMore) return null;
 
     const remaining = hasMoreLocal && filteredRecipes
@@ -559,9 +563,10 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
       <RecipeBrowseHeader actions={[
         { title: 'Filter recipes', onPress: () => setShowFilterModal(true) },
         { title: 'Top contributors', onPress: () => setShowAllContributors(true) },
-        { title: 'Surprise me', onPress: () => setShowSurpriseModal(true) },
+        { title: 'Surprise me', onPress: () => { if (!randomRequestPending.current) setShowSurpriseModal(true); } },
         { title: 'Search recipes', onPress: () => router.navigate('/(tabs)/search') },
       ]} />
+      {isRandomLoading && <ActivityIndicator accessibilityLabel="Finding a recipe" color={colors.tint} style={{ marginVertical: 12 }} />}
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <SkeletonRecipeList count={6} layout="grid" />
       ) : (
@@ -583,8 +588,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             </RNView>)}
             {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}
-          ListEmptyComponent={hasPrimaryLoadError ? ListError : ListEmpty}
-          ListFooterComponent={ListFooter}
+          ListEmptyComponent={hasPrimaryLoadError ? renderError() : renderEmpty()}
+          ListFooterComponent={renderFooter()}
           contentContainerStyle={[
             styles.listContent,
             {

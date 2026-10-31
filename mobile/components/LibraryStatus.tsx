@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useAuth } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
@@ -14,6 +14,7 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const { userId, isSignedIn } = useAuth();
   const lease = useOfflineLease(userId);
+  const offlineVersion = useSyncExternalStore(offlineRecipes.subscribe, offlineRecipes.version, offlineRecipes.version);
   const [offlineCount, setOfflineCount] = useState(0);
   const [offlineError, setOfflineError] = useState(false);
   useEffect(() => {
@@ -22,7 +23,7 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
     setOfflineError(false);
     if (lease) void offlineRecipes.list(lease).then(rows => { if (current) setOfflineCount(rows.length); }).catch(() => { if (current) setOfflineError(true); });
     return () => { current = false; };
-  }, [lease?.owner, lease?.generation, lease?.epoch, active]);
+  }, [lease?.owner, lease?.generation, lease?.epoch, active, offlineVersion]);
   const jobs = useExtractionJobs('extract', active && Boolean(isSignedIn));
   const inbox = useImportInbox();
   const needsAttention = Boolean(isSignedIn) && (jobs.data?.some(job => ['failed', 'expired'].includes(job.status) && !job.recipe_id) || inbox.entries.some(entry => entry.state === 'error'));
