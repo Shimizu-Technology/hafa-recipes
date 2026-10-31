@@ -1,3 +1,5 @@
+import { useIsFocused } from 'expo-router/react-navigation';
+import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -1738,7 +1740,9 @@ const styles = StyleSheet.create({
   },
 });
 
-/** Keep existing deep links selecting their original scope. */
+/** Pause background browsing and retire local UI when the stable owner changes. */
 export default function DiscoverRoute() {
-  return <DiscoverScreen />;
+  const focused = useIsFocused();
+  const generation = useRecipeOwnerGeneration();
+  return <DiscoverScreen key={generation} active={focused} />;
 }

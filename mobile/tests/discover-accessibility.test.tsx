@@ -6,11 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  signedIn: true, searching: false,
+  signedIn: true, searching: false, focused: true, feedEnabled: false,
   push: vi.fn(),
   save: vi.fn(),
   searchArgs: [] as unknown[],
 }));
+
+vi.mock('expo-router/react-navigation', () => ({ useIsFocused: () => mocks.focused }));
+vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => 1 }));
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -111,7 +114,7 @@ vi.mock('@/hooks/useRecipes', () => {
     isError: false,
   };
   return {
-    useDiscoverRecipes: () => page,
+    useDiscoverRecipes: (_source: unknown, enabled: boolean) => { mocks.feedEnabled = enabled; return page; },
     useSearchPublicRecipes: (args: unknown) => {
       mocks.searchArgs.push(args);
       return { ...page, isLoading: false, isFetching: mocks.searching, isSuccess: true };
@@ -127,7 +130,7 @@ vi.mock('@/hooks/useRecipes', () => {
 });
 
 import { guestRecipeIntent } from '../lib/guestRecipeIntent';
-import { SaveButton } from '../app/(tabs)/discover';
+import DiscoverRoute, { SaveButton } from '../app/(tabs)/discover';
 import { DiscoverScreen } from '../app/(tabs)/discover';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 
@@ -277,4 +280,16 @@ it('keeps contributor suggestions, active filters and search progress visible wi
     expect(textOf(renderer.root)).toContain('Searching...');
     expect(byLabel(renderer, 'What Can I Make?')).toBeUndefined();
   } finally { await act(async () => renderer?.unmount()); mocks.searching = false; vi.useRealTimers(); }
+});
+
+it('pauses the native Discover tab feed while another tab is focused', async () => {
+  let renderer!: ReactTestRenderer;
+  try {
+    mocks.focused = false;
+    await act(async () => { renderer = create(<DiscoverRoute />); });
+    expect(mocks.feedEnabled).toBe(false);
+    mocks.focused = true;
+    await act(async () => renderer.update(<DiscoverRoute />));
+    expect(mocks.feedEnabled).toBe(true);
+  } finally { mocks.focused = true; await act(async () => renderer?.unmount()); }
 });
