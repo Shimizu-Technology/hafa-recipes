@@ -49,8 +49,8 @@ vi.mock("@/components/ui", () => ({
   useColors: () => ({ action: "green", muted: "gray" }),
 }));
 import { TrainToday as Today } from "@/components/train-today";
-import TodayRoute from "../app/(tabs)/index";
-import Plan from "../app/(tabs)/train";
+import TodayRoute from "../app/legacy-today";
+import Plan from "../app/(tabs)/train/index";
 import SessionDetail from "../app/session/[id]";
 import { dateInTimezone } from "./training";
 
@@ -720,7 +720,7 @@ it("Train leads with Resume during active training and only explains blocked sta
   const { router } = await import("expo-router");
   fixture.active = { workout: { title: "In progress" }, actuals: [] };
   await mountPlan();
-  expect(renderer!.root.findAllByType("Screen" as never)[0].props.title).toBe("Train");
+  expect(renderer!.root.findAllByType("Screen" as never)[0].props.title).toBe("Today");
   expect(buttons("Start")).toHaveLength(0); expect(buttons("Start session")).toHaveLength(0);
   await act(async () => buttons("Resume")[0].props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/training");

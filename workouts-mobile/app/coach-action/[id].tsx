@@ -71,7 +71,7 @@ export default function CoachActionReview() {
         <Button title="Ask Coach again" secondary inline onPress={() => router.canGoBack() ? router.back() : router.push("/coach")} />
       </>}
       <ListGroup>
-        <ListRow icon="calendar-outline" title="Open training plans" onPress={() => router.push("/(tabs)/plan")} />
+        <ListRow icon="calendar-outline" title="Open training plans" onPress={() => router.push("/plan")} />
         <ListRow icon="albums-outline" title="Open your library" onPress={() => router.push("/(tabs)/library")} />
       </ListGroup>
     </Screen>

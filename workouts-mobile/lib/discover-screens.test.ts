@@ -168,11 +168,11 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/components/design/press", () => ({ animatedPressableComponent: () => "Pressable",
   usePressScale: () => ({ onPressIn() {}, onPressOut() {}, scale: 1, opacity: 1 }) }));
 vi.mock("@/lib/capture-io", () => ({ cleanupCaptureFiles: vi.fn() }));
-import Discover from "../app/(tabs)/discover";
+import Discover from "../app/(tabs)/discover/index";
 import DiscoverWorkout from "../app/discover/[id]";
 import ShareToDiscover from "../app/discover/share";
 import ImportReview from "../app/import/[id]";
-import Library from "../app/(tabs)/library";
+import Library from "../app/(tabs)/library/index";
 import Collections from "../app/collections";
 import CollectionDetail from "../app/collection/[id]";
 import { ImportList } from "../components/import-list";
@@ -344,7 +344,7 @@ it("a young feed explains Discover and offers sharing or importing instead of a 
   await act(async () => emptyAction("Share one of yours")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith("/discover/share");
   await act(async () => emptyAction("Import a workout")!.props.onPress());
-  expect(fixture.navigate).toHaveBeenCalledWith("/(tabs)/extract");
+  expect(fixture.navigate).toHaveBeenCalledWith("/extract");
 });
 
 it("keeps every filter in one sheet, counts active ones and clears them together", async () => {
@@ -508,7 +508,7 @@ it("an empty library points to importing before sharing", async () => {
   await mount(ShareToDiscover);
   expect(nodes("Empty")[0].props.title).toBe("Nothing to share yet");
   await act(async () => emptyAction("Import a workout")!.props.onPress());
-  expect(fixture.navigate).toHaveBeenCalledWith("/(tabs)/extract");
+  expect(fixture.navigate).toHaveBeenCalledWith("/extract");
 });
 
 it("saves from detail, then offers the saved workout and a plan", async () => {
