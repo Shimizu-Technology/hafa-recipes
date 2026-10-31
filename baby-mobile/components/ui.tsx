@@ -732,11 +732,11 @@ export function Section({
   );
 }
 /** Inset grouped cells share one quiet surface and text-inset separators. */
-export function Grouped({ children }: PropsWithChildren) {
+export function Grouped({ children, separatorInset = 72 }: PropsWithChildren<{ separatorInset?: number }>) {
   const c = useColors(), rows = Children.toArray(children);
   return <View style={{ borderRadius: 12, overflow: "hidden", backgroundColor: c.surface }}>
     {rows.map((row, index) => <View key={index}>
-      {index > 0 && <View style={{ marginLeft: 52, height: 0.5, backgroundColor: c.border }} />}
+      {index > 0 && <View style={{ marginLeft: separatorInset, height: 0.5, backgroundColor: c.border }} />}
       {row}
     </View>)}
   </View>;
@@ -777,7 +777,7 @@ export function Row({
         flexDirection: "row",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: 13,
+        gap: 12,
 
       })}
     >

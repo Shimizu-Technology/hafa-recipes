@@ -39,7 +39,7 @@ export function SavedPostRow({ record, pending }: { record: BabyRecord; pending:
   } catch { /* A thumbnail is optional; the saved post stays readable. */ }
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
-    style={({ pressed }) => ({ minHeight: 80, flexDirection: "row", gap: 13, alignItems: "center",
+    style={({ pressed }) => ({ minHeight: 80, flexDirection: "row", gap: 12, alignItems: "center",
       padding: 12, backgroundColor: c.surface })}>
     <View style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", backgroundColor: c.tile,
       alignItems: "center", justifyContent: "center" }}>

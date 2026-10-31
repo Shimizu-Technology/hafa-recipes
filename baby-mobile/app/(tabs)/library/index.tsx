@@ -88,7 +88,7 @@ export default function Library() {
       {!!history.error && <><Notice error>{history.error} Saved posts already on this device remain available.</Notice>
         <Button secondary title="Try loading posts again" onPress={history.refresh} busy={history.loading} /></>}
       {history.loading && !history.rows.length ? <Loading label="Loading saved posts…" /> : history.rows.length ? (
-        <Grouped>
+        <Grouped separatorInset={selecting ? 52 : 80}>
           {history.rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
             : <RecordRow key={record.id} record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />)}
