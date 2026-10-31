@@ -1,3 +1,4 @@
+import { HeaderMenu, type HeaderMenuItem } from "./header-menu";
 import { createContext, useContext } from "react";
 import { Stack, router } from "expo-router";
 import { View } from "react-native";
@@ -19,9 +20,9 @@ export function NativeTabStack({ title, add = false }: { title: string; add?: bo
   </NativeHeader.Provider>;
 }
 
-export function BrowseHeader({ add = false, onMenu }: { add?: boolean; onMenu?(): void }) {
+export function BrowseHeader({ add = false, onMenu, menuItems = [] }: { add?: boolean; onMenu?(): void; menuItems?: HeaderMenuItem[] }) {
   return <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-    {onMenu && <IconButton icon="ellipsis-horizontal" label="More options" variant="plain" onPress={onMenu} />}
+    {onMenu && <HeaderMenu items={menuItems} onFallback={onMenu} />}
     {add && <IconButton icon="add" label="Add a workout or plan" variant="plain" onPress={() => router.push("/add")} />}
     <AccountButton />
   </View>;

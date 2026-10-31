@@ -3,7 +3,7 @@ import { BrowseLinks } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useWindowDimensions, ActivityIndicator, FlatList, ScrollView, View } from "react-native";
+import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import {
@@ -14,7 +14,6 @@ import {
   Copy,
   Empty,
   Field,
-  IconButton,
   ListGroup,
   ListRow,
   Notice,
@@ -25,13 +24,12 @@ import {
   haptics,
   useColors,
 } from "@/components/ui";
-import { CollectionTile, LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
-import { LibrarySearch } from "@/components/library-search";
+import { LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
 import { spacing } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
-import { collectionCovers, useLibraryView, workoutCardBadge, workoutCardMeta, workoutCountLabel } from "@/lib/library-view";
+import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
@@ -150,11 +148,10 @@ export default function Library() {
   });
   // Workouts saved on another device or from a share appear without relaunching.
   // Each query refetches only once it is stale; loaded pages refetch together so the list stays consistent.
-  const freshness = useFocusRefresh([q, collections], { enabled: !!enrollment?.enrolled });
+  const freshness = useFocusRefresh([q, collections, all], { enabled: !!enrollment?.enrolled });
   const visible = [
     ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
   ];
-  const covers = collectionCovers(visible);
   const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
   const narrowed = !!search || !!filterCount;
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
@@ -222,7 +219,12 @@ export default function Library() {
   );
   return (
     <>
-    <Stack.Screen options={{ headerRight: () => <BrowseHeader add onMenu={() => setMenu(true)} /> }} />
+    <Stack.Screen options={{ headerRight: () => <BrowseHeader add onMenu={() => setMenu(true)} menuItems={[
+      { title: view === "grid" ? "Show as a list" : "Show as a grid", onPress: () => setView(view === "grid" ? "list" : "grid") },
+      { title: "Select workouts", disabled: !enrollment?.enrolled || bulkBusy, onPress: () => startSelecting() },
+      { title: "Manage collections", onPress: () => router.push("/collections") },
+      { title: archived ? "Show active workouts" : "Show archived workouts", onPress: () => setArchived(!archived) },
+    ]} /> }} />
     <Screen
       title="Library"
       refreshing={freshness.refreshing}
@@ -251,7 +253,7 @@ export default function Library() {
             <LibraryCard
               view={view}
               title={w.title}
-              meta={w.kind === "program" ? "Program" : w.estimated_minutes ? `${w.estimated_minutes} min` : ""}
+              meta={workoutCardMeta(w)}
               creator={w.source_creator} origin={workoutOrigin(w)}
               image={w.source_thumbnail_url}
               icon={kindIcons[w.kind]}

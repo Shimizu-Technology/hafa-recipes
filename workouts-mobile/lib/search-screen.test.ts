@@ -2,13 +2,13 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Workout } from "./models";
-const f = vi.hoisted(() => ({ owner: "owner-a", generation: 1, enrolled: true, options: null as any, push: vi.fn(), library: vi.fn() }));
+const f = vi.hoisted(() => ({ owner: "owner-a", generation: 1, enrolled: true, options: null as any, discoverOptions: null as any, discoverReady: false, push: vi.fn(), library: vi.fn() }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("expo-router", () => ({ Stack: { Screen: "NativeHeader" }, router: { push: f.push } }));
 vi.mock("@/components/ui", () => ({ Copy: "Copy", Empty: "Empty", Field: "Field", ListGroup: "ListGroup", ListRow: "ListRow", Notice: "Notice", Screen: "Screen" }));
 vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: f.owner, enrollment: { enrolled: f.enrolled, generation: f.generation }, api: { library: f.library } }) }));
 vi.mock("@/lib/use-focus-refresh", () => ({ useFocusRefresh: () => ({ refreshing: false, onRefresh() {} }) }));
-vi.mock("@tanstack/react-query", () => ({ useQuery: (options: any) => { if (options.queryKey[1] === "search-library") f.options = options; return { data: [
+vi.mock("@tanstack/react-query", () => ({ useQuery: (options: any) => { if (options.queryKey[1] === "search-library") f.options = options; if (options.queryKey[1] === "capabilities") return { data: { discover: f.discoverReady } }; if (options.queryKey[1] === "discover") { f.discoverOptions = options; return { data: { items: [{ id: "public", title: "Shared strength", contributor: { display_name: "Kai" } }] }, isPending: false }; } return { data: [
   { id: "a", title: "Morning strength", equipment_required: ["dumbbell"], blocks: [{ exercises: [{ name: "Goblet squat" }] }] },
   { id: "b", title: "Easy run", equipment_required: [], blocks: [] },
 ] as Workout[], isPending: false }; } }));
@@ -38,4 +38,17 @@ it("searches titles, exercises and equipment with a native search bar, and opens
   act(() => view.update(createElement(Search)));
   expect(f.options.enabled).toBe(false);
   expect(view.root.findByType("ListRow" as never).props.title).toBe("Set up your library");
+});
+
+it("shows suggestions when empty and searches Discover with the settled query", async () => {
+  f.enrolled = true; f.discoverReady = true;
+  act(() => { view = create(createElement(Search)); });
+  expect(view.root.findAllByType("ListRow" as never).map(row => row.props.title)).toEqual(["Dumbbells", "Bodyweight", "Full body", "Squat"]);
+  act(() => view.root.findAllByType("ListRow" as never)[0].props.onPress());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+  expect(f.discoverOptions.queryKey.at(-1)).toBe("Dumbbells");
+  expect(f.discoverOptions.enabled).toBe(true);
+  const shared = view.root.findAllByType("ListRow" as never).find(row => row.props.title === "Shared strength")!;
+  act(() => shared.props.onPress());
+  expect(f.push).toHaveBeenLastCalledWith({ pathname: "/discover/[id]", params: { id: "public" } });
 });

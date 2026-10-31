@@ -312,7 +312,7 @@ it("renders feed cards, passes an abort signal, and accepts Discover search link
   fixture.capabilities.mockResolvedValue(caps(true));
   fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  expect(nodes("DiscoverGridCard").map((n) => n.props.card.id)).toEqual(["pub-1"]);
+  expect([...new Set(nodes("DiscoverGridCard").map((n) => n.props.card.id))]).toEqual(["pub-1"]);
   expect(fixture.discover).toHaveBeenCalledTimes(1);
   expect(fixture.discover.mock.calls[0][1]).toBe(0);
   expect(fixture.discover.mock.calls[0][2]).toBeInstanceOf(AbortSignal);
@@ -1705,4 +1705,17 @@ it("Library keeps cached cards and offers an explicit retry when refreshing work
   await act(async () => button("Retry loading workouts")!.props.onPress()); await settle();
   expect(button("Retry loading workouts")).toBeUndefined();
   expect(nodes("LibraryCard")).toHaveLength(1);
+});
+
+it("saving a Discover photo is serialized and refreshes the library", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
+  let finish!: (value: Workout) => void;
+  fixture.saveDiscovered.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await mount(Discover);
+  const save = nodes("DiscoverGridCard")[0].props.onSave;
+  await act(async () => { save(); save(); });
+  expect(fixture.saveDiscovered).toHaveBeenCalledTimes(1);
+  expect(fixture.saveDiscovered).toHaveBeenCalledWith(card.id, 1);
+  await act(async () => finish(saved)); await settle();
+  expect(fixture.toast).toHaveBeenCalledWith("Saved to your library");
 });

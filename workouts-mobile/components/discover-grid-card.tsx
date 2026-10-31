@@ -1,15 +1,12 @@
+import { workoutCardMeta } from "@/lib/library-view";
 import { LibraryCard } from "./library-card";
 import { platformInfo } from "@/lib/discover";
-import { largeText, workoutGridWidth } from "@/lib/readable-layout";
-import { Children, useState, type PropsWithChildren } from "react";
+import { workoutGridWidth } from "@/lib/readable-layout";
+import { Children, type PropsWithChildren } from "react";
 import { View, useWindowDimensions } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image } from "expo-image";
-import { Copy, Skeleton, useColors, useReducedMotion } from "@/components/ui";
-import { animatedPressableComponent, usePressScale } from "@/components/design/press";
-import { SourceArtwork } from "@/components/discover-card";
-import { motion, radii, spacing } from "@/constants/theme";
-import { cardMeta, creatorCredit, gridByline, type DiscoverCard } from "@/lib/discover";
+import { Skeleton } from "@/components/ui";
+import { radii } from "@/constants/theme";
+import { creatorCredit, type DiscoverCard } from "@/lib/discover";
 
 const GRID_GAP = 12;
 /** Card width: two columns on phones, three when a tablet gives each card enough room. */
@@ -30,7 +27,7 @@ export function DiscoverGrid({ children }: PropsWithChildren) {
 
 /** Discover and Library share the same photo, title and single credit line. */
 export function DiscoverGridCard({ card, onPress, onSave, saving = false }: { card: DiscoverCard; onPress(): void; onSave?(): void; saving?: boolean }) {
-  return <LibraryCard fill view="grid" title={card.title} meta={card.estimated_minutes ? `${card.estimated_minutes} min` : ""}
+  return <LibraryCard fill view="grid" title={card.title} meta={workoutCardMeta(card)}
     creator={creatorCredit(card) || card.contributor.display_name} origin={platformInfo(card.source_platform).label}
     image={card.thumbnail_url} icon="barbell-outline" favorite={false} onPress={onPress}
     save={!card.is_owner && onSave ? { saved: !!card.saved_workout_id, busy: saving, onPress: onSave } : undefined} />;

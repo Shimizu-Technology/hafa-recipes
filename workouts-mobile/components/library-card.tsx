@@ -1,3 +1,4 @@
+import { GlassView } from "expo-glass-effect";
 import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { useState } from "react";
 import { Animated, Pressable, View, useWindowDimensions } from "react-native";
@@ -97,18 +98,19 @@ export function LibraryCard({
     >
       <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: 14, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
         <Cover uri={image} icon={icon} size={grid ? 36 : 26} />
-        {!!meta && <View style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
+        {!!meta && <GlassView glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
           <Copy kind="caption" color=c.onImage style={{ fontSize: 11, lineHeight: 13, fontWeight: "600" }}>{meta}</Copy>
         </View>}
         {save && <Pressable accessibilityRole="button" accessibilityLabel={save.saved ? "Saved to your library" : `Save ${title}`} accessibilityState={{ disabled: save.busy || save.saved, selected: save.saved }} disabled={save.busy || save.saved}
           onPress={event => { event.stopPropagation(); save.onPress(); }} hitSlop={7} style={{ position: "absolute", right: 7, top: 7, width: 30, height: 30, borderRadius: 15, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
+          <GlassView pointerEvents="none" glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", inset: 0, borderRadius: 15 }} />
           <Ionicons name={save.saved ? "bookmark" : "bookmark-outline"} size={17} color=c.onImage />
         </Pressable>}
         {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
       </View>
       <View style={{ flex: grid ? undefined : 1, minWidth: 0, gap: 2, paddingTop: grid ? 8 : 0 }}>
         <Copy kind="cardTitle" numberOfLines={largeText(fontScale) ? undefined : 2}>{title}</Copy>
-        <Copy kind="small" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{[creator, origin?.replace(/^Saved from /, "")].filter(Boolean).join(" · ") || "Your workout"}</Copy>
+        <Copy kind="caption" tone="muted" numberOfLines={largeText(fontScale) ? undefined : 1}>{[creator, origin?.replace(/^Saved from /, "")].filter(Boolean).join(" · ") || "Your workout"}</Copy>
       </View>
     </AnimatedPressable>
   );

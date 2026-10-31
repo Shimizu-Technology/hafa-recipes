@@ -3,16 +3,13 @@ import { BrowseLinks } from "@/components/browse-links";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack as RouterStack, router, useLocalSearchParams } from "expo-router";
-import { View, useWindowDimensions } from "react-native";
-import { largeText } from "@/lib/readable-layout";
+import { View } from "react-native";
 import {
   Button,
   Chip,
   ChipRow,
   Copy,
   Empty,
-  Field,
-  IconButton,
   Notice,
   ListGroup,
   ListRow,
@@ -23,9 +20,8 @@ import {
   Stack,
   useToast,
 } from "@/components/ui";
-import { DiscoverCardSkeleton, DiscoverCardView } from "@/components/discover-card";
+import { DiscoverCardSkeleton } from "@/components/discover-card";
 import { DiscoverGrid, DiscoverGridCard, DiscoverGridSkeleton } from "@/components/discover-grid-card";
-import { WorkoutGallery } from "@/components/workout-gallery";
 import { useTraining } from "@/lib/context";
 import {
   DISCOVER_STALE_MS,
@@ -43,7 +39,6 @@ import {
   platformInfo,
   uniqueCards,
   type DiscoverCard,
-  type DiscoverFilterKey,
   type DiscoverFilters,
   type DiscoverView,
   type DurationRange,
@@ -76,12 +71,12 @@ function useDiscoverView() {
 }
 
 export default function Discover() {
-  const { api, owner, enrollment } = useTraining();
+  const { api, owner, enrollment, isCurrentAccount } = useTraining();
   const params = useLocalSearchParams<{ q?: string }>();
   const cache = useQueryClient();
   const [menu, setMenu] = useState(false);
   const [saving, setSaving] = useState<string>();
-  const { fontScale } = useWindowDimensions();
+  const saveLock = useRef(false);
   const [search, setSearch] = useState(params.q ?? "");
   const [settledSearch, setSettledSearch] = useState(params.q ?? "");
   useEffect(() => { setSearch(params.q ?? ""); setSettledSearch(params.q ?? ""); }, [params.q]);
@@ -120,7 +115,6 @@ export default function Discover() {
   const cards = uniqueCards(feed.data?.pages);
   const active = activeFilters(filters, contributor?.name);
   const narrowed = !!(settledSearch.trim() || active.length);
-  const total = feed.data?.pages[0]?.total ?? cards.length;
   const contributors = useQuery({
     queryKey: discoverKeys.contributors(owner, enrollment?.generation),
     queryFn: ({ signal }) => api.discoverContributors(signal),
@@ -130,9 +124,6 @@ export default function Discover() {
     retry: false,
   });
   const people = (contributors.data ?? []).filter((person) => person.contributor_id);
-  function clearFilter(key: DiscoverFilterKey) {
-    ({ duration: setDuration, equipment: setEquipment, platform: setPlatform, contributor: setContributor })[key](undefined);
-  }
   /** Every filter, including People, uses the same live sheet. */
   function clearSheetFilters() {
     setEquipment(undefined);
@@ -174,14 +165,16 @@ export default function Discover() {
   }
   const open = (card: DiscoverCard) => router.push({ pathname: "/discover/[id]", params: { id: card.id } });
   async function save(card: DiscoverCard) {
-    if (saving || card.saved_workout_id || !enrollment?.enrolled) return;
+    if (saveLock.current || card.saved_workout_id || !enrollment?.enrolled || !isCurrentAccount()) return;
+    saveLock.current = true;
     setSaving(card.id);
     try {
       await api.saveDiscovered(card.id, enrollment.generation);
+      if (!isCurrentAccount()) return;
       await Promise.all([cache.invalidateQueries({ queryKey: [owner, "discover"] }), cache.invalidateQueries({ queryKey: [owner, "library"] }), cache.invalidateQueries({ queryKey: [owner, "search-library"] })]);
       haptics.tick(); toast("Saved to your library");
     } catch (error) { toast((error as Error).message, "error"); }
-    finally { setSaving(undefined); }
+    finally { saveLock.current = false; setSaving(undefined); }
   }
   const recent = cards.filter(card => card.published_at && Date.now() - new Date(card.published_at).getTime() < 7 * 86400000);
   const quick = cards.filter(card => card.estimated_minutes != null && card.estimated_minutes < 20);
@@ -193,7 +186,10 @@ export default function Discover() {
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
     <>
-    <RouterStack.Screen options={{ headerRight: () => <BrowseHeader onMenu={() => setMenu(true)} /> }} />
+    <RouterStack.Screen options={{ headerRight: () => <BrowseHeader onMenu={() => setMenu(true)} menuItems={[
+      { title: "Share yours", disabled: !enrollment?.enrolled, onPress: () => router.push("/discover/share") },
+      { title: view === "grid" ? "Show workouts as a list" : "Show workouts as a grid", onPress: toggleView },
+    ]} /> }} />
     <Screen
       title="Discover"
       refreshing={pulling}
@@ -270,7 +266,7 @@ export default function Discover() {
           ) : (
             <>
               {sections.map(section => <View key={section.title} style={{ gap: 12 }}>
-                <Copy kind="heading">{section.title}</Copy>
+                <Copy kind="subheading">{section.title}</Copy>
                 {view === "list" ? <ListGroup>{section.items.map(card => <ListRow key={card.id} title={card.title} detail={[card.source_creator, platformInfo(card.source_platform).label].filter(Boolean).join(" · ")} onPress={() => open(card)} />)}</ListGroup> : <DiscoverGrid>{section.items.map(card => <DiscoverGridCard key={card.id} card={card} onPress={() => open(card)}
                   onSave={() => enrollment?.enrolled ? void save(card) : router.push("/onboarding")} saving={saving === card.id} />)}</DiscoverGrid>}
               </View>)}
