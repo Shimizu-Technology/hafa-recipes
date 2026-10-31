@@ -26,7 +26,7 @@ function LibrarySearch() {
   const pending = query !== debounced || search.isFetching;
   const placeholder = `Search ${count?.count ?? 0} recipes`;
   return <>
-    <Stack.SearchBar autoFocus placeholder={placeholder} hideWhenScrolling={false} onChangeText={event => setQuery(event.nativeEvent.text)} onCancelButtonPress={() => setQuery('')} />
+    {Platform.OS !== 'web' && <Stack.SearchBar autoFocus placeholder={placeholder} hideWhenScrolling={false} onChangeText={event => setQuery(event.nativeEvent.text)} onCancelButtonPress={() => setQuery('')} />}
     <FlatList
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"

@@ -1,7 +1,7 @@
 /** Workouts UI: system type, neutral surfaces, coral actions. */
 import type { TextStyle, ViewStyle } from "react-native";
 
-/** Values shared with Håfa Recipes. Must stay identical to mobile/constants/Colors.ts `brand`. */
+/** Legacy artwork palette. App UI uses the neutral surfaces and coral actions below. */
 export const hafa = {
   cream: "#FFF7EC",
   bone: "#F8EFE3",

@@ -2,10 +2,10 @@ import React, { act } from 'react';
 import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const state = vi.hoisted(() => ({ generation: 1, filters: {} as any, push: vi.fn(), next: vi.fn() }));
+const state = vi.hoisted(() => ({ platform: 'ios', generation: 1, filters: {} as any, push: vi.fn(), next: vi.fn() }));
 vi.mock('expo-router', () => ({ Stack: { SearchBar: 'SearchBar' }, useRouter: () => ({ push: state.push }) }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: true }) }));
-vi.mock('react-native', () => ({ ActivityIndicator: 'ActivityIndicator', View: 'View', Platform: { OS: 'ios' }, Pressable: 'Pressable', FlatList: ({ data, renderItem, ListHeaderComponent, ...props }: any) => <>{React.createElement('List', props)}{ListHeaderComponent}{data.map((item: any) => <React.Fragment key={item.id}>{renderItem({ item })}</React.Fragment>)}</> }));
+vi.mock('react-native', () => ({ ActivityIndicator: 'ActivityIndicator', View: 'View', Platform: { get OS() { return state.platform; } }, Pressable: 'Pressable', FlatList: ({ data, renderItem, ListHeaderComponent, ...props }: any) => <>{React.createElement('List', props)}{ListHeaderComponent}{data.map((item: any) => <React.Fragment key={item.id}>{renderItem({ item })}</React.Fragment>)}</> }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@/components/Themed', () => ({ Text: 'Text', Input: 'Input', Button: 'Button', useColors: () => ({}) }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
@@ -31,4 +31,21 @@ it('uses native library search, opens results, paginates, and clears query conte
     await act(async () => r.render(<SearchRoute />));
     expect(state.filters.query).toBe('');
   } finally { await act(async () => r.unmount()); }
+});
+
+it('offers one labelled web search field without an extra native header control', async () => {
+  state.platform = 'web';
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<SearchRoute />));
+    expect(r.container.queryAll(n => n.type === 'SearchBar')).toHaveLength(0);
+    const fields = r.container.queryAll(n => n.type === 'Input');
+    expect(fields).toHaveLength(1);
+    expect(fields[0].props.accessibilityLabel).toBe('Search library recipes');
+    await act(async () => fields[0].props.onChangeText('Chicken'));
+    expect(state.filters.query).toBe('Chicken');
+  } finally {
+    await act(async () => r.unmount());
+    state.platform = 'ios';
+  }
 });

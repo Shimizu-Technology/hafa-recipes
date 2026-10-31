@@ -10,7 +10,8 @@ export function redirectSystemPath({ path, initial }: { path: string; initial: b
     if (isApp && ['', '/'].includes(url.pathname) && ['index', 'history'].includes(url.hostname)) {
       return `${url.hostname === 'index' ? '/' : '/history'}${url.search}${url.hash}`;
     }
-    const oldPath = url.pathname.match(/^\/(?:--\/)?\(tabs\)\/(index|history)$/);
+    const oldPath = (isApp && url.hostname === '(tabs)' ? url.pathname.match(/^\/(index|history)$/) : null)
+      ?? url.pathname.match(/^\/(?:--\/)?\(tabs\)\/(index|history)$/);
     if (oldPath && (isApp || url.protocol === 'exp:' || url.protocol === 'exps:')) {
       return `${oldPath[1] === 'index' ? '/' : '/history'}${url.search}${url.hash}`;
     }
