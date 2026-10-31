@@ -1719,3 +1719,10 @@ it("saving a Discover photo is serialized and refreshes the library", async () =
   await act(async () => finish(saved)); await settle();
   expect(fixture.toast).toHaveBeenCalledWith("Saved to your library");
 });
+
+it("Collections opens a collection's saved workouts after moving the Library carousel", async () => {
+  fixture.collections.mockResolvedValue([gym]);
+  await mount(Collections);
+  await act(async () => row("Gym days")!.props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/collection/[id]", params: { id: "gym" } });
+});

@@ -166,7 +166,7 @@ export default function Discover() {
   }
   const open = (card: DiscoverCard) => router.push({ pathname: "/discover/[id]", params: { id: card.id } });
   async function save(card: DiscoverCard) {
-    if (saveLock.current || card.saved_workout_id || !enrollment?.enrolled || !isCurrentAccount()) return;
+    if (saveLock.current || card.saved_workout_id || !enrollment?.enrolled || enrollment.generation == null || !isCurrentAccount()) return;
     saveLock.current = true;
     setSaving(card.id);
     try {

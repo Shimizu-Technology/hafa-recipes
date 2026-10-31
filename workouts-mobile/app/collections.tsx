@@ -1,6 +1,7 @@
+import { router } from "expo-router";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Copy, Field, Notice, Screen } from "@/components/ui";
+import { Button, Card, Copy, Field, ListRow, Notice, Screen } from "@/components/ui";
 import { QueryState } from "@/components/query-state";
 import { useTraining } from "@/lib/context";
 import { collectionTitleError, type Collection } from "@/lib/organization";
@@ -54,7 +55,8 @@ function CollectionEditor({
   }
   return (
     <Card>
-      <Copy kind="small">{item.workout_count} saved workouts</Copy>
+      <ListRow title={item.title} detail={`${item.workout_count} saved workouts`} disabled={busy}
+        onPress={() => { if (current() && !scope.lock) router.push({ pathname: "/collection/[id]", params: { id: item.id } }); }} />
       <Field
         label={`Collection name: ${base.title}`}
         value={title}

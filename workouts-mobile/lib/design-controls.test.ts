@@ -6,7 +6,7 @@ const f = vi.hoisted(() => ({ reduced: false, timing: vi.fn() }));
 vi.mock("react-native", () => {
   class Value { value: number; constructor(v: number) { this.value = v; } setValue(v: number) { this.value = v; } }
   return { View: "View", Pressable: "Pressable", ScrollView: "ScrollView", ActivityIndicator: "Spinner", TextInput: "Input", InputAccessoryView: "Accessory", Keyboard: {},
-    Platform: { OS: "ios" }, useWindowDimensions: () => ({ fontScale: 1 }), Easing: { bezier: () => "ease-out" },
+    Platform: { OS: "ios" }, useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }), Easing: { bezier: () => "ease-out" },
     Animated: { Value, createAnimatedComponent: (c: unknown) => c, timing: (...args: unknown[]) => { f.timing(...args); return { start() {} }; } } };
 });
 vi.mock("../components/design/foundation", () => ({ Copy: "Copy", useColors: () => light, useSurface: () => "surface", useReducedMotion: () => f.reduced, haptics: { tick() {} } }));
@@ -14,6 +14,9 @@ vi.mock("../components/account-identity", () => ({ useAccountIdentity: () => ({}
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
+vi.mock("expo-glass-effect", () => ({ GlassView: "GlassView" }));
+vi.mock("@/components/ui", () => ({ Copy: "Copy", useColors: () => light, useReducedMotion: () => false }));
+import { LibraryCard } from "../components/library-card";
 import { Button, Choice, Segmented, Field, Chip } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.timing.mockClear(); });
@@ -67,4 +70,15 @@ it("exposes independent chips as checked controls in native and browser accessib
   expect(chip.props.accessibilityState.checked).toBe(true);
   expect(chip.props["aria-checked"]).toBe(true);
   expect(chip.props["aria-pressed"]).toBeUndefined();
+});
+
+it("photo cards keep one credit line and a separate accessible save action", () => {
+  const save = vi.fn(), open = vi.fn(), stopPropagation = vi.fn();
+  act(() => { view = create(createElement(LibraryCard, { view: "grid", title: "Morning strength", meta: "20 min", creator: "Kai", origin: "Saved from Instagram", image: "https://example.test/cover.jpg", icon: "barbell-outline", favorite: true, badge: "Check details", onPress: open, save: { saved: false, busy: false, onPress: save } })); });
+  const words = view!.root.findAllByType("Copy" as never).map(node => node.props.children);
+  expect(words).toEqual(["20 min", "Morning strength", "Kai · Instagram"]);
+  const bookmark = view!.root.findAllByType("Pressable" as never).find(node => node.props.accessibilityLabel === "Save Morning strength")!;
+  expect(bookmark.props.accessibilityState).toMatchObject({ disabled: false, selected: false });
+  act(() => bookmark.props.onPress({ stopPropagation }));
+  expect(save).toHaveBeenCalledTimes(1); expect(stopPropagation).toHaveBeenCalledTimes(1); expect(open).not.toHaveBeenCalled();
 });
