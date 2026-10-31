@@ -185,6 +185,8 @@ function RecipeDetailScreenContent() {
   }, [id, recipe?.content_revision]);
   useEffect(() => {
     setShowRelated(false);
+    setShowRecipeNotes(false);
+    setShowSourceTools(false);
   }, [id]);
   useEffect(() => { setCheckedIngredients(new Set()); }, [id, recipe?.content_revision]);
 
