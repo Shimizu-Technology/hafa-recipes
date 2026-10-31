@@ -202,10 +202,13 @@ describe('planner loading recovery', () => {
     const root = createRoot();
     try {
       await act(async () => root.render(<PlannerScreen />));
+      const scrollContainer = root.container.queryAll(node => node.type === 'ScrollView' && !!node.props.onScrollBeginDrag)[0];
+      expect(scrollContainer.props.contentInsetAdjustmentBehavior).toBe('automatic');
+      expect(scrollContainer.props.scrollToOverflowEnabled).toBe(true);
       const days = root.container.queryAll(node => node.type === 'View' && !!node.props.onLayout);
       expect(days).toHaveLength(7);
       await act(async () => days.forEach((day, index) => day.props.onLayout({ nativeEvent: { layout: { y: 100 + index * 200 } } })));
-      expect(routeMocks.scrollTo).toHaveBeenCalledWith({ y: -4, animated: false });
+      expect(routeMocks.scrollTo).toHaveBeenCalledWith({ y: -104, animated: false });
       routeMocks.scrollTo.mockClear();
       routeMocks.params = { date: '2026-10-28' };
       await act(async () => root.render(<PlannerScreen />));

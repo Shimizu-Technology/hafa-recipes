@@ -349,8 +349,10 @@ function PlannerScreenContent() {
     if (!weekPlan || isLoading) return;
     const date = pendingScrollDate.current;
     if (date && dayPositions.current[date] !== undefined) {
-      // Automatic insets allow negative offsets while the large native title is expanded.
-      weekScroll.current?.scrollTo({ y: dayPositions.current[date] - headerHeight, animated: false });
+      // Near the start, retain the week navigation below the expanded title.
+      // Fabric needs scrollToOverflowEnabled to honor the negative automatic inset.
+      const y = dayPositions.current[date] < headerHeight ? -headerHeight : dayPositions.current[date] - headerHeight;
+      weekScroll.current?.scrollTo({ y, animated: false });
     }
   };
 
@@ -489,7 +491,7 @@ function PlannerScreenContent() {
     const target = formatDateForApi(today);
     if (formatDateForApi(getWeekStart(today)) === weekOfStr && dayPositions.current[target] !== undefined) {
       pendingScrollDate.current = target;
-      weekScroll.current?.scrollTo({ y: dayPositions.current[target] - headerHeight, animated: false });
+      scrollToRequestedDay();
     } else {
       dayPositions.current = {};
       pendingScrollDate.current = target;
@@ -727,6 +729,7 @@ function PlannerScreenContent() {
     <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}>
       {/* Day Content */}
       <ScrollView ref={weekScroll} onContentSizeChange={scrollToRequestedDay}
+          scrollToOverflowEnabled
           onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={styles.content}
