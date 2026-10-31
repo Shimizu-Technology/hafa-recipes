@@ -452,11 +452,11 @@ export function Button({
 }
 /** Native bar labels stay within the bar; content text continues to scale fully. */
 export function HeaderAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }}
     disabled={disabled} onPress={onPress}
     style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center" }}>
-    <Text maxFontSizeMultiplier={1.4} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
+    <Text key={fontScale} maxFontSizeMultiplier={1.4} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
   </PressTarget>;
 }
 let accessoryCount = 0;
@@ -684,7 +684,7 @@ export function TextLinks({ options, value, onChange, label }: { options: { labe
       accessibilityState={{ selected: value === option.value, checked: value === option.value }}
       onPress={() => { if (value !== option.value) tap(); onChange(option.value); }}
       style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}>
-      <Text style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400", textDecorationLine: value === option.value ? "underline" : "none" }}>{option.label}</Text>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400", textDecorationLine: value === option.value ? "underline" : "none" }}>{option.label}</Text>
     </PressTarget>)}
   </View>;
   return fontScale >= 1.3 ? links : <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">{links}</ScrollView>;
