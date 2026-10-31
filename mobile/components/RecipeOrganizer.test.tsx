@@ -141,11 +141,12 @@ describe('RecipeOrganizer', () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
-      await act(async () => renderer.render(React.createElement(RecipeOrganizer, props)));
+      await act(async () => renderer.render(React.createElement(RecipeOrganizer, { ...props, recipeNotes: 'Let the dough rest before baking.' })));
       const openNotes = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Open Notes. Private note',
       )[0];
       await act(async () => openNotes.props.onPress());
+      expect(renderer.container.queryAll(node => node.props.children === 'Let the dough rest before baking.')).toHaveLength(1);
       const editNote = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Edit private recipe note',
       )[0];
