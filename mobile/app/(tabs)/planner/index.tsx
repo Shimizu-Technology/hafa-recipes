@@ -650,10 +650,10 @@ function PlannerScreenContent() {
                       },
                     ]}
                   >
-                    <Text style={[styles.previewDayText, { color: today ? '#FFFFFF' : colors.textMuted }]}>
+                    <Text style={[styles.previewDayText, { color: today ? colors.onTint : colors.textMuted }]}>
                       {label.day}
                     </Text>
-                    <Text style={[styles.previewDayNumber, { color: today ? '#FFFFFF' : colors.text }]}>
+                    <Text style={[styles.previewDayNumber, { color: today ? colors.onTint : colors.text }]}>
                       {label.number}
                     </Text>
                   </RNView>

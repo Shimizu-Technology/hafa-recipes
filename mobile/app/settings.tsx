@@ -412,7 +412,7 @@ export default function SettingsScreen() {
                   >
                     <Text style={[
                       styles.segmentedText,
-                      { color: themePreference === theme.key ? '#FFFFFF' : colors.textSecondary },
+                      { color: themePreference === theme.key ? colors.onTint : colors.textSecondary },
                     ]}>
                       {theme.label}
                     </Text>
@@ -448,7 +448,7 @@ export default function SettingsScreen() {
                   >
                     <Text style={[
                       styles.segmentedText,
-                      { color: textSize === size.key ? '#FFFFFF' : colors.textSecondary },
+                      { color: textSize === size.key ? colors.onTint : colors.textSecondary },
                     ]}>
                       {size.label}
                     </Text>
@@ -744,7 +744,7 @@ export default function SettingsScreen() {
             onPress={handleShareApp}
             activeOpacity={0.7}
           >
-            <Ionicons name="heart-outline" size={20} color="#FFFFFF" />
+            <Ionicons name="heart-outline" size={20} color={colors.onTint} />
             <Text style={styles.shareAppText}>Share App with Friends</Text>
           </TouchableOpacity>
         </RNView>

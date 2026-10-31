@@ -153,7 +153,7 @@ function PantryScreenContent() {
     ) : active.isLoading ? (
       <RNView style={styles.center}><ActivityIndicator color={colors.actionText} /><Text style={{ color: colors.textSecondary }}>Loading pantry…</Text></RNView>
     ) : active.isError ? (
-      <RNView style={styles.center}><Text style={styles.heading}>Couldn’t load your pantry</Text><Text style={{ color: colors.textSecondary }}>Check your connection and try again.</Text><TouchableOpacity onPress={() => active.refetch()} style={[styles.primary, { backgroundColor: colors.tint }]}><Text style={styles.primaryText}>Try again</Text></TouchableOpacity></RNView>
+      <RNView style={styles.center}><Text style={styles.heading}>Couldn’t load your pantry</Text><Text style={{ color: colors.textSecondary }}>Check your connection and try again.</Text><TouchableOpacity onPress={() => active.refetch()} style={[styles.primary, { backgroundColor: colors.tint }]}><Text style={[styles.primaryText, { color: colors.onTint }]}>Try again</Text></TouchableOpacity></RNView>
     ) : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]} keyboardShouldPersistTaps="handled">
       <RNView style={styles.intro}>
         <Text style={[styles.heading, { color: colors.text }]}>{active.data?.scope === 'household' ? 'Household pantry' : 'Your pantry'}</Text>
@@ -164,7 +164,7 @@ function PantryScreenContent() {
         </Text>
       </RNView>
       <TouchableOpacity style={[styles.primary, { backgroundColor: colors.tint }]} onPress={() => router.push(appRoutes.ingredientSearch)} accessibilityRole="button">
-        <Ionicons name="restaurant-outline" color="#fff" size={19} /><Text style={styles.primaryText}>Find recipes from my pantry</Text>
+        <Ionicons name="restaurant-outline" color={colors.onTint} size={19} /><Text style={[styles.primaryText, { color: colors.onTint }]}>Find recipes from my pantry</Text>
       </TouchableOpacity>
       {expiring > 0 && <RNView style={[styles.notice, { backgroundColor: colors.warning + '16' }]}><Ionicons name="time-outline" size={18} color={colors.warning} /><Text style={[styles.noticeText, { color: colors.text }]}>{expiring} item{expiring === 1 ? '' : 's'} need a date check. Past dates are left out of recipe search.</Text></RNView>}
       {active.data?.scope === 'household' && uncopiedPersonal.length > 0 && <RNView style={[styles.personal, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
@@ -181,7 +181,7 @@ function PantryScreenContent() {
         <Text style={{ color: colors.textSecondary }}>Type one item, or paste a list separated by commas or new lines.</Text>
         <RNView style={styles.addRow}>
           <TextInput style={[styles.quickInput, { color: colors.text, backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]} value={quickInput} onChangeText={setQuickInput} placeholder="e.g. rice, eggs, tomatoes" placeholderTextColor={colors.textMuted} multiline maxLength={2000} accessibilityLabel="Pantry items to add" />
-          <TouchableOpacity onPress={quickAdd} disabled={!quickInput.trim() || write.isPending} style={[styles.addButton, { backgroundColor: quickInput.trim() ? colors.tint : colors.border }]} accessibilityLabel="Add pantry items"><Ionicons name="add" color="#fff" size={26} /></TouchableOpacity>
+          <TouchableOpacity onPress={quickAdd} disabled={!quickInput.trim() || write.isPending} style={[styles.addButton, { backgroundColor: colors.surface2 }]} accessibilityLabel="Add pantry items"><Ionicons name="add" color={colors.actionText} size={26} /></TouchableOpacity>
         </RNView>
         <TouchableOpacity onPress={() => openEditor()} style={styles.textButton}><Text style={{ color: colors.actionText, fontWeight: fontWeight.semibold }}>Add amount, place, or date instead</Text></TouchableOpacity>
       </RNView>
@@ -208,7 +208,7 @@ function PantryScreenContent() {
           <Text style={[styles.label, { color: colors.text }]}>Date type</Text><RNView style={styles.twoColumns}>{([null, 'best_before', 'use_by'] as const).map((kind) => <TouchableOpacity key={kind ?? 'none'} onPress={() => { setForm({ ...form, date_kind: kind }); if (!kind) setDateText(''); }} style={[styles.dateChoice, { backgroundColor: form.date_kind === kind ? colors.tint + '20' : colors.backgroundSecondary, borderColor: form.date_kind === kind ? colors.tint : colors.border }]}><Text style={{ color: form.date_kind === kind ? colors.actionText : colors.textSecondary }}>{kind === null ? 'None' : kind === 'best_before' ? 'Best before' : 'Use by'}</Text></TouchableOpacity>)}</RNView>
           {form.date_kind && <><Text style={[styles.label, { color: colors.text }]}>Date</Text><RNView style={styles.twoColumns}>{[{ label: 'Today', days: 0 }, { label: 'In 3 days', days: 3 }, { label: 'In 1 week', days: 7 }].map((choice) => <TouchableOpacity key={choice.days} onPress={() => { const value = new Date(); value.setDate(value.getDate() + choice.days); setDateText(pantryDateForEntry(`${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`)); }} style={[styles.dateChoice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}><Text style={{ color: colors.textSecondary }}>{choice.label}</Text></TouchableOpacity>)}</RNView><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={dateText} onChangeText={setDateText} placeholder="MM/DD/YYYY" placeholderTextColor={colors.textMuted} keyboardType="numbers-and-punctuation" maxLength={10} accessibilityLabel="Pantry item date" /></>}
           <Text style={[styles.label, { color: colors.text }]}>Notes</Text><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={form.notes ?? ''} onChangeText={(notes) => setForm({ ...form, notes: notes || null })} placeholder="Optional" placeholderTextColor={colors.textMuted} maxLength={255} accessibilityLabel="Pantry item notes" />
-          <TouchableOpacity onPress={save} disabled={write.isPending} style={[styles.primary, { backgroundColor: colors.tint }]}><Text style={styles.primaryText}>{write.isPending ? 'Saving…' : 'Save item'}</Text></TouchableOpacity>
+          <TouchableOpacity onPress={save} disabled={write.isPending} style={[styles.primary, { backgroundColor: colors.tint }]}><Text style={[styles.primaryText, { color: colors.onTint }]}>{write.isPending ? 'Saving…' : 'Save item'}</Text></TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
