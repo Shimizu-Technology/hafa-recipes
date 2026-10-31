@@ -4,7 +4,6 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
-  AccountButton,
   Button,
   Card,
   Chip,
@@ -371,11 +370,10 @@ export default function Plan() {
   }
   return (
     <Screen
-      title="Train"
+      title="Today"
       subtitle={new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
-      action={<AccountButton />}
     >
       <ListRow icon="stats-chart-outline" title="History & progress"
         detail="Sessions, activities, records and your week" onPress={() => router.push("/history-progress")} />

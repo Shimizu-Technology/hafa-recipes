@@ -165,7 +165,7 @@ export default function BuildPlan() {
       await api.acceptProgram(draft.receipt!.id, draft.title, draft.receipt!.generation);
       await localDrafts.remove(owner, scope);
       await cache.invalidateQueries({ queryKey: [owner, "programs"] });
-      router.replace("/(tabs)/plan");
+      router.replace("/plan");
     });
   }
   if ((enrollment?.enrolled && q.isPending) || profileMissing) return <Screen back title="Build a plan"><Copy tone="muted">Loading your training preferences…</Copy></Screen>;
