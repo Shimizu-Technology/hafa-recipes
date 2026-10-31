@@ -45,6 +45,7 @@ function host(name: string) {
 vi.mock('react-native', () => ({
   ActivityIndicator: host('ActivityIndicator'),
   Alert: { alert: mocks.alert },
+  ActionSheetIOS: { showActionSheetWithOptions: (options: any, callback: any) => mocks.alert('Actions', undefined, options.options.map((text: string, index: number) => ({ text, onPress: () => callback(index) }))) },
   Keyboard: { dismiss: vi.fn() },
   Platform: { OS: 'ios' },
   RefreshControl: host('RefreshControl'),
@@ -53,16 +54,16 @@ vi.mock('react-native', () => ({
     renderItem,
     renderSectionHeader,
     ListEmptyComponent,
-    ListFooterComponent,
+    ListFooterComponent, ListHeaderComponent,
   }: {
     sections: Array<{ key: string; data: GroceryItem[] }>;
     renderItem: (info: { item: GroceryItem; index: number; section: unknown }) => React.ReactNode;
     renderSectionHeader: (info: { section: unknown }) => React.ReactNode;
     ListEmptyComponent: React.ComponentType;
-    ListFooterComponent: React.ReactNode;
+    ListFooterComponent: React.ReactNode; ListHeaderComponent: React.ReactNode;
   }) => React.createElement(
     'SectionList',
-    null,
+    null, ListHeaderComponent,
     sections.length === 0
       ? React.createElement(ListEmptyComponent)
       : sections.flatMap((section) => [
@@ -82,7 +83,7 @@ vi.mock('react-native', () => ({
   View: host('NativeView'),
 }));
 
-vi.mock('expo-router', () => ({
+vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
   useFocusEffect: (callback: () => void) => { mocks.focusCallback = callback; },
   useLocalSearchParams: () => ({}),
   useRouter: () => ({ push: mocks.routerPush, setParams: mocks.routerSetParams }),
@@ -366,10 +367,10 @@ describe('GroceryScreen shopping views', () => {
         renderer.render(React.createElement(GroceryScreen));
       });
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'ScalePressable',
+        (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
       )).toHaveLength(1);
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'ellipsis-horizontal',
       )).toHaveLength(1);
 
       mocks.authState.isSignedIn = false;
@@ -378,10 +379,10 @@ describe('GroceryScreen shopping views', () => {
       });
 
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'ScalePressable',
+        (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
       )).toHaveLength(0);
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'people',
+        (instance) => instance.type === 'Ionicons' && instance.props.name === 'ellipsis-horizontal',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
@@ -396,14 +397,14 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => {
         renderer.render(React.createElement(GroceryScreen));
       });
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(0);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(0);
 
       const searchInput = renderer.container.queryAll(
         (instance) => instance.type === 'TextInput',
       ).find((input) => input.props.accessibilityLabel === 'Search grocery items and recipes');
       await act(async () => searchInput!.props.onChangeText('rice'));
 
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
       const header = renderer.container.queryAll(
         (instance) => instance.type === 'GrocerySectionHeader',
       )[0];
@@ -425,19 +426,19 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => {
         renderer.render(React.createElement(GroceryScreen));
       });
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
 
       const allTab = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel === '2 total grocery items');
       await act(async () => allTab!.props.onPress());
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(2);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(2);
 
       const toBuyTab = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',
       ).find((button) => button.props.accessibilityLabel === '1 items to buy');
       await act(async () => toBuyTab!.props.onPress());
-      expect(renderer.container.queryAll((instance) => instance.type === 'ScalePressable')).toHaveLength(1);
+      expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -479,7 +480,7 @@ describe('GroceryScreen shopping views', () => {
         renderer.render(React.createElement(GroceryScreen));
       });
 
-      const rows = renderer.container.queryAll((instance) => instance.type === 'ScalePressable');
+      const rows = renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox');
       const row = rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('Rice'))!;
       expect(row.props.accessibilityRole).toBe('checkbox');
       expect(row.props.accessibilityState).toEqual({ checked: false });
@@ -564,7 +565,7 @@ describe('GroceryScreen shopping views', () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
     try {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
-      const inputs = renderer.container.queryAll((node) => node.type === 'TextInput');
+      const inputs = renderer.container.queryAll((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Search grocery items and recipes');
       expect(inputs).toHaveLength(1);
       await act(async () => inputs[0].props.onChangeText('rice'));
       const overflow = renderer.container.queryAll((node) => node.props.accessibilityLabel === 'More grocery list actions')[0];
@@ -573,7 +574,7 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => actions.find((action: { text: string }) => action.text === 'Export text — Search matches').onPress());
       expect(mocks.share.mock.calls.at(-1)![0].message).toContain('Grocery List — Search matches');
       expect(mocks.share.mock.calls.at(-1)![0].message).not.toContain('Salt');
-      expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Share household')).toHaveLength(1);
+      expect(actions.some((action: { text: string }) => action.text === 'Household sharing & list settings')).toBe(true);
     } finally { await act(async () => renderer.unmount()); }
   });
 
@@ -585,6 +586,7 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
       expect(renderedText(renderer)).toContain('Saved on this device · waiting to sync');
       expect(renderedText(renderer)).not.toContain('Up to date');
+      expect(renderedText(renderer)).not.toContain('Confirmed');
       expect(renderer.container.queryAll((node) => node.props.accessibilityLabel === 'Add 1 checked item to pantry')).toHaveLength(1);
     } finally { await act(async () => renderer.unmount()); }
   });
@@ -620,8 +622,8 @@ describe('GroceryScreen shopping views', () => {
   it.each([
     [undefined, 'checking', undefined, 'Checking sync status'],
     [false, 'offline', undefined, 'Offline · showing this device’s list'],
-    [false, 'stale', '2026-10-31T01:00:00Z', 'Couldn’t refresh · last confirmed'],
-    [false, 'confirmed', '2026-10-31T01:00:00Z', 'Confirmed'],
+    [false, 'stale', '2026-10-31T01:00:00Z', 'Couldn’t refresh · showing this device’s list'],
+    [false, 'confirmed', '2026-10-31T01:00:00Z', ''],
   ])('reports snapshot freshness honestly (%s, %s)', async (queued, freshness, confirmedAt, text) => {
     mocks.queued = queued as boolean | undefined;
     mocks.groceryState.freshness = freshness as string;
@@ -631,6 +633,7 @@ describe('GroceryScreen shopping views', () => {
       await act(async () => renderer.render(React.createElement(GroceryScreen)));
       expect(renderedText(renderer)).toContain(text);
       expect(renderedText(renderer)).not.toContain('Up to date');
+      expect(renderedText(renderer)).not.toContain('Confirmed');
     } finally { await act(async () => renderer.unmount()); }
   });
 

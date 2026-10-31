@@ -45,7 +45,7 @@ vi.mock('@clerk/expo', () => ({
   useClerk: () => ({ signOut: vi.fn() }),
   useUser: () => ({ user: { firstName: 'Leon', lastName: 'S', update: vi.fn() } }),
 }));
-vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }) }));
+vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.title ? React.createElement('Text', null, props.options.title) : null) },  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '3.0.0' } } }));
 vi.mock('@/components/Themed', async () => {
@@ -118,7 +118,7 @@ vi.mock('@/hooks/useTextSize', () => ({
   TEXT_SIZE_LABELS: { small: 'Small', medium: 'Medium', large: 'Large', 'extra-large': 'Extra Large' },
   useTextSize: () => ({ textSize: 'large', setTextSize: mocks.setTextSize }),
 }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ fontFamily: { display: 'Fraunces_600SemiBold' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 20, xxl: 24, xxxl: 30 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },
   radius: { sm: 4, md: 14, lg: 20, xl: 28, full: 9999 },

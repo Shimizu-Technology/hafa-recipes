@@ -37,7 +37,7 @@ export function GrocerySectionHeader({
   const canClear = section.recipeId !== null && onClearSection !== undefined;
 
   return (
-    <RNView style={[styles.container, { backgroundColor: colors.backgroundSecondary }]}>
+    <RNView style={[styles.container, { backgroundColor: colors.background }]}>
       <RNView style={styles.main}>
         <Ionicons
           name={isOther ? 'list-outline' : 'restaurant-outline'}
@@ -53,17 +53,17 @@ export function GrocerySectionHeader({
             accessibilityRole="link"
             accessibilityLabel={`Open ${section.title} recipe`}
           >
-            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={0}>
               {section.title}
             </Text>
             <Ionicons name="arrow-forward-circle-outline" size={18} color={colors.actionText} />
           </TouchableOpacity>
         ) : (
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+          <Text style={[styles.title, { color: colors.text }]} numberOfLines={0}>
             {section.title}
           </Text>
         )}
-        <RNView style={[styles.badge, { backgroundColor: colors.tint + '20' }]}>
+        <RNView style={[styles.badge, { backgroundColor: 'transparent' }]}>
           <Text style={[styles.badgeText, { color: colors.actionText }]}>
             {section.checkedCount}/{section.totalCount}
           </Text>
@@ -94,7 +94,7 @@ export function GrocerySectionHeader({
           accessibilityRole="button"
           accessibilityLabel={`Clear ${section.title} grocery items`}
         >
-          <Ionicons name="close-circle-outline" size={20} color={colors.error} />
+          <Ionicons name="close-circle-outline" size={20} color={colors.textSecondary} />
         </TouchableOpacity>
       )}
     </RNView>
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 0,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
     borderRadius: radius.md,
@@ -143,6 +143,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   iconButton: {
+    minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center',
     padding: spacing.xs,
     marginLeft: spacing.xs,
   },

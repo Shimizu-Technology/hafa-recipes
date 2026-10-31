@@ -43,7 +43,7 @@ vi.mock('@clerk/expo/legacy', () => ({
     },
   }),
 }));
-vi.mock('expo-router', () => ({ useRouter: () => routerMocks }));
+vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.title ? React.createElement('Text', null, props.options.title) : null) },  useRouter: () => routerMocks }));
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ bottom: 0, top: 0 }),
 }));

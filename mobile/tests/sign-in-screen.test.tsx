@@ -41,7 +41,7 @@ vi.mock('@clerk/expo/legacy', () => ({
     signIn: clerkMocks,
   }),
 }));
-vi.mock('expo-router', () => ({
+vi.mock('expo-router', () => ({ Stack: { Screen: (props: any) => React.createElement(React.Fragment, null, props.options?.headerLeft?.(), props.options?.headerRight?.(), props.options?.title ? React.createElement('Text', null, props.options.title) : null) },
   Link: ({ children }: { children: React.ReactElement<{ style?: unknown }> }) => {
     if (Array.isArray(children.props.style)) {
       throw new Error('Link asChild cannot receive an array style');

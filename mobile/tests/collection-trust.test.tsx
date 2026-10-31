@@ -132,12 +132,12 @@ describe('collection recipe readiness', () => {
   it.each([
     ['needs_review', 'Recipe needs review'],
     ['source_incomplete', 'Recipe needs source details'],
-  ] as const)('renders %s on collection cards', async (state, label) => {
+  ] as const)('keeps %s notices on recipe detail', async (state, label) => {
     const renderer = await renderCard(state);
     try {
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === label,
-      )).toHaveLength(1);
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }

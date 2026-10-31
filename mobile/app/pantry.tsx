@@ -1,3 +1,4 @@
+import { fontFamily } from '@/constants/Colors';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useMemo, useState } from 'react';
 import {
@@ -145,15 +146,15 @@ function PantryScreenContent() {
     ],
   );
 
-  return <RNView style={[styles.root, { backgroundColor: colors.background }]}>
-    <Stack.Screen options={{ title: 'My Pantry', headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text }} />
+  return <RNView style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'My Pantry', headerStyle: { backgroundColor: colors.groupedBackground }, headerTintColor: colors.text }} />
     {!isSignedIn ? (
       <RNView style={styles.center}><Text style={styles.heading}>Save what you have</Text><Text style={{ color: colors.textSecondary }}>Sign in to keep a pantry and share it with your household.</Text></RNView>
     ) : active.isLoading ? (
       <RNView style={styles.center}><ActivityIndicator color={colors.actionText} /><Text style={{ color: colors.textSecondary }}>Loading pantry…</Text></RNView>
     ) : active.isError ? (
       <RNView style={styles.center}><Text style={styles.heading}>Couldn’t load your pantry</Text><Text style={{ color: colors.textSecondary }}>Check your connection and try again.</Text><TouchableOpacity onPress={() => active.refetch()} style={[styles.primary, { backgroundColor: colors.tint }]}><Text style={styles.primaryText}>Try again</Text></TouchableOpacity></RNView>
-    ) : <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]} keyboardShouldPersistTaps="handled">
+    ) : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]} keyboardShouldPersistTaps="handled">
       <RNView style={styles.intro}>
         <Text style={[styles.heading, { color: colors.text }]}>{active.data?.scope === 'household' ? 'Household pantry' : 'Your pantry'}</Text>
         <Text style={[styles.subheading, { color: colors.textSecondary }]}>
@@ -189,7 +190,7 @@ function PantryScreenContent() {
       {!items.length ? <RNView style={styles.empty}><Ionicons name="basket-outline" size={42} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{search ? 'No matching items.' : 'Your pantry is empty. Add a few ingredients to get started.'}</Text></RNView> : items.map((item) => {
         const dateStatus = pantryDateStatus(item, today);
         const detail = [item.quantity !== null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : null, item.location, item.date_value ? `${item.date_kind === 'use_by' ? 'Use by' : 'Best before'} ${item.date_value}` : null].filter(Boolean).join(' · ');
-        return <RNView key={item.id} style={[styles.item, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+        return <RNView key={item.id} style={[styles.item, { backgroundColor: colors.backgroundElevated, borderColor: colors.cardBorder }]}>
           <RNView style={styles.itemContent}><Text style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>{Boolean(detail) && <Text style={{ color: dateStatus === 'expired' ? colors.warning : colors.textSecondary, lineHeight: 20 }}>{detail}</Text>}{dateStatus === 'expired' && <Text style={{ color: colors.warning }}>Past date · excluded from recipe search</Text>}{item.notes && <Text style={{ color: colors.textMuted }}>{item.notes}</Text>}</RNView>
           <TouchableOpacity onPress={() => openEditor(item)} style={styles.iconButton} accessibilityLabel={`Edit ${item.name}`}><Ionicons name="pencil-outline" size={19} color={colors.actionText} /></TouchableOpacity>
           <TouchableOpacity onPress={() => remove(item)} style={styles.iconButton} accessibilityLabel={`Remove ${item.name}`}><Ionicons name="trash-outline" size={19} color={colors.textMuted} /></TouchableOpacity>
@@ -198,15 +199,15 @@ function PantryScreenContent() {
     </ScrollView>}
 
     <Modal visible={editing !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditing(null)}>
-      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={[styles.form, { paddingBottom: insets.bottom + spacing.xxl }]} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.groupedBackground }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.form, { paddingBottom: insets.bottom + spacing.xxl }]} keyboardShouldPersistTaps="handled">
           <RNView style={styles.formTop}><Text style={[styles.heading, { color: colors.text }]}>{editing === 'new' ? 'Add pantry item' : 'Edit pantry item'}</Text><TouchableOpacity onPress={() => setEditing(null)} accessibilityLabel="Close editor"><Ionicons name="close" size={26} color={colors.text} /></TouchableOpacity></RNView>
-          <Text style={[styles.label, { color: colors.text }]}>Name *</Text><TextInput style={[styles.field, { color: colors.text, borderColor: colors.border }]} value={form.name} onChangeText={(name) => setForm({ ...form, name })} placeholder="e.g. Rice" placeholderTextColor={colors.textMuted} maxLength={255} autoFocus accessibilityLabel="Item name" />
-          <RNView style={styles.twoColumns}><RNView style={{ flex: 1 }}><Text style={[styles.label, { color: colors.text }]}>Amount</Text><TextInput style={[styles.field, { color: colors.text, borderColor: colors.border }]} value={form.quantity ?? ''} onChangeText={(quantity) => setForm({ ...form, quantity: quantity || null })} keyboardType="decimal-pad" placeholder="Optional" placeholderTextColor={colors.textMuted} accessibilityLabel="Item amount" /></RNView><RNView style={{ flex: 1 }}><Text style={[styles.label, { color: colors.text }]}>Unit</Text><TextInput style={[styles.field, { color: colors.text, borderColor: colors.border }]} value={form.unit ?? ''} onChangeText={(unit) => setForm({ ...form, unit: unit || null })} placeholder="cups, lb, etc." placeholderTextColor={colors.textMuted} maxLength={50} accessibilityLabel="Item unit" /></RNView></RNView>
-          <Text style={[styles.label, { color: colors.text }]}>Stored in</Text><TextInput style={[styles.field, { color: colors.text, borderColor: colors.border }]} value={form.location ?? ''} onChangeText={(location) => setForm({ ...form, location: location || null })} placeholder="Pantry, fridge, freezer…" placeholderTextColor={colors.textMuted} maxLength={50} accessibilityLabel="Storage location" />
+          <Text style={[styles.label, { color: colors.text }]}>Name *</Text><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={form.name} onChangeText={(name) => setForm({ ...form, name })} placeholder="e.g. Rice" placeholderTextColor={colors.textMuted} maxLength={255} autoFocus accessibilityLabel="Item name" />
+          <RNView style={styles.twoColumns}><RNView style={{ flex: 1 }}><Text style={[styles.label, { color: colors.text }]}>Amount</Text><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={form.quantity ?? ''} onChangeText={(quantity) => setForm({ ...form, quantity: quantity || null })} keyboardType="decimal-pad" placeholder="Optional" placeholderTextColor={colors.textMuted} accessibilityLabel="Item amount" /></RNView><RNView style={{ flex: 1 }}><Text style={[styles.label, { color: colors.text }]}>Unit</Text><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={form.unit ?? ''} onChangeText={(unit) => setForm({ ...form, unit: unit || null })} placeholder="cups, lb, etc." placeholderTextColor={colors.textMuted} maxLength={50} accessibilityLabel="Item unit" /></RNView></RNView>
+          <Text style={[styles.label, { color: colors.text }]}>Stored in</Text><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={form.location ?? ''} onChangeText={(location) => setForm({ ...form, location: location || null })} placeholder="Pantry, fridge, freezer…" placeholderTextColor={colors.textMuted} maxLength={50} accessibilityLabel="Storage location" />
           <Text style={[styles.label, { color: colors.text }]}>Date type</Text><RNView style={styles.twoColumns}>{([null, 'best_before', 'use_by'] as const).map((kind) => <TouchableOpacity key={kind ?? 'none'} onPress={() => { setForm({ ...form, date_kind: kind }); if (!kind) setDateText(''); }} style={[styles.dateChoice, { backgroundColor: form.date_kind === kind ? colors.tint + '20' : colors.backgroundSecondary, borderColor: form.date_kind === kind ? colors.tint : colors.border }]}><Text style={{ color: form.date_kind === kind ? colors.actionText : colors.textSecondary }}>{kind === null ? 'None' : kind === 'best_before' ? 'Best before' : 'Use by'}</Text></TouchableOpacity>)}</RNView>
-          {form.date_kind && <><Text style={[styles.label, { color: colors.text }]}>Date</Text><RNView style={styles.twoColumns}>{[{ label: 'Today', days: 0 }, { label: 'In 3 days', days: 3 }, { label: 'In 1 week', days: 7 }].map((choice) => <TouchableOpacity key={choice.days} onPress={() => { const value = new Date(); value.setDate(value.getDate() + choice.days); setDateText(pantryDateForEntry(`${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`)); }} style={[styles.dateChoice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}><Text style={{ color: colors.textSecondary }}>{choice.label}</Text></TouchableOpacity>)}</RNView><TextInput style={[styles.field, { color: colors.text, borderColor: colors.border }]} value={dateText} onChangeText={setDateText} placeholder="MM/DD/YYYY" placeholderTextColor={colors.textMuted} keyboardType="numbers-and-punctuation" maxLength={10} accessibilityLabel="Pantry item date" /></>}
-          <Text style={[styles.label, { color: colors.text }]}>Notes</Text><TextInput style={[styles.field, { color: colors.text, borderColor: colors.border }]} value={form.notes ?? ''} onChangeText={(notes) => setForm({ ...form, notes: notes || null })} placeholder="Optional" placeholderTextColor={colors.textMuted} maxLength={255} accessibilityLabel="Pantry item notes" />
+          {form.date_kind && <><Text style={[styles.label, { color: colors.text }]}>Date</Text><RNView style={styles.twoColumns}>{[{ label: 'Today', days: 0 }, { label: 'In 3 days', days: 3 }, { label: 'In 1 week', days: 7 }].map((choice) => <TouchableOpacity key={choice.days} onPress={() => { const value = new Date(); value.setDate(value.getDate() + choice.days); setDateText(pantryDateForEntry(`${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`)); }} style={[styles.dateChoice, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}><Text style={{ color: colors.textSecondary }}>{choice.label}</Text></TouchableOpacity>)}</RNView><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={dateText} onChangeText={setDateText} placeholder="MM/DD/YYYY" placeholderTextColor={colors.textMuted} keyboardType="numbers-and-punctuation" maxLength={10} accessibilityLabel="Pantry item date" /></>}
+          <Text style={[styles.label, { color: colors.text }]}>Notes</Text><TextInput style={[styles.field, { color: colors.text, backgroundColor: colors.surface2, borderColor: colors.border }]} value={form.notes ?? ''} onChangeText={(notes) => setForm({ ...form, notes: notes || null })} placeholder="Optional" placeholderTextColor={colors.textMuted} maxLength={255} accessibilityLabel="Pantry item notes" />
           <TouchableOpacity onPress={save} disabled={write.isPending} style={[styles.primary, { backgroundColor: colors.tint }]}><Text style={styles.primaryText}>{write.isPending ? 'Saving…' : 'Save item'}</Text></TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -216,30 +217,30 @@ function PantryScreenContent() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
-  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.md },
+  content: { paddingHorizontal: 16, paddingTop: spacing.lg, gap: spacing.md },
   intro: { gap: spacing.xs }, heading: { fontSize: fontSize.xxl, fontWeight: fontWeight.bold },
   subheading: { fontSize: fontSize.md, lineHeight: 22 },
   primary: { minHeight: 50, borderRadius: radius.md, flexDirection: 'row', gap: spacing.sm, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
   primaryText: { color: '#fff', fontSize: fontSize.md, fontWeight: fontWeight.semibold },
   notice: { borderRadius: radius.md, flexDirection: 'row', padding: spacing.md, gap: spacing.sm, alignItems: 'flex-start' },
   noticeText: { flex: 1, lineHeight: 20 },
-  personal: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs },
+  personal: { borderWidth: 0, borderRadius: 12, padding: spacing.md, gap: spacing.xs },
   personalActions: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap' },
-  addBox: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
+  addBox: { borderWidth: 0, borderRadius: 12, padding: spacing.md, gap: spacing.sm },
   sectionTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   addRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
-  quickInput: { flex: 1, minHeight: 52, maxHeight: 110, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, fontSize: fontSize.md },
+  quickInput: { flex: 1, minHeight: 52, maxHeight: 110, borderWidth: 0, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, fontSize: fontSize.md },
   addButton: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
   textButton: { minHeight: 44, justifyContent: 'center' },
   listHeading: { paddingTop: spacing.sm },
-  searchInput: { minHeight: 46, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: fontSize.md },
-  item: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  searchInput: { minHeight: 46, borderWidth: 0, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: fontSize.md },
+  item: { borderWidth: 0, borderRadius: radius.md, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   itemContent: { flex: 1, gap: 2 }, itemName: { fontSize: fontSize.md, fontWeight: fontWeight.semibold },
   iconButton: { width: 42, height: 44, alignItems: 'center', justifyContent: 'center' },
   empty: { padding: spacing.xl, alignItems: 'center', gap: spacing.md }, emptyText: { textAlign: 'center', lineHeight: 22 },
-  form: { padding: spacing.lg, gap: spacing.sm }, formTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  form: { padding: 16, gap: spacing.sm }, formTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   label: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, marginTop: spacing.sm },
-  field: { minHeight: 48, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: fontSize.md },
+  field: { minHeight: 48, borderWidth: 0, borderRadius: radius.md, paddingHorizontal: spacing.md, fontSize: fontSize.md },
   twoColumns: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  dateChoice: { minHeight: 44, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  dateChoice: { minHeight: 44, borderWidth: 0, borderRadius: radius.md, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' },
 });

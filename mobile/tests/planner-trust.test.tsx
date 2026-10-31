@@ -141,12 +141,12 @@ describe('planner meal readiness', () => {
   it.each([
     ['needs_review', 'Recipe needs review'],
     ['source_incomplete', 'Recipe needs source details'],
-  ] as const)('renders %s on planned recipes', async (state, label) => {
+  ] as const)('keeps %s warnings on the detail screen', async (state, label) => {
     const renderer = await renderMeal(state);
     try {
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === label,
-      )).toHaveLength(1);
+      )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
     }
@@ -176,6 +176,26 @@ describe('planner loading recovery', () => {
     for (const hook of [planHooks.useAddMeal, planHooks.useDeleteMeal, planHooks.useAddPlanToGrocery]) {
       vi.mocked(hook).mockReturnValue({ isPending: false } as any);
     }
+  });
+
+  it('adds a picked recipe to the chosen day instead of a previously focused day', async () => {
+    const start = new Date('2026-10-26T12:00:00Z');
+    vi.mocked(planHooks.getWeekStart).mockReturnValue(start);
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [] }, refetch } as any);
+    const add = vi.fn().mockResolvedValue({});
+    vi.mocked(planHooks.useAddMeal).mockReturnValue({ isPending: false, mutateAsync: add } as any);
+    const { buildMealPlanEntry } = await import('@/lib/plannerNavigation');
+    vi.mocked(buildMealPlanEntry).mockImplementation((recipe, date, type) => ({ recipe_id: recipe.id, date, meal_type: type }) as any);
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      const dinners = root.container.queryAll(node => node.props.accessibilityLabel === 'Add Dinner');
+      await act(async () => dinners[1].props.onPress());
+      const picker = root.container.queryAll(node => node.type === 'RecipePickerModal')[0];
+      await act(async () => picker.props.onSelect({ id: 'picked-recipe', title: 'Rice' }));
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1).toISOString().slice(0, 10);
+      expect(add).toHaveBeenCalledWith({ recipe_id: 'picked-recipe', date, meal_type: 'dinner' });
+    } finally { await act(async () => root.unmount()); }
   });
 
   it('shows a retry instead of empty meal slots after initial load fails', async () => {

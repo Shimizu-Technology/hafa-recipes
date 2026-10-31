@@ -1,3 +1,4 @@
+import { fontFamily } from '@/constants/Colors';
 /**
  * Collection detail screen - shows all recipes in a collection.
  */
@@ -26,7 +27,6 @@ import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
-import { RecipeTrustBadge } from '@/components/RecipeTrustBadge';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
@@ -42,7 +42,7 @@ export function RecipeCard({
   onRemove: () => void;
   colors: ReturnType<typeof useColors>;
 }) {
-  const { icon: sourceIcon, label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
+  const { label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
 
   return (
     <ScalePressable
@@ -74,52 +74,22 @@ export function RecipeCard({
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
-        {recipe.review_state && recipe.review_state !== 'ready' && (
-          <RNView style={styles.trustBadge}>
-            <RecipeTrustBadge reviewState={recipe.review_state} />
-          </RNView>
-        )}
-
-        {/* Meta info */}
-        <RNView style={styles.metaRow}>
-          {recipe.total_time && (
-            <RNView style={styles.metaItem}>
-              <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
-              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.total_time}</Text>
-            </RNView>
-          )}
-          {recipe.servings && (
-            <RNView style={styles.metaItem}>
-              <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
-              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{recipe.servings}</Text>
-            </RNView>
-          )}
-        </RNView>
-
-        {/* Footer */}
-        <RNView style={styles.cardFooter}>
-          <RNView style={styles.sourceRow}>
-            <Ionicons name={sourceIcon as any} size={14} color={colors.textMuted} />
-            <Text style={[styles.sourceText, { color: colors.textMuted }]}>
-              {sourceLabel}
-            </Text>
-          </RNView>
-
-          {/* Remove button */}
-          <TouchableOpacity
-            style={[styles.removeButton, { backgroundColor: colors.error + '15' }]}
-            onPress={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            accessibilityRole="button"
-            accessibilityLabel={`Remove ${recipe.title} from collection`}
-          >
-            <Ionicons name="close" size={14} color={colors.error} />
-          </TouchableOpacity>
-        </RNView>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+          {[sourceLabel, recipe.total_time, recipe.servings ? `${recipe.servings} servings` : null].filter(Boolean).join(' · ')}
+        </Text>
       </RNView>
+      <TouchableOpacity
+        style={[styles.removeButton, { backgroundColor: 'transparent' }]}
+        onPress={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${recipe.title} from collection`}
+      >
+        <Ionicons name="close" size={18} color={colors.textSecondary} />
+      </TouchableOpacity>
     </ScalePressable>
   );
 }
@@ -219,7 +189,7 @@ export default function CollectionDetailScreen() {
   if (!collection) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerTitle: 'Collection' }} />
+        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerTitle: 'Collection' }} />
         <RNView style={styles.loadingContainer}>
           {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.actionText} /> : (
             <>
@@ -243,7 +213,7 @@ export default function CollectionDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerTitle: collection.name,
+          headerTitle: collection.name, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display },
           headerRight: () => (
             <TouchableOpacity
               onPress={() => setShowEditModal(true)}
@@ -281,7 +251,7 @@ export default function CollectionDetailScreen() {
         {isLoading && !recipes && <ActivityIndicator size="large" color={colors.actionText} />}
       </RNView>
 
-      <FlatList
+      <FlatList contentInsetAdjustmentBehavior="automatic"
         data={recipes}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
@@ -310,36 +280,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
     paddingVertical: spacing.sm,
   },
   countText: {
     fontSize: fontSize.sm,
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
   },
   card: {
+    alignItems: 'center', padding: 12,
     flexDirection: 'row',
-    borderRadius: radius.lg,
+    borderRadius: 12,
     marginBottom: spacing.md,
     overflow: 'hidden',
-    borderWidth: 1,
+    borderWidth: 0,
   },
   thumbnail: {
-    width: 100,
-    height: 100,
+    width: 44,
+    height: 44, borderRadius: 8,
   },
   cardContent: {
     flex: 1,
-    padding: spacing.md,
+    paddingHorizontal: 12,
     justifyContent: 'space-between',
   },
   cardTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-    lineHeight: 20,
+    fontSize: 16,
+    fontFamily: fontFamily.display,
+    lineHeight: 21,
   },
   trustBadge: {
     marginTop: spacing.xs,
@@ -373,8 +344,8 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   removeButton: {
-    width: 24,
-    height: 24,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',

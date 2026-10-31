@@ -1,3 +1,4 @@
+import { fontFamily } from '@/constants/Colors';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
@@ -5,7 +6,7 @@ import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollVie
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 
@@ -324,8 +325,8 @@ export default function SettingsScreen() {
   const profileName = resolveSettingsProfileName(isSignedIn, user);
 
   return (
-    <View style={styles.container}>
-      <ScrollView
+    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'Settings', headerTitle: 'Settings' }} />
+      <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
       >
@@ -898,7 +899,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: spacing.lg,
+    padding: 16,
   },
   section: {
     marginBottom: spacing.xl,
@@ -912,7 +913,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   menuGroup: {
-    borderRadius: radius.lg,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   menuItem: {
@@ -991,7 +992,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   accountActionsCard: {
-    borderRadius: radius.lg,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   accountActionRow: {
@@ -1046,7 +1047,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: spacing.md,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
   },
   modalCancel: {
     fontSize: fontSize.md,
@@ -1060,7 +1061,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   modalContent: {
-    padding: spacing.lg,
+    padding: 16,
   },
   inputGroup: {
     marginBottom: spacing.lg,
@@ -1076,7 +1077,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     padding: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   profileHint: {
     fontSize: fontSize.sm,
@@ -1085,7 +1086,7 @@ const styles = StyleSheet.create({
   },
   // Compact card styles for combined sections
   compactCard: {
-    borderRadius: radius.lg,
+    borderRadius: 12,
     padding: spacing.md,
     overflow: 'hidden',
   },
@@ -1107,7 +1108,7 @@ const styles = StyleSheet.create({
   segmentedControl: {
     flexDirection: 'row',
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     overflow: 'hidden',
   },
   segmentedOption: {
@@ -1157,13 +1158,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: 16,
   },
   pickerModal: {
     width: '100%',
     maxWidth: 340,
     borderRadius: radius.xl,
-    padding: spacing.lg,
+    padding: 16,
     maxHeight: '70%',
   },
   pickerModalTitle: {

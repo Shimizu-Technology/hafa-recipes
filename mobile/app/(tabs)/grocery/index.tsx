@@ -18,9 +18,10 @@ import {
   Platform,
   Share,
   ActivityIndicator,
+  ActionSheetIOS,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@clerk/expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -105,7 +106,7 @@ function GroceryItemRow({
     .join(', ');
 
   return (
-    <ScalePressable 
+    <TouchableOpacity activeOpacity={1}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: item.checked }}
       accessibilityLabel={itemLabel}
@@ -122,19 +123,17 @@ function GroceryItemRow({
         styles.itemRow, 
         { 
           backgroundColor: colors.card, 
-          borderColor: item.checked ? colors.success + '40' : colors.cardBorder,
-          opacity: item.checked ? 0.7 : 1,
+
         }
       ]}
       onPress={onToggle}
-      scaleValue={0.98}
     >
       {/* Checkbox */}
       <RNView style={styles.checkbox}>
         <Ionicons
-          name={item.checked ? 'checkbox' : 'square-outline'}
+          name={item.checked ? 'checkmark-circle' : 'ellipse-outline'}
           size={24}
-          color={item.checked ? colors.success : colors.textMuted}
+          color={item.checked ? colors.tint : colors.textSecondary}
         />
       </RNView>
 
@@ -144,12 +143,11 @@ function GroceryItemRow({
           <Text
             style={[
               styles.itemName,
-              { color: item.checked ? colors.textMuted : colors.text, fontSize: scaleFontSize(fontSize.md) },
+              { color: item.checked ? colors.textMuted : colors.text, fontSize: scaleFontSize(17) },
               item.checked && styles.itemNameChecked,
               // Allow name to shrink when added_by label is present
               isSharedList && item.added_by_name && styles.itemNameWithLabel,
             ]}
-            numberOfLines={2}
             ellipsizeMode="tail"
           >
             {hasAmount && `${item.quantity} `}
@@ -207,7 +205,7 @@ function GroceryItemRow({
       >
         <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
       </TouchableOpacity>
-    </ScalePressable>
+    </TouchableOpacity>
   );
 }
 
@@ -801,7 +799,14 @@ function GroceryScreenContent() {
     
     options.push({ text: 'Cancel', style: 'cancel' });
     
-    Alert.alert('Actions', undefined, options);
+    options.unshift({ text: 'Household sharing & list settings', onPress: () => setShowSettings(true) },
+      { text: 'Account & Settings', onPress: () => router.push('/settings') },
+      { text: 'Refresh list', onPress: () => { void refetch(); } });
+    if (Platform.OS === 'ios') ActionSheetIOS.showActionSheetWithOptions({
+      options: options.map(option => option.text), cancelButtonIndex: options.length - 1,
+      destructiveButtonIndex: options.findIndex(option => option.text === 'Clear all items'),
+    }, index => options[index]?.onPress?.());
+    else Alert.alert('Actions', undefined, options);
   };
 
   // Build subtitle text
@@ -817,65 +822,15 @@ function GroceryScreenContent() {
 
   return (
     <RNView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Fixed header with input */}
-      <RNView style={styles.header}>
-        {/* Title row - clean with just title and icons */}
-        <RNView style={styles.titleRow}>
-
-          {isAuthenticated && <RNView style={styles.headerButtons}>
-            <TouchableOpacity 
-              onPress={() => {
-                haptics.light();
-                refetch();
-              }} 
-              style={styles.headerIconButton}
-              disabled={isRefetching}
-              accessibilityRole="button"
-              accessibilityLabel="Refresh grocery list"
-              accessibilityState={{ disabled: isRefetching, busy: isRefetching }}
-            >
-              <Ionicons 
-                name="refresh-outline" 
-                size={22} 
-                color={isRefetching ? colors.textMuted : colors.actionText} 
-              />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              onPress={() => setShowSettings(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Grocery list settings"
-              style={styles.headerIconButton}
-            >
-              <Ionicons name="settings-outline" size={22} color={colors.actionText} />
-            </TouchableOpacity>
-          </RNView>}
-        </RNView>
-
-        {/* Subtitle row - shared status + item count */}
-        <TouchableOpacity
-          style={styles.subtitleRow}
-          onPress={isAuthenticated && listInfo?.is_shared ? () => setShowSettings(true) : undefined}
-          activeOpacity={isAuthenticated && listInfo?.is_shared ? 0.7 : 1}
-        >
-          {isAuthenticated && listInfo?.is_shared && (
-            <Ionicons name="people" size={14} color={colors.success} style={styles.subtitleIcon} />
-          )}
-          <Text style={[styles.subtitleText, { color: colors.textSecondary }]}>
-            {isAuthenticated
-              ? getSubtitleText()
-              : isGuest
-                ? 'Turn any recipe into a ready-to-shop list'
-                : 'Getting your list ready…'}
-          </Text>
-          {isRefetching && (
-            <ActivityIndicator size="small" color={colors.actionText} style={styles.subtitleSpinner} />
-          )}
-        </TouchableOpacity>
-
+      <Stack.Screen options={{ headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
+        style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="More grocery list actions"><Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
+      <SectionList
+        contentInsetAdjustmentBehavior="automatic"
+        ListHeaderComponent={<RNView style={styles.header}>
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
-        <RNView style={[styles.addItemRow, { borderColor: colors.border }]}>
+        <RNView style={[styles.addItemRow, { backgroundColor: colors.surface2 }]}>
           <TextInput
             ref={addItemInputRef}
             style={[styles.addItemInput, { color: colors.text }]}
@@ -907,19 +862,9 @@ function GroceryScreenContent() {
           </TouchableOpacity>
         </RNView>
 
-        <RNView style={styles.actionRow}>
-          <Text accessibilityLiveRegion="polite" style={{ color: colors.textMuted, flex: 1 }}>
-            {addPendingSync || hasQueuedChanges ? 'Saved on this device · waiting to sync'
-              : hasQueuedChanges === undefined || freshness === 'checking' ? 'Checking sync status…'
-              : freshness === 'offline' ? 'Offline · showing this device’s list'
-              : freshness === 'stale' || isRefetchError ? `Couldn’t refresh · ${serverConfirmedAt ? `last confirmed ${new Date(serverConfirmedAt).toLocaleString()}` : 'showing this device’s list'}`
-              : serverConfirmedAt ? `Confirmed ${new Date(serverConfirmedAt).toLocaleString()}` : 'Checking sync status…'}
-          </Text>
-          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.headerIconButton}
-            accessibilityRole="button" accessibilityLabel="Share household">
-            <Text style={{ color: colors.actionText }}>Share household</Text>
-          </TouchableOpacity>
-        </RNView>
+        {(addPendingSync || hasQueuedChanges || hasQueuedChanges === undefined || freshness === 'checking' || freshness === 'offline' || freshness === 'stale' || isRefetchError) && <Text accessibilityLiveRegion="polite" style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 8 }}>
+          {addPendingSync || hasQueuedChanges ? 'Saved on this device · waiting to sync' : hasQueuedChanges === undefined || freshness === 'checking' ? 'Checking sync status…' : freshness === 'offline' ? 'Offline · showing this device’s list' : 'Couldn’t refresh · showing this device’s list'}
+        </Text>}
 
         {/* Focus the shopping view while keeping completed items close by. */}
         {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
@@ -952,21 +897,11 @@ function GroceryScreenContent() {
               </TouchableOpacity>
             </RNView>
 
-            <TouchableOpacity
-              onPress={handleShowOverflowMenu}
-              style={[styles.overflowButton, { backgroundColor: colors.backgroundSecondary }]}
-              accessibilityRole="button"
-              accessibilityLabel="More grocery list actions"
-            >
-              <Ionicons name="ellipsis-horizontal" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
           </RNView>
         )}
           </>
         )}
-      </RNView>
-
-      <SectionList
+      </RNView>}
         sections={isAuthenticated ? sections : []}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
@@ -1053,13 +988,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
   },
   header: {
-    paddingTop: spacing.lg,
+    paddingTop: 8,
     paddingBottom: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 0,
   },
   titleRow: {
     flexDirection: 'row',
@@ -1099,7 +1034,7 @@ const styles = StyleSheet.create({
   addItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: radius.md,
     marginBottom: spacing.md,
     overflow: 'hidden',
@@ -1147,7 +1082,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   viewOption: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.sm,
@@ -1166,15 +1101,16 @@ const styles = StyleSheet.create({
   },
   // Item styles
   itemRow: {
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginBottom: spacing.sm,
+    borderRadius: 0,
+    borderWidth: 0,
+    marginBottom: 0,
   },
   checkbox: {
-    marginRight: spacing.md,
+    marginRight: 12,
   },
   itemContent: {
     flex: 1,
@@ -1238,7 +1174,7 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: spacing.xxl,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
   },
   guestIconContainer: {
     width: 76,

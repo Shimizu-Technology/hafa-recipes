@@ -1,3 +1,4 @@
+import { fontFamily } from '@/constants/Colors';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useState } from 'react';
 import { ScrollView, TouchableOpacity, View, ActivityIndicator } from 'react-native';
@@ -20,9 +21,9 @@ function CollectionsScreenContent() {
   const [showCreateCollectionModal, setShowCreateCollectionModal] = useState(false);
   const { data: collections, isLoading: isLoadingCollections, isError: isCollectionsError,
     isFetching: isFetchingCollections, refetch: refetchCollections } = useCollections(Boolean(isSignedIn));
-  return <View style={{ flex: 1, backgroundColor: colors.background }}>
-    <Stack.Screen options={{ title: 'Collections' }} />
-    {!isSignedIn ? <SignInBanner message="Sign in to open your collections" /> : <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
+  return <View style={{ flex: 1, backgroundColor: colors.groupedBackground }}>
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, title: 'Collections' }} />
+    {!isSignedIn ? <SignInBanner message="Sign in to open your collections" /> : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 8 }}>
       <Button title="New collection" onPress={() => setShowCreateCollectionModal(true)} />
       {isLoadingCollections && <ActivityIndicator accessibilityLabel="Loading collections" />}
       {isCollectionsError && <View>
@@ -35,7 +36,7 @@ function CollectionsScreenContent() {
       {collections?.map((collection) => <TouchableOpacity key={collection.id} accessibilityRole="button"
         accessibilityLabel={`${collection.name}, ${collection.recipe_count} ${collection.recipe_count === 1 ? 'recipe' : 'recipes'}`}
         onPress={() => router.push(`/collection/${collection.id}`)}
-        style={{ padding: 16, minHeight: 44, borderBottomWidth: 1, borderColor: colors.border }}>
+        style={{ padding: 16, minHeight: 50, borderRadius: 12, backgroundColor: colors.backgroundElevated }}>
         <Text>{collection.name}</Text><Text style={{ color: colors.textSecondary }}>{collection.recipe_count} {collection.recipe_count === 1 ? 'recipe' : 'recipes'}</Text>
       </TouchableOpacity>)}
     </ScrollView>}

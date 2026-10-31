@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSSO, useClerk } from '@clerk/expo';
 import { useSignUp } from '@clerk/expo/legacy';
-import { useRouter, Link } from 'expo-router';
+import { Stack, useRouter, Link } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
@@ -260,18 +260,10 @@ export default function SignUpScreen() {
   // Verification screen
   if (pendingVerification) {
     return (
-      <View style={styles.container}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+      <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerShadowVisible: false,
+        headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
+        title: 'Check your email', headerLeft: () => (<TouchableOpacity
+            style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
             onPress={() => setPendingVerification(false)}
             activeOpacity={0.7}
             accessibilityRole="button"
@@ -279,13 +271,21 @@ export default function SignUpScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>) }} />
+        <ScrollView contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: 16, paddingBottom: insets.bottom + spacing.xl }
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Back Button */}
+
 
           <RNView style={styles.header}>
-            <RNView style={[styles.logoContainer, { backgroundColor: colors.accentSoft }]}>
-              <Ionicons name="mail-outline" size={38} color={colors.accent} />
-            </RNView>
-            <Text style={[styles.title, { color: colors.text }]}>Check your email</Text>
+
+
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               We sent a verification code to {email}
             </Text>
@@ -328,22 +328,10 @@ export default function SignUpScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.backgroundSecondary }]}
+    <View style={styles.container}><Stack.Screen options={{ headerShown: true, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display }, headerShadowVisible: false,
+        headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.actionText,
+        title: 'Create account', headerLeft: () => (<TouchableOpacity
+            style={[styles.backButton, { minHeight: 44, marginBottom: 0 }]}
             onPress={() => leaveAuthScreen(router)}
             activeOpacity={0.7}
             accessibilityRole="button"
@@ -351,12 +339,26 @@ export default function SignUpScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={colors.text} />
             <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>) }} />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: 16, paddingBottom: insets.bottom + spacing.xl }
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Back Button */}
+
 
           {/* Logo / Header */}
           <RNView style={styles.header}>
-            <BrandMark size={86} style={{ backgroundColor: colors.backgroundSecondary }} />
-            <Text style={[styles.title, { color: colors.text }]}>Create account</Text>
+
+
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               Build a smarter recipe library from videos, websites, photos, and family favorites.
             </Text>
@@ -507,7 +509,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
   },
   backButton: {
     flexDirection: 'row',
@@ -525,8 +527,8 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   header: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
+    alignItems: 'flex-start',
+    marginBottom: 24,
   },
   logoContainer: {
     width: 80,
@@ -550,7 +552,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: fontSize.md,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   oauthContainer: {
     gap: spacing.md,
@@ -563,7 +565,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.md,
     borderRadius: radius.full,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   oauthButtonText: {
     fontSize: fontSize.md,
@@ -588,7 +590,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
     marginBottom: spacing.lg,
   },
   errorText: {
