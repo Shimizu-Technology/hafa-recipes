@@ -205,12 +205,18 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
-      <Button
-        secondary
+      <Grouped>
+      <Row
         title="Edit this entry"
         icon="pencil-outline"
         onPress={() => router.push({ pathname: "/edit", params: { id: record.id, kind: record.kind } })}
       />
+      <Row
+        title="Ask about this entry"
+        icon="sparkles-outline"
+        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
+      />
+      </Grouped>
       {record.kind === "source" && <Disclosure title="Process this post again">
         <Button
           secondary
@@ -235,12 +241,6 @@ export default function RecordDetail() {
           }}
         />
       </Disclosure>}
-      <Button
-        secondary
-        title="Ask about this entry"
-        icon="sparkles-outline"
-        onPress={() => router.push({ pathname: "/ask-entry", params: { record_id: record.id } })}
-      />
       <Button
         variant="destructive"
         title="Delete this entry"

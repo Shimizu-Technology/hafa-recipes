@@ -136,8 +136,7 @@ export default function Settings() {
           icon="cloud-upload-outline"
           onPress={() => router.push("/sync")}
         />
-        <Button
-          secondary
+        <Row
           title="Open notification settings"
           icon="notifications-outline"
           onPress={() =>
