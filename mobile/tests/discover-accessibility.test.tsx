@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   signedIn: true, searching: false, focused: true, feedEnabled: false,
   push: vi.fn(),
-  save: vi.fn(),
+  save: vi.fn(), unsave: vi.fn(),
   searchArgs: [] as unknown[],
 }));
 
@@ -125,7 +125,7 @@ vi.mock('@/hooks/useRecipes', () => {
     usePublicRecipeCount: () => ({ data: { count: 12 } }),
     useIsRecipeSaved: () => ({ data: false }),
     useSaveRecipe: () => ({ mutate: mocks.save }),
-    useUnsaveRecipe: () => ({ mutate: vi.fn() }),
+    useUnsaveRecipe: () => ({ mutate: mocks.unsave }),
     usePopularTags: () => ({ data: [] }),
     useTopContributors: () => ({ data: [{ user_id: 'maria', contributor_id: 'maria', display_name: 'Maria', recipe_count: 1 }] }),
     filterRecipesLocally: () => [],
@@ -257,4 +257,25 @@ it('pauses the native Discover tab feed while another tab is focused', async () 
     await act(async () => renderer.update(<DiscoverRoute />));
     expect(mocks.feedEnabled).toBe(true);
   } finally { mocks.focused = true; await act(async () => renderer?.unmount()); }
+});
+
+it('keeps the 30-point Discover save circle in a 44-point target and preserves save state/actions', async () => {
+  mocks.signedIn = true; mocks.save.mockClear(); mocks.unsave.mockClear(); mocks.push.mockClear();
+  let renderer!: ReactTestRenderer;
+  const colors = { text: '#111', textMuted: '#666' } as React.ComponentProps<typeof SaveButton>['colors'];
+  const stopPropagation = vi.fn();
+  try {
+    await act(async () => { renderer = create(<SaveButton recipeId="public-a" initialIsSaved={false} isOwner={false} colors={colors} />); });
+    expect(renderer.root.findAllByType('NativeView' as any).some(node => node.props.style?.width === 44 && node.props.style?.height === 44)).toBe(true);
+    const save = byLabel(renderer, 'Save recipe')!;
+    expect(save.props.style).toMatchObject({ width: 30, height: 30 });
+    await act(async () => save.props.onPress({ stopPropagation }));
+    expect(stopPropagation).toHaveBeenCalledOnce(); expect(mocks.save).toHaveBeenCalledWith('public-a'); expect(mocks.push).not.toHaveBeenCalled();
+    await act(async () => renderer.update(<SaveButton recipeId="public-a" initialIsSaved isOwner={false} colors={colors} />));
+    const unsave = byLabel(renderer, 'Remove recipe from saved')!;
+    expect(unsave.props.accessibilityState.selected).toBe(true);
+    await act(async () => unsave.props.onPress({ stopPropagation })); expect(mocks.unsave).toHaveBeenCalledWith('public-a');
+    await act(async () => renderer.update(<SaveButton recipeId="public-a" initialIsSaved isOwner colors={colors} />));
+    expect(touchables(renderer)).toHaveLength(0);
+  } finally { await act(async () => renderer.unmount()); }
 });

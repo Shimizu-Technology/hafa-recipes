@@ -84,13 +84,14 @@ export function SaveButton({
 
   if (shouldFetchSavedStatus && isLoading) {
     return (
-      <RNView style={styles.saveButton}>
-        <ActivityIndicator size="small" color={colors.textMuted} />
-      </RNView>
+      <RNView style={styles.saveTarget}><RNView style={styles.saveButton}>
+        <ActivityIndicator size="small" color="#FFFFFF" />
+      </RNView></RNView>
     );
   }
 
   return (
+    <RNView style={styles.saveTarget}>
     <TouchableOpacity
       style={styles.saveButton}
       onPress={event => { event?.stopPropagation(); handlePress(); }}
@@ -108,6 +109,7 @@ export function SaveButton({
         />
       </RNView>
     </TouchableOpacity>
+    </RNView>
   );
 }
 
@@ -691,7 +693,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: RECIPE_GRID_GAP,
   },
-  gridSaveButtonContainer: { position: 'absolute', top: 8, right: 8 },
+  gridSaveButtonContainer: { position: 'absolute', top: 1, right: 1 },
+  saveTarget: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   saveButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
   emptyContainer: {
     alignItems: 'center',
