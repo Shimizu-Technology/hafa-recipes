@@ -35,12 +35,12 @@ export function workoutCardBadge(workout: Pick<Workout, "extraction_warnings">) 
   return workout.extraction_warnings?.length ? "Check details" : undefined;
 }
 
-export function workoutCardMeta(workout: Workout, includeOrigin = false) {
-  return [
-    workoutKindLabel(workout.kind),
-    workout.estimated_minutes ? `${workout.estimated_minutes} min` : null,
-    includeOrigin ? workoutOrigin(workout) : null,
-  ].filter(Boolean).join(" · ");
+export function workoutCardMeta(workout: Pick<Workout, "kind" | "title" | "estimated_minutes">, _includeOrigin = false) {
+  if (workout.kind === "program") {
+    const weeks = workout.title.match(/\b(\d+)\s*[- ]?\s*(?:weeks?|wks?)\b/i)?.[1];
+    return weeks ? `${weeks} wks` : "Program";
+  }
+  return workout.estimated_minutes ? `${workout.estimated_minutes} min` : "";
 }
 
 export function workoutCountLabel(total: number, archived = false) {

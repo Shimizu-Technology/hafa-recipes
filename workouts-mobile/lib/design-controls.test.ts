@@ -2,11 +2,11 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { light } from "../constants/theme";
-const f = vi.hoisted(() => ({ reduced: false, timing: vi.fn() }));
+const f = vi.hoisted(() => ({ reduced: false, fontScale: 1, timing: vi.fn() }));
 vi.mock("react-native", () => {
   class Value { value: number; constructor(v: number) { this.value = v; } setValue(v: number) { this.value = v; } }
   return { View: "View", Pressable: "Pressable", ScrollView: "ScrollView", ActivityIndicator: "Spinner", TextInput: "Input", InputAccessoryView: "Accessory", Keyboard: {},
-    Platform: { OS: "ios" }, useWindowDimensions: () => ({ fontScale: 1 }), Easing: { bezier: () => "ease-out" },
+    Platform: { OS: "ios" }, useWindowDimensions: () => ({ width: 390, height: 844, fontScale: f.fontScale }), Easing: { bezier: () => "ease-out" },
     Animated: { Value, createAnimatedComponent: (c: unknown) => c, timing: (...args: unknown[]) => { f.timing(...args); return { start() {} }; } } };
 });
 vi.mock("../components/design/foundation", () => ({ useGroupedPage: () => false, Copy: "Copy", useColors: () => light, useSurface: () => "surface", useReducedMotion: () => f.reduced, haptics: { tick() {} } }));
@@ -14,9 +14,12 @@ vi.mock("../components/account-identity", () => ({ useAccountIdentity: () => ({}
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
+vi.mock("expo-glass-effect", () => ({ GlassView: "GlassView" }));
+vi.mock("@/components/ui", () => ({ Copy: "Copy", useColors: () => light, useReducedMotion: () => false }));
+import { LibraryCard } from "../components/library-card";
 import { Button, Choice, Segmented, Field, Chip } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
-beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.timing.mockClear(); });
+beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.fontScale = 1; f.timing.mockClear(); });
 afterEach(() => { act(() => view?.unmount()); });
 it("distinguishes exclusive radio choices from independent checkboxes", () => {
   act(() => { view = create(createElement(Choice, { label: "Ready", role: "radio", selected: true, onPress() {} })); });
@@ -67,4 +70,38 @@ it("exposes independent chips as checked controls in native and browser accessib
   expect(chip.props.accessibilityState.checked).toBe(true);
   expect(chip.props["aria-checked"]).toBe(true);
   expect(chip.props["aria-pressed"]).toBeUndefined();
+});
+
+it("photo cards keep one credit line and a separate accessible save action", () => {
+  const save = vi.fn(), open = vi.fn(), stopPropagation = vi.fn();
+  act(() => { view = create(createElement(LibraryCard, { view: "grid", title: "Morning strength", meta: "20 min", creator: "Kai", origin: "Saved from Instagram", image: "https://example.test/cover.jpg", icon: "barbell-outline", favorite: true, badge: "Check details", onPress: open, save: { saved: false, busy: false, onPress: save } })); });
+  const words = view!.root.findAllByType("Copy" as never).map(node => node.props.children);
+  expect(words).toEqual(["20 min", "Morning strength", "Kai · Instagram"]);
+  const bookmark = view!.root.findAllByType("Pressable" as never).find(node => node.props.accessibilityLabel === "Save Morning strength")!;
+  expect(bookmark.props.accessibilityState).toMatchObject({ disabled: false, selected: false });
+  act(() => bookmark.props.onPress({ stopPropagation }));
+  expect(save).toHaveBeenCalledTimes(1); expect(stopPropagation).toHaveBeenCalledTimes(1); expect(open).not.toHaveBeenCalled();
+});
+
+it("keeps creator credits outside the rounded photo mask at normal text and AX5", () => {
+  for (const scale of [1, 3.1]) {
+    f.fontScale = scale;
+    act(() => { view = create(createElement(LibraryCard, { view: "grid", title: "Strength", meta: "20 min", creator: "Kai Rivera", icon: "barbell-outline", favorite: false, onPress() {} })); });
+    const card = view!.root.findByType("Pressable" as never);
+    expect(card.props.style.overflow).not.toBe("hidden");
+    const credit = view!.root.findAllByType("Copy" as never).find(node => node.props.children === "Kai Rivera")!;
+    expect(credit).toBeDefined();
+    expect(credit.parent!.props.style.overflow).not.toBe("hidden");
+    expect(view!.root.findAllByType("View" as never).filter(node => node.props.style?.overflow === "hidden")).toHaveLength(1);
+    act(() => view!.unmount());
+  }
+});
+it("places list duration beside the fixed thumbnail so AX5 text can grow", () => {
+  f.fontScale = 3.1;
+  act(() => { view = create(createElement(LibraryCard, { view: "list", title: "Strength", meta: "120 min", creator: "Kai Rivera", icon: "barbell-outline", favorite: false, onPress() {} })); });
+  expect(view!.root.findAllByType("GlassView" as never)).toHaveLength(0);
+  const duration = view!.root.findAllByType("Copy" as never).find(node => node.props.children === "120 min")!;
+  expect(duration.parent!.props.style).toMatchObject({ flex: 1, minWidth: 0 });
+  expect(duration.props.numberOfLines).toBeUndefined();
+  expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain("120 min");
 });
