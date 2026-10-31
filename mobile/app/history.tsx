@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router';
 import { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
+  useWindowDimensions,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -232,6 +233,7 @@ export function GridRecipeCard({
 export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
+  const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -904,12 +906,12 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       ) : (
         <FlatList
           contentInsetAdjustmentBehavior="automatic"
-          key={isGrid ? 'grid' : 'list'} // Force re-render when changing layout
+          key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={isGrid ? 2 : 1}
-          columnWrapperStyle={isGrid ? styles.gridRow : undefined}
+          numColumns={isGrid && !largeText ? 2 : 1}
+          columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListEmptyComponent={ListEmpty}
           ListFooterComponent={ListFooter}
           contentContainerStyle={[
