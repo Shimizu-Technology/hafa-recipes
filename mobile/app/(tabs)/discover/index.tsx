@@ -1,5 +1,5 @@
 import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
-import { SearchLauncher } from '@/components/chrome/SearchLauncher';
+import { SearchLauncher, SearchRow } from '@/components/chrome/SearchField';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { discoverSections } from '@/lib/recipeBrowse';
@@ -586,7 +586,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           numColumns={!largeText ? 2 : 1}
           columnWrapperStyle={!largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
-            <SearchLauncher />
+            <SearchRow><SearchLauncher /></SearchRow>
             {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
