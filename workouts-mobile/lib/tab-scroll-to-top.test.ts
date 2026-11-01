@@ -9,10 +9,10 @@ vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", ScrollVie
   AccessibilityInfo: {}, AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) }, Animated: { View: "AnimatedView" } }));
 vi.mock("../components/design/foundation", () => ({ Copy: "Copy", GroupedPage: { Provider: ({ children }: { children: unknown }) => children },
   SurfaceProvider: "SurfaceProvider", useColors: () => light, useGroupedPage: () => false, useSurface: () => "surface", useReducedMotion: () => false }));
-vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
+vi.mock("../components/design/controls", () => ({ Chip: "Chip", HeaderButton: "HeaderButton", IconButton: "IconButton" }));
 vi.mock("../components/design/press", () => ({ animatedPressableComponent: () => "Pressable", usePressScale: () => ({ scale: 1, opacity: 1 }) }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
-vi.mock("../components/native-tab-stack", () => ({ useNativeHeader: () => f.tab, headerActions: () => ({}) }));
+vi.mock("../components/native-tab-stack", () => ({ useNativeHeader: () => f.tab, headerActions: () => ({}), headerBack: () => ({}) }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34 }) }));
 vi.mock("expo-image", () => ({ Image: "Image" }));

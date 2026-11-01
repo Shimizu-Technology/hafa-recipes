@@ -24,10 +24,10 @@ import { Stack as NativeStack, router, useSegments } from "expo-router";
 import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "@/lib/bottom-overlay";
 import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
-import { headerActions, useNativeHeader } from "../native-tab-stack";
+import { headerActions, headerBack, useNativeHeader } from "../native-tab-stack";
 import { TabScrollToTop, useScrollRest } from "../tab-scroll-to-top";
 import { Copy, GroupedPage, useGroupedPage, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
-import { Chip, IconButton, type IconName } from "./controls";
+import { Chip, HeaderButton, IconButton, type IconName } from "./controls";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 /**
@@ -129,7 +129,8 @@ export function Screen({
     <GroupedPage.Provider value={grouped}>
     {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: hideTitle, headerLargeTitleEnabled: !hideTitle,
       headerShadowVisible: false, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: hideTitle ? "transparent" : pageColor },
-      headerLeft: !tabHeader && !router.canGoBack?.() ? () => <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.replace("/(tabs)/library")} /> : undefined,
+      ...headerBack(back && !tabHeader ? <HeaderButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"}
+        onPress={() => router.canGoBack?.() ? router.back() : router.replace("/(tabs)/library")} /> : undefined),
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, ...headerActions(action ? <>{action}</> : undefined) }} />}
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: pageColor, paddingTop: root ? 0 : insets.top }}
