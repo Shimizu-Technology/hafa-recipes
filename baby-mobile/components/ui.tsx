@@ -742,21 +742,28 @@ export interface FilterChip { label: string; value: string; icon?: IconName }
  * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
  */
 export function FilterChips({ options, value, onChange, label }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null), offsets = useRef<Record<string, number>>({});
-  // Keep a chip chosen from elsewhere (Today's "See all", a category) in view.
+  const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null),
+    frames = useRef<Record<string, { x: number; width: number }>>({}), view = useRef({ x: 0, width: 0 });
+  // Bring a chip chosen elsewhere (Today's "See all", a category row) into view; leave visible ones still.
   useEffect(() => {
-    const x = offsets.current[value];
-    if (x !== undefined) scroller.current?.scrollTo({ x: Math.max(0, x - 48), animated: true });
+    const frame = frames.current[value], { x, width } = view.current;
+    if (!frame || !width) return;
+    // Chip x is inside the 16pt content padding; keep 48pt of context on the side it comes from.
+    const left = frame.x + 16, right = left + frame.width;
+    if (left < x) scroller.current?.scrollTo({ x: Math.max(0, left - 48), animated: true });
+    else if (right > x + width - 32) scroller.current?.scrollTo({ x: right - width + 48, animated: true });
   }, [value]);
   return <View style={{ marginHorizontal: -16 }}>
     <ScrollView ref={scroller} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
-      contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 32 }}>
+      onLayout={(event) => { view.current.width = event.nativeEvent.layout.width; }} scrollEventThrottle={64}
+      onScroll={(event) => { view.current.x = event.nativeEvent.contentOffset.x; }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 40 }}>
       <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         {options.map((option) => {
           const on = value === option.value, ink = on ? c.onAction : c.text;
           return <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
             accessibilityState={{ selected: on, checked: on }}
-            onLayout={(event) => { offsets.current[option.value] = event.nativeEvent.layout.x; }}
+            onLayout={(event) => { const { x, width } = event.nativeEvent.layout; frames.current[option.value] = { x, width }; }}
             onPress={() => { if (!on) tap(); onChange(option.value); }}
             // A 44pt target around the 34pt pill.
             style={{ minHeight: 44, justifyContent: "center" }}>
@@ -773,10 +780,11 @@ export function FilterChips({ options, value, onChange, label }: { options: Filt
     <EdgeFade color={c.background} />
   </View>;
 }
-/** A soft trailing fade built from stepped bands (no gradient module needed). */
+/** 2pt bands easing from clear to the page colour: a soft trailing fade without a gradient module. */
+const fadeBands = Array.from({ length: 20 }, (_, index) => Math.min(1, ((index + 1) / 16) ** 1.6));
 function EdgeFade({ color }: { color: string }) {
-  return <View pointerEvents="none" style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 32, flexDirection: "row" }}>
-    {[0.1, 0.25, 0.45, 0.65, 0.85, 1, 1, 1].map((opacity, index) => <View key={index} style={{ flex: 1, backgroundColor: color, opacity }} />)}
+  return <View pointerEvents="none" style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 40, flexDirection: "row" }}>
+    {fadeBands.map((opacity, index) => <View key={index} style={{ flex: 1, backgroundColor: color, opacity }} />)}
   </View>;
 }
 export function Empty({
