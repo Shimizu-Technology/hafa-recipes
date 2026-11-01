@@ -9,7 +9,7 @@ import { largeText } from "@/lib/readable-layout";
 import type { ActualSet } from "@/lib/models";
 import { actualIdentity, capRemainingSeconds, sessionElapsedMilliseconds, summaryOf, type SessionDraft, type TrainingStep } from "@/lib/training";
 import { parseEntry } from "@/lib/training-view";
-import { formatDescription, formatLabel, intervalPosition, moveText, movesFor, openLadder, repsFor } from "@/lib/timed-execution";
+import { formatDescription, formatLabel, intervalPosition, isDeathBy, moveText, movesFor, repsFor } from "@/lib/timed-execution";
 
 // Kept for the app session, so a remount mid-workout doesn't silence cues the person turned on.
 let voiceCues = false;
@@ -45,7 +45,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const remaining = capRemainingSeconds(d, now);
   const capReached = remaining === 0;
   const step = d.steps[d.cursor];
-  const deathBy = format.mode === "emom" && openLadder(block);
+  const deathBy = isDeathBy(format, block);
   const lastRound = Math.max(0, ...d.actuals.map((a) => a.round_index));
   const allMarked = d.cursor === d.steps.length;
   // The work is over: for time finished or capped, or Death by ended. The clock is stopped, so Pause no longer applies.

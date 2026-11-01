@@ -2,7 +2,7 @@ import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, typ
 import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
 import { timedCircuit } from "./timed-circuit";
-import { formatCapSeconds, intervalPosition, ladderReps, movesFor, openLadder, timedFormat, timedFormatProblem,
+import { formatCapSeconds, intervalPosition, isDeathBy, ladderReps, movesFor, timedFormat, timedFormatProblem,
   trackedIntervalLimit, type TimedFormat } from "./timed-execution";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
@@ -466,12 +466,14 @@ export function createTrainingStore(
           // The last movement stops the clock: the finish time is when the work ended, not when Save is tapped.
           closeActive(d, now);
           d.paused = true;
-        } else if (done && openLadder(d.workout.blocks[0])) {
-          // Death by continues while each interval is finished; a missed interval ends it and stops the clock.
+        } else if (done && isDeathBy(d.timed_format, d.workout.blocks[0])) {
+          // Death by continues while each interval is finished. A missed interval, the ladder's end or the
+          // tracking limit ends it and stops the clock.
           const round = step.round_index + 1;
-          if (d.actuals.every((a) => a.round_index !== step.round_index || a.completed) &&
-            d.workout.blocks[0].exercises.every((e) => e.ladder && ladderReps(e.ladder, round) != null))
-            d.steps.push(...intervalSteps(d.workout, round, round));
+          const next = d.actuals.every((a) => a.round_index !== step.round_index || a.completed) &&
+            d.workout.blocks[0].exercises.every((e) => e.ladder && ladderReps(e.ladder, round) != null)
+            ? intervalSteps(d.workout, round, round) : [];
+          if (next.length) d.steps.push(...next);
           else {
             closeActive(d, now);
             d.paused = true;
@@ -747,7 +749,7 @@ export function createTrainingStore(
         if (status === "completed" && draftStructureWarning(d)) throw Error("Older set numbering needs review. Keep this result as a partial session.");
         if (status === "completed") {
           // Death by ends at the first missed interval, so only that final interval may be unfinished.
-          const failureEnds = !!d.timed_format && openLadder(d.workout.blocks[0]);
+          const failureEnds = !!d.timed_format && isDeathBy(d.timed_format, d.workout.blocks[0]);
           const lastRound = Math.max(0, ...d.actuals.map((a) => a.round_index));
           if (d.timed_circuit) {
             if (capRemainingSeconds(d, now)! > 0 || d.timed_circuit.limit_reached || !d.actuals.some((a) => a.completed))

@@ -29,6 +29,10 @@ describe("format labels", () => {
     expect(blockSummary(block({ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null }), "EMOM 20")).toBe("");
     expect(blockSummary(block({ mode: "for_time", time_cap_seconds: 720 }, { rounds: 3,
       exercises: [{ name: "Thrusters", rep_scheme: [21, 15, 9] }] }), "21-15-9 for time")).toBe("cap 12");
+    const emom20 = block({ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null });
+    expect(blockSummary(emom20, "EMOM 2")).toBe("EMOM 20");
+    expect(blockSummary(emom20, "EMOM 200 burpees")).toBe("EMOM 20");
+    expect(blockSummary(emom20, "Finisher: EMOM 20")).toBe("");
     const future = block({ mode: "ladder_race" } as never, { grouping: "circuit" });
     expect(executionError(future)).toBeNull();
     expect(blockSummary(future)).toBe("Circuit · ladder race");

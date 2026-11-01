@@ -35,11 +35,12 @@ export function blockSummary(block: Block, label?: string) {
     const alternating = block.execution.mode === "emom" && block.execution.rotation === "alternating" && block.exercises.length > 1;
     const name = formatLabel(block);
     // A block already labelled "EMOM 20" doesn't need it twice.
-    const said = label?.trim().toLowerCase() ?? "";
-    // A block already labelled "EMOM 20" or "21-15-9 for time" doesn't need the name twice; only what it adds ("cap 12").
-    const rest = !name || !said ? name : said.includes(name.toLowerCase()) ? null
-      : name.toLowerCase().startsWith(said) ? name.slice(said.length).replace(/^\s*·\s*/, "") || null : name;
-    return [rest, alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
+    // A block already labelled "EMOM 20" or "21-15-9 for time" doesn't repeat that part; "cap 12" still shows.
+    // Whole parts only: a block called "EMOM 2" still shows "EMOM 20".
+    const said = label?.trim() ?? "";
+    const mentioned = (part: string) => new RegExp(`(^|[^\\w-])${part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\w-])`, "i").test(said);
+    const rest = (name ?? "").split(" · ").filter((part) => part && !mentioned(part)).join(" · ");
+    return [rest || null, alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
   }
   const grouping = groupingLabels[block.grouping] ?? block.grouping;
   const repeated = !!label && label.toLowerCase().includes(grouping.toLowerCase());

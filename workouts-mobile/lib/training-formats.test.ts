@@ -121,6 +121,35 @@ describe("EMOM", () => {
   });
 });
 
+describe("ladders inside bounded formats", () => {
+  it("stops Death by at the tracking limit instead of leaving the clock running", async () => {
+    const w = workout({ execution: { mode: "emom", interval_seconds: 60, intervals: null, rotation: null },
+      exercises: [{ name: "Burpees", ladder: { start: 1, step: 1, end: null } }] });
+    const s = await started(w);
+    for (let minute = 1; minute <= 100; minute++) await mark(s, true, (minute - 1) * 60_000 + 1000, minute);
+    expect(s.draft().steps).toHaveLength(100);
+    expect(s.draft().paused).toBe(true);
+    expect(s.draft().active_milliseconds).toBe(99 * 60_000 + 1000);
+    await s.store.finish("completed", 6_000_000);
+    expect(s.store.snapshot().history[0].request.status).toBe("completed");
+  });
+  it("runs a bounded work/rest ladder to its count, skips included, and saves it", async () => {
+    const w = workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 3 },
+      exercises: [{ name: "Push-ups", ladder: { start: 5, step: 1, end: null } }] });
+    const s = await started(w);
+    expect(s.draft().steps).toHaveLength(3);
+    await mark(s, true, 1000, 5);
+    await mark(s, false, 31_000, null);
+    expect(s.draft().paused).toBe(false);
+    expect(s.draft().steps).toHaveLength(3);
+    await mark(s, true, 61_000, 7);
+    expect(s.draft().steps).toHaveLength(3);
+    await s.store.finish("partial", 95_000);
+    const saved = s.store.snapshot().history[0];
+    expect(formatScore(saved.workout, saved.request)).toBe("12 reps · 2 of 3 intervals");
+  });
+});
+
 describe("for time", () => {
   const thrusters = () => workout({ grouping: "circuit", rounds: 3, execution: { mode: "for_time", time_cap_seconds: 720 },
     exercises: [{ name: "Thrusters", rep_scheme: [21, 15, 9] }, { name: "Pull-ups", rep_scheme: [21, 15, 9] }] });
