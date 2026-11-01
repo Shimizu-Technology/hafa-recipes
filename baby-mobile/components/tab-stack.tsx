@@ -14,6 +14,8 @@ export function headerActions(actions: React.ReactElement): NativeStackNavigatio
     : { headerRight: () => actions };
 }
 
+const liquidGlass = Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
 export function TabStack({ title }: { title: string }) {
   const c = useColors();
   return <NativeHeaderContext.Provider value={true}><TabScreenContext.Provider value={true}>
@@ -21,7 +23,8 @@ export function TabStack({ title }: { title: string }) {
       title, headerLargeTitle: true, headerBackTitle: "Back", headerTintColor: c.action,
       // A solid background on every OS: no blur or glass, and nothing shows through the title. Leave
       // headerTransparent unset; false makes the iOS bar non-translucent, which hides large titles beside search.
-      headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: c.background },
+      // iOS 26 draws no large title over a coloured large-title background; the page is the same colour anyway.
+      headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: liquidGlass ? "transparent" : c.background },
       headerShadowVisible: true, headerLargeTitleShadowVisible: false,
       headerTitleStyle: { color: c.text },
       // UIKit's rounded-system alias; ui-rounded is resolved only by RN text.

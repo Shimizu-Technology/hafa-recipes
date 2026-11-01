@@ -13,7 +13,8 @@ export function HeaderSearch({ value, onChange, placeholder }: { value: string; 
   }, [native, value]);
   if (!native) return <Field label="Search" value={value} onChange={onChange} placeholder={placeholder} />;
   return <Stack.Screen options={{ headerSearchBarOptions: {
-    ref, placeholder, hideWhenScrolling: false, hideNavigationBar: false, autoCapitalize: "none",
+    // Stacked under the title: iOS 26 would otherwise float it over the list above our tab bar.
+    ref, placeholder, placement: "stacked", hideWhenScrolling: false, hideNavigationBar: false, autoCapitalize: "none",
     tintColor: c.action, textColor: c.text, barTintColor: c.surface,
     onChangeText: event => { nativeText.current = event.nativeEvent.text; onChange(event.nativeEvent.text); },
     onCancelButtonPress: () => { nativeText.current = ""; onChange(""); },
