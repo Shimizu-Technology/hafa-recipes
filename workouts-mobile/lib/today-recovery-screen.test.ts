@@ -302,8 +302,8 @@ it("Today pauses recorded-day markers for missing correction ancestry and retrie
   await mount();
   const days = () => renderer!.root.findByType("WeekStrip" as never).props.days as Array<{ state: string }>;
   expect(text()).toContain("Done-day checkmarks are paused");
-  expect(weeklyLabel()).toBe("History & progress. Not available yet");
-  expect(weeklyValues()).toEqual(["—", "—", "—"]);
+  expect(weeklyLabel()).toBe("This week. See progress");
+  expect(weeklyValues()).toEqual([]);
   expect(text()).not.toContain("PRIVATE transport body");
   expect(days().some(day => day.state === "done")).toBe(false);
   expect(buttons("Check again")).toHaveLength(1);
@@ -824,32 +824,32 @@ it("Train retains cached plan rows after a refetch error and recovers on retry",
   expect(rows()).toHaveLength(1);
 });
 
-const weeklyRow = () => renderer!.root.findAllByType("Pressable" as never).find(node => node.props.accessibilityLabel?.startsWith("History & progress."))!;
+const weeklyRow = () => renderer!.root.findAllByType("Pressable" as never).find(node => node.props.accessibilityLabel?.startsWith("This week"))!;
 const weeklyLabel = () => weeklyRow().props.accessibilityLabel;
-const weeklyValues = () => weeklyRow().findAllByType("Copy" as never).filter(node => node.props.kind === "numeric").map(node => node.props.children);
+const weeklyValues = () => weeklyRow().findAllByType("Copy" as never).filter(node => node.props.kind === "numericSmall").map(node => node.props.children);
 it("shows unavailable weekly totals while the first history read is delayed, then real zeroes", async () => {
   fixture.available = true;
   let release!: (value: TrainingSession[]) => void;
   fixture.sessions.mockImplementation(() => new Promise(resolve => { release = resolve; }));
   await mount();
-  expect(weeklyValues()).toEqual(["—", "—", "—"]);
-  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+  expect(weeklyValues()).toEqual([]);
+  expect(weeklyLabel()).toBe("This week. See progress");
   await act(async () => release([])); await settle();
   expect(weeklyValues()).toEqual([0, 0, 0]);
-  expect(weeklyLabel()).toBe("History & progress. 0 sessions, 0 minutes, 0 day streak");
+  expect(weeklyLabel()).toBe("This week: 0 sessions, 0 minutes, 0 day streak. See progress");
 });
 it("shows dashes and no announced zeroes on a cold offline history read", async () => {
   await mount();
-  expect(weeklyValues()).toEqual(["—", "—", "—"]);
-  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+  expect(weeklyValues()).toEqual([]);
+  expect(weeklyLabel()).toBe("This week. See progress");
 });
 it.each(["device", "timezone"])("waits for %s readiness before presenting weekly totals", async dependency => {
   fixture.available = true;
   if (dependency === "device") fixture.deviceReady = false;
   else fixture.profile.mockImplementation(() => new Promise(() => {}));
   await mount();
-  expect(weeklyValues()).toEqual(["—", "—", "—"]);
-  expect(weeklyLabel()).toBe("History & progress. Not available yet");
+  expect(weeklyValues()).toEqual([]);
+  expect(weeklyLabel()).toBe("This week. See progress");
 });
 it("keeps cached weekly totals when a history refresh fails", async () => {
   fixture.available = true;

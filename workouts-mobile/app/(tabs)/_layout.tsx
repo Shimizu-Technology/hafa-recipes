@@ -1,15 +1,36 @@
-import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useEffect } from "react";
+import { View } from "react-native";
+import { useSegments } from "expo-router";
+import { Tabs } from "expo-router/js-tabs";
+import { AppTabBar } from "@/components/design/tab-bar";
+import { AskCoachPill } from "@/components/ask-coach-pill";
 import { useColors } from "@/components/ui";
+import { resetAskScroll } from "@/lib/ask-pill";
+import { OVERLAY_GAP, useTabScreenBottomInset } from "@/lib/bottom-overlay";
 
 export const unstable_settings = { initialRouteName: "train" };
+/** Tabs where the floating Ask Coach pill opens a general coach chat. */
+export const askTabs = ["train", "library", "discover", "progress"];
+/**
+ * JS tabs with our own solid bar so iOS 18, iOS 26 and Android match (no Liquid Glass or
+ * translucent material). Search lives in Library and Discover; its old route stays for links.
+ */
 export default function Layout() {
   const c = useColors();
-  // iOS 18 draws a full-width bar that turns transparent at the scroll edge, so labels vanish over
-  // the photo grid. Keep its material on; iOS 26 Liquid Glass ignores this and still floats.
-  return <NativeTabs tintColor={c.accent} minimizeBehavior="onScrollDown" disableTransparentOnScrollEdge>
-    <NativeTabs.Trigger name="train"><NativeTabs.Trigger.Label>Today</NativeTabs.Trigger.Label><NativeTabs.Trigger.Icon sf="figure.run" md="directions_run" /></NativeTabs.Trigger>
-    <NativeTabs.Trigger name="library"><NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label><NativeTabs.Trigger.Icon sf={{ default: "square.stack", selected: "square.stack.fill" }} md="collections_bookmark" /></NativeTabs.Trigger>
-    <NativeTabs.Trigger name="discover"><NativeTabs.Trigger.Label>Discover</NativeTabs.Trigger.Label><NativeTabs.Trigger.Icon sf={{ default: "safari", selected: "safari.fill" }} md="explore" /></NativeTabs.Trigger>
-    <NativeTabs.Trigger name="search" role="search"><NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label><NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" /></NativeTabs.Trigger>
-  </NativeTabs>;
+  // Typed routes narrow this layout's segments; read the child tab name loosely.
+  const segments: readonly string[] = useSegments();
+  const route = segments[1] ?? "train";
+  const bar = useTabScreenBottomInset();
+  useEffect(() => { resetAskScroll(); }, [route]);
+  return <View style={{ flex: 1, backgroundColor: c.background }}>
+    <Tabs tabBar={props => <AppTabBar {...props} />}
+      screenOptions={{ headerShown: false, animation: "none", sceneStyle: { backgroundColor: c.background } }}>
+      <Tabs.Screen name="train" />
+      <Tabs.Screen name="library" />
+      <Tabs.Screen name="discover" />
+      <Tabs.Screen name="progress" />
+      <Tabs.Screen name="search" options={{ href: null }} />
+    </Tabs>
+    {bar > 0 && askTabs.includes(route) && <AskCoachPill bottom={bar + OVERLAY_GAP} />}
+  </View>;
 }

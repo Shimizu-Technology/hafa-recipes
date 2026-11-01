@@ -1,5 +1,4 @@
-import { BrowseHeader } from "@/components/native-tab-stack";
-import { BrowseLinks, FilterSummary } from "@/components/browse-links";
+import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack as RouterStack, router, useLocalSearchParams } from "expo-router";
@@ -10,12 +9,14 @@ import {
   ChipRow,
   Copy,
   Empty,
+  FilterButton,
   Notice,
   ListGroup,
   ListRow,
   haptics,
   Row,
   Screen,
+  SearchField,
   Sheet,
   Stack,
   useToast,
@@ -187,10 +188,10 @@ export default function Discover() {
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
     <>
-    <RouterStack.Screen options={{ headerRight: () => <BrowseHeader onMenu={() => setMenu(true)} menuItems={[
+    <RouterStack.Screen options={headerActions(<BrowseHeader onMenu={() => setMenu(true)} menuItems={[
       { title: "Share yours", disabled: !enrollment?.enrolled, onPress: () => router.push("/discover/share") },
       { title: view === "grid" ? "Show workouts as a list" : "Show workouts as a grid", onPress: toggleView },
-    ]} /> }} />
+    ]} />)} />
     <Screen
       title="Discover"
       refreshing={pulling}
@@ -216,11 +217,18 @@ export default function Discover() {
         </Stack>
       ) : (
         <>
-          <BrowseLinks links={[
-            { title: surprising ? "Choosing…" : "Surprise me", onPress: () => void surprise(), disabled: surprising },
-            { title: active.length ? `Filter · ${active.length}` : "Filter", onPress: () => setFiltersOpen(true) },
-          ]} />
-          <FilterSummary items={[settledSearch.trim() && `“${settledSearch.trim()}”`, ...active.map(f => f.label)].filter((item): item is string => !!item)} onClear={clear} />
+          <Row gap={8}>
+            <SearchField value={search} onChange={setSearch} label="Search Discover" placeholder="Search shared workouts" />
+            <FilterButton count={active.length} label="Filter Discover" onPress={() => setFiltersOpen(true)} />
+          </Row>
+          <ChipRow label="Discover tools">
+            <Chip role="button" icon="shuffle" label={surprising ? "Choosing…" : "Surprise me"} disabled={surprising} onPress={() => void surprise()} />
+            {active.map(filter => <Chip key={filter.key} role="button" label={filter.label} trailingIcon="close" selected
+              accessibilityLabel={`Remove filter ${filter.label}`} onPress={() => ({
+                contributor: () => setContributor(undefined), duration: () => setDuration(undefined),
+                equipment: () => setEquipment(undefined), platform: () => setPlatform(undefined),
+              })[filter.key]()} />)}
+          </ChipRow>
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
           ) : feed.error && !cards.length ? (

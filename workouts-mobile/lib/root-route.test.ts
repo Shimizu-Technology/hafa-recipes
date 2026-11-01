@@ -1,9 +1,14 @@
 import { it, expect, vi } from "vitest";
 const auth = vi.hoisted(() => ({ value: { isLoaded: true, isSignedIn: false } }));
 vi.mock("@clerk/expo", () => ({ useAuth: () => auth.value }));
-vi.mock("expo-router", () => ({ Redirect: () => null, useLocalSearchParams: () => ({ source: "legacy", session_id: "saved" }) }));
-vi.mock("expo-router/unstable-native-tabs", () => ({ NativeTabs: Object.assign(() => null, { Trigger: Object.assign(() => null, { Label: () => null, Icon: () => null }) }) }));
-vi.mock("@/components/ui", () => ({ useColors: () => ({ accent: "coral" }) }));
+vi.mock("expo-router", () => ({ Redirect: () => null, useSegments: () => ["(tabs)", "library"], useLocalSearchParams: () => ({ source: "legacy", session_id: "saved" }) }));
+vi.mock("react-native", () => ({ View: "View" }));
+vi.mock("react", async () => ({ ...await vi.importActual<object>("react"), useEffect: () => undefined }));
+vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
+vi.mock("@/lib/bottom-overlay", () => ({ OVERLAY_GAP: 12, useTabScreenBottomInset: () => 90 }));
+vi.mock("expo-router/js-tabs", () => ({ Tabs: Object.assign(() => null, { Screen: () => null }) }));
+vi.mock("@/components/design/tab-bar", () => ({ AppTabBar: "AppTabBar" }));
+vi.mock("@/components/ui", () => ({ useColors: () => ({ accent: "coral", background: "white" }) }));
 import Layout, { unstable_settings } from "../app/(tabs)/_layout";
 import RootDestination from "../app/index";
 import LegacyPlan from "../app/plan";
@@ -18,20 +23,16 @@ it("waits for auth and sends signed-in cold launches to Today", () => {
   auth.value = { isLoaded: false, isSignedIn: false };
   expect(RootDestination()).toBeNull();
 });
-it("uses four native tabs in the approved order, with a separate Search role", () => {
-  const tabs = Layout();
-  // iOS 18's full-width bar must keep its material over the photo grid.
-  expect(tabs.props).toMatchObject({ tintColor: "coral", minimizeBehavior: "onScrollDown", disableTransparentOnScrollEdge: true });
+it("draws its own tab bar over Today, Library, Discover and Progress, keeping Search reachable by link", () => {
+  const root = Layout();
+  const [tabs, pill] = root.props.children;
+  // The Ask Coach pill floats 12pt above the measured bar on the main tabs.
+  expect(pill.props.bottom).toBe(102);
   expect(unstable_settings.initialRouteName).toBe("train");
-  expect(tabs.props.children.map((tab: { props: any }) => tab.props.name)).toEqual(["train", "library", "discover", "search"]);
-  expect(tabs.props.children.map((tab: { props: any }) => tab.props.children[0].props.children)).toEqual(["Today", "Library", "Discover", "Search"]);
-  expect(tabs.props.children[3].props.role).toBe("search");
-  expect(tabs.props.children.map((tab: { props: any }) => tab.props.children[1].props.sf)).toEqual([
-    "figure.run",
-    { default: "square.stack", selected: "square.stack.fill" },
-    { default: "safari", selected: "safari.fill" },
-    "magnifyingglass",
-  ]);
+  expect(tabs.props.screenOptions).toMatchObject({ headerShown: false });
+  expect(tabs.props.tabBar({}).type).toBe("AppTabBar");
+  expect(tabs.props.children.map((tab: { props: any }) => tab.props.name)).toEqual(["train", "library", "discover", "progress", "search"]);
+  expect(tabs.props.children[4].props.options).toEqual({ href: null });
 });
 it("redirects legacy training and capture routes without dropping parameters", () => {
   const params = { source: "legacy", session_id: "saved" };
