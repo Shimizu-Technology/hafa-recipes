@@ -55,7 +55,7 @@ function LibrarySearch() {
     return null;
   };
   return <>
-    {Platform.OS !== 'web' && <Stack.SearchBar ref={bar} autoFocus placeholder={placeholder} hideWhenScrolling={false} onChangeText={event => setQuery(event.nativeEvent.text)} onSearchButtonPress={remember} onCancelButtonPress={() => setQuery('')} />}
+    {Platform.OS !== 'web' && <Stack.SearchBar ref={bar} autoFocus placement="stacked" placeholder={placeholder} hideWhenScrolling={false} onChangeText={event => setQuery(event.nativeEvent.text)} onSearchButtonPress={remember} onCancelButtonPress={() => setQuery('')} />}
     <FlatList<SearchRow>
       contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
       style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center', padding: 16, gap: 12, paddingBottom: 32 }}

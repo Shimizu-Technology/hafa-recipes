@@ -20,10 +20,20 @@ describe('tab shell', () => {
 });
 
 describe('tab header', () => {
-  it('stays opaque on every OS so content never slides under the title', () => {
-    const code = readFileSync(new URL('../components/RecipeTabStack.tsx', import.meta.url), 'utf8');
-    expect(code).toContain('headerTransparent: false');
+  const code = readFileSync(new URL('../components/RecipeTabStack.tsx', import.meta.url), 'utf8');
+  it('stays a solid colour on every OS without making the iOS bar non-translucent', () => {
     expect(code).toContain('headerStyle: { backgroundColor: colors.background }');
+    // headerTransparent: false hides large titles beside a header search bar on iOS.
+    expect(code).not.toMatch(/headerTransparent:\s*false/);
+  });
+  it.each([['ios', '26.0', true], ['ios', 26, true], ['ios', '18.5', false], ['android', 36, false]])('%s %s clears the large-title background: %s', (os, version, clear) => {
+    const expression = code.match(/export const liquidGlassHeader = (.*);/)[1];
+    expect(new Function('Platform', `return ${expression}`)({ OS: os, Version: version })).toBe(clear);
+    expect(code).toContain("headerLargeStyle: { backgroundColor: liquidGlassHeader ? 'transparent' : colors.background }");
+  });
+  it('keeps header search under the title instead of floating over the list on iOS 26', () => {
+    expect(readFileSync(new URL('../app/(tabs)/grocery/index.tsx', import.meta.url), 'utf8')).toContain("headerSearchBarOptions: { placement: 'stacked'");
+    expect(readFileSync(new URL('../app/search.tsx', import.meta.url), 'utf8')).toContain('placement="stacked"');
   });
 });
 
