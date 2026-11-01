@@ -25,7 +25,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Stack, router, useSegments } from "expo-router";
+import { Stack, router, useScrollToTop, useSegments } from "expo-router";
 import { NavigationContext } from "expo-router/react-navigation";
 import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, useTabBarHeight } from "../lib/bottom-overlay";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
@@ -255,6 +255,18 @@ function useScreenFocused() {
   return focused;
 }
 
+/**
+ * Re-tapping the current tab returns its root list to the top, large title included, as native tabs did.
+ * iOS rests a large-title list at a negative offset (the bar's inset), so scroll to where the first drag began.
+ */
+function ScrollToTopOnTabPress({ scroller, top }: { scroller: RefObject<ScrollView | null>; top: RefObject<number | null> }) {
+  useScrollToTop(useRef({ scrollToTop: () => {
+    const y = top.current ?? (Platform.OS === "ios" ? null : 0);
+    // Never dragged on iOS means it's still at rest at the top.
+    if (y !== null) scroller.current?.scrollTo({ y, animated: true });
+  } }));
+  return null;
+}
 export function Screen({
   children,
   title,
@@ -299,7 +311,7 @@ export function Screen({
     insets = inTabBar ? { ...safeArea, bottom: 0 } : safeArea,
     { fontScale } = useWindowDimensions();
   const c = useColors(),
-    scroller = useRef<ScrollView>(null),
+    scroller = useRef<ScrollView>(null), restingTop = useRef<number | null>(null),
     [footerHeight, setFooterHeight] = useState(0),
     [keyboardVisible, setKeyboardVisible] = useState(false),
     [refreshing, setRefreshing] = useState(false);
@@ -362,10 +374,18 @@ export function Screen({
       <TopBar back={!nativeHeader && back && !close} close={!nativeHeader && close} />
       <KeyboardAvoidingView collapsable={false} behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View collapsable={false} style={{ flex: 1 }}>
+        {scroll && inTabBar && <ScrollToTopOnTabPress scroller={scroller} top={restingTop} />}
         {scroll ? (
           <ScrollView
             style={{ flex: 1 }}
             ref={scroller}
+            // The first drag from the content start marks the resting top (Ask may open scrolled to its newest
+            // message); scrollTo may go past 0 to get back there.
+            onScrollBeginDrag={inTabBar ? event => {
+              const y = event.nativeEvent.contentOffset.y;
+              if (restingTop.current === null && y <= 0) restingTop.current = y;
+            } : undefined}
+            scrollToOverflowEnabled={inTabBar}
             refreshControl={
               onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void pull()} tintColor={c.muted} /> : undefined
             }

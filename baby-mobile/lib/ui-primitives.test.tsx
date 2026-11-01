@@ -7,6 +7,7 @@ const mock = vi.hoisted(() => ({
   fontScale: 1, reduced: false, scheme: "light", listener: null as null | ((value: boolean) => void),
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
   baby: { online: true, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
+  scrollToTop: [] as { current: { scrollToTop: () => void } }[],
 }));
 /** iOS header actions arrive as one custom item; render it like headerRight. */
 const headerElement = (options: any) => options?.headerRight?.() ?? options?.unstable_headerRightItems?.()[0]?.element ?? null;
@@ -29,7 +30,7 @@ vi.mock("react-native", () => ({
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
-vi.mock("expo-router", () => ({ router: { push: mock.push, back: mock.back, replace: mock.replace, canGoBack: () => mock.canGoBack }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, headerElement(screenOptions)), { Screen: ({ options }: any) => { mock.options.push(options); return headerElement(options); } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
+vi.mock("expo-router", () => ({ router: { push: mock.push, back: mock.back, replace: mock.replace, canGoBack: () => mock.canGoBack }, useSegments: () => ["(tabs)", "index"], useScrollToTop: (ref: any) => { mock.scrollToTop.push(ref); }, Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, headerElement(screenOptions)), { Screen: ({ options }: any) => { mock.options.push(options); return headerElement(options); } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
@@ -43,7 +44,7 @@ import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
 import { TabStack, headerActions, initials } from "../components/tab-stack";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TextLinks } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, TextLinks } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -51,7 +52,7 @@ async function mount(element: React.ReactElement) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mock.push.mockClear(); mock.back.mockClear(); mock.replace.mockClear(); mock.canGoBack = false; mock.options = [];
+  mock.push.mockClear(); mock.back.mockClear(); mock.replace.mockClear(); mock.canGoBack = false; mock.options = []; mock.scrollToTop = [];
   mock.fontScale = 1; mock.reduced = false; mock.scheme = "light"; mock.timings = [];
   mock.baby = { online: true, syncing: false, error: "", state: { outbox: [] } };
 });
@@ -217,6 +218,30 @@ it.each(["light", "dark"])("keeps enabled text at 4.5:1 across all %s surfaces",
   expect(contrast(palette.onAction, palette.action)).toBeGreaterThanOrEqual(4.5);
 });
 
+it("returns a tab root to its resting top, large title included, when its tab is tapped again", async () => {
+  const scrollTo = vi.fn();
+  const tab = (children: React.ReactNode) => <NativeHeaderContext.Provider value={true}><TabScreenContext.Provider value={true}>
+    {children}</TabScreenContext.Provider></NativeHeaderContext.Provider>;
+  await act(async () => { renderer = create(tab(<Screen title="Saved"><Copy>Posts</Copy></Screen>), { createNodeMock: () => ({ scrollTo }) }); });
+  expect(mock.scrollToTop).toHaveLength(1);
+  const scroller = renderer!.root.findByType("ScrollView" as React.ElementType);
+  // iOS can only scroll back above 0 with overflow allowed; it rests at minus the header inset.
+  expect(scroller.props.scrollToOverflowEnabled).toBe(true);
+  act(() => mock.scrollToTop[0].current.scrollToTop());
+  expect(scrollTo).not.toHaveBeenCalled();
+  const drag = (y: number) => act(() => scroller.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { x: 0, y } } }));
+  // Ask opens scrolled to its newest message; a drag that starts mid-content isn't the top.
+  drag(640);
+  drag(-152);
+  drag(-96);
+  act(() => mock.scrollToTop[0].current.scrollToTop());
+  expect(scrollTo).toHaveBeenLastCalledWith({ y: -152, animated: true });
+  // Screens outside the tabs (a pushed record, a sheet) don't listen for tab presses.
+  mock.scrollToTop = [];
+  await act(async () => renderer!.update(<Screen title="Entry" back><Copy>Entry</Copy></Screen>));
+  expect(mock.scrollToTop).toEqual([]);
+  expect(renderer!.root.findByType("ScrollView" as React.ElementType).props.scrollToOverflowEnabled).toBe(false);
+});
 it("keeps an independent modal title and safe area inside a native tab", async () => {
   await mount(<NativeHeaderContext.Provider value={true}>
     <Screen nativeHeader={false} title="Choose category"><Copy>Selected sources stay selected</Copy></Screen>
