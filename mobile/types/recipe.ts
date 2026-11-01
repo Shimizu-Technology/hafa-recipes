@@ -357,6 +357,8 @@ export interface ChatMessage {
   error_message?: string;
   request_content?: string;
   has_image?: boolean;
+  /** Recipes the answer links to, kept with the saved conversation. */
+  recipe_refs?: ChatRecipeRef[];
 }
 
 export interface ChatRequest {
@@ -365,8 +367,17 @@ export interface ChatRequest {
   image_base64?: string;  // Optional base64 image for vision
 }
 
+/** One of the user's own recipes that a chat answer mentions. */
+export interface ChatRecipeRef {
+  id: string;
+  title: string;
+  image_url: string | null;
+}
+
 export interface ChatResponse {
   response: string;
+  /** Absent on servers older than library-aware chat; treat as none. */
+  recipe_refs?: ChatRecipeRef[];
 }
 
 // ============================================================

@@ -25,6 +25,7 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
@@ -91,7 +92,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
-  const endPadding = useTabScrollEndPadding(spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl, { askPill: true });
+  const onAskPillScroll = useAskPillScroll();
   const listRef = useRef<FlatList<RecipeListItem>>(null);
   useTabScrollToTop('recipes', listRef);
   const { isSignedIn } = useAuth();
@@ -607,6 +609,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
+          onScroll={onAskPillScroll}
+          scrollEventThrottle={32}
           refreshControl={
             <RefreshControl
               refreshing={isPullRefreshing}

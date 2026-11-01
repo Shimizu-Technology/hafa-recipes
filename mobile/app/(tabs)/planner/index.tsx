@@ -58,6 +58,7 @@ import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { useRecipe } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -341,7 +342,8 @@ function PlannerScreenContent() {
     servings?: string;
   }>();
   const insets = useSafeAreaInsets();
-  const endPadding = useTabScrollEndPadding(spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl, { askPill: true });
+  const onAskPillScroll = useAskPillScroll();
   const colors = useColors();
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
@@ -744,6 +746,8 @@ function PlannerScreenContent() {
           onContentSizeChange={(_width, height) => { scrollSize.current.contentHeight = height; scrollToRequestedDay(); }}
           scrollToOverflowEnabled
           onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
+          onScroll={onAskPillScroll}
+          scrollEventThrottle={32}
           onScrollToTop={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={[styles.content, { backgroundColor: colors.groupedBackground }]}

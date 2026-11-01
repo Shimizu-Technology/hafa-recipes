@@ -1,3 +1,7 @@
+const routerPush = vi.hoisted(() => vi.fn());
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: routerPush }) }));
+vi.mock('./ChatRecipeRefs', () => ({ ChatRecipeRefs: 'ChatRecipeRefs' }));
+vi.mock('./ChatScopeChips', () => ({ ChatScopeChips: 'ChatScopeChips' }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
@@ -892,6 +896,23 @@ describe('RecipeChatModal conversation isolation', () => {
       expect(renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Retry message',
       )).toHaveLength(1);
+    } finally {
+      await act(async () => renderer.unmount());
+    }
+  });
+
+  it('keeps library recipe cards with the answer and opens one from chat', async () => {
+    mocks.recipeMutate.mockResolvedValue({ response: 'You have two.', recipe_refs: [{ id: 'adobo', title: 'Chicken Adobo', image_url: null }, { bad: true }] } as any);
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    try {
+      await renderModal(renderer, 'first');
+      await sendText(renderer, 'What chicken recipes do we have?');
+      const cards = renderer.container.queryAll((instance) => instance.type === 'ChatRecipeRefs');
+      expect(cards.at(-1)!.props.refs).toEqual([{ id: 'adobo', title: 'Chicken Adobo', image_url: null }]);
+      const stored = JSON.parse(mocks.storageValues.get('hafa.chat.v2.stable-user.recipe.first')!);
+      expect(stored.at(-1).recipe_refs).toEqual([{ id: 'adobo', title: 'Chicken Adobo', image_url: null }]);
+      await act(async () => cards.at(-1)!.props.onOpen({ id: 'adobo', title: 'Chicken Adobo', image_url: null }));
+      expect(routerPush).toHaveBeenCalledWith('/recipe/adobo');
     } finally {
       await act(async () => renderer.unmount());
     }

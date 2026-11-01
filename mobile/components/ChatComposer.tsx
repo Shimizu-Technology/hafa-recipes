@@ -23,6 +23,8 @@ interface ChatComposerProps {
   isSending: boolean;
   isUnavailable: boolean;
   isGeneralMode: boolean;
+  /** What the assistant is looking at, shown above the field (for example "All recipes"). */
+  context?: React.ReactNode;
   onChangeText: (text: string) => void;
   onSend: () => void;
   onCancel: () => void;
@@ -43,6 +45,7 @@ export default function ChatComposer({
   isSending,
   isUnavailable,
   isGeneralMode,
+  context,
   onChangeText,
   onSend,
   onCancel,
@@ -82,6 +85,7 @@ export default function ChatComposer({
         },
       ]}
     >
+      {context}
       {attachedImageUri && (
         <RNView
           style={[

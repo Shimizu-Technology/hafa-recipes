@@ -22,7 +22,8 @@ const TAB_ICONS: Record<string, [IconName, IconName]> = {
 /** The Import action sits in the middle slot, between these two halves of the route list. */
 const IMPORT_SLOT = 2;
 
-function useKeyboardVisible() {
+/** True while the software keyboard is up (iOS reports it as it starts to rise). */
+export function useKeyboardVisible() {
   const [visible, setVisible] = useState(() => Keyboard.isVisible());
   useEffect(() => {
     // iOS fires the "will" events early enough that the bar leaves with the keyboard.

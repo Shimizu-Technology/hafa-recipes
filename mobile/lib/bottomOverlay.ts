@@ -52,18 +52,23 @@ export function overlayBottom({ inTabs, tabInset, windowInset, clearance, stacke
   return windowInset + clearance + stacked;
 }
 
+/** Height of the floating Ask Håfa pill (kept here so lists can clear it without importing UI). */
+export const ASK_PILL_HEIGHT = 48;
+
 /**
  * Bottom padding for a tab screen's scroll content. Tab screens end at the top of
- * the opaque tab bar, so only the screen's own spacing and a docked cook timer
- * pill need room for the last row to scroll clear.
+ * the opaque tab bar, so only the screen's own spacing, a docked cook timer pill
+ * and the floating Ask pill need room for the last row to scroll clear.
  */
-export function scrollEndPadding(base: number, timerDocked = false): number {
-  return base + (timerDocked ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0);
+export function scrollEndPadding(base: number, timerDocked = false, askPill = false): number {
+  return base
+    + (timerDocked ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0)
+    + (askPill ? ASK_PILL_HEIGHT + OVERLAY_GAP : 0);
 }
 
-/** `scrollEndPadding` for a tab screen, with room for the docked timer pill while a timer runs. */
-export function useTabScrollEndPadding(base: number): number {
-  return scrollEndPadding(base, useCookTimerRunning());
+/** `scrollEndPadding` for a tab screen, with room for a running timer and, where shown, the Ask pill. */
+export function useTabScrollEndPadding(base: number, { askPill = false }: { askPill?: boolean } = {}): number {
+  return scrollEndPadding(base, useCookTimerRunning(), askPill);
 }
 
 export type CookTimerPlacement = 'hidden' | 'dock' | 'top';
