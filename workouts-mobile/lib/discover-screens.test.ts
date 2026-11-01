@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
   publishWorkout: vi.fn(),
   back: vi.fn(),
   navigate: vi.fn(),
+  beginDrag: vi.fn(),
   announce: vi.fn(),
   share: vi.fn(),
   active: null as null | { workout: { title: string }; source: { workout_id: string; workout_revision: number } },
@@ -158,6 +159,7 @@ vi.mock("@/components/discover-card", () => ({
 }));
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionTile: "CollectionTile", LIBRARY_GRID_GAP: 12 }));
+vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/discover-grid-card", () => ({
   DiscoverGrid: "DiscoverGrid",
@@ -1318,6 +1320,13 @@ it("Library long-press starts selecting that workout, and Select all covers ever
   expect(libraryCard(saved.title)!.props.selected).toBeUndefined(); expect(button("Add selected to collection")).toBeUndefined();
   await act(async () => libraryCard(saved.title)!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: saved.id } });
+});
+it("Library scrolls back to the top when its selected tab is tapped again", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  // Library draws its own list, so it registers that list for tab re-taps itself.
+  expect(nodes("TabScrollToTop")).toHaveLength(1);
+  expect(nodes("FlatList")[0].props.onScrollBeginDrag).toBe(fixture.beginDrag);
 });
 it("Library loads the next page as the list nears its end", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
