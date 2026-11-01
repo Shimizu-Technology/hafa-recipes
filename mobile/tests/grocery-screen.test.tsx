@@ -1,3 +1,7 @@
+vi.mock('@/components/chrome/HeaderButton', () => ({ HeaderIconButton: 'TouchableOpacity', headerRightOptions: (render: () => unknown) => ({ headerRight: render }) }));
+vi.mock('@/components/chrome/SegmentedControl', () => ({ SegmentedControl: 'SegmentedControl' }));
+vi.mock('@/components/chrome/Chips', () => ({ Chip: 'Chip' }));
+vi.mock('@/components/TabChrome', () => ({ AccountHeaderButton: 'AccountHeaderButton' }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
@@ -379,7 +383,7 @@ describe('GroceryScreen shopping views', () => {
         (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
       )).toHaveLength(1);
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'ellipsis-horizontal',
+        (instance) => instance.props.accessibilityLabel === 'More grocery list actions',
       )).toHaveLength(1);
 
       mocks.authState.isSignedIn = false;
@@ -391,7 +395,7 @@ describe('GroceryScreen shopping views', () => {
         (instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox',
       )).toHaveLength(0);
       expect(renderer.container.queryAll(
-        (instance) => instance.type === 'Ionicons' && instance.props.name === 'ellipsis-horizontal',
+        (instance) => instance.props.accessibilityLabel === 'More grocery list actions',
       )).toHaveLength(0);
     } finally {
       await act(async () => renderer.unmount());
@@ -437,16 +441,14 @@ describe('GroceryScreen shopping views', () => {
       });
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
 
-      const allTab = renderer.container.queryAll(
-        (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel === 'Show all grocery items');
-      await act(async () => allTab!.props.onPress());
+      const view = () => renderer.container.queryAll((instance) => instance.type === 'SegmentedControl')[0];
+      expect(view().props.value).toBe('toBuy');
+      expect(view().props.options.map((option: { label: string }) => option.label)).toEqual(['To buy', 'All']);
+      await act(async () => view().props.onChange('all'));
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(2);
 
-      const toBuyTab = renderer.container.queryAll(
-        (instance) => instance.type === 'TouchableOpacity',
-      ).find((button) => button.props.accessibilityLabel === 'Show items to buy');
-      await act(async () => toBuyTab!.props.onPress());
+      expect(view().props.value).toBe('all');
+      await act(async () => view().props.onChange('toBuy'));
       expect(renderer.container.queryAll((instance) => instance.type === 'TouchableOpacity' && instance.props.accessibilityRole === 'checkbox')).toHaveLength(1);
     } finally {
       await act(async () => renderer.unmount());
@@ -562,7 +564,7 @@ describe('GroceryScreen shopping views', () => {
 
       const copy = renderedText(renderer);
       expect(copy.toLowerCase()).not.toContain('null');
-      expect(copy).toContain('tbsp ');
+      expect(copy).toMatch(/1 tbsp(\s|$)/);
 
       const overflow = renderer.container.queryAll(
         (instance) => instance.type === 'TouchableOpacity',

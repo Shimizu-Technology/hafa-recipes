@@ -55,6 +55,10 @@ import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
+import { Chip } from '@/components/chrome/Chips';
+import { HeaderIconButton, headerRightOptions } from '@/components/chrome/HeaderButton';
+import { SegmentedControl } from '@/components/chrome/SegmentedControl';
+import { AccountHeaderButton } from '@/components/TabChrome';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -764,8 +768,7 @@ function GroceryScreenContent() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placement: 'stacked', placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
-        style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="More grocery list actions"><Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
+      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placement: 'stacked', placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, ...headerRightOptions(() => <>{isAuthenticated && <HeaderIconButton icon="ellipsis-horizontal" accessibilityLabel="More grocery list actions" onPress={handleShowOverflowMenu} />}<AccountHeaderButton /></>) }} />
       <SectionList
         ref={listRef}
         style={[styles.container, { backgroundColor: colors.groupedBackground }]}
@@ -791,12 +794,13 @@ function GroceryScreenContent() {
         </Text>}
 
         {/* Focus the shopping view while keeping completed items close by. */}
-        {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && (
-          <TouchableOpacity onPress={() => setShowChecked(!showChecked)} accessibilityRole="button"
-            accessibilityLabel={showChecked ? 'Show items to buy' : 'Show all grocery items'} style={{ minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' }}>
-            <Text style={{ color: colors.actionText, fontSize: 15, lineHeight: 20 }}>{showChecked ? 'All · Show to buy' : 'To buy · Show all'}</Text>
-          </TouchableOpacity>
-        )}
+        <RNView style={styles.viewRow}>
+          {((countData && countData.total > 0) || (groceryItems && groceryItems.length > 0)) && <RNView style={{ flex: 1 }}>
+            <SegmentedControl accessibilityLabel="Grocery view" value={showChecked ? 'all' : 'toBuy'} onChange={value => setShowChecked(value === 'all')}
+              options={[{ value: 'toBuy', label: 'To buy' }, { value: 'all', label: 'All' }]} />
+          </RNView>}
+          <Chip label="Pantry" icon="basket-outline" onPress={() => router.push(appRoutes.pantry)} accessibilityLabel="Open my pantry" />
+        </RNView>
           </>
         )}
       </RNView>}
@@ -806,16 +810,6 @@ function GroceryScreenContent() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={ListEmpty}
         ListFooterComponent={isAuthenticated ? <RNView>
-        <TouchableOpacity
-          onPress={() => router.push(appRoutes.pantry)}
-          style={[styles.pantryLink, { backgroundColor: colors.backgroundSecondary }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open my pantry"
-        >
-          <Ionicons name="basket-outline" size={19} color={colors.actionText} />
-          <Text style={{ color: colors.actionText, fontWeight: fontWeight.semibold, flex: 1 }}>Pantry</Text>
-          <Ionicons name="chevron-forward" size={17} color={colors.actionText} />
-        </TouchableOpacity>
         {readyForPantry.length > 0 && <TouchableOpacity
           onPress={handleAddCheckedToPantry}
           disabled={transferToPantry.isPending}
@@ -899,9 +893,15 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   header: {
-    paddingTop: 8,
-    paddingBottom: spacing.md,
+    paddingTop: 4,
+    paddingBottom: spacing.sm,
     paddingHorizontal: 0,
+  },
+  viewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
   },
   titleRow: {
     flexDirection: 'row',
@@ -915,13 +915,6 @@ const styles = StyleSheet.create({
   headerButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  headerIconButton: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.sm,
   },
   subtitleRow: {
     flexDirection: 'row',
