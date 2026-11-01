@@ -54,6 +54,7 @@ import {
   ChatStreamUnavailableError,
   type ChatDeltaHandler,
   isChatAbortError,
+  parseRecipeRefs,
   streamChatRequest,
 } from './chatStream';
 
@@ -1149,7 +1150,7 @@ class ApiClient {
       if (error instanceof ChatStreamUnavailableError && !signal?.aborted) {
         const { data } = await this.client.post<ChatResponse>(fallbackPath, payload, { signal });
         onDelta?.(data.response, data.response);
-        return data;
+        return { ...data, recipe_refs: parseRecipeRefs(data.recipe_refs) };
       }
       if (!isChatAbortError(error, signal)) {
         const streamError = error as {

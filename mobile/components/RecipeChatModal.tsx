@@ -35,8 +35,11 @@ import { useAuth } from '@clerk/expo';
 
 import { View, Text, useColors } from '@/components/Themed';
 import ChatComposer from './ChatComposer';
+import { ChatRecipeRefs } from './ChatRecipeRefs';
+import { useRouter } from 'expo-router';
+import { parseRecipeRefs } from '@/lib/chatStream';
 import { ChatScopeChips, type ChatScope } from './ChatScopeChips';
-import { Recipe, ChatMessage } from '@/types/recipe';
+import { Recipe, ChatMessage, type ChatRecipeRef } from '@/types/recipe';
 import { useChatWithRecipe, useCookingChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
 import { spacing, fontFamily, fontSize, fontWeight, radius } from '@/constants/Colors';
@@ -139,6 +142,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
     return persistChatHistory(key, text);
   }, [authority]);
   const colors = useColors();
+  const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
   
   // Determine mode: recipe-specific or general cooking
@@ -860,6 +864,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
         role: 'assistant',
         content: response.response,
         status: 'sent',
+        ...(parseRecipeRefs(response.recipe_refs).length ? { recipe_refs: parseRecipeRefs(response.recipe_refs) } : {}),
       };
       const currentMessages = activeStorageKeyRef.current === conversationKey
         ? messagesRef.current
@@ -977,6 +982,12 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
     void stop();
     onClose();
   }, [cancelVoiceInput, onClose, stop]);
+
+  /** A recipe card in an answer closes chat and opens that recipe. */
+  const openRecipeRef = useCallback((ref: ChatRecipeRef) => {
+    handleClose();
+    router.push(`/recipe/${ref.id}`);
+  }, [handleClose, router]);
 
   /** Copy message text and briefly show success feedback on that bubble. */
   const handleCopyMessage = async (text: string, messageId: string) => {
@@ -1250,6 +1261,9 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                   </Markdown>
                 )}
               </RNView>
+              {msg.role === 'assistant' && msg.status !== 'sending' && (
+                <ChatRecipeRefs refs={parseRecipeRefs(msg.recipe_refs)} onOpen={openRecipeRef} />
+              )}
 
               {/* Action Bar - Below Bubble */}
               <RNView 

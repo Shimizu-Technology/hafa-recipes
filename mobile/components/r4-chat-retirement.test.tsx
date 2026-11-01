@@ -1,3 +1,4 @@
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('./ChatScopeChips', () => ({ ChatScopeChips: 'ChatScopeChips' }));
 import React from 'react';
 import { act } from 'react';

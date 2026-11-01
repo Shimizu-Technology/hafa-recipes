@@ -1,4 +1,4 @@
-import type { ChatRequest, ChatResponse } from '@/types/recipe';
+import type { ChatRecipeRef, ChatRequest, ChatResponse } from '@/types/recipe';
 
 type ExpoFetch = typeof import('expo/fetch')['fetch'];
 
@@ -32,9 +32,27 @@ export class ChatStreamHttpError extends Error {
   }
 }
 
+const MAX_RECIPE_REFS = 12;
+
+/** Keep only well-formed recipe references from an untrusted response; anything else means none. */
+export function parseRecipeRefs(value: unknown): ChatRecipeRef[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const refs: ChatRecipeRef[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const { id, title, image_url: imageUrl } = item as Record<string, unknown>;
+    if (typeof id !== 'string' || !id || typeof title !== 'string' || !title.trim() || seen.has(id)) continue;
+    seen.add(id);
+    refs.push({ id, title: title.trim(), image_url: typeof imageUrl === 'string' && imageUrl ? imageUrl : null });
+    if (refs.length === MAX_RECIPE_REFS) break;
+  }
+  return refs;
+}
+
 type ChatStreamEvent =
   | { type: 'delta'; text: string }
-  | { type: 'done' }
+  | { type: 'done'; recipeRefs: ChatRecipeRef[] }
   | { type: 'error'; status: number; code?: string; message: string };
 
 /** Parse and validate one untrusted NDJSON event from the API. */
@@ -52,7 +70,7 @@ export function parseChatStreamEvent(line: string): ChatStreamEvent {
   if (event.type === 'delta' && typeof event.text === 'string' && event.text) {
     return { type: 'delta', text: event.text };
   }
-  if (event.type === 'done') return { type: 'done' };
+  if (event.type === 'done') return { type: 'done', recipeRefs: parseRecipeRefs(event.recipe_refs) };
   if (
     event.type === 'error'
     && typeof event.status === 'number'
@@ -124,6 +142,7 @@ export async function streamChatRequest({
   let buffer = '';
   let fullResponse = '';
   let completed = false;
+  let recipeRefs: ChatRecipeRef[] = [];
 
   const consumeLine = (line: string) => {
     if (!line.trim()) return;
@@ -133,6 +152,7 @@ export async function streamChatRequest({
     }
     if (event.type === 'done') {
       completed = true;
+      recipeRefs = event.recipeRefs;
       return;
     }
     if (completed) throw new Error('The assistant returned data after completion.');
@@ -164,7 +184,7 @@ export async function streamChatRequest({
   if (!completed || !fullResponse) {
     throw new Error('The assistant response ended before it was complete.');
   }
-  return { response: fullResponse };
+  return { response: fullResponse, recipe_refs: recipeRefs };
 }
 
 export function isChatAbortError(error: unknown, signal?: AbortSignal): boolean {

@@ -8,6 +8,7 @@ import {
   ChatStreamUnavailableError,
   isChatAbortError,
   parseChatStreamEvent,
+  parseRecipeRefs,
   streamChatRequest,
 } from './chatStream';
 
@@ -39,7 +40,7 @@ describe('chat streaming transport', () => {
       payload: { message: 'How should I heat this?' },
       onDelta,
       fetchImpl: fetchImpl as never,
-    })).resolves.toEqual({ response: 'Use low heat. Stir often.' });
+    })).resolves.toEqual({ response: 'Use low heat. Stir often.', recipe_refs: [] });
     expect(onDelta).toHaveBeenNthCalledWith(1, 'Use low heat.', 'Use low heat.');
     expect(onDelta).toHaveBeenNthCalledWith(
       2,
@@ -137,5 +138,27 @@ describe('chat streaming transport', () => {
     const controller = new AbortController();
     controller.abort();
     expect(isChatAbortError(new Error('request failed'), controller.signal)).toBe(true);
+  });
+});
+
+describe('library recipe references', () => {
+  it('returns refs from the final done event and treats an older server as none', async () => {
+    const run = (done: string) => streamChatRequest({
+      url: 'https://api.example.test/api/chat/cooking/stream', token: null, payload: { message: 'chicken?' },
+      fetchImpl: vi.fn(async () => streamingResponse(['{"type":"delta","text":"Try these."}\n', `${done}\n`])) as never,
+    });
+    await expect(run('{"type":"done","recipe_refs":[{"id":"r1","title":"Chicken Adobo","image_url":"https://img.test/a.jpg"},{"id":"r2","title":"Kelaguen","image_url":null}]}'))
+      .resolves.toEqual({ response: 'Try these.', recipe_refs: [
+        { id: 'r1', title: 'Chicken Adobo', image_url: 'https://img.test/a.jpg' },
+        { id: 'r2', title: 'Kelaguen', image_url: null },
+      ] });
+    await expect(run('{"type":"done"}')).resolves.toEqual({ response: 'Try these.', recipe_refs: [] });
+  });
+
+  it('drops malformed and duplicate refs instead of failing the answer', () => {
+    expect(parseRecipeRefs(undefined)).toEqual([]);
+    expect(parseRecipeRefs('nope')).toEqual([]);
+    expect(parseRecipeRefs([{ id: 'a', title: ' Soup ' }, { id: 'a', title: 'Again' }, { id: '', title: 'x' }, { id: 'b' }, null, { id: 'c', title: 'Rice', image_url: 5 }]))
+      .toEqual([{ id: 'a', title: 'Soup', image_url: null }, { id: 'c', title: 'Rice', image_url: null }]);
   });
 });
