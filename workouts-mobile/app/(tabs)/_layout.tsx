@@ -17,7 +17,9 @@ export const askTabs = ["train", "library", "discover", "progress"];
  */
 export default function Layout() {
   const c = useColors();
-  const route = useSegments()[1] ?? "train";
+  // Typed routes narrow this layout's segments; read the child tab name loosely.
+  const segments: readonly string[] = useSegments();
+  const route = segments[1] ?? "train";
   const bar = useTabScreenBottomInset();
   useEffect(() => { resetAskScroll(); }, [route]);
   return <View style={{ flex: 1, backgroundColor: c.background }}>
