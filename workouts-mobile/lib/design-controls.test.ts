@@ -106,7 +106,7 @@ it("places list duration beside the fixed thumbnail so AX5 text can grow", () =>
   expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain("120 min");
 });
 
-import { BrowseLinks } from "../components/browse-links";
+import { BrowseLinks, FilterSummary } from "../components/browse-links";
 it.each([1, 3.1])("separates scrollable browse links at font scale %s", scale => {
   f.fontScale = scale;
   const onPress = vi.fn();
@@ -115,9 +115,44 @@ it.each([1, 3.1])("separates scrollable browse links at font scale %s", scale =>
   expect(scroll.props.horizontal).toBe(true);
   const rows = view!.root.findAllByType("View" as never).filter(node => node.props.style?.flexDirection === "row");
   expect(rows).toHaveLength(scale >= 1.3 ? 2 : 1);
-  for (const row of rows) expect(row.props.style.gap).toBeGreaterThanOrEqual(Math.max(16, 15 * scale * 0.75));
-  const links = view!.root.findAllByType("Button" as never);
-  expect(links.map(node => node.props.title)).toEqual(["Collections", "Programs", "Needs info · 1", "Filter"]);
+  // Text-to-text spacing is the row gap plus both capsule insets.
+  for (const row of rows) expect(row.props.style.gap + 20).toBeGreaterThanOrEqual(Math.max(16, 15 * scale * 0.75));
+  const links = view!.root.findAllByType("Pressable" as never);
+  expect(links.map(node => node.props.accessibilityLabel)).toEqual(["Collections", "Programs", "Needs info · 1", "Filter"]);
+  for (const link of links) expect(link.props.style.minHeight).toBeGreaterThanOrEqual(44);
   act(() => links[3].props.onPress());
   expect(onPress).toHaveBeenCalledOnce();
+});
+it("shows selected filter links as a tonal accent capsule and announces the state", () => {
+  const links = (programs: boolean) => [
+    { title: "Collections", onPress() {} },
+    { title: "Programs", selected: programs, onPress() {} },
+    { title: "Needs info · 2", selected: true, onPress() {} },
+  ];
+  act(() => { view = create(createElement(BrowseLinks, { links: links(false) })); });
+  const states = () => view!.root.findAllByType("Pressable" as never).map(node => node.props.accessibilityState);
+  // Navigation links carry no selected state; filter links always say whether they're on.
+  expect(states()).toEqual([{ disabled: false }, { disabled: false, selected: false }, { disabled: false, selected: true }]);
+  const capsule = (title: string) => view!.root.findAllByType("Copy" as never).find(node => node.props.children === title)!;
+  expect(capsule("Programs").parent!.props.style.backgroundColor).toBe("transparent");
+  expect(capsule("Needs info · 2").parent!.props.style.backgroundColor).toBe(light.accentTint);
+  expect(capsule("Needs info · 2").props).toMatchObject({ color: light.onActionSoft, style: { fontWeight: "600" } });
+  expect(capsule("Programs").props.style).toBeUndefined();
+  // Selecting never changes the capsule padding, so the row doesn't shift.
+  const before = capsule("Programs").parent!.props.style.paddingHorizontal;
+  act(() => { view!.update(createElement(BrowseLinks, { links: links(true) })); });
+  expect(states()[1]).toEqual({ disabled: false, selected: true });
+  expect(capsule("Programs").parent!.props.style).toMatchObject({ backgroundColor: light.accentTint, paddingHorizontal: before });
+});
+it("summarises other filters on one quiet line with a reachable Clear", () => {
+  const onClear = vi.fn();
+  act(() => { view = create(createElement(FilterSummary, { items: [], onClear })); });
+  expect(view!.toJSON()).toBeNull();
+  act(() => { view!.update(createElement(FilterSummary, { items: ["Favorites", "Up to 30 min"], onClear })); });
+  expect(view!.root.findAllByType("Copy" as never)[0].props).toMatchObject({ tone: "muted", children: "Showing: Favorites, Up to 30 min" });
+  const clear = view!.root.findByType("Pressable" as never);
+  expect(clear.props).toMatchObject({ accessibilityRole: "button", accessibilityLabel: "Clear filters" });
+  expect(clear.props.style.minHeight).toBeGreaterThanOrEqual(44);
+  act(() => clear.props.onPress());
+  expect(onClear).toHaveBeenCalledOnce();
 });

@@ -22,7 +22,12 @@ it('names five native tabs with SF Symbols and a platform search role', async ()
     expect(tabs.map(n => n.props.name)).toEqual(['recipes', 'discover', 'planner', 'grocery', 'search']);
     expect(tabs[4].props.role).toBe('search');
     expect(r.container.queryAll(n => n.type === 'Label').map(n => n.props.children)).toEqual(['Library', 'Discover', 'Plan', 'Grocery', 'Search']);
-    expect(r.container.queryAll(n => n.type === 'Icon').every(n => n.props.sf)).toBe(true);
+    const icons = r.container.queryAll(n => n.type === 'Icon').map(n => n.props.sf);
+    expect(icons.every(Boolean)).toBe(true);
+    expect(icons[0]).toEqual({ default: 'books.vertical', selected: 'books.vertical.fill' });
+    expect(icons[3]).toEqual({ default: 'cart', selected: 'cart.fill' });
+    // iOS 18's full-width bar must keep its material over the photo grid.
+    expect(r.container.queryAll(n => n.type === 'NativeTabs')[0].props.disableTransparentOnScrollEdge).toBe(true);
   } finally { await act(async () => r.unmount()); }
 });
 

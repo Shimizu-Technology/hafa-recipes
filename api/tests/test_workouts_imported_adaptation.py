@@ -7,7 +7,7 @@ import pytest
 
 from app.domains.workouts.catalog import EXERCISES, match_exercise
 from app.domains.workouts.programming import RULE_VERSION, adapt_workout, build_program
-from app.domains.workouts.schemas import Evidence, WorkoutBlock, WorkoutContent, WorkoutExecution
+from app.domains.workouts.schemas import AmrapExecution, Evidence, WorkoutBlock, WorkoutContent
 from tests.test_workout_programming import START, profile
 
 NAMES = ["Good Morning + Shoulder Press", "Bodyweight Squat", "Push Ups", "Glute Bridge",
@@ -98,7 +98,7 @@ def test_timed_single_round_drops_trailing_exercises_only():
 
 
 def test_shorter_amrap_keeps_unknown_moves_and_repetition_targets():
-    source = imported(rounds=None, execution=WorkoutExecution(mode="amrap", time_cap_seconds=1200))
+    source = imported(rounds=None, execution=AmrapExecution(mode="amrap", time_cap_seconds=1200))
     result = adapt_workout(source, profile(), 10)
     assert result.status == "ready", result.questions
     assert result.workout.blocks[0].execution.time_cap_seconds == 600
@@ -132,7 +132,7 @@ def shortening_case(kind):
                 item.sets = 1
     elif kind == "amrap":
         source.blocks[0].rounds = None
-        source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
+        source.blocks[0].execution = AmrapExecution(mode="amrap", time_cap_seconds=1200)
         directions = "20-minute AMRAP."
     source.instructions = [directions]
     for index, item in enumerate(source.blocks[0].exercises, 1):
@@ -194,7 +194,7 @@ def test_sequential_tail_reduction_keeps_ambiguous_and_unsupported_cases_gated(c
         source.blocks.append(WorkoutBlock(id="cooldown", label="Cooldown", rounds=1,
                                          exercises=[item.model_copy(deep=True)]))
     elif change == "execution":
-        source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
+        source.blocks[0].execution = AmrapExecution(mode="amrap", time_cap_seconds=1200)
     elif change == "exclusions":
         training_profile = profile(movement_exclusions=["impact"])
     elif change == "substitution":

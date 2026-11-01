@@ -60,6 +60,8 @@ export type ColorTokens = {
   accentText: string;
   onAccent: string;
   accentSoft: string;
+  /** Tonal accent fill behind a selected filter link; accent text on it stays ≥4.5:1. */
+  accentTint: string;
   hero: string;
   onHero: string;
   heroMuted: string;
@@ -89,6 +91,7 @@ export const light: ColorTokens = {
   text: "#000000", muted: "rgba(60,60,67,0.74)", border: "rgba(60,60,67,0.29)", borderStrong: "#767680",
   action: "#C8471C", onAction: "#FFFFFF", actionSoft: "rgba(118,118,128,0.12)", onActionSoft: "#B53F17",
   accent: "#C8471C", accentText: "#B53F17", onAccent: "#FFFFFF", accentSoft: "rgba(118,118,128,0.12)",
+  accentTint: "rgba(200,71,28,0.14)",
   hero: "#F2F2F7", onHero: "#000000", heroMuted: "rgba(60,60,67,0.74)", heroAccent: "#B53F17",
   onHeroSoft: "rgba(118,118,128,0.12)", success: "#207A36", warning: "#765300",
   error: "#BC231A", errorSoft: "#FFF0EF", focus: "#C8471C", overlay: "rgba(0,0,0,0.42)",
@@ -103,6 +106,7 @@ export const dark: ColorTokens = {
   text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", border: "rgba(84,84,88,0.65)", borderStrong: "#8E8E93",
   action: "#FF7A50", onAction: "#2A0D00", actionSoft: "rgba(118,118,128,0.24)", onActionSoft: "#FF7A50",
   accent: "#FF7A50", accentText: "#FF7A50", onAccent: "#2A0D00", accentSoft: "rgba(118,118,128,0.24)",
+  accentTint: "rgba(255,122,80,0.2)",
   hero: "#1C1C1E", onHero: "#FFFFFF", heroMuted: "rgba(235,235,245,0.60)", heroAccent: "#FF7A50",
   onHeroSoft: "rgba(118,118,128,0.24)", success: "#30D158", warning: "#FFD60A",
   error: "#FF453A", errorSoft: "#301412", focus: "#FF7A50", overlay: "rgba(0,0,0,0.6)",
