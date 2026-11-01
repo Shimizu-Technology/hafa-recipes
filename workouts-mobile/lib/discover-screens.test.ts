@@ -92,7 +92,7 @@ vi.mock("@/lib/context", () => {
     }),
   };
 });
-vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader" }));
+vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader", headerActions: (element: unknown) => ({ headerRight: () => element }) }));
 vi.mock("@/components/publishing-disclosure", async () => {
   const { withPublishingDisclosure } = await import("./discover");
   return {
@@ -142,7 +142,7 @@ vi.mock("expo-router", async () => {
 }); });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
-  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "Grow", "IconButton",
+  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "Grow", "HeaderButton", "IconButton", "SearchField",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])),
     Screen: ({ children, footer, list, ...props }: PropsWithChildren<{ footer?: ReactNode; list?: (body: object) => ReactNode; [key: string]: unknown }>) =>
@@ -192,7 +192,7 @@ const link = (title: string) => nodes("Pressable").find((n) => n.props.accessibi
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title) ?? link(title);
 const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === "small")?.children.join("");
-const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
+const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => ["IconButton", "HeaderButton"].includes(String(n.type)) && n.props.label === label)[0];
 it("omits an empty reference card when source identity is already in the header", async () => {
   await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
     source_thumbnail_url: "https://example.test/cover.jpg", source_url: "https://example.test/source",
@@ -550,7 +550,7 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
   // Contextual Coach is labelled in content; share and overflow stay in the header.
-  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "IconButton").map((n) => n.props.label))
+  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "HeaderButton").map((n) => n.props.label))
     .toEqual(["Share workout", "More workout actions"]);
   await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });

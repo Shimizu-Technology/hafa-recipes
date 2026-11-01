@@ -13,7 +13,7 @@ import {
   Copy,
   Empty,
   Field,
-  IconButton,
+  HeaderButton,
   ListRow,
   Notice,
   RestTimer,
@@ -379,7 +379,7 @@ export default function Training() {
       subtitle={e ? [d.workout.title, group].filter(Boolean).join(" · ") : undefined}
       action={
         <Row gap={8}>
-          <IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />
+          <HeaderButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />
         </Row>
       }
       footer={<>

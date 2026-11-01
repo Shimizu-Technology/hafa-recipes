@@ -187,7 +187,29 @@ export function IconButton({
   );
 }
 
-/** Account entry in tab headers: the person's initial (or photo), like Håfa Recipes. */
+/** Header circle size (spec v2 §1.2): 36pt tonal circle inside a 44pt touch target. */
+const HEADER_BUTTON = 36;
+/**
+ * The one header action style: +, ···, share, close. Tonal fill, label-colour icon,
+ * so iOS 18, iOS 26 and Android draw the same thing. `primary` tints the icon for the one main action.
+ */
+export function HeaderButton({ icon, label, onPress, primary = false, disabled = false }: {
+  icon: IconName; label: string; onPress(): void; primary?: boolean; disabled?: boolean;
+}) {
+  const c = useColors();
+  const press = usePressScale(disabled);
+  const AnimatedPressable = animatedPressableComponent();
+  return (
+    <AnimatedPressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled}
+      onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={(touch.min - HEADER_BUTTON) / 2}
+      style={{ width: HEADER_BUTTON, height: HEADER_BUTTON, borderRadius: radii.full, backgroundColor: c.sunken,
+        alignItems: "center", justifyContent: "center", opacity: disabled ? 0.5 : press.opacity, transform: [{ scale: press.scale }] }}>
+      <Ionicons name={icon} size={20} color={primary ? c.accentText : c.text} />
+    </AnimatedPressable>
+  );
+}
+
+/** Account entry in tab headers: the person's initial (or photo) in the same tonal circle as the header buttons. */
 export function AccountButton() {
   const c = useColors();
   const identity = useAccountIdentity();
@@ -195,21 +217,20 @@ export function AccountButton() {
   const AnimatedPressable = animatedPressableComponent();
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const image = identity?.imageUrl && identity.imageUrl !== failedImage ? identity.imageUrl : undefined;
+  const size = 32;
   return (
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel="Open account and settings"
-      hitSlop={7}
+      hitSlop={(touch.min - size) / 2}
       onPress={() => router.push("/settings")}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       style={{
-        width: 30,
-        height: 30,
+        width: size,
+        height: size,
         borderRadius: radii.full,
-        borderWidth: 0,
-        borderColor: c.border,
-        backgroundColor: identity?.initial ? c.actionSoft : c.sunken,
+        backgroundColor: c.sunken,
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
@@ -218,11 +239,11 @@ export function AccountButton() {
       }}
     >
       {image ? (
-        <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: 30, height: 30 }} accessibilityIgnoresInvertColors />
+        <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: size, height: size }} accessibilityIgnoresInvertColors />
       ) : identity?.initial ? (
-        <Text allowFontScaling={false} style={{ ...typography.label, color: c.text }}>{identity.initial}</Text>
+        <Text allowFontScaling={false} style={{ fontSize: 15, lineHeight: 20, fontWeight: "600", color: c.text }}>{identity.initial}</Text>
       ) : (
-        <Ionicons name="person" size={19} color={c.onActionSoft} />
+        <Ionicons name="person" size={18} color={c.text} />
       )}
     </AnimatedPressable>
   );
@@ -373,6 +394,28 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
     <Copy kind="cardTitle" color={selected ? c.onAction : c.muted} align="center">{label}</Copy>
   </AnimatedPressable>;
+}
+
+/** Search at the top of a list (spec v2 §1.4): 40pt tonal field with a magnifier and a clear button. */
+export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
+  value: string; onChange(value: string): void; placeholder: string; label: string; onSubmit?(): void;
+}) {
+  const c = useColors();
+  const { fontScale } = useWindowDimensions();
+  const height = Math.max(40, Math.ceil(22 * fontScale) + 14);
+  return (
+    <View style={{ flex: 1, minHeight: height, borderRadius: 12, backgroundColor: c.sunken, flexDirection: "row", alignItems: "center", paddingLeft: 10, gap: 6 }}>
+      <Ionicons name="search" size={18} color={c.muted} />
+      <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
+        accessibilityLabel={label} accessibilityRole="search" returnKeyType="search" autoCapitalize="none" autoCorrect={false}
+        clearButtonMode="never" onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
+        style={{ flex: 1, minHeight: height, fontSize: 17, color: c.text, paddingVertical: 0 }} />
+      {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8} onPress={() => onChange("")}
+        style={{ width: 36, height: height, alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name="close-circle" size={18} color={c.muted} />
+      </Pressable>}
+    </View>
+  );
 }
 
 let accessoryCount = 0;
