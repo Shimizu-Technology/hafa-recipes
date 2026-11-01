@@ -249,7 +249,7 @@ export async function normalizeDocument(file: { uri: string; mimeType: string; n
 }
 export async function sourceFor(draft: CaptureDraft, guard: CaptureGuard): Promise<ExtractionRequest> {
   guard();
-  const source: ExtractionRequest = { kind: draft.kind, ai_consent: true, typed_formats: true };
+  const source: ExtractionRequest = { kind: draft.kind, ai_consent: true, ...(draft.typed_formats === false ? {} : { typed_formats: true }) };
   if (draft.text.trim()) source.text = draft.text.trim();
   if (draft.kind === "url") source.source_url = draft.source_url.trim();
   if (draft.kind === "images")

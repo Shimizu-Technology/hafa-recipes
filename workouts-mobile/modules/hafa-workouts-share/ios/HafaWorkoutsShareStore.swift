@@ -143,6 +143,8 @@ enum WorkoutsShareStore {
       var capture = payload
       capture["ownerId"] = stage["ownerId"]; capture["generation"] = stage["generation"]
       capture["accountScopeId"] = stage["accountScopeId"]; capture["isPublic"] = stage["isPublic"]
+      // This build runs EMOM, for-time and work/rest formats. Frozen with the capture so a retry repeats its body.
+      capture["typedFormats"] = true
       d.set(capture, forKey: key + ".capture")
       let keys = d.stringArray(forKey: pending) ?? []
       d.set(keys.contains(key) ? keys : keys + [key], forKey: pending)
@@ -254,9 +256,9 @@ enum WorkoutsShareStore {
     request.httpMethod = "POST"; request.timeoutInterval = 7
     request.setValue("Bearer " + state.1, forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    // typed_formats: this build runs EMOM, for-time and work/rest formats.
+    // A capture an older build saved was first sent without typed_formats; resend the same body under its ID.
     request.httpBody = try? JSONSerialization.data(withJSONObject: ["capture_id": capture, "url": source,
-      "is_public": state.2["isPublic"] as? Bool ?? false, "typed_formats": true])
+      "is_public": state.2["isPublic"] as? Bool ?? false, "typed_formats": state.2["typedFormats"] as? Bool ?? false])
     let network = network()
     network.dataTask(with: request) { data, response, _ in
       defer { network.finishTasksAndInvalidate() }

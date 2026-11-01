@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Speech from "expo-speech";
+// Installed and natively linked through `expo` (SDK 57); declare it directly at the next dependency-lock review.
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Button, Card, Copy, Field, IconButton, ListRow, Notice, Row, Screen, SectionHeader, SetRow, Sheet, formatClock, haptics, useColors } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { announce } from "@/components/training/session-parts";
@@ -33,12 +35,14 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   finish(status: "completed" | "partial", before?: ActualSet[]): void; discard(): void;
 }) {
   const c = useColors();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const [more, setMore] = useState(false);
   const [instructions, setInstructions] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [voice, setVoice] = useState(voiceCues);
   const [typed, setTyped] = useState("");
+  // Reps typed for each EMOM move that has no prescribed dose, by exercise index.
+  const [counts, setCounts] = useState<Record<number, string>>({});
   const format = d.timed_format;
   const block = d.workout.blocks[0];
   const elapsed = sessionElapsedMilliseconds(d, now);
@@ -61,11 +65,17 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     ? movesFor(interval, block, round).map((i) => moveText(block.exercises[i], round)).join(" + ")
     : block.exercises.map((e) => moveText(e, round)).join(", ");
   const amount = parseEntry(typed);
-  const typedValid = amount == null || (Number.isInteger(amount) && amount >= 0 && amount <= 1000);
-  const doseMissing = targetSteps.some((s) => repsFor(s.exercise, s.round_index) == null && s.exercise.duration_seconds == null && s.exercise.distance_meters == null);
+  const validReps = (value: number | null) => value == null || (Number.isInteger(value) && value >= 0 && value <= 1000);
+  // EMOM moves this interval with no prescribed dose: the person types reps for each of them (each side for a
+  // per-side move), and the moves with a dose keep it.
+  const doseless = format.mode === "emom" ? [...new Set(targetSteps.filter((s) => repsFor(s.exercise, s.round_index) == null &&
+    s.exercise.duration_seconds == null && s.exercise.distance_meters == null).map((s) => s.exercise_index))] : [];
+  const countFor = (index: number) => parseEntry(counts[index] ?? "");
+  const typedValid = validReps(amount) && doseless.every((i) => validReps(countFor(i)));
   const workSeconds = format.mode === "work_rest" ? format.work_seconds : null;
-  const askReps = format.mode === "work_rest" || (format.mode === "emom" && doseMissing);
-  useEffect(() => setTyped(""), [d.cursor]);
+  const askReps = format.mode === "work_rest" || doseless.length > 0;
+  const perSide = targetSteps.some((s) => s.side != null);
+  useEffect(() => { setTyped(""); setCounts({}); }, [d.cursor]);
 
   // One cue per phase change while the clock runs: haptic, a VoiceOver announcement and, if chosen, a spoken word.
   const cue = position ? `${position.index}:${position.phase}` : capReached ? "cap" : "running";
@@ -80,12 +90,23 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     announce(message);
     if (voice) Speech.speak(message.split(".")[0]);
   }, [cue]);
+  // Keep the screen on while the clock runs, so interval cues still fire with the phone set down.
+  const running = !d.paused && !finished;
+  useEffect(() => {
+    if (!running) return;
+    const tag = `format-session:${d.id}`;
+    void activateKeepAwakeAsync(tag).catch(() => undefined);
+    return () => { void deactivateKeepAwake(tag).catch(() => undefined); };
+  }, [running, d.id]);
 
   const mark = (completed: boolean) => {
     if (!typedValid) return;
-    // Done keeps the prescribed reps unless this interval asks for a count; a miss keeps only what was typed.
-    const reps = completed && !askReps ? null : amount;
-    log(targetSteps.map((s, i) => actualFor(s, completed, i === 0 ? reps : null, completed ? workSeconds : null)));
+    // Done keeps each prescribed dose, and a miss keeps only what was typed. Typed reps go to the move they were
+    // typed for, on every side: a dose-less EMOM move, the work/rest move, or the first move of a missed Death by minute.
+    const typedFor = (s: TrainingStep, i: number) => format.mode === "work_rest" ? amount
+      : doseless.includes(s.exercise_index) ? countFor(s.exercise_index)
+      : !completed && deathBy && i === 0 ? amount : null;
+    log(targetSteps.map((s, i) => actualFor(s, completed, typedFor(s, i), completed ? workSeconds : null)));
   };
   // For time: tick moves up to and including `index` in this round.
   const tickThrough = (index: number) => {
@@ -101,6 +122,9 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
 
   // Whole seconds elapsed, the same way the saved finish time counts them.
   const clockText = format.mode === "for_time" ? formatClock(Math.floor(elapsed / 1000)) : formatClock(position!.remaining);
+  // The clock grows with text size up to double, and never past the card's width: tabular digits are about
+  // 0.62 em. A computed size, not adjustsFontSizeToFit, which clips on the new architecture.
+  const clockSize = Math.min(56 * Math.min(fontScale, 2), (width - 96) / (clockText.length * 0.62));
   const caption = format.mode === "for_time"
     ? [format.time_cap_seconds != null ? `Cap ${formatClock(format.time_cap_seconds)}` : "No time cap", `Round ${Math.min(target ?? lastRound, block.rounds ?? 1)} of ${block.rounds ?? 1}`].join(" · ")
     : `${unit} ${position!.index}${interval!.intervals != null ? ` of ${interval!.intervals}` : ""}`;
@@ -123,7 +147,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   ) : step && started ? (
     <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
       <View style={{ flex: largeText(fontScale) ? undefined : 2 }}>
-        <Button size="lg" icon="checkmark" busy={busy} disabled={!typedValid || (askReps && format.mode === "emom" && amount == null)}
+        <Button size="lg" icon="checkmark" busy={busy} disabled={!typedValid || doseless.some((i) => countFor(i) == null)}
           title={format.mode === "work_rest" ? `Log interval ${target}` : `Done · ${unit.toLowerCase()} ${target}`} onPress={() => mark(true)} />
       </View>
       <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
@@ -153,7 +177,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
       <Card tone="accent">
         <Copy kind="caption" tone="accent">{caption}</Copy>
         {!!phaseWord && <Copy kind="title" tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
-        <Copy kind="numeric" style={{ fontSize: 56, lineHeight: 64 }} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`}>{clockText}</Copy>
+        <Copy kind="numeric" allowFontScaling={false} numberOfLines={1} style={{ fontSize: clockSize, lineHeight: Math.ceil(clockSize * 8 / 7) }} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`}>{clockText}</Copy>
         {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small">{formatClock(remaining)} left</Copy>}
         {!!nowLine && <Copy kind="label">{nowLine}</Copy>}
         {hasNext && <Copy kind="small" tone="muted">Next · {unit} {position!.index + 1}: {moves(position!.index + 1)}</Copy>}
@@ -166,8 +190,8 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
           {block.exercises.map((e, i) => {
             const done = d.actuals.some((a) => a.round_index === target && a.exercise_index === i && a.completed);
             return (
-              <Pressable key={i} accessibilityRole="button" accessibilityState={{ checked: done, disabled: done || busy }} disabled={done || busy}
-                accessibilityLabel={`${moveText(e, target!)}${done ? ", done" : ". Mark done"}`} onPress={() => tickThrough(i)}
+              <Pressable key={i} accessibilityRole="checkbox" accessibilityState={{ checked: done, disabled: done || busy }} disabled={done || busy}
+                accessibilityLabel={moveText(e, target!)} accessibilityHint={done ? undefined : "Ticks this move and the ones before it"} onPress={() => tickThrough(i)}
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, opacity: pressed ? 0.7 : 1 })}>
                 <Ionicons name={done ? "checkmark-circle" : "ellipse-outline"} size={26} color={done ? c.action : c.muted} />
                 <Copy style={{ flex: 1 }} tone={done ? "muted" : "default"}>{moveText(e, target!)}</Copy>
@@ -181,8 +205,12 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
         <Card compact>
           <Copy kind="label">{unit} {target} · {moves(target!)}</Copy>
           {target! < position!.index && <Copy kind="small" tone="muted">Not marked yet. Mark it done or missed to keep going.</Copy>}
-          {askReps && <Field label={format.mode === "work_rest" ? `Reps in interval ${target}` : `Reps in ${unit.toLowerCase()} ${target}`}
-            optional={format.mode === "work_rest"} numeric value={typed} onChange={setTyped} />}
+          {format.mode === "work_rest" && <Field label={`Reps in interval ${target}${perSide ? ", each side" : ""}`}
+            optional numeric value={typed} onChange={setTyped} />}
+          {doseless.map((i) => (
+            <Field key={i} label={`${block.exercises[i].name} reps in ${unit.toLowerCase()} ${target}${block.exercises[i].per_side ? ", each side" : ""}`}
+              numeric value={counts[i] ?? ""} onChange={(value) => setCounts((prior) => ({ ...prior, [i]: value }))} />
+          ))}
           {deathBy && <Copy kind="small" tone="muted">Missing a {unit.toLowerCase()} ends Death by. Type the reps you got first.</Copy>}
           {deathBy && !askReps && <Field label="Reps if you missed" optional numeric value={typed} onChange={setTyped} />}
         </Card>

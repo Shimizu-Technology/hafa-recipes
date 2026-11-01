@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Workout } from "./models";
-import { formatLabel, formatScore, ladderReps, movesFor, repsFor, timedFormat, timedFormatProblem } from "./timed-execution";
+import { formatLabel, formatScore, ladderReps, movesFor, repsFor, timedFormat, timedFormatProblem, timedStartHint } from "./timed-execution";
 import { blockSummary, executionError } from "./amrap-editor";
 
 type Block = Workout["blocks"][number];
@@ -60,6 +60,17 @@ describe("validation", () => {
     expect(timedFormatProblem({ kind: "session", blocks: [block({ mode: "emom", interval_seconds: 60, intervals: 200, rotation: null })] }))
       .toMatch(/up to 100 intervals/);
   });
+  it("hints at the actual reason on the detail screen: one timed part among others, several, or an unknown timer", () => {
+    const warmup: Block = { id: "warm", label: "Warm-up", grouping: "sequential", exercises: [{ name: "Jog", duration_seconds: 300 }] };
+    const emom = block({ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null });
+    expect(timedStartHint({ blocks: [warmup, emom] })).toBe("A timed part and 1 other part — you’ll choose how to track it.");
+    expect(timedStartHint({ blocks: [warmup, emom, { ...emom, id: "b" }] })).toBe("2 timed parts — you’ll choose how to track it.");
+    expect(timedStartHint({ blocks: [{ ...emom, execution: { mode: "emom", interval_seconds: 60, intervals: null, rotation: null } }] })).toMatch(/needs one more detail/);
+    const future = block({ mode: "chipper_v2", minutes: 9 } as never);
+    expect(timedStartHint({ blocks: [future] })).toMatch(/can’t run this timer/);
+    expect(timedStartHint({ blocks: [warmup, future] })).toMatch(/can’t run this timer/);
+    expect(timedFormatProblem({ kind: "session", blocks: [future] })).toMatch(/can’t run this workout’s timer yet/);
+  });
 });
 
 describe("reps per round", () => {
@@ -78,7 +89,7 @@ describe("reps per round", () => {
   });
   it("scores a for-time session stopped early without a cap", () => {
     const w = { kind: "session" as const, blocks: [block({ mode: "for_time", time_cap_seconds: null }, { rounds: 3 })] };
-    expect(formatScore(w, { status: "partial", active_seconds: 300, actuals: [{ round_index: 1, completed: true, reps: 10 }, { round_index: 2, completed: false, reps: 4 }] }))
+    expect(formatScore(w, { status: "partial", active_seconds: 300, actuals: [{ round_index: 1, completed: true, reps: 10 }, { round_index: 2, completed: false, reps: 4 }] }, true))
       .toBe("Stopped at 5:00 · 1 round + 4 reps");
   });
 });

@@ -26,6 +26,7 @@ import { useTraining, useOfflineTraining } from "@/lib/context";
 import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
+import { timedStartHint } from "@/lib/timed-execution";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
@@ -179,8 +180,7 @@ export default function WorkoutDetail() {
   const hint = !workout || offline.state.active ? null
     : workout.kind === "program" ? "This program runs over several days. Pick your days to train it."
       : exercises === 0 ? "No exercises yet."
-        : timedParts ? (workout.blocks.length > 1 ? `${workout.blocks.length} parts with a timer — you’ll choose how to track it.`
-          : "The timer needs one more detail — you’ll choose how to track it.")
+        : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
     <Screen native
