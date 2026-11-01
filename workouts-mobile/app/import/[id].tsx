@@ -450,7 +450,7 @@ export default function ImportReview() {
                       <Card key={block.id}>
                         <Copy kind="subheading">{block.label}</Copy>
                         <Copy kind="small" tone={block.rounds == null ? "accent" : "muted"}>
-                          {blockSummary(block)}{block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? " · Rounds not specified" : ""}
+                          {blockSummary(block, block.label)}{block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? " · Rounds not specified" : ""}
                           {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                         </Copy>
                         {block.exercises.map((e, index) => (

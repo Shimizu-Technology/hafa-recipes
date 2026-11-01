@@ -11,6 +11,8 @@ it("never asks for rest inside EMOM, Tabata or for-time, and asks for a missing 
   const emom: AuthoredWorkout = { title: "EMOM", kind: "session", provenance: "source", equipment_required: ["None"], blocks: [{ id: "e", label: "EMOM", grouping: "interval",
     execution: { mode: "emom", interval_seconds: 60, intervals: 20, rotation: "alternating" }, exercises: [{ name: "Burpees", reps_min: 10 }, { name: "Squats", reps_min: 15 }] }] };
   expect(missingDetails(emom)).toEqual([]);
+  const unset = { ...emom, blocks: [{ ...emom.blocks[0], execution: { mode: "emom" as const, interval_seconds: 60, intervals: 20, rotation: null } }] };
+  expect(missingDetails(unset).map((x) => x.label)).toEqual(["EMOM: one move per interval or every move each interval not specified"]);
   const tabata: AuthoredWorkout = { ...emom, blocks: [{ id: "t", label: "Tabata", grouping: "interval",
     execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: null }, exercises: [{ name: "Squats" }] }] };
   expect(missingDetails(tabata).map((x) => x.label)).toEqual(["Tabata: number of intervals not specified"]);

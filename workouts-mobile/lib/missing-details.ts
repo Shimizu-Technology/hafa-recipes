@@ -1,5 +1,5 @@
 import type { AuthoredWorkout } from "./models";
-import { isTimedFormat, openLadder } from "./timed-execution";
+import { isTimedFormat, openLadder, unsetRotation } from "./timed-execution";
 export interface MissingDetail { key: string; label: string; block?: string; exercise?: number }
 /** Unknown source facts are review prompts, never invented defaults or save errors. */
 export function missingDetails(w: AuthoredWorkout): MissingDetail[] {
@@ -13,6 +13,8 @@ export function missingDetails(w: AuthoredWorkout): MissingDetail[] {
       items.push({ key: `${b.id}:rounds`, block: b.id, label: `${b.label}: rounds not specified` });
     if (timed && timed.mode !== "for_time" && timed.intervals == null && !(timed.mode === "emom" && openLadder(b)))
       items.push({ key: `${b.id}:intervals`, block: b.id, label: `${b.label}: number of intervals not specified` });
+    if (timed && unsetRotation(timed, b))
+      items.push({ key: `${b.id}:rotation`, block: b.id, label: `${b.label}: one move per interval or every move each interval not specified` });
     if (!b.execution && b.rounds !== 1 && b.rest_between_rounds_seconds == null && b.grouping !== "sequential")
       items.push({ key: `${b.id}:rest`, block: b.id, label: `${b.label}: rest between rounds not specified` });
     b.exercises.forEach((e, i) => {
