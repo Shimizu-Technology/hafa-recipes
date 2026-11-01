@@ -33,7 +33,8 @@ import { SavedSourceText } from "@/components/workout-source";
 import { WorkoutHero } from "@/components/workout-hero";
 import { workoutOriginDescription } from "@/lib/workout-presentation";
 import { workoutMeta } from "@/lib/plan-presentation";
-import { amrapCap, blockSummary } from "@/lib/amrap-editor";
+import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
+import { formatLabel } from "@/lib/timed-execution";
 import { workoutDeletionBlock } from "@/lib/organization";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -157,7 +158,9 @@ export default function WorkoutDetail() {
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
-  const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null,
+  // Same words as the library card: "EMOM 20", "AMRAP 15", "21-15-9 for time · cap 12".
+  const format = workout?.blocks.length === 1 ? formatLabel(workout.blocks[0]) : null;
+  const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null, format,
     exercises, equipment: workout.equipment_required }) : undefined;
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
@@ -237,7 +240,7 @@ export default function WorkoutDetail() {
                   {[
                     block.label || null,
                     blockSummary(block, block.label),
-                    block.rounds == null && block.grouping !== "sequential" && block.execution?.mode !== "amrap" ? "Rounds not specified" : null,
+                    block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? "Rounds not specified" : null,
                     block.rest_between_rounds_seconds != null ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
                   ].filter(Boolean).join(" · ")}
                 </Copy>

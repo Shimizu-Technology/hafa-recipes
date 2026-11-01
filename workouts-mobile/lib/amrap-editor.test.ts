@@ -48,3 +48,22 @@ it("leaves out a grouping word the block label already says", () => {
 it("keeps the AMRAP time-cap summary", () => {
   expect(blockSummary(workout.blocks[0] as Block)).toMatch(/^AMRAP · /);
 });
+
+it("round-trips typed formats without dropping their values or rep patterns", async () => {
+  const { changeFormat, changeFormatFields, formatChoice, parseRepScheme } = await import("./amrap-editor");
+  const base = { title: "T", kind: "session" as const, provenance: "source" as const, estimated_minutes: 20,
+    blocks: [{ id: "b", label: "EMOM", grouping: "interval" as const, rounds: null,
+      execution: { mode: "emom" as const, interval_seconds: 60, intervals: 20, rotation: null },
+      exercises: [{ name: "Burpees", ladder: { start: 1, step: 1, end: null } }] }] };
+  expect(formatChoice(base.blocks[0])).toBe("emom");
+  expect(changeFormat(base, 0, "emom")).toBe(base);
+  // A length the person set themselves isn't overwritten.
+  expect(changeFormatFields({ ...base, estimated_minutes: 30 }, 0, { intervals: 10 }).estimated_minutes).toBe(30);
+  expect(changeFormatFields(base, 0, { interval_seconds: 120, intervals: 6 })).toMatchObject({ estimated_minutes: 12,
+    blocks: [{ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ ladder: { start: 1, step: 1, end: null } }] }] });
+  expect(changeFormat(base, 0, "amrap").blocks[0]).toMatchObject({ grouping: "circuit", rounds: null, execution: { mode: "amrap" } });
+  expect(parseRepScheme("21-15-9")).toEqual([21, 15, 9]);
+  expect(parseRepScheme("10, 8, 6, 4")).toEqual([10, 8, 6, 4]);
+  expect(parseRepScheme("")).toBeNull();
+  expect(parseRepScheme("21")).toBeUndefined();
+});

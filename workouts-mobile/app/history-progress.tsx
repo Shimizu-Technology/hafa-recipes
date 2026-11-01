@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api";
 import { isTransientSyncError } from "@/lib/training";
 import { exerciseLines, exerciseRecords, friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
+import { formatScore } from "@/lib/timed-execution";
 import type { SessionRequest, Workout } from "@/lib/models";
 import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
@@ -24,12 +25,15 @@ function SessionSummary({ title, when, request, workout, onOpen }: {
   const sets = request.actuals.filter((a) => a.completed).length, skipped = request.actuals.length - sets;
   const minutes = Math.round((request.active_seconds ?? 0) / 60);
   const lines = exerciseLines(request, workout, units);
+  // EMOM, for-time and work/rest results read in their own terms: "18 of 20 minutes", "Time 8:42", "Capped · 2 rounds + 12 reps".
+  const score = formatScore(workout, request);
   const body = <>
     <Row justify="space-between">
       <Copy kind="caption" tone="muted">{when}</Copy>
       {!!onOpen && <Ionicons name="chevron-forward" size={18} color={c.muted} />}
     </Row>
     <Copy kind="heading">{title}</Copy>
+    {!!score && <Copy kind="label" tone="accent">{score}</Copy>}
     <Copy kind="small" tone="muted">
       {[`${sets} ${sets === 1 ? "set" : "sets"}`, skipped ? `${skipped} skipped` : null, minutes ? `${minutes} min` : null].filter(Boolean).join(" · ")}
     </Copy>

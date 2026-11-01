@@ -3,7 +3,7 @@ import { Pressable, View } from "react-native";
 import { Card, Copy, Notice } from "./ui";
 import type { ProgramReceipt } from "@/lib/plans";
 import type { Workout } from "@/lib/models";
-import { amrapCap, blockSummary } from "@/lib/amrap-editor";
+import { blockSummary, timedBlock } from "@/lib/amrap-editor";
 import { exerciseTargets, formatPlanDate, provenanceLabels, sharedEffort } from "@/lib/plan-presentation";
 
 /** A movement cue that starts as one line in long proposals; tap to read all of it. */
@@ -48,7 +48,7 @@ export function PrescriptionPreview({ workout, effort, compact = false }: { work
             return (
               <View key={index} style={{ gap: 2 }}>
                 <Copy kind="subheading">{e.name}</Copy>
-                <Copy kind="small" tone="muted">{exerciseTargets(e, e.sets == null && amrapCap(block) != null)}</Copy>
+                <Copy kind="small" tone="muted">{exerciseTargets(e, e.sets == null && timedBlock(block))}</Copy>
                 {!!e.effort && e.effort !== effort && <Copy kind="small">Effort · {e.effort}</Copy>}
                 {!!e.instructions && (compact ? <Cue text={e.instructions} /> : <Copy kind="small">{e.instructions}</Copy>)}
                 {!!e.notes && <Copy kind="small">Private note · {e.notes}</Copy>}

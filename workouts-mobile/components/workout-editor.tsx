@@ -7,9 +7,13 @@ import { sourceURL } from "@/lib/source-playback";
 import { SavedSourceText } from "./workout-source";
 import { useTraining } from "@/lib/context";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
-import { blockSummary, changeExecution, changeGrouping, changeTimeCap, executionError, parseCap } from "@/lib/amrap-editor";
+import { blockSummary, changeFormat, changeFormatFields, changeGrouping, changeTimeCap, executionError, formatChoice, parseCap, parseRepScheme, type FormatChoice } from "@/lib/amrap-editor";
+import { formatDescription, isTimedFormat, ladderText } from "@/lib/timed-execution";
 import { defaultLoadUnit, distanceText, distanceUnit, typedDistance } from "@/lib/workout-units";
 const groupings = [["sequential", "One after another"], ["circuit", "Circuit"], ["superset", "Superset"], ["interval", "Intervals"]] as const;
+const formatChoices: Array<[FormatChoice, string]> = [["none", "Set number of rounds"], ["amrap", "As many rounds as possible"],
+  ["emom", "Every minute (EMOM)"], ["for_time", "For time"], ["work_rest", "Work and rest (Tabata)"]];
+const seconds = (label: string) => `${label} · seconds`;
 const conventions = [["total", "Total"], ["per_hand", "Per hand"], ["added", "Added"], ["assistance", "Assistance"]] as const;
 /** Lays out short fields or choices side by side, wrapping on narrow screens and large text. */
 function Columns({ children }: PropsWithChildren) {
@@ -199,17 +203,44 @@ export function WorkoutEditor({
                 onPress={() => update(changeGrouping(value, bi, grouping))} /></Column>
             ))}
           </Columns>
-          {block.grouping === "circuit" && <Columns>
-            <Column><Choice role="radio" label="Set number of rounds" selected={!block.execution} disabled={disabled}
-              onPress={() => update(changeExecution(value, bi, false))} /></Column>
-            <Column><Choice role="radio" label="As many rounds as possible" selected={block.execution?.mode === "amrap"} disabled={disabled}
-              onPress={() => update(changeExecution(value, bi, true))} /></Column>
+          <Copy kind="label">Timer</Copy>
+          <Columns>
+            {formatChoices.map(([choice, label]) => (
+              <Column key={choice}><Choice role="radio" disabled={disabled} selected={formatChoice(block) === choice}
+                label={choice === "none" && block.grouping !== "circuit" ? "No timer" : label}
+                onPress={() => update(changeFormat(value, bi, choice))} /></Column>
+            ))}
+          </Columns>
+          {block.execution?.mode === "amrap" && <TimeCapField seconds={block.execution.time_cap_seconds} disabled={disabled}
+            onChange={(seconds) => update(changeTimeCap(value, bi, seconds))} />}
+          {block.execution?.mode === "emom" && <>
+            <Columns>
+              <Column><NumberField disabled={disabled} label={seconds("Every")} value={block.execution.interval_seconds}
+                onChange={(interval_seconds) => update(changeFormatFields(value, bi, { interval_seconds }))} /></Column>
+              <Column><NumberField disabled={disabled} label="How many intervals" value={block.execution.intervals}
+                onChange={(intervals) => update(changeFormatFields(value, bi, { intervals }))} /></Column>
+            </Columns>
+            {block.exercises.length > 1 && <Columns>
+              {([["alternating", "Alternate the moves"], ["together", "Every move each interval"]] as const).map(([rotation, label]) => (
+                <Column key={rotation}><Choice role="radio" disabled={disabled} label={label} selected={block.execution?.mode === "emom" && block.execution.rotation === rotation}
+                  onPress={() => update(changeFormatFields(value, bi, { rotation }))} /></Column>
+              ))}
+            </Columns>}
+          </>}
+          {block.execution?.mode === "for_time" && <NumberField disabled={disabled} label="Time cap · minutes" value={block.execution.time_cap_seconds}
+            format={(cap) => String(cap / 60)} parse={(text) => (text.trim() ? parseCap(text, "minutes") : null)}
+            onChange={(time_cap_seconds) => update(changeFormatFields(value, bi, { time_cap_seconds }))} />}
+          {block.execution?.mode === "work_rest" && <Columns>
+            <Column><NumberField disabled={disabled} label={seconds("Work")} value={block.execution.work_seconds}
+              onChange={(work_seconds) => update(changeFormatFields(value, bi, { work_seconds }))} /></Column>
+            <Column><NumberField disabled={disabled} label={seconds("Rest")} value={block.execution.rest_seconds}
+              onChange={(rest_seconds) => update(changeFormatFields(value, bi, { rest_seconds }))} /></Column>
+            <Column><NumberField disabled={disabled} label="Intervals" value={block.execution.intervals}
+              onChange={(intervals) => update(changeFormatFields(value, bi, { intervals }))} /></Column>
           </Columns>}
-          {block.execution?.mode === "amrap" ? <>
-            <TimeCapField seconds={block.execution.time_cap_seconds} disabled={disabled}
-              onChange={(seconds) => update(changeTimeCap(value, bi, seconds))} />
-            <Copy kind="small" tone="muted">This sets the timer; review written instructions if you change it.</Copy>
-          </> : <NumberField
+          {!!executionError(block) && <Copy kind="small" tone="error">{executionError(block)}</Copy>}
+          {block.execution && <Copy kind="small" tone="muted">{[formatDescription(block), "This sets the timer; review written instructions if you change it."].filter(Boolean).join(". ")}</Copy>}
+          {block.execution?.mode !== "amrap" && block.execution?.mode !== "emom" && block.execution?.mode !== "work_rest" && <NumberField
             disabled={disabled}
             label="Rounds"
             value={block.rounds}
@@ -244,6 +275,13 @@ export function WorkoutEditor({
                 {(range || expanded) && <Column><NumberField disabled={disabled} label="Maximum reps" value={e.reps_max}
                   onChange={(reps_max) => exercise(bi, ei, { reps_max })} /></Column>}
               </Columns>
+              {(e.rep_scheme != null || block.execution?.mode === "for_time") && <RepSchemeField disabled={disabled} value={e.rep_scheme ?? null}
+                onChange={(rep_scheme) => exercise(bi, ei, { rep_scheme, ...(rep_scheme ? { reps_min: null, reps_max: null } : {}) })} />}
+              {!!e.ladder && <View style={{ gap: 4 }}>
+                <Copy kind="small" tone="muted">{ladderText(e.ladder)}</Copy>
+                <Button title={`Remove ladder for ${e.name || "exercise"}`} variant="ghost" size="sm" inline disabled={disabled}
+                  onPress={() => exercise(bi, ei, { ladder: null })} />
+              </View>}
               {(e.duration_seconds != null || e.distance_meters != null || expanded) && <Columns>
                 {(e.duration_seconds != null || expanded) && <Column><NumberField disabled={disabled} label="Time · seconds"
                   value={e.duration_seconds} onChange={(duration_seconds) => exercise(bi, ei, { duration_seconds })} /></Column>}
@@ -397,6 +435,19 @@ function TimeCapField({ seconds, onChange, disabled }: {
     </View>
     <Field label={`AMRAP time cap · ${units}`} value={text} numeric disabled={disabled}
       onChange={next => { if (!disabled) { setText(next); onChange(parseCap(next, units)); } }} />
+  </>;
+}
+/** Reps per round as typed ("21-15-9"); a value that can't be read is shown as an error and never saved. */
+function RepSchemeField({ value, onChange, disabled }: { value: number[] | null; onChange(value: number[] | null): void; disabled: boolean }) {
+  const [text, setText] = useState(value?.join("-") ?? "");
+  useEffect(() => {
+    if (JSON.stringify(parseRepScheme(text) ?? null) !== JSON.stringify(value)) setText(value?.join("-") ?? "");
+  }, [value]);
+  const invalid = parseRepScheme(text) === undefined;
+  return <>
+    <Field label="Reps per round · e.g. 21-15-9" optional disabled={disabled} value={text}
+      onChange={(next) => { if (disabled) return; setText(next); const parsed = parseRepScheme(next); if (parsed !== undefined) onChange(parsed); }} />
+    {invalid && <Copy kind="small" tone="error">Use 2 to 100 whole numbers from 1 to 1000, like 21-15-9.</Copy>}
   </>;
 }
 const plainNumber = (text: string) => text.trim() === "" ? null : Number(text);

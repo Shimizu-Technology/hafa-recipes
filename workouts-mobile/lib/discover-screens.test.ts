@@ -1132,7 +1132,8 @@ it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a sep
   await mount(WorkoutDetail);
   expect(nodes("StatTile")).toHaveLength(0);
   const meta = metaLine()!;
-  expect(meta).toBe(`${seconds === 1200 ? "20 min" : "2m 5s"} AMRAP · 1 exercise`); expect(meta).not.toContain("25 min");
+  // Named like the library card and the other formats ("EMOM 20"): the cap, not the separate estimate.
+  expect(meta).toBe(`AMRAP ${seconds === 1200 ? "20" : "2m 5s"} · 1 exercise`); expect(meta).not.toContain("25 min");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
 });

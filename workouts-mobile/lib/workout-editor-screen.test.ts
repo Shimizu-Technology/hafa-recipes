@@ -166,3 +166,37 @@ it("explains when no usable original-source link is available", async () => {
   expect(renderer!.root.findAllByType("SourcePlayback" as never)).toHaveLength(0);
   expect(renderer!.root.findAllByType("Copy" as never).map(n => n.props.children).flat().join(" ")).toContain("Original source link unavailable");
 });
+
+it("edits EMOM, work/rest and for-time timers with simple fields and keeps the workout length in step", async () => {
+  const initial = workout(); initial.blocks[0].exercises.push({ name: "Burpees", reps_min: 10 });
+  await render(initial);
+  await act(async () => button("Show block settings: Main").props.onPress());
+  const choice = (label: string) => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === label)!;
+  await act(async () => choice("Every minute (EMOM)").props.onPress());
+  expect(latest!.blocks[0]).toMatchObject({ grouping: "interval", rounds: null, execution: { mode: "emom", interval_seconds: 60, intervals: null, rotation: "alternating" } });
+  expect(field("Rounds")).toBeUndefined();
+  await act(async () => field("How many intervals")!.props.onChange("20"));
+  expect(latest!.blocks[0].execution).toMatchObject({ intervals: 20 });
+  expect(latest!.estimated_minutes).toBe(20);
+  await act(async () => choice("Every move each interval").props.onPress());
+  expect(latest!.blocks[0].execution).toMatchObject({ rotation: "together" });
+  await act(async () => choice("Work and rest (Tabata)").props.onPress());
+  expect(latest!.blocks[0].execution).toEqual({ mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 });
+  await act(async () => field("Work · seconds")!.props.onChange("40"));
+  await act(async () => field("Rest · seconds")!.props.onChange("20"));
+  expect(latest!.blocks[0].execution).toEqual({ mode: "work_rest", work_seconds: 40, rest_seconds: 20, intervals: 8 });
+  expect(latest!.estimated_minutes).toBe(8);
+  await act(async () => choice("For time").props.onPress());
+  expect(latest!.blocks[0]).toMatchObject({ grouping: "circuit", execution: { mode: "for_time", time_cap_seconds: null } });
+  await act(async () => field("Time cap · minutes")!.props.onChange("12"));
+  expect(latest!.blocks[0].execution).toEqual({ mode: "for_time", time_cap_seconds: 720 });
+  await act(async () => field("Rounds")!.props.onChange("3"));
+  const scheme = renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9");
+  await act(async () => scheme[0].props.onChange("21-15-9"));
+  expect(latest!.blocks[0].exercises[0]).toMatchObject({ rep_scheme: [21, 15, 9], reps_min: null, reps_max: null });
+  await act(async () => scheme[1].props.onChange("21-x"));
+  expect(latest!.blocks[0].exercises[1].rep_scheme).toBeUndefined();
+  await act(async () => choice("Set number of rounds").props.onPress());
+  expect(latest!.blocks[0].execution).toBeUndefined();
+  expect(latest!.blocks[0].rounds).toBe(3);
+});
