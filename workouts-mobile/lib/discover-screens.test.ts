@@ -1350,6 +1350,25 @@ it("Library search still finds a workout by its required equipment, as the old S
   expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells" });
   expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm day"]);
 });
+it("selecting in Library hides the Ask pill only while Library is focused", async () => {
+  const { peekAskPill } = await import("./ask-pill");
+  fixture.focus = true;
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  await act(async () => libraryCard(saved.title)!.props.onLongPress());
+  expect(peekAskPill().hidden).toBe(true);
+  // Switching tabs blurs Library (it stays mounted, still selecting): the pill comes back elsewhere.
+  fixture.focus = false;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Library))));
+  expect(peekAskPill().hidden).toBe(false);
+  // Returning to Library while still selecting hides it again.
+  fixture.focus = true;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Library))));
+  expect(libraryCard(saved.title)!.props.selected).toBe(true);
+  expect(peekAskPill().hidden).toBe(true);
+  await act(async () => button("Done")!.props.onPress());
+  expect(peekAskPill().hidden).toBe(false);
+});
 it("Library loads the next page as the list nears its end", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
   fixture.searchLibrary.mockResolvedValueOnce({ items: [saved], total: 2, has_more: true, next_cursor: "next" })

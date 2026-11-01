@@ -2,10 +2,10 @@ import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
 import { filterLibrary } from "@/lib/library";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Stack, router } from "expo-router";
+import { Stack, router, useFocusEffect } from "expo-router";
 import {
   Button,
   Chip,
@@ -66,7 +66,8 @@ export default function Library() {
   const [filters, setFilters] = useState(false);
   const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
   // The selection footer needs the corner the Ask pill sits in.
-  useEffect(() => { setAskPillHidden(selecting); return () => setAskPillHidden(false); }, [selecting]);
+  // Only while Library is the focused screen: other tabs and pushed screens keep their pill.
+  useFocusEffect(useCallback(() => { setAskPillHidden(selecting); return () => setAskPillHidden(false); }, [selecting]));
   const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
   const [bulkBusy, setBulkBusy] = useState(false), [bulkMessage, setBulkMessage] = useState("");
   const [bulkError, setBulkError] = useState("");
