@@ -23,7 +23,7 @@ it("keeps older server responses useful without pretending to know elapsed time 
   expect(progress.elapsed).toBeNull(); expect(progress.attempt).toBe("Automatic retry · attempt 2");
 });
 it("recovers from caption alone and rejects invalid source requests before transport", () => {
-  expect(sourceRecoveryRequest({ source_url: "", caption: "10 squats" })).toEqual({ kind: "text", text: "10 squats", ai_consent: true });
+  expect(sourceRecoveryRequest({ source_url: "", caption: "10 squats" })).toEqual({ kind: "text", text: "10 squats", ai_consent: true, typed_formats: true });
   expect(() => sourceRecoveryRequest({ source_url: "", caption: " " })).toThrow("Paste the creator");
   expect(() => sourceRecoveryRequest({ source_url: "https://user:password@example.test", caption: "" })).toThrow("without account credentials");
   expect(() => sourceRecoveryRequest({ source_url: "", caption: "a".repeat(30001) })).toThrow("30,000");

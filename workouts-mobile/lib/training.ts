@@ -1,7 +1,9 @@
 import { canRecoverResult, restoredPrescription, type ResultRecoveryCommand, type ResultRecoveryReceipt } from "./result-recovery";
 import type { ActualSet, Workout, AuthoredWorkout, SessionRequest, TrainingSession, ExercisePrescription } from "./models";
 import type { Storage } from "./drafts";
-import { timedCircuit, circuitRemaining } from "./timed-circuit";
+import { timedCircuit } from "./timed-circuit";
+import { formatCapSeconds, intervalPosition, ladderReps, movesFor, openLadder, timedFormat, timedFormatProblem,
+  trackedIntervalLimit, type TimedFormat } from "./timed-execution";
 export type UnitSystem = "metric" | "imperial";
 export type SessionSource =
   | { workout_id: string; workout_revision: number }
@@ -42,9 +44,12 @@ export interface SessionDraft {
   checkpoint_at: number;
   activity_type: string | null;
   timed_circuit?: { time_cap_seconds: number; round_size: number; limit_reached?: boolean };
+  /** EMOM, for-time or work/rest: the clock runs on real timestamps, and the person marks each interval or round. */
+  timed_format?: TimedFormat;
   /** Started without fixed set/round counts; the person adds rounds and sets as they go. */
   open_ended?: boolean;
-  undo: Array<{ actuals: ActualSet[]; cursor: number }>;
+  /** `steps_length` restores steps a Death by session added after this point. */
+  undo: Array<{ actuals: ActualSet[]; cursor: number; steps_length?: number }>;
 }
 /** How to track a workout whose source gives no fixed set or round counts. */
 export type StartChoice = { log_as_you_go: true } | { rounds: number };
@@ -103,7 +108,9 @@ export function trainingKey(owner: string, generation: number) {
   return `hafa-workouts:training:v1:${encodeURIComponent(owner)}:${generation}`;
 }
 export function trackingPrescriptionWarning(workout: Workout): string | null {
-  if (timedCircuit(workout)) return null;
+  if (timedCircuit(workout) || timedFormat(workout)) return null;
+  const formatProblem = timedFormatProblem(workout);
+  if (formatProblem) return formatProblem;
   if (workout.blocks.some((block) => block.execution))
     return "Tracking currently supports one AMRAP circuit per session. Separate additional blocks or review the execution details before starting.";
   const sourceSession = workout.provenance === "source" && workout.kind !== "exercise";
@@ -129,7 +136,26 @@ export function withChosenRounds(workout: Workout, rounds: number): Workout {
   }
   return result;
 }
+/** Steps for intervals `from`..`to`: the interval is the round, and each move in it is one step per side. */
+export function intervalSteps(workout: Workout, from: number, to: number): TrainingStep[] {
+  const block = workout.blocks[0];
+  const execution = timedFormat(workout);
+  if (!execution || execution.mode === "for_time") return [];
+  const steps: TrainingStep[] = [];
+  for (let round = from; round <= Math.min(to, trackedIntervalLimit); round++)
+    for (const index of movesFor(execution, block, round)) {
+      const exercise = block.exercises[index];
+      for (const side of exercise.per_side ? (["left", "right"] as const) : [null]) {
+        const cell = { block_id: block.id, exercise_index: index, round_index: round, set_index: 1, side };
+        steps.push({ ...cell, key: actualIdentity(cell), block_label: block.label, grouping: block.grouping, target_set: 1, exercise: clone(exercise) });
+      }
+    }
+  if (steps.length > 1000) throw Error("This workout has too many individual sets to log. Split it into shorter sessions first.");
+  return steps;
+}
 export function stepsFor(workout: Workout): TrainingStep[] {
+  const format = timedFormat(workout);
+  if (format && format.mode !== "for_time") return intervalSteps(workout, 1, format.intervals ?? 1);
   const steps: TrainingStep[] = [];
   for (const block of workout.blocks) {
     const grouped = block.grouping !== "sequential";
@@ -180,7 +206,7 @@ export function historicalStructureWarning(workout: Workout, actuals: ActualSet[
     const block = workout.blocks.find((b) => b.id === actual.block_id);
     const exercise = block?.exercises[actual.exercise_index];
     if (!block || !exercise) return true;
-    return (!timedCircuit(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
+    return (!timedCircuit(workout) && !timedFormat(workout) && (actual.round_index ?? 1) > (block.rounds ?? 1)) || actual.set_index > (exercise.sets ?? 1) ||
       (exercise.per_side ? actual.side !== "left" && actual.side !== "right" : actual.side != null && actual.side !== "both");
   });
   return outsidePrescription ?
@@ -271,10 +297,35 @@ export function exerciseElapsedSeconds(d: SessionDraft, now = Date.now()) {
 export function restRemainingSeconds(d: SessionDraft, now = Date.now()) {
   return d.rest_until == null ? Math.ceil((d.rest_remaining_milliseconds ?? 0) / 1000) : remainingSeconds(d.rest_until, now);
 }
+/** The AMRAP cap, or a timed format's whole clock (a for-time cap, or interval length × count). */
+function capSeconds(d: SessionDraft) {
+  return d.timed_circuit?.time_cap_seconds ?? (d.timed_format ? formatCapSeconds(d.timed_format) : null);
+}
+/** Active time on the session clock, stopped at the cap and while paused. */
+export function sessionElapsedMilliseconds(d: SessionDraft, now = Date.now()) {
+  const cap = capSeconds(d);
+  return Math.min((d.active_milliseconds ?? 0) + (d.active_started_at == null ? 0 : Math.max(0, now - d.active_started_at)),
+    cap == null ? Infinity : cap * 1000);
+}
+export function capRemainingSeconds(d: SessionDraft, now = Date.now()) {
+  const cap = capSeconds(d);
+  return cap == null ? null : Math.max(0, Math.ceil(cap - sessionElapsedMilliseconds(d, now) / 1000));
+}
+/**
+ * Rest after `step`: between rounds, or after a superset/circuit pass (A1 then A2, then rest),
+ * the block's rest applies; otherwise the exercise's own rest.
+ */
+export function restAfter(workout: Workout, step: Pick<TrainingStep, "block_id" | "round_index" | "set_index" | "grouping" | "exercise">,
+  next: Pick<TrainingStep, "block_id" | "round_index" | "set_index"> | undefined) {
+  const sameBlock = next?.block_id === step.block_id;
+  const passEnds = sameBlock && (next.round_index !== step.round_index || (step.grouping !== "sequential" && next.set_index !== step.set_index));
+  const block = workout.blocks.find((b) => b.id === step.block_id);
+  return passEnds ? (block?.rest_between_rounds_seconds ?? step.exercise.rest_seconds) : step.exercise.rest_seconds;
+}
 function effectiveActiveEnd(d: SessionDraft, now: number) {
   if (d.active_started_at == null) return now;
-  const capEnd = d.timed_circuit ? d.active_started_at + Math.max(0,
-    d.timed_circuit.time_cap_seconds * 1000 - d.active_milliseconds) : Infinity;
+  const cap = capSeconds(d);
+  const capEnd = cap != null ? d.active_started_at + Math.max(0, cap * 1000 - d.active_milliseconds) : Infinity;
   return Math.max(d.active_started_at, Math.min(now, capEnd));
 }
 function closeActive(d: SessionDraft, now: number) {
@@ -314,7 +365,7 @@ export function createTrainingStore(
         if (!loaded) throw Error("Wait for your saved training to load.");
         const next = work(clone(state));
         next.history = pruneHistory(next.history);
-        if (next.active?.timed_circuit && !next.active.paused && circuitRemaining(next.active, clock()) === 0) {
+        if (next.active && !next.active.paused && capRemainingSeconds(next.active, clock()) === 0) {
           freezeTimers(next.active, clock());
           closeActive(next.active, clock());
           next.active.paused = true;
@@ -373,6 +424,72 @@ export function createTrainingStore(
       }
     }
   }
+  function logActuals(actuals: ActualSet[], now: number) {
+    return update((s) => {
+      const d = s.active;
+      if (!d) throw Error("No session is active.");
+      const warning = draftStructureWarning(d);
+      if (warning) throw Error(warning);
+      if (!actuals.length) throw Error("Choose what to record first.");
+      if (d.timed_circuit && d.paused && capRemainingSeconds(d, now) !== 0)
+        throw Error("Resume the circuit before logging more work.");
+      const first = d.steps[d.cursor];
+      // An interval can be marked once it starts (finishing early leaves the rest of it as rest), never before.
+      if (d.timed_format && d.timed_format.mode !== "for_time" && first &&
+        first.round_index > intervalPosition(d.timed_format, sessionElapsedMilliseconds(d, now)).index)
+        throw Error("This interval hasn't started yet.");
+      if (!d.timed_circuit) d.undo.push({ actuals: clone(d.actuals), cursor: d.cursor, ...(d.timed_format ? { steps_length: d.steps.length } : {}) });
+      let step = first;
+      for (const actual of actuals) {
+        step = d.steps[d.cursor];
+        if (
+          !step ||
+          actual.block_id !== step.block_id ||
+          actual.exercise_index !== step.exercise_index ||
+          actual.set_index !== step.set_index ||
+          actual.round_index !== step.round_index ||
+          actual.side !== step.side
+        )
+          throw Error("This set changed. Review it before logging.");
+        if (d.actuals.some((prior) => actualIdentity(prior) === actualIdentity(actual)))
+          throw Error("This round, set and side already has a recorded result. Undo it before recording again.");
+        const errors = actualErrors(actual);
+        if (errors.length) throw Error(errors.join(" "));
+        d.actuals.push(clone(actual));
+        d.cursor++;
+      }
+      d.input = {};
+      clearTimers(d);
+      if (d.timed_format) {
+        const done = d.cursor === d.steps.length;
+        if (done && d.timed_format.mode === "for_time") {
+          // The last movement stops the clock: the finish time is when the work ended, not when Save is tapped.
+          closeActive(d, now);
+          d.paused = true;
+        } else if (done && openLadder(d.workout.blocks[0]) && d.actuals.every((a) => a.round_index !== step.round_index || a.completed)) {
+          // Death by continues while each interval is finished; a missed interval ends it.
+          const round = step.round_index + 1;
+          if (d.workout.blocks[0].exercises.every((e) => e.ladder && ladderReps(e.ladder, round) != null))
+            d.steps.push(...intervalSteps(d.workout, round, round));
+        }
+        return s;
+      }
+      if (d.timed_circuit && d.cursor === d.steps.length && capRemainingSeconds(d, now)! > 0) {
+        const round = step.round_index + 1;
+        if (round <= 100 && d.steps.length + d.timed_circuit.round_size <= 1000) {
+          d.steps.push(...d.steps.slice(0, d.timed_circuit.round_size).map((first) => {
+            const repeated = { ...clone(first), round_index: round };
+            return { ...repeated, key: actualIdentity(repeated) };
+          }));
+        } else d.timed_circuit.limit_reached = true;
+      }
+      const rest = restAfter(d.workout, step, d.steps[d.cursor]);
+      const completed = actuals.at(-1)!.completed;
+      d.rest_until = completed && rest && !d.paused ? now + rest * 1000 : null;
+      d.rest_remaining_milliseconds = completed && rest && d.paused ? rest * 1000 : null;
+      return s;
+    });
+  }
   return {
     subscribe(fn: () => void) {
       listeners.add(fn);
@@ -421,6 +538,7 @@ export function createTrainingStore(
         if (choice && "rounds" in choice) workout = withChosenRounds(workout, choice.rounds);
         const steps = stepsFor(workout);
         const execution = choice ? null : timedCircuit(workout);
+        const format = choice || execution ? null : timedFormat(workout);
         if (!steps.length) throw Error("Add at least one exercise before training.");
         s.active = {
           id,
@@ -445,57 +563,18 @@ export function createTrainingStore(
           ...(execution ? { timed_circuit: {
             time_cap_seconds: execution.time_cap_seconds, round_size: steps.length,
           } } : {}),
+          ...(format ? { timed_format: clone(format) } : {}),
           ...(choice ? { open_ended: true } : {}),
         };
         return s;
       });
     },
     log(actual: ActualSet, now = clock()) {
-      return update((s) => {
-        const d = s.active;
-        if (!d) throw Error("No session is active.");
-        const warning = draftStructureWarning(d);
-        if (warning) throw Error(warning);
-        if (d.timed_circuit && d.paused && circuitRemaining(d, now) !== 0)
-          throw Error("Resume the circuit before logging more work.");
-        const step = d.steps[d.cursor];
-        if (
-          !step ||
-          actual.block_id !== step.block_id ||
-          actual.exercise_index !== step.exercise_index ||
-          actual.set_index !== step.set_index ||
-          actual.round_index !== step.round_index ||
-          actual.side !== step.side
-        )
-          throw Error("This set changed. Review it before logging.");
-        if (d.actuals.some((prior) => actualIdentity(prior) === actualIdentity(actual)))
-          throw Error("This round, set and side already has a recorded result. Undo it before recording again.");
-        const errors = actualErrors(actual);
-        if (errors.length) throw Error(errors.join(" "));
-        if (!d.timed_circuit) d.undo.push({ actuals: clone(d.actuals), cursor: d.cursor });
-        d.actuals.push(clone(actual));
-        d.cursor++;
-        d.input = {};
-        clearTimers(d);
-        if (d.timed_circuit && d.cursor === d.steps.length && circuitRemaining(d, now)! > 0) {
-          const round = step.round_index + 1;
-          if (round <= 100 && d.steps.length + d.timed_circuit.round_size <= 1000) {
-            d.steps.push(...d.steps.slice(0, d.timed_circuit.round_size).map((first) => {
-              const repeated = { ...clone(first), round_index: round };
-              return { ...repeated, key: actualIdentity(repeated) };
-            }));
-          } else d.timed_circuit.limit_reached = true;
-        }
-        const next = d.steps[d.cursor];
-        const betweenRounds = next?.block_id === step.block_id && next.round_index !== step.round_index;
-        const block = d.workout.blocks.find((b) => b.id === step.block_id);
-        const rest = betweenRounds
-          ? (block?.rest_between_rounds_seconds ?? step.exercise.rest_seconds)
-          : step.exercise.rest_seconds;
-        d.rest_until = actual.completed && rest && !d.paused ? now + rest * 1000 : null;
-        d.rest_remaining_milliseconds = actual.completed && rest && d.paused ? rest * 1000 : null;
-        return s;
-      });
+      return logActuals([actual], now);
+    },
+    /** Records consecutive steps at once: every move in an interval, or the rest of a for-time round. */
+    logGroup(actuals: ActualSet[], now = clock()) {
+      return logActuals(actuals, now);
     },
     undo() {
       return update((s) => {
@@ -512,6 +591,7 @@ export function createTrainingStore(
         if (!d || !prior) throw Error("There is no set to undo.");
         d.actuals = prior.actuals;
         d.cursor = prior.cursor;
+        if (prior.steps_length != null) d.steps.splice(prior.steps_length);
         clearTimers(d);
         return s;
       });
@@ -592,6 +672,7 @@ export function createTrainingStore(
         const warning = draftStructureWarning(d);
         if (warning) throw Error(warning);
         if (d.timed_circuit) throw Error("This timed circuit repeats whole rounds. Extra fixed sets would change its instructions.");
+        if (d.timed_format) throw Error("This timed workout sets its own intervals and rounds.");
         const previous = d.steps[Math.min(d.cursor, d.steps.length - 1)];
         if (!previous) throw Error("Choose an exercise first.");
         const set = Math.max(...d.steps.filter((x) =>
@@ -625,6 +706,7 @@ export function createTrainingStore(
         const warning = draftStructureWarning(d);
         if (warning) throw Error(warning);
         if (d.timed_circuit) throw Error("This timed circuit already repeats rounds until the time cap.");
+        if (d.timed_format) throw Error("This timed workout sets its own intervals and rounds.");
         const boundary = d.cursor > 0 && d.cursor < d.steps.length && d.steps[d.cursor - 1].block_id !== d.steps[d.cursor].block_id;
         const current = d.steps[boundary ? d.cursor - 1 : Math.min(d.cursor, d.steps.length - 1)];
         if (!current) throw Error("Choose an exercise first.");
@@ -659,12 +741,17 @@ export function createTrainingStore(
           throw Error("Log or discard the current entry before finishing.");
         if (status === "completed" && draftStructureWarning(d)) throw Error("Older set numbering needs review. Keep this result as a partial session.");
         if (status === "completed") {
+          // Death by ends at the first missed interval, so only that final interval may be unfinished.
+          const failureEnds = !!d.timed_format && openLadder(d.workout.blocks[0]);
+          const lastRound = Math.max(0, ...d.actuals.map((a) => a.round_index));
           if (d.timed_circuit) {
-            if (circuitRemaining(d, now)! > 0 || d.timed_circuit.limit_reached || !d.actuals.some((a) => a.completed))
+            if (capRemainingSeconds(d, now)! > 0 || d.timed_circuit.limit_reached || !d.actuals.some((a) => a.completed))
               throw Error("Reach the source time cap with recorded work, or save this as a partial session.");
-          } else if (d.cursor !== d.steps.length)
-            throw Error("Some sets were not completed. Save this as a partial session.");
-          if (d.actuals.some((a) => !a.completed)) throw Error("Skipped work stays partial. Save this as a partial session.");
+          } else if (!failureEnds && d.cursor !== d.steps.length)
+            throw Error(d.timed_format ? "Mark every interval or round first, or save this as a partial session."
+              : "Some sets were not completed. Save this as a partial session.");
+          if (d.actuals.some((a) => !a.completed && !(failureEnds && a.round_index === lastRound)))
+            throw Error("Skipped work stays partial. Save this as a partial session.");
         }
         const activity_type = d.activity_type ?? activityFallback;
         if (!activity_type) throw Error("Choose the activity type before saving.");

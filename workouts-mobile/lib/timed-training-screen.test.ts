@@ -30,6 +30,7 @@ vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy"
   formatClock: (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`,
   ListGroup: "ListGroup", Stack: "Stack", haptics: { light() {}, tick() {}, success: fixture.success } }));
 vi.mock("@/components/training/number-stepper", () => ({ NumberStepper: "NumberStepper" }));
+vi.mock("@/components/training/format-session", () => ({ FormatSession: "FormatSession" }));
 vi.mock("@/components/training/set-entry", () => ({ SetNumberField: "SetNumberField" }));
 vi.mock("@/components/training/session-parts", () => ({ LastLogged: "LastLogged", RestDone: "RestDone", SetProgress: "SetProgress",
   announce: fixture.announce }));
@@ -422,9 +423,9 @@ it("the start sheet logs as you go, starts a bounded round count, or opens the e
   await act(async () => rows("Edit workout")[0].props.onPress());
   expect(onEdit).toHaveBeenCalledOnce();
   expect(rows("Edit workout")[0].props.detail).toBe("Add sets and reps first");
-  await act(async () => renderer!.update(createElement(WorkoutStartSheet, { visible: true, busy: false, timedParts: true, onClose() {}, onStart, onEdit })));
-  expect(rows("Edit workout")[0].props.detail).toBe("Split the timed parts first");
-  expect(text()).toContain("more than one timed part");
+  await act(async () => renderer!.update(createElement(WorkoutStartSheet, { visible: true, busy: false, timedMessage: "This workout has 2 parts, and the timer runs one timed part per session.", onClose() {}, onStart, onEdit })));
+  expect(rows("Edit workout")[0].props.detail).toBe("Fix the timed part first");
+  expect(text()).toContain("runs one timed part per session");
   await act(async () => renderer!.unmount()); renderer = undefined;
 });
 const kettlebell: Workout = { ...workout, provenance: "user", blocks: [{ id: "main", label: "Main", grouping: "sequential",

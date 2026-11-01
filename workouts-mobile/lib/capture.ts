@@ -63,6 +63,8 @@ export interface ExtractionRequest {
   document_base64?: string;
   document_mime?: string;
   ai_consent: boolean;
+  /** This build runs EMOM, for-time and work/rest formats, so the API may return them. */
+  typed_formats?: boolean;
 }
 export interface Evidence {
   field: string;

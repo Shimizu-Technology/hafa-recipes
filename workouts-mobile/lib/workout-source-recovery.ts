@@ -11,5 +11,5 @@ export function sourceRecoveryRequest(input: SourceRecoveryInput): ExtractionReq
   }
   if (text.length > 30000) throw Error("Use up to 30,000 characters of caption or transcript.");
   if (!url && !text) throw Error("Paste the creator’s caption or transcript, or add the original source link.");
-  return { kind: url ? "url" : "text", ...(url ? { source_url: url } : {}), ...(text ? { text } : {}), ai_consent: true };
+  return { kind: url ? "url" : "text", ...(url ? { source_url: url } : {}), ...(text ? { text } : {}), ai_consent: true, typed_formats: true };
 }

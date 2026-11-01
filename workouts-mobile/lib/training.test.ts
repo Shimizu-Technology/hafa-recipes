@@ -455,10 +455,10 @@ describe("source circuits with open-ended rounds", () => {
   it("lets a multi-block timed workout start untimed only by explicit choice, and never adds rounds to a timed circuit", async () => {
     const workout = amrap(2);
     workout.blocks.push({ ...workout.blocks[0], id: "second" });
-    expect(trackingPrescriptionWarning(workout)).toMatch(/one AMRAP/);
+    expect(trackingPrescriptionWarning(workout)).toMatch(/one timed part per session/);
     const store = createTrainingStore(memory(), "multi-qa", 1);
     await store.load();
-    await expect(store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "blocked")).rejects.toThrow(/one AMRAP/);
+    await expect(store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "blocked")).rejects.toThrow(/one timed part per session/);
     await store.start(workout, { workout_id: workout.id, workout_revision: 1 }, "open", 1000, { log_as_you_go: true });
     expect(store.snapshot().active!.timed_circuit).toBeUndefined();
     await store.discard();

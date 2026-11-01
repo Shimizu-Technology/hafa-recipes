@@ -254,8 +254,9 @@ enum WorkoutsShareStore {
     request.httpMethod = "POST"; request.timeoutInterval = 7
     request.setValue("Bearer " + state.1, forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    // typed_formats: this build runs EMOM, for-time and work/rest formats.
     request.httpBody = try? JSONSerialization.data(withJSONObject: ["capture_id": capture, "url": source,
-      "is_public": state.2["isPublic"] as? Bool ?? false])
+      "is_public": state.2["isPublic"] as? Bool ?? false, "typed_formats": true])
     let network = network()
     network.dataTask(with: request) { data, response, _ in
       defer { network.finishTasksAndInvalidate() }
