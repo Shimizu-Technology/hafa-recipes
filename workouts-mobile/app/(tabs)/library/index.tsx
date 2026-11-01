@@ -2,6 +2,7 @@ import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
+import { filterLibrary } from "@/lib/library";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -151,10 +152,13 @@ export default function Library() {
   // Workouts saved on another device or from a share appear without relaunching.
   // Each query refetches only once it is stale; loaded pages refetch together so the list stays consistent.
   const freshness = useFocusRefresh([q, collections, all], { enabled: !!enrollment?.enrolled });
-  const visible = [
-    ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
-  ];
   const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
+  // Server search covers titles, exercises and tags. The old Search tab also matched required equipment
+  // ("Dumbbells"), so a plain search adds those local matches after the server's results.
+  const localMatches = settledSearch && !filterCount ? filterLibrary(all.data ?? [], settledSearch, null, null) : [];
+  const visible = [
+    ...new Map([...(q.data?.pages.flatMap((page) => page.items) ?? []), ...localMatches].map((workout) => [workout.id, workout])).values(),
+  ];
   const narrowed = !!filterCount || !!settledSearch;
   const caps = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities });
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
