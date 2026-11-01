@@ -17,7 +17,7 @@ vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-glass-effect", () => ({ GlassView: "GlassView" }));
 vi.mock("@/components/ui", () => ({ Copy: "Copy", Button: "Button", useColors: () => light, useReducedMotion: () => false }));
 import { LibraryCard } from "../components/library-card";
-import { Button, Choice, Segmented, Field, Chip } from "../components/design/controls";
+import { AccountButton, Button, Choice, HeaderButton, Segmented, Field, Chip } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.fontScale = 1; f.timing.mockClear(); });
 afterEach(() => { act(() => view?.unmount()); });
@@ -155,4 +155,17 @@ it("summarises other filters on one quiet line with a reachable Clear", () => {
   expect(clear.props.style.minHeight).toBeGreaterThanOrEqual(44);
   act(() => clear.props.onPress());
   expect(onClear).toHaveBeenCalledOnce();
+});
+
+it("header circles keep their 36pt (32pt avatar) look inside a full 44pt touch target", () => {
+  // hitSlop can't reach past a 36pt header row, so the pressable itself must be 44pt.
+  act(() => { view = create(createElement(HeaderButton, { icon: "share-outline", label: "Share", onPress() {} })); });
+  const share = view!.root.findByType("Pressable" as never);
+  expect(share.props.style).toMatchObject({ width: 44, height: 44 });
+  expect(share.props.hitSlop).toBeUndefined();
+  expect(share.findAllByType("View" as never)[0].props.style).toMatchObject({ width: 36, height: 36, borderRadius: 999 });
+  act(() => { view!.update(createElement(AccountButton)); });
+  const avatar = view!.root.findByType("Pressable" as never);
+  expect(avatar.props.style).toMatchObject({ width: 44, height: 44 });
+  expect(avatar.findAllByType("View" as never)[0].props.style).toMatchObject({ width: 32, height: 32 });
 });

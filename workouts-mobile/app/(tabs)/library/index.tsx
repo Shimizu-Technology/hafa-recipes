@@ -1,8 +1,9 @@
-import { BrowseHeader } from "@/components/native-tab-stack";
+import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { filterLibrary } from "@/lib/library";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
@@ -19,6 +20,7 @@ import {
   Notice,
   Row,
   Screen,
+  SearchField,
   Sheet,
   SkeletonCard,
   haptics,
@@ -31,6 +33,7 @@ import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/li
 import type { Workout } from "@/lib/models";
 import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
+import { TabScrollToTop, useScrollRest } from "@/components/tab-scroll-to-top";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
@@ -50,6 +53,12 @@ export default function Library() {
   const [collection, setCollection] = useState<string>();
   const [maxMinutes, setMaxMinutes] = useState<number>();
   const [needsInfo, setNeedsInfo] = useState(false);
+  const list = useRef<FlatList<Workout> | null>(null);
+  const listRest = useScrollRest();
+  const [search, setSearch] = useState("");
+  const [settledSearch, setSettledSearch] = useState("");
+  useEffect(() => { const timer = setTimeout(() => setSettledSearch(search.trim()), 300); return () => clearTimeout(timer); }, [search]);
+  useEffect(() => { setSearch(""); setSettledSearch(""); }, [owner, enrollment?.generation]);
   const [filters, setFilters] = useState(false);
   const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
@@ -106,6 +115,7 @@ export default function Library() {
     enabled: !!enrollment?.enrolled,
   });
   const selected: LibraryFilters = {
+    q: settledSearch || undefined,
     equipment: equipment.trim(),
     kind,
     favorite_only: favorite,
@@ -142,11 +152,15 @@ export default function Library() {
   // Workouts saved on another device or from a share appear without relaunching.
   // Each query refetches only once it is stale; loaded pages refetch together so the list stays consistent.
   const freshness = useFocusRefresh([q, collections, all], { enabled: !!enrollment?.enrolled });
-  const visible = [
-    ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
-  ];
   const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
-  const narrowed = !!filterCount;
+  // Server search covers titles, exercises and tags. The old Search tab also matched required equipment
+  // ("Dumbbells"), so a plain search adds those local matches after the server's results.
+  const localMatches = settledSearch && !filterCount ? filterLibrary(all.data ?? [], settledSearch, null, null) : [];
+  const visible = [
+    ...new Map([...(q.data?.pages.flatMap((page) => page.items) ?? []), ...localMatches].map((workout) => [workout.id, workout])).values(),
+  ];
+  const narrowed = !!filterCount || !!settledSearch;
+  const caps = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities });
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   const needsLink = !archived && !!needsCount;
@@ -162,6 +176,8 @@ export default function Library() {
     tags.trim(),
   ].filter((item): item is string => !!item);
   function clear() {
+    setSearch("");
+    setSettledSearch("");
     setNeedsInfo(false);
     setEquipment("");
     setTags("");
@@ -182,12 +198,13 @@ export default function Library() {
           <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
             onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
         </Row>
-      ) : <BrowseLinks links={[
+      ) : <>{!!enrollment?.enrolled && <Row><SearchField value={search} onChange={setSearch} label="Search your library"
+        placeholder={all.data?.length ? `Search ${all.data.length} workouts` : "Search workouts"} /></Row>}<BrowseLinks links={[
         { title: "Collections", onPress: () => router.push("/collections") },
         { title: "Programs", selected: kind === "program", onPress: () => setKind(kind === "program" ? undefined : "program") },
         ...(needsLink ? [{ title: `Needs info · ${needsCount}`, selected: needsInfo, onPress: () => setNeedsInfo(!needsInfo) }] : []),
         { title: sheetFilters.length ? `Filter · ${sheetFilters.length}` : "Filter", onPress: () => setFilters(true) },
-      ]} />}
+      ]} /></>}
       {!selecting && <FilterSummary items={sheetFilters} onClear={clear} />}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
       {!!q.error && visible.length > 0 && <>
@@ -223,12 +240,13 @@ export default function Library() {
   );
   return (
     <>
-    <Stack.Screen options={{ headerRight: () => <BrowseHeader add onMenu={() => setMenu(true)} menuItems={[
+    <Stack.Screen options={headerActions(<BrowseHeader onMenu={() => setMenu(true)} menuItems={[
       { title: view === "grid" ? "Show as a list" : "Show as a grid", onPress: () => setView(view === "grid" ? "list" : "grid") },
       { title: "Select workouts", disabled: !enrollment?.enrolled || bulkBusy, onPress: () => startSelecting() },
       { title: "Manage collections", onPress: () => router.push("/collections") },
       { title: archived ? "Show active workouts" : "Show archived workouts", onPress: () => setArchived(!archived) },
-    ]} /> }} />
+    ]} />)} />
+    <TabScrollToTop target={list} rest={listRest.rest} />
     <Screen
       title="Library"
       refreshing={freshness.refreshing}
@@ -237,6 +255,8 @@ export default function Library() {
         onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
+          ref={list}
+          onScrollBeginDrag={listRest.onScrollBeginDrag}
           contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
           data={visible}
@@ -250,7 +270,9 @@ export default function Library() {
           ListHeaderComponent={header(screenHeader)}
           ListEmptyComponent={empty}
           ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
-            : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} /> : null}
+            : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} />
+            : settledSearch && caps.data?.discover && !selecting ? <ListGroup><ListRow icon="compass-outline" title={`Search Discover for “${settledSearch}”`}
+              onPress={() => router.navigate({ pathname: "/(tabs)/discover", params: { q: settledSearch } })} /></ListGroup> : null}
           onEndReachedThreshold={0.6}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (

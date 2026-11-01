@@ -24,9 +24,10 @@ import { Stack as NativeStack, router, useSegments } from "expo-router";
 import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "@/lib/bottom-overlay";
 import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
-import { useNativeHeader } from "../native-tab-stack";
+import { headerActions, headerBack, useNativeHeader } from "../native-tab-stack";
+import { TabScrollToTop, useScrollRest } from "../tab-scroll-to-top";
 import { Copy, GroupedPage, useGroupedPage, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
-import { Chip, IconButton, type IconName } from "./controls";
+import { Chip, HeaderButton, IconButton, type IconName } from "./controls";
 import { animatedPressableComponent, usePressScale } from "./press";
 
 /**
@@ -97,6 +98,10 @@ export function Screen({
   const nativePage = native && Platform.OS !== "web";
   const root = nativePage || tabHeader && !back;
   const pageColor = grouped ? c.groupedBackground : c.background;
+  // Tab roots scroll back to the top when their selected tab is tapped again.
+  const tabRoot = tabHeader && !back;
+  const scroller = useRef<ScrollView | null>(null);
+  const scrollRest = useScrollRest();
   const heading = root ? (
     !!(subtitle || eyebrow) && (
       <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>
@@ -124,8 +129,9 @@ export function Screen({
     <GroupedPage.Provider value={grouped}>
     {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: hideTitle, headerLargeTitleEnabled: !hideTitle,
       headerShadowVisible: false, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: hideTitle ? "transparent" : pageColor },
-      headerLeft: !router.canGoBack?.() ? () => <IconButton icon="chevron-back" label="Go back" variant="plain" onPress={() => router.replace("/(tabs)/library")} /> : undefined,
-      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, headerRight: action ? () => action : undefined }} />}
+      ...headerBack(back && !tabHeader ? <HeaderButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"}
+        onPress={() => router.canGoBack?.() ? router.back() : router.replace("/(tabs)/library")} /> : undefined),
+      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, ...headerActions(action ? <>{action}</> : undefined) }} />}
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: pageColor, paddingTop: root ? 0 : insets.top }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -151,9 +157,15 @@ export function Screen({
           </View>
         </View>
       </View>}
+      {tabRoot && !list && <TabScrollToTop target={scroller} rest={scrollRest.rest} />}
       {list ? <>{list({ header: heading, contentContainerStyle, refreshControl })}{children}</> : <ScrollView
         contentInsetAdjustmentBehavior={root ? "automatic" : "never"}
-        ref={scrollRef}
+        ref={(node: ScrollView | null) => {
+          scroller.current = node;
+          if (typeof scrollRef === "function") scrollRef(node);
+          else if (scrollRef) (scrollRef as { current: ScrollView | null }).current = node;
+        }}
+        onScrollBeginDrag={tabRoot ? scrollRest.onScrollBeginDrag : undefined}
         style={Platform.OS === "web" && disableBrowserScrollAnchoring ? { overflowAnchor: "none" } as ViewStyle : undefined}
         onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"
@@ -175,7 +187,8 @@ export function Screen({
             ...(constrainFooter ? { flexShrink: 1, minHeight: 0 } : {}),
             paddingHorizontal: spacing.md,
             paddingTop: spacing.sm,
-            paddingBottom: Math.max(insets.bottom, spacing.sm) + 4,
+            // A tab root's footer sits on the tab bar, which already clears the home indicator.
+            paddingBottom: tabHeader && !back ? spacing.sm : Math.max(insets.bottom, spacing.sm) + 4,
             borderTopWidth: 1,
             borderTopColor: c.border,
             backgroundColor: c.surface,
