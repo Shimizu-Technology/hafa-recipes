@@ -38,6 +38,7 @@ import {
 } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { blockSummary } from "@/lib/amrap-editor";
+import { durationLabel } from "@/lib/timed-execution";
 import { workoutMeta } from "@/lib/plan-presentation";
 import { blockedContributorsKey, contributorName } from "@/lib/safety";
 import { discoverShareText } from "@/lib/discover-share";
@@ -194,7 +195,7 @@ export default function DiscoverWorkout() {
     </View>
   ) : undefined;
   const title = item?.title ?? (q.isPending ? "Loading workout…" : "Discover");
-  const meta = item ? workoutMeta({ minutes: item.estimated_minutes, exercises: item.exercise_count,
+  const meta = item ? workoutMeta({ minutes: item.estimated_minutes, exercises: item.exercise_count, format: durationLabel(item.workout),
     equipment: item.equipment_required.length ? item.equipment_required : ["No equipment"] }) : undefined;
   return (
     <Screen

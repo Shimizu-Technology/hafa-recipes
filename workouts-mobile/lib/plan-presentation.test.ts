@@ -56,3 +56,19 @@ describe("plan presentation", () => {
     expect(PLAN_WEEK_OPTIONS.every((weeks) => Number(weeks) >= 1 && Number(weeks) <= 12)).toBe(true);
   });
 });
+
+it("names timed formats on cards, Today and detail meta instead of bare minutes", async () => {
+  const { durationLabel } = await import("./timed-execution");
+  const { workoutCardMeta } = await import("./library-view");
+  const emom = { kind: "session" as const, title: "Burpee EMOM", estimated_minutes: 20, blocks: [{ id: "b", label: "Main", grouping: "interval" as const,
+    execution: { mode: "emom" as const, interval_seconds: 60, intervals: 20, rotation: null }, exercises: [{ name: "Burpees", reps_min: 10 }] }] };
+  expect(workoutCardMeta(emom)).toBe("EMOM 20");
+  expect(durationLabel({ ...emom, blocks: [{ ...emom.blocks[0], execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 } }] })).toBe("Tabata 4 min");
+  expect(durationLabel({ ...emom, blocks: [{ ...emom.blocks[0], rounds: 3, execution: { mode: "for_time", time_cap_seconds: 1200 },
+    exercises: [{ name: "Thrusters", rep_scheme: [21, 15, 9] }] }] })).toBe("For time · cap 20");
+  expect(durationLabel({ ...emom, blocks: [{ ...emom.blocks[0], execution: { mode: "work_rest", work_seconds: 40, rest_seconds: 20, intervals: 8 } }] })).toBe("40/20 × 8");
+  expect(workoutCardMeta({ kind: "session", title: "Plain", estimated_minutes: 25 })).toBe("25 min");
+  expect(workoutMeta({ minutes: 20, format: "EMOM 20", exercises: 2 })).toBe("EMOM 20 · 2 exercises");
+  expect(exerciseTargets({ name: "Thrusters", rep_scheme: [21, 15, 9] })).toBe("21-15-9 reps");
+  expect(exerciseTargets({ name: "Burpees", ladder: { start: 1, step: 1, end: null } })).toBe("1, 2, 3… reps");
+});

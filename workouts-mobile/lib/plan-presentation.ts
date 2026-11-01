@@ -1,5 +1,6 @@
 import { formatSeconds } from "./discover";
 import type { ExercisePrescription, Program, ScheduledSession, Workout } from "./models";
+import { repPattern } from "./timed-execution";
 
 /** Plan lengths offered when building a plan. The API accepts 1–12 weeks. */
 export const PLAN_WEEK_OPTIONS = ["2", "4", "6", "8", "12"] as const;
@@ -49,16 +50,19 @@ export function formatPlanDate(iso: string, now = new Date(), locale?: string) {
 export function workoutMeta({
   minutes,
   timeCap,
+  format,
   exercises,
   equipment,
 }: {
   minutes?: number | null;
   timeCap?: string | null;
+  /** EMOM, for-time or work/rest name, which already says how long it runs. */
+  format?: string | null;
   exercises: number;
   equipment?: string[] | null;
 }) {
   return [
-    timeCap ? `${timeCap} AMRAP` : minutes ? `${minutes} min` : null,
+    format ?? (timeCap ? `${timeCap} AMRAP` : minutes ? `${minutes} min` : null),
     `${exercises} ${exercises === 1 ? "exercise" : "exercises"}`,
     equipment?.length ? equipment.join(", ") : null,
   ]
@@ -70,6 +74,7 @@ export function workoutMeta({
 export function exerciseTargets(e: ExercisePrescription, omitSets = false) {
   return [
     omitSets || e.sets == null ? null : `${e.sets} ${e.sets === 1 ? "set" : "sets"}`,
+    repPattern(e),
     e.reps_min == null
       ? null
       : e.reps_max != null && e.reps_max !== e.reps_min

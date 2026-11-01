@@ -14,7 +14,7 @@ const whole = (value: unknown, min: number, max: number): value is number =>
 const optionalWhole = (value: unknown, min: number, max: number) => value == null || whole(value, min, max);
 
 /** The same limits the API enforces. AMRAP keeps its own rules in `executionError`. */
-export function formatError(execution: TimedFormat, block: Pick<Block, "rounds">) {
+export function formatError(execution: TimedFormat, block: Pick<Block, "rounds" | "exercises">) {
   if (execution.mode === "emom") {
     if (!whole(execution.interval_seconds, 1, 3600)) return "Each interval must be 1 second through 60 minutes, in whole seconds.";
     if (!optionalWhole(execution.intervals, 1, 1440)) return "Use 1 to 1440 intervals, or leave the count blank.";
@@ -23,8 +23,14 @@ export function formatError(execution: TimedFormat, block: Pick<Block, "rounds">
     if (!whole(execution.work_seconds, 1, 3600)) return "Work must be 1 second through 60 minutes, in whole seconds.";
     if (!whole(execution.rest_seconds, 0, 3600)) return "Rest must be 0 seconds through 60 minutes, in whole seconds.";
     if (!optionalWhole(execution.intervals, 1, 1000)) return "Use 1 to 1000 intervals, or leave the count blank.";
-  } else if (!optionalWhole(execution.time_cap_seconds, 1, 86400))
+  } else if (!optionalWhole(execution.time_cap_seconds, 1, 86400)) {
     return "A time cap must be 1 second through 1440 minutes, or blank.";
+  } else {
+    // Each round reads its reps from the scheme, so a scheme must list exactly one number per round.
+    const rounds = block.rounds ?? 1;
+    const scheme = block.exercises.find((e) => e.rep_scheme?.length && e.rep_scheme.length !== rounds)?.rep_scheme;
+    if (scheme) return `Reps per round list ${scheme.length} rounds, but the block has ${rounds === 1 ? "1 round" : `${rounds} rounds`}. Make them match.`;
+  }
   // Interval formats count intervals; a round count beside them would be ambiguous.
   if (execution.mode !== "for_time" && block.rounds != null) return "Interval workouts count intervals, not rounds. Clear the rounds.";
   return null;
@@ -41,6 +47,18 @@ export function ladderReps(ladder: RepLadder, index: number) {
   if (reps < 1) return null;
   if (ladder.end != null && (ladder.step > 0 ? reps > ladder.end : reps < ladder.end)) return null;
   return reps;
+}
+/** "Ladder · 1 rep, +1 each interval until you stop" / "Ladder · 10 down to 1 reps". */
+export function ladderText(ladder: RepLadder) {
+  if (ladder.end == null) return `Ladder · ${ladder.start} ${ladder.start === 1 ? "rep" : "reps"}, ${ladder.step > 0 ? "+" : ""}${ladder.step} each interval until you stop`;
+  return `Ladder · ${ladder.start} ${ladder.step > 0 ? "up" : "down"} to ${ladder.end} reps`;
+}
+/** "21-15-9 reps" or "1, 2, 3… reps"; null without a rep scheme or ladder. */
+export function repPattern(e: Pick<ExercisePrescription, "rep_scheme" | "ladder">) {
+  if (e.rep_scheme?.length) return `${e.rep_scheme.join("-")} reps`;
+  if (!e.ladder) return null;
+  const first = [1, 2, 3].map((i) => ladderReps(e.ladder!, i)).filter((n) => n != null);
+  return e.ladder.end == null ? `${first.join(", ")}… reps` : `${e.ladder.start} to ${e.ladder.end} reps`;
 }
 export const openLadder = (block: Pick<Block, "exercises">) =>
   block.exercises.length > 0 && block.exercises.every((e) => e.ladder != null && e.ladder.end == null);
@@ -142,7 +160,7 @@ export function timedStartHint(workout: Pick<Workout, "blocks">) {
 
 const minutes = (seconds: number) => (seconds % 60 ? formatSeconds(seconds) : String(seconds / 60));
 /** Short format name for chips and summaries: "EMOM 20", "Tabata 4 min", "For time · cap 20". Null for untimed blocks. */
-export function formatLabel(block: Pick<Block, "execution" | "rounds" | "exercises">) {
+export function formatLabel(block: Pick<Block, "execution" | "rounds" | "exercises">, short = false) {
   const execution = block.execution;
   if (!execution) return null;
   switch (execution.mode) {
@@ -158,17 +176,22 @@ export function formatLabel(block: Pick<Block, "execution" | "rounds" | "exercis
     case "for_time": {
       const schemes = block.exercises.map((e) => e.rep_scheme?.join("-") ?? null);
       const scheme = schemes[0] && schemes.every((s) => s === schemes[0]) ? schemes[0] : null;
-      const name = scheme ? `${scheme} for time` : (block.rounds ?? 1) > 1 ? `${block.rounds} rounds for time` : "For time";
+      const name = short ? "For time" : scheme ? `${scheme} for time` : (block.rounds ?? 1) > 1 ? `${block.rounds} rounds for time` : "For time";
       return execution.time_cap_seconds != null ? `${name} · cap ${minutes(execution.time_cap_seconds)}` : name;
     }
     case "work_rest": {
       const { work_seconds: work, rest_seconds: rest, intervals } = execution;
       if (work === 20 && rest === 10 && intervals === 8) return "Tabata 4 min";
-      return `${work}s on / ${rest}s off${intervals == null ? "" : ` × ${intervals}`}`;
+      return `${short ? `${work}/${rest}` : `${work}s on / ${rest}s off`}${intervals == null ? "" : ` × ${intervals}`}`;
     }
     default:
       return null; // A future mode stays readable as text elsewhere and never blocks saving.
   }
+}
+/** The card chip and meta length: the format for a single timed block ("EMOM 20"), otherwise "25 min". */
+export function durationLabel(workout: { kind?: Workout["kind"]; estimated_minutes?: number | null; blocks?: Pick<Block, "execution" | "rounds" | "exercises">[] }) {
+  const only = workout.kind !== "program" && workout.blocks?.length === 1 ? workout.blocks[0] : null;
+  return (only && formatLabel(only, true)) || (workout.estimated_minutes ? `${workout.estimated_minutes} min` : null);
 }
 /** A longer description for detail screens: "Every minute for 20 minutes · alternate the moves". */
 export function formatDescription(block: Pick<Block, "execution" | "rounds" | "exercises">) {

@@ -7,9 +7,10 @@ import { Button, Card, Choice, Copy, Field, IconButton, Notice, Screen } from "@
 import { SessionTable } from "@/components/session-table";
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { actualIdentity, historicalStructureWarning } from "@/lib/training";
+import { actualIdentity, historicalStructureWarning, ranFormatTimer } from "@/lib/training";
 import { friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
+import { formatScore } from "@/lib/timed-execution";
 import type { ActualSet } from "@/lib/models";
 type NumericActual = "reps" | "duration_seconds" | "distance_meters" | "load" | "effort";
 export default function SessionDetail() {
@@ -58,7 +59,8 @@ export default function SessionDetail() {
     <Screen
       back
       title={q.data?.title ?? "Session"}
-      subtitle={q.data ? [friendlyDate(q.data.started_at), sessionStatusLabel(q.data.status),
+      subtitle={q.data ? [friendlyDate(q.data.started_at), sessionStatusLabel(q.data.status), formatScore(q.data.content.prescription_snapshot, q.data.content,
+        ranFormatTimer(offline.state.history, q.data.content.client_session_id)),
         q.data.content.active_seconds != null ? `${Math.round(q.data.content.active_seconds / 60)} min` : null].filter(Boolean).join(" · ") : undefined}
       action={q.data ? <IconButton icon="chatbubble-ellipses-outline" label="Chat about this session"
         onPress={() => router.push({ pathname: "/coach", params: { session_id: q.data!.id } })} /> : undefined}
