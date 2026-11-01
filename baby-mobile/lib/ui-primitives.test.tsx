@@ -43,7 +43,7 @@ import { View } from "react-native";
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
-import { TabStack, headerActions, initials } from "../components/tab-stack";
+import { AccountButton, HeaderIconButton, HeaderPill, TabStack, headerActions, initials } from "../components/tab-stack";
 import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, TextLinks } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
@@ -184,6 +184,22 @@ it.each(["Today", "Saved", "Journal", "Ask"])("leaves Add to the tab bar and sho
 });
 it.each([["Kami", "K"], ["  kami  shimizu ", "KS"], ["Mary Jane Watson", "MW"], ["Éowyn", "É"], ["", ""], ["🍼", ""]])("reads initials from %j", (name, expected) => {
   expect(initials(name)).toBe(expected);
+});
+it("keeps every header control's target at least 44×44 while the circles and pills stay small", async () => {
+  mock.baby = { ...mock.baby, state: { ...mock.baby.state, bootstrap: { profile: { display_name: "Kami Shimizu" } } } as any };
+  await mount(<View>
+    <HeaderIconButton icon="ellipsis-horizontal" label="More" onPress={() => {}} />
+    <HeaderPill title="Select" onPress={() => {}} />
+    <AccountButton />
+  </View>);
+  const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
+  expect(controls.map(c => c.props.accessibilityLabel)).toEqual(["More", "Select", "Settings and profiles"]);
+  for (const control of controls) {
+    const target = Object.assign({}, ...control.props.style);
+    expect(target).toMatchObject({ minWidth: 44, minHeight: 44 });
+    const shape = control.findAllByType("View" as React.ElementType)[0].props.style;
+    expect(shape.height).toBeLessThan(44);
+  }
 });
 it("hides iOS 26's shared glass behind header actions", () => {
   const options = headerActions(React.createElement("View")) as any;

@@ -36,7 +36,7 @@ export function TabStack({ title }: { title: string }) {
   </TabScreenContext.Provider></NativeHeaderContext.Provider>;
 }
 
-/** The one header button shape: a 36pt tonal circle inside a 44pt target. */
+/** The one header button shape: a 36pt tonal circle inside a 44pt target (every header control keeps 44×44). */
 export function HeaderIconButton({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
   const c = useColors();
   return <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
@@ -50,7 +50,7 @@ export function HeaderIconButton({ icon, label, onPress }: { icon: IconName; lab
 export function HeaderPill({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
   const c = useColors();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
-    style={{ minHeight: 44, justifyContent: "center" }}>
+    style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
     <View style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
       <Text maxFontSizeMultiplier={1.3} style={{ ...typeScale.subhead, fontWeight: "600", color: c.text }}>{title}</Text>
     </View>

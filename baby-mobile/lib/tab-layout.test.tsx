@@ -45,6 +45,14 @@ it("orders Today · Saved · Add · Journal · Ask and marks the selected tab wi
   expect(pills.map((pill) => pill.props.style[1].backgroundColor)).toEqual(["transparent", "tint", "cocoa", "transparent", "transparent"]);
 });
 
+it("gives every tab and the centre Add a target of at least 44×44 around the smaller pill", async () => {
+  await mount();
+  for (const target of targets()) {
+    expect(target.props.style.height).toBeGreaterThanOrEqual(44);
+    expect(target.props.style.minWidth).toBeGreaterThanOrEqual(44);
+  }
+});
+
 it("opens the Add sheet from the centre and describes what it offers before and after birth", async () => {
   await mount();
   expect(targets()[2].props.accessibilityHint).toBe("Save a source, write in your journal, or keep a doctor question");

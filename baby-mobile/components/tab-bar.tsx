@@ -80,7 +80,8 @@ export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
 
 const styles = StyleSheet.create({
   row: { height: TAB_BAR_HEIGHT, flexDirection: "row", alignItems: "center" },
-  slot: { flex: 1, height: TAB_BAR_HEIGHT, alignItems: "center", justifyContent: "center", gap: 3 },
+  // The whole slot is the target: at least 44×44 even on the narrowest phone, whatever the pill size.
+  slot: { flex: 1, minWidth: 44, height: TAB_BAR_HEIGHT, alignItems: "center", justifyContent: "center", gap: 3 },
   indicator: { width: 56, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   label: { fontSize: 11, lineHeight: 13, fontWeight: "600" },
 });
