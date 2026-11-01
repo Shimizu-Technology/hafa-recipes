@@ -34,7 +34,7 @@ export function AskCoachPill({ bottom, href = "/coach", label = "Ask Coach", hin
         opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.96 : 1 }],
       })}>
       <Ionicons name="sparkles" size={20} color={c.onAction} />
-      {!collapsed && <Text maxFontSizeMultiplier={1.3} style={{ fontSize: 16, lineHeight: 21, fontWeight: "600", color: c.onAction }}>{label}</Text>}
+      {!collapsed && <Text maxFontSizeMultiplier={1.3} numberOfLines={1} style={{ flexShrink: 0, fontSize: 16, lineHeight: 21, fontWeight: "600", color: c.onAction }}>{label}</Text>}
     </Pressable>
   </View>;
 }
