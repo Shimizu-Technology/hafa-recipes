@@ -89,6 +89,9 @@ export function movesFor(execution: IntervalFormat, block: Pick<Block, "exercise
   return rotate ? [(index - 1) % count] : block.exercises.map((_, i) => i);
 }
 
+/** Several EMOM moves with no stated rotation: one per minute and all each minute are different workouts. */
+export const unsetRotation = (execution: TimedFormat, block: Pick<Block, "exercises">) =>
+  execution.mode === "emom" && execution.rotation == null && block.exercises.length > 1;
 /** Highest interval or round the player tracks; the session identity allows 100 rounds. */
 export const trackedIntervalLimit = 100;
 /** A single timed block the player can run, or null. AMRAP stays on its own path. */
@@ -98,6 +101,7 @@ export function timedFormat(workout: Pick<Workout, "kind" | "blocks">): TimedFor
   const execution = block.execution;
   if (!isTimedFormat(execution) || !block.exercises.length || formatError(execution, block)) return null;
   if (execution.mode === "for_time") return (block.rounds ?? 1) <= trackedIntervalLimit ? execution : null;
+  if (unsetRotation(execution, block)) return null;
   if (execution.intervals == null) return execution.mode === "emom" && openLadder(block) ? execution : null;
   return execution.intervals <= trackedIntervalLimit ? execution : null;
 }
@@ -110,6 +114,8 @@ export function timedFormatProblem(workout: Pick<Workout, "kind" | "blocks">) {
   const execution = timed[0].execution!;
   if (!isTimedFormat(execution)) return null;
   if (formatError(execution, timed[0])) return `${formatError(execution, timed[0])} Edit the workout before starting.`;
+  if (unsetRotation(execution, timed[0]))
+    return "The source doesn't say whether to do one move per interval or every move each interval. Edit the workout to choose before starting.";
   if (execution.mode !== "for_time" && execution.intervals == null)
     return "The source doesn't say how many intervals to do. Edit the workout to add the count before starting.";
   return `The timer tracks up to ${trackedIntervalLimit} intervals or rounds. Split this workout into shorter sessions first.`;
