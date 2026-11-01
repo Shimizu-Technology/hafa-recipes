@@ -33,7 +33,10 @@ export function blockSummary(block: Block, label?: string) {
   if (cap != null) return `AMRAP · ${formatSeconds(cap)} time cap`;
   if (isTimedFormat(block.execution)) {
     const alternating = block.execution.mode === "emom" && block.execution.rotation === "alternating" && block.exercises.length > 1;
-    return [formatLabel(block), alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
+    const name = formatLabel(block);
+    // A block already labelled "EMOM 20" doesn't need it twice.
+    const named = !!label && !!name && label.toLowerCase().includes(name.toLowerCase());
+    return [named ? null : name, alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
   }
   const grouping = groupingLabels[block.grouping] ?? block.grouping;
   const repeated = !!label && label.toLowerCase().includes(grouping.toLowerCase());

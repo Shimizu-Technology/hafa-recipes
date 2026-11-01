@@ -174,7 +174,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
           {capReached && <Field label={`Reps done on ${step.exercise.name}`} optional numeric value={typed} onChange={setTyped} />}
         </>
       )}
-      {format.mode !== "for_time" && step && started && (
+      {format.mode !== "for_time" && step && started && (target !== position!.index || askReps || deathBy) && (
         <Card compact>
           <Copy kind="label">{unit} {target} · {moves(target!)}</Copy>
           {target! < position!.index && <Copy kind="small" tone="muted">Not marked yet. Mark it done or missed to keep going.</Copy>}

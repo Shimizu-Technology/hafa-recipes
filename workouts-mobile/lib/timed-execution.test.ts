@@ -26,6 +26,7 @@ describe("format labels", () => {
   it("summarises blocks without blocking a mode from a newer server", () => {
     expect(blockSummary(block({ mode: "emom", interval_seconds: 60, intervals: 12, rotation: "alternating" },
       { exercises: [{ name: "Burpees" }, { name: "Squats" }] }))).toBe("EMOM 12 · alternating moves");
+    expect(blockSummary(block({ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null }), "EMOM 20")).toBe("");
     const future = block({ mode: "ladder_race" } as never, { grouping: "circuit" });
     expect(executionError(future)).toBeNull();
     expect(blockSummary(future)).toBe("Circuit · ladder race");
