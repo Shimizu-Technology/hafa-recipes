@@ -191,7 +191,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.9)',
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
-    flex: 1,
+    // The pill sizes to its content, so `flex: 1` collapsed the title to zero width.
+    flexShrink: 1,
     maxWidth: 150,
   },
 });
