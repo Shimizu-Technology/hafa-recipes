@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recipeCost, recipeLoadError, canRetainRecipeOnError, recipeDetailView } from './recipeDetailPresentation';
+import { recipeCost, recipeLoadError, canRetainRecipeOnError, recipeDetailView, recipeFacts, recipeTagLabels } from './recipeDetailPresentation';
 
 describe('recipe detail cost and unavailable states', () => {
   it('scales the batch total while keeping the cost of one portion stable', () => {
@@ -57,5 +57,21 @@ describe('disabled and offline detail states', () => {
     expect(recipeDetailView({ ...state, isOffline: true })).toBe('offline');
     expect(recipeDetailView({ ...state, isOffline: true, hasRecipe: true })).toBe('recipe');
     expect(recipeDetailView({ ...state, isOffline: true, hasRecipe: true, error: { response: { status: 403 } } })).toBe('unavailable');
+  });
+});
+
+describe('recipe detail facts and tags', () => {
+  it('lists only stated facts, preferring total over cook time', () => {
+    expect(recipeFacts(null, {})).toEqual([]);
+    expect(recipeFacts(null, { prep: ' ', total: null })).toEqual([]);
+    expect(recipeFacts(1, { prep: '10 min', cook: '15 min', total: '25 min' }).map(fact => `${fact.value} ${fact.label}`))
+      .toEqual(['1 serving', '10 min prep', '25 min total']);
+    expect(recipeFacts(4, { cook: '15 min' }).map(fact => fact.label)).toEqual(['servings', 'cook']);
+  });
+
+  it('humanises slugs and drops duplicates', () => {
+    expect(recipeTagLabels(['peanut-butter-cookies', 'three_ingredient', 'Easy', 'easy', ' ', 'Dinner']))
+      .toEqual(['Peanut butter cookies', 'Three ingredient', 'Easy', 'Dinner']);
+    expect(recipeTagLabels(undefined)).toEqual([]);
   });
 });

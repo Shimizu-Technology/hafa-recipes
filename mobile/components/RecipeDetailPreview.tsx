@@ -8,6 +8,7 @@ import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { useTextSize } from '@/hooks/useTextSize';
 import type { RecipePreview } from '@/lib/recipePreview';
+import { recipeFacts } from '@/lib/recipeDetailPresentation';
 
 /**
  * Cold-load view for a recipe already seen in a list: the photo, title and
@@ -18,6 +19,7 @@ export function RecipeDetailPreview({ preview }: { preview: RecipePreview }) {
   const colors = useColors();
   const { scaleFontSize } = useTextSize();
   const sourceUrl = preview.sourceUrl ?? '';
+  const facts = recipeFacts(preview.servings ?? null, { total: preview.totalTime });
 
   return (
     <RecipeDetailScroll
@@ -40,21 +42,16 @@ export function RecipeDetailPreview({ preview }: { preview: RecipePreview }) {
         >
           {preview.title}
         </Text>
-        {(preview.servings || preview.totalTime) && (
+        {facts.length > 0 && (
           <RNView style={styles.metaRow}>
-            {preview.servings ? (
-              <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                <Ionicons name="people-outline" size={18} color={colors.actionText} />
-                <Text style={[styles.metaValue, { color: colors.text }]}>{preview.servings}</Text>
-                <Text style={[styles.metaLabel, { color: colors.textMuted }]}>servings</Text>
+            {facts.map((fact) => (
+              <RNView key={fact.label} style={styles.metaItem}>
+                <Ionicons name={fact.icon} size={18} color={colors.textSecondary} />
+                <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>
+                  <Text style={[styles.metaValue, { color: colors.text }]}>{fact.value}</Text>{` ${fact.label}`}
+                </Text>
               </RNView>
-            ) : null}
-            {preview.totalTime ? (
-              <RNView style={[styles.metaItem, { backgroundColor: colors.backgroundSecondary }]}>
-                <Ionicons name="time-outline" size={18} color={colors.actionText} />
-                <Text style={[styles.metaValue, { color: colors.text }]}>{preview.totalTime}</Text>
-              </RNView>
-            ) : null}
+            ))}
           </RNView>
         )}
         <RNView
@@ -84,17 +81,10 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   content: { padding: spacing.md },
   title: { fontSize: fontSize.xxl, fontFamily: fontFamily.display, marginBottom: spacing.md },
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-  },
-  metaValue: { fontSize: fontSize.md, fontWeight: fontWeight.semibold },
-  metaLabel: { fontSize: fontSize.sm },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 20, rowGap: 8, marginTop: spacing.md, marginBottom: spacing.md },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  metaValue: { fontWeight: fontWeight.semibold },
+  metaLabel: { fontSize: fontSize.md, lineHeight: 20 },
   body: { marginTop: spacing.md, gap: spacing.md },
   tabRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   lineRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },

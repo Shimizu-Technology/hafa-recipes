@@ -10,7 +10,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn() }));
+const m = vi.hoisted(() => ({ tags: [] as string[], times: {} as Record<string, string>, isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
@@ -60,7 +60,7 @@ vi.mock('@/utils/haptics', () => ({ haptics: { selection: vi.fn() } }));
 vi.mock('@/hooks/useRecipes', () => ({
   useRecipe: () => ({ data: m.unavailable ? undefined : { id: 'recipe-id', source_type: 'manual', source_url: 'manual:recipe',
     is_owner: true, is_public: m.isPublic, moderation_status: m.moderationStatus, review_state: 'ready', content_revision: m.revision,
-    extracted: { title: 'Rice', servings: m.servings, totalEstimatedCost: m.totalEstimatedCost, tags: [], times: {},
+    extracted: { title: 'Rice', servings: m.servings, totalEstimatedCost: m.totalEstimatedCost, tags: m.tags, times: m.times,
       components: [{ name: 'Main', ingredients: [{ name: 'rice', quantity: '1', unit: 'cup' }], steps: ['Cook'] }] } } }),
   useToggleRecipeSharing: () => ({}), useIsRecipeSaved: () => ({}), useSaveRecipe: () => ({}),
   useUnsaveRecipe: () => ({}), useRecipeNote: () => ({}), useUpdateRecipeNote: () => ({}), useSimilarRecipes: () => ({ data: [] }),
@@ -112,7 +112,7 @@ it('checks ingredients independently and keeps the main Plan action scaled', asy
     await act(async () => checkbox().props.onPress());
     await act(async () => checkbox().props.onPress());
     expect(checkbox().props.accessibilityState.checked).toBe(false);
-    const plan = root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Plan')[0];
+    const plan = root.container.queryAll(node => node.type === 'Pressable' && node.props.accessibilityLabel === 'Plan')[0];
     await act(async () => plan.props.onPress());
     expect(m.push.mock.calls.at(-1)?.[0].params.servings).toBe('8');
   } finally { await act(async () => root.unmount()); }
@@ -170,8 +170,8 @@ it.each(['light', 'dark'] as const)('keeps neutral steps and readable cost foreg
     const stepNumber = root.container.queryAll(node => node.type === 'Text' && node.props.children === 1);
     expect(stepNumber).toHaveLength(1);
     expect(effectiveStyle(stepNumber[0].props.style).color).toBe(Colors[theme].textSecondary);
-    // #373 keeps Cook in the action row and removes the floating dock.
-    expect(root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Cook')).toHaveLength(1);
+    // Start cooking is the one full-width primary action; there is no floating dock.
+    expect(root.container.queryAll(node => node.type === 'Button' && node.props.title === 'Start cooking')).toHaveLength(1);
     const cost = root.container.queryAll(node => node.type === 'TouchableOpacity' && node.props.accessibilityLabel === 'Cost')[0];
     await act(async () => cost.props.onPress());
     const totalBox = root.container.queryAll(node => node.type === 'View' &&
@@ -184,4 +184,24 @@ it.each(['light', 'dark'] as const)('keeps neutral steps and readable cost foreg
     await act(async () => root.unmount());
     m.theme = 'dark'; m.activeTab = 'ingredients'; m.servings = null; m.scaled = 1;
   }
+});
+
+it('shows only known facts, readable tags, and Scale only when servings are known', async () => {
+  const texts = (root: ReturnType<typeof createRoot>) => root.container.queryAll(node => node.type === 'Text')
+    .map(node => [node.props.children].flat().join(''));
+  const scale = (root: ReturnType<typeof createRoot>) => root.container.queryAll(node => node.type === 'Pressable' && node.props.accessibilityLabel === 'Scale');
+  m.servings = null; m.scaled = 1; m.times = {}; m.tags = ['peanut-butter-cookies', 'easy'];
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    expect(texts(root).some(text => text.includes('—'))).toBe(false);
+    expect(root.container.queryAll(node => node.props.accessibilityLabel?.startsWith?.('Tags:'))[0].props.accessibilityLabel)
+      .toBe('Tags: Peanut butter cookies, Easy');
+    expect(scale(root)).toHaveLength(0);
+    m.servings = 4; m.scaled = 4; m.times = { total: '25 min' };
+    await act(async () => root.render(<RecipeDetailScreen />));
+    expect(root.container.queryAll(node => node.props.accessibilityLabel === '25 min total')).toHaveLength(1);
+    expect(root.container.queryAll(node => node.props.accessibilityLabel === '4 servings')).toHaveLength(1);
+    expect(scale(root)).toHaveLength(1);
+  } finally { await act(async () => root.unmount()); m.tags = []; m.times = {}; }
 });
