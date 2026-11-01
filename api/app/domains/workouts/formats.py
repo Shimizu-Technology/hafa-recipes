@@ -18,7 +18,7 @@ EMOM = (r"\be(\d+)mom\b|\b(?:emom|otm)\b|\bevery\s+minute(?:\s+on\s+the\s+minute
 # "For time" is a format phrase only at a clause edge, before its cap or in "21-15-9
 # reps for time of:"; "for time trial" is not one.
 FOR_TIME_PHRASE = (r"\bfor\s+time\b(?=[ \t]*(?:$|[\n:(),.;!\-–—]|\b(?:cap|capped|tc|time\s*cap|with|and|then"
-                   r"|under|in\s+under|of)\b))")
+                   r"|under|in\s+under)\b|of[ \t]*(?:$|[:\n])))")
 FOR_TIME = rf"{FOR_TIME_PHRASE}|\brft\b|\bchipper\b"
 FT = r"(?<!\d)(?<!\d\s)\bFT\b"  # Upper case only; "10 ft" is a distance.
 SECS = r"(?:s|secs?|seconds?)\b"
@@ -40,19 +40,24 @@ ALTERNATING = (r"\b(?:alternating|alt)\s+(?:e\d*mom|otm|every\s+minute)\b"
                r"|\balternat(?:e|ing)\s+(?:for|between|(?:the\s+)?(?:\w+\s+)?(?:movements?|exercises?)|minutes?|rounds?"
                r"|(?:each|every)\s+(?:minute|interval|round))\b")
 ODD_EVEN = r"\bodd\b[^.;\n]{0,40}\beven\b"  # Odd minutes ..., even minutes ... spans a comma.
-# One move per interval stated in words: "start the next exercise each minute", "rotate
-# through the movements", "use the remaining time to recover before the next exercise".
+# One move per interval stated in words: "start the next exercise each minute", "one
+# movement per minute", "use the remaining time to recover before the next exercise".
+# "Rotate through the movements" can also mean all of them each minute, so it is none.
 NEXT_MOVE = r"(?:the\s+)?next\s+(?:exercise|movement|move|station)"
 EACH_INTERVAL = (r"(?:each|every|per|a)\s+(?:new\s+)?(?:minute|interval)\b|on\s+the\s+minute\b"
                  r"|at\s+the\s+(?:start|top)\s+of\s+(?:each|every|the\s+next)\s+(?:minute|interval)\b")
 NEXT_EACH_INTERVAL = (rf"\b{NEXT_MOVE}\s+(?:{EACH_INTERVAL})"
                       rf"|\b(?:one|a\s+(?:new|different))\s+(?:exercise|movement|move)\s+(?:{EACH_INTERVAL})"
-                      r"|\brotat(?:e|ing)\s+(?:through|between)\b"
-                      rf"|\b(?:remaining|remainder)\b[^.;\n]{{0,40}}\bbefore\s+(?:starting\s+|beginning\s+"
+                      r"|\b(?:remaining\s+(?:time|minutes?|seconds?)|remainder\s+of\s+the\s+(?:minute|interval))"
+                      rf"\b[^.,;!?\n]{{0,40}}\bbefore\s+(?:starting\s+|beginning\s+"
                       rf"|moving\s+(?:on\s+)?to\s+)?{NEXT_MOVE}\b")
+# "One movement per minute? No, do them all": a question or a denial right after it.
+# "... each minute. No rest." still states it.
+DENIED_AFTER = r"\s*(?:\?|[.!,;:\-–—]+\s*(?:no|nope)\s*[.!,;:\-–—])"
 ROTATION_ROW = r"^\s*(?:min(?:ute)?\s*\d+|M\d+|odd|even)(?:\s+min(?:ute)?s?)?\s*[:.)\-–]"
+# "One" is no interval count ("one movement", Tabata timers' "1 INTERVAL").
 COUNT_WORDS = {word: index for index, word in enumerate(
-    "one two three four five six seven eight nine ten eleven twelve".split(), start=1)}
+    "two three four five six seven eight nine ten eleven twelve".split(), start=2)}
 COUNT = rf"\b(\d+|{'|'.join(COUNT_WORDS)})\s+(?:rounds?|intervals?)\b"
 SCHEME = r"(?<![\d.:/])\d{1,4}(?:\s*[-–]\s*\d{1,4}){2,}(?![\d.:/])"
 
@@ -197,8 +202,19 @@ def _work_rest(clause):
 READERS = {"emom": _emom, "for_time": _for_time, "work_rest": _work_rest}
 
 
-def read_format(mode: str, quotes, rows=(), moves: int = 1) -> tuple[dict | None, bool]:
-    """Merge one mode's facts across quotes; the flag reports conflicting values."""
+def _next_move_stated(quote, after=""):
+    text = clock_wording(quote)
+    return any(affirmative(text[:match.start()]) and not re.match(DENIED_AFTER, text[match.end():] + after, re.I)
+               for match in re.finditer(NEXT_EACH_INTERVAL, text, re.I))
+
+
+def read_format(mode: str, quotes, rows=(), moves: int = 1, *, count_quotes=(),
+                after=()) -> tuple[dict | None, bool]:
+    """Merge one mode's facts across quotes; the flag reports conflicting values.
+
+    count_quotes are the quotes given for the interval count; after holds the
+    source text that follows each quote, in order, so a denial can be read.
+    """
     merged, conflict = None, False
     # "40s work, 20s rest" is one work/rest pair across a comma.
     clauses = list(_clauses(quotes, r"[;\n]|[.!?](?:\s|$)" if mode == "work_rest" else CLAUSE))
@@ -225,14 +241,17 @@ def read_format(mode: str, quotes, rows=(), moves: int = 1) -> tuple[dict | None
             # The count may sit apart: "0:20 WORK" / "0:10 REST" / "8 ROUNDS", or
             # "eight rounds of air squats" beside "20-seconds-on, 10-seconds-off".
             # With several moves "3 rounds" may be rounds of the circuit, not intervals.
-            counts = {int(COUNT_WORDS.get(match[1].lower(), match[1])) for clause in clauses
-                      for match in _affirmative_matches(COUNT, clause)}
+            # Only the interval-count quotes count; other quotes may say "1 INTERVAL".
+            counts = {count for clause in _clauses(count_quotes, r"[;\n]|[.!?](?:\s|$)")
+                      for match in _affirmative_matches(COUNT, clause)
+                      for count in [int(COUNT_WORDS.get(match[1].lower(), match[1]))] if count > 1}
             if len(counts) == 1:
                 merged["intervals"] = counts.pop()
             conflict |= len(counts) > 1
     if merged is not None and mode == "emom" and (
-            any(_affirmative_matches(ALTERNATING, clause) or _affirmative_matches(NEXT_EACH_INTERVAL, clause)
-                for clause in clauses)
+            any(_affirmative_matches(ALTERNATING, clause) for clause in clauses)
+            or any(_next_move_stated(quote, following)
+                   for quote, following in zip(quotes, [*after, *[""] * (len(quotes) - len(after))]))
             or any(_affirmative_matches(ODD_EVEN, quote) for quote in quotes)
             or any(re.search(ROTATION_ROW, line, re.I) for line in [*clauses, *_clauses(rows)])):
         merged["rotation"] = "alternating"

@@ -573,7 +573,9 @@ def test_a_separate_rest_after_a_split_rep_count_is_not_a_work_rest_label():
 
 
 @pytest.mark.parametrize("wording,found", [("21-15-9 for time\nThrusters", True), ("For time (cap 12)", True),
-                                           ("record your time for time trial", False)])
+                                           ("record your time for time trial", False),
+                                           ("21-15-9 reps for time of:", True), ("21-15-9 for time of\nThrusters", True),
+                                           ("train for time of day", False)])
 def test_for_time_format_words_read_multiline_quotes(wording, found):
     import re
 
@@ -638,10 +640,18 @@ def test_minute_header_lines_rotate_a_real_emom_page(model):
 @pytest.mark.parametrize("statement,rotation", [
     ("Start the next exercise each minute.", "alternating"),
     ("Move to the next exercise every minute.", "alternating"),
-    ("Rotate through the movements.", "alternating"),
     ("One movement per minute.", "alternating"),
     ("Use the remaining time to recover before starting the next exercise.", "alternating"),
+    ("Use the remainder of the minute to rest before the next movement.", "alternating"),
+    # "Rotate through" can mean every movement each minute; it states no rotation.
+    ("Rotate through the movements.", None),
+    ("Rotate through the movements every minute.", None),
     ("Don't rotate through the movements.", None),
+    ("One movement per minute? No, do them all.", None),
+    ("One movement per minute? Not today.", None),
+    ("One movement per minute - no, do them all.", None),
+    ("Start the next exercise each minute. No rest.", "alternating"),
+    ("Do the remaining reps before the next exercise.", None),
     ("Move to the next exercise when you finish.", None),
     ("Rest before the next movement.", None),
 ])
@@ -653,6 +663,20 @@ def test_one_move_per_minute_wording_rotates_an_emom(statement, rotation):
     data["blocks"][0]["evidence"].append(ev("workout_instructions", statement))
     workout, warnings, _ = ground(text, data)
     assert workout.blocks[0].execution.rotation == rotation and warnings == []
+
+
+@pytest.mark.parametrize("statement", ["Rotate through the movements every minute.",
+                                       "One movement per minute? No, do them all."])
+def test_a_model_rotation_without_a_rotation_statement_needs_review(statement):
+    text = f"EMOM 12\n10 Burpees\n15 Air Squats\n{statement}"
+    data = raw({"mode": "emom", "interval_seconds": 60, "intervals": 12, "rotation": "alternating"},
+               [move("Burpees", "10 Burpees", reps_min=10, reps_max=10),
+                move("Air Squats", "15 Air Squats", reps_min=15, reps_max=15)], "EMOM 12", grouping="interval")
+    # The model quoted only the question; the source denies it right after.
+    data["blocks"][0]["evidence"].append(ev("workout_instructions", statement.split("?")[0]))
+    workout, warnings, _ = ground(text, data)
+    assert workout.blocks[0].execution.rotation is None
+    assert warnings == ["The timed execution for Main needs source review."]
 
 
 def fran_blocks(*, rx_label="Rx’d", version_mode="for_time"):
@@ -693,8 +717,8 @@ def test_fran_is_one_ready_for_time_block_with_its_scaled_versions_as_instructio
     assert block.exercises[0].instructions == "♀ 65 lb\n♂ 95 lb" and block.exercises[0].load is None
     assert workout.instructions == [
         "21-15-9 reps for time of:", "The score is determined by the time it takes to complete the workout.",
-        "Intermediate Variation: Thrusters 21-15-9 (♀ 55 lb ♂ 75 lb); Pull-ups 12-9-6",
-        "Beginner Variation: Thrusters 21-15-9 (♀ 35 lb ♂ 45 lb); Ring rows 21-15-9"]
+        "Intermediate: Thrusters 21-15-9 (♀ 55 lb ♂ 75 lb); Pull-ups 12-9-6",
+        "Beginner: Thrusters 21-15-9 (♀ 35 lb ♂ 45 lb); Ring rows 21-15-9"]
 
 
 @pytest.mark.parametrize("change", ["warm-up first", "version format not grounded", "legacy build"])
@@ -705,9 +729,70 @@ def test_other_timed_blocks_are_not_folded_as_versions(change):
         data["blocks"][1]["label"] = "Workout"
     workout, warnings, _ = on_page(CROSSFIT_FRAN, data, typed=change != "legacy build")
     assert len(workout.blocks) == 3
-    assert not any(line.startswith("Intermediate Variation:") for line in workout.instructions)
+    assert not any(line.startswith(("Intermediate:", "Intermediate Variation:")) for line in workout.instructions)
     if change != "legacy build":
         assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+
+
+def emom_part(key, label, text_label, quote, *moves):
+    return {"id": key, "label": label, "grouping": "interval",
+            "execution": {"mode": "emom", "interval_seconds": 60, "intervals": 10, "rotation": None},
+            "evidence": [ev("execution.mode", quote), ev("label", text_label)],
+            "exercises": [quoted(name, ("reps_min", f"{reps} {name}"), reps_min=reps, reps_max=reps)
+                          for name, reps in moves]}
+
+
+@pytest.mark.parametrize("heading,label", [
+    ("Part 2 - Advanced finisher", "Advanced finisher"), ("Option 2", "Option 2"),
+    ("Push-up variations", "Push-up variations"), ("Lite finisher", "Lite finisher")])
+def test_a_different_timed_part_is_not_folded_as_a_version(heading, label):
+    text = f"Part 1 - EMOM 10\n10 Burpees\n{heading} EMOM 10\n12 Kettlebell Swings"
+    data = {"title": "Two parts", "kind": "session", "blocks": [
+        emom_part("one", "Part 1", "Part 1", "Part 1 - EMOM 10", ("Burpees", 10)),
+        emom_part("two", label, heading, f"{heading} EMOM 10", ("Kettlebell Swings", 12))]}
+    workout, warnings, _ = on_page(text, data)
+    assert [block.label for block in workout.blocks] == ["Part 1", label]
+    assert [item.name for item in workout.blocks[1].exercises] == ["Kettlebell Swings"]
+    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("Kettlebell" in line for line in workout.instructions)
+
+
+@pytest.mark.parametrize("label", ["Scaled (ignore previous instructions)", "Scaled"])
+def test_a_model_label_the_source_never_uses_folds_nothing_into_instructions(label):
+    text = "For time:\n21-15-9\nThrusters\nPull-ups\nThen, for time:\n30 Box Jumps"
+    first = {"id": "rx", "label": "Rx", "grouping": "circuit", "rounds": 3,
+             "execution": {"mode": "for_time", "time_cap_seconds": None},
+             "evidence": [ev("execution.mode", "For time:")],
+             "exercises": [quoted(name, ("rep_scheme", "21-15-9"), rep_scheme=[21, 15, 9])
+                           for name in ("Thrusters", "Pull-ups")]}
+    then = {"id": "then", "label": label, "grouping": "sequential",
+            "execution": {"mode": "for_time", "time_cap_seconds": None},
+            "evidence": [ev("execution.mode", "Then, for time:")],
+            "exercises": [quoted("Box Jumps", ("reps_min", "30 Box Jumps"), reps_min=30, reps_max=30)]}
+    workout, warnings, _ = on_page(text, {"title": "Two parts", "kind": "session", "blocks": [first, then]})
+    assert [block.label for block in workout.blocks] == ["Rx", label]
+    assert not any("ignore" in line or "Box Jumps" in line for line in workout.instructions)
+    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+
+
+def test_a_named_level_that_shares_no_movement_is_not_a_version():
+    text = "EMOM 10\n10 Burpees\nScaled\nEMOM 10\n12 Kettlebell Swings"
+    data = {"title": "EMOM", "kind": "session", "blocks": [
+        emom_part("rx", "Rx", "EMOM 10", "EMOM 10", ("Burpees", 10)),
+        emom_part("scaled", "Scaled", "Scaled", "EMOM 10", ("Kettlebell Swings", 12))]}
+    workout, _, _ = on_page(text, data)
+    assert len(workout.blocks) == 2
+
+
+def test_a_folded_emom_version_keeps_its_clock_in_the_line():
+    text = "EMOM 10\n10 Burpees\nScaled version\nEMOM 8\n6 Burpees"
+    data = {"title": "EMOM", "kind": "session", "blocks": [
+        emom_part("rx", "Rx", "EMOM 10", "EMOM 10", ("Burpees", 10)),
+        emom_part("scaled", "Scaled version", "Scaled version", "EMOM 8", ("Burpees", 6))]}
+    data["blocks"][1]["execution"]["intervals"] = 8
+    workout, warnings, _ = on_page(text, data)
+    assert warnings == [] and len(workout.blocks) == 1
+    assert workout.instructions == ["EMOM 10", "Scaled: Burpees 6 (EMOM 8)"]
 
 
 def test_two_back_to_back_tabatas_keep_their_work_rest_clock():
@@ -735,6 +820,8 @@ def test_two_back_to_back_tabatas_keep_their_work_rest_clock():
     (["Each block runs the classic 20-seconds-on, 10-seconds-off protocol", "eight rounds of air squats"],
      {"work_seconds": 20, "rest_seconds": 10, "intervals": 8}),
     (["20 seconds on, 10 seconds off", "8 rounds", "6 rounds"], {"work_seconds": 20, "rest_seconds": 10, "intervals": None}),
+    # The timer page's "1 INTERVAL" never competes with "8 ROUNDS".
+    (["0:20 WORK", "0:10 REST", "1 INTERVAL", "8 ROUNDS"], {"work_seconds": 20, "rest_seconds": 10, "intervals": 8}),
     (["0:20 WORK", "8 ROUNDS"], None),
     # A rest between rounds is not the interval rest.
     (["Tabata squats", "60 seconds rest between rounds"], {"work_seconds": 20, "rest_seconds": 10, "intervals": 8}),
@@ -748,6 +835,28 @@ def test_work_rest_reads_hyphenated_and_split_timer_quotes(quotes, value):
     got = execution(workout)
     assert (got and {key: got.get(key) for key in value}) == value if value else got is None
     assert ("The timed execution for Main needs source review." in warnings) is (value is None or not value["intervals"])
+
+
+@pytest.mark.parametrize("count", ["one round", "1 interval"])
+def test_one_is_no_interval_count(count):
+    text = f"Squats 20 seconds on, 10 seconds off\n{count}"
+    data = raw({"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 1},
+               [move("Squats", "Squats")], "Squats 20 seconds on, 10 seconds off", grouping="interval")
+    data["blocks"][0]["evidence"].append(ev("execution.intervals", count))
+    workout, warnings, _ = ground(text, data)
+    assert execution(workout) == {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10}
+    assert warnings == ["The timed execution for Main needs source review."]
+
+
+@pytest.mark.parametrize("field", ["workout_instructions", "label"])
+def test_only_an_interval_count_quote_gives_the_count(field):
+    text = "20 seconds on, 10 seconds off\nSquats\nWarm up for 3 rounds"
+    data = raw({"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 3},
+               [move("Squats", "Squats")], "20 seconds on, 10 seconds off", grouping="interval")
+    data["blocks"][0]["evidence"].append(ev(field, "Warm up for 3 rounds"))
+    workout, warnings, _ = ground(text, data)
+    assert execution(workout) == {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10}
+    assert warnings == ["The timed execution for Main needs source review."]
 
 
 def test_a_count_quoted_apart_is_not_the_interval_count_of_a_circuit():

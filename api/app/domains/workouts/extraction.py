@@ -256,8 +256,8 @@ OTM, cap or TC is minutes; 15:00 and 15' are 15 minutes.
   with no count: intervals null. The EMOM clock is the workout total, never an
   exercise duration_seconds and never rest_seconds.
 - Min 1 / Min 2 (also as 'Minute 1:' header lines), odd/even minutes, 'EMOM 12
-  alternating', 'start the next exercise each minute', 'rotate through' or
-  'use the remaining time to recover before the next exercise': rotation
+  alternating', 'start the next exercise each minute' or 'use the remaining
+  time to recover before the next exercise': rotation
   'alternating', one listed movement per interval in order; intervals is still
   the total (EMOM 12 with two moves is 12, six each). Every move inside each
   interval: 'together'. A movement name ('alternating lunges') is no rotation.
@@ -267,8 +267,10 @@ OTM, cap or TC is minutes; 15:00 and 15' are 15 minutes.
   1200; no cap means null.
 - Rx'd plus scaled versions (Intermediate, Beginner, Scaled) of one workout: the
   Rx'd version is the first block; each version is a later block labelled with
-  its level and the same execution. A load per sex or '95/65 lb' stays null and
-  its wording goes in exercise instructions with instructions evidence.
+  its level and the same execution.
+- Only a load given per sex ('♀ 65 lb / ♂ 95 lb', '95/65 lb') stays null, with
+  its wording in exercise instructions and instructions evidence. A single load
+  ('95 lb', '24 kg') is still load.
 - Tabata: mode 'work_rest', 20 s work / 10 s rest x 8 unless the source states
   other values (Tabata 40/20). 'A on / B off', 'A s work, B s rest' and a timed
   'NxA/B' (Tabata 8x20/10, 8x20s/10s) are work_seconds A, rest_seconds B,
@@ -1404,7 +1406,7 @@ def _amrap_cap_supported(seconds: int, wording: str) -> bool:
     return False
 
 
-def _text_execution_clauses(entry, source):
+def _text_execution_clauses(entry, source, *, with_after=False):
     boundary = re.compile(r"[;,\n]|[.!?](?=\s|$)")
     for part in source.parts:
         if part.location != entry.location:
@@ -1419,7 +1421,7 @@ def _text_execution_clauses(entry, source):
                         if match.end() <= index), default=0)
             following = boundary.search(part.text, end)
             right = following.start() if following else len(part.text)
-            yield part.text[left:right]
+            yield (part.text[left:right], part.text[right:right + 40]) if with_after else part.text[left:right]
             offset = end
 
 
@@ -1463,17 +1465,21 @@ def _execution_cap_supported(seconds, entry, source, evidence):
 FORMAT_EVIDENCE = {"workout_instructions", "workout_notes", "label", "grouping"}
 
 
-def _format_quotes(block, source, *, text_only=False):
-    """Whole source clauses for block format quotes; image quotes stay observations."""
+def _format_quotes(block, source, *, text_only=False, fields=None, with_after=False):
+    """Whole source clauses for block format quotes; image quotes stay observations.
+
+    with_after pairs each clause with the source text right after it.
+    """
     text_locations = {part.location for part in source.parts}
     quotes = []
     for entry in block.evidence:
-        if not (entry.field.startswith("execution") or entry.field in FORMAT_EVIDENCE):
+        if not (entry.field.startswith("execution") or entry.field in FORMAT_EVIDENCE) or (
+                fields is not None and entry.field not in fields):
             continue
         if entry.location in text_locations:
-            quotes.extend(_text_execution_clauses(entry, source))
+            quotes.extend(_text_execution_clauses(entry, source, with_after=with_after))
         elif not text_only and entry.location and entry.location.startswith("image:"):
-            quotes.append(entry.wording)
+            quotes.append((entry.wording, "") if with_after else entry.wording)
     return quotes
 
 
@@ -1486,7 +1492,10 @@ def _ground_typed_execution(block, source, warnings):
     rows = [line for item in block.exercises for entry in item.evidence if _quote_is_supported(entry, source)
             for line in [entry.wording, *(line for part in source.parts if part.location == entry.location
                                           for line in row_lines(part.text, entry.wording))]]
-    facts, conflict = read_format(execution.mode, _format_quotes(block, source), rows, len(block.exercises))
+    pairs = _format_quotes(block, source, with_after=True)
+    quotes, after = [quote for quote, _ in pairs], [following for _, following in pairs]
+    facts, conflict = read_format(execution.mode, quotes, rows, len(block.exercises), after=after,
+                                  count_quotes=_format_quotes(block, source, fields={"execution.intervals"}))
     if facts is None:
         block.execution = None
         return False
@@ -1571,13 +1580,33 @@ def _ground_rep_patterns(block, source, warnings):
         block.rounds = lengths.pop()
 
 
-SCALED_LABEL = (r"\b(?:scaled|scaling|intermediate|beginners?|novice|foundations?|modified|easier"
-                r"|masters?|teens?|lite)\b")
-VERSION_LABEL = rf"{SCALED_LABEL}|\b(?:variations?|versions?|options?|alternatives?|advanced)\b"
+LEVEL_WORDS = r"scaled|scaling|intermediate|beginners?|novice|foundations?|modified|easier|masters?|teens?"
+SCALED_LABEL = rf"\b(?:{LEVEL_WORDS}|lite)\b"
+# Only a named level marks a version; "Option 2", "Advanced finisher" or "Push-up
+# variations" can be a different workout part.
+VERSION_LABEL = rf"\b(?:{LEVEL_WORDS})\b"
 
 
-def _version_summary(block):
-    """One line for a scaled version: 'Beginner: Thrusters 21-15-9 (♀ 35 lb ♂ 45 lb); Ring rows 21-15-9'."""
+def _movement_key(name):
+    key = re.sub(r"[^a-z0-9]", "", name.casefold())
+    return key[:-1] if key.endswith("s") else key
+
+
+def _version_level(block, source):
+    """The level word of a version label as the source spells it ("Intermediate"), else None."""
+    text = "\n".join(part.text for part in source.parts)
+    for match in re.finditer(VERSION_LABEL, block.label, re.I):
+        found = re.search(rf"\b{re.escape(match[0])}\b", text, re.I)
+        if found:
+            return found[0]
+    return None
+
+
+def _version_summary(block, level, text_locations):
+    """One line for a scaled version: 'Beginner: Thrusters 21-15-9 (♀ 35 lb ♂ 45 lb); Ring rows 21-15-9'.
+
+    Every part is source wording or a grounded value; the model's label never is.
+    """
     moves = []
     for item in block.exercises:
         dose = ("-".join(map(str, item.rep_scheme)) if item.rep_scheme
@@ -1590,29 +1619,39 @@ def _version_summary(block):
     rounds = f"{block.rounds} rounds: " if block.rounds and not all(item.rep_scheme for item in block.exercises) else ""
     cap = block.execution.time_cap_seconds if block.execution.mode in {"amrap", "for_time"} else None
     cap = f" (cap {cap // 60} min)" if cap and cap % 60 == 0 else ""
-    return f"{block.label}: {rounds}{'; '.join(moves)}{cap}"[:2000]
+    # An EMOM or work/rest version keeps its own clock: "Scaled: Burpees 8 (EMOM 10)".
+    timer = list(dict.fromkeys(" ".join(entry.wording.split()) for entry in block.evidence
+                               if entry.field.startswith("execution") and entry.location in text_locations)
+                 ) if block.execution.mode in {"emom", "work_rest"} else []
+    timer = f" ({'; '.join(timer)})" if timer else ""
+    return f"{level}: {rounds}{'; '.join(moves)}{cap}{timer}"[:2000]
 
 
-def _fold_scaled_versions(workout, block_warnings, warnings):
+def _fold_scaled_versions(workout, source, block_warnings, warnings):
     """Rx'd plus its Intermediate/Beginner versions is one workout with alternatives.
 
-    The first timed block stays the workout. Later blocks run the same format and
-    are labelled as scaled versions or variations; they become one instruction line
-    each, and their own review warnings go with them.
+    The first timed block stays the workout. Each later block runs the same format,
+    is labelled with a level the source text also names, and shares a movement with
+    the first block; it becomes one instruction line and its review warnings go with it.
     """
     if len(workout.blocks) < 2:
         return []
     main, *versions = workout.blocks
+    main_moves = {_movement_key(item.name) for item in main.exercises}
+    levels = [_version_level(block, source) for block in versions]
     if not is_timed(main) or re.search(SCALED_LABEL, main.label, re.I) or not all(
-            re.search(VERSION_LABEL, block.label, re.I) and block.execution is not None
+            level and block.execution is not None
             and block.execution.mode == main.execution.mode and block.exercises
-            and all(map(_grounded_movement, block.exercises)) for block in versions):
+            and all(map(_grounded_movement, block.exercises))
+            and main_moves & {_movement_key(item.name) for item in block.exercises}
+            for block, level in zip(versions, levels)):
         return []
     dropped = [block_warnings[id(block)] for block in versions]
     warnings[:] = [warning for index, warning in enumerate(warnings)
                    if not any(start <= index < end for start, end in dropped)]
     workout.blocks = [main]
-    return [_version_summary(block) for block in versions]
+    text_locations = {part.location for part in source.parts}
+    return [_version_summary(block, level, text_locations) for block, level in zip(versions, levels)]
 
 
 def _legacy_execution(workout):
@@ -1766,9 +1805,11 @@ def ground_workout(
                              if entry.field == "notes" else entry for entry in item.evidence]
             collected.extend(item.evidence)
         block_warnings[id(block)] = (first_warning, len(warnings))
-    scaled_versions = _fold_scaled_versions(workout, block_warnings, warnings) if typed_formats else []
+    scaled_versions = _fold_scaled_versions(workout, source, block_warnings, warnings) if typed_formats else []
     # The existing block Evidence shape can carry workout-wide context without
-    # changing stored/client schemas. Never trust a model estimate or paraphrase.
+    # changing stored/client schemas. Never trust a model estimate or paraphrase:
+    # instructions are source quotes, plus one line per folded version built only
+    # from source words and grounded values (never a model-written label).
     text_locations = {part.location for part in source.parts}
     # A typed format quote (EMOM 20) is also a workout-wide instruction, so the
     # legacy shape and the shared copy keep the creator's wording.
