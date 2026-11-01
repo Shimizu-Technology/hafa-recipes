@@ -168,6 +168,7 @@ it("caps the clock's growth at the largest text size so it stays on one line ins
   expect(clock.props.numberOfLines).toBe(1);
   expect(clock.props.allowFontScaling).toBe(false);
   expect(clock.props.style.fontSize * 5 * 0.62).toBeLessThanOrEqual(390 - 96);
+  expect(clock.props.style.fontSize).toBeLessThanOrEqual(56 * 1.6);
   fixture.fontScale = 1;
   await render(d, 65_000);
   expect(renderer!.root.findAllByType("Copy" as never).find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(56);
@@ -189,4 +190,14 @@ it("caps the footer labels at the largest text sizes so the clock stays in view"
   const footer = elements(renderer!.root.findByType("Screen" as never).props.footer).filter((n) => n.type === "Button");
   expect(footer.map((n) => n.props.title)).toEqual(["Done · interval 1", "Missed", "Pause", "Finish"]);
   expect(footer.every((n) => n.props.maxScale === 1.6)).toBe(true);
+});
+
+it("caps the work/rest phase word and caption at large text so the clock stays above the footer", async () => {
+  const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Squats" }] }));
+  fixture.fontScale = 3.1;
+  await render(d, 5_000);
+  const copies = renderer!.root.findAllByType("Copy" as never);
+  expect(copies.find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBe(1.6);
+  expect(copies.find((n) => n.props.kind === "caption")!.props.maxScale).toBe(2);
+  expect(copies.find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(56 * 1.6);
 });

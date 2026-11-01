@@ -122,9 +122,10 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
 
   // Whole seconds elapsed, the same way the saved finish time counts them.
   const clockText = format.mode === "for_time" ? formatClock(Math.floor(elapsed / 1000)) : formatClock(position!.remaining);
-  // The clock grows with text size up to double, and never past the card's width: tabular digits are about
-  // 0.62 em. A computed size, not adjustsFontSizeToFit, which clips on the new architecture.
-  const clockSize = Math.min(56 * Math.min(fontScale, 2), (width - 96) / (clockText.length * 0.62));
+  // The clock grows with text size up to 1.6×, and never past the card's width: tabular digits are about
+  // 0.62 em. A computed size, not adjustsFontSizeToFit, which clips on the new architecture. With the capped
+  // caption and phase word it stays above the footer at the largest text size.
+  const clockSize = Math.min(56 * Math.min(fontScale, 1.6), (width - 96) / (clockText.length * 0.62));
   const caption = format.mode === "for_time"
     ? [format.time_cap_seconds != null ? `Cap ${formatClock(format.time_cap_seconds)}` : "No time cap", `Round ${Math.min(target ?? lastRound, block.rounds ?? 1)} of ${block.rounds ?? 1}`].join(" · ")
     : `${unit} ${position!.index}${interval!.intervals != null ? ` of ${interval!.intervals}` : ""}`;
@@ -177,8 +178,8 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
       </>}
     >
       <Card tone="accent">
-        <Copy kind="caption" tone="accent">{caption}</Copy>
-        {!!phaseWord && <Copy kind="title" tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
+        <Copy kind="caption" tone="accent" maxScale={2}>{caption}</Copy>
+        {!!phaseWord && <Copy kind="title" maxScale={1.6} tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
         <Copy kind="numeric" allowFontScaling={false} numberOfLines={1} style={{ fontSize: clockSize, lineHeight: Math.ceil(clockSize * 8 / 7) }} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`}>{clockText}</Copy>
         {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small">{formatClock(remaining)} left</Copy>}
         {!!nowLine && <Copy kind="label">{nowLine}</Copy>}
