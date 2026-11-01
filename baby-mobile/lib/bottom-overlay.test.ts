@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OVERLAY_GAP, isTabRoute, overlayBottom, reportTabScreenBottomInset } from "./bottom-overlay";
+import { OVERLAY_GAP, isTabRoute, overlayBottom, getDockedFooterHeight, reportDockedFooter, reportTabScreenBottomInset } from "./bottom-overlay";
 
 describe("bottom overlay placement", () => {
   it("treats only the tab group as showing the native tab bar", () => {
@@ -16,6 +16,23 @@ describe("bottom overlay placement", () => {
   it("keeps the old clearance outside tabs and before any tab inset is known", () => {
     expect(overlayBottom({ inTabs: false, tabInset: 83, windowInset: 34, clearance: 88 })).toBe(122);
     expect(overlayBottom({ inTabs: true, tabInset: 0, windowInset: 34, clearance: 88 })).toBe(122);
+  });
+
+  it("lifts toasts above a docked footer such as the Ask composer", () => {
+    // The footer is measured from the window bottom, so it already includes the tab bar it sits on.
+    expect(overlayBottom({ inTabs: true, tabInset: 83, windowInset: 34, clearance: 88, footer: 142 })).toBe(142 + OVERLAY_GAP);
+    expect(overlayBottom({ inTabs: false, tabInset: 0, windowInset: 34, clearance: 88, footer: 60 })).toBe(122);
+  });
+
+  it("uses the tallest focused docked footer and forgets footers that leave", () => {
+    const ask = {}, edit = {};
+    reportDockedFooter(ask, 142);
+    reportDockedFooter(edit, 90);
+    expect(getDockedFooterHeight()).toBe(142);
+    reportDockedFooter(ask, 0);
+    expect(getDockedFooterHeight()).toBe(90);
+    reportDockedFooter(edit, 0);
+    expect(getDockedFooterHeight()).toBe(0);
   });
 
   it("ignores empty reports from tab screens that are off screen", () => {
