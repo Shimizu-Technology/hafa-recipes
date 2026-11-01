@@ -8,7 +8,7 @@ import { Button, Card, Chips, Copy, Field, Notice, Row } from "./ui";
 export function TimingRow({ relevance, onPress }: { relevance?: Relevance | null; onPress: () => void }) {
   const label = timingLabel(relevance);
   return <Row title={label || "Add when this is useful"} icon="calendar-outline" numericTitle={!!label}
-    detail={relevance?.quote ? `“${relevance.quote}”` : relevance?.origin === "user" ? "Set by you" : label ? undefined : "A pregnancy week or baby age"}
+    detail={relevance?.quote ? `“${relevance.quote}”` : relevance?.origin === "user" && label ? "Set by you" : label ? undefined : "A pregnancy week or baby age"}
     hint="Edit when this tip shows up on Today" onPress={onPress} />;
 }
 

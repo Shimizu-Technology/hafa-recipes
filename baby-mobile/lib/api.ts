@@ -14,6 +14,13 @@ import type {
   Scope,
 } from "./models";
 import { dailyAiLimitMessage } from "./import-status";
+/** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
+const knownDetails = new Set([
+  "Add the birth date to see what is relevant now",
+  "Add a due date or birth date to see what is relevant now",
+  "Add a due date to see what is relevant now",
+  "Choose which child to show timing for",
+]);
 export interface RecordFilters {
   kind?: Kind;
   kinds?: readonly Kind[];
@@ -97,7 +104,18 @@ export function createBabyApi(
       if (!response.ok) {
         // Only this exact server-owned code selects a fixed local message.
         // Never reflect arbitrary backend/provider detail into private screens.
-        let dailyLimit = false;
+        let dailyLimit = false,
+          known = "";
+        if (response.status === 422) {
+          try {
+            const error = await response.json();
+            check();
+            assertLease(captured);
+            known = knownDetails.has(error?.detail) ? error.detail : "";
+          } catch (failure) {
+            if (failure instanceof ApiError) throw failure;
+          }
+        }
         if (response.status === 429) {
           try {
             const error = await response.json();
@@ -120,7 +138,7 @@ export function createBabyApi(
                   : response.status === 413
                     ? "This file is too large. Choose a smaller file."
                     : response.status === 422
-                      ? "Some details need review. Check your entries and try again."
+                      ? known ? `${known}.` : "Some details need review. Check your entries and try again."
                       : response.status === 429
                         ? dailyLimit
                           ? dailyAiLimitMessage

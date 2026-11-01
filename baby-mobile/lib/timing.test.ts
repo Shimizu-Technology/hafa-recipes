@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { optimisticRecord, type BabyRecord, type Relevance } from "./models";
+import { optimisticRecord, type BabyRecord, type Child, type Relevance } from "./models";
 import {
-  babyAgeWeeks, byStart, dueLine, matchesTiming, pregnancyProgress, relevanceFromForm, timingContext, timingForm, timingLabel, tipTopic, todayStage,
+  babyAgeWeeks, byStart, dueLine, matchesTiming, pregnancyProgress, profileToday, relevanceFromForm, timingChild, timingContext, timingForm,
+  timingLabel, tipTopic, todayStage,
 } from "./timing";
 
 const today = new Date(2026, 10, 1, 9, 30);
@@ -31,6 +32,38 @@ describe("pregnancy progress", () => {
   });
 });
 
+describe("a stale due date, several children and the profile's day", () => {
+  it("asks for the birth date past 44 weeks 6 days instead of showing a late week forever", () => {
+    // Due 2026-09-21 → 280 + 41 = 321 days on 2026-11-01; 2026-09-28 → 314 days (44w6d), the last pregnant day.
+    expect(todayStage({ due_date: "2026-09-28" }, today)).toBe("pregnancy");
+    expect(pregnancyProgress("2026-09-28", today)).toMatchObject({ week: 44, day: 6 });
+    expect(todayStage({ due_date: "2026-09-27" }, today)).toBe("needs_birth");
+    expect(pregnancyProgress("2026-09-21", today)).toMatchObject({ week: 44, day: 6, daysLeft: -41 });
+    expect(timingContext({ due_date: "2026-09-21" }, today)).toBeNull();
+    expect(todayStage({ due_date: "2026-09-21", birth_date: "2026-09-20" }, today)).toBe("baby");
+  });
+  it("prefers the one ongoing pregnancy over older siblings, like the API, unless a child is selected", () => {
+    const older: Child = { id: "ana", name: "Ana", birth_date: "2024-05-01", revision: 1 },
+      isla: Child = { id: "isla", name: "Isla", due_date: "2026-12-10", revision: 1 },
+      stale: Child = { id: "old", name: "Old", due_date: "2026-01-01", revision: 1 },
+      state = (children: Child[], selectedChild: string | null = null) => ({ selectedChild,
+        bootstrap: { generation: 1, ai_available: false, children, profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } });
+    expect(timingChild(state([older, isla]), today)?.id).toBe("isla");
+    expect(timingChild(state([older, isla], "ana"), today)?.id).toBe("ana");
+    expect(timingChild(state([older, stale]), today)?.id).toBe("ana"); // ambiguous for the API: keep Today's child
+    expect(timingChild(state([stale, { id: "none", name: "A", revision: 1 }]), today)?.id).toBe("old");
+    expect(timingChild(state([]), today)).toBeNull();
+  });
+  it("counts today in the profile's time zone, not the phone's", () => {
+    // 2026-10-31 15:30 UTC is already Nov 1 in Guam (UTC+10) but still Oct 31 in Honolulu.
+    const instant = new Date("2026-10-31T15:30:00Z");
+    expect(profileToday(instant, "Pacific/Guam")).toEqual(new Date(2026, 10, 1));
+    expect(profileToday(instant, "Pacific/Honolulu")).toEqual(new Date(2026, 9, 31));
+    expect(pregnancyProgress("2026-12-10", profileToday(instant, "Pacific/Guam"))).toMatchObject({ week: 34, day: 3 });
+    expect(profileToday(today, "Not/AZone")).toEqual(new Date(2026, 10, 1));
+  });
+});
+
 describe("stated timing", () => {
   it("describes only what was stated, in the unit the source used", () => {
     expect(timingLabel({ stage: "pregnancy", pregnancy_week_min: 37, pregnancy_week_max: null })).toBe("From 37 weeks");
@@ -52,12 +85,12 @@ describe("stated timing", () => {
     expect(tips.filter((row) => matchesTiming(row, "now", { stage: "baby", value: 2 })).map((row) => row.id)).toEqual(["newborn"]);
     expect(matchesTiming({ ...tips[1], kind: "journal" }, "now", now)).toBe(false);
   });
-  it("labels a tip with her category first, then a pending suggestion, then an extracted topic", () => {
+  it("labels a tip with her category first, then an extracted topic, never a pending AI suggestion", () => {
     const row = tip("bag", null, { topics: ["Packing"], suggested_category: { name: "Hospital bag", status: "pending" } });
     const folder = { ...tip("folder"), kind: "collection" as const, title: "Labor prep", data: { record_ids: ["bag"] } };
     expect(tipTopic(row, [folder])).toBe("Labor prep");
-    expect(tipTopic(row, [])).toBe("Hospital bag");
-    expect(tipTopic({ ...row, data: { ...row.data, suggested_category: { name: "Hospital bag", status: "dismissed" } } }, [])).toBe("Packing");
+    expect(tipTopic(row, [])).toBe("Packing");
+    expect(tipTopic({ ...row, data: { suggested_category: { name: "Hospital bag", status: "pending" } } }, [])).toBe("");
   });
 });
 

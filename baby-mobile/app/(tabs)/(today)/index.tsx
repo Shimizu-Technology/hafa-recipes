@@ -5,19 +5,19 @@ import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
 import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { babyAge, careGlance, glanceChild, nextFeed } from "@/lib/care-glance";
+import { babyAge, careGlance, nextFeed } from "@/lib/care-glance";
 import { careSummary, duration, friendlyTime, timeAgo } from "@/lib/care-format";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
-import { Button, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, typeScale, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
 import { FeedTimerCard } from "@/components/feed-timer";
 import { PregnancyHero, TipSection } from "@/components/tips";
-import { todayStage } from "@/lib/timing";
+import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
 
 const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
@@ -62,16 +62,19 @@ export default function Today() {
     now = useMinuteClock(),
     { fontScale } = useWindowDimensions(),
     children = b.state.bootstrap!.children,
-    child = glanceChild(b.state),
+    // The profile's calendar day, as the API counts pregnancy weeks and baby age.
+    today = profileToday(now, b.state.bootstrap!.profile.timezone),
+    child = timingChild(b.state, today),
     records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => routineToday(r, now)),
-    stage = todayStage(child, now),
+    stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
-    showCare = !!child && !pregnant,
-    tipsNow = useTimingTips(child, "now", 5, now),
-    tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, now),
+    expecting = pregnant || stage === "needs_birth",
+    showCare = !!child && !expecting,
+    tipsNow = useTimingTips(child, "now", 5, today),
+    tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
     timer = activeTimer(b.state),
     timerChild = timer && children.find((c) => c.id === timer.child_id),
     writing = useRef(false);
@@ -181,16 +184,24 @@ export default function Today() {
     routine = routines[0],
     questions = records.filter((r) => r.kind === "question").length;
   const titleText = child?.name.trim() || "Today";
-  if (pregnant && child && !timer) return (
+  const addBirth = () => child && router.push({ pathname: "/child", params: { id: child.id } });
+  if (expecting && child) return (
     <Screen title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
-      <PregnancyHero child={child} now={now} />
-      <TipSection title="For this week" view="now" rows={tipsNow.rows}
-        empty="Tips you save that mention this week show up here." />
-      <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
+      {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
+      {pregnant ? <>
+        <PregnancyHero child={child} now={today} />
+        <TipSection title="For now" view="now" rows={tipsNow.rows}
+          empty="Tips you save for this point in your pregnancy show up here." />
+        <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
+      </> : <Card tone="hero" style={{ gap: 12 }}>
+        <Copy kind="label">Add the birth date</Copy>
+        <Copy numeric kind="small" tone="muted">{`${dueLine(child.due_date!, today)}. Add the birth date to start feeding, sleep and diaper logs and see tips for this age.`}</Copy>
+        <Button title="Add the birth date" onPress={addBirth} />
+      </Card>}
       <View style={{ gap: 8 }}>
         <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
           <Tile icon="link-outline" label="Save a link" hint="Paste a link, or share from TikTok, Instagram or Safari"
@@ -205,15 +216,15 @@ export default function Today() {
       <Grouped>
         <Row title="Doctor questions" icon={kindIcon.question} numericDetail
           detail={questions ? `${questions} saved · for your next visit` : "Keep questions for your next visit"}
-          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "question" } })} />
+          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "question", at: String(Date.now()) } })} />
         <Row title="Journal" detail="Notes, photos and documents" icon="book-outline"
-          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal" } })} />
+          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal", at: String(Date.now()) } })} />
         <Row numericDetail title={routine?.title || "Lists & routines"}
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
       </Grouped>
-      <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
-        onPress={() => router.push({ pathname: "/child", params: { id: child.id } })} />
+      {pregnant && <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
+        onPress={addBirth} />}
     </Screen>
   );
   return (

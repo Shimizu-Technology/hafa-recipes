@@ -332,3 +332,46 @@ it("shows a saved tip's stated timing with its quote and saves a simple edit thr
   await press("Save timing");
   expect(queue).toHaveBeenLastCalledWith(expect.objectContaining({ record: expect.objectContaining({ data: expect.objectContaining({ relevance: null }) }) }));
 });
+const checked = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType)
+  .filter(n => n.props.accessibilityRole === "radio" && n.props.accessibilityState?.checked).map(n => n.props.accessibilityLabel);
+it("shows a cleared timing marker exactly like no timing, and 'Set by you' only beside a stated range", async () => {
+  const cleared = tip("Pregnancy tea", { relevance: { origin: "user", stage: null, pregnancy_week_min: null, pregnancy_week_max: null, quote: null } });
+  mock.baby = { ...mock.baby, records: [cleared], state: { ...mock.baby.state, records: [cleared] } };
+  mock.params = { id: "Pregnancy tea" };
+  await mount(<RecordDetail />);
+  const labels = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel));
+  expect(labels()).toContain("Add when this is useful. A pregnancy week or baby age");
+  expect(labels().some(label => label.includes("Set by you"))).toBe(false);
+  const set = { ...cleared, data: { ...cleared.data, relevance: { origin: "user" as const, pregnancy_week_min: 36 } } };
+  mock.baby = { ...mock.baby, records: [set], state: { ...mock.baby.state, records: [set] } };
+  await act(async () => renderer!.update(<RecordDetail />));
+  expect(labels()).toContain("From 36 weeks. Set by you");
+});
+it("falls back to All saved when For now has no current week, such as a due date past 44 weeks", async () => {
+  const records = [tip("Pregnancy tea", { relevance: { stage: "pregnancy" } })];
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records, bootstrap: { ...mock.baby.state.bootstrap,
+    children: [{ id: "kid", name: "Isla", due_date: "2025-12-01", revision: 1 }] } } };
+  mock.params = { view: "now", at: "1" };
+  await mount(<Library />);
+  expect(checked()).toEqual(["All saved"]);
+  expect(sourceView()).toMatchObject({ uncategorized: false, timing: undefined });
+  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "For now")).toBe(false);
+});
+it("uses the ongoing pregnancy for Saved timing beside an older sibling", async () => {
+  const records = [tip("Pregnancy tea", { relevance: { stage: "pregnancy" } })];
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records, bootstrap: { ...mock.baby.state.bootstrap,
+    children: [{ id: "ana", name: "Ana", birth_date: "2024-04-01", revision: 1 }, { id: "isla", name: "Isla", due_date: "2099-12-10", revision: 1 }] } } };
+  mock.params = { view: "now", at: "1" };
+  await mount(<Library />);
+  expect(sourceView()).toMatchObject({ timing: { mode: "now", childId: "isla", context: { stage: "pregnancy", value: 0 } } });
+});
+it("switches Journal's filter each time Today opens it, even to the same filter", async () => {
+  mock.params = { filter: "question", at: "1" };
+  await mount(<Journal />);
+  expect(checked()).toEqual(["Doctor questions"]);
+  await press("Journal");
+  expect(checked()).toEqual(["Journal"]);
+  mock.params = { filter: "question", at: "2" };
+  await act(async () => renderer!.update(<Journal />));
+  expect(checked()).toEqual(["Doctor questions"]);
+});
