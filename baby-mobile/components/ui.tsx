@@ -736,21 +736,56 @@ export function Chips({
   return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
     contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
-/** One compact filter row; the selected option sits in a tonal capsule and wraps instead of truncating at accessibility sizes. */
-export function TextLinks({ options, value, onChange, label }: { options: { label: string; value: string }[]; value: string; onChange: (value: string) => void; label: string }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
-  // Every option carries the capsule padding so choosing one never shifts the row.
-  const links = <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: fontScale >= 1.3 ? "wrap" : "nowrap", columnGap: 4 }}>
-    {options.map(option => <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
-      accessibilityState={{ selected: value === option.value, checked: value === option.value }}
-      onPress={() => { if (value !== option.value) tap(); onChange(option.value); }}
-      style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", maxWidth: fontScale >= 1.3 ? "100%" : undefined, flexShrink: fontScale >= 1.3 ? 1 : 0 }}>
-      <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, maxWidth: "100%", backgroundColor: value === option.value ? c.accentTint : "transparent" }}>
-        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "600" : "400" }}>{option.label}</Text>
+export interface FilterChip { label: string; value: string; icon?: IconName }
+/**
+ * The sub-navigation chip row at the top of a list: 34pt pills that scroll edge to edge and fade
+ * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
+ */
+export function FilterChips({ options, value, onChange, label }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null),
+    frames = useRef<Record<string, { x: number; width: number }>>({}), view = useRef({ x: 0, width: 0 });
+  // Bring a chip chosen elsewhere (Today's "See all", a category row) into view; leave visible ones still.
+  useEffect(() => {
+    const frame = frames.current[value], { x, width } = view.current;
+    if (!frame || !width) return;
+    // Chip x is inside the 16pt content padding; keep 48pt of context on the side it comes from.
+    const left = frame.x + 16, right = left + frame.width;
+    if (left < x) scroller.current?.scrollTo({ x: Math.max(0, left - 48), animated: true });
+    else if (right > x + width - 32) scroller.current?.scrollTo({ x: right - width + 48, animated: true });
+  }, [value]);
+  return <View style={{ marginHorizontal: -16 }}>
+    <ScrollView ref={scroller} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
+      onLayout={(event) => { view.current.width = event.nativeEvent.layout.width; }} scrollEventThrottle={64}
+      onScroll={(event) => { view.current.x = event.nativeEvent.contentOffset.x; }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 40 }}>
+      <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {options.map((option) => {
+          const on = value === option.value, ink = on ? c.onAction : c.text;
+          return <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
+            accessibilityState={{ selected: on, checked: on }}
+            onLayout={(event) => { const { x, width } = event.nativeEvent.layout; frames.current[option.value] = { x, width }; }}
+            onPress={() => { if (!on) tap(); onChange(option.value); }}
+            // A 44×44 minimum target around the 34pt pill, so even a one-word chip is easy to hit.
+            style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}>
+            <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
+              backgroundColor: on ? c.action : c.soft }}>
+              {option.icon && <Icon name={option.icon} size={16} color={ink} />}
+              <Text key={fontScale} maxFontSizeMultiplier={2} numberOfLines={1}
+                style={{ ...typeScale.subhead, fontWeight: "500", color: ink }}>{option.label}</Text>
+            </View>
+          </PressTarget>;
+        })}
       </View>
-    </PressTarget>)}
+    </ScrollView>
+    <EdgeFade color={c.background} />
   </View>;
-  return fontScale >= 1.3 ? links : <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">{links}</ScrollView>;
+}
+/** 2pt bands easing from clear to the page colour: a soft trailing fade without a gradient module. */
+const fadeBands = Array.from({ length: 20 }, (_, index) => Math.min(1, ((index + 1) / 16) ** 1.6));
+function EdgeFade({ color }: { color: string }) {
+  return <View pointerEvents="none" style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 40, flexDirection: "row" }}>
+    {fadeBands.map((opacity, index) => <View key={index} style={{ flex: 1, backgroundColor: color, opacity }} />)}
+  </View>;
 }
 export function Empty({
   title,

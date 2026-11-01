@@ -6,7 +6,7 @@ import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, HeaderAction, Card, TextLinks, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
 import { HeaderPill, TabActions, headerActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
@@ -81,12 +81,12 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </Card>
       )}
       {!focused && (
-        <TextLinks
+        <FilterChips
           value={chat.context.scope}
           label="Search in"
           options={[
             { label: "Everything", value: "all" },
-            { label: "Library", value: "library" },
+            { label: "Saved", value: "library" },
             { label: "Journal", value: "journal" },
             { label: "Care", value: "care" },
           ]}

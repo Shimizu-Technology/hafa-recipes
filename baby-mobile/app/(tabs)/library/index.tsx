@@ -7,7 +7,7 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
-import { Button, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
+import { Button, Card, FilterChips, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
@@ -23,7 +23,7 @@ import { acceptMessage, acceptSuggestions, createsCategory, decidable, decisionE
 
 export default function Library() {
   const b = useBaby();
-  const [q, setQ] = useState(""), [view, setView] = useState("inbox"), [collection, setCollection] = useState("");
+  const [q, setQ] = useState(""), [view, setView] = useState("all"), [collection, setCollection] = useState("");
   const [selecting, setSelecting] = useState(false), [selected, setSelected] = useState<string[]>([]);
   const [organizing, setOrganizing] = useState(false), [error, setError] = useState("");
   const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
@@ -49,6 +49,9 @@ export default function Library() {
     (d.title.trim() || d.body.trim() || d.data.url || d.files.length));
   function chooseView(value: string) {
     setView(value); setCollection(""); setSelected([]); setSelecting(false); setError(""); setChooseFor([]);
+  }
+  function openCategory(id: string) {
+    chooseView("categories"); setCollection(id);
   }
   function toggle(id: string) {
     setSelected((ids) => ids.includes(id) ? ids.filter((value) => value !== id) : ids.length < 100 ? [...ids, id] : ids);
@@ -122,17 +125,20 @@ export default function Library() {
     <HeaderSearch value={q} onChange={setQ} placeholder="Search saved posts" />
     <SyncStatus />
     <ChildFilter scroll />
-    <TextLinks value={view} label="Saved posts" options={[
-      { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" },
+    <FilterChips value={collection ? `topic:${collection}` : view} label="Saved posts" options={[
+      { label: "All saved", value: "all" },
       ...(context ? [{ label: "For now", value: "now" }, { label: "Coming up", value: "upcoming" }] : []),
-      { label: "Categories", value: "categories" },
-    ]} onChange={chooseView} />
+      { label: "Uncategorized", value: "inbox" },
+      // Her own topics come next, one tap each; the last chip lists them with counts for editing.
+      ...categories.rows.map((row) => ({ label: row.title, value: `topic:${row.id}` })),
+      { label: "Categories", value: "categories", icon: "folder-outline" as const },
+    ]} onChange={(value) => value.startsWith("topic:") ? openCategory(value.slice(6)) : chooseView(value)} />
     {!!error && <Notice error>{error}</Notice>}
     {chooseFor.length > 0 && !organizing && <Button secondary title="Choose another category" icon="folder-outline"
       onPress={() => { setSelected(chooseFor); setOrganizing(true); }} />}
     {listingCategories ? <>
       {categories.rows.map((r) => <Row key={r.id} title={r.title} detail={`${r.data.record_ids?.length ?? 0} saved posts`}
-        icon="folder-outline" onPress={() => setCollection(r.id)} />)}
+        icon="folder-outline" onPress={() => openCategory(r.id)} />)}
       {!categories.rows.length && !categories.loading && <Copy tone="muted">Select saved posts to create your first category.</Copy>}
       {categories.loading && <Loading label="Loading categories…" />}
       {!!categories.error && <><Notice error>{categories.error}</Notice><Button secondary title="Try loading categories again" onPress={categories.refresh} /></>}

@@ -44,7 +44,7 @@ import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
 import { AccountButton, HeaderIconButton, HeaderPill, TabStack, headerActions, initials } from "../components/tab-stack";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, TextLinks } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, FilterChips } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -310,55 +310,46 @@ it.each(["back", "close"])("keeps a cold-linked native %s screen escapable witho
 });
 
 
-it.each([1, 3.1])("changes the active text-link filter and exposes its radio selection at scale %s", async fontScale => {
+it.each([1, 3.1])("switches filter chips and exposes the radio selection at scale %s", async fontScale => {
   mock.fontScale = fontScale;
   const changed = vi.fn();
   function Filters() {
     const [value, setValue] = React.useState("all");
-    return <TextLinks label="Journal filters" value={value}
-      options={[{ label: "Everything", value: "all" }, { label: "Doctor questions", value: "question" }]}
+    return <FilterChips label="Journal filters" value={value}
+      options={[{ label: "Everything", value: "all" }, { label: "Doctor questions", value: "question", icon: "help-circle-outline" }]}
       onChange={next => { changed(next); setValue(next); }} />;
   }
-  await mount(<View style={{ width: 288 }}><Filters /></View>);
+  await mount(<Filters />);
   const choices = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
   expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
     { selected: true, checked: true }, { selected: false, checked: false },
   ]);
   await act(async () => choices()[1].props.onPress());
   expect(changed).toHaveBeenCalledExactlyOnceWith("question");
-  if (fontScale >= 1.3) expect(choices()[1].props.style).toEqual(expect.arrayContaining([expect.objectContaining({ maxWidth: "100%", flexShrink: 1 })]));
   expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
     { selected: false, checked: false }, { selected: true, checked: true },
   ]);
-  // The selected option sits in a tonal capsule (same language as Recipes and Workouts), not an underline.
-  const capsules = choices().map(choice => choice.findAllByType("View" as React.ElementType)[0].props.style);
-  expect(capsules.map(style => style.backgroundColor)).toEqual(["transparent", "rgba(201,144,126,0.2)"]);
-  expect(capsules[0].paddingHorizontal).toBe(capsules[1].paddingHorizontal);
-  const labels = choices().map(choice => choice.findAllByType("Text" as React.ElementType)[0].props.style);
-  expect(labels.map(style => [style.fontWeight, style.textDecorationLine])).toEqual([["400", undefined], ["600", undefined]]);
+  // Every chip is a 34pt pill in a 44pt target: sand at rest, filled cocoa when selected.
+  for (const choice of choices()) expect(choice.props.style[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
+  const pills = choices().map(choice => choice.findAllByType("View" as React.ElementType)[0].props.style);
+  expect(pills.map(style => [style.minHeight, style.borderRadius, style.backgroundColor])).toEqual([[34, 17, "#F1E8E1"], [34, 17, "#5A4740"]]);
+  const labels = choices().map(choice => choice.findAllByType("Text" as React.ElementType)[0].props.style.color);
+  expect(labels).toEqual(["#2D2420", "#F8F3EE"]);
+  expect(choices()[1].findAllByType("Icon" as React.ElementType)[0].props.name).toBe("help-circle-outline");
   const group = renderer!.root.findAllByType("View" as React.ElementType)
     .find(view => view.props.accessibilityRole === "radiogroup")!;
   expect(group.props.accessibilityLabel).toBe("Journal filters");
-  expect(group.props.style.flexWrap).toBe(fontScale >= 1.3 ? "wrap" : "nowrap");
-  const horizontal = renderer!.root.findAllByType("ScrollView" as React.ElementType)
-    .filter(view => view.props.horizontal);
-  expect(horizontal).toHaveLength(fontScale >= 1.3 ? 0 : 1);
+  // Large text scrolls in one row instead of stacking chips into a column.
+  expect(group.props.style.flexDirection).toBe("row");
+  expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).filter(view => view.props.horizontal)).toHaveLength(1);
 });
 
-it.each([1, 3.1])("gives short text-link filters a centered 44pt target at scale %s", async fontScale => {
-  mock.fontScale = fontScale;
-  const onChange = vi.fn();
-  await mount(<TextLinks label="Show" value="all" options={[{ label: "All", value: "all" }, { label: "Care", value: "care" }]} onChange={onChange} />);
-  const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
-  for (const control of controls) {
-    const style = Object.assign({}, ...control.props.style);
-    expect(style.minWidth).toBeGreaterThanOrEqual(44);
-    expect(style.minHeight).toBeGreaterThanOrEqual(44);
-    expect(style.alignItems).toBe("center");
-    expect(style.justifyContent).toBe("center");
+it("keeps a one-letter chip's target 44×44 while its pill stays 34pt", async () => {
+  await mount(<FilterChips label="Size" value="s" options={[{ label: "S", value: "s" }, { label: "M", value: "m" }]} onChange={() => {}} />);
+  for (const chip of renderer!.root.findAllByType("AnimatedPressable" as React.ElementType)) {
+    expect(chip.props.style[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
+    expect(chip.findAllByType("View" as React.ElementType)[0].props.style.minHeight).toBe(34);
   }
-  await act(async () => controls[1].props.onPress());
-  expect(onChange).toHaveBeenCalledWith("care");
 });
 
 it("keeps fontVariant an array when a mounted number turns back into text", async () => {

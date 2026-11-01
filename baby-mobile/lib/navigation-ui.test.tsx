@@ -199,6 +199,11 @@ it("keeps the focused entry notice at the top while its context is resolving", a
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t =>
     t.props.children === "Questions use this saved entry and its own child profile, including general entries.")).toBe(true);
 });
+it("names Ask's scope chips after the tabs, so Saved means the same thing everywhere", async () => {
+  await mount(<AskEntry />);
+  const radios = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).filter(n => n.props.accessibilityRole === "radio");
+  expect(radios.map(n => n.props.accessibilityLabel)).toEqual(["Everything", "Saved", "Journal", "Care"]);
+});
 it("opens history separately from a long conversation and returns without losing its draft", async () => {
   const openHistory = vi.fn();
   mock.ask = { question: "Keep this draft", messages: [{ role: "user", content: "Earlier question" }], showHistory: true, openHistory,
@@ -292,6 +297,9 @@ it("accepts one suggested category, all of them, or says not this from Uncategor
   mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records }, api: { ...mock.baby.api, decideSuggestions: decide, record: async () => records[0] } };
   await mount(<Library />);
   const text = () => renderer!.root.findAllByType("Text" as React.ElementType).map(n => [n.props.children].flat().join(""));
+  // Saved opens on All saved; suggestions wait under Uncategorized.
+  expect(text()).not.toContain("Suggested: Labor prep");
+  await press("Uncategorized");
   expect(text()).toContain("Suggested: Labor prep");
   expect(text()).toContain("Suggested: Hospital bag (new)");
   await press("Add “Pregnancy tea at 37 weeks” to Labor prep");
@@ -356,6 +364,25 @@ it("shows a cleared timing marker exactly like no timing, and 'Set by you' only 
   await act(async () => renderer!.update(<RecordDetail />));
   expect(labels()).toContain("From 36 weeks. Set by you");
 });
+it("orders Saved's chips All saved, For now, Coming up, Uncategorized, then her topics, and opens a topic in one tap", async () => {
+  const due = new Date(Date.now() + 39 * 86400000), iso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;
+  const folder = (id: string, title: string) => ({ ...optimisticRecord({ id, kind: "collection", title, body: "", child_id: null,
+    occurred_at: "2026-10-30T00:00:00Z", data: { record_ids: [] } }), revision: 1 });
+  const records = [tip("Bag", {}), folder("bag", "Hospital bag"), folder("sleep", "Sleep")];
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records, bootstrap: { ...mock.baby.state.bootstrap,
+    children: [{ id: "kid", name: "Isla", due_date: iso, revision: 1 }] } } };
+  await mount(<Library />);
+  const radios = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).filter(n => n.props.accessibilityRole === "radio");
+  expect(radios().map(n => n.props.accessibilityLabel)).toEqual(["All saved", "For now", "Coming up", "Uncategorized", "Hospital bag", "Sleep", "Categories"]);
+  expect(checked()).toEqual(["All saved"]);
+  await press("Sleep");
+  expect(checked()).toEqual(["Sleep"]);
+  expect(sourceView()).toMatchObject({ collectionId: "sleep", uncategorized: false });
+  await press("Categories");
+  expect(checked()).toEqual(["Categories"]);
+  await press("Hospital bag. 0 saved posts");
+  expect(checked()).toEqual(["Hospital bag"]);
+});
 it("falls back to All saved when For now has no current week, such as a due date past 44 weeks", async () => {
   const records = [tip("Pregnancy tea", { relevance: { stage: "pregnancy" } })];
   mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records, bootstrap: { ...mock.baby.state.bootstrap,
@@ -394,6 +421,7 @@ it("hides suggestions on posts with a queued save, drops (new) for a same-name c
   const outbox = [{ type: "save", id: "m1", generation: 1, files: [], record: records[0] }];
   mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records, outbox }, api: { ...mock.baby.api, decideSuggestions: decide, record: async () => records[1] } };
   await mount(<Library />);
+  await press("Uncategorized");
   const labels = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel));
   expect(labels().some(label => label.includes("“Pregnancy tea”"))).toBe(false);
   expect(labels()).toContain("Add “Bag list” to hospital bag");
@@ -411,6 +439,7 @@ it("offers another category when the suggested one can't be updated, and says pl
   const decide = vi.fn(async () => { throw new ApiError("Some details need review.", 422); });
   mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records }, api: { ...mock.baby.api, decideSuggestions: decide } };
   await mount(<Library />);
+  await press("Uncategorized");
   await press("Add “Pregnancy tea” to Labor prep");
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
   const notices = () => renderer!.root.findAllByType("Text" as React.ElementType).map(n => [n.props.children].flat().join(""));

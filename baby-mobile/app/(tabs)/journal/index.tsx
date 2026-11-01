@@ -7,7 +7,7 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { exportVisit } from "@/lib/files";
 import { visitSummary } from "@/lib/visit-summary";
-import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
 import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -121,7 +121,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
       {!careHistory && <HeaderSearch value={q} onChange={setQ} placeholder="Search notes and questions" />}
       <SyncStatus />
       <ChildFilter scroll />
-      {!careHistory && <TextLinks
+      {!careHistory && <FilterChips
         value={filter}
         label="Show"
         options={[
