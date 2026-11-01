@@ -43,6 +43,10 @@ The complete repository gate passed on `4ef1c84`: API 2,248 passed/41 existing s
 
 These checks do not establish the **25-import physical-phone gate, 80% usability target, Android acceptance, or two weeks of tester use**. Build 13 has not been installed on Leon's physical phone by the agent.
 
+## Workout formats (2026-11-01)
+
+The API reads EMOM/OTM/E2MOM, alternating minutes, AMRAP N, for time/RFT with caps, Tabata and on/off intervals, 21-15-9 rep schemes, ladders and Death by from quoted source wording. An EMOM or Tabata clock is the workout total, never an exercise duration, and `8x20/10` is never sets × reps. Typed `emom`, `for_time` and `work_rest` executions plus exercise `rep_scheme`/`ladder` are returned only to imports that send `typed_formats: true`; Workouts 1.1.0 and earlier keep the AMRAP-only shape, with the creator's format wording retained as instructions. Planning still schedules one timed block per workout. **Next:** the mobile player for these formats sends `typed_formats` and then lifts the one-timed-block limit.
+
 ## The goal
 
 > I see a workout video, share it to the app like I do for Recipes, and it

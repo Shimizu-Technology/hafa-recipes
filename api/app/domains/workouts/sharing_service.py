@@ -131,6 +131,11 @@ def safe_source_url(value):
     return value
 
 
+# Every typed format key is prescription structure, never personal context.
+EXECUTION_KEYS = ("mode", "time_cap_seconds", "interval_seconds", "intervals", "rotation",
+                  "work_seconds", "rest_seconds")
+
+
 def project_workout(raw, *, include_source_url=False):
     try:
         source = WorkoutContent.model_validate(raw)
@@ -173,7 +178,8 @@ def project_workout(raw, *, include_source_url=False):
         }
         if source_block.get("execution") is not None:
             block["execution"] = {
-                key: source_block["execution"][key] for key in ("mode", "time_cap_seconds")
+                key: source_block["execution"][key] for key in EXECUTION_KEYS
+                if key in source_block["execution"]
             }
         block["exercises"] = [
             {
@@ -193,6 +199,8 @@ def project_workout(raw, *, include_source_url=False):
                     "load",
                     "load_unit",
                     "load_convention",
+                    "rep_scheme",
+                    "ladder",
                 ) if key in exercise
             }
             for exercise in source_block["exercises"]
@@ -214,8 +222,9 @@ def project_workout(raw, *, include_source_url=False):
                 exercise["exercise_id"] = None
             if all(
                 exercise.get(field) is None
-                for field in ("reps_min", "reps_max", "duration_seconds", "distance_meters")
-            ):
+                for field in ("reps_min", "reps_max", "duration_seconds", "distance_meters",
+                              "rep_scheme", "ladder")
+            ) and block.get("execution", {}).get("mode") != "work_rest":
                 incomplete = True
         projected["blocks"].append(block)
     WorkoutContent.model_validate(projected)

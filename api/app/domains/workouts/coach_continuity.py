@@ -88,6 +88,7 @@ def comparable_progression(workout, block_id, index, records, profile, *, as_of=
     keys = expected_cells(block, index)
     if (
         keys is None
+        or block.execution is not None  # A typed format's clock is its own target.
         or prescription.reps_max is None
         or prescription.duration_seconds
         or prescription.distance_meters

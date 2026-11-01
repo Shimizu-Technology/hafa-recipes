@@ -4,7 +4,12 @@ from copy import deepcopy
 from datetime import timedelta
 
 from app.domains.workouts.catalog import EXERCISES, compatible
-from app.domains.workouts.execution import is_amrap, supports_amrap, timed_duration_minutes
+from app.domains.workouts.execution import (
+    has_dose,
+    is_timed,
+    supports_timed,
+    timed_duration_minutes,
+)
 from app.domains.workouts.programming import (
     PROGRESSION_POLICY,
     REVIEW_NOTICE,
@@ -73,7 +78,7 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
         )
     if not workout.blocks or not any(block.exercises for block in workout.blocks):
         questions.append(f"{workout.title}: complete the exercise list first.")
-    if any(block.execution for block in workout.blocks) and not supports_amrap(workout):
+    if any(block.execution for block in workout.blocks) and not supports_timed(workout):
         questions.append(f"{workout.title}: review the timed blocks as separate single-circuit workouts before scheduling.")
     duration = declared_minutes or workout.estimated_minutes or timed_duration_minutes(workout)
     timed_minutes = timed_duration_minutes(workout)
@@ -107,20 +112,12 @@ def inspect_personal_source(workout, profile, *, reviewed_custom=False, declared
             fixed_tracking_required = workout.provenance == "source" or (
                 duration is not None and block.grouping == "circuit"
             )
-            if not is_amrap(block) and exercise.sets is None and block.rounds is None and (
+            if not is_timed(block) and exercise.sets is None and block.rounds is None and (
                 fixed_tracking_required
                 or exercise.duration_seconds is None and exercise.distance_meters is None
             ):
                 questions.append(f"{exercise.name}: enter the intended sets or rounds.")
-            if all(
-                value is None
-                for value in (
-                    exercise.reps_min,
-                    exercise.reps_max,
-                    exercise.duration_seconds,
-                    exercise.distance_meters,
-                )
-            ):
+            if not has_dose(block, exercise):
                 questions.append(f"{exercise.name}: complete the rep, duration or distance target.")
             if exercise.provenance == "source" and exercise.load is not None:
                 exercise.load = exercise.load_unit = exercise.load_convention = None
