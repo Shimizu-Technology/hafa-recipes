@@ -7,7 +7,7 @@ const cache = vi.hoisted(() => ({ version: 0, listeners: new Set<() => void>() }
 vi.mock('react-native', () => ({ useWindowDimensions: () => ({ fontScale: 1 }), ScrollView: 'ScrollView', ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', View: 'View' }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'subject-a', isSignedIn: state.signedIn }) }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }) }));
-vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({}) }));
+vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({ accentTint: 'tint-fill', actionText: 'accent-text' }) }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useOfflineLease: () => state.signedIn ? state.lease : null }));
 vi.mock('@/lib/offlineRecipes', () => ({ offlineRecipes: { subscribe: (listener: () => void) => { cache.listeners.add(listener); return () => cache.listeners.delete(listener); }, version: () => cache.version, list: async () => { if (state.offlineError) throw new Error('fixture cache read failed'); return state.rows; } } }));
 vi.mock('@/hooks/useRecipes', () => ({ useExtractionJobs: () => ({ data: state.jobs }) }));
@@ -89,5 +89,26 @@ it('surfaces an offline-cache failure with its existing recovery destination', a
     await act(async () => r.render(<LibraryStatus active checking={false} needsCheck={0} onNeedsCheck={vi.fn()} onFilter={vi.fn()} />));
     const row = r.container.queryAll(n => n.props.accessibilityLabel === 'Offline recipes unavailable, view offline recipes')[0];
     await act(async () => row.props.onPress()); expect(state.push).toHaveBeenCalledWith('/offline-recipes');
+  } finally { await act(async () => r.unmount()); }
+});
+it('shows Needs a check as a selected tonal capsule and counts sheet filters on Filter', async () => {
+  const r = createRoot();
+  const render = (checking: boolean, filterCount = 0) => <LibraryStatus active checking={checking} needsCheck={3} filterCount={filterCount} onNeedsCheck={vi.fn()} onFilter={vi.fn()} />;
+  try {
+    await act(async () => r.render(render(false)));
+    const link = (label: string) => r.container.queryAll(n => n.type === 'Pressable' && n.props.accessibilityLabel === label)[0];
+    const capsule = (label: string) => link(label).queryAll(n => n.type === 'View')[0];
+    // Navigation links carry no selected state; the filter link always says whether it is on.
+    expect(link('Collections').props.accessibilityState).toBeUndefined();
+    expect(link('Needs a check · 3').props.accessibilityState).toEqual({ selected: false });
+    expect(capsule('Needs a check · 3').props.style.backgroundColor).toBe('transparent');
+    const padding = capsule('Needs a check · 3').props.style.paddingHorizontal;
+    await act(async () => r.render(render(true, 2)));
+    expect(link('Needs a check · 3').props.accessibilityState).toEqual({ selected: true });
+    // Selecting never changes the padding, so the row doesn't shift.
+    expect(capsule('Needs a check · 3').props.style).toMatchObject({ backgroundColor: 'tint-fill', paddingHorizontal: padding });
+    expect(link('Needs a check · 3').queryAll(n => n.type === 'Text')[0].props.style).toMatchObject({ color: 'accent-text', fontWeight: '600' });
+    expect(link('Filter · 2')).toBeDefined();
+    expect(link('Filter · 2').props.style).toMatchObject({ minHeight: 44 });
   } finally { await act(async () => r.unmount()); }
 });

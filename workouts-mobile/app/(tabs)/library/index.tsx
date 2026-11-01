@@ -1,5 +1,5 @@
 import { BrowseHeader } from "@/components/native-tab-stack";
-import { BrowseLinks } from "@/components/browse-links";
+import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -149,6 +149,18 @@ export default function Library() {
   const narrowed = !!filterCount;
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
+  const needsLink = !archived && !!needsCount;
+  // Programs and Needs info show as selected links; everything else is summarised once below them.
+  const sheetFilters = [
+    archived ? "Archived" : null,
+    needsInfo && !needsLink ? "Needs info" : null,
+    favorite ? "Favorites" : null,
+    kind && kind !== "program" ? kindLabels[kind] : null,
+    maxMinutes ? `Up to ${maxMinutes} min` : null,
+    collectionTitle,
+    equipment.trim(),
+    tags.trim(),
+  ].filter((item): item is string => !!item);
   function clear() {
     setNeedsInfo(false);
     setEquipment("");
@@ -172,11 +184,11 @@ export default function Library() {
         </Row>
       ) : <BrowseLinks links={[
         { title: "Collections", onPress: () => router.push("/collections") },
-        { title: "Programs", onPress: () => setKind(kind === "program" ? undefined : "program") },
-        ...(!archived && needsCount ? [{ title: `Needs info · ${needsCount}`, onPress: () => setNeedsInfo(!needsInfo) }] : []),
-        { title: "Filter", onPress: () => setFilters(true) },
+        { title: "Programs", selected: kind === "program", onPress: () => setKind(kind === "program" ? undefined : "program") },
+        ...(needsLink ? [{ title: `Needs info · ${needsCount}`, selected: needsInfo, onPress: () => setNeedsInfo(!needsInfo) }] : []),
+        { title: sheetFilters.length ? `Filter · ${sheetFilters.length}` : "Filter", onPress: () => setFilters(true) },
       ]} />}
-      {!!filterCount && <Button title={`${[needsInfo ? "Needs info" : null, favorite ? "Favorites" : null, kind ? kindLabels[kind] : null, maxMinutes ? `Up to ${maxMinutes} min` : null, archived ? "Archived" : null, collectionTitle, equipment.trim(), tags.trim()].filter(Boolean).join(" · ")} · Clear`} variant="ghost" size="sm" onPress={clear} />}
+      {!selecting && <FilterSummary items={sheetFilters} onClear={clear} />}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
       {!!q.error && visible.length > 0 && <>
         <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
