@@ -47,7 +47,8 @@ export function NativeTabStack({ title }: { title: string }) {
 
 /** Tab header actions: one button style for ···, + and the avatar so their colours never disagree. */
 export function BrowseHeader({ add = false, onMenu, menuItems = [] }: { add?: boolean; onMenu?(): void; menuItems?: HeaderMenuItem[] }) {
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+  // Each button is a 44pt target around a 36pt circle, so circles sit 8pt apart with no extra gap.
+  return <View style={{ flexDirection: "row", alignItems: "center" }}>
     {onMenu && <HeaderMenu items={menuItems} onFallback={onMenu} />}
     {add && <HeaderButton icon="add" label="Add a workout or plan" onPress={() => router.push("/add")} />}
     <AccountButton />
