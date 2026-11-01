@@ -30,7 +30,9 @@ import {
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
 import { effectiveTrainingHistory } from "@/lib/progress-selection";
-import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput } from "@/lib/training";
+import { restRemainingSeconds, exerciseElapsedSeconds, summaryOf, actualIdentity, draftStructureWarning, hasUnloggedInput, capRemainingSeconds, restAfter } from "@/lib/training";
+import { FormatSession } from "@/components/training/format-session";
+import { formatScore } from "@/lib/timed-execution";
 import type { ActualSet } from "@/lib/models";
 import { circuitRemaining, completedCircuitRounds } from "@/lib/timed-circuit";
 import { SetNumberField } from "@/components/training/set-entry";
@@ -88,7 +90,7 @@ export default function Training() {
   const [finishReview, setFinishReview] = useState(false);
   const [metric, setMetric] = useState<Metric>("reps");
   const [moreInstructions, setMoreInstructions] = useState(false);
-  const [summary, setSummary] = useState<(ReturnType<typeof sessionSummary> & { partial: boolean }) | null>(null);
+  const [summary, setSummary] = useState<(ReturnType<typeof sessionSummary> & { partial: boolean; score: string | null }) | null>(null);
   const finishing = useRef(false);
   const phase = d?.paused ? ((d.rest_remaining_milliseconds ?? 0) > 0 ? "resting" : "idle") : restPhase(d?.rest_until ?? null, now);
   useEffect(() => {
@@ -108,7 +110,7 @@ export default function Training() {
   useEffect(() => {
     const active = store?.snapshot().active;
     if (!sameSession() || !active || active.paused || checkpointing.current ||
-      (now - active.checkpoint_at < 5000 && (circuitRemaining(active, now) == null || circuitRemaining(active, now)! > 0))) return;
+      (now - active.checkpoint_at < 5000 && (capRemainingSeconds(active, now) == null || capRemainingSeconds(active, now)! > 0))) return;
     checkpointing.current = true;
     void store!.checkpoint().catch(() => { if (sameSession()) setError("Could not save the session timer on this device. Pause and retry."); })
       .finally(() => { if (sameSession()) checkpointing.current = false; });
@@ -120,6 +122,10 @@ export default function Training() {
         backgroundPausePending.current = true;
         void store!.pause(true).catch(() => { if (sameSession()) setError("Could not pause the circuit on this device. Review its saved timer before resuming."); })
           .finally(() => { if (sameSession()) backgroundPausePending.current = false; });
+      } else if (sameSession() && status !== "active" && active?.timed_format && !active.paused) {
+        // Interval clocks keep running in the background like a wall clock; save the moment we left
+        // so a relaunch after the app is closed restores the session paused there.
+        void store!.checkpoint().catch(() => undefined);
       }
     });
     return () => sub.remove();
@@ -168,6 +174,7 @@ export default function Training() {
         title={summary.partial ? "Partial session saved" : "Session saved"}
         footer={<Button title="Done" icon="checkmark" size="lg" onPress={() => router.replace("/history-progress")} />}
       >
+        {!!summary.score && <Copy kind="heading">{summary.score}</Copy>}
         <Copy tone="muted">Saved to your history. If you’re offline, it uploads when you reconnect.</Copy>
         <Row gap={12} wrap>
           <StatTile value={summary.sets} label={summary.sets === 1 ? "Set logged" : "Sets logged"} icon="checkmark-done" />
@@ -284,7 +291,7 @@ export default function Training() {
     haptics.success();
     const saved = store!.snapshot().history.find((h) => h.request.client_session_id === d!.id);
     void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
-    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial" });
+    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) });
     else router.replace("/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;
@@ -352,6 +359,19 @@ export default function Training() {
         },
       },
     ]);
+  if (d.timed_format)
+    return (
+      <FormatSession d={{ ...d, timed_format: d.timed_format }} now={now} busy={busy} error={error}
+        activityPicker={<ActivityPicker value={activity} onChange={chooseActivity} />}
+        log={(actuals) => { void run(() => store.logGroup(actuals)); }}
+        pause={(paused) => { void run(() => store.pause(paused)); }}
+        undo={() => { void run(() => store.undo()); }}
+        finish={(status, before = []) => { void run(async () => {
+          if (before.length) await store.logGroup(before);
+          await finish(status);
+        }); }}
+        discard={discard} />
+    );
   return (
     <Screen native
       back
@@ -452,9 +472,8 @@ export default function Training() {
             }}
           />
           <Button title="Reset rest" variant="ghost" size="sm" disabled={busy} onPress={() => {
-            const previous = d.actuals.at(-1);
-            const block = d.workout.blocks.find((b) => b.id === previous?.block_id);
-            const seconds = block && previous ? (((step?.block_id === previous.block_id && step.round_index !== (previous.round_index ?? 1)) ? block.rest_between_rounds_seconds : null) ?? block.exercises[previous.exercise_index]?.rest_seconds ?? 60) : 60;
+            const previous = d.cursor > 0 ? d.steps[d.cursor - 1] : undefined;
+            const seconds = previous ? restAfter(d.workout, previous, step) ?? 60 : 60;
             void run(() => store.timer("rest", seconds));
           }} />
           {restAlertsOff && <Copy kind="small" tone="muted" align="center">Rest alerts are off on this device. This timer still works.</Copy>}

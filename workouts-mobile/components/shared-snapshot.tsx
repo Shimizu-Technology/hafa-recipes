@@ -2,7 +2,8 @@ import { WorkoutInstructions } from "./workout-instructions";
 import { Card, Copy, Notice } from "./ui";
 import type { ShareSnapshot, SharedProgram } from "@/lib/sharing";
 import type { AuthoredWorkout } from "@/lib/models";
-import { amrapCap, blockSummary } from "@/lib/amrap-editor";
+import { blockSummary, timedBlock } from "@/lib/amrap-editor";
+import { repPattern } from "@/lib/timed-execution";
 export function SharedSnapshot({ snapshot }: { snapshot: ShareSnapshot }) {
   return (
     <>
@@ -46,12 +47,12 @@ function WorkoutSummary({ workout }: { workout: AuthoredWorkout }) {
           <Copy kind="heading">{block.label}</Copy>
           <Copy>
             {blockSummary(block)}
-            {block.rounds == null && amrapCap(block) == null ? " · rounds not specified" : ""}
+            {block.rounds == null && !timedBlock(block) ? " · rounds not specified" : ""}
           </Copy>
           {block.exercises.map((e, index) => (
             <Copy key={index}>
-              {e.name} · {(e.sets != null || amrapCap(block) == null) ? `${e.sets ?? "Unspecified"} sets · ` : ""}{e.reps_min ?? "Unspecified"}
-              {e.reps_max != null && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ""} reps
+              {e.name} · {(e.sets != null || !timedBlock(block)) ? `${e.sets ?? "Unspecified"} sets · ` : ""}{repPattern(e) ?? <>{e.reps_min ?? "Unspecified"}
+              {e.reps_max != null && e.reps_max !== e.reps_min ? `–${e.reps_max}` : ""} reps</>}
               {e.per_side ? " each side" : ""}
               {e.duration_seconds != null ? ` · ${e.duration_seconds}s` : ""}
               {e.distance_meters != null ? ` · ${e.distance_meters}m` : ""}

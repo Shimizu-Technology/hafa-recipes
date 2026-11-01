@@ -26,6 +26,7 @@ import { useTraining, useOfflineTraining } from "@/lib/context";
 import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
+import { timedStartHint } from "@/lib/timed-execution";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
@@ -33,7 +34,8 @@ import { SavedSourceText } from "@/components/workout-source";
 import { WorkoutHero } from "@/components/workout-hero";
 import { workoutOriginDescription } from "@/lib/workout-presentation";
 import { workoutMeta } from "@/lib/plan-presentation";
-import { amrapCap, blockSummary } from "@/lib/amrap-editor";
+import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
+import { formatLabel } from "@/lib/timed-execution";
 import { workoutDeletionBlock } from "@/lib/organization";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -151,12 +153,15 @@ export default function WorkoutDetail() {
     }
   }
   const trackingWarning = workout ? trackingPrescriptionWarning(workout) : null;
-  // Several timed (AMRAP) parts need different words than missing set counts.
+  // A timed part the timer can't run needs different words than missing set counts.
   const timedParts = !!trackingWarning && !!workout?.blocks.some((block) => block.execution);
+  const timedMessage = timedParts ? trackingWarning : null;
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
-  const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null,
+  // Same words as the library card: "EMOM 20", "AMRAP 15", "21-15-9 for time · cap 12".
+  const format = workout?.blocks.length === 1 ? formatLabel(workout.blocks[0]) : null;
+  const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null, format,
     exercises, equipment: workout.equipment_required }) : undefined;
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
@@ -178,7 +183,7 @@ export default function WorkoutDetail() {
   const hint = !workout || offline.state.active ? null
     : workout.kind === "program" ? "This program runs over several days. Pick your days to train it."
       : exercises === 0 ? "No exercises yet."
-        : timedParts ? "More than one timed part — you’ll choose how to track it."
+        : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
     <Screen native
@@ -235,7 +240,7 @@ export default function WorkoutDetail() {
                   {[
                     block.label || null,
                     blockSummary(block, block.label),
-                    block.rounds == null && block.grouping !== "sequential" && block.execution?.mode !== "amrap" ? "Rounds not specified" : null,
+                    block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? "Rounds not specified" : null,
                     block.rest_between_rounds_seconds != null ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
                   ].filter(Boolean).join(" · ")}
                 </Copy>
@@ -327,7 +332,7 @@ export default function WorkoutDetail() {
       {workout && <WorkoutStartSheet
         visible={choosing}
         busy={busy}
-        timedParts={timedParts}
+        timedMessage={timedMessage}
         onClose={() => { if (!busy) setChoosing(false); }}
         onStart={(choice) => void start(choice)}
         onEdit={() => { setChoosing(false); router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } }); }}

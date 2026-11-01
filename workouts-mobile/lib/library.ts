@@ -54,6 +54,12 @@ export function workoutErrors(workout: AuthoredWorkout,allowIncomplete=false) {
       if ((e.notes?.length ?? 0) > 2000) errors.push(`${e.name}: keep private notes within 2000 characters.`);
       if (e.reps_min != null && e.reps_max != null && e.reps_min > e.reps_max)
         errors.push(`${e.name}: minimum reps cannot exceed maximum reps.`);
+      if (e.rep_scheme != null && (e.rep_scheme.length < 2 || e.rep_scheme.length > 100 || e.rep_scheme.some((n) => !Number.isInteger(n) || n < 1 || n > 1000)))
+        errors.push(`${e.name}: reps per round need 2 to 100 whole numbers from 1 to 1000.`);
+      if (e.ladder != null && (!Number.isInteger(e.ladder.start) || e.ladder.start < 1 || e.ladder.start > 1000 ||
+        !Number.isInteger(e.ladder.step) || !e.ladder.step || Math.abs(e.ladder.step) > 100 ||
+        (e.ladder.end != null && (!Number.isInteger(e.ladder.end) || e.ladder.end < 1 || e.ladder.end > 1000))))
+        errors.push(`${e.name}: check the rep ladder.`);
       if (e.sets != null && (!Number.isInteger(e.sets) || e.sets < 1 || e.sets > 100))
         errors.push(`${e.name}: sets must be 1 through 100.`);
       if (e.load != null && (!Number.isFinite(e.load) || e.load < 0 || !e.load_unit || !e.load_convention))

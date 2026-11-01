@@ -1,4 +1,5 @@
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
+import { durationLabel } from "@/lib/timed-execution";
 import { Pressable, View } from "react-native";
 import { Image } from "expo-image";
 import { useColors } from "@/components/ui";
@@ -123,7 +124,7 @@ export function TrainToday() {
   } else if (planned) {
     const workout = planned.session.workout;
     hero = { title: workout.title, cover: workout.source_thumbnail_url, detail: "",
-      meta: [workout.estimated_minutes ? `${workout.estimated_minutes} min` : null, workout.blocks?.length ? `${workout.blocks.reduce((n, block) => n + block.exercises.length, 0)} exercises` : null, ...(workout.equipment_required?.slice(0, 1) ?? [])]
+      meta: [durationLabel(workout), workout.blocks?.length ? `${workout.blocks.reduce((n, block) => n + block.exercises.length, 0)} exercises` : null, ...(workout.equipment_required?.slice(0, 1) ?? [])]
         .filter((x): x is string => !!x),
       action: <>
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}

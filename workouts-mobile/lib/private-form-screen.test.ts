@@ -938,6 +938,24 @@ it("mounted source import freezes its request UUID/source through lost acknowled
   });
 });
 
+it("retrying an import an older build froze keeps its original body, without typed formats, under the same request ID", async () => {
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ generation: 1, request_id: "older-build-request", kind: "url",
+    source_url: "https://example.test/older", text: "", files: [], pending_import: true, server_auto_save: false, auto_save: true,
+    is_public: false, created_at: "2026-10-30T00:00:00Z" }));
+  await mount(Capture);
+  fixture.startImport.mockResolvedValueOnce({ id: "older-import" });
+  await click("Retry import");
+  expect(fixture.sourceFor.mock.calls[0][0]).toMatchObject({ request_id: "older-build-request", typed_formats: false });
+  expect(fixture.startImport.mock.calls[0][0]).toBe("older-build-request");
+  // A new import from this build freezes typed formats on, so its own retries keep sending them.
+  await unmount(); fixture.map.clear(); fixture.sourceFor.mockClear();
+  await mount(Capture);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout link")!.props.onChange("https://example.test/new"));
+  fixture.startImport.mockResolvedValueOnce({ id: "new-import" });
+  await click("Import workout");
+  expect(fixture.sourceFor.mock.calls[0][0]).toMatchObject({ pending_import: true, typed_formats: true });
+});
+
 it("mounted source import checks owner retirement again after asynchronous consent before sending the source", async () => {
   fixture.aiConsent.mockResolvedValue({ accepted: false, disclosure_version: 1 });
   await mount(Capture);
@@ -2374,7 +2392,7 @@ it("retries retained source with caption privately and reconnects the exact requ
   await act(async () => nodes("Field").find(node => node.props.label === "Caption or source instructions")!.props.onChange("Squat 10 reps for 20 minutes"));
   await click("Retry with this caption");
   const first = fixture.startImport.mock.calls[0];
-  expect(first).toEqual([expect.any(String), { kind: "url", source_url: "https://example.test/workout", text: "Original instructions\n\nSquat 10 reps for 20 minutes", ai_consent: true }, 1, { auto_save: true, is_public: false }]);
+  expect(first).toEqual([expect.any(String), { kind: "url", source_url: "https://example.test/workout", text: "Original instructions\n\nSquat 10 reps for 20 minutes", ai_consent: true, typed_formats: true }, 1, { auto_save: true, is_public: false }]);
   await unmount(); await mount(ImportReview); await click("Reconnect retry");
   expect(fixture.startImport.mock.calls[1]).toEqual(first);
   expect(fixture.map.get(draftKey(fixture.owner, "import-visibility:1:retry-job"))).toBe("false");
@@ -2393,7 +2411,7 @@ it("retries a saved source draft from its link without editing the original libr
   fixture.importSource.mockRejectedValue(new ApiError("Source cleared after saving", 410));
   fixture.startImport.mockResolvedValue({ id: "retry-job", generation: 1, status: "queued" });
   await mount(ImportReview); await click("Retry this source");
-  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", ai_consent: true }, 1, { auto_save: true, is_public: false });
+  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", ai_consent: true, typed_formats: true }, 1, { auto_save: true, is_public: false });
   expect(fixture.updateWorkout).not.toHaveBeenCalled(); expect(fixture.acceptImport).not.toHaveBeenCalled();
 });
 
@@ -2436,7 +2454,7 @@ it("recovers a saved empty source privately without replacing the original worko
   expect(nodes("Field").find(node => node.props.label === "Original source link")!.props.value).toBe("https://example.test/source");
   await act(async () => nodes("Field").find(node => node.props.label === "Creator caption or transcript")!.props.onChange("10 squats for 20 minutes"));
   await click("Recover as a private import");
-  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", text: "10 squats for 20 minutes", ai_consent: true }, 1, { auto_save: true, is_public: false });
+  expect(fixture.startImport).toHaveBeenCalledWith(expect.any(String), { kind: "url", source_url: "https://example.test/source", text: "10 squats for 20 minutes", ai_consent: true, typed_formats: true }, 1, { auto_save: true, is_public: false });
   expect(fixture.map.get(draftKey(fixture.owner, "capture:1"))).toBe(originalCapture);
   expect(fixture.updateWorkout).not.toHaveBeenCalled(); expect(fixture.acceptImport).not.toHaveBeenCalled();
   expect(fixture.replace).toHaveBeenCalledWith({ pathname: "/import/[id]", params: { id: "recovery-job" } });

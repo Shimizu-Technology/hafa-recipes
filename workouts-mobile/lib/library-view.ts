@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { durationLabel } from "./timed-execution";
 import type { Storage } from "./drafts";
 import { draftKey } from "./drafts";
 import { workoutKindLabel, workoutOrigin } from "./labels";
@@ -35,12 +36,12 @@ export function workoutCardBadge(workout: Pick<Workout, "extraction_warnings">) 
   return workout.extraction_warnings?.length ? "Check details" : undefined;
 }
 
-export function workoutCardMeta(workout: Pick<Workout, "kind" | "title" | "estimated_minutes">, _includeOrigin = false) {
+export function workoutCardMeta(workout: Pick<Workout, "kind" | "title" | "estimated_minutes"> & { blocks?: Workout["blocks"] }, _includeOrigin = false) {
   if (workout.kind === "program") {
     const weeks = workout.title.match(/\b(\d+)\s*[- ]?\s*(?:weeks?|wks?)\b/i)?.[1];
     return weeks ? `${weeks} wks` : "Program";
   }
-  return workout.estimated_minutes ? `${workout.estimated_minutes} min` : "";
+  return durationLabel(workout) ?? "";
 }
 
 export function workoutCountLabel(total: number, archived = false) {

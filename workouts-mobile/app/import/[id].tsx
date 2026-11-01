@@ -20,7 +20,7 @@ import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { DECLINED, INCOMPLETE_MESSAGE, defaultShareToDiscover, isIncomplete, publishable, prescriptionLine, formatSeconds } from "@/lib/discover";
 import { WorkoutSource } from "@/components/workout-source";
 import { ImportProgress } from "@/components/import-progress";
-import { amrapCap, blockSummary } from "@/lib/amrap-editor";
+import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
 export default function ImportReview() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { localDrafts, api, owner, enrollment, storage, isCurrentAccount } = useTraining();
@@ -450,7 +450,7 @@ export default function ImportReview() {
                       <Card key={block.id}>
                         <Copy kind="subheading">{block.label}</Copy>
                         <Copy kind="small" tone={block.rounds == null ? "accent" : "muted"}>
-                          {blockSummary(block)}{block.rounds == null && block.grouping !== "sequential" && amrapCap(block) == null ? " · Rounds not specified" : ""}
+                          {blockSummary(block, block.label)}{block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? " · Rounds not specified" : ""}
                           {block.rest_between_rounds_seconds != null ? ` · ${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : ""}
                         </Copy>
                         {block.exercises.map((e, index) => (

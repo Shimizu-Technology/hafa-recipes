@@ -3,6 +3,7 @@
  * the screens share. Contract: docs/hafa-workouts/DISCOVER.md.
  */
 import type { AuthoredWorkout, ExercisePrescription, Workout } from "./models";
+import { repPattern } from "./timed-execution";
 
 export interface Publication {
   is_public: boolean;
@@ -243,7 +244,7 @@ export function prescriptionLine(e: ExercisePrescription) {
         ? `up to ${e.reps_max} reps`
         : null;
   const targets = [
-    reps,
+    reps ?? repPattern(e),
     e.duration_seconds != null ? formatSeconds(e.duration_seconds) : null,
     e.distance_meters != null ? `${e.distance_meters} m` : null,
   ].filter((target): target is string => target != null);

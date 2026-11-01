@@ -1,4 +1,5 @@
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
+import { durationLabel } from "@/lib/timed-execution";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { router } from "expo-router";
@@ -327,7 +328,7 @@ export default function Plan() {
   function sessionRows(p: Program, sessions: ScheduledSession[]) {
     return sessions.map((s, index) => {
       const { status, done, missed } = sessionState(p, s);
-      const minutes = s.workout.estimated_minutes ? `${s.workout.estimated_minutes} min` : null;
+      const minutes = durationLabel(s.workout);
       // Today's session starts from the top of the screen; a later one can start here.
       const inlineStart = next?.p.id === p.id && next.s.id === s.id && s.date !== today && !offline.state.active;
       return (
