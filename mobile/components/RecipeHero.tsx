@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { StyleSheet, View as RNView } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { Text, useColors } from './Themed';
 import { fontSize, radius, spacing } from '../constants/Colors';
@@ -40,14 +41,23 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
     if (currentImage.current === imageIdentity) setFailedImage(imageIdentity);
   };
 
-  if (photoOnly && !usableThumbnailUrl) return <RNView style={{ minHeight: 120, backgroundColor: colors.background, justifyContent: 'flex-end', padding: 16 }}>
-    {thumbnailPending && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>Choosing recipe photo…</Text>}
-  </RNView>;
+  // Full-bleed detail photo. No photo renders nothing, so the screen falls back to an opaque header.
+  if (photoOnly) {
+    if (!usableThumbnailUrl && !thumbnailPending) return null;
+    return <RNView style={[styles.fullBleedImage, { backgroundColor: colors.backgroundSecondary }]}>
+      {usableThumbnailUrl ? <RecipeThumbnail key={usableThumbnailUrl} uri={usableThumbnailUrl} style={StyleSheet.absoluteFill}
+        onError={handleImageError} accessibilityLabel={`${recipeTitle} recipe`} priority="high" />
+        : <RNView style={styles.pendingTile}><Text accessibilityLiveRegion="polite"
+          style={[styles.pendingText, { color: colors.textSecondary }]}>Choosing recipe photo…</Text></RNView>}
+      {/* Keeps the status bar and header circles legible on pale photos. */}
+      <LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']} style={styles.scrim} />
+    </RNView>;
+  }
   if (!playback && !usableThumbnailUrl && !thumbnailPending) return null;
 
   return (
     <RNView
-      style={photoOnly ? styles.fullBleed : styles.container}
+      style={styles.container}
       pointerEvents={interactive ? 'auto' : 'none'}
       accessibilityElementsHidden={!interactive}
       importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
@@ -56,7 +66,7 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
         accessibilityLiveRegion="polite"
         style={[styles.pendingText, { color: colors.textSecondary }]}
       >Choosing recipe photo…</Text>}
-      {!photoOnly && playback ? <SourcePlaybackCard
+      {playback ? <SourcePlaybackCard
         playback={playback}
         recipeTitle={recipeTitle}
         thumbnailUrl={usableThumbnailUrl}
@@ -66,7 +76,7 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
       /> : usableThumbnailUrl ? <RecipeThumbnail
         key={usableThumbnailUrl}
         uri={usableThumbnailUrl}
-        style={photoOnly ? styles.fullBleedImage : styles.heroImage}
+        style={styles.heroImage}
         onError={handleImageError}
         accessibilityLabel={`${recipeTitle} recipe`}
         priority="high"
@@ -76,8 +86,9 @@ function RecipeHeroContent({ recipeTitle, sourceUrl, thumbnailUrl, thumbnailPend
 }
 
 const styles = StyleSheet.create({
-  fullBleed: { width: '100%' },
-  fullBleedImage: { width: '100%', aspectRatio: 1.2 },
+  fullBleedImage: { width: '100%', aspectRatio: 4 / 3, overflow: 'hidden' },
+  scrim: { position: 'absolute', top: 0, left: 0, right: 0, height: 140 },
+  pendingTile: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   container: { width: '100%', maxWidth: 800, alignSelf: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   pendingText: { fontSize: fontSize.sm, paddingVertical: spacing.sm },
   heroImage: { width: '100%', aspectRatio: 4 / 3, maxHeight: 340, maxWidth: (4 / 3) * 340, alignSelf: 'center', borderRadius: radius.xl },
