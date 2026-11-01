@@ -35,6 +35,7 @@ vi.mock("expo-router", () => ({
 }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
+vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/files", () => ({ exportVisit: mock.exportVisit }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
@@ -78,6 +79,7 @@ import RecordDetail from "../app/record/[id]";
 import { Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
 import { emptyState, optimisticRecord } from "./models";
+import { getDockedFooterHeight } from "./bottom-overlay";
 let renderer: ReactTestRenderer | undefined;
 const row = (id: string, kind: "journal" | "feeding" | "question" | "source" | "sleep") => optimisticRecord({
   id, kind, title: id, body: `Observation ${id}`, child_id: null, data: {}, occurred_at: "2026-10-30T00:00:00Z",
@@ -213,18 +215,25 @@ it("opens history separately from a long conversation and returns without losing
   expect(text().some(t => t.props.children === "Earlier question")).toBe(true);
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("Keep this draft");
 });
-it("reserves the measured Ask composer, adjusts for keyboard, and removes both subscriptions", async () => {
+it("reserves the measured Ask composer, lifts toasts above it, adjusts for keyboard, and removes both subscriptions", async () => {
   await mount(<AskEntry />);
   const footer = () => renderer!.root.findAllByType("View" as React.ElementType).find(v => v.props.onLayout)!;
   expect(Object.keys(mock.keyboard)).toEqual(["keyboardWillShow", "keyboardWillHide"]);
   await act(async () => footer().props.onLayout({ nativeEvent: { layout: { height: 150 } } }));
-  expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).find(s => !s.props.horizontal)!.props.contentContainerStyle.paddingBottom).toBe(150);
+  const reserved = () => renderer!.root.findAllByType("ScrollView" as React.ElementType).find(s => !s.props.horizontal)!.props.contentContainerStyle.paddingBottom;
+  // The automatic content inset already covers the 34pt safe area the footer pads, so only the rest is reserved.
+  expect(reserved()).toBe(150 - 34);
   expect(footer().props.style.paddingBottom).toBe(34);
+  expect(getDockedFooterHeight()).toBe(150);
   await act(async () => mock.keyboard.keyboardWillShow());
   expect(footer().props.style.paddingBottom).toBe(10);
+  expect(reserved()).toBe(150);
+  // Above the keyboard the composer is out of the toast's way.
+  expect(getDockedFooterHeight()).toBe(0);
   await act(async () => mock.keyboard.keyboardWillHide());
   expect(footer().props.style.paddingBottom).toBe(34);
   await act(async () => renderer!.unmount()); renderer = undefined;
+  expect(getDockedFooterHeight()).toBe(0);
   expect(mock.removed).toEqual(["keyboardWillShow", "keyboardWillHide"]);
 });
 

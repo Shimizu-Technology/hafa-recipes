@@ -69,6 +69,7 @@ vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView",
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "Icon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-router", () => ({ router: {} }));
+vi.mock("expo-router/react-navigation", () => ({ NavigationContext: React.createContext(undefined) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 import { PressTarget } from "../components/ui";

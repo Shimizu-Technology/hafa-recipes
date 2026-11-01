@@ -16,7 +16,6 @@ vi.mock('react-native', () => ({
   View: 'View',
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
   useColors: () => ({
     accent: '#B94722',
@@ -24,17 +23,16 @@ vi.mock('@/components/Themed', () => ({
     border: '#E8D8C8',
     card: '#FFFCF7',
     shadowColor: '#0B3E38',
+    actionText: '#166456',
     text: '#17120E',
     textSecondary: '#6D5D50',
     tint: '#5DD3B6', onTint: '#00261F',
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
-  fontSize: { xs: 12, sm: 14 },
-  fontWeight: { semibold: '600' },
-  radius: { md: 12, xl: 20, full: 999 },
-  shadows: { medium: { shadowOpacity: 0.14 } },
-  spacing: { xs: 4, sm: 8, md: 16 },
+  radius: { md: 14, full: 999 },
+  spacing: { sm: 8, md: 16, lg: 24 },
+  typography: { headline: { fontSize: 17, lineHeight: 22 }, subhead: { fontSize: 15, lineHeight: 20 } },
 }));
 
 import { SignInBanner } from './SignInBanner';
@@ -45,7 +43,7 @@ describe('SignInBanner', () => {
     mocks.push.mockReset();
   });
 
-  it('keeps both account paths accessible in a compact guest prompt', async () => {
+  it('keeps both account paths accessible in a calm inline guest card', async () => {
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
@@ -64,15 +62,19 @@ describe('SignInBanner', () => {
 
       expect(createAccount.props.accessibilityRole).toBe('button');
       expect(signIn.props.accessibilityRole).toBe('button');
-      expect(signIn.queryAll(n => n.type === 'Ionicons')[0].props.color).toBe('#00261F');
       const signInLabel = signIn.queryAll(n => n.type === 'Text')[0];
       expect(Object.assign({}, ...[signInLabel.props.style].flat(Infinity)).color).toBe('#00261F');
 
       const banner = renderer.container.queryAll(
         (instance) => instance.props.accessibilityRole === 'summary',
       )[0];
-      expect(banner.props.style).toContainEqual(expect.objectContaining({ marginBottom: 8 }));
-      expect(banner.props.style).not.toContainEqual(expect.objectContaining({ position: 'absolute' }));
+      // Inline in the content flow: no absolute position, border or shadow that could sit under the tab bar.
+      const card = Object.assign({}, ...[banner.props.style].flat(Infinity));
+      expect(card).toMatchObject({ marginBottom: 24, borderRadius: 14 });
+      expect(card).not.toHaveProperty('position');
+      expect(card).not.toHaveProperty('bottom');
+      expect(card).not.toHaveProperty('borderWidth');
+      expect(card).not.toHaveProperty('shadowOpacity');
 
       await act(async () => createAccount.props.onPress());
       await act(async () => signIn.props.onPress());
@@ -85,21 +87,24 @@ describe('SignInBanner', () => {
 
   });
 
-  it('moves the sign-in action below the copy at accessibility text sizes', async () => {
+  it('stacks the account actions at accessibility text sizes', async () => {
     mocks.fontScale = 2;
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
     try {
-      await act(async () => renderer.render(<SignInBanner />));
+      await act(async () => renderer.render(<SignInBanner style={{ marginBottom: 0 }} />));
       const summary = renderer.container.queryAll(
         (instance) => instance.props.accessibilityRole === 'summary',
       )[0];
-      expect(summary.props.style).toContainEqual(expect.objectContaining({ flexWrap: 'wrap' }));
+      expect(Object.assign({}, ...[summary.props.style].flat(Infinity)).marginBottom).toBe(0);
 
       const signIn = renderer.container.queryAll(
         (instance) => instance.props.accessibilityLabel === 'Sign in',
       )[0];
-      expect(signIn.props.style).toContainEqual(expect.objectContaining({ width: '100%' }));
+      const actions = renderer.container.queryAll(
+        (instance) => instance.type === 'View' && instance.queryAll((child) => child === signIn).length > 0,
+      ).at(-1)!;
+      expect(actions.props.style).toContainEqual(expect.objectContaining({ flexDirection: 'column', alignItems: 'stretch' }));
     } finally {
       await act(async () => renderer.unmount());
     }

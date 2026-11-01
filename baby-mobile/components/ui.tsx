@@ -25,7 +25,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Stack, router } from "expo-router";
+import { Stack, router, useSegments } from "expo-router";
+import { NavigationContext } from "expo-router/react-navigation";
+import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, useTabScreenBottomInset } from "../lib/bottom-overlay";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
@@ -234,6 +236,20 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
     </View>
   );
 }
+/** Whether this screen is focused; screens outside a navigator (the root gates) always are. */
+function useScreenFocused() {
+  const navigation = useContext(NavigationContext);
+  const [focused, setFocused] = useState(() => navigation?.isFocused() ?? true);
+  useEffect(() => {
+    if (!navigation) return;
+    setFocused(navigation.isFocused());
+    const offFocus = navigation.addListener("focus", () => setFocused(true));
+    const offBlur = navigation.addListener("blur", () => setFocused(false));
+    return () => { offFocus(); offBlur(); };
+  }, [navigation]);
+  return focused;
+}
+
 export function Screen({
   children,
   title,
@@ -280,6 +296,14 @@ export function Screen({
     [keyboardVisible, setKeyboardVisible] = useState(false),
     [refreshing, setRefreshing] = useState(false);
   const hasFooter = !!footer;
+  const focused = useScreenFocused();
+  // Toasts float above the docked footer while this screen shows it; above the keyboard it is out of their way.
+  const dockedFooter = hasFooter && focused && !keyboardVisible ? footerHeight : 0;
+  useEffect(() => {
+    const owner = {};
+    reportDockedFooter(owner, dockedFooter);
+    return () => reportDockedFooter(owner, 0);
+  }, [dockedFooter]);
   useEffect(() => {
     if (!hasFooter) return;
     const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardVisible(true));
@@ -341,7 +365,8 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
-            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? footerHeight : 0 }}
+            // On iOS the automatic content inset already covers the safe area (tab bar or home indicator) that the docked footer pads.
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? Math.max(0, footerHeight - (keyboardVisible || Platform.OS !== "ios" ? 0 : insets.bottom)) : 0 }}
           >
             {content}
           </ScrollView>
@@ -813,6 +838,11 @@ export function useToast() {
 }
 export function ToastProvider({ children }: PropsWithChildren) {
   const insets = useSafeAreaInsets();
+  const inTabs = isTabRoute(useSegments());
+  const tabInset = useTabScreenBottomInset();
+  const footer = useDockedFooterHeight();
+  // Above the measured native tab bar in tabs (Undo after a quick log) and any docked footer such as the Ask composer.
+  const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 88, footer });
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),
     enter = useRef(new Animated.Value(0)).current,
@@ -855,7 +885,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           accessibilityLiveRegion="polite"
           style={{
             position: "absolute",
-            bottom: insets.bottom + 88,
+            bottom,
             left: 22,
             right: 22,
             backgroundColor: c.text,

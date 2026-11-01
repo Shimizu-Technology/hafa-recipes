@@ -30,6 +30,7 @@ vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-router", () => ({ router: { push: mock.push, back: mock.back, replace: mock.replace, canGoBack: () => mock.canGoBack }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), { Screen: ({ options }: any) => { mock.options.push(options); return options?.headerRight?.() ?? null; } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
+vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));

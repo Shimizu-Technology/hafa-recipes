@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { light } from "../constants/theme";
-const f = vi.hoisted(() => ({ listeners: new Set<(value: string) => void>(), start: vi.fn(), stop: vi.fn(), announce: vi.fn(), reduced: false, appState: "active" }));
+const f = vi.hoisted(() => ({ segments: ["(tabs)", "library"], listeners: new Set<(value: string) => void>(), start: vi.fn(), stop: vi.fn(), announce: vi.fn(), reduced: false, appState: "active" }));
 vi.mock("react-native", () => {
   class Value { constructor(public value: number) {} setValue(v: number) { this.value = v; } }
   return { View: "View", Pressable: "Pressable", ScrollView: "ScrollView", Modal: "Modal", KeyboardAvoidingView: "KeyboardAvoidingView", Platform: { OS: "ios" }, RefreshControl: "RefreshControl",
@@ -16,10 +16,11 @@ vi.mock("../components/design/press", () => ({ animatedPressableComponent: () =>
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
 vi.mock("../components/native-tab-stack", () => ({ useNativeHeader: () => false }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
-vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
-vi.mock("expo-router", () => ({ router: {} }));
+vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34 }) }));
+vi.mock("expo-router", () => ({ router: {}, useSegments: () => f.segments }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 import { Skeleton, ToastProvider, useToast } from "../components/design/surfaces";
+import { reportTabScreenBottomInset } from "./bottom-overlay";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.listeners.clear(); f.start.mockClear(); f.stop.mockClear(); f.announce.mockClear(); f.reduced = false; f.appState = "active"; vi.useFakeTimers(); });
 afterEach(() => { act(() => view?.unmount()); vi.useRealTimers(); });
@@ -39,4 +40,21 @@ it("announces confirmed toast messages on iOS", () => {
   act(() => { view = create(createElement(ToastProvider, null, createElement(Probe))); });
   act(() => show!("Saved to your library"));
   expect(f.announce).toHaveBeenCalledWith("Saved to your library");
+});
+
+it("keeps toasts above the native tab bar the tab screen measured", () => {
+  let show: ReturnType<typeof useToast>;
+  function Probe() { show = useToast(); return null; }
+  reportTabScreenBottomInset(83);
+  act(() => { view = create(createElement(ToastProvider, null, createElement(Probe))); });
+  act(() => show!("Saved to your library"));
+  const toastBottom = () => view!.root.findAll(n => (n.type as unknown) === "AnimatedView" && n.props.accessibilityRole === "alert")[0].props.style.bottom;
+  expect(toastBottom()).toBe(83 + 12);
+  act(() => view!.unmount());
+  f.segments = ["session", "abc"];
+  act(() => { view = create(createElement(ToastProvider, null, createElement(Probe))); });
+  act(() => show!("Set logged"));
+  // Off the tabs it keeps clear of bottom action bars such as the session controls.
+  expect(toastBottom()).toBe(34 + 72);
+  f.segments = ["(tabs)", "library"];
 });

@@ -38,6 +38,7 @@ vi.mock("@/components/coach-photo", () => ({ CoachPhotoControl: "CoachPhotoContr
 vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: 1 }), View: "View", Text: "Text", KeyboardAvoidingView: "KeyboardAvoidingView", ScrollView: "ScrollView", RefreshControl: "RefreshControl", Platform: { get OS() { return f.platform; } }, Linking: { openURL: f.openURL }, AppState: { get currentState() { return f.appState; }, addEventListener: (_: string, listener: (value: string) => void) => { f.foreground.add(listener); return { remove: () => f.foreground.delete(listener) }; } } }));
 // Exercise the real Screen wrapper below without loading unrelated native modules.
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));

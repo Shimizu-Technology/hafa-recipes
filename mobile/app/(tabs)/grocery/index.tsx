@@ -53,6 +53,7 @@ import {
 } from '@/hooks/useGrocery';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
+import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -148,6 +149,7 @@ function GroceryScreenContent() {
   const { fontScale } = useWindowDimensions();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;
@@ -766,6 +768,7 @@ function GroceryScreenContent() {
         key={fontScale}
         contentInsetAdjustmentBehavior="automatic"
         ListHeaderComponent={<RNView style={styles.header}>
+        {isGuest && <SignInBanner message="Sign in to create grocery lists" />}
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
@@ -826,7 +829,7 @@ function GroceryScreenContent() {
         contentContainerStyle={[
           styles.listContent,
           {
-            paddingBottom: Math.max(insets.bottom, 80) + spacing.xl,
+            paddingBottom: endPadding,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -869,9 +872,7 @@ function GroceryScreenContent() {
         isVisible={showSettings}
         onClose={() => setShowSettings(false)}
       />}
-      
-      {/* Sign In Banner for guests */}
-      {isGuest && <SignInBanner message="Sign in to create grocery lists" />}
+
     </>
   );
 }

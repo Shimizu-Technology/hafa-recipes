@@ -1,16 +1,29 @@
 import { HeaderMenu, type HeaderMenuItem } from "./header-menu";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { Stack, router } from "expo-router";
-import { View } from "react-native";
+import { useIsFocused } from "expo-router/react-navigation";
+import { Platform, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { reportTabScreenBottomInset } from "@/lib/bottom-overlay";
 import { AccountButton, IconButton } from "./design/controls";
 import { useColors } from "./design/foundation";
 
 const NativeHeader = createContext(false);
 export const useNativeHeader = () => useContext(NativeHeader);
+/** A tab screen's safe area includes the native tab bar; share it with app-wide toasts. */
+function TabBarInsetReporter() {
+  const { bottom } = useSafeAreaInsets();
+  const focused = useIsFocused();
+  // iOS only: Android's tab bar inset isn't part of this safe area, so toasts keep their fallback there.
+  useEffect(() => { if (focused && Platform.OS === "ios") reportTabScreenBottomInset(bottom); }, [focused, bottom]);
+  return null;
+}
+
 /** Each tab owns a native stack so iOS can collapse its large title on scroll. */
 export function NativeTabStack({ title, add = false }: { title: string; add?: boolean }) {
   const c = useColors();
   return <NativeHeader.Provider value>
+    <TabBarInsetReporter />
     <Stack screenOptions={{ title, headerLargeTitleEnabled: true, headerShadowVisible: false, headerBackTitle: "Back",
       headerStyle: { backgroundColor: c.background }, headerTintColor: c.accent,
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },

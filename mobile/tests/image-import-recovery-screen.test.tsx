@@ -167,7 +167,7 @@ vi.mock('@/components/Themed', async () => {
   };
 });
 vi.mock('@/components/ExtractionProgress', () => ({ default: () => null }));
-vi.mock('@/components/SignInBanner', () => ({ SignInBanner: () => null }));
+vi.mock('@/components/SignInBanner', () => ({ SignInBanner: (props: object) => React.createElement('SignInBanner', props) }));
 vi.mock('@/components/BrandMark', () => ({ BrandMark: () => null }));
 vi.mock('@/constants/Colors', () => ({
   fontFamily: { bold: 'DMSans', display: 'Fraunces', medium: 'DMSans', semibold: 'DMSans' },
@@ -773,6 +773,22 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
       await act(async () => signIn.props.onPress());
       expect(mocks.push).toHaveBeenCalledWith({ pathname: '/(auth)/sign-in', params: { entry } });
       expect(mocks.launchLibrary).not.toHaveBeenCalled();
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('puts the guest sign-in prompt at the top of the scrolling import content', async () => {
+    mocks.signedIn = false; mocks.ownerId = null;
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => { renderer = create(<ExtractScreen />); });
+      const banner = renderer.root.findAllByType('SignInBanner' as any);
+      expect(banner).toHaveLength(1);
+      expect(banner[0].props.message).toBe('Sign in to extract recipes');
+      const scroll = renderer.root.findAllByType('ScrollView' as any).find(node => node.findAllByType('SignInBanner' as any).length > 0);
+      // Inside the scroll content, ahead of the link composer, rather than docked at the bottom of the screen.
+      expect(scroll).toBeDefined();
+      const order = scroll!.findAll((node: any) => node.type === 'SignInBanner' || node.props.placeholder === 'Paste a recipe link');
+      expect(order[0].type).toBe('SignInBanner');
     } finally { await act(async () => renderer.unmount()); }
   });
 

@@ -20,7 +20,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { Stack as NativeStack, router } from "expo-router";
+import { Stack as NativeStack, router, useSegments } from "expo-router";
+import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "@/lib/bottom-overlay";
 import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { useNativeHeader } from "../native-tab-stack";
@@ -108,7 +109,8 @@ export function Screen({
   ) : null;
   const contentContainerStyle: ViewStyle = {
     paddingTop: spacing.md,
-    paddingBottom: (footer ? spacing.lg : insets.bottom + spacing.xl),
+    // On iOS, root screens get the home indicator and tab bar from contentInsetAdjustmentBehavior.
+    paddingBottom: footer ? spacing.lg : root && Platform.OS === "ios" ? spacing.xl : insets.bottom + spacing.xl,
     paddingHorizontal: spacing.md,
     gap: spacing.lg,
     width: "100%",
@@ -617,6 +619,10 @@ export function useToast() {
 export function ToastProvider({ children }: PropsWithChildren) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const inTabs = isTabRoute(useSegments());
+  const tabInset = useTabScreenBottomInset();
+  // Above the measured native tab bar in tabs; elsewhere clear of bottom action bars.
+  const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 72 });
   const reduced = useReducedMotion();
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
@@ -643,7 +649,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
             position: "absolute",
             left: spacing.md,
             right: spacing.md,
-            bottom: insets.bottom + 72,
+            bottom,
             alignItems: "center",
             opacity,
           }}

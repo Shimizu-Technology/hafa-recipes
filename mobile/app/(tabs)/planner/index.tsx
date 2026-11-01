@@ -57,6 +57,7 @@ import {
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { useRecipe } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
+import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
 import {
@@ -339,6 +340,7 @@ function PlannerScreenContent() {
     servings?: string;
   }>();
   const insets = useSafeAreaInsets();
+  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
   const colors = useColors();
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
@@ -633,7 +635,7 @@ function PlannerScreenContent() {
           contentContainerStyle={[
             styles.signedOutContent,
             {
-              paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.xl,
+              paddingBottom: endPadding,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -653,6 +655,8 @@ function PlannerScreenContent() {
               Sign in to map recipes across breakfast, lunch, dinner, and snacks — then send the whole week to your grocery list.
             </Text>
           </RNView>
+
+          <SignInBanner message="Sign in to plan your meals for the week" style={{ marginBottom: 0 }} />
 
           <RNView
             style={[
@@ -725,7 +729,6 @@ function PlannerScreenContent() {
             </RNView>
           </RNView>
         </ScrollView>
-        <SignInBanner message="Sign in to plan your meals for the week!" />
       </>
     );
   }
@@ -741,7 +744,7 @@ function PlannerScreenContent() {
           onScrollToTop={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={[styles.content, { backgroundColor: colors.groupedBackground }]}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: endPadding }]}
         refreshControl={
           <RefreshControl
             refreshing={isPullRefreshing}
@@ -1114,7 +1117,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 80,
+    paddingBottom: spacing.xl,
   },
   dayTitle: {
     fontSize: fontSize.xl,

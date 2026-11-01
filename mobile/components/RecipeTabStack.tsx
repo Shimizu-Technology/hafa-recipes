@@ -1,14 +1,27 @@
+import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
+import { useIsFocused } from 'expo-router/react-navigation';
 import { Platform, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountHeaderButton } from '@/components/TabChrome';
 import { IconButton, useColors } from '@/components/Themed';
 import { fontFamily } from '@/constants/Colors';
+import { reportTabScreenBottomInset } from '@/lib/bottomOverlay';
+
+/** A tab screen's safe area includes the native tab bar; share it with app-wide overlays. */
+function TabBarInsetReporter() {
+  const { bottom } = useSafeAreaInsets();
+  const focused = useIsFocused();
+  // iOS only: Android's tab bar inset isn't part of this safe area, so overlays keep their fallback there.
+  useEffect(() => { if (focused && Platform.OS === 'ios') reportTabScreenBottomInset(bottom); }, [focused, bottom]);
+  return null;
+}
 
 export function RecipeTabStack({ title, library = false }: { title: string; library?: boolean }) {
   const colors = useColors();
   const router = useRouter();
   const transparentHeader = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 26;
-  return <Stack screenOptions={{
+  return <><TabBarInsetReporter /><Stack screenOptions={{
     headerLargeTitleEnabled: true,
     headerLargeTitleStyle: { fontFamily: fontFamily.displaySemibold, fontSize: 32, color: colors.text },
     headerTitleStyle: { fontFamily: fontFamily.displaySemibold, color: colors.text },
@@ -21,5 +34,5 @@ export function RecipeTabStack({ title, library = false }: { title: string; libr
       {library && <IconButton icon="add" accessibilityLabel="Add a recipe" color={colors.actionText} onPress={() => router.push('/add-options')} />}
       <AccountHeaderButton />
     </View>,
-  }}><Stack.Screen name="index" options={{ title }} /></Stack>;
+  }}><Stack.Screen name="index" options={{ title }} /></Stack></>;
 }

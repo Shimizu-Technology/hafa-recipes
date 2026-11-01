@@ -13,6 +13,10 @@ vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: false }) }));
 vi.mock('@/components/Themed', () => ({ useColors: () => ({ tint: theme.scheme === 'dark' ? '#5DD3B6' : '#1E7F6E' }) }));
 vi.mock('@/lib/tabPrefetch', () => ({ prefetchTabData: vi.fn() }));
+const timer = vi.hoisted(() => ({ running: false }));
+vi.mock('@/components/CookTimerAccessory', () => ({
+  useCookTimerAccessory: () => timer.running ? React.createElement('BottomAccessory') : null,
+}));
 import TabLayout from '@/app/(tabs)/_layout';
 it('names five native tabs with SF Symbols and a platform search role', async () => {
   const r = createRoot();
@@ -43,4 +47,16 @@ it('updates the mounted native host scheme and tint when Dark resolves back to A
       expect(theme.mounts).toBe(mounts + 1);
     }
   } finally { await act(async () => r.unmount()); }
+});
+
+it('adds the native bottom accessory only while a cook timer runs', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<TabLayout />));
+    expect(r.container.queryAll(n => n.type === 'BottomAccessory')).toHaveLength(0);
+    timer.running = true;
+    await act(async () => r.render(<TabLayout />));
+    const host = r.container.queryAll(n => n.type === 'NativeTabs')[0];
+    expect(host.queryAll(n => n.type === 'BottomAccessory')).toHaveLength(1);
+  } finally { timer.running = false; await act(async () => r.unmount()); }
 });

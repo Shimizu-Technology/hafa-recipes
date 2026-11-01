@@ -8,10 +8,21 @@ import { AccessibilityInfo, Platform, StyleSheet, TouchableOpacity, View as RNVi
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSegments } from 'expo-router';
 
 import { Text } from '@/components/Themed';
 import Colors, { fontFamily, fontSize, radius, shadows, spacing } from '@/constants/Colors';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useCookTimerRunning } from '@/contexts/TimerContext';
+import {
+  DOCKED_TIMER_HEIGHT,
+  OVERLAY_GAP,
+  cookTimerPlacement,
+  isTabRoute,
+  overlayBottom,
+  supportsTabBottomAccessory,
+  useTabScreenBottomInset,
+} from '@/lib/bottomOverlay';
 import {
   getToast,
   hideToast,
@@ -26,7 +37,7 @@ const ENTER_MS = 220;
 const EXIT_MS = 160;
 const OFFSET_Y = 12;
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
-/** Clears the tab bar and the recipe cook dock so the toast never covers a primary action. */
+/** Outside the tabs, clears cook mode's step controls so the toast never covers a primary action. */
 const BOTTOM_CLEARANCE = 80;
 
 // One dark surface in both appearances keeps the toast distinct from cream cards and photos.
@@ -39,6 +50,16 @@ export function ToastHost() {
   const [shown, setShown] = useState<ToastState | null>(toast);
   const reduceMotion = useReduceMotion();
   const insets = useSafeAreaInsets();
+  const inTabs = isTabRoute(useSegments());
+  const tabInset = useTabScreenBottomInset();
+  const timerRunning = useCookTimerRunning();
+  const timerDocked = cookTimerPlacement({
+    running: timerRunning, inTabs, supportsAccessory: supportsTabBottomAccessory,
+  }) === 'dock';
+  const bottom = overlayBottom({
+    inTabs, tabInset, windowInset: insets.bottom, clearance: BOTTOM_CLEARANCE,
+    stacked: timerDocked ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0,
+  });
   const progress = useSharedValue(0);
 
   // Action toasts wait for screen reader users instead of timing out.
@@ -85,7 +106,7 @@ export function ToastHost() {
       : null;
 
   return (
-    <RNView pointerEvents="box-none" style={[styles.container, { bottom: insets.bottom + BOTTOM_CLEARANCE }]}>
+    <RNView pointerEvents="box-none" style={[styles.container, { bottom }]}>
       <Animated.View
         accessibilityLiveRegion="polite"
         style={[

@@ -11,6 +11,7 @@ import { recipeScope } from '@/lib/recipeQueryScope';
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { CookTimerRunningContext } from '@/contexts/CookTimerRunning';
 import { usePathname } from 'expo-router';
 import { AppState, AppStateStatus } from 'react-native';
 
@@ -56,6 +57,7 @@ interface TimerContextValue {
 }
 
 const TimerContext = createContext<TimerContextValue | null>(null);
+export { useCookTimerRunning } from '@/contexts/CookTimerRunning';
 
 export function useTimerContext() {
   const context = useContext(TimerContext);
@@ -171,6 +173,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     setTimers(new Map());
   }, [generation]);
   
+  const timerRunning = hasActiveTimers && session !== null && !isInCookMode;
+
   return (
     <TimerContext.Provider
       value={{
@@ -184,7 +188,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         hasActiveTimers,
       }}
     >
-      {children}
+      <CookTimerRunningContext.Provider value={timerRunning}>
+        {children}
+      </CookTimerRunningContext.Provider>
     </TimerContext.Provider>
   );
 }

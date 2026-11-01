@@ -24,6 +24,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
+import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
 
@@ -90,6 +91,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
+  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
   const { isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
@@ -557,6 +559,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
             <ListHeaderTitle />
+            {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
             {/* Selection Action Bar */}
             {isSelectionMode && (
               <RNView style={[styles.selectionActionBar, { backgroundColor: colors.background }]}>
@@ -594,7 +597,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           contentContainerStyle={[
             styles.listContent,
             {
-              paddingBottom: insets.bottom + spacing.xl + 80,
+              paddingBottom: endPadding,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -609,9 +612,6 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           }
         />
       )}
-
-      {/* Sign In Banner for guests */}
-      {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
 
     </View>
     </TouchableWithoutFeedback>
