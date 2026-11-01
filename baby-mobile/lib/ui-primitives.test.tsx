@@ -313,3 +313,12 @@ it.each([1, 3.1])("gives short text-link filters a centered 44pt target at scale
   await act(async () => controls[1].props.onPress());
   expect(onChange).toHaveBeenCalledWith("care");
 });
+
+it("keeps fontVariant an array when a mounted number turns back into text", async () => {
+  // React Native diffs a removed fontVariant to null, and processFontVariant(null) throws a render error.
+  await mount(<Copy numeric>10 weeks old</Copy>);
+  const variant = () => renderer!.root.findByType("Text" as React.ElementType).props.style.fontVariant;
+  expect(variant()).toEqual(["tabular-nums"]);
+  await act(async () => renderer!.update(<Copy>Today</Copy>));
+  expect(variant()).toEqual([]);
+});

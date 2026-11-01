@@ -173,7 +173,9 @@ export function Copy({
       style={{
         ...style,
         fontFamily: numeric ? fonts.rounded : fonts.regular,
-        fontVariant: numeric ? ["tabular-nums"] : undefined,
+        // Never undefined: when `numeric` turns off on a mounted Text, React Native diffs a removed
+        // fontVariant to null and processFontVariant(null) throws a render error.
+        fontVariant: numeric ? ["tabular-nums"] : [],
         flexShrink: 1,
         color: tone === "error" ? c.error : tone === "muted" ? c.muted : tone === "accent" ? c.accentText : c.text,
         textAlign: align,
@@ -448,7 +450,7 @@ export function Button({
       <Text
         key={fontScale}
         maxFontSizeMultiplier={0}
-        style={{ fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : undefined, fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
+        style={{ fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : [], fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}
       </Text>
@@ -557,7 +559,7 @@ export function Field({
           borderRadius: 10,
           padding: 16,
           fontFamily: numeric ? fonts.rounded : fonts.regular,
-          fontVariant: numeric ? ["tabular-nums"] : undefined,
+          fontVariant: numeric ? ["tabular-nums"] : [],
           fontSize: 17,
           lineHeight: 22,
           minHeight: multiline ? 150 : 52,
