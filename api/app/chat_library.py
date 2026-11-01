@@ -188,6 +188,11 @@ def _clearly_named(answer: str, start: int, end: int) -> bool:
 UNAVAILABLE_LIBRARY = LibraryContext(total=0, entries=(), complete=False, unavailable=True)
 
 
+def _phrase(value: str) -> str:
+    """Lowercase words joined by single spaces, matching _TITLE_PHRASE in SQL."""
+    return " ".join(_WORD_PATTERN.findall(value.lower()))
+
+
 def _clean(value: object, limit: int) -> str:
     return " ".join(str(value).split())[:limit].strip()
 
@@ -257,6 +262,7 @@ _TITLE = Recipe.extracted["title"].astext
 _COMPONENT_INGREDIENTS = _ingredient_names("$.components[*].ingredients[*].name")
 _LEGACY_INGREDIENTS = _ingredient_names("$.ingredients[*].name")
 _TITLE_TEXT = func.lower(func.coalesce(_TITLE, ""))
+_TITLE_PHRASE = func.trim(func.regexp_replace(_TITLE_TEXT, "[^[:alnum:]]+", " ", "g"))
 _LABEL_TEXT = func.lower(func.concat_ws(
     " ", cast(Recipe.extracted["tags"], String), cast(Recipe.extracted["mealTypes"], String),
 ))
@@ -313,7 +319,8 @@ def _score(
     title = entry.title.lower()
     labels = " ".join(entry.labels)
     ingredients = " ".join(entry.ingredients)
-    score = TITLE_PHRASE_SCORE if len(title) >= 3 and title in question else 0
+    phrase = _phrase(title)
+    score = TITLE_PHRASE_SCORE if len(phrase) >= 3 and f" {phrase} " in question else 0
     for variants in terms:
         if any(variant in title for variant in variants):
             score += 3
@@ -342,8 +349,9 @@ def _sql_score(terms: list[set[str]], max_minutes: int | None, question: str):
 
     parts = [
         case(
-            (and_(func.length(_TITLE_TEXT) >= 3,
-                  func.strpos(literal(question), _TITLE_TEXT) > 0), TITLE_PHRASE_SCORE),
+            (and_(func.length(_TITLE_PHRASE) >= 3,
+                  func.strpos(literal(question), func.concat(" ", _TITLE_PHRASE, " ")) > 0),
+             TITLE_PHRASE_SCORE),
             else_=0,
         )
     ]
@@ -376,7 +384,8 @@ async def load_library_context(
     if exclude_recipe_id is not None:
         scope.append(Recipe.id != exclude_recipe_id)
     terms, max_minutes = query_terms(*texts)
-    question = " ".join(" ".join(message.split()) for message in texts).lower()
+    # Space-padded words, so "Stew 1" never matches inside "Stew 1500".
+    question = f" {' '.join(_phrase(message) for message in texts)} "
     newest = (Recipe.created_at.desc(), Recipe.id.desc())
 
     recent_rows = (await db.execute(

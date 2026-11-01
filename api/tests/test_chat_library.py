@@ -462,9 +462,14 @@ async def test_old_exact_title_beats_many_newer_partial_matches(sessions):
         library = await load_library_context(
             db, user_id="lib_crowded", texts=["what goes with Chicken Adobo?"]
         )
+        numbered = await load_library_context(
+            db, user_id="lib_crowded", texts=["is Chicken Soup 150 spicy?"]
+        )
 
     assert not library.complete and library.total == 301
     assert library.entries[0].id == old_adobo.id
+    # The title bonus needs whole words: "Chicken Soup 1" is not "Chicken Soup 150".
+    assert numbered.entries[0].title == "Chicken Soup 150"
 
 
 @requires_postgres
