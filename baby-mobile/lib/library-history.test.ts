@@ -3,6 +3,7 @@ import {
   collectionMemberRows,
   createLibraryPager,
   libraryRows,
+  libraryViewKey,
   toggleCollectionMember,
   type LibraryView,
 } from "./library-history";
@@ -283,5 +284,29 @@ describe("pending membership and offline recovery", () => {
     const selected = Array.from({ length: 500 }, (_, i) => `source-${i}`);
     expect(toggleCollectionMember(selected, "new")).toEqual(selected);
     expect(toggleCollectionMember(selected, "source-400")).toHaveLength(499);
+  });
+});
+describe("saved tips by timing", () => {
+  const timing = { mode: "now" as const, childId: "child", context: { stage: "pregnancy" as const, value: 34 } };
+  const tip = (id: string, min: number | null, max: number | null = null) =>
+    ({ ...source(id), data: { relevance: { pregnancy_week_min: min, pregnancy_week_max: max } } });
+  it("asks the API for this child's timing and keeps a fresh view per mode", async () => {
+    const fetch = vi.fn().mockResolvedValue(page([], false, 0)), pager = createLibraryPager(fetch);
+    pager.reset({ kind: "source", childId: null, query: "", timing });
+    await pager.next();
+    expect(fetch.mock.calls[0][0]).toMatchObject({ timing: "now", timing_child_id: "child", uncategorized: undefined });
+    expect(libraryViewKey({ kind: "source", childId: null, query: "", timing })).not.toBe(
+      libraryViewKey({ kind: "source", childId: null, query: "", timing: { ...timing, mode: "upcoming" } }));
+  });
+  it("uses the API's matches online and the same rules on cached tips offline or after a local edit", () => {
+    const rows = [tip("bag", 32, 36), tip("tea", 37), tip("edited", 30, 33)];
+    const state = { ...emptyState(), records: rows };
+    const view: LibraryView = { kind: "source", childId: null, query: "", timing };
+    expect(libraryRows(state, view, null).map((row) => row.id)).toEqual(["bag"]);
+    expect(libraryRows(state, view, ["tea"]).map((row) => row.id)).toEqual(["tea"]);
+    const edited = { ...rows[2], data: { relevance: { pregnancy_week_min: 34 } } };
+    const pending = { ...state, outbox: [{ id: "m", generation: 1, type: "save" as const, record: edited, files: [] }] };
+    expect(libraryRows(pending, view, ["edited"]).map((row) => row.id)).toEqual(["edited"]);
+    expect(libraryRows({ ...pending, outbox: [{ ...pending.outbox[0], record: rows[2] }] }, view, ["edited"])).toEqual([]);
   });
 });
