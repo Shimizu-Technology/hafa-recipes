@@ -1,11 +1,13 @@
 """Typed workout execution shared by source extraction and personal planning."""
 
+from app.domains.workouts.formats import FOR_TIME_PHRASE
 from app.domains.workouts.schemas import WorkoutBlock, WorkoutContent
 
 # Format words that make a quoted label or grouping a workout-wide instruction.
 FORMAT_WORDS = (
-    r"\bamrap\b|\brepeat(?:ing)?\b|\be\d*mom\b|\botm\b|\bevery\s+(?:minute|\d)"
-    r"|\bfor\s+time\b|\brft\b|\bchipper\b|\btabata\b|\bdeath\s+by\b|\bladder\b"
+    r"\bamrap\b|\brepeat(?:ing)?\b|\be\d*mom\b|\botm\b"
+    r"|\bevery\s+(?:minute|\d+\s*(?:s|secs?|seconds?|mins?|minutes?)\b)"
+    rf"|{FOR_TIME_PHRASE}|\brft\b|\bchipper\b|\btabata\b|\bdeath\s+by\b|\bladder\b"
 )
 
 

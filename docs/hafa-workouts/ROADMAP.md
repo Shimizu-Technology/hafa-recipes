@@ -45,7 +45,7 @@ These checks do not establish the **25-import physical-phone gate, 80% usability
 
 ## Workout formats (2026-11-01)
 
-The API reads EMOM/OTM/E2MOM, alternating minutes, AMRAP N, for time/RFT with caps, Tabata and on/off intervals, 21-15-9 rep schemes, ladders and Death by from quoted source wording. An EMOM or Tabata clock is the workout total, never an exercise duration, and `8x20/10` is never sets × reps. Typed `emom`, `for_time` and `work_rest` executions plus exercise `rep_scheme`/`ladder` are returned only to imports that send `typed_formats: true`; Workouts 1.1.0 and earlier keep the AMRAP-only shape, with the creator's format wording retained as instructions. Planning still schedules one timed block per workout. **Next:** the mobile player for these formats sends `typed_formats` and then lifts the one-timed-block limit.
+The API reads EMOM/OTM/E2MOM, alternating minutes, AMRAP N, for time/RFT with caps, Tabata and on/off intervals, 21-15-9 rep schemes, ladders and Death by from quoted source wording. An EMOM or Tabata clock is the workout total, never an exercise duration (`Rest 90 seconds every round` stays rest). `Tabata 8x20/10` or `8x20s/10s` is never sets × reps, while `4x8/8` and `3 x 12/10/8` still are. Typed `emom`, `for_time` and `work_rest` executions plus exercise `rep_scheme`/`ladder` are returned only to imports that send `typed_formats: true`; Workouts 1.1.0 and earlier keep the AMRAP-only shape, with the creator's format wording retained as instructions; work/rest intervals reach them as circuit rounds with each movement's work and rest. Planning still schedules one timed block per workout. **Next:** the mobile player for these formats sends `typed_formats` and then lifts the one-timed-block limit.
 
 ## The goal
 

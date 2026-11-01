@@ -144,7 +144,8 @@ def test_work_rest_never_becomes_sets_or_reps(quote, work, rest, count):
                                   "intervals": count}
     assert item.sets is None and item.reps_min is None and item.reps_max is None
     assert block_seconds(workout.blocks[0]) == (work + rest) * count
-    assert not _numeric_supported("sets", 8, "8x20/10") and not _numeric_supported("reps_min", 20, "8x20/10")
+    for timed in ("Tabata 8x20/10", "8x20s/10s", "8x:20/:10", "8 x 20 on/10 off", "8x20/10 on/off"):
+        assert not _numeric_supported("sets", 8, timed) and not _numeric_supported("reps_min", 20, timed)
 
 
 @pytest.mark.asyncio
@@ -328,9 +329,17 @@ def test_new_shapes_round_trip_and_unknown_modes_fail(value):
 def test_strict_provider_schema_has_no_discriminated_one_of():
     schema = workout_response_format()["json_schema"]["schema"]
     assert "oneOf" not in str(schema) and "discriminator" not in str(schema)
-    refs = [branch.get("$ref") for branch in schema["$defs"]["WorkoutBlock"]["properties"]["execution"]["anyOf"][0]["anyOf"]]
-    assert refs == [f"#/$defs/{name}" for name in ("AmrapExecution", "EmomExecution", "ForTimeExecution",
-                                                   "WorkRestExecution")]
+    branches = schema["$defs"]["WorkoutBlock"]["properties"]["execution"]["anyOf"]
+    assert branches == [{"$ref": f"#/$defs/{name}"} for name in (
+        "AmrapExecution", "EmomExecution", "ForTimeExecution", "WorkRestExecution")] + [{"type": "null"}]
+
+    def nested(node):
+        if isinstance(node, dict):
+            return any(isinstance(branch, dict) and ("anyOf" in branch or "oneOf" in branch)
+                       for branch in node.get("anyOf", [])) or any(map(nested, node.values()))
+        return isinstance(node, list) and any(map(nested, node))
+
+    assert not nested(schema)  # One flat anyOf per union, as strict structured output expects.
     assert set(schema["$defs"]["EmomExecution"]["required"]) == {"mode", "interval_seconds", "intervals", "rotation"}
 
 
@@ -400,3 +409,173 @@ def test_import_entry_points_carry_the_client_capability():
     assert stored.typed_formats  # The queued payload restores it for the worker.
     assert CaptureRequest(capture_id=uuid4(), url="https://example.com/workout", typed_formats=True).typed_formats
     assert not CaptureRequest(capture_id=uuid4(), url="https://example.com/workout").typed_formats
+
+
+# --- Review fixes: ordinary prescriptions keep main's grounding --------------------------------
+
+
+def legacy_and_typed(text, data):
+    from copy import deepcopy
+    return [ground(text, deepcopy(data), typed) for typed in (False, True)]
+
+
+@pytest.mark.parametrize("quote,field,value", [
+    ("Rest 90 seconds every round", "rest_seconds", 90), ("Rest 60s every set", "rest_seconds", 60),
+    ("Rest 2 minutes every 3 rounds", "rest_seconds", 120), ("Plank 30 seconds every round", "duration_seconds", 30),
+    ("hold 30 seconds every set", "duration_seconds", 30), ("hold 30 seconds every side", "duration_seconds", 30),
+])
+def test_rest_or_hold_every_round_is_still_a_rest_or_duration(quote, field, value):
+    text = f"Squat 3 sets of 10 reps. {quote}"
+    dose = {"sets": 3, field: value, **({"reps_min": 10, "reps_max": 10} if field == "rest_seconds" else {})}
+    for workout, warnings, _ in legacy_and_typed(text, raw(None, [move("Squat", text, **dose)], text,
+                                                         grouping="sequential")):
+        assert warnings == [] and getattr(workout.blocks[0].exercises[0], field) == value
+    assert _numeric_supported(field, value, quote)
+
+
+@pytest.mark.parametrize("quote,field,value", [
+    ("Every 90 seconds", "rest_seconds", 90), ("Every 2 minutes x 5", "rest_seconds", 120),
+    ("10 Burpees every minute for 20 minutes", "rest_seconds", 60), ("Hold 30 seconds every minute", "rest_seconds", 30),
+    ("AMRAP 20", "duration_seconds", 1200), ("For time, cap 20", "duration_seconds", 1200),
+])
+def test_a_format_clock_is_still_never_a_rest_or_duration(quote, field, value):
+    assert not _numeric_supported(field, value, quote)
+
+
+@pytest.mark.parametrize("quote,sets,reps", [("Lunges 4x8/8", 4, 8), ("Squat 3 x 12/10/8", 3, 12),
+                                             ("Bench 5x5/3", 5, 5), ("Lunges 4 x 8/8 per side", 4, 8)])
+def test_sets_by_split_reps_stay_sets_and_reps(quote, sets, reps):
+    name = quote.split()[0]
+    data = raw(None, [move(name, quote, sets=sets, reps_min=reps, reps_max=reps)], quote, grouping="sequential")
+    for workout, warnings, _ in legacy_and_typed(quote, data):
+        item = workout.blocks[0].exercises[0]
+        assert warnings == [] and (item.sets, item.reps_min, item.reps_max) == (sets, reps, reps)
+
+
+def test_a_grounded_work_rest_block_reads_its_bare_ratio_as_intervals():
+    text = "Tabata finisher\nSquats 8x20/10"
+    data = raw({"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 8},
+               [move("Squats", "Squats 8x20/10", sets=8, reps_min=20, reps_max=20)], "Tabata finisher",
+               grouping="interval")
+    workout, warnings, _ = ground(text, data)
+    item = workout.blocks[0].exercises[0]
+    assert execution(workout) == {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 8}
+    assert (item.sets, item.reps_min, item.reps_max) == (None, None, None) and warnings == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quote,work,rest,count", [("Squats 40s work, 20s rest for 6 rounds", 40, 20, 6),
+                                                   ("Tabata Squats 8x20/10", 20, 10, 8)])
+async def test_legacy_builds_get_work_rest_as_circuit_rounds_with_work_and_rest(quote, work, rest, count):
+    data = raw({"mode": "work_rest", "work_seconds": work, "rest_seconds": rest, "intervals": count},
+               [move("Squats", quote)], quote, grouping="interval")
+    result = await WorkoutExtractor(FakeProvider(pasted(data))).extract(
+        ExtractionRequest(kind="text", text=quote, ai_consent=True))
+    block, item = result.workout.blocks[0], result.workout.blocks[0].exercises[0]
+    assert result.status == "ready" and result.warnings == []
+    assert (block.grouping, block.rounds, block.execution) == ("circuit", count, None)
+    assert (item.duration_seconds, item.rest_seconds) == (work, rest)
+    assert {entry.field for entry in item.evidence} >= {"duration_seconds", "rest_seconds"}
+
+
+@pytest.mark.parametrize("text,value", [
+    ("EMOM 10 alternating\nMin 1: 10 Burpees\nMin 2: 10 Squats\nMin 3: 10 Sit Ups",
+     {"mode": "emom", "interval_seconds": 60, "intervals": 10, "rotation": "alternating"}),
+    ("This is not an EMOM: 10 Burpees", {"mode": "emom", "interval_seconds": 60, "intervals": 3}),
+    ("5 RFT: 21-15-9 Burpees", {"mode": "for_time", "time_cap_seconds": None}),
+])
+def test_legacy_builds_get_no_warnings_about_formats_they_never_receive(text, value):
+    dose = {"rep_scheme": [21, 15, 9]} if "RFT" in text else {"reps_min": 10, "reps_max": 10}
+    data = raw(value, [move("Burpees", text, **dose)], text)
+    workout, warnings, _ = ground(text, data, typed=False)
+    assert workout.blocks[0].execution is None and warnings == []
+
+
+@pytest.mark.parametrize("model,rotation,review", [("together", "together", False), (None, None, False),
+                                                   ("alternating", None, True)])
+def test_a_movement_named_alternating_never_rotates_the_emom(model, rotation, review):
+    text = "EMOM 12: 10 alternating lunges, 5 burpees"
+    data = raw({"mode": "emom", "interval_seconds": 60, "intervals": 12, "rotation": model},
+               [move("alternating lunges", "10 alternating lunges", reps_min=10, reps_max=10),
+                move("burpees", "5 burpees", reps_min=5, reps_max=5)], "EMOM 12", grouping="interval")
+    workout, warnings, _ = ground(text, data)
+    assert workout.blocks[0].execution.rotation == rotation
+    assert ("The timed execution for Main needs source review." in warnings) is review
+
+
+@pytest.mark.parametrize("text", ["EMOM 12 alternating: 10 lunges, 5 burpees", "Alternating EMOM 12: 10 lunges, 5 burpees",
+                                  "EMOM 12, odd minutes 10 lunges, even minutes 5 burpees"])
+def test_a_format_level_rotation_wins_but_flags_a_disagreeing_model(text):
+    data = raw({"mode": "emom", "interval_seconds": 60, "intervals": 12, "rotation": "together"},
+               [move("lunges", "10 lunges", reps_min=10, reps_max=10),
+                move("burpees", "5 burpees", reps_min=5, reps_max=5)], text, grouping="interval")
+    workout, warnings, _ = ground(text, data)
+    assert workout.blocks[0].execution.rotation == "alternating"
+    assert "The timed execution for Main needs source review." in warnings
+
+
+@pytest.mark.parametrize("text,format", [("Burpees 50 reps, record your time for time trial", False),
+                                         ("Use the time for time trials later", False),
+                                         ("100 Burpees for time", True), ("For time: 100 Burpees", True),
+                                         ("100 Burpees for time and post your score", True)])
+def test_for_time_must_be_a_format_phrase(text, format):
+    data = raw({"mode": "for_time", "time_cap_seconds": None}, [move("Burpees", text, reps_min=50, reps_max=50)], text)
+    workout, _, _ = ground(text, data)
+    assert (workout.blocks[0].execution is not None) is format
+
+
+def test_rounds_for_time_that_disagree_with_the_rep_scheme_need_review():
+    text = "5 RFT: 21-15-9 Thrusters"
+    data = raw({"mode": "for_time", "time_cap_seconds": None},
+               [move("Thrusters", text, rep_scheme=[21, 15, 9])], text)
+    workout, warnings, _ = ground(text, data)
+    assert "The timed execution for Main needs source review." in warnings
+    agreed = "3 RFT: 21-15-9 Thrusters"
+    _, warnings, _ = ground(agreed, raw({"mode": "for_time", "time_cap_seconds": None},
+                                        [move("Thrusters", agreed, rep_scheme=[21, 15, 9])], agreed))
+    assert warnings == []
+
+
+@pytest.mark.parametrize("value,ladder,incomplete", [
+    ({"mode": "emom", "interval_seconds": 60, "intervals": None}, None, True),
+    ({"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": None}, None, True),
+    ({"mode": "emom", "interval_seconds": 60, "intervals": None}, {"start": 1, "step": 1, "end": None}, False),
+])
+def test_sharing_marks_an_emom_without_a_count_incomplete(value, ladder, incomplete):
+    source = typed_source(value, ladder=None if ladder is None else
+                          WorkoutContent.model_validate({"title": "x", "blocks": [{"id": "a", "label": "a", "exercises": [
+                              {"name": "x", "ladder": ladder}]}]}).blocks[0].exercises[0].ladder)
+    assert project_workout(source.model_dump(mode="json"))[1] is incomplete
+
+
+@pytest.mark.parametrize("text,quote,rows,rotation", [
+    # A movement quote often leaves out its "Min 1:" row prefix.
+    ("20 min EMOM\nMin 1: 12 Kettlebell Swings\nMin 2: 10 Push-ups", "20 min EMOM",
+     ("12 Kettlebell Swings", "10 Push-ups"), "alternating"),
+    ("20 min EMOM\n12 Kettlebell Swings\n10 Push-ups\nAlternate for 20 minutes.", "Alternate for 20 minutes",
+     ("12 Kettlebell Swings", "10 Push-ups"), "alternating"),
+    ("20 min EMOM\n12 Kettlebell Swings\n10 Push-ups alternating each leg", "20 min EMOM",
+     ("12 Kettlebell Swings", "10 Push-ups"), None),
+])
+def test_rotation_reads_row_prefixes_and_alternate_instructions(text, quote, rows, rotation):
+    data = raw({"mode": "emom", "interval_seconds": 60, "intervals": 20, "rotation": None},
+               [move(row.split(" ", 1)[1], row, reps_min=int(row.split()[0]), reps_max=int(row.split()[0]))
+                for row in rows], "20 min EMOM", grouping="interval")
+    data["blocks"][0]["evidence"].append(ev("execution.rotation", quote))
+    workout, warnings, _ = ground(text, data)
+    assert workout.blocks[0].execution.rotation == rotation and warnings == []
+
+
+def test_a_separate_rest_after_a_split_rep_count_is_not_a_work_rest_label():
+    assert _numeric_supported("sets", 4, "Bench 4x8/8 rest 90s")
+    assert _numeric_supported("reps_min", 8, "Bench 4x8/8 rest 90s")
+    assert not _numeric_supported("sets", 8, "Squats 8 x 20 on / 10 off")
+
+
+@pytest.mark.parametrize("wording,found", [("21-15-9 for time\nThrusters", True), ("For time (cap 12)", True),
+                                           ("record your time for time trial", False)])
+def test_for_time_format_words_read_multiline_quotes(wording, found):
+    import re
+
+    from app.domains.workouts.execution import FORMAT_WORDS
+    assert bool(re.search(FORMAT_WORDS, wording, re.I)) is found

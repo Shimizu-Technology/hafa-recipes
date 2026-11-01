@@ -15,11 +15,30 @@ CLAUSE = r"[;,\n]|[.!?](?:\s|$)"
 BARE_MINUTES = r"amrap|emom|otm|e\d+mom|time\s*cap|cap|tc"
 EMOM = (r"\be(\d+)mom\b|\b(?:emom|otm)\b|\bevery\s+minute(?:\s+on\s+the\s+minute)?\b"
         rf"|\bevery\s+{UNIT}|\bdeath\s+by\b")
-FOR_TIME = r"\bfor\s+time\b|\brft\b|\bchipper\b"
+# "For time" is a format phrase only at a clause edge or before its cap; "for time
+# trial" is not one.
+FOR_TIME_PHRASE = (r"\bfor\s+time\b(?=[ \t]*(?:$|[\n:(),.;!\-–—]|\b(?:cap|capped|tc|time\s*cap|with|and|then"
+                   r"|under|in\s+under)\b))")
+FOR_TIME = rf"{FOR_TIME_PHRASE}|\brft\b|\bchipper\b"
 FT = r"(?<!\d)(?<!\d\s)\bFT\b"  # Upper case only; "10 ft" is a distance.
-WORK_REST = (r"\btabata\b|\d+\s*(?:s|secs?|seconds?)?\s*(?:on|work)\b"
-             r"|(?<![\w.])\d+\s*[x×]\s*:?\d+\s*(?:s|secs?)?\s*/\s*:?\d+")
-ALTERNATING = r"\balt(?:ernating|ernate)?\b|\bodd\b[^.;\n]{0,40}\beven\b|\bmin(?:ute)?\s*1\b|\bM1\b"
+SECS = r"(?:s|secs?|seconds?)\b"
+DOSE = r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s\b|minutes?|mins?|min\b)?"
+# N x A/B is work/rest only with a time unit (8x20s/10s, 8x:20/:10), on/off or
+# work/rest labels, or Tabata; 4x8/8 (per side), 3 x 12/10/8 and 5x5/3 are sets x reps.
+# A trailing "rest 90s" is a separate rest (4x8/8 rest 90s), not the B label.
+RATIO = (rf"(?<![\w.])(\d+)\s*[x×]\s*(:)?{DOSE}\s*(on|work)?\s*/\s*(:)?{DOSE}(?![\d/])"
+         r"(?:\s*(off|rest)\b(?!\s*(?:for\s+)?:?\d))?")
+TIMED_PAIR = rf"(?<![\w.:/])(:)?{DOSE}\s*/\s*(:)?{DOSE}(?![\d/])"
+WORK_REST = r"\btabata\b|\d+\s*(?:s|secs?|seconds?)?\s*(?:on|work)\b"
+# Rotation is a format statement (EMOM 12 alternating, odd/even minutes) or a
+# Min 1:/M1: row prefix, never a movement name such as "alternating lunges".
+ALTERNATING = (r"\b(?:alternating|alt)\s+(?:e\d*mom|otm|every\s+minute)\b"
+               r"|\b(?:e\d*mom|otm)\b[\s\d:(\-–]*(?:minutes?|mins?|min)?[\s:(,\-–]*(?:alternating|alt|alternate)\b"
+               r"(?=\s*(?:$|[):,.;\n\-–]|between|minutes?|rounds?|movements?|exercises?|each|every))"
+               r"|\balternat(?:e|ing)\s+(?:for|between|(?:the\s+)?(?:\w+\s+)?(?:movements?|exercises?)|minutes?|rounds?"
+               r"|(?:each|every)\s+(?:minute|interval|round))\b")
+ODD_EVEN = r"\bodd\b[^.;\n]{0,40}\beven\b"  # Odd minutes ..., even minutes ... spans a comma.
+ROTATION_ROW = r"^\s*(?:min(?:ute)?\s*\d+|M\d+|odd|even)(?:\s+min(?:ute)?s?)?\s*[:.)\-–]"
 SCHEME = r"(?<![\d.:/])\d{1,4}(?:\s*[-–]\s*\d{1,4}){2,}(?![\d.:/])"
 
 
@@ -115,18 +134,30 @@ def _cap(clause):
     return round(seconds(cap[1], cap[2])) if cap and affirmative(clause[:cap.start()]) else None
 
 
+def _timed_pairs(clause):
+    """20s/10s or :40/:20; a bare 20/10 is a rep or weight split."""
+    return [match for match in re.finditer(TIMED_PAIR, clause, re.I)
+            if match[1] or match[3] or match[4] or match[6]]
+
+
 def _work_rest(clause):
-    if not _affirmative_matches(WORK_REST, clause):
+    ratios, timed = work_rest_ratios(clause), _timed_pairs(clause)
+    if not (_affirmative_matches(WORK_REST, clause) or any(
+            affirmative(clause[:match.start()]) for match in [*ratios, *timed])):
         return None
     facts = {}
     if re.search(r"\btabata\b", clause, re.I):
         facts.update(work_seconds=20, rest_seconds=10, intervals=8, tabata=True)
-    dose = r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s\b|minutes?|mins?|min\b|m\b)?"
-    pair = (re.search(rf"\b{dose}\s*(?:on|work)\b\s*[/,&]?\s*(?:and\s+)?{dose}\s*(?:off|rest)\b", clause, re.I)
-            or re.search(rf"(?:\btabata\b|[x×])\s*:?{dose}\s*/\s*:?{dose}(?!\s*(?:reps?|kg|lbs?)\b)", clause, re.I))
-    if pair:
-        facts["work_seconds"] = round(seconds(pair[1], pair[2] or "s"))
-        facts["rest_seconds"] = round(seconds(pair[3], pair[4] or "s"))
+    pair = re.search(rf"\b{DOSE}\s*(?:on|work)\b\s*[/,&]?\s*(?:and\s+)?{DOSE}\s*(?:off|rest)\b", clause, re.I)
+    tabata = re.search(rf"\btabata\s*(:)?{DOSE}\s*/\s*(:)?{DOSE}(?![\d/])(?!\s*(?:reps?|kg|lbs?)\b)", clause, re.I)
+    # (work amount, work unit, rest amount, rest unit); a bare or :20 amount is seconds.
+    doses = ((pair[1], pair[2], pair[3], pair[4]) if pair
+             else (ratios[0][3], ratios[0][4], ratios[0][7], ratios[0][8]) if ratios
+             else (tabata[2], tabata[3], tabata[5], tabata[6]) if tabata
+             else (timed[0][2], timed[0][3], timed[0][5], timed[0][6]) if timed else None)
+    if doses:
+        facts["work_seconds"] = round(seconds(doses[0], doses[1] or "s"))
+        facts["rest_seconds"] = round(seconds(doses[2], doses[3] or "s"))
     count = (re.search(r"(?<![\w.])(\d+)\s*[x×]\s*:?\d", clause)
              or re.search(r"(?:[x×]|\bfor)\s*(\d+)\b(?!\s*(?:s\b|secs?|seconds?|minutes?|mins?|/))", clause, re.I)
              or re.search(r"\b(\d+)\s*(?:rounds?|intervals?|sets?)\b", clause, re.I))
@@ -164,10 +195,20 @@ def read_format(mode: str, quotes, rows=()) -> tuple[dict | None, bool]:
         if len(caps) == 1:
             merged["time_cap_seconds"] = caps.pop()
         conflict |= len(caps) > 1
-    if merged is not None and mode == "emom" and any(
-            re.search(ALTERNATING, quote, re.I) for quote in [*quotes, *rows]):
+    if merged is not None and mode == "emom" and (
+            any(_affirmative_matches(ALTERNATING, clause) for clause in clauses)
+            or any(_affirmative_matches(ODD_EVEN, quote) for quote in quotes)
+            or any(re.search(ROTATION_ROW, line, re.I) for line in [*clauses, *_clauses(rows)])):
         merged["rotation"] = "alternating"
     return merged, conflict
+
+
+def work_rest_ratios(wording: str, work_rest_block: bool = False) -> list[re.Match]:
+    """N x A/B matches that mean work/rest seconds rather than sets x reps."""
+    tabata = any(affirmative(wording[:match.start()]) for match in re.finditer(r"\btabata\b", wording, re.I))
+    return [match for match in re.finditer(RATIO, wording, re.I)
+            if work_rest_block or tabata or any(match[group] for group in (2, 4, 5, 6, 8, 9))
+            or re.match(r"\s*\(?\s*(?:on\s*/\s*off|work\s*/\s*rest)\b", wording[match.end():], re.I)]
 
 
 def rep_schemes(wording: str) -> list[list[int]]:

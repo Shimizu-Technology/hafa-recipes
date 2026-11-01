@@ -37,6 +37,7 @@ from app.domains.workouts.formats import (
     read_format,
     rep_schemes,
     scheme_wording,
+    work_rest_ratios,
 )
 from app.domains.workouts.schemas import DomainModel, Evidence, WorkoutContent
 from app.domains.workouts.source_context import retain_source_context
@@ -253,16 +254,20 @@ OTM, cap or TC is minutes; 15:00 and 15' are 15 minutes.
   is K intervals; a total duration gives intervals = total / interval. EMOM
   with no count: intervals null. The EMOM clock is the workout total, never an
   exercise duration_seconds and never rest_seconds.
-- Min 1 / Min 2, odd/even or 'alternating': rotation 'alternating', one listed
-  movement per interval in order; intervals is still the total (EMOM 12 with
-  two moves is 12, six each). Every move inside each interval: 'together'.
-- For time / FT / chipper: mode 'for_time'; 'N RFT' or 'N rounds for time'
+- Min 1 / Min 2, odd/even minutes or 'EMOM 12 alternating': rotation
+  'alternating', one listed movement per interval in order; intervals is still
+  the total (EMOM 12 with two moves is 12, six each). Every move inside each
+  interval: 'together'. A movement name ('alternating lunges') is no rotation.
+- For time / FT / chipper (not 'time trial'): mode 'for_time'; 'N RFT' or 'N rounds for time'
   sets block rounds N; one pass leaves rounds null. 'cap 20', 'TC 20' or
   'time cap 20 minutes' is time_cap_seconds 1200; no cap means null.
 - Tabata: mode 'work_rest', 20 s work / 10 s rest x 8 unless the source states
-  other values (Tabata 40/20). 'A on / B off', 'A s work, B s rest' and
-  'NxA/B' (8x20/10) are work_seconds A, rest_seconds B, intervals N; never sets
-  or reps.
+  other values (Tabata 40/20). 'A on / B off', 'A s work, B s rest' and a timed
+  'NxA/B' (Tabata 8x20/10, 8x20s/10s) are work_seconds A, rest_seconds B,
+  intervals N; never sets or reps. Without seconds, on/off or Tabata, 'NxA/B'
+  is sets x reps: 4x8/8 is 4 sets of 8 per side, 3x12/10/8 descending reps.
+- 'Rest 90 seconds every round' is rest_seconds; only 'every 90 seconds' or
+  'every minute' is an EMOM clock.
 - 21-15-9 (or 50-40-30-20-10): exercise rep_scheme [21,15,9] with reps_min and
   reps_max null; the scheme length is the rounds.
 - 'Ladder 1-10' or '10-1 ladder': exercise ladder {start, step, end}. 'Death by
@@ -327,6 +332,12 @@ def _provider_workout_schema():
             if "oneOf" in node:
                 node["anyOf"] = node.pop("oneOf")
                 node.pop("discriminator", None)
+            if "anyOf" in node:
+                # Optional unions arrive as anyOf[anyOf[...], null]; splice the
+                # inner branches so the provider sees one flat list.
+                node["anyOf"] = [branch for item in node["anyOf"] for branch in (
+                    item.get("anyOf", item.get("oneOf")) if isinstance(item, dict) and set(item) <= {
+                        "anyOf", "oneOf", "discriminator"} else [item])]
             for child in node.values():
                 strict_union(child)
         elif isinstance(node, list):
@@ -942,7 +953,7 @@ def _overall_minutes_supported(value: int, wording: str) -> bool:
     # A format clock (EMOM 20, Tabata 4 minutes, cap 20) is the workout total.
     formats = r"amrap|e\d*mom|otm|tabata|chipper"
     patterns = (
-        rf"\b(?:repeat|repeating|every\s+(?:minute|\d+\s*\w+)(?:\s+on\s+the\s+minute)?)\b"
+        rf"\b(?:repeat|repeating|every\s+(?:minute|\d+\s*(?:s|secs?|seconds?|mins?|minutes?))(?:\s+on\s+the\s+minute)?)\b"
         rf"(?:(?!\b(?:rest|each|per)\b)[^.!?;\n]){{0,160}}\bfor\s+{minutes}",
         rf"\b(?:workout|session|routine|flow|{formats}|time cap|time limit|total time|cap|tc)"
         rf"\s*(?:is|of|for|:|-)?\s*\(?\s*{minutes}",
@@ -995,6 +1006,9 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
         scalar_wording = _scalar_duration_wording(wording)
         overall_role = r"amrap|workout|session|flow|routine|time cap|time limit|e\d*mom|otm|every|tabata|cap|tc"
         role = rf"rest|off|recovery|break|work|on|hold|perform|{overall_role}"
+        # "every 90 seconds" and "30 seconds every minute" are clocks; "90 seconds
+        # every round/set" is an ordinary rest or hold.
+        trailing_role = role.replace("|every|", r"|every(?=\s+(?:\d+\s*)?(?:minutes?|mins?|intervals?)\b)|")
         unit_pattern = r"(\d+(?:\.\d+)?)\s*-?\s*(seconds?|secs?|s\b|minutes?|mins?|m\b)"
         for clause in re.split(r"[;,\n]|[.!?](?:\s|$)", scalar_wording):
             if field_name != "estimated_minutes" and _overall_minutes_supported(value / 60, clause):
@@ -1004,11 +1018,15 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
                 if abs(amount / (60 if field_name == "estimated_minutes" else 1) - value) >= 1e-8:
                     continue
                 before = re.search(rf"\b({role})\s*(?:for|:|=)?\s*$", clause[:match.start()], re.I)
-                after = re.match(rf"\s*\(?\s*({role})\b", clause[match.end():], re.I)
+                after = re.match(rf"\s*\(?\s*({trailing_role})\b", clause[match.end():], re.I)
                 # Prefer an attached suffix (20s on, 10s off). If that label
                 # introduces another time value, it belongs to the next phrase.
                 label = after[1].lower() if after else before[1].lower() if before else None
                 if after and before and re.match(rf"\s*{unit_pattern}", clause[match.end() + after.end():], re.I):
+                    label = before[1].lower()
+                # "Rest 90 seconds every round" / "hold 30s, cap 20": the explicit label wins.
+                if (after and before and after[1].lower() in {"every", "cap", "tc"}
+                        and before[1].lower() in {"rest", "off", "recovery", "break", "work", "on", "hold", "perform"}):
                     label = before[1].lower()
                 rest = label in {"rest", "off", "recovery", "break"}
                 work = label in {"work", "on", "hold", "perform"}
@@ -1034,12 +1052,15 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
             for number, unit in units
         )
     if field_name == "sets":
+        # Tabata 8x20/10 or 8x20s/10s is eight work/rest intervals; 4x8/8 is sets x reps.
+        ratios = {match.start() for match in work_rest_ratios(wording)}
         for match in re.finditer(
             rf"(?<![\w.\-–×])(?:[x×]\s*)?{value:g}\s*sets?\b"
-            # 8x20/10 is eight 20 s work / 10 s rest intervals, not sets x reps.
-            rf"|(?<![\w.\-–×]){value:g}\s*[x×]\s*:?\d+(?!\d|\s*(?:s\b|secs?\b|seconds?\b)?\s*/\s*:?\d)"
+            rf"|(?<![\w.\-–×]){value:g}\s*[x×]\s*:?\d"
             rf"|\bsets?\s*[:=]?\s*{value:g}(?![\w.\-–]|\s*(?:[-–]|\bto\b)\s*\d)", wording, re.I,
         ):
+            if match.start() in ratios:
+                continue
             # Explicit x1 Set is a count, not a rep suffix or range endpoint.
             prefix = wording[:match.start()]
             negation_prefix = re.sub(
@@ -1088,10 +1109,10 @@ def _numeric_supported(field_name: str, value: int | float, wording: str, exerci
 
 
 def _format_count(wording, match) -> bool:
-    """E2MOM x 6, Tabata x 8 and 8x20/10 count intervals, not reps."""
-    return bool(re.search(r"(?:\be\d*mom|\botm|\btabata|\bevery\s+\S+(?:\s+on\s+the\s+minute)?)\s*$",
-                          wording[:match.start()], re.I)
-                or re.match(r"\s*(?:s\b|secs?\b|seconds?\b)?\s*/\s*:?\d", wording[match.end():], re.I))
+    """E2MOM x 6, Tabata x 8 and Tabata 8x20/10 count intervals, not reps."""
+    return bool(re.search(r"(?:\be\d*mom|\botm|\btabata|\bevery\s+(?:minute|\d+\s*(?:s|secs?|seconds?|mins?|minutes?))"
+                          r"(?:\s+on\s+the\s+minute)?)\s*$", wording[:match.start()], re.I)
+                or any(ratio.start() <= match.start() < ratio.end() for ratio in work_rest_ratios(wording)))
 
 
 def _time_evidence_supported(field_name, value, entry, source, exercise_name=None):
@@ -1447,9 +1468,11 @@ def _format_quotes(block, source, *, text_only=False):
 def _ground_typed_execution(block, source, warnings):
     """Rebuild EMOM, for-time and work/rest values from quoted source facts only."""
     execution = block.execution
-    # Min 1 / Min 2 rows usually sit on the movements, not the format line.
-    rows = [entry.wording for item in block.exercises for entry in item.evidence
-            if _quote_is_supported(entry, source)]
+    # Min 1 / Min 2 rows usually sit on the movements, not the format line, and
+    # a movement quote ("12 Kettlebell Swings") may leave out that row prefix.
+    rows = [line for item in block.exercises for entry in item.evidence if _quote_is_supported(entry, source)
+            for line in [entry.wording, *(line for part in source.parts if part.location == entry.location
+                                          for line in part.text.splitlines() if entry.wording in line)]]
     facts, conflict = read_format(execution.mode, _format_quotes(block, source), rows)
     if facts is None:
         block.execution = None
@@ -1459,16 +1482,19 @@ def _ground_typed_execution(block, source, warnings):
     if execution.mode == "emom":
         values["interval_seconds"] = facts["interval_seconds"]
         values["intervals"] = facts.get("intervals")
-        moves = len(block.exercises)
+        moves, rotation = len(block.exercises), proposed.pop("rotation", None)
+        # Rotation needs a format-level token (EMOM 12 alternating, Min 1:); a
+        # movement named "alternating lunges" never rotates the clock.
         if facts.get("rotation") == "alternating" and moves > 1:
             values["rotation"] = "alternating"
+            conflict |= rotation == "together"
             if values["intervals"] and values["intervals"] % moves:
                 warnings.append(f"{block.label}: {values['intervals']} intervals do not divide evenly "
                                 f"between {moves} alternating movements; review the order.")
-        elif proposed.get("rotation") == "together" and moves > 1:
+        elif moves > 1 and rotation == "together":
             values["rotation"] = "together"
-        if proposed.get("rotation") == "together":
-            proposed.pop("rotation")  # Harmless for one movement; never a source conflict.
+        elif moves > 1 and rotation == "alternating":
+            conflict = True  # The model's rotation has no source statement.
         if facts.get("total_seconds") and values["intervals"] is None:
             conflict = True  # 25 minutes cannot be whole 2-minute intervals.
         block.grouping, block.rounds = "interval", None
@@ -1478,9 +1504,11 @@ def _ground_typed_execution(block, source, warnings):
     else:
         values["time_cap_seconds"] = facts.get("time_cap_seconds")
         schemes = {len(item.rep_scheme) for item in block.exercises if item.rep_scheme}
-        rounds = facts.get("rounds") or (schemes.pop() if len(schemes) == 1 else None)
         # Only a quoted N RFT, 21-15-9 or explicit rounds count; one pass otherwise.
-        block.rounds = block.rounds or rounds
+        # "5 RFT" beside a three-round 21-15-9 is a disagreement to review.
+        counts = {count for count in (block.rounds, facts.get("rounds"), *schemes) if count}
+        conflict |= len(counts) > 1
+        block.rounds = block.rounds or facts.get("rounds") or (schemes.pop() if len(schemes) == 1 else None)
         if len(block.exercises) > 1:
             block.grouping = "circuit"
     # A model value the source does not state (EMOM with no count) needs review.
@@ -1531,9 +1559,31 @@ def _ground_rep_patterns(block, source, warnings):
 
 
 def _legacy_execution(workout):
-    """Builds without typed_formats keep today's AMRAP-only shape; quotes remain."""
+    """Builds without typed_formats keep today's AMRAP-only shape; quotes remain.
+
+    Work/rest intervals go back to the v6 circuit shape: rounds, and each
+    movement's work duration and rest, quoting the grounded format wording.
+    """
     for block in workout.blocks:
-        if block.execution is not None and block.execution.mode != "amrap":
+        execution = block.execution
+        if execution is not None and execution.mode == "work_rest":
+            quotes = [entry for entry in block.evidence if entry.field.startswith("execution")]
+            quote = quotes[0] if quotes else None
+            # One movement repeats every interval; several need "N rounds" quoted.
+            if execution.intervals and (len(block.exercises) == 1 or any(
+                    _numeric_supported("rounds", execution.intervals, entry.wording) for entry in quotes)):
+                block.rounds = execution.intervals
+                if quote:
+                    block.evidence.append(quote.model_copy(update={"field": "rounds"}))
+            block.grouping = "circuit"
+            for item in block.exercises:
+                for field_name, value in (("duration_seconds", execution.work_seconds),
+                                          ("rest_seconds", execution.rest_seconds or None)):
+                    if getattr(item, field_name) is None and value is not None:
+                        setattr(item, field_name, value)
+                        if quote:
+                            item.evidence.append(quote.model_copy(update={"field": field_name}))
+        if execution is not None and execution.mode != "amrap":
             block.execution = None
         for item in block.exercises:
             item.rep_scheme = item.ladder = None
@@ -1558,8 +1608,10 @@ def ground_workout(
     workout.notes = []  # Extracted source text never becomes a private annotation.
     workout.instructions = []  # Only exact workout-wide evidence may restore these.
     warnings, collected = [], []
+    format_warnings = warnings if typed_formats else []
     for block in workout.blocks:
         block.evidence = [item for item in block.evidence if _quote_is_supported(item, source)]
+        typed_block = block.execution is not None and block.execution.mode != "amrap"
         for field_name in ("rounds", "rest_between_rounds_seconds"):
             value = getattr(block, field_name)
             if value is not None and not any(
@@ -1571,9 +1623,10 @@ def ground_workout(
                 # A typed format restores its own count (5 RFT) below.
                 if block.execution is None or block.execution.mode not in {"emom", "work_rest", "for_time"}:
                     warnings.append(f"Unsupported {field_name} removed from {block.label}.")
-        _ground_rep_patterns(block, source, warnings)
-        if not _ground_execution(block, source, warnings):
-            warnings.append(f"The timed execution for {block.label} needs source review.")
+        _ground_rep_patterns(block, source, format_warnings)
+        if not _ground_execution(block, source, format_warnings):
+            (format_warnings if typed_block else warnings).append(
+                f"The timed execution for {block.label} needs source review.")
         collected.extend(block.evidence)
         for item in block.exercises:
             item.provenance = "source"
@@ -1635,6 +1688,16 @@ def ground_workout(
                 warnings.append(
                     f"Creator load for {item.name} needs unit/convention review; original evidence remains available."
                 )
+            if block.execution is not None and block.execution.mode == "work_rest":
+                # Inside a grounded work/rest block, "Squats 8x20/10" is intervals
+                # and seconds; the block execution already carries those numbers.
+                for ratio in (ratio for entry in item.evidence
+                              for ratio in work_rest_ratios(entry.wording, work_rest_block=True)):
+                    if item.sets == int(ratio[1]):
+                        item.sets = None
+                    for field_name in ("reps_min", "reps_max"):
+                        if getattr(item, field_name) in {float(ratio[3]), float(ratio[7])}:
+                            setattr(item, field_name, None)
             item.instructions, item.notes = item.notes, None
             item.evidence = [entry.model_copy(update={"field": "instructions"})
                              if entry.field == "notes" else entry for entry in item.evidence]

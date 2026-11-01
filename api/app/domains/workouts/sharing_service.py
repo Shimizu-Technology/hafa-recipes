@@ -24,6 +24,7 @@ from app.domains.workouts.connection_models import (
     WorkoutShare,
     WorkoutSharePreview,
 )
+from app.domains.workouts.execution import format_complete
 from app.domains.workouts.lifecycle import membership_for, now
 from app.domains.workouts.models import (
     WorkoutRecord,
@@ -226,6 +227,9 @@ def project_workout(raw, *, include_source_url=False):
                               "rep_scheme", "ladder")
             ) and block.get("execution", {}).get("mode") != "work_rest":
                 incomplete = True
+        # An EMOM or work/rest block without its interval count cannot be run.
+        if not format_complete(source.blocks[index]):
+            incomplete = True
         projected["blocks"].append(block)
     WorkoutContent.model_validate(projected)
     return projected, incomplete
