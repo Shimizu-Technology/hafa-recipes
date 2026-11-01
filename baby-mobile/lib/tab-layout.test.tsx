@@ -31,7 +31,7 @@ afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; });
 
 it("draws its own bar instead of native tabs, so iOS 18, 26 and Android match", () => {
   const tabs = TabLayout();
-  expect(tabs.props.screenOptions).toEqual({ headerShown: false });
+  expect(tabs.props.screenOptions).toEqual({ headerShown: false, lazy: false });
   expect((tabs.props.children as { props: { name: string } }[]).map((tab) => tab.props.name)).toEqual(["(today)", "library", "journal", "ask"]);
 });
 

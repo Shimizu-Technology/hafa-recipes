@@ -19,8 +19,9 @@ export function TabStack({ title }: { title: string }) {
   return <NativeHeaderContext.Provider value={true}><TabScreenContext.Provider value={true}>
     <Stack screenOptions={{
       title, headerLargeTitle: true, headerBackTitle: "Back", headerTintColor: c.action,
-      // Opaque on every OS: no blur or glass, and nothing scrolls visibly under the title.
-      headerTransparent: false, headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: c.background },
+      // A solid background on every OS: no blur or glass, and nothing shows through the title. Leave
+      // headerTransparent unset; false makes the iOS bar non-translucent, which hides large titles beside search.
+      headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: c.background },
       headerShadowVisible: true, headerLargeTitleShadowVisible: false,
       headerTitleStyle: { color: c.text },
       // UIKit's rounded-system alias; ui-rounded is resolved only by RN text.
