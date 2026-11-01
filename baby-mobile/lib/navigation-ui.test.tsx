@@ -23,7 +23,7 @@ vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("expo-router", () => ({
-  Stack: { Screen: ({ options }: any) => options?.headerRight?.() ?? null },
+  Stack: { Screen: ({ options }: any) => options?.headerRight?.() ?? options?.unstable_headerRightItems?.()[0]?.element ?? null },
   useLocalSearchParams: () => mock.params,
   useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
   router: {

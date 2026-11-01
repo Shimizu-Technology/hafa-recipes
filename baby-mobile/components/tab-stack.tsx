@@ -1,50 +1,84 @@
-import { useEffect } from "react";
-import { Stack, router, type Href } from "expo-router";
-import { useIsFocused } from "expo-router/react-navigation";
-import { Icon, NativeHeaderContext, PressTarget, fonts, useColors } from "./ui";
-import { Platform, View, type ViewProps } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { reportTabScreenBottomInset } from "../lib/bottom-overlay";
+import { Stack, router } from "expo-router";
+import { Icon, NativeHeaderContext, PressTarget, TabScreenContext, fonts, typeScale, useColors, type IconName } from "./ui";
+import { Platform, Text, View, type ViewProps } from "react-native";
+import type { NativeStackNavigationOptions } from "expo-router/native-stack";
+import { useBaby } from "@/lib/context";
 
-/** A tab screen's safe area includes the native tab bar; share it with app-wide toasts. */
-function TabBarInsetReporter() {
-  const { bottom } = useSafeAreaInsets();
-  const focused = useIsFocused();
-  // iOS only: Android's tab bar inset isn't part of this safe area, so toasts keep their fallback there.
-  useEffect(() => { if (focused && Platform.OS === "ios") reportTabScreenBottomInset(bottom); }, [focused, bottom]);
-  return null;
+/**
+ * Header actions as one custom item. On iOS 26 this hides the shared Liquid Glass capsule, so
+ * our own tonal circles look the same as on iOS 18 and Android.
+ */
+export function headerActions(actions: React.ReactElement): NativeStackNavigationOptions {
+  return Platform.OS === "ios"
+    ? { unstable_headerRightItems: () => [{ type: "custom", element: actions, hidesSharedBackground: true }] }
+    : { headerRight: () => actions };
 }
 
-export function TabStack({ title, add }: { title: string; add?: Href }) {
+const liquidGlass = Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
+export function TabStack({ title }: { title: string }) {
   const c = useColors();
-  return <NativeHeaderContext.Provider value={true}>
-    <TabBarInsetReporter />
+  return <NativeHeaderContext.Provider value={true}><TabScreenContext.Provider value={true}>
     <Stack screenOptions={{
-      title, headerLargeTitle: true, headerShadowVisible: false, headerBackTitle: "Back",
-      // An opaque native header hides large titles on iOS 26.
-      headerStyle: Platform.OS === "ios" ? undefined : { backgroundColor: c.background }, headerTintColor: c.action,
-      headerBlurEffect: "systemChromeMaterial", headerLargeStyle: { backgroundColor: "transparent" },
+      title, headerLargeTitle: true, headerBackTitle: "Back", headerTintColor: c.action,
+      // A solid background on every OS: no blur or glass, and nothing shows through the title. Leave
+      // headerTransparent unset; false makes the iOS bar non-translucent, which hides large titles beside search.
+      // iOS 26 draws no large title over a coloured large-title background; the page is the same colour anyway.
+      headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: liquidGlass ? "transparent" : c.background },
+      headerShadowVisible: true, headerLargeTitleShadowVisible: false,
       headerTitleStyle: { color: c.text },
       // UIKit's rounded-system alias; ui-rounded is resolved only by RN text.
       headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".AppleSystemUIFontRounded-Bold" : fonts.regular,
         fontSize: 34, fontWeight: "700" },
       contentStyle: { backgroundColor: c.background },
-      headerRight: () => <TabActions title={title} add={add} />,
+      ...headerActions(<TabActions />),
     }} />
-  </NativeHeaderContext.Provider>;
+  </TabScreenContext.Provider></NativeHeaderContext.Provider>;
 }
 
-/** Keep contextual actions, Add and profile in one native glass group. */
-export function TabActions({ title, add, action }: { title: string; add?: Href; action?: ViewProps["children"] }) {
-  return <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        {action}
-        {add && <PressTarget accessibilityRole="button" accessibilityLabel={title === "Saved" ? "Add a source" : title === "Journal" ? "Write a journal entry" : "Add something"}
-          onPress={() => router.push(add)} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-          <Icon name="add" size={22} />
-        </PressTarget>}
-        <PressTarget accessibilityRole="button" accessibilityLabel="Settings and profiles"
-          onPress={() => router.push("/settings")} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-          <Icon name="person-circle-outline" size={30} />
-        </PressTarget>
-      </View>;
+/** The one header button shape: a 36pt tonal circle inside a 44pt target (every header control keeps 44×44). */
+export function HeaderIconButton({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+  const c = useColors();
+  return <PressTarget accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
+      <Icon name={icon} size={20} color={c.text} />
+    </View>
+  </PressTarget>;
+}
+
+/** A text action (Select, History) in the same tonal fill, so it never reads as bare text. */
+export function HeaderPill({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
+  const c = useColors();
+  return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
+    style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
+      <Text maxFontSizeMultiplier={1.3} style={{ ...typeScale.subhead, fontWeight: "600", color: c.text }}>{title}</Text>
+    </View>
+  </PressTarget>;
+}
+
+/** Up to two initials from the profile name; empty when it has no letters to show. */
+export function initials(name: string | undefined) {
+  const words = (name ?? "").trim().split(/\s+/).map((word) => Array.from(word.replace(/[^\p{L}\p{N}]/gu, ""))[0]).filter(Boolean);
+  return (words.length > 1 ? words[0]! + words[words.length - 1]! : words[0] ?? "").toLocaleUpperCase();
+}
+
+/** Settings and profiles as a 32pt initials circle, like Recipes and Workouts. */
+export function AccountButton() {
+  const c = useColors(), text = initials(useBaby().state.bootstrap?.profile.display_name);
+  return <PressTarget accessibilityRole="button" accessibilityLabel="Settings and profiles" onPress={() => router.push("/settings")}
+    style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
+      {text ? <Text allowFontScaling={false} style={{ fontFamily: fonts.rounded, fontSize: 13, fontWeight: "700", color: c.text }}>{text}</Text>
+        : <Icon name="person" size={17} color={c.text} />}
+    </View>
+  </PressTarget>;
+}
+
+/** A screen's contextual action, then the account circle; Add lives in the tab bar. */
+export function TabActions({ action }: { action?: ViewProps["children"] }) {
+  return <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+    {action}
+    <AccountButton />
+  </View>;
 }

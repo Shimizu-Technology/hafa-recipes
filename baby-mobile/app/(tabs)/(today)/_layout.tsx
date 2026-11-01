@@ -1,2 +1,2 @@
 import { TabStack } from "@/components/tab-stack";
-export default function Layout() { return <TabStack title="Today" add={"/add"} />; }
+export default function Layout() { return <TabStack title="Today" />; }
