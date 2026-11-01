@@ -40,7 +40,7 @@ describe('tab header', () => {
 // NativeTabs scrolled a re-tapped tab to the top; the Håfa tab bar relies on each root registering its list.
 describe('tab re-tap scroll to top', () => {
   it.each([
-    ['app/history.tsx', 'recipes', ['listRef']],
+    ['app/history.tsx', 'recipes', ['listRef', 'collectionsRef']],
     ['app/(tabs)/discover/index.tsx', 'discover', ['listRef']],
     ['app/(tabs)/planner/index.tsx', 'planner', ['weekScroll']],
     ['app/(tabs)/grocery/index.tsx', 'grocery', ['listRef']],

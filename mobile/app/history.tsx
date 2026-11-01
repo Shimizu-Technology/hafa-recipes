@@ -1,10 +1,14 @@
 import { LibraryStatus } from '@/components/LibraryStatus';
 import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
-import { SearchLauncher } from '@/components/chrome/SearchLauncher';
+import { FilterButton, SearchField, SearchRow } from '@/components/chrome/SearchField';
+import { SegmentedControl } from '@/components/chrome/SegmentedControl';
+import { CollectionGrid } from '@/components/CollectionGrid';
+import CreateCollectionModal from '@/components/CreateCollectionModal';
+import { useCollections } from '@/hooks/useCollections';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Keyboard, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, FlatList, Keyboard, RefreshControl, ScrollView, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 
 import { AnimatedListItem, useInitialListEntrance } from '@/components/Animated';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
@@ -95,8 +99,13 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const endPadding = useTabScrollEndPadding(spacing.xl, { askPill: true });
   const onAskPillScroll = useAskPillScroll();
   const listRef = useRef<FlatList<RecipeListItem>>(null);
-  useTabScrollToTop('recipes', listRef);
+  const collectionsRef = useRef<ScrollView>(null);
   const { isSignedIn } = useAuth();
+  // Recipes and Collections are siblings in one Library; Collections loads only when shown.
+  const [segment, setSegment] = useState<'recipes' | 'collections'>('recipes');
+  useTabScrollToTop('recipes', segment === 'collections' ? collectionsRef : listRef);
+  const [showCreateCollection, setShowCreateCollection] = useState(false);
+  const collections = useCollections(active && Boolean(isSignedIn) && segment === 'collections');
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
   const debouncedSearchQuery = useDebouncedSearchQuery(searchQuery);
@@ -462,8 +471,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       );
     }
 
-    return <LibraryStatus active={active} needsCheck={needsCheckCount} checking={needsCheckOnly} onNeedsCheck={() => { setNeedsCheckOnly(value => !value); setDisplayCount(ITEMS_PER_PAGE); }} onFilter={() => setShowFilterModal(true)} filterCount={activeFilterCount} />;
-  }, [active, colors, needsCheckCount, needsCheckOnly, activeFilterCount, isSelectionMode, selectedRecipeIds.size, allShownSelected, exitSelectionMode, selectAllRecipes, clearSelection]);
+    return <LibraryStatus active={active} needsCheck={needsCheckCount} checking={needsCheckOnly} onNeedsCheck={() => { setNeedsCheckOnly(value => !value); setDisplayCount(ITEMS_PER_PAGE); }} />;
+  }, [active, colors, needsCheckCount, needsCheckOnly, isSelectionMode, selectedRecipeIds.size, allShownSelected, exitSelectionMode, selectAllRecipes, clearSelection]);
 
   const filteredEmpty = needsCheckOnly || hasActiveFilters || ownershipFilter !== 'all';
   const clearSearchAndFilters = () => {
@@ -525,6 +534,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
+  const librarySwitch = isSignedIn && !isSelectionMode ? <RNView style={{ marginBottom: 12 }}>
+    <SegmentedControl accessibilityLabel="Library view" value={segment} onChange={setSegment}
+      options={[{ value: 'recipes', label: 'Recipes' }, { value: 'collections', label: 'Collections' }]} />
+  </RNView> : null;
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
     <View style={styles.container}>
@@ -538,6 +552,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         showOwnershipFilter
       />
 
+      {isSignedIn && <CreateCollectionModal visible={active && showCreateCollection} onClose={() => setShowCreateCollection(false)} />}
+
       {/* Bulk Add to Collection Modal */}
       <BulkAddToCollectionModal
         visible={active && showBulkAddModal}
@@ -550,7 +566,22 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         { title: isGrid ? 'Switch to list view' : 'Switch to grid view', onPress: toggleViewMode },
         { title: 'Select recipes', onPress: enterSelectionMode },
       ]} />
-      {isLoading && !displayRecipes?.length ? (
+      {segment === 'collections' ? (
+        <ScrollView ref={collectionsRef} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.listContent, { paddingBottom: endPadding }]}
+          onScroll={onAskPillScroll} scrollEventThrottle={32}
+          refreshControl={<RefreshControl refreshing={collections.isRefetching} onRefresh={() => { void collections.refetch(); }} tintColor={colors.tint} />}>
+          {librarySwitch}
+          {collections.isLoading && <ActivityIndicator accessibilityLabel="Loading collections" color={colors.tint} style={{ marginVertical: 24 }} />}
+          {collections.isError && <RNView accessibilityRole="alert" style={{ gap: 8, marginBottom: 16 }}>
+            <Text style={{ color: colors.textSecondary }}>{collections.data ? 'Couldn’t refresh your collections. Your last loaded collections are still shown.' : 'Couldn’t load your collections. Check your connection and try again.'}</Text>
+            <TouchableOpacity accessibilityRole="button" onPress={() => { void collections.refetch(); }} style={{ minHeight: 44, justifyContent: 'center' }}>
+              <Text style={{ color: colors.actionText }}>Try again</Text>
+            </TouchableOpacity>
+          </RNView>}
+          {(collections.data || !collections.isLoading && !collections.isError) && <CollectionGrid collections={collections.data ?? []}
+            onOpen={collection => router.push(`/collection/${collection.id}`)} onCreate={() => setShowCreateCollection(true)} />}
+        </ScrollView>
+      ) : isLoading && !displayRecipes?.length ? (
         <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
@@ -563,7 +594,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           numColumns={isGrid && !largeText ? 2 : 1}
           columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
-            {!isSelectionMode && <SearchLauncher />}
+            {librarySwitch}
+            {!isSelectionMode && <SearchRow>
+              <SearchField value={searchQuery} onChangeText={text => { setSearchQuery(text); setDisplayCount(ITEMS_PER_PAGE); }} placeholder="Search your recipes" />
+              <FilterButton count={activeFilterCount} onPress={() => setShowFilterModal(true)} />
+            </SearchRow>}
             <ListHeaderTitle />
             {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
             {/* Selection Action Bar */}

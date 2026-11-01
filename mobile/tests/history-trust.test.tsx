@@ -1,4 +1,5 @@
-vi.mock('@/components/chrome/SearchLauncher', () => ({ SearchLauncher: 'SearchLauncher' }));
+vi.mock('@/components/chrome/SegmentedControl', () => ({ SegmentedControl: 'SegmentedControl' }));
+vi.mock('@/components/chrome/SearchField', () => ({ SearchLauncher: 'SearchLauncher', SearchRow: 'SearchRow', SearchField: 'SearchField', FilterButton: 'FilterButton' }));
 vi.mock('@/components/LibraryStatus', () => ({ LibraryStatus: 'LibraryStatus' }));
 vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
@@ -13,6 +14,7 @@ import type { Collection, RecipeListItem } from '@/types/recipe';
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
+  Pressable: 'Pressable',
   Alert: { alert: vi.fn() },
   Dimensions: { get: () => ({ width: 390 }) },
   FlatList: (props: any) => React.createElement('FlatList', props, props.ListHeaderComponent),
@@ -462,7 +464,7 @@ describe('Library collection recovery', () => {
 
 
 describe('Library browse controls', () => {
-  it('keeps search and count rows out of Library and opens the existing filter sheet', async () => {
+  it('searches the library in place and opens the existing filter sheet from the filter button', async () => {
     const renderer = createRoot();
     const header = createRoot();
     try {
@@ -470,14 +472,15 @@ describe('Library browse controls', () => {
       expect(renderer.container.queryAll(n => n.type === 'Input')).toHaveLength(0);
       const list = () => renderer.container.queryAll(n => n.type === 'FlatList')[0];
       await act(async () => header.render(list().props.ListHeaderComponent));
-      const links = header.container.queryAll(n => n.type === 'LibraryStatus')[0];
-      await act(async () => links.props.onFilter());
+      const field = header.container.queryAll(n => n.type === 'SearchField')[0];
+      expect(field.props.placeholder).toBe('Search your recipes');
+      await act(async () => header.container.queryAll(n => n.type === 'FilterButton')[0].props.onPress());
       const sheet = () => renderer.container.queryAll(n => n.type === 'FilterBottomSheet')[0];
       expect(sheet().props.visible).toBe(true);
       await act(async () => sheet().props.onApply({ sourceFilter: 'manual', timeFilter: 'quick', selectedTags: ['dinner'], ownershipFilter: 'saved' }));
       await act(async () => header.render(list().props.ListHeaderComponent));
       expect(header.container.queryAll(n => n.props.accessibilityLabel === 'Clear library filters')).toHaveLength(1);
-      expect(header.container.queryAll(n => n.type === 'LibraryStatus')[0].props.filterCount).toBe(4);
+      expect(header.container.queryAll(n => n.type === 'FilterButton')[0].props.count).toBe(4);
       expect(header.container.queryAll(n => typeof n.props.children === 'string' && n.props.children.startsWith('Showing: '))[0].props.children)
         .toBe('Showing: Manual, Under 30 min, dinner, Saved');
       await act(async () => header.container.queryAll(n => n.props.accessibilityLabel === 'Clear library filters')[0].props.onPress());

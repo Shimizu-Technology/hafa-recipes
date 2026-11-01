@@ -1,3 +1,4 @@
+vi.mock('@/components/chrome/HeaderButton', () => ({ HeaderIconButton: 'HeaderIconButton', headerRightOptions: (render: () => unknown) => ({ headerRight: render }) }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
@@ -18,7 +19,7 @@ import type { CollectionRecipe } from '@/types/recipe';
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
   Alert: { alert: vi.fn() },
-  FlatList: 'FlatList',
+  FlatList: (props: any) => require('react').createElement('FlatList', props, props.ListHeaderComponent),
   Modal: 'Modal',
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   TouchableWithoutFeedback: 'TouchableWithoutFeedback',
@@ -30,6 +31,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
   TouchableOpacity: 'TouchableOpacity',
   View: 'View',
+  useWindowDimensions: () => ({ width: 393, fontScale: 1 }),
 }));
 vi.mock('expo-router', () => ({
   Stack: { Screen: 'StackScreen' },
@@ -43,6 +45,7 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/components/Themed', () => ({
   Text: 'Text',
   View: 'View',
+  useWindowDimensions: () => ({ width: 393, fontScale: 1 }),
   Input: 'Input',
   Button: 'Button',
   useColors: () => ({

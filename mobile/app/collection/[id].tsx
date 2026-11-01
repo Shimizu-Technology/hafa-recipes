@@ -13,6 +13,7 @@ import {
   View as RNView,
   ActivityIndicator,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +21,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import CreateCollectionModal from '@/components/CreateCollectionModal';
+import { HeaderIconButton, headerRightOptions } from '@/components/chrome/HeaderButton';
 import { useCollectionRecipes, useCollections, useRemoveFromCollection } from '@/hooks/useCollections';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { CollectionRecipe, Collection } from '@/types/recipe';
@@ -30,7 +32,16 @@ import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
-/** Render a recipe row within a collection. */
+const GRID_GAP = 12;
+
+/** Collection photo grid: 2 columns (1 at large text), like the Library grid, with time and servings. */
+function useCardWidth() {
+  const { width, fontScale } = useWindowDimensions();
+  const content = Math.min(width, 720) - 32;
+  return fontScale >= 1.3 ? content : (content - GRID_GAP) / 2;
+}
+
+/** Render a recipe card within a collection. */
 export function RecipeCard({
   recipe,
   onPress,
@@ -43,54 +54,60 @@ export function RecipeCard({
   colors: ReturnType<typeof useColors>;
 }) {
   const { label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
+  const width = useCardWidth();
+  const facts = [
+    recipe.total_time ? { icon: 'time-outline' as const, text: recipe.total_time } : null,
+    recipe.servings ? { icon: 'people-outline' as const, text: String(recipe.servings) } : null,
+  ].filter(Boolean) as { icon: 'time-outline' | 'people-outline'; text: string }[];
 
   return (
-    <ScalePressable
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={recipeCardAccessibilityLabel({
-        title: recipe.title,
-        reviewState: recipe.review_state,
-        totalTime: recipe.total_time,
-        servings: recipe.servings,
-        sourceLabel,
-      })}
-      // The card groups its children for VoiceOver, so expose Remove as an action.
-      accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
-      onAccessibilityAction={(event) => {
-        if (event.nativeEvent.actionName === 'remove') onRemove();
-      }}
-    >
-      {/* Thumbnail */}
-      <RecipeThumbnail
-        uri={recipe.thumbnail_url}
-        style={styles.thumbnail}
-        accessibilityLabel={`${recipe.title} photo`}
-      />
-
-      {/* Content */}
-      <RNView style={styles.cardContent}>
+    <RNView style={[styles.card, { width }]}>
+      <ScalePressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={recipeCardAccessibilityLabel({
+          title: recipe.title,
+          reviewState: recipe.review_state,
+          totalTime: recipe.total_time,
+          servings: recipe.servings,
+          sourceLabel,
+        })}
+        // The card groups its children for VoiceOver, so expose Remove as an action.
+        accessibilityActions={[{ name: 'remove', label: 'Remove from collection' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'remove') onRemove();
+        }}
+      >
+        <RecipeThumbnail
+          uri={recipe.thumbnail_url}
+          style={[styles.thumbnail, { backgroundColor: colors.surface2 }]}
+          accessibilityLabel={`${recipe.title} photo`}
+        />
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
-          {[sourceLabel, recipe.total_time, recipe.servings ? `${recipe.servings} servings` : null].filter(Boolean).join(' · ')}
-        </Text>
-      </RNView>
+        <RNView style={styles.metaRow}>
+          {facts.length ? facts.map((fact) => (
+            <RNView key={fact.icon} style={styles.metaItem}>
+              <Ionicons name={fact.icon} size={14} color={colors.textSecondary} />
+              <Text style={[styles.metaText, { color: colors.textSecondary }]}>{fact.text}</Text>
+            </RNView>
+          )) : <Text style={[styles.metaText, { color: colors.textSecondary }]}>{sourceLabel}</Text>}
+        </RNView>
+      </ScalePressable>
+      {/* A solid circle stays readable on any photo; Remove still asks first. */}
       <TouchableOpacity
-        style={[styles.removeButton, { backgroundColor: 'transparent' }]}
-        onPress={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={styles.removeButton}
+        onPress={onRemove}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
         accessibilityLabel={`Remove ${recipe.title} from collection`}
       >
-        <Ionicons name="close" size={18} color={colors.textSecondary} />
+        <RNView style={styles.removeCircle}>
+          <Ionicons name="close" size={16} color="#1C1C1E" />
+        </RNView>
       </TouchableOpacity>
-    </ScalePressable>
+    </RNView>
   );
 }
 
@@ -107,6 +124,7 @@ export default function CollectionDetailScreen() {
   }, [committedScope]);
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const largeText = useWindowDimensions().fontScale >= 1.3;
 
   const [showEditModal, setShowEditModal] = useState(false);
 
@@ -214,15 +232,7 @@ export default function CollectionDetailScreen() {
       <Stack.Screen
         options={{
           headerTitle: collection.name, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 },
-          headerRight: () => (
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Collection options"
-              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
-              onPress={() => setShowEditModal(true)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="ellipsis-horizontal" size={24} color={colors.actionText} />
-            </TouchableOpacity>
-          ),
+          ...headerRightOptions(() => <HeaderIconButton icon="ellipsis-horizontal" accessibilityLabel="Collection options" onPress={() => setShowEditModal(true)} />),
         }}
       />
 
@@ -234,28 +244,32 @@ export default function CollectionDetailScreen() {
         onDeleted={leaveCollection}
       />
 
-      {/* Recipe count header */}
-      <RNView style={styles.header}>
-        <Text style={[styles.countText, { color: colors.textSecondary }]}>
-          {recipes !== undefined ? `${recipes.length} recipe${recipes.length !== 1 ? 's' : ''}` : 'Recipes'}
-        </Text>
-        {(collectionsQuery.isError || isError) && (
-          <RNView accessibilityRole="alert">
-            <Text style={{ color: colors.textSecondary }}>
-              {isError && !recipes ? 'Couldn’t load these recipes.' : 'Couldn’t refresh this collection. Your last loaded data is still shown.'}
-            </Text>
-            <Button title={isRefetching || collectionsQuery.isFetching ? 'Trying again…' : 'Try again'}
-              disabled={isRefetching || collectionsQuery.isFetching}
-              onPress={() => { void collectionsQuery.refetch(); void refetch(); }} />
-          </RNView>
-        )}
-        {isLoading && !recipes && <ActivityIndicator size="large" color={colors.actionText} />}
-      </RNView>
-
       <FlatList contentInsetAdjustmentBehavior="automatic"
+        key={largeText ? 'list' : 'grid'}
         data={recipes}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
+        numColumns={largeText ? 1 : 2}
+        columnWrapperStyle={largeText ? undefined : styles.gridRow}
+        // Inside the list so the count scrolls with the photos instead of sitting under the large title.
+        ListHeaderComponent={<>
+        <RNView style={styles.header}>
+          <Text style={[styles.countText, { color: colors.textSecondary }]}>
+            {recipes !== undefined ? `${recipes.length} recipe${recipes.length !== 1 ? 's' : ''}` : 'Recipes'}
+          </Text>
+          {(collectionsQuery.isError || isError) && (
+            <RNView accessibilityRole="alert">
+              <Text style={{ color: colors.textSecondary }}>
+                {isError && !recipes ? 'Couldn’t load these recipes.' : 'Couldn’t refresh this collection. Your last loaded data is still shown.'}
+              </Text>
+              <Button title={isRefetching || collectionsQuery.isFetching ? 'Trying again…' : 'Try again'}
+                disabled={isRefetching || collectionsQuery.isFetching}
+                onPress={() => { void collectionsQuery.refetch(); void refetch(); }} />
+            </RNView>
+          )}
+          {isLoading && !recipes && <ActivityIndicator size="large" color={colors.actionText} />}
+        </RNView>
+        </>}
         ListEmptyComponent={!isLoading && !isError ? ListEmpty : null}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
@@ -281,7 +295,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
-    paddingHorizontal: 16,
     paddingVertical: spacing.sm,
   },
   countText: {
@@ -291,35 +304,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: spacing.xxl,
   },
+  gridRow: {
+    gap: GRID_GAP,
+  },
   card: {
-    alignItems: 'center', padding: 12,
-    flexDirection: 'row',
-    borderRadius: 12,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-    borderWidth: 0,
+    marginBottom: 20,
   },
   thumbnail: {
-    width: 44,
-    height: 44, borderRadius: 8,
-  },
-  cardContent: {
-    flex: 1,
-    paddingHorizontal: 12,
-    justifyContent: 'space-between',
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 16,
   },
   cardTitle: {
+    marginTop: 8,
     fontSize: 16,
-    fontFamily: fontFamily.display,
+    fontFamily: fontFamily.displaySemibold,
     lineHeight: 21,
-  },
-  trustBadge: {
-    marginTop: spacing.xs,
   },
   metaRow: {
     flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.xs,
+    flexWrap: 'wrap',
+    columnGap: 12,
+    marginTop: 2,
   },
   metaItem: {
     flexDirection: 'row',
@@ -327,29 +333,26 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   metaText: {
-    fontSize: fontSize.xs,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  sourceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  sourceText: {
-    fontSize: fontSize.xs,
-    textTransform: 'capitalize',
+    fontSize: 13,
+    lineHeight: 18,
   },
   removeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  removeCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 3,
+    elevation: 2,
   },
   emptyContainer: {
     alignItems: 'center',

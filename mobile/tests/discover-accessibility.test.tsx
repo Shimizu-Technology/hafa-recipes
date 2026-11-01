@@ -1,4 +1,4 @@
-vi.mock('@/components/chrome/SearchLauncher', () => ({ SearchLauncher: 'SearchLauncher' }));
+vi.mock('@/components/chrome/SearchField', () => ({ SearchLauncher: 'SearchLauncher', SearchRow: 'SearchRow', SearchField: 'SearchField', FilterButton: 'FilterButton' }));
 vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
