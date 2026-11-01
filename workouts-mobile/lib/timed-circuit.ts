@@ -11,8 +11,9 @@ export function timedCircuit(workout: Workout): TimedCircuit | null {
   if (block.grouping !== "circuit" || block.rounds != null || !block.exercises.length) return null;
   const instructions = (workout.notes ?? []).filter((note) => note.trim());
   if (block.execution) {
-    const { mode, time_cap_seconds } = block.execution;
-    return mode === "amrap" && Number.isInteger(time_cap_seconds) && time_cap_seconds > 0 && time_cap_seconds <= 86400
+    if (block.execution.mode !== "amrap") return null;
+    const { time_cap_seconds } = block.execution;
+    return Number.isInteger(time_cap_seconds) && time_cap_seconds > 0 && time_cap_seconds <= 86400
       ? { time_cap_seconds, instructions } : null;
   }
   if (workout.provenance !== "source" || !["session", "accessory"].includes(workout.kind) ||

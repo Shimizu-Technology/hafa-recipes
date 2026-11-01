@@ -50,8 +50,11 @@ export function Button({
   accessibilityHint,
   disabledReason,
   textLink = false,
+  maxScale,
 }: {
   textLink?: boolean;
+  /** Caps the label's growth with the text-size setting; see Copy. */
+  maxScale?: number;
   title: string;
   onPress(): void;
   variant?: ButtonVariant;
@@ -118,6 +121,7 @@ export function Button({
       <Copy
         kind={textLink ? "small" : "label"}
         color={fg}
+        maxScale={maxScale}
         style={{ textAlign: "center", flexShrink: 1 }}
       >
         {title}

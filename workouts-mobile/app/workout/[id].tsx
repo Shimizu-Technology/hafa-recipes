@@ -26,6 +26,7 @@ import { useTraining, useOfflineTraining } from "@/lib/context";
 import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
+import { timedStartHint } from "@/lib/timed-execution";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
@@ -151,8 +152,9 @@ export default function WorkoutDetail() {
     }
   }
   const trackingWarning = workout ? trackingPrescriptionWarning(workout) : null;
-  // Several timed (AMRAP) parts need different words than missing set counts.
+  // A timed part the timer can't run needs different words than missing set counts.
   const timedParts = !!trackingWarning && !!workout?.blocks.some((block) => block.execution);
+  const timedMessage = timedParts ? trackingWarning : null;
   const exercises = workout?.blocks.reduce((n, b) => n + b.exercises.length, 0) ?? 0;
   const timeCap = workout?.blocks.length === 1 ? amrapCap(workout.blocks[0]) : null;
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
@@ -178,7 +180,7 @@ export default function WorkoutDetail() {
   const hint = !workout || offline.state.active ? null
     : workout.kind === "program" ? "This program runs over several days. Pick your days to train it."
       : exercises === 0 ? "No exercises yet."
-        : timedParts ? "More than one timed part — you’ll choose how to track it."
+        : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
     <Screen native
@@ -327,7 +329,7 @@ export default function WorkoutDetail() {
       {workout && <WorkoutStartSheet
         visible={choosing}
         busy={busy}
-        timedParts={timedParts}
+        timedMessage={timedMessage}
         onClose={() => { if (!busy) setChoosing(false); }}
         onStart={(choice) => void start(choice)}
         onEdit={() => { setChoosing(false); router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } }); }}

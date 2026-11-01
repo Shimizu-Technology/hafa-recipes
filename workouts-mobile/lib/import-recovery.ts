@@ -38,5 +38,5 @@ export function recoverySource(source: ExtractionRequest | null, sourceURL: stri
   // source fields only, so an earlier public choice cannot leak into the retry.
   return boundedSource({ kind: original?.kind ?? "text", source_url: original?.source_url,
     images: original?.images, document_base64: original?.document_base64,
-    document_mime: original?.document_mime, ...(text ? { text } : {}), ai_consent: true });
+    document_mime: original?.document_mime, ...(text ? { text } : {}), ai_consent: true, typed_formats: true });
 }

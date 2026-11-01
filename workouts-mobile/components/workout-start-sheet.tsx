@@ -13,15 +13,15 @@ export const defaultStartRounds = 3;
 export function WorkoutStartSheet({
   visible,
   busy,
-  timedParts = false,
+  timedMessage = null,
   onClose,
   onStart,
   onEdit,
 }: {
   visible: boolean;
   busy: boolean;
-  /** The workout has several timed parts, so it can't run as one timer. */
-  timedParts?: boolean;
+  /** Why the timed part can't run on the timer, when that is the reason for this sheet. */
+  timedMessage?: string | null;
   onClose(): void;
   onStart(choice: StartChoice): void;
   onEdit(): void;
@@ -34,9 +34,7 @@ export function WorkoutStartSheet({
   };
   return (
     <Sheet visible={visible} onClose={onClose} title="Start workout">
-      <Copy tone="muted">{timedParts
-        ? "This workout has more than one timed part, so it can’t run as one timer. Track it without the timer instead."
-        : "This workout doesn’t say how many sets or rounds to do."}</Copy>
+      <Copy tone="muted">{timedMessage ?? "This workout doesn’t say how many sets or rounds to do."}</Copy>
       <ListGroup>
         <ListRow
           icon="play-outline"
@@ -60,7 +58,7 @@ export function WorkoutStartSheet({
           onPress={() => onStart({ rounds })} />
       </Stack>
       <ListGroup>
-        <ListRow icon="create-outline" title="Edit workout" detail={timedParts ? "Split the timed parts first" : "Add sets and reps first"} disabled={busy} onPress={onEdit} />
+        <ListRow icon="create-outline" title="Edit workout" detail={timedMessage ? "Fix the timed part first" : "Add sets and reps first"} disabled={busy} onPress={onEdit} />
       </ListGroup>
     </Sheet>
   );

@@ -1,5 +1,6 @@
 import type { AuthoredWorkout, Workout } from "./models";
 import { formatSeconds } from "./discover";
+import { formatError, formatLabel, isTimedFormat } from "./timed-execution";
 type Block = Workout["blocks"][number];
 
 export function validTimeCap(seconds: unknown): seconds is number {
@@ -7,7 +8,10 @@ export function validTimeCap(seconds: unknown): seconds is number {
 }
 export function executionError(block: Block) {
   if (!block.execution) return null;
-  if (block.execution.mode !== "amrap" || block.grouping !== "circuit")
+  if (isTimedFormat(block.execution)) return formatError(block.execution, block);
+  // A mode from a newer server stays readable and never blocks saving.
+  if (block.execution.mode !== "amrap") return null;
+  if (block.grouping !== "circuit")
     return "AMRAP execution requires a circuit block.";
   if (block.rounds != null) return "Choose fixed rounds or AMRAP, not both.";
   if (!validTimeCap(block.execution.time_cap_seconds))
@@ -25,15 +29,28 @@ const groupingLabels: Record<Block["grouping"], string> = {
 export function blockSummary(block: Block, label?: string) {
   const cap = amrapCap(block);
   if (cap != null) return `AMRAP · ${formatSeconds(cap)} time cap`;
+  if (isTimedFormat(block.execution)) {
+    const alternating = block.execution.mode === "emom" && block.execution.rotation === "alternating" && block.exercises.length > 1;
+    const name = formatLabel(block);
+    // A block already labelled "EMOM 20" doesn't need it twice.
+    // A block already labelled "EMOM 20" or "21-15-9 for time" doesn't repeat that part; "cap 12" still shows.
+    // Whole parts only: a block called "EMOM 2" still shows "EMOM 20".
+    const said = label?.trim() ?? "";
+    const mentioned = (part: string) => new RegExp(`(^|[^\\w-])${part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\w-])`, "i").test(said);
+    const rest = (name ?? "").split(" · ").filter((part) => part && !mentioned(part)).join(" · ");
+    return [rest || null, alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
+  }
   const grouping = groupingLabels[block.grouping] ?? block.grouping;
   const repeated = !!label && label.toLowerCase().includes(grouping.toLowerCase());
-  return [repeated ? null : grouping, block.rounds != null ? `${block.rounds} round${block.rounds === 1 ? "" : "s"}` : null]
+  const mode = (block.execution as { mode?: unknown } | undefined)?.mode;
+  const unknownMode = mode != null && mode !== "amrap" ? String(mode).replaceAll("_", " ") : null;
+  return [repeated ? null : grouping, block.rounds != null ? `${block.rounds} round${block.rounds === 1 ? "" : "s"}` : null, unknownMode]
     .filter(Boolean)
     .join(" · ");
 }
 export function changeGrouping(workout: AuthoredWorkout, index: number, grouping: Block["grouping"]) {
   return { ...workout, blocks: workout.blocks.map((block, i) => i === index
-    ? { ...block, grouping, ...(grouping !== "circuit" ? { execution: undefined } : {}) } : block) };
+    ? { ...block, grouping, ...(grouping !== "circuit" && block.execution?.mode === "amrap" ? { execution: undefined } : {}) } : block) };
 }
 export function changeExecution(workout: AuthoredWorkout, index: number, amrap: boolean) {
   return { ...workout, blocks: workout.blocks.map((block, i) => i === index

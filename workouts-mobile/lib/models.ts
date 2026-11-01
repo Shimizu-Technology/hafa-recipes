@@ -71,7 +71,7 @@ export interface Workout {
     id: string;
     label: string;
     grouping: "sequential" | "circuit" | "superset" | "interval";
-    execution?: { mode: "amrap"; time_cap_seconds: number };
+    execution?: WorkoutExecution;
     rounds?: number | null;
     rest_between_rounds_seconds?: number | null;
     exercises: ExercisePrescription[];
@@ -91,6 +91,14 @@ export interface Workout {
   instructions?: string[];
   notes?: string[];
 }
+/** How a timed block runs. Builds that send `typed_formats` receive every mode; older imports stay AMRAP-only. */
+export type WorkoutExecution =
+  | { mode: "amrap"; time_cap_seconds: number }
+  | { mode: "emom"; interval_seconds: number; intervals: number | null; rotation: "alternating" | "together" | null }
+  | { mode: "for_time"; time_cap_seconds: number | null }
+  | { mode: "work_rest"; work_seconds: number; rest_seconds: number; intervals: number | null };
+/** Reps change by `step` each round or interval; `end: null` runs until the person stops (Death by). */
+export interface RepLadder { start: number; step: number; end: number | null }
 export interface ExercisePrescription {
   exercise_id?: string | null;
   name: string;
@@ -107,6 +115,9 @@ export interface ExercisePrescription {
   load_unit?: "kg" | "lb" | null;
   load_convention?: "total" | "per_hand" | "added" | "assistance" | null;
   effort?: string | null;
+  /** Reps for round 1, 2, 3… (21-15-9). Reps change per round, so reps_min/reps_max stay null. */
+  rep_scheme?: number[] | null;
+  ladder?: RepLadder | null;
   instructions?: string | null;
   notes?: string | null;
   evidence?: Array<{ field: string; wording: string; location?: string | null }>;
