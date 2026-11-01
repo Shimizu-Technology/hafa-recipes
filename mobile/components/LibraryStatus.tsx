@@ -33,7 +33,9 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, active }: { 
   const importCount = (jobs.data?.filter(job => ['queued', 'claimed', 'processing'].includes(job.status)).length ?? 0)
     + inbox.entries.filter(entry => ['ready', 'submitting'].includes(entry.state)).length;
   return <ChipRow accessibilityLabel="Library status">
-    {(checking || Boolean(needsCheck)) && <Chip label={needsCheck ? `Needs a check · ${needsCheck}` : 'Needs a check'} selected={checking} onPress={onNeedsCheck} icon="alert-circle-outline" />}
+    {/* Hide the filter only when the library is known to have nothing to check. An undefined
+        count means more server pages exist, so offer the filter without a number. */}
+    {(checking || needsCheck !== 0) && <Chip label={needsCheck ? `Needs a check · ${needsCheck}` : 'Needs a check'} selected={checking} onPress={onNeedsCheck} icon="alert-circle-outline" />}
     {needsAttention && <Chip label="Imports need attention" tone="alert" icon="warning-outline" onPress={() => router.push('/')} accessibilityLabel="Imports need attention, view options" />}
     {!needsAttention && needsReview && <Chip label="Ready to review" icon="checkmark-circle-outline" onPress={() => router.push('/')} accessibilityLabel="Import ready to review, view options" />}
     {!needsAttention && !needsReview && importing && <Chip label={importCount > 1 ? `Importing · ${importCount}` : 'Importing'} icon="cloud-download-outline" onPress={() => router.push('/')} accessibilityLabel="Import in progress, view progress" />}

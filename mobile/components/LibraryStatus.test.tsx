@@ -98,3 +98,17 @@ it('marks Needs a check selected while it filters the library', async () => {
     expect(chip().props.selected).toBe(true);
   } finally { await act(async () => r.unmount()); }
 });
+
+it('keeps Needs a check available without a count while the total is unknown', async () => {
+  const r = createRoot();
+  const check = vi.fn();
+  try {
+    await act(async () => r.render(<LibraryStatus active checking={false} needsCheck={undefined} onNeedsCheck={check} />));
+    const chip = r.container.queryAll(n => n.type === 'Chip' && n.props.label === 'Needs a check')[0];
+    expect(chip).toBeDefined();
+    await act(async () => chip.props.onPress());
+    expect(check).toHaveBeenCalledOnce();
+    await act(async () => r.render(<LibraryStatus active checking={false} needsCheck={0} onNeedsCheck={check} />));
+    expect(r.container.queryAll(n => n.type === 'Chip' && String(n.props.label).startsWith('Needs a check'))).toHaveLength(0);
+  } finally { await act(async () => r.unmount()); }
+});
