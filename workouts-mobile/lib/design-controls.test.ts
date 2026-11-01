@@ -5,7 +5,7 @@ import { light } from "../constants/theme";
 const f = vi.hoisted(() => ({ reduced: false, fontScale: 1, timing: vi.fn() }));
 vi.mock("react-native", () => {
   class Value { value: number; constructor(v: number) { this.value = v; } setValue(v: number) { this.value = v; } }
-  return { View: "View", Pressable: "Pressable", ScrollView: "ScrollView", ActivityIndicator: "Spinner", TextInput: "Input", InputAccessoryView: "Accessory", Keyboard: {},
+  return { View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", ActivityIndicator: "Spinner", TextInput: "Input", InputAccessoryView: "Accessory", Keyboard: {},
     Platform: { OS: "ios" }, useWindowDimensions: () => ({ width: 390, height: 844, fontScale: f.fontScale }), Easing: { bezier: () => "ease-out" },
     Animated: { Value, createAnimatedComponent: (c: unknown) => c, timing: (...args: unknown[]) => { f.timing(...args); return { start() {} }; } } };
 });
@@ -14,6 +14,7 @@ vi.mock("../components/account-identity", () => ({ useAccountIdentity: () => ({}
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
+vi.mock("react-native-svg", () => ({ default: "Svg", Defs: "Defs", LinearGradient: "LinearGradient", Rect: "Rect", Stop: "Stop" }));
 vi.mock("expo-glass-effect", () => ({ GlassView: "GlassView" }));
 vi.mock("@/components/ui", () => ({ Copy: "Copy", Button: "Button", useColors: () => light, useReducedMotion: () => false }));
 import { LibraryCard } from "../components/library-card";
@@ -106,55 +107,27 @@ it("places list duration beside the fixed thumbnail so AX5 text can grow", () =>
   expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain("120 min");
 });
 
-import { BrowseLinks, FilterSummary } from "../components/browse-links";
-it.each([1, 3.1])("separates scrollable browse links at font scale %s", scale => {
-  f.fontScale = scale;
+import { FilterButton, ChipRow } from "../components/design/controls";
+it("shows a filter count as an accent badge and says it to VoiceOver", () => {
   const onPress = vi.fn();
-  act(() => { view = create(createElement(BrowseLinks, { links: ["Collections", "Programs", "Needs info · 1", "Filter"].map(title => ({ title, onPress })) })); });
-  const scroll = view!.root.findByType("ScrollView" as never);
-  expect(scroll.props.horizontal).toBe(true);
-  const rows = view!.root.findAllByType("View" as never).filter(node => node.props.style?.flexDirection === "row");
-  expect(rows).toHaveLength(scale >= 1.3 ? 2 : 1);
-  // Text-to-text spacing is the row gap plus both capsule insets.
-  for (const row of rows) expect(row.props.style.gap + 20).toBeGreaterThanOrEqual(Math.max(16, 15 * scale * 0.75));
-  const links = view!.root.findAllByType("Pressable" as never);
-  expect(links.map(node => node.props.accessibilityLabel)).toEqual(["Collections", "Programs", "Needs info · 1", "Filter"]);
-  for (const link of links) expect(link.props.style.minHeight).toBeGreaterThanOrEqual(44);
-  act(() => links[3].props.onPress());
-  expect(onPress).toHaveBeenCalledOnce();
+  act(() => { view = create(createElement(FilterButton, { count: 0, onPress })); });
+  expect(view!.root.findByType("Pressable" as never).props).toMatchObject({ accessibilityLabel: "Filter", style: { width: 40, height: 40, backgroundColor: light.sunken } });
+  expect(view!.root.findAllByType("Text" as never)).toHaveLength(0);
+  act(() => { view!.update(createElement(FilterButton, { count: 2, onPress })); });
+  const button = view!.root.findByType("Pressable" as never);
+  expect(button.props.accessibilityLabel).toBe("Filter, 2 on");
+  expect(view!.root.findByType("Text" as never).props.children).toBe(2);
+  act(() => button.props.onPress()); expect(onPress).toHaveBeenCalledOnce();
 });
-it("shows selected filter links as a tonal accent capsule and announces the state", () => {
-  const links = (programs: boolean) => [
-    { title: "Collections", onPress() {} },
-    { title: "Programs", selected: programs, onPress() {} },
-    { title: "Needs info · 2", selected: true, onPress() {} },
-  ];
-  act(() => { view = create(createElement(BrowseLinks, { links: links(false) })); });
-  const states = () => view!.root.findAllByType("Pressable" as never).map(node => node.props.accessibilityState);
-  // Navigation links carry no selected state; filter links always say whether they're on.
-  expect(states()).toEqual([{ disabled: false }, { disabled: false, selected: false }, { disabled: false, selected: true }]);
-  const capsule = (title: string) => view!.root.findAllByType("Copy" as never).find(node => node.props.children === title)!;
-  expect(capsule("Programs").parent!.props.style.backgroundColor).toBe("transparent");
-  expect(capsule("Needs info · 2").parent!.props.style.backgroundColor).toBe(light.accentTint);
-  expect(capsule("Needs info · 2").props).toMatchObject({ color: light.onActionSoft, style: { fontWeight: "600" } });
-  expect(capsule("Programs").props.style).toBeUndefined();
-  // Selecting never changes the capsule padding, so the row doesn't shift.
-  const before = capsule("Programs").parent!.props.style.paddingHorizontal;
-  act(() => { view!.update(createElement(BrowseLinks, { links: links(true) })); });
-  expect(states()[1]).toEqual({ disabled: false, selected: true });
-  expect(capsule("Programs").parent!.props.style).toMatchObject({ backgroundColor: light.accentTint, paddingHorizontal: before });
-});
-it("summarises other filters on one quiet line with a reachable Clear", () => {
-  const onClear = vi.fn();
-  act(() => { view = create(createElement(FilterSummary, { items: [], onClear })); });
-  expect(view!.toJSON()).toBeNull();
-  act(() => { view!.update(createElement(FilterSummary, { items: ["Favorites", "Up to 30 min"], onClear })); });
-  expect(view!.root.findAllByType("Copy" as never)[0].props).toMatchObject({ tone: "muted", children: "Showing: Favorites, Up to 30 min" });
-  const clear = view!.root.findByType("Pressable" as never);
-  expect(clear.props).toMatchObject({ accessibilityRole: "button", accessibilityLabel: "Clear filters" });
-  expect(clear.props.style.minHeight).toBeGreaterThanOrEqual(44);
-  act(() => clear.props.onPress());
-  expect(onClear).toHaveBeenCalledOnce();
+it("draws chips with a shape: tonal when off, accent-filled when on, 34pt with a 44pt reach", () => {
+  act(() => { view = create(createElement(ChipRow, { label: "Filters" }, createElement(Chip, { label: "Needs info · 2", onPress() {} }),
+    createElement(Chip, { label: "Favorites", role: "button", trailingIcon: "close", selected: true, onPress() {} }))); });
+  const [off, on] = view!.root.findAllByType("Pressable" as never);
+  expect(off.props.style[0]).toMatchObject({ minHeight: 34, backgroundColor: light.sunken, borderRadius: 999 });
+  expect(off.props.hitSlop).toBe(5);
+  expect(on.props.style[0].backgroundColor).toBe(light.accent);
+  expect(on.props.accessibilityState).toEqual({ disabled: false });
+  expect(view!.root.findByType("ScrollView" as never).props.horizontal).toBe(true);
 });
 
 it("header circles keep their 36pt (32pt avatar) look inside a full 44pt touch target", () => {

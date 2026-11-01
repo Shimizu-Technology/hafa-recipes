@@ -1,5 +1,4 @@
 import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
-import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
 import { filterLibrary } from "@/lib/library";
@@ -15,18 +14,20 @@ import {
   Copy,
   Empty,
   Field,
+  FilterButton,
   ListGroup,
   ListRow,
   Notice,
   Row,
   Screen,
   SearchField,
+  Segmented,
   Sheet,
   SkeletonCard,
   haptics,
   useColors,
 } from "@/components/ui";
-import { LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
+import { CollectionCard, LIBRARY_GRID_GAP, LibraryCard, NewCollectionCard, useLibraryGridWidth } from "@/components/library-card";
 import { spacing } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
@@ -55,6 +56,8 @@ export default function Library() {
   const [needsInfo, setNeedsInfo] = useState(false);
   const list = useRef<FlatList<Workout> | null>(null);
   const listRest = useScrollRest();
+  const [showCollections, setShowCollections] = useState(false);
+  const cardWidth = useLibraryGridWidth();
   const [search, setSearch] = useState("");
   const [settledSearch, setSettledSearch] = useState("");
   useEffect(() => { const timer = setTimeout(() => setSettledSearch(search.trim()), 300); return () => clearTimeout(timer); }, [search]);
@@ -164,17 +167,24 @@ export default function Library() {
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   const needsLink = !archived && !!needsCount;
-  // Programs and Needs info show as selected links; everything else is summarised once below them.
-  const sheetFilters = [
-    archived ? "Archived" : null,
-    needsInfo && !needsLink ? "Needs info" : null,
-    favorite ? "Favorites" : null,
-    kind && kind !== "program" ? kindLabels[kind] : null,
-    maxMinutes ? `Up to ${maxMinutes} min` : null,
-    collectionTitle,
-    equipment.trim(),
-    tags.trim(),
-  ].filter((item): item is string => !!item);
+  // Programs is a segment and Needs info a toggle chip; every other filter shows as a removable chip.
+  const activeChips = ([
+    archived && { label: "Archived", clear: () => setArchived(false) },
+    needsInfo && !needsLink && { label: "Needs info", clear: () => setNeedsInfo(false) },
+    favorite && { label: "Favorites", clear: () => setFavorite(false) },
+    kind && kind !== "program" && { label: kindLabels[kind], clear: () => setKind(undefined) },
+    maxMinutes && { label: `Up to ${maxMinutes} min`, clear: () => setMaxMinutes(undefined) },
+    collectionTitle && { label: collectionTitle, clear: () => setCollection(undefined) },
+    equipment.trim() && { label: equipment.trim(), clear: () => setEquipment("") },
+    tags.trim() && { label: tags.trim(), clear: () => setTags("") },
+  ] as const).filter((chip): chip is { label: string; clear(): void } => !!chip);
+  const sheetCount = activeChips.length + (needsInfo && needsLink ? 1 : 0);
+  const segment = showCollections ? "collections" : kind === "program" ? "programs" : "all";
+  function chooseSegment(next: typeof segment) {
+    setShowCollections(next === "collections");
+    if (next === "programs") setKind("program");
+    else if (kind === "program") setKind(undefined);
+  }
   function clear() {
     setSearch("");
     setSettledSearch("");
@@ -198,14 +208,26 @@ export default function Library() {
           <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
             onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
         </Row>
-      ) : <>{!!enrollment?.enrolled && <Row><SearchField value={search} onChange={setSearch} label="Search your library"
-        placeholder={all.data?.length ? `Search ${all.data.length} workouts` : "Search workouts"} /></Row>}<BrowseLinks links={[
-        { title: "Collections", onPress: () => router.push("/collections") },
-        { title: "Programs", selected: kind === "program", onPress: () => setKind(kind === "program" ? undefined : "program") },
-        ...(needsLink ? [{ title: `Needs info · ${needsCount}`, selected: needsInfo, onPress: () => setNeedsInfo(!needsInfo) }] : []),
-        { title: sheetFilters.length ? `Filter · ${sheetFilters.length}` : "Filter", onPress: () => setFilters(true) },
-      ]} /></>}
-      {!selecting && <FilterSummary items={sheetFilters} onClear={clear} />}
+      ) : <>
+        <Segmented label="Show" value={segment} onChange={chooseSegment}
+          options={[{ value: "all", label: "All" }, { value: "programs", label: "Programs" }, { value: "collections", label: "Collections" }]} />
+        {!showCollections && !!enrollment?.enrolled && <Row gap={8}>
+          <SearchField value={search} onChange={setSearch} label="Search your library"
+            placeholder={all.data?.length ? `Search ${all.data.length} workouts` : "Search workouts"} />
+          <FilterButton count={sheetCount} label="Filter workouts" onPress={() => setFilters(true)} />
+        </Row>}
+        {!showCollections && (needsLink || !!activeChips.length) && <ChipRow label="Filters">
+          {needsLink && <Chip label={`Needs info · ${needsCount}`} icon="alert-circle-outline" selected={needsInfo} onPress={() => setNeedsInfo(!needsInfo)} />}
+          {activeChips.map(chip => <Chip key={chip.label} role="button" label={chip.label} trailingIcon="close" selected
+            accessibilityLabel={`Remove filter ${chip.label}`} onPress={chip.clear} />)}
+        </ChipRow>}
+        {showCollections && <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: LIBRARY_GRID_GAP, rowGap: 20 }}>
+          <NewCollectionCard width={cardWidth} onPress={() => router.push("/collections")} />
+          {collections.data?.map(item => <CollectionCard key={item.id} width={cardWidth} title={item.title} count={item.workout_count}
+            covers={item.preview_thumbnail_urls ?? []} onPress={() => router.push({ pathname: "/collection/[id]", params: { id: item.id } })} />)}
+        </View>}
+        {showCollections && collections.isPending && <SkeletonCard label="Loading collections" />}
+      </>}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
       {!!q.error && visible.length > 0 && <>
         <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
@@ -259,7 +281,7 @@ export default function Library() {
           onScrollBeginDrag={listRest.onScrollBeginDrag}
           contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
-          data={visible}
+          data={showCollections ? [] : visible}
           numColumns={view === "grid" ? columns : 1}
           keyExtractor={(w) => w.id}
           columnWrapperStyle={view === "grid" && columns > 1 ? { gap: LIBRARY_GRID_GAP } : undefined}
@@ -268,10 +290,10 @@ export default function Library() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ListHeaderComponent={header(screenHeader)}
-          ListEmptyComponent={empty}
+          ListEmptyComponent={showCollections ? null : empty}
           ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
             : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} />
-            : settledSearch && caps.data?.discover && !selecting ? <ListGroup><ListRow icon="compass-outline" title={`Search Discover for “${settledSearch}”`}
+            : settledSearch && caps.data?.discover && !selecting && !showCollections ? <ListGroup><ListRow icon="compass-outline" title={`Search Discover for “${settledSearch}”`}
               onPress={() => router.navigate({ pathname: "/(tabs)/discover", params: { q: settledSearch } })} /></ListGroup> : null}
           onEndReachedThreshold={0.6}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}

@@ -1,5 +1,4 @@
 import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
-import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack as RouterStack, router, useLocalSearchParams } from "expo-router";
@@ -10,6 +9,7 @@ import {
   ChipRow,
   Copy,
   Empty,
+  FilterButton,
   Notice,
   ListGroup,
   ListRow,
@@ -217,12 +217,18 @@ export default function Discover() {
         </Stack>
       ) : (
         <>
-          <Row><SearchField value={search} onChange={setSearch} label="Search Discover" placeholder="Search shared workouts" /></Row>
-          <BrowseLinks links={[
-            { title: surprising ? "Choosing…" : "Surprise me", onPress: () => void surprise(), disabled: surprising },
-            { title: active.length ? `Filter · ${active.length}` : "Filter", onPress: () => setFiltersOpen(true) },
-          ]} />
-          <FilterSummary items={active.map(f => f.label)} onClear={clearFilters} />
+          <Row gap={8}>
+            <SearchField value={search} onChange={setSearch} label="Search Discover" placeholder="Search shared workouts" />
+            <FilterButton count={active.length} label="Filter Discover" onPress={() => setFiltersOpen(true)} />
+          </Row>
+          <ChipRow label="Discover tools">
+            <Chip role="button" icon="shuffle" label={surprising ? "Choosing…" : "Surprise me"} disabled={surprising} onPress={() => void surprise()} />
+            {active.map(filter => <Chip key={filter.key} role="button" label={filter.label} trailingIcon="close" selected
+              accessibilityLabel={`Remove filter ${filter.label}`} onPress={() => ({
+                contributor: () => setContributor(undefined), duration: () => setDuration(undefined),
+                equipment: () => setEquipment(undefined), platform: () => setPlatform(undefined),
+              })[filter.key]()} />)}
+          </ChipRow>
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
           ) : feed.error && !cards.length ? (
