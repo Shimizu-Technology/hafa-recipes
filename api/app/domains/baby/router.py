@@ -1,8 +1,10 @@
 """Owner-scoped records and product lifecycle. No AI write bypass exists."""
 
 from copy import deepcopy
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import ValidationError
@@ -31,7 +33,7 @@ from app.domains.baby.models import (
     BabyMessage,
     BabyRecord,
 )
-from app.domains.baby.queries import records_query
+from app.domains.baby.queries import records_query, stage_filter, timing_bounds, timing_filter
 from app.domains.baby.schemas import (
     ChildCreate,
     ChildPatch,
@@ -41,8 +43,11 @@ from app.domains.baby.schemas import (
     ProfilePatch,
     RecordCreate,
     RecordPatch,
+    SourceRelevance,
+    Stage,
 )
 from app.domains.baby.security import BabyRoute
+from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
 
@@ -73,6 +78,35 @@ def record_response(row):
             "updated_at",
         )
     }
+
+
+# Clients that predate these fields omit them; only an explicit null clears one.
+SOURCE_ADDITIONS = ("relevance", "suggested_category")
+
+
+def source_patch_data(current, patch):
+    data = dict(patch)
+    for key in SOURCE_ADDITIONS:
+        if key not in data and key in current:
+            data[key] = deepcopy(current[key])
+    relevance = data.get("relevance")
+    if isinstance(relevance, dict):
+        stored = current.get("relevance") or {}
+        # A deliberate timing edit is the user's, and reprocessing keeps it.
+        origin = (
+            stored.get("origin", "source") if same_timing(relevance, stored) else "user"
+        )
+        data["relevance"] = {**relevance, "origin": origin}
+    return data
+
+
+def same_timing(proposed, current):
+    try:
+        return SourceRelevance.model_validate(
+            {**proposed, "origin": "source"}
+        ) == SourceRelevance.model_validate({**(current or {}), "origin": "source"})
+    except ValidationError:
+        return False
 
 
 def revision_matches(row, revision):
@@ -356,6 +390,9 @@ async def record_list(
     collection_id=None,
     topic=None,
     uncategorized=False,
+    conditions=(),
+    order=None,
+    extra=None,
 ):
     if kind is not None and kinds is not None:
         raise HTTPException(422, "Choose kind or kinds, not both")
@@ -396,15 +433,57 @@ async def record_list(
         query = query.where(BabyRecord.kind.in_(kinds))
     if child_id and include_general:
         query = query.where(or_(BabyRecord.child_id == child_id, BabyRecord.child_id.is_(None)))
+    for condition in conditions:
+        query = query.where(condition)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = await db.scalars(
-        query.order_by(BabyRecord.occurred_at.desc(), BabyRecord.id).limit(limit).offset(offset)
+        query.order_by(*(order or ()), BabyRecord.occurred_at.desc(), BabyRecord.id)
+        .limit(limit)
+        .offset(offset)
     )
     return {
         "items": [record_response(row) for row in rows],
         "total": total,
         "has_more": offset + limit < total,
+        **(extra or {}),
     }
+
+
+async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_weeks):
+    """Where the parent is now: an explicit week/age, or one child's due/birth date."""
+    if pregnancy_week is not None and baby_age_weeks is not None:
+        raise HTTPException(422, "Choose a pregnancy week or a baby age, not both")
+    if pregnancy_week is not None:
+        return {"stage": "pregnancy", "pregnancy_week": pregnancy_week, "basis": "query"}
+    if baby_age_weeks is not None:
+        return {"stage": "baby", "baby_age_weeks": baby_age_weeks, "basis": "query"}
+    if child_id is not None:
+        child = await owned(db, BabyChild, owner, member.generation, child_id)
+    else:
+        children = list(
+            await db.scalars(
+                select(BabyChild).where(
+                    BabyChild.app_user_id == owner,
+                    BabyChild.generation == member.generation,
+                    BabyChild.deleted_at.is_(None),
+                    or_(BabyChild.birth_date.is_not(None), BabyChild.due_date.is_not(None)),
+                )
+            )
+        )
+        if len(children) > 1:
+            raise HTTPException(422, "Choose which child to show timing for")
+        child = children[0] if children else None
+    if child is None or not (child.birth_date or child.due_date):
+        raise HTTPException(422, "Add a due date or birth date to see what is relevant now")
+    today = datetime.now(ZoneInfo(Profile.model_validate(member.profile).timezone)).date()
+    base = {"child_id": str(child.id), "basis": "child", "today": today.isoformat()}
+    if child.birth_date and child.birth_date <= today:
+        return {**base, "stage": "baby", "baby_age_weeks": min((today - child.birth_date).days // 7, 520)}
+    if child.due_date is None:
+        raise HTTPException(422, "Add a due date to see what is relevant now")
+    # Gestational age counts 280 days to the due date; weeks are completed weeks.
+    days = max(0, min(280 - (child.due_date - today).days, 45 * 7 + 6))
+    return {**base, "stage": "pregnancy", "pregnancy_week": days // 7, "pregnancy_day": days % 7}
 
 
 @router.get("/records")
@@ -419,10 +498,35 @@ async def records(
     uncategorized: bool = False,
     topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     q: Annotated[str | None, Query(max_length=300)] = None,
+    timing: Literal["now", "upcoming"] | None = None,
+    timing_child_id: UUID | None = None,
+    pregnancy_week: Annotated[int | None, Query(ge=0, le=45)] = None,
+    baby_age_weeks: Annotated[int | None, Query(ge=0, le=520)] = None,
+    within_weeks: Annotated[int | None, Query(ge=1, le=104)] = None,
+    stage: Stage | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
+    conditions, order, extra = [], None, None
+    if stage is not None:
+        conditions.append(stage_filter(stage))
+    if timing is not None:
+        context = await timing_context(
+            db, user.id, member, timing_child_id, pregnancy_week, baby_age_weeks
+        )
+        value = context.get("pregnancy_week", context.get("baby_age_weeks"))
+        conditions.append(
+            timing_filter(timing, context["stage"], value, within_weeks=within_weeks)
+        )
+        if timing == "upcoming":
+            order = [timing_bounds(context["stage"])[1].asc()]
+        extra = {"timing": {"mode": timing, **context}}
+    elif any(
+        value is not None
+        for value in (timing_child_id, pregnancy_week, baby_age_weeks, within_weeks)
+    ):
+        raise HTTPException(422, "Choose timing=now or timing=upcoming")
     return await record_list(
         db,
         user.id,
@@ -437,6 +541,9 @@ async def records(
         collection_id=collection_id,
         topic=topic,
         uncategorized=uncategorized,
+        conditions=conditions,
+        order=order,
+        extra=extra,
     )
 
 
@@ -518,6 +625,8 @@ async def patch_record(
     revision_matches(row, body.revision)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values.update(body.model_dump(exclude_unset=True, exclude={"revision"}))
+    if row.kind == "source" and isinstance(body.data, dict):
+        values["data"] = source_patch_data(row.data, body.data)
     try:
         valid = RecordCreate.model_validate(values)
     except ValidationError:
@@ -633,3 +742,4 @@ router.include_router(attachments_router)
 router.include_router(upload_router)
 router.include_router(chat_router)
 router.include_router(imports_router)
+router.include_router(suggestions_router)

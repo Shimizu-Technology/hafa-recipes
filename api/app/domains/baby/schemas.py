@@ -79,6 +79,67 @@ class Evidence(DomainModel):
     text: str = Field(min_length=1, max_length=12000)
 
 
+PregnancyWeek = Annotated[int, Field(strict=True, ge=0, le=45)]
+AgeWeeks = Annotated[int, Field(strict=True, ge=0, le=520)]
+Stage = Literal["pregnancy", "postpartum", "baby"]
+
+
+class SourceRelevance(DomainModel):
+    """When a saved tip applies, only as the source states it. Unknowns stay null.
+
+    An open bound (null min or max) means the source gave no start or end.
+    Baby age is stored in weeks; ``baby_age_unit`` records how it was stated.
+    """
+
+    stage: Stage | None = None
+    pregnancy_week_min: PregnancyWeek | None = None
+    pregnancy_week_max: PregnancyWeek | None = None
+    baby_age_min_weeks: AgeWeeks | None = None
+    baby_age_max_weeks: AgeWeeks | None = None
+    baby_age_unit: Literal["weeks", "months"] | None = None
+    quote: str | None = Field(default=None, max_length=300)
+    origin: Literal["source", "user"] = "source"
+
+    @model_validator(mode="after")
+    def ordered_ranges(self):
+        for low, high in (
+            (self.pregnancy_week_min, self.pregnancy_week_max),
+            (self.baby_age_min_weeks, self.baby_age_max_weeks),
+        ):
+            if low is not None and high is not None and low > high:
+                raise ValueError("A timing range must start before it ends")
+        return self
+
+    @property
+    def empty(self):
+        return all(
+            value is None
+            for value in (
+                self.stage,
+                self.pregnancy_week_min,
+                self.pregnancy_week_max,
+                self.baby_age_min_weeks,
+                self.baby_age_max_weeks,
+            )
+        )
+
+
+class CategorySuggestion(DomainModel):
+    """An AI-proposed category. It is never applied until the user accepts it."""
+
+    name: str = Field(min_length=1, max_length=80)
+    collection_id: UUID | None = None
+    confidence: float = Field(ge=0, le=1)
+    status: Literal["pending", "accepted", "dismissed"] = "pending"
+
+    @field_validator("name")
+    @classmethod
+    def meaningful_name(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a category name")
+        return value.strip()
+
+
 class SourceData(DomainModel):
     url: str | None = Field(default=None, max_length=2000)
     topics: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
@@ -111,6 +172,18 @@ class SourceData(DomainModel):
     coverage_notes: list[Annotated[str, Field(max_length=300)]] = Field(
         default_factory=list, max_length=30
     )
+    relevance: SourceRelevance | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    suggested_category: CategorySuggestion | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def drop_empty_relevance(self):
+        if self.relevance is not None and self.relevance.empty:
+            self.relevance = None
+        return self
 
     @field_validator("thumbnail_url")
     @classmethod
@@ -283,3 +356,24 @@ class ChatRequest(DomainModel):
         if not value.strip():
             raise ValueError("Enter a message")
         return value.strip()
+
+
+class SuggestionDecision(DomainModel):
+    revision: Revision
+    action: Literal["accept", "dismiss"] = "accept"
+
+
+class SuggestionItem(DomainModel):
+    record_id: UUID
+    revision: Revision
+
+
+class SuggestionBatch(DomainModel):
+    action: Literal["accept", "dismiss"] = "accept"
+    items: list[SuggestionItem] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def distinct_records(self):
+        if len({item.record_id for item in self.items}) != len(self.items):
+            raise ValueError("Each source can appear once")
+        return self

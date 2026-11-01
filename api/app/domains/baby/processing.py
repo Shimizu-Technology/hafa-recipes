@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import read_bytes
 from app.domains.baby.provider import budget_failure_message
-from app.domains.baby.schemas import SourceData
+from app.domains.baby.schemas import CategorySuggestion, SourceData, SourceRelevance
 from app.domains.workouts.budget import BudgetError
 from app.domains.workouts.extraction import (
     ProductionSourceAcquirer,
@@ -44,6 +44,73 @@ def safe_metadata(metadata):
         "platform": metadata.platform.strip()[:80] or None if metadata.platform else None,
         "thumbnail_url": thumbnail,
     }
+
+
+def comparable(text):
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", str(text).casefold()).split())
+
+
+def whole_number(value, high):
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return value if type(value) is int and 0 <= value <= high else None
+
+
+def stated_relevance(raw, readable):
+    """Keep timing only when its quoted words appear in what was actually read."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("quote"), str):
+        return None
+    quote = comparable(raw["quote"])
+    if not quote or quote not in comparable(" ".join(readable)):
+        return None
+    unit = raw.get("baby_age_unit") if raw.get("baby_age_unit") in {"weeks", "months"} else None
+
+    def age(value):
+        number = whole_number(value, 120 if unit == "months" else 520)
+        if number is None or unit is None:
+            return None
+        return round(number * 52 / 12) if unit == "months" else number
+
+    values = {
+        "stage": raw.get("stage") if raw.get("stage") in {"pregnancy", "postpartum", "baby"} else None,
+        "pregnancy_week_min": whole_number(raw.get("pregnancy_week_min"), 45),
+        "pregnancy_week_max": whole_number(raw.get("pregnancy_week_max"), 45),
+        "baby_age_min_weeks": age(raw.get("baby_age_min")),
+        "baby_age_max_weeks": age(raw.get("baby_age_max")),
+    }
+    for low, high in (
+        ("pregnancy_week_min", "pregnancy_week_max"),
+        ("baby_age_min_weeks", "baby_age_max_weeks"),
+    ):
+        if values[low] is not None and values[high] is not None and values[low] > values[high]:
+            values[low] = values[high] = None
+    if values["pregnancy_week_min"] is not None and (
+        values["pregnancy_week_min"] == values["pregnancy_week_max"]
+    ):
+        # One stated week ("at 37 weeks", "#37weekspregnant") applies from then on.
+        values["pregnancy_week_max"] = None
+    has_age = values["baby_age_min_weeks"] is not None or values["baby_age_max_weeks"] is not None
+    relevance = SourceRelevance(
+        **values, baby_age_unit=unit if has_age else None, quote=raw["quote"].strip()[:300]
+    )
+    return None if relevance.empty else relevance
+
+
+def category_suggestion(raw, categories):
+    """Map a proposed name onto the owner's category; filing waits for the user."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+        return None
+    name, confidence = " ".join(raw["name"].split())[:80], raw.get("confidence")
+    if not name or type(confidence) not in {int, float} or not 0 <= confidence <= 1:
+        return None
+    match = next(
+        (item for item in categories if comparable(item["title"]) == comparable(name)), None
+    )
+    return CategorySuggestion(
+        name=match["title"].strip()[:80] if match else name,
+        collection_id=match["id"] if match else None,
+        confidence=round(float(confidence), 2),
+    )
 
 
 async def local_media(payload, mime, provider, *, may_use_ai, gate):
@@ -192,10 +259,12 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     title = source.metadata.title
     summary, topics = None, request.get("topics", [])
     key_points, steps = [], []
+    relevance = suggestion = None
     if may_use_ai and provider.enabled and (source.parts or source.images):
         await gate()
         try:
-            result = await provider.extract(source)
+            categories = request.get("categories", [])
+            result = await provider.extract(source, categories=[item["title"] for item in categories])
             title, summary = result.title, result.summary
             key_points, steps = result.key_points, result.steps
             topics = list(dict.fromkeys([*topics, *result.topics]))[:30]
@@ -203,6 +272,10 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             for entry in result.visual_text:
                 if entry.location in image_locations:
                     source.parts.append(SourcePart(entry.location, entry.text))
+            relevance = stated_relevance(
+                result.relevance, [source.metadata.title or "", *(part.text for part in source.parts)]
+            )
+            suggestion = category_suggestion(result.suggested_category, categories)
         except asyncio.CancelledError:
             raise
         except BudgetError as failure:
@@ -242,6 +315,8 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         status=status,
         attachment_ids=request.get("attachment_ids", []),
         coverage_notes=notes,
+        relevance=relevance,
+        suggested_category=suggestion,
     ).model_dump(mode="json")
     return {
         "title": title,

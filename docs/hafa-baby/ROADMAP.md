@@ -107,6 +107,19 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   enabled?:boolean}`; journal/question `{attachment_ids?:[],
   provenance?:caregiver_observation|clinician_instruction}`; collection
   `{record_ids:[]}`. Plain body is always editable and never silently discarded.
+- Sources may carry `relevance` `{stage?:pregnancy|postpartum|baby,
+  pregnancy_week_min?,pregnancy_week_max?,baby_age_min_weeks?,
+  baby_age_max_weeks?,baby_age_unit?,quote?,origin:source|user}`, set only when
+  the source states timing (its quote must appear in what was read) and editable
+  by the user, and `suggested_category` `{name,collection_id?,confidence,
+  status:pending|accepted|dismissed}`. A suggestion never files a source; the
+  user accepts or dismisses it with `POST /records/{id}/suggested-category` or
+  `POST /suggested-categories` (bulk). PATCH keeps either field when a client
+  omits it; an explicit null clears it.
+- `GET /records?timing=now|upcoming` filters sources by the current pregnancy
+  week (completed weeks from a child's due date) or baby age (from birth date),
+  or by an explicit `pregnancy_week`/`baby_age_weeks`; `stage=` filters by stated
+  stage.
 - `GET /search?q=&kind=&child_id=&limit=30`: same record list envelope. Search
   covers source text, title, body, summaries and topics, not only recent records.
 - `POST /imports`: `{id,url?,text?,attachment_ids?:[],child_id?,topics?:[]}`;
