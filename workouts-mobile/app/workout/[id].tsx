@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +38,9 @@ import { workoutMeta } from "@/lib/plan-presentation";
 import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
 import { formatLabel } from "@/lib/timed-execution";
 import { workoutDeletionBlock } from "@/lib/organization";
+import { AskCoachPill } from "@/components/ask-coach-pill";
+import { reportAskScroll, resetAskScroll } from "@/lib/ask-pill";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment, isCurrentAccount } = useTraining();
@@ -54,6 +57,8 @@ export default function WorkoutDetail() {
   });
   const workout = q.data;
   const offline = useOfflineTraining();
+  const insets = useSafeAreaInsets();
+  useEffect(() => { resetAskScroll(); }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
@@ -189,8 +194,10 @@ export default function WorkoutDetail() {
         : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
+    <>
     <Screen native
       back
+      onScroll={event => reportAskScroll(event.nativeEvent.contentOffset.y)}
       title={workout?.title ?? "Your workout."}
       // The hero leads; the title and meta line follow it in the page body.
       hideTitle
@@ -347,6 +354,11 @@ export default function WorkoutDetail() {
         onEdit={() => { setChoosing(false); router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } }); }}
       />}
       {disclosure.sheet}
+      {/* Room for the floating Ask pill below the last section. */}
+      <View style={{ height: 56 }} />
     </Screen>
+    {workout && <AskCoachPill bottom={insets.bottom + 16} label="Ask about this" hint="Opens a coach chat about this workout"
+      href={{ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } }} />}
+    </>
   );
 }
