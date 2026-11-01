@@ -38,7 +38,7 @@ export function TabStack({ title, add }: { title: string; add?: Href }) {
 export function TabActions({ title, add, action }: { title: string; add?: Href; action?: ViewProps["children"] }) {
   return <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         {action}
-        {add && <PressTarget accessibilityRole="button" accessibilityLabel={title === "Saved" ? "Add a source" : title === "Journal" ? "Write a journal entry" : "Add a source, note, or care log"}
+        {add && <PressTarget accessibilityRole="button" accessibilityLabel={title === "Saved" ? "Add a source" : title === "Journal" ? "Write a journal entry" : "Add something"}
           onPress={() => router.push(add)} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
           <Icon name="add" size={22} />
         </PressTarget>}
