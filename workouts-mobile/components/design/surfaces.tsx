@@ -109,8 +109,8 @@ export function Screen({
   ) : null;
   const contentContainerStyle: ViewStyle = {
     paddingTop: spacing.md,
-    // Root screens get the home indicator and tab bar from contentInsetAdjustmentBehavior.
-    paddingBottom: footer ? spacing.lg : root ? spacing.xl : insets.bottom + spacing.xl,
+    // On iOS, root screens get the home indicator and tab bar from contentInsetAdjustmentBehavior.
+    paddingBottom: footer ? spacing.lg : root && Platform.OS === "ios" ? spacing.xl : insets.bottom + spacing.xl,
     paddingHorizontal: spacing.md,
     gap: spacing.lg,
     width: "100%",

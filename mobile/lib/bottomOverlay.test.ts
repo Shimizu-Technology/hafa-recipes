@@ -12,6 +12,7 @@ import {
   isTabRoute,
   overlayBottom,
   reportTabScreenBottomInset,
+  scrollEndPadding,
   supportsTabBottomAccessory,
   useTabScreenBottomInset,
 } from './bottomOverlay';
@@ -43,6 +44,10 @@ describe('bottom overlay placement', () => {
     expect(cookTimerPlacement({ running: true, inTabs: true, supportsAccessory: false })).toBe('dock');
     expect(cookTimerPlacement({ running: true, inTabs: false, supportsAccessory: true })).toBe('top');
     expect(supportsTabBottomAccessory).toBe(false);
+  });
+
+  it('leaves the tab bar inset to iOS automatic content insets and adds it elsewhere', () => {
+    expect(scrollEndPadding(83, 32)).toBe(32);
   });
 
   it('ignores empty insets from tab screens that are not on screen', async () => {

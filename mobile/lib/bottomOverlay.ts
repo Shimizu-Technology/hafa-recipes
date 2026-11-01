@@ -53,6 +53,15 @@ export function overlayBottom({ inTabs, tabInset, windowInset, clearance, stacke
   return windowInset + clearance + stacked;
 }
 
+/**
+ * Bottom padding for a tab screen's scroll content. On iOS the native tab bar and
+ * home indicator come from `contentInsetAdjustmentBehavior="automatic"`; that prop
+ * is iOS-only, so other platforms add the safe-area inset themselves.
+ */
+export function scrollEndPadding(safeAreaBottom: number, base: number): number {
+  return Platform.OS === 'ios' ? base : safeAreaBottom + base;
+}
+
 export type CookTimerPlacement = 'hidden' | 'accessory' | 'dock' | 'top';
 
 /**

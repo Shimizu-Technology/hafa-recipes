@@ -2,7 +2,7 @@ import { HeaderMenu, type HeaderMenuItem } from "./header-menu";
 import { createContext, useContext, useEffect } from "react";
 import { Stack, router } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { reportTabScreenBottomInset } from "@/lib/bottom-overlay";
 import { AccountButton, IconButton } from "./design/controls";
@@ -14,7 +14,8 @@ export const useNativeHeader = () => useContext(NativeHeader);
 function TabBarInsetReporter() {
   const { bottom } = useSafeAreaInsets();
   const focused = useIsFocused();
-  useEffect(() => { if (focused) reportTabScreenBottomInset(bottom); }, [focused, bottom]);
+  // iOS only: Android's tab bar inset isn't part of this safe area, so toasts keep their fallback there.
+  useEffect(() => { if (focused && Platform.OS === "ios") reportTabScreenBottomInset(bottom); }, [focused, bottom]);
   return null;
 }
 

@@ -53,6 +53,7 @@ import {
 } from '@/hooks/useGrocery';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
+import { scrollEndPadding } from '@/lib/bottomOverlay';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -827,8 +828,7 @@ function GroceryScreenContent() {
         contentContainerStyle={[
           styles.listContent,
           {
-            // The native tab bar inset is applied by contentInsetAdjustmentBehavior.
-            paddingBottom: spacing.xl,
+            paddingBottom: scrollEndPadding(insets.bottom, spacing.xl),
           },
         ]}
         showsVerticalScrollIndicator={false}

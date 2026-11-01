@@ -10,7 +10,8 @@ import { reportTabScreenBottomInset } from "../lib/bottom-overlay";
 function TabBarInsetReporter() {
   const { bottom } = useSafeAreaInsets();
   const focused = useIsFocused();
-  useEffect(() => { if (focused) reportTabScreenBottomInset(bottom); }, [focused, bottom]);
+  // iOS only: Android's tab bar inset isn't part of this safe area, so toasts keep their fallback there.
+  useEffect(() => { if (focused && Platform.OS === "ios") reportTabScreenBottomInset(bottom); }, [focused, bottom]);
   return null;
 }
 

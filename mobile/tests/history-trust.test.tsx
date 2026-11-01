@@ -19,6 +19,7 @@ vi.mock('react-native', () => ({
   Keyboard: { dismiss: vi.fn() },
   RefreshControl: 'RefreshControl',
   ScrollView: 'ScrollView',
+  Platform: { OS: 'ios', Version: '26.0' },
   StyleSheet: { create: (styles: unknown) => styles },
   useWindowDimensions: () => ({ width: 390, fontScale: library.fontScale }),
   TouchableOpacity: 'TouchableOpacity',
@@ -440,6 +441,20 @@ describe('Library collection recovery', () => {
       await act(async () => { await list.props.refreshControl.props.onRefresh(); });
       expect(library.collections.refetch).not.toHaveBeenCalled();
     } finally { await act(async () => renderer.unmount()); }
+  });
+
+  it('shows the guest sign-in prompt inside the scrolling content, never as a bottom sibling under the tab bar', async () => {
+    library.signedIn = false;
+    const library_ = await renderLibrary();
+    const collections = await renderLibrary(true);
+    try {
+      const list = library_.container.queryAll(n => n.type === 'FlatList')[0];
+      expect(list.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
+      expect(library_.container.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
+      const scroll = collections.container.queryAll(n => n.type === 'ScrollView')[0];
+      expect(scroll.props.contentInsetAdjustmentBehavior).toBe('automatic');
+      expect(scroll.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
+    } finally { await act(async () => { library_.unmount(); collections.unmount(); }); }
   });
 });
 

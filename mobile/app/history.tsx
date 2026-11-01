@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimatedListItem, useInitialListEntrance } from '@/components/Animated';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
@@ -23,6 +24,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
+import { scrollEndPadding } from '@/lib/bottomOverlay';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
 
@@ -88,6 +90,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
+  const insets = useSafeAreaInsets();
   const { isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
@@ -593,8 +596,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           contentContainerStyle={[
             styles.listContent,
             {
-              // The native tab bar inset is applied by contentInsetAdjustmentBehavior.
-              paddingBottom: spacing.xl,
+              paddingBottom: scrollEndPadding(insets.bottom, spacing.xl),
             },
           ]}
           showsVerticalScrollIndicator={false}

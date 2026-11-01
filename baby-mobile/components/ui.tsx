@@ -342,8 +342,8 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
-            // The automatic content inset already covers the safe area (tab bar or home indicator) that the docked footer pads.
-            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? Math.max(0, footerHeight - (keyboardVisible ? 0 : insets.bottom)) : 0 }}
+            // On iOS the automatic content inset already covers the safe area (tab bar or home indicator) that the docked footer pads.
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? Math.max(0, footerHeight - (keyboardVisible || Platform.OS !== "ios" ? 0 : insets.bottom)) : 0 }}
           >
             {content}
           </ScrollView>
