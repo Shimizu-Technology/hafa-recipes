@@ -66,12 +66,12 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   useEffect(() => setTyped(""), [d.cursor]);
 
   // One cue per phase change while the clock runs: haptic, a VoiceOver announcement and, if chosen, a spoken word.
-  const cue = position ? `${position.index}:${position.phase}` : capReached ? "cap" : "";
+  const cue = position ? `${position.index}:${position.phase}` : capReached ? "cap" : "running";
   const previousCue = useRef(cue);
   useEffect(() => {
     const before = previousCue.current;
     previousCue.current = cue;
-    if (before === cue || !before || (d.paused && !capReached)) return;
+    if (before === cue || (d.paused && !capReached)) return;
     const message = capReached || position?.phase === "ended" ? "Time" : position?.phase === "rest" ? "Rest"
       : format.mode === "work_rest" ? "Work" : `${unit} ${position!.index}. ${moves(position!.index)}`;
     haptics.warning();

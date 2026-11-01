@@ -42,7 +42,7 @@ function elements(node: unknown): Array<{ type: unknown; props: Record<string, a
 }
 const button = (title: string) => [...renderer!.root.findAll((n) => (n.type as unknown) === "Button"),
   ...elements(renderer!.root.findByType("Screen" as never).props.footer)].find((n) => n.type === "Button" && n.props.title === title)!;
-beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); });
+beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); fixture.announce.mockReset(); });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
 
 it("shows the minute, this minute's move from the rotation and a countdown, and marks only on a tap", async () => {
@@ -88,6 +88,9 @@ it("counts up for time, shows this round's reps from the scheme, and records rep
   await act(async () => button("Round 1 done").props.onPress());
   expect(log).toHaveBeenCalledWith([expect.objectContaining({ exercise_index: 0, reps: 21 }), expect.objectContaining({ exercise_index: 1, reps: 21 })]);
   await render({ ...d, paused: true, active_started_at: null, active_milliseconds: 720_000 }, 800_000);
+  // Reaching the cap is cued once, like an interval change.
+  expect(fixture.warning).toHaveBeenCalledOnce();
+  expect(fixture.announce).toHaveBeenCalledWith("Time");
   expect(renderer!.root.findAllByType("SectionHeader" as never)[0].props.title).toBe("Time cap reached · tick what you finished");
   await act(async () => renderer!.root.findAll((n) => (n.type as unknown) === "Field")[0].props.onChange("12"));
   await act(async () => button("Save capped result").props.onPress());
