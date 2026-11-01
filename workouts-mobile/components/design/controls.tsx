@@ -411,11 +411,12 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
   const AnimatedPressable = animatedPressableComponent();
   return <AnimatedPressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: selected }}
     aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={{ top: 4, bottom: 4 }}
-    style={{ flex: 1, minHeight: 32, paddingVertical: 6, borderRadius: 8, alignItems: "center", justifyContent: "center",
+    style={{ flex: 1, minHeight: 32, paddingVertical: 6, paddingHorizontal: 4, borderRadius: 8, alignItems: "center", justifyContent: "center",
       backgroundColor: selected ? c.segment : "transparent",
       shadowColor: c.shadow, shadowOpacity: selected ? 0.12 : 0, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: selected ? 1 : 0,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-    <Copy kind="cardTitle" color={c.text} align="center">{label}</Copy>
+    {/* One line at every text size: segments never break a word across lines. */}
+    <Copy kind="cardTitle" color={c.text} align="center" numberOfLines={1} maxScale={1.35}>{label}</Copy>
   </AnimatedPressable>;
 }
 
