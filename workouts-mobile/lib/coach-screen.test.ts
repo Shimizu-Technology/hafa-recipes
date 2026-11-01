@@ -1340,7 +1340,7 @@ it.each(["ios", "android"])("opted-in detail screens use native navigation and a
   f.platform = platform as typeof f.platform;
   const { Screen } = await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces");
   await act(async () => { view = create(createElement(Screen, { title: "Workout", native: true, grouped: true, back: true, hideTitle: true })); });
-  expect(nodes("NativeHeader")[0].props.options).toMatchObject({ headerShown: true, headerTransparent: true, headerLargeTitleEnabled: false });
+  expect(nodes("NativeHeader")[0].props.options).toMatchObject({ headerShown: true, headerTransparent: false, headerLargeTitleEnabled: false });
   // Back is our tonal header button on every OS (no system glass back on iOS 26); swipe-back is unaffected.
   expect(nodes("NativeHeader")[0].props.options.headerBackVisible).toBe(false);
   expect(nodes("NativeHeader")[0].props.options.unstable_headerLeftItems()[0]).toMatchObject({ type: "custom", hidesSharedBackground: true });

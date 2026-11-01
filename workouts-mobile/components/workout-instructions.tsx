@@ -1,5 +1,7 @@
 import { Card, Copy } from "./ui";
-export function WorkoutInstructions({ instructions, notes }: { instructions?: string[]; notes?: string[] }) {
+/** `said`: a line already shown on the screen (the format chip), skipped when an instruction only repeats it. */
+export function WorkoutInstructions({ instructions: all, notes, said }: { instructions?: string[]; notes?: string[]; said?: string | null }) {
+  const instructions = said ? all?.filter(line => line.trim().toLowerCase() !== said.toLowerCase()) : all;
   return <>
     {!!instructions?.length && <Card compact>
       <Copy kind="subheading">Workout instructions</Copy>

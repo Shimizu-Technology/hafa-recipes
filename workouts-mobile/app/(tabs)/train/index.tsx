@@ -13,6 +13,7 @@ import {
   Field,
   Grow,
   IconButton,
+  ListGroup,
   ListRow,
   Notice,
   Row,
@@ -385,7 +386,8 @@ export default function Plan() {
             : archivedCount ? { label: `Archived (${archivedCount})`, onPress: () => setView("archived") } : undefined}
         />
       )}
-      {loaded && view === "active" && <Button title="Build a new plan" secondary onPress={() => router.push("/build-plan")} />}
+      {/* A quiet row, so Start/Resume above stays the one primary action on Today. */}
+      {loaded && view === "active" && <ListGroup><ListRow icon="add-circle-outline" title="Build a new plan" onPress={() => router.push("/build-plan")} /></ListGroup>}
       {loaded && view === "archived" && !shownPrograms?.length && (
         <Empty icon="archive-outline" title="No archived plans" description="Plans you archive stay here with their original instructions and history." />
       )}
