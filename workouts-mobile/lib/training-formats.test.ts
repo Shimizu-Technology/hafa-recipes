@@ -110,6 +110,10 @@ describe("EMOM", () => {
     expect(s.draft().steps).toHaveLength(2);
     await mark(s, true, 70_000 + 100_000, 2);
     await mark(s, false, 190_000, 1);
+    // A missed minute ends Death by and stops its clock. The first miss stopped it at 170 s;
+    // undoing that miss leaves the session paused, so the clock never ran on by itself.
+    expect(s.draft().paused).toBe(true);
+    expect(s.draft().active_milliseconds).toBe(170_000);
     await s.store.finish("completed", 200_000);
     const saved = s.store.snapshot().history[0];
     expect(saved.request.status).toBe("completed");

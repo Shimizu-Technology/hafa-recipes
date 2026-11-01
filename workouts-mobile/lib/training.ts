@@ -466,11 +466,16 @@ export function createTrainingStore(
           // The last movement stops the clock: the finish time is when the work ended, not when Save is tapped.
           closeActive(d, now);
           d.paused = true;
-        } else if (done && openLadder(d.workout.blocks[0]) && d.actuals.every((a) => a.round_index !== step.round_index || a.completed)) {
-          // Death by continues while each interval is finished; a missed interval ends it.
+        } else if (done && openLadder(d.workout.blocks[0])) {
+          // Death by continues while each interval is finished; a missed interval ends it and stops the clock.
           const round = step.round_index + 1;
-          if (d.workout.blocks[0].exercises.every((e) => e.ladder && ladderReps(e.ladder, round) != null))
+          if (d.actuals.every((a) => a.round_index !== step.round_index || a.completed) &&
+            d.workout.blocks[0].exercises.every((e) => e.ladder && ladderReps(e.ladder, round) != null))
             d.steps.push(...intervalSteps(d.workout, round, round));
+          else {
+            closeActive(d, now);
+            d.paused = true;
+          }
         }
         return s;
       }
