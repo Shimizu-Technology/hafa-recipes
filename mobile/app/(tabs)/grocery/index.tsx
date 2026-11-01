@@ -54,6 +54,7 @@ import {
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -150,6 +151,8 @@ function GroceryScreenContent() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const endPadding = useTabScrollEndPadding(spacing.xl);
+  const listRef = useRef<SectionList<GroceryItem, any>>(null);
+  useTabScrollToTop('grocery', listRef);
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;
@@ -764,6 +767,7 @@ function GroceryScreenContent() {
       <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, headerRight: () => isAuthenticated ? <TouchableOpacity onPress={handleShowOverflowMenu}
         style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="More grocery list actions"><Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
       <SectionList
+        ref={listRef}
         style={[styles.container, { backgroundColor: colors.groupedBackground }]}
         key={fontScale}
         contentInsetAdjustmentBehavior="automatic"

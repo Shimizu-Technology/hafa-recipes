@@ -6,6 +6,7 @@ import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { useRouter } from 'expo-router';
 import { Text, useColors } from '@/components/Themed';
 import { reportTabScreenBottomInset } from '@/lib/bottomOverlay';
+import { scrollTabToTop } from '@/lib/tabScrollToTop';
 import { lightHaptic } from '@/utils/haptics';
 
 /** Content height above the home indicator; overlays and lists read the total through `bottomOverlay`. */
@@ -52,7 +53,11 @@ export function HafaTabBar({ state, descriptors, navigation }: BottomTabBarProps
     const [icon, selectedIcon] = TAB_ICONS[route.name] ?? ['ellipse-outline', 'ellipse'];
     const onPress = () => {
       const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-      if (!focused && !event.defaultPrevented) { lightHaptic(); navigation.navigate(route.name, route.params); }
+      if (event.defaultPrevented) return;
+      // Re-tapping the selected tab returns its list to the top, as the system tab bar does.
+      if (focused) { scrollTabToTop(route.name); return; }
+      lightHaptic();
+      navigation.navigate(route.name, route.params);
     };
     return <Pressable key={route.key} onPress={onPress} onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
       accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: focused }} testID={`tab-${route.name}`}

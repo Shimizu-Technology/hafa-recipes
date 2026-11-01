@@ -3,7 +3,7 @@ import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
 import { SearchLauncher } from '@/components/chrome/SearchLauncher';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 
 import { AnimatedListItem, useInitialListEntrance } from '@/components/Animated';
@@ -25,6 +25,7 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
 
@@ -91,6 +92,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const endPadding = useTabScrollEndPadding(spacing.xl);
+  const listRef = useRef<FlatList<RecipeListItem>>(null);
+  useTabScrollToTop('recipes', listRef);
   const { isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
@@ -549,6 +552,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={isGrid ? 6 : 4} layout={isGrid ? 'grid' : 'list'} />
       ) : (
         <FlatList
+          ref={listRef}
           contentInsetAdjustmentBehavior="automatic"
           key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}

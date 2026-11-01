@@ -26,3 +26,17 @@ describe('tab header', () => {
     expect(code).toContain('headerStyle: { backgroundColor: colors.background }');
   });
 });
+
+// NativeTabs scrolled a re-tapped tab to the top; the Håfa tab bar relies on each root registering its list.
+describe('tab re-tap scroll to top', () => {
+  it.each([
+    ['app/history.tsx', 'recipes', ['listRef']],
+    ['app/(tabs)/discover/index.tsx', 'discover', ['listRef']],
+    ['app/(tabs)/planner/index.tsx', 'planner', ['weekScroll']],
+    ['app/(tabs)/grocery/index.tsx', 'grocery', ['listRef']],
+  ])('%s registers its main list', (file, tab, refs) => {
+    const code = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    expect(code).toMatch(new RegExp(`useTabScrollToTop\\('${tab}', `));
+    for (const ref of refs) expect(code).toContain(`ref={${ref}}`);
+  });
+});

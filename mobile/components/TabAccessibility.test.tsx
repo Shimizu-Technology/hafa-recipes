@@ -13,6 +13,8 @@ vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({ tint: '#1E7F6E', onTint: '#FFFFFF', tabIconDefault: '#68686D', chromeBar: '#FFFFFF', chromeHairline: 'hairline', chromeIndicator: 'indicator' }) }));
 vi.mock('@/lib/bottomOverlay', () => ({ reportTabScreenBottomInset: (value: number) => { state.inset = value; } }));
 vi.mock('@/utils/haptics', () => ({ lightHaptic: vi.fn() }));
+const scroll = vi.hoisted(() => ({ toTop: vi.fn() }));
+vi.mock('@/lib/tabScrollToTop', () => ({ scrollTabToTop: scroll.toTop }));
 import { HafaTabBar, TAB_BAR_HEIGHT } from '@/components/chrome/HafaTabBar';
 
 const routes = [['recipes', 'Library'], ['discover', 'Discover'], ['planner', 'Plan'], ['grocery', 'Grocery']].map(([name, title]) => ({ key: `${name}-key`, name, title }));
@@ -22,7 +24,7 @@ const props = (index = 0) => ({
   descriptors: Object.fromEntries(routes.map(({ key, title }) => [key, { options: { title } }])),
   navigation,
 }) as any;
-beforeEach(() => { state.push.mockClear(); navigation.navigate.mockClear(); state.keyboard = false; });
+beforeEach(() => { state.push.mockClear(); navigation.navigate.mockClear(); navigation.emit.mockClear(); scroll.toTop.mockClear(); state.keyboard = false; });
 
 it('puts Import between Discover and Plan and announces the selected tab', async () => {
   const r = createRoot();
@@ -58,5 +60,29 @@ it('steps aside while the keyboard is up', async () => {
     expect(r.container.queryAll(n => n.type === 'Pressable')).toHaveLength(0);
     await act(async () => state.listeners.keyboardWillHide());
     expect(r.container.queryAll(n => n.type === 'Pressable')).toHaveLength(5);
+  } finally { await act(async () => r.unmount()); }
+});
+
+it('scrolls the selected tab to the top when it is tapped again, and only then', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<HafaTabBar {...props(3)} />));
+    const slot = (label: string) => r.container.queryAll(n => n.type === 'Pressable' && n.props.accessibilityLabel === label)[0];
+    await act(async () => slot('Grocery').props.onPress());
+    expect(navigation.emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'tabPress', target: 'grocery-key' }));
+    expect(scroll.toTop).toHaveBeenCalledWith('grocery');
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    scroll.toTop.mockClear();
+    // Import opens its screen and never scrolls or switches the current tab.
+    await act(async () => slot('Import a recipe').props.onPress());
+    expect(scroll.toTop).not.toHaveBeenCalled();
+    // Switching to another tab navigates instead of scrolling.
+    await act(async () => slot('Library').props.onPress());
+    expect(scroll.toTop).not.toHaveBeenCalled();
+    expect(navigation.navigate).toHaveBeenCalledWith('recipes', undefined);
+    // A listener that prevents the press wins.
+    navigation.emit.mockReturnValueOnce({ defaultPrevented: true });
+    await act(async () => slot('Grocery').props.onPress());
+    expect(scroll.toTop).not.toHaveBeenCalled();
   } finally { await act(async () => r.unmount()); }
 });

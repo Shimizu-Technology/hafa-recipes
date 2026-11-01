@@ -16,6 +16,7 @@ import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, shadows, spacing } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { DiscoverSort, filterRecipesLocally, SearchFilters, useCurrentUserIdentity, useDiscoverRecipes, useIsRecipeSaved, usePopularTags, useSaveRecipe, useSearchPublicRecipes, useUnsaveRecipe, } from '@/hooks/useRecipes';
 import { api } from '@/lib/api';
@@ -155,6 +156,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const endPadding = useTabScrollEndPadding(spacing.xl);
+  const listRef = useRef<FlatList<RecipeListItem>>(null);
+  useTabScrollToTop('discover', listRef);
   const { userId, isSignedIn } = useAuth();
   const identity = useCurrentUserIdentity(active && Boolean(isSignedIn));
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
@@ -572,6 +575,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         <SkeletonRecipeList count={6} layout="grid" />
       ) : (
         <FlatList
+          ref={listRef}
           contentInsetAdjustmentBehavior="automatic"
           key={!largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
