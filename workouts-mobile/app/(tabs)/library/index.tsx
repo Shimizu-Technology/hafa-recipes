@@ -35,6 +35,7 @@ import type { Workout } from "@/lib/models";
 import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 import { TabScrollToTop, useScrollRest } from "@/components/tab-scroll-to-top";
+import { reportAskScroll, setAskPillHidden } from "@/lib/ask-pill";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
@@ -64,6 +65,8 @@ export default function Library() {
   useEffect(() => { setSearch(""); setSettledSearch(""); }, [owner, enrollment?.generation]);
   const [filters, setFilters] = useState(false);
   const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // The selection footer needs the corner the Ask pill sits in.
+  useEffect(() => { setAskPillHidden(selecting); return () => setAskPillHidden(false); }, [selecting]);
   const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
   const [bulkBusy, setBulkBusy] = useState(false), [bulkMessage, setBulkMessage] = useState("");
   const [bulkError, setBulkError] = useState("");
@@ -297,6 +300,8 @@ export default function Library() {
             : settledSearch && caps.data?.discover && !selecting && !showCollections ? <ListGroup><ListRow icon="compass-outline" title={`Search Discover for “${settledSearch}”`}
               onPress={() => router.navigate({ pathname: "/(tabs)/discover", params: { q: settledSearch } })} /></ListGroup> : null}
           onEndReachedThreshold={0.6}
+          scrollEventThrottle={100}
+          onScroll={event => reportAskScroll(event.nativeEvent.contentOffset.y)}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (
             <LibraryCard

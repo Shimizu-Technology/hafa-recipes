@@ -160,6 +160,8 @@ vi.mock("@/components/discover-card", () => ({
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
 vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionCard: "CollectionCard", NewCollectionCard: "NewCollectionCard", useLibraryGridWidth: () => 170, LIBRARY_GRID_GAP: 12 }));
+vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
+vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 34, left: 0 }) }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/discover-grid-card", () => ({
   DiscoverGrid: "DiscoverGrid",
@@ -559,6 +561,9 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
     .toEqual(["Share workout", "More workout actions"]);
   await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
+  // The floating pill opens the same workout-scoped chat.
+  expect(nodes("AskCoachPill")[0].props).toMatchObject({ label: "Ask about this",
+    href: { pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } } });
   await act(async () => header("Share workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/share", params: { id: saved.id, kind: "workout" } });
   for (const title of ["Favorite workout", "Organize workout", "Edit workout details", "Remove from Discover", "See it in Discover",

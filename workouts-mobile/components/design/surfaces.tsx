@@ -22,6 +22,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { Stack as NativeStack, router, useSegments } from "expo-router";
 import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "@/lib/bottom-overlay";
+import { reportAskScroll } from "@/lib/ask-pill";
 import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { headerActions, headerBack, useNativeHeader } from "../native-tab-stack";
@@ -102,6 +103,7 @@ export function Screen({
   const tabRoot = tabHeader && !back;
   const scroller = useRef<ScrollView | null>(null);
   const scrollRest = useScrollRest();
+  const askRoom = tabHeader && !back && !footer;
   const heading = root ? (
     !!(subtitle || eyebrow) && (
       <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>
@@ -114,8 +116,8 @@ export function Screen({
   ) : null;
   const contentContainerStyle: ViewStyle = {
     paddingTop: spacing.md,
-    // On iOS, root screens get the home indicator and tab bar from contentInsetAdjustmentBehavior.
-    paddingBottom: footer ? spacing.lg : root && Platform.OS === "ios" ? spacing.xl : insets.bottom + spacing.xl,
+    // Tab roots end above our tab bar; they leave room for the floating Ask Coach pill (48 + gap).
+    paddingBottom: footer ? spacing.lg : askRoom ? spacing.xl + 56 : root && Platform.OS === "ios" ? spacing.xl : insets.bottom + spacing.xl,
     paddingHorizontal: spacing.md,
     gap: spacing.lg,
     width: "100%",
@@ -170,9 +172,10 @@ export function Screen({
         onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"
         refreshControl={refreshControl}
-        scrollEventThrottle={onScroll ? 100 : onEndReached ? 200 : undefined}
-        onScroll={onScroll || onEndReached ? event => {
+        scrollEventThrottle={onScroll || askRoom ? 100 : onEndReached ? 200 : undefined}
+        onScroll={onScroll || onEndReached || askRoom ? event => {
           onScroll?.(event);
+          if (askRoom) reportAskScroll(event.nativeEvent.contentOffset.y);
           const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
           if (onEndReached && layoutMeasurement.height + contentOffset.y >= contentSize.height - 600) onEndReached();
         } : undefined}
@@ -634,8 +637,8 @@ export function ToastProvider({ children }: PropsWithChildren) {
   const insets = useSafeAreaInsets();
   const inTabs = isTabRoute(useSegments());
   const tabInset = useTabScreenBottomInset();
-  // Above the measured native tab bar in tabs; elsewhere clear of bottom action bars.
-  const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 72 });
+  // Above the tab bar and the floating Ask Coach pill (48 + 8) in tabs; elsewhere clear of bottom action bars.
+  const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 72 }) + (inTabs && tabInset > 0 ? 56 : 0);
   const reduced = useReducedMotion();
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
