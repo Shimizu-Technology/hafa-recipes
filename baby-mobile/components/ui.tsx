@@ -765,8 +765,8 @@ export function FilterChips({ options, value, onChange, label }: { options: Filt
             accessibilityState={{ selected: on, checked: on }}
             onLayout={(event) => { const { x, width } = event.nativeEvent.layout; frames.current[option.value] = { x, width }; }}
             onPress={() => { if (!on) tap(); onChange(option.value); }}
-            // A 44pt target around the 34pt pill.
-            style={{ minHeight: 44, justifyContent: "center" }}>
+            // A 44×44 minimum target around the 34pt pill, so even a one-word chip is easy to hit.
+            style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}>
             <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
               backgroundColor: on ? c.action : c.soft }}>
               {option.icon && <Icon name={option.icon} size={16} color={ink} />}

@@ -330,7 +330,7 @@ it.each([1, 3.1])("switches filter chips and exposes the radio selection at scal
     { selected: false, checked: false }, { selected: true, checked: true },
   ]);
   // Every chip is a 34pt pill in a 44pt target: sand at rest, filled cocoa when selected.
-  for (const choice of choices()) expect(choice.props.style[0]).toMatchObject({ minHeight: 44 });
+  for (const choice of choices()) expect(choice.props.style[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
   const pills = choices().map(choice => choice.findAllByType("View" as React.ElementType)[0].props.style);
   expect(pills.map(style => [style.minHeight, style.borderRadius, style.backgroundColor])).toEqual([[34, 17, "#F1E8E1"], [34, 17, "#5A4740"]]);
   const labels = choices().map(choice => choice.findAllByType("Text" as React.ElementType)[0].props.style.color);
@@ -342,6 +342,14 @@ it.each([1, 3.1])("switches filter chips and exposes the radio selection at scal
   // Large text scrolls in one row instead of stacking chips into a column.
   expect(group.props.style.flexDirection).toBe("row");
   expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).filter(view => view.props.horizontal)).toHaveLength(1);
+});
+
+it("keeps a one-letter chip's target 44×44 while its pill stays 34pt", async () => {
+  await mount(<FilterChips label="Size" value="s" options={[{ label: "S", value: "s" }, { label: "M", value: "m" }]} onChange={() => {}} />);
+  for (const chip of renderer!.root.findAllByType("AnimatedPressable" as React.ElementType)) {
+    expect(chip.props.style[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
+    expect(chip.findAllByType("View" as React.ElementType)[0].props.style.minHeight).toBe(34);
+  }
 });
 
 it("keeps fontVariant an array when a mounted number turns back into text", async () => {
