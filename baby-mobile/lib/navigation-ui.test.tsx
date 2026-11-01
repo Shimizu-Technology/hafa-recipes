@@ -69,6 +69,7 @@ vi.mock("@/components/import-updates", () => ({ ImportUpdates: () => null }));
 vi.mock("@/components/tips", () => import("../components/tips"));
 vi.mock("@/components/timing-editor", () => import("../components/timing-editor"));
 vi.mock("@/lib/timing", () => import("./timing"));
+vi.mock("@/lib/suggestions", () => import("./suggestions"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/components/saved-post-row", () => import("../components/saved-post-row"));
 import Library from "../app/(tabs)/library";
@@ -273,6 +274,28 @@ it.each([false, true])("refreshes the scoped timeline from page zero after sync,
 
 const tip = (id: string, data: Record<string, unknown>) => ({ ...optimisticRecord({ id, kind: "source", title: id, body: "", child_id: null,
   occurred_at: "2026-10-30T00:00:00Z", data: { status: "ready", ...data } }), revision: 3 });
+const labor = { name: "Labor prep", collection_id: "labor", confidence: 0.9, status: "pending" };
+it("accepts one suggested category, all of them, or says not this from Uncategorized", async () => {
+  const records = [tip("Pregnancy tea at 37 weeks", { suggested_category: labor }), tip("Hospital bag list", { suggested_category: { ...labor, name: "Hospital bag", collection_id: null } }),
+    tip("Untitled reel", {})];
+  const decide = vi.fn(async (items: { record_id: string }[], _g: number, action = "accept") => ({
+    results: items.map(({ record_id }) => ({ record_id, status: action === "accept" ? "accepted" : "dismissed", collection_id: "labor" })), records: [], collections: [] }));
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records }, api: { ...mock.baby.api, decideSuggestions: decide, record: async () => records[0] } };
+  await mount(<Library />);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType).map(n => [n.props.children].flat().join(""));
+  expect(text()).toContain("Suggested: Labor prep");
+  expect(text()).toContain("Suggested: Hospital bag (new)");
+  await press("Add to Labor prep");
+  expect(decide).toHaveBeenLastCalledWith([{ record_id: "Pregnancy tea at 37 weeks", revision: 3 }], 1);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await press("Accept all 2 suggestions");
+  expect(decide).toHaveBeenLastCalledWith([{ record_id: "Pregnancy tea at 37 weeks", revision: 3 }, { record_id: "Hospital bag list", revision: 3 }], 1);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await press("Not Hospital bag");
+  expect(decide).toHaveBeenLastCalledWith([{ record_id: "Hospital bag list", revision: 3 }], 1, "dismiss");
+  await press("All saved");
+  expect(text()).not.toContain("Suggested: Labor prep");
+});
 const sourceView = () => mock.views.filter(view => view.kind === "source").at(-1);
 it("filters Saved to what's useful now or coming up once a due date exists, including from Today's See all", async () => {
   const due = new Date(Date.now() + 39 * 86400000), iso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;

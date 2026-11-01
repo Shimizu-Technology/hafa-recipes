@@ -123,7 +123,12 @@ export interface RecordPage {
   timing?: { mode: "now" | "upcoming"; stage: "pregnancy" | "baby"; pregnancy_week?: number; pregnancy_day?: number;
     baby_age_weeks?: number; child_id?: string; basis: "child" | "query"; today?: string };
 }
-
+export type SuggestionStatus = "accepted" | "dismissed" | "conflict" | "no_suggestion" | "unavailable" | "category_full";
+export interface SuggestionResult {
+  results: { record_id: string; status: SuggestionStatus; collection_id?: string | null }[];
+  records: BabyRecord[];
+  collections: BabyRecord[];
+}
 export interface ImportJob {
   id: string;
   status: string;

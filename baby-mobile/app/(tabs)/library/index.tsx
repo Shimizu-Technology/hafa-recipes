@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { sourceTitle } from "@/lib/source-title";
@@ -6,7 +7,7 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
-import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
@@ -15,8 +16,10 @@ import { ImportUpdates } from "@/components/import-updates";
 import { HeaderSearch } from "@/components/header-search";
 import { TabActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
+import { SuggestionLine } from "@/components/tips";
 import { glanceChild } from "@/lib/care-glance";
 import { byStart, timingContext } from "@/lib/timing";
+import { acceptMessage, acceptSuggestions, dismissSuggestion, pendingSuggestion, restoreSuggestion, undoAccepted } from "@/lib/suggestions";
 
 export default function Library() {
   const b = useBaby();
@@ -25,14 +28,15 @@ export default function Library() {
   const [organizing, setOrganizing] = useState(false), [error, setError] = useState("");
   const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
   const [undoing, setUndoing] = useState(false), undoBusy = useRef(false);
-  const params = useLocalSearchParams<{ view?: string; at?: string }>();
+  const toast = useToast(), [deciding, setDeciding] = useState(""), params = useLocalSearchParams<{ view?: string; at?: string }>();
   const timingChild = glanceChild(b.state), context = timingContext(timingChild),
     timed = (view === "now" || view === "upcoming") && timingChild && context ? { mode: view, childId: timingChild.id, context } as const : undefined;
   useEffect(() => { if (params.view && ["inbox", "all", "now", "upcoming", "categories"].includes(params.view)) chooseView(params.view); },
     [params.view, params.at]);
   const history = useLibraryHistory({ kind: "source", childId: b.state.selectedChild, query: q,
     collectionId: collection || undefined, uncategorized: view === "inbox", timing: timed });
-  const rows = timed?.mode === "upcoming" ? [...history.rows].sort(byStart(timed.context.stage)) : history.rows;
+  const rows = timed?.mode === "upcoming" ? [...history.rows].sort(byStart(timed.context.stage)) : history.rows,
+    suggested = view === "inbox" && !collection ? rows.filter((row) => pendingSuggestion(row)) : [];
   const categories = useLibraryHistory({ kind: "collection", childId: null, query: "" });
   const category = categories.rows.find((r) => r.id === collection);
   const drafts = Object.entries(b.state.drafts).filter(([, d]) => d.kind === "source" &&
@@ -62,6 +66,32 @@ export default function Library() {
       setLastChange((current) => current === change ? null : current);
     } catch (failure) { setError(messageFor(failure)); }
     finally { undoBusy.current = false; setUndoing(false); }
+  }
+  async function accept(sources: BabyRecord[], key: string) {
+    if (deciding) return;
+    setDeciding(key); setError("");
+    try {
+      const known = new Set(b.records.filter((row) => row.kind === "collection").map((row) => row.id)),
+        outcome = await acceptSuggestions(b, sources, known);
+      history.refresh(); categories.refresh();
+      toast(acceptMessage(outcome), outcome.accepted.length ? { label: "Undo", onPress: async () => {
+        try { await undoAccepted(b, outcome); toast("Moved back to Uncategorized."); }
+        catch (failure) { toast(messageFor(failure)); }
+        finally { history.refresh(); categories.refresh(); }
+      } } : undefined);
+    } catch (failure) { setError(messageFor(failure)); }
+    finally { setDeciding(""); }
+  }
+  async function dismiss(source: BabyRecord) {
+    if (deciding) return;
+    setDeciding(source.id); setError("");
+    try {
+      const before = await dismissSuggestion(b, source);
+      toast("Suggestion removed.", before ? { label: "Undo", onPress: async () => {
+        try { await restoreSuggestion(b, source.id, before); } catch (failure) { toast(messageFor(failure)); }
+      } } : undefined);
+    } catch (failure) { setError(messageFor(failure)); }
+    finally { setDeciding(""); }
   }
   const listingCategories = view === "categories" && !collection;
   return <Screen title="Saved"
@@ -97,11 +127,18 @@ export default function Library() {
         onPress={() => router.push({ pathname: "/edit", params: { kind: "collection", id: category.id } })} />}
       {!!history.error && <><Notice error>{history.error} Saved posts already on this device remain available.</Notice>
         <Button secondary title="Try loading posts again" onPress={history.refresh} busy={history.loading} /></>}
+      {suggested.length > 0 && !selecting && <Button secondary icon="checkmark-done-outline" busy={deciding === "all"} disabled={!!deciding}
+        title={suggested.length === 1 ? "Accept suggestion" : `Accept all ${suggested.length} suggestions`}
+        onPress={() => void accept(suggested, "all")} />}
       {history.loading && !rows.length ? <Loading label="Loading saved posts…" /> : rows.length ? (
         <Grouped separatorInset={selecting ? 52 : 80}>
           {rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
-            : <RecordRow key={record.id} record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />)}
+            : <View key={record.id}>
+              <RecordRow record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />
+              {view === "inbox" && <SuggestionLine record={record} busy={!!deciding}
+                onAccept={() => void accept([record], record.id)} onDismiss={() => void dismiss(record)} />}
+            </View>)}
         </Grouped>
       ) : <Empty title={q ? "No matching posts" : view === "now" ? "Nothing for right now yet" : view === "upcoming" ? "Nothing coming up yet"
         : view === "inbox" ? "You’re caught up." : "Keep something worth remembering."}
