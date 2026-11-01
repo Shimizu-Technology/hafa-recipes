@@ -1,7 +1,8 @@
 import React from "react";
 import { act, create } from "react-test-renderer";
 import { afterEach, expect, it, vi } from "vitest";
-vi.mock("react-native", () => ({ Pressable: "Pressable", View: "View", useWindowDimensions: () => ({ fontScale: 1 }) }));
+const scale = vi.hoisted(() => ({ font: 1 }));
+vi.mock("react-native", () => ({ Pressable: "Pressable", View: "View", useWindowDimensions: () => ({ fontScale: scale.font }) }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
@@ -45,5 +46,20 @@ it.each([
   expect(target.props.accessibilityLabel).toContain("Example parent");
   await act(async () => target.props.onPress());
   expect(router.push).toHaveBeenLastCalledWith({ pathname: "/record/[id]", params: { id: "post" } });
+  await act(async () => renderer.unmount());
+});
+
+it("stacks the thumbnail above the text at accessibility sizes so long titles don't break mid-word", async () => {
+  vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  let renderer!: ReturnType<typeof create>;
+  const style = () => renderer.root.findByType("Pressable" as React.ElementType).props.style({ pressed: false });
+  await act(async () => { renderer = create(<SavedPostRow record={row} pending={false} />); });
+  expect(style()).toMatchObject({ flexDirection: "row", alignItems: "center" });
+  expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "chevron-forward")).toBe(true);
+  scale.font = 3.1;
+  await act(async () => { renderer.update(<SavedPostRow record={{ ...row }} pending={false} />); });
+  expect(style()).toMatchObject({ flexDirection: "column", alignItems: "flex-start" });
+  expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "chevron-forward")).toBe(false);
+  scale.font = 1;
   await act(async () => renderer.unmount());
 });

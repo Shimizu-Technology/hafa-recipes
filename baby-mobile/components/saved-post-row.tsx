@@ -19,6 +19,8 @@ const updates: Record<string, string> = {
 /** `meta` replaces the default "timing · creator · platform" line, for example with a topic on Today. */
 export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pending: boolean; meta?: string }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), title = sourceTitle(record),
+    // At accessibility sizes the thumbnail sits above the text so long words keep the full width.
+    stacked = fontScale >= 2,
     status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved",
     update = pending ? status : updates[record.data.status ?? ""];
   let inferred: string | undefined;
@@ -41,19 +43,19 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
   } catch { /* A thumbnail is optional; the saved post stays readable. */ }
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
-    style={({ pressed }) => ({ minHeight: 80, flexDirection: "row", gap: 12, alignItems: "center",
+    style={({ pressed }) => ({ minHeight: 80, flexDirection: stacked ? "column" : "row", gap: 12, alignItems: stacked ? "flex-start" : "center",
       padding: 12, backgroundColor: c.surface })}>
     <View style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", backgroundColor: c.tile,
       alignItems: "center", justifyContent: "center" }}>
       {thumbnail ? <Image source={{ uri: thumbnail }} style={{ width: 56, height: 56 }} cachePolicy="none" contentFit="cover" />
         : <Icon name={marks[platform] ?? "bookmark-outline"} size={23} />}
     </View>
-    <View style={{ flex: 1, gap: 4 }}>
+    <View style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
       <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
       <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={fontScale >= 1.3 ? undefined : 1}>
         {update || meta || [timingLabel(record.data.relevance), record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
       </Copy>
     </View>
-    <Icon name="chevron-forward" size={16} color={c.muted} />
+    {!stacked && <Icon name="chevron-forward" size={16} color={c.muted} />}
   </PressTarget>;
 }
