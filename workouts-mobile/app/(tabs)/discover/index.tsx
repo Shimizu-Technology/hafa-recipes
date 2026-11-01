@@ -1,5 +1,5 @@
 import { BrowseHeader } from "@/components/native-tab-stack";
-import { BrowseLinks } from "@/components/browse-links";
+import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack as RouterStack, router, useLocalSearchParams } from "expo-router";
@@ -218,9 +218,9 @@ export default function Discover() {
         <>
           <BrowseLinks links={[
             { title: surprising ? "Choosing…" : "Surprise me", onPress: () => void surprise(), disabled: surprising },
-            { title: "Filter", onPress: () => setFiltersOpen(true) },
+            { title: active.length ? `Filter · ${active.length}` : "Filter", onPress: () => setFiltersOpen(true) },
           ]} />
-          {(!!active.length || !!settledSearch) && <Button title={`${[settledSearch, ...active.map(f => f.label)].filter(Boolean).join(" · ")} · Clear`} variant="ghost" size="sm" onPress={clear} />}
+          <FilterSummary items={[settledSearch.trim() && `“${settledSearch.trim()}”`, ...active.map(f => f.label)].filter((item): item is string => !!item)} onClear={clear} />
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
           ) : feed.error && !cards.length ? (

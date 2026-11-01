@@ -36,6 +36,8 @@ const light = {
   text: "#2D2420", muted: "#6E625B", action: "#5A4740", onAction: "#F8F3EE",
   border: "rgba(60,60,67,0.29)", outline: "rgba(60,60,67,0.29)",
   accent: "#C9907E", accentText: "#8C5443", error: "#B3261E", errorBg: "#FBE3DE",
+  // Tonal fill behind a selected text link; accentText on it stays ≥4.5:1.
+  accentTint: "rgba(201,144,126,0.2)",
   scrim: "rgba(45,36,32,0.42)",
 };
 const dark: typeof light = {
@@ -44,6 +46,7 @@ const dark: typeof light = {
   text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", action: "#E3C9B8", onAction: "#2D2420",
   border: "rgba(84,84,88,0.65)", outline: "rgba(84,84,88,0.65)",
   accent: "#E3C9B8", accentText: "#E3C9B8", error: "#FF5148", errorBg: "#3A1F1C",
+  accentTint: "rgba(227,201,184,0.2)",
   scrim: "rgba(0,0,0,0.6)",
 };
 export function useColors() {
@@ -678,15 +681,18 @@ export function Chips({
   return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
     contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
-/** One compact filter row; wraps instead of truncating at accessibility sizes. */
+/** One compact filter row; the selected option sits in a tonal capsule and wraps instead of truncating at accessibility sizes. */
 export function TextLinks({ options, value, onChange, label }: { options: { label: string; value: string }[]; value: string; onChange: (value: string) => void; label: string }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
-  const links = <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: fontScale >= 1.3 ? "wrap" : "nowrap", columnGap: 16 }}>
+  // Every option carries the capsule padding so choosing one never shifts the row.
+  const links = <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: fontScale >= 1.3 ? "wrap" : "nowrap", columnGap: 4 }}>
     {options.map(option => <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
       accessibilityState={{ selected: value === option.value, checked: value === option.value }}
       onPress={() => { if (value !== option.value) tap(); onChange(option.value); }}
       style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", maxWidth: fontScale >= 1.3 ? "100%" : undefined, flexShrink: fontScale >= 1.3 ? 1 : 0 }}>
-      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "700" : "400", textDecorationLine: value === option.value ? "underline" : "none" }}>{option.label}</Text>
+      <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, maxWidth: "100%", backgroundColor: value === option.value ? c.accentTint : "transparent" }}>
+        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText, fontWeight: value === option.value ? "600" : "400" }}>{option.label}</Text>
+      </View>
     </PressTarget>)}
   </View>;
   return fontScale >= 1.3 ? links : <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">{links}</ScrollView>;

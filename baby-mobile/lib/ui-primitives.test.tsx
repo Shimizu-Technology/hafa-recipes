@@ -283,6 +283,12 @@ it.each([1, 3.1])("changes the active text-link filter and exposes its radio sel
   expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
     { selected: false, checked: false }, { selected: true, checked: true },
   ]);
+  // The selected option sits in a tonal capsule (same language as Recipes and Workouts), not an underline.
+  const capsules = choices().map(choice => choice.findAllByType("View" as React.ElementType)[0].props.style);
+  expect(capsules.map(style => style.backgroundColor)).toEqual(["transparent", "rgba(201,144,126,0.2)"]);
+  expect(capsules[0].paddingHorizontal).toBe(capsules[1].paddingHorizontal);
+  const labels = choices().map(choice => choice.findAllByType("Text" as React.ElementType)[0].props.style);
+  expect(labels.map(style => [style.fontWeight, style.textDecorationLine])).toEqual([["400", undefined], ["600", undefined]]);
   const group = renderer!.root.findAllByType("View" as React.ElementType)
     .find(view => view.props.accessibilityRole === "radiogroup")!;
   expect(group.props.accessibilityLabel).toBe("Journal filters");

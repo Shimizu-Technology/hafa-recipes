@@ -460,6 +460,9 @@ describe('Library browse controls', () => {
       await act(async () => sheet().props.onApply({ sourceFilter: 'manual', timeFilter: 'quick', selectedTags: ['dinner'], ownershipFilter: 'saved' }));
       await act(async () => header.render(list().props.ListHeaderComponent));
       expect(header.container.queryAll(n => n.props.accessibilityLabel === 'Clear library filters')).toHaveLength(1);
+      expect(header.container.queryAll(n => n.type === 'LibraryStatus')[0].props.filterCount).toBe(4);
+      expect(header.container.queryAll(n => typeof n.props.children === 'string' && n.props.children.startsWith('Showing: '))[0].props.children)
+        .toBe('Showing: Manual, Under 30 min, dinner, Saved');
       await act(async () => header.container.queryAll(n => n.props.accessibilityLabel === 'Clear library filters')[0].props.onPress());
       expect(sheet().props.initialFilters).toMatchObject({ sourceFilter: 'all', timeFilter: 'all', selectedTags: [], ownershipFilter: 'all' });
     } finally { await act(async () => header.unmount()); await act(async () => renderer.unmount()); }
