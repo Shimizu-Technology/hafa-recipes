@@ -24,7 +24,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useViewPreference } from '@/hooks/useViewPreference';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
-import { scrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
 
@@ -91,6 +91,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const insets = useSafeAreaInsets();
+  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
   const { isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
@@ -596,7 +597,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           contentContainerStyle={[
             styles.listContent,
             {
-              paddingBottom: scrollEndPadding(insets.bottom, spacing.xl),
+              paddingBottom: endPadding,
             },
           ]}
           showsVerticalScrollIndicator={false}

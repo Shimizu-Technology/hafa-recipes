@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('react-native', () => ({ Platform: { OS: 'ios', Version: '18.5' } }));
 
 import {
+  DOCKED_TIMER_HEIGHT,
   OVERLAY_GAP,
   cookTimerPlacement,
   isTabRoute,
@@ -48,6 +49,8 @@ describe('bottom overlay placement', () => {
 
   it('leaves the tab bar inset to iOS automatic content insets and adds it elsewhere', () => {
     expect(scrollEndPadding(83, 32)).toBe(32);
+    // Room for the docked timer pill (iOS 18) so the last row scrolls clear of it.
+    expect(scrollEndPadding(83, 32, true)).toBe(32 + DOCKED_TIMER_HEIGHT + OVERLAY_GAP);
   });
 
   it('ignores empty insets from tab screens that are not on screen', async () => {

@@ -11,6 +11,7 @@ import { recipeScope } from '@/lib/recipeQueryScope';
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { CookTimerRunningContext } from '@/contexts/CookTimerRunning';
 import { usePathname } from 'expo-router';
 import { AppState, AppStateStatus } from 'react-native';
 
@@ -56,13 +57,7 @@ interface TimerContextValue {
 }
 
 const TimerContext = createContext<TimerContextValue | null>(null);
-// A separate boolean so tab chrome re-renders only when a timer starts or stops, not every tick.
-const CookTimerRunningContext = createContext(false);
-
-/** True while a cook timer is counting outside cook mode. */
-export function useCookTimerRunning() {
-  return useContext(CookTimerRunningContext);
-}
+export { useCookTimerRunning } from '@/contexts/CookTimerRunning';
 
 export function useTimerContext() {
   const context = useContext(TimerContext);

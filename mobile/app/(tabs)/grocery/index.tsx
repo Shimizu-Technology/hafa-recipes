@@ -53,7 +53,7 @@ import {
 } from '@/hooks/useGrocery';
 import { GroceryItem } from '@/types/recipe';
 import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
-import { scrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
@@ -149,6 +149,7 @@ function GroceryScreenContent() {
   const { fontScale } = useWindowDimensions();
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;
@@ -828,7 +829,7 @@ function GroceryScreenContent() {
         contentContainerStyle={[
           styles.listContent,
           {
-            paddingBottom: scrollEndPadding(insets.bottom, spacing.xl),
+            paddingBottom: endPadding,
           },
         ]}
         showsVerticalScrollIndicator={false}

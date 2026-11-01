@@ -57,7 +57,7 @@ import {
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { useRecipe } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
-import { scrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
 import {
@@ -340,6 +340,7 @@ function PlannerScreenContent() {
     servings?: string;
   }>();
   const insets = useSafeAreaInsets();
+  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
   const colors = useColors();
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
@@ -634,7 +635,7 @@ function PlannerScreenContent() {
           contentContainerStyle={[
             styles.signedOutContent,
             {
-              paddingBottom: scrollEndPadding(insets.bottom, spacing.xl),
+              paddingBottom: endPadding,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -743,7 +744,7 @@ function PlannerScreenContent() {
           onScrollToTop={() => { pendingScrollDate.current = null; }}
           contentInsetAdjustmentBehavior="automatic"
         style={[styles.content, { backgroundColor: colors.groupedBackground }]}
-        contentContainerStyle={[styles.contentContainer, { paddingBottom: scrollEndPadding(insets.bottom, spacing.xl) }]}
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: endPadding }]}
         refreshControl={
           <RefreshControl
             refreshing={isPullRefreshing}

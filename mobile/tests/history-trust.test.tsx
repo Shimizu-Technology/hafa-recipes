@@ -454,6 +454,7 @@ describe('Library collection recovery', () => {
       const scroll = collections.container.queryAll(n => n.type === 'ScrollView')[0];
       expect(scroll.props.contentInsetAdjustmentBehavior).toBe('automatic');
       expect(scroll.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
+      expect(collections.container.queryAll(n => n.type === 'SignInBanner')).toHaveLength(1);
     } finally { await act(async () => { library_.unmount(); collections.unmount(); }); }
   });
 });

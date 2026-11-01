@@ -785,8 +785,10 @@ it('clears a Keep private link after asynchronous inbox persistence', async () =
       expect(banner).toHaveLength(1);
       expect(banner[0].props.message).toBe('Sign in to extract recipes');
       const scroll = renderer.root.findAllByType('ScrollView' as any).find(node => node.findAllByType('SignInBanner' as any).length > 0);
-      // Inside the scroll content rather than docked under it at the bottom of the screen.
+      // Inside the scroll content, ahead of the link composer, rather than docked at the bottom of the screen.
       expect(scroll).toBeDefined();
+      const order = scroll!.findAll((node: any) => node.type === 'SignInBanner' || node.props.placeholder === 'Paste a recipe link');
+      expect(order[0].type).toBe('SignInBanner');
     } finally { await act(async () => renderer.unmount()); }
   });
 
