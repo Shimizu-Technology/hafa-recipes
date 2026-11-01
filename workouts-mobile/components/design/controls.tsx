@@ -200,11 +200,14 @@ export function HeaderButton({ icon, label, onPress, primary = false, disabled =
   const press = usePressScale(disabled);
   const AnimatedPressable = animatedPressableComponent();
   return (
+    // A padded 44pt pressable: hitSlop can't reach past a 36pt header row, so the target itself is full size.
     <AnimatedPressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled}
-      onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={(touch.min - HEADER_BUTTON) / 2}
-      style={{ width: HEADER_BUTTON, height: HEADER_BUTTON, borderRadius: radii.full, backgroundColor: c.sunken,
-        alignItems: "center", justifyContent: "center", opacity: disabled ? 0.5 : press.opacity, transform: [{ scale: press.scale }] }}>
-      <Ionicons name={icon} size={20} color={primary ? c.accentText : c.text} />
+      onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}
+      style={{ width: touch.min, height: touch.min, alignItems: "center", justifyContent: "center",
+        opacity: disabled ? 0.5 : press.opacity, transform: [{ scale: press.scale }] }}>
+      <View style={{ width: HEADER_BUTTON, height: HEADER_BUTTON, borderRadius: radii.full, backgroundColor: c.sunken, alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name={icon} size={20} color={primary ? c.accentText : c.text} />
+      </View>
     </AnimatedPressable>
   );
 }
@@ -222,22 +225,13 @@ export function AccountButton() {
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel="Open account and settings"
-      hitSlop={(touch.min - size) / 2}
       onPress={() => router.push("/settings")}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radii.full,
-        backgroundColor: c.sunken,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-        opacity: press.opacity,
-        transform: [{ scale: press.scale }],
-      }}
+      // 44pt target around the 32pt avatar, like the header buttons.
+      style={{ width: touch.min, height: touch.min, alignItems: "center", justifyContent: "center", opacity: press.opacity, transform: [{ scale: press.scale }] }}
     >
+      <View style={{ width: size, height: size, borderRadius: radii.full, backgroundColor: c.sunken, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
       {image ? (
         <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: size, height: size }} accessibilityIgnoresInvertColors />
       ) : identity?.initial ? (
@@ -245,6 +239,7 @@ export function AccountButton() {
       ) : (
         <Ionicons name="person" size={18} color={c.text} />
       )}
+      </View>
     </AnimatedPressable>
   );
 }

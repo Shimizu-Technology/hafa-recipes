@@ -191,7 +191,7 @@ export default function WorkoutDetail() {
       title={workout?.title ?? "Your workout."}
       // The hero leads; the title and meta line follow it in the page body.
       hideTitle
-      action={workout ? <Row gap={8}>
+      action={workout ? <Row gap={0}>
         {workout.kind !== "program" && <HeaderButton icon="share-outline" label="Share workout"
           onPress={() => router.push({ pathname: "/share", params: { id: workout.id, kind: "workout" } })} />}
         <HeaderButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} />
