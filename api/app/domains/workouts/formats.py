@@ -15,10 +15,10 @@ CLAUSE = r"[;,\n]|[.!?](?:\s|$)"
 BARE_MINUTES = r"amrap|emom|otm|e\d+mom|time\s*cap|cap|tc"
 EMOM = (r"\be(\d+)mom\b|\b(?:emom|otm)\b|\bevery\s+minute(?:\s+on\s+the\s+minute)?\b"
         rf"|\bevery\s+{UNIT}|\bdeath\s+by\b")
-# "For time" is a format phrase only at a clause edge or before its cap; "for time
-# trial" is not one.
+# "For time" is a format phrase only at a clause edge, before its cap or in "21-15-9
+# reps for time of:"; "for time trial" is not one.
 FOR_TIME_PHRASE = (r"\bfor\s+time\b(?=[ \t]*(?:$|[\n:(),.;!\-–—]|\b(?:cap|capped|tc|time\s*cap|with|and|then"
-                   r"|under|in\s+under)\b))")
+                   r"|under|in\s+under|of)\b))")
 FOR_TIME = rf"{FOR_TIME_PHRASE}|\brft\b|\bchipper\b"
 FT = r"(?<!\d)(?<!\d\s)\bFT\b"  # Upper case only; "10 ft" is a distance.
 SECS = r"(?:s|secs?|seconds?)\b"
@@ -29,7 +29,9 @@ DOSE = r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s\b|minutes?|mins?|min\b)?"
 RATIO = (rf"(?<![\w.])(\d+)\s*[x×]\s*(:)?{DOSE}\s*(on|work)?\s*/\s*(:)?{DOSE}(?![\d/])"
          r"(?:\s*(off|rest)\b(?!\s*(?:for\s+)?:?\d))?")
 TIMED_PAIR = rf"(?<![\w.:/])(:)?{DOSE}\s*/\s*(:)?{DOSE}(?![\d/])"
-WORK_REST = r"\btabata\b|\d+\s*(?:s|secs?|seconds?)?\s*(?:on|work)\b"
+WORK_REST = r"\btabata\b|\d+\s*-?\s*(?:s|secs?|seconds?)?\s*-?\s*(?:on|work)\b"
+# A labelled dose: 20 seconds on, 20-seconds-on, 0:10 REST (read as 10 seconds REST).
+LABELLED = r"(?<![\w.:/])(\d+(?:\.\d+)?)\s*(?:-?\s*(seconds?|secs?|s\b|minutes?|mins?|min\b))?\s*-?\s*(on|work|off|rest)\b"
 # Rotation is a format statement (EMOM 12 alternating, odd/even minutes) or a
 # Min 1:/M1: row prefix, never a movement name such as "alternating lunges".
 ALTERNATING = (r"\b(?:alternating|alt)\s+(?:e\d*mom|otm|every\s+minute)\b"
@@ -38,7 +40,20 @@ ALTERNATING = (r"\b(?:alternating|alt)\s+(?:e\d*mom|otm|every\s+minute)\b"
                r"|\balternat(?:e|ing)\s+(?:for|between|(?:the\s+)?(?:\w+\s+)?(?:movements?|exercises?)|minutes?|rounds?"
                r"|(?:each|every)\s+(?:minute|interval|round))\b")
 ODD_EVEN = r"\bodd\b[^.;\n]{0,40}\beven\b"  # Odd minutes ..., even minutes ... spans a comma.
+# One move per interval stated in words: "start the next exercise each minute", "rotate
+# through the movements", "use the remaining time to recover before the next exercise".
+NEXT_MOVE = r"(?:the\s+)?next\s+(?:exercise|movement|move|station)"
+EACH_INTERVAL = (r"(?:each|every|per|a)\s+(?:new\s+)?(?:minute|interval)\b|on\s+the\s+minute\b"
+                 r"|at\s+the\s+(?:start|top)\s+of\s+(?:each|every|the\s+next)\s+(?:minute|interval)\b")
+NEXT_EACH_INTERVAL = (rf"\b{NEXT_MOVE}\s+(?:{EACH_INTERVAL})"
+                      rf"|\b(?:one|a\s+(?:new|different))\s+(?:exercise|movement|move)\s+(?:{EACH_INTERVAL})"
+                      r"|\brotat(?:e|ing)\s+(?:through|between)\b"
+                      rf"|\b(?:remaining|remainder)\b[^.;\n]{{0,40}}\bbefore\s+(?:starting\s+|beginning\s+"
+                      rf"|moving\s+(?:on\s+)?to\s+)?{NEXT_MOVE}\b")
 ROTATION_ROW = r"^\s*(?:min(?:ute)?\s*\d+|M\d+|odd|even)(?:\s+min(?:ute)?s?)?\s*[:.)\-–]"
+COUNT_WORDS = {word: index for index, word in enumerate(
+    "one two three four five six seven eight nine ten eleven twelve".split(), start=1)}
+COUNT = rf"\b(\d+|{'|'.join(COUNT_WORDS)})\s+(?:rounds?|intervals?)\b"
 SCHEME = r"(?<![\d.:/])\d{1,4}(?:\s*[-–]\s*\d{1,4}){2,}(?![\d.:/])"
 
 
@@ -142,13 +157,16 @@ def _timed_pairs(clause):
 
 def _work_rest(clause):
     ratios, timed = work_rest_ratios(clause), _timed_pairs(clause)
-    if not (_affirmative_matches(WORK_REST, clause) or any(
+    # Only a quote that is just the label ("0:20 WORK"); "60 seconds rest between rounds" is no interval rest.
+    labelled = [match for match in [re.fullmatch(rf"\s*{LABELLED}\s*", clause, re.I)] if match]
+    if not (_affirmative_matches(WORK_REST, clause) or labelled or any(
             affirmative(clause[:match.start()]) for match in [*ratios, *timed])):
         return None
     facts = {}
     if re.search(r"\btabata\b", clause, re.I):
         facts.update(work_seconds=20, rest_seconds=10, intervals=8, tabata=True)
-    pair = re.search(rf"\b{DOSE}\s*(?:on|work)\b\s*[/,&]?\s*(?:and\s+)?{DOSE}\s*(?:off|rest)\b", clause, re.I)
+    pair = re.search(rf"\b{DOSE}\s*-?\s*(?:on|work)\b\s*[/,&]?\s*(?:and\s+)?{DOSE}\s*-?\s*(?:off|rest)\b",
+                     re.sub(r"(\d)-(?=(?:seconds?|secs?|minutes?|mins?)\b)", r"\1 ", clause, flags=re.I), re.I)
     tabata = re.search(rf"\btabata\s*(:)?{DOSE}\s*/\s*(:)?{DOSE}(?![\d/])(?!\s*(?:reps?|kg|lbs?)\b)", clause, re.I)
     # (work amount, work unit, rest amount, rest unit); a bare or :20 amount is seconds.
     doses = ((pair[1], pair[2], pair[3], pair[4]) if pair
@@ -158,23 +176,28 @@ def _work_rest(clause):
     if doses:
         facts["work_seconds"] = round(seconds(doses[0], doses[1] or "s"))
         facts["rest_seconds"] = round(seconds(doses[2], doses[3] or "s"))
+    else:
+        # Timer pages quote "0:20 WORK" and "0:10 REST" apart; read_format joins them.
+        for match in labelled:
+            key = "work_seconds" if match[3].lower() in {"on", "work"} else "rest_seconds"
+            facts.setdefault(key, round(seconds(match[1], match[2] or "s")))
     count = (re.search(r"(?<![\w.])(\d+)\s*[x×]\s*:?\d", clause)
              or re.search(r"(?:[x×]|\bfor)\s*(\d+)\b(?!\s*(?:s\b|secs?|seconds?|minutes?|mins?|/))", clause, re.I)
              or re.search(r"\b(\d+)\s*(?:rounds?|intervals?|sets?)\b", clause, re.I))
     if count:
         facts["intervals"] = int(count[1])
-    elif "work_seconds" in facts:
+    elif "work_seconds" in facts and "rest_seconds" in facts:
         total = re.search(rf"(?:\btabata\b|\bfor)\s*{UNIT}", clause, re.I)
         cycle = facts["work_seconds"] + facts["rest_seconds"]
         if total and cycle and round(seconds(total[1], total[2])) % cycle == 0:
             facts["intervals"] = round(seconds(total[1], total[2])) // cycle
-    return facts if "work_seconds" in facts else None
+    return facts if "work_seconds" in facts or "rest_seconds" in facts else None
 
 
 READERS = {"emom": _emom, "for_time": _for_time, "work_rest": _work_rest}
 
 
-def read_format(mode: str, quotes, rows=()) -> tuple[dict | None, bool]:
+def read_format(mode: str, quotes, rows=(), moves: int = 1) -> tuple[dict | None, bool]:
     """Merge one mode's facts across quotes; the flag reports conflicting values."""
     merged, conflict = None, False
     # "40s work, 20s rest" is one work/rest pair across a comma.
@@ -195,12 +218,34 @@ def read_format(mode: str, quotes, rows=()) -> tuple[dict | None, bool]:
         if len(caps) == 1:
             merged["time_cap_seconds"] = caps.pop()
         conflict |= len(caps) > 1
+    if merged is not None and mode == "work_rest":
+        if not {"work_seconds", "rest_seconds"} <= merged.keys():
+            return None, False  # Work without its rest (or rest alone) is no interval.
+        if "intervals" not in merged and moves == 1:
+            # The count may sit apart: "0:20 WORK" / "0:10 REST" / "8 ROUNDS", or
+            # "eight rounds of air squats" beside "20-seconds-on, 10-seconds-off".
+            # With several moves "3 rounds" may be rounds of the circuit, not intervals.
+            counts = {int(COUNT_WORDS.get(match[1].lower(), match[1])) for clause in clauses
+                      for match in _affirmative_matches(COUNT, clause)}
+            if len(counts) == 1:
+                merged["intervals"] = counts.pop()
+            conflict |= len(counts) > 1
     if merged is not None and mode == "emom" and (
-            any(_affirmative_matches(ALTERNATING, clause) for clause in clauses)
+            any(_affirmative_matches(ALTERNATING, clause) or _affirmative_matches(NEXT_EACH_INTERVAL, clause)
+                for clause in clauses)
             or any(_affirmative_matches(ODD_EVEN, quote) for quote in quotes)
             or any(re.search(ROTATION_ROW, line, re.I) for line in [*clauses, *_clauses(rows)])):
         merged["rotation"] = "alternating"
     return merged, conflict
+
+
+def row_lines(text: str, wording: str):
+    """Lines holding a quote; a bare "Minute 1:" header on the line above is its row prefix."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if wording in line:
+            above = lines[index - 1] if index else ""
+            yield f"{above} {line}" if re.fullmatch(ROTATION_ROW + r"\s*", above, re.I) else line
 
 
 def work_rest_ratios(wording: str, work_rest_block: bool = False) -> list[re.Match]:

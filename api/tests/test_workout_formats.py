@@ -579,3 +579,182 @@ def test_for_time_format_words_read_multiline_quotes(wording, found):
 
     from app.domains.workouts.execution import FORMAT_WORDS
     assert bool(re.search(FORMAT_WORDS, wording, re.I)) is found
+
+
+# Real pages imported on 2026-11-01 (dev, typed_formats); excerpts are verbatim page text.
+BUILT_FOR_ATHLETES_EMOM = (
+    "EMOM 20\nJuly 1, 2026\nRead time: 1 min\n20 Minutes. One Goal.\n"
+    "This week's Workout of the Week uses a simple EMOM format -\nEvery Minute On the Minute\n.\n"
+    "At the start of each minute, complete the prescribed reps. Once finished, use the remaining time to "
+    "recover before starting the next exercise.\nThe faster and more efficiently you work, the more recovery "
+    "you'll earn.\nMinute 1:\n12 Burpees\nMinute 2:\n15 Goblet Squats\nMinute 3:\n12 Push-Ups\nMinute 4:\n"
+    "15 Sit-Ups\nMinute 5:\n12 Dumbbell Thrusters\nRepeat for\n4 rounds\n.\nThe challenge:\nFinish the "
+    "prescribed reps before the minute is up. Any time remaining is your recovery before the next minute "
+    "begins.\n20 minutes. 5 movements. No designated rest.")
+CROSSFIT_FRAN = (
+    "The Fran Workout\nRx’d\n21-15-9 reps for time of:\nThrusters\nPull-ups\n♀ 65 lb\n♂ 95 lb\n"
+    "The score is determined by the time it takes to complete the workout.\nIntermediate\nFor time:\n"
+    "21-15-9 thrusters\n12-9-6\npull-ups\n♀\n55\nlb\n♂\n75\nlb\nBeginner\n21-15-9 reps for time of:\n"
+    "Thrusters\nRing rows\n♀\n35\nlb\n♂\n45\nlb\nWhat Is the Fran Workout?\n"
+    "Intermediate Variation\nFor time:\n21-15-9 thrusters\n12-9-6 pull-ups\n♀ 55 lb\n♂ 75 lb\n"
+    "Beginner Variation\n21-15-9 reps for time of:\nThrusters\nRing rows\n♀ 35 lb\n♂ 45 lb")
+TWO_MOVE_TABATA = (
+    "Two-Move Tabata\nTimer\nTwo complete Tabatas, back to back: eight rounds of air squats, a one-minute "
+    "reset, then eight rounds of push-ups. Each block runs the classic 20-seconds-on, 10-seconds-off protocol, "
+    "and the timer adds a one-minute warmup before the first block and a one-minute cooldown after the last — "
+    "10:40 all in.\n20/10 Tabata\nThe original protocol — 8 rounds of 20 seconds on, 10 seconds off. Four "
+    "minutes.\n1 INTERVAL\n0:20 WORK\n0:10 REST\n8 ROUNDS\nTotal\n3:50")
+
+
+def on_page(text, data, typed=True):
+    for block in data["blocks"]:
+        for unit in [block, *block["exercises"]]:
+            unit["evidence"] = [entry | {"location": "page_text"} for entry in unit["evidence"]]
+    return ground_workout(data, SourceBundle(SourceMetadata(), [SourcePart("page_text", text)]), typed_formats=typed)
+
+
+def quoted(name, *pairs, **values):
+    """An exercise whose model output quotes only the fields given in pairs."""
+    return {"name": name, **values, "evidence": [ev("name", name), *(ev(field, quote) for field, quote in pairs)]}
+
+
+@pytest.mark.parametrize("model", [None, "alternating"])
+def test_minute_header_lines_rotate_a_real_emom_page(model):
+    # The model quoted "12 Burpees" for reps_min only and the "Minute 1:" header sits on its own line.
+    rows = [("Burpees", 12), ("Goblet Squats", 15), ("Push-Ups", 12), ("Sit-Ups", 15), ("Dumbbell Thrusters", 12)]
+    data = {"title": "EMOM 20", "kind": "session", "estimated_minutes": 20, "blocks": [{
+        "id": "emom-20", "label": "EMOM 20", "grouping": "interval",
+        "execution": {"mode": "emom", "interval_seconds": 60, "intervals": 20, "rotation": model},
+        "evidence": [ev("execution.mode", "EMOM 20"), ev("execution.intervals", "20 Minutes"),
+                     ev("workout_instructions", "20 minutes. 5 movements. No designated rest.")],
+        "exercises": [quoted(name, ("reps_min", f"{reps} {name}"), reps_min=reps, reps_max=reps)
+                      for name, reps in rows]}]}
+    workout, warnings, _ = on_page(BUILT_FOR_ATHLETES_EMOM, data)
+    assert warnings == [] and workout.estimated_minutes == 20
+    assert execution(workout) == {"mode": "emom", "interval_seconds": 60, "intervals": 20, "rotation": "alternating"}
+    assert [(item.reps_min, item.reps_max) for item in workout.blocks[0].exercises] == [(r, r) for _, r in rows]
+
+
+@pytest.mark.parametrize("statement,rotation", [
+    ("Start the next exercise each minute.", "alternating"),
+    ("Move to the next exercise every minute.", "alternating"),
+    ("Rotate through the movements.", "alternating"),
+    ("One movement per minute.", "alternating"),
+    ("Use the remaining time to recover before starting the next exercise.", "alternating"),
+    ("Don't rotate through the movements.", None),
+    ("Move to the next exercise when you finish.", None),
+    ("Rest before the next movement.", None),
+])
+def test_one_move_per_minute_wording_rotates_an_emom(statement, rotation):
+    text = f"EMOM 12\n10 Burpees\n15 Air Squats\n{statement}"
+    data = raw({"mode": "emom", "interval_seconds": 60, "intervals": 12, "rotation": None},
+               [move("Burpees", "10 Burpees", reps_min=10, reps_max=10),
+                move("Air Squats", "15 Air Squats", reps_min=15, reps_max=15)], "EMOM 12", grouping="interval")
+    data["blocks"][0]["evidence"].append(ev("workout_instructions", statement))
+    workout, warnings, _ = ground(text, data)
+    assert workout.blocks[0].execution.rotation == rotation and warnings == []
+
+
+def fran_blocks(*, rx_label="Rx’d", version_mode="for_time"):
+    rx = {"id": "rx", "label": rx_label, "grouping": "sequential", "rounds": 3,
+          "execution": {"mode": "for_time", "time_cap_seconds": None},
+          "evidence": [ev("execution.mode", "21-15-9 reps for time of:"),
+                       ev("workout_instructions", "The score is determined by the time it takes to complete the workout.")],
+          "exercises": [quoted("Thrusters", ("rep_scheme", "21-15-9 reps for time of:"), ("load", "♀ 65 lb\n♂ 95 lb"),
+                               rep_scheme=[21, 15, 9], notes="95/65 lb"),
+                        quoted("Pull-ups", ("rep_scheme", "21-15-9 reps for time of:"), rep_scheme=[21, 15, 9])]}
+    version = {"mode": "for_time", "time_cap_seconds": None} if version_mode == "for_time" else \
+        {"mode": "amrap", "time_cap_seconds": 600}
+    intermediate = {"id": "intermediate", "label": "Intermediate Variation", "grouping": "circuit", "rounds": 3,
+                    "execution": version,
+                    "evidence": [ev("execution.mode", "For time:"), ev("workout_instructions", "Intermediate Variation")],
+                    "exercises": [quoted("Thrusters", ("rep_scheme", "21-15-9 thrusters"), ("load", "♀ 55 lb\n♂ 75 lb"),
+                                         rep_scheme=[21, 15, 9], notes="75/55 lb"),
+                                  quoted("Pull-ups", ("rep_scheme", "12-9-6 pull-ups"), rep_scheme=[12, 9, 6])]}
+    beginner = {"id": "beginner", "label": "Beginner Variation", "grouping": "sequential", "rounds": 3,
+                "execution": {"mode": "for_time", "time_cap_seconds": None},
+                "evidence": [ev("execution.mode", "21-15-9 reps for time of:"),
+                             ev("workout_instructions", "Beginner Variation")],
+                "exercises": [quoted("Thrusters", ("rep_scheme", "21-15-9 reps for time of:"),
+                                     ("load", "♀ 35 lb\n♂ 45 lb"), rep_scheme=[21, 15, 9]),
+                              quoted("Ring rows", ("rep_scheme", "21-15-9 reps for time of:"), rep_scheme=[21, 15, 9])]}
+    return {"title": "Fran", "kind": "session", "blocks": [rx, intermediate, beginner]}
+
+
+def test_fran_is_one_ready_for_time_block_with_its_scaled_versions_as_instructions():
+    workout, warnings, _ = on_page(CROSSFIT_FRAN, fran_blocks())
+    assert warnings == [] and len(workout.blocks) == 1
+    block = workout.blocks[0]
+    assert (block.label, block.grouping, block.rounds) == ("Rx’d", "circuit", 3)
+    assert execution(workout) == {"mode": "for_time"}
+    assert [(item.name, item.rep_scheme, item.reps_min) for item in block.exercises] == [
+        ("Thrusters", [21, 15, 9], None), ("Pull-ups", [21, 15, 9], None)]
+    # A load per sex has no structured field; the creator's wording stays the cue.
+    assert block.exercises[0].instructions == "♀ 65 lb\n♂ 95 lb" and block.exercises[0].load is None
+    assert workout.instructions == [
+        "21-15-9 reps for time of:", "The score is determined by the time it takes to complete the workout.",
+        "Intermediate Variation: Thrusters 21-15-9 (♀ 55 lb ♂ 75 lb); Pull-ups 12-9-6",
+        "Beginner Variation: Thrusters 21-15-9 (♀ 35 lb ♂ 45 lb); Ring rows 21-15-9"]
+
+
+@pytest.mark.parametrize("change", ["warm-up first", "version format not grounded", "legacy build"])
+def test_other_timed_blocks_are_not_folded_as_versions(change):
+    data = fran_blocks(rx_label="Warm-up" if change == "warm-up first" else "Rx’d",
+                       version_mode="amrap" if change == "version format not grounded" else "for_time")
+    if change == "warm-up first":
+        data["blocks"][1]["label"] = "Workout"
+    workout, warnings, _ = on_page(CROSSFIT_FRAN, data, typed=change != "legacy build")
+    assert len(workout.blocks) == 3
+    assert not any(line.startswith("Intermediate Variation:") for line in workout.instructions)
+    if change != "legacy build":
+        assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+
+
+def test_two_back_to_back_tabatas_keep_their_work_rest_clock():
+    quotes = [ev("execution.mode", "Each block runs the classic 20-seconds-on, 10-seconds-off protocol"),
+              ev("execution.work_seconds", "0:20 WORK"), ev("execution.rest_seconds", "0:10 REST"),
+              ev("execution.intervals", "8 ROUNDS")]
+    data = {"title": "Two-Move Tabata", "kind": "session", "blocks": [
+        {"id": key, "label": f"{name} Tabata", "grouping": "interval",
+         "execution": {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 8},
+         "evidence": [ev("label", f"eight rounds of {name.lower()}"), *quotes],
+         "exercises": [quoted(name, ("name", name.lower()))]}
+        for key, name in (("squats", "Air squats"), ("push-ups", "Push-ups"))]}
+    workout, warnings, _ = on_page(TWO_MOVE_TABATA, data)
+    assert [block.execution.model_dump() for block in workout.blocks] == [
+        {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 8}] * 2
+    # The page runs eight rounds of each move in turn, not alternating moves:
+    # two timed parts, which the player still runs one per session.
+    assert warnings == ["Review the timed blocks as separate single-circuit workouts before training."]
+
+
+@pytest.mark.parametrize("quotes,value", [
+    (["Squats 20-seconds-on, 10-seconds-off for 8 rounds"], {"work_seconds": 20, "rest_seconds": 10, "intervals": 8}),
+    (["0:30 WORK", "0:15 REST", "6 ROUNDS"], {"work_seconds": 30, "rest_seconds": 15, "intervals": 6}),
+    # The live import quoted the count in words beside the hyphenated on/off sentence.
+    (["Each block runs the classic 20-seconds-on, 10-seconds-off protocol", "eight rounds of air squats"],
+     {"work_seconds": 20, "rest_seconds": 10, "intervals": 8}),
+    (["20 seconds on, 10 seconds off", "8 rounds", "6 rounds"], {"work_seconds": 20, "rest_seconds": 10, "intervals": None}),
+    (["0:20 WORK", "8 ROUNDS"], None),
+    # A rest between rounds is not the interval rest.
+    (["Tabata squats", "60 seconds rest between rounds"], {"work_seconds": 20, "rest_seconds": 10, "intervals": 8}),
+])
+def test_work_rest_reads_hyphenated_and_split_timer_quotes(quotes, value):
+    text = "\n".join(quotes)
+    model = {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": 8} | (value or {})
+    data = raw(model, [move("Squats", "Squats")], quotes[0], grouping="interval")
+    data["blocks"][0]["evidence"] += [ev("execution.intervals", quote) for quote in quotes[1:]]
+    workout, warnings, _ = ground(text, data)
+    got = execution(workout)
+    assert (got and {key: got.get(key) for key in value}) == value if value else got is None
+    assert ("The timed execution for Main needs source review." in warnings) is (value is None or not value["intervals"])
+
+
+def test_a_count_quoted_apart_is_not_the_interval_count_of_a_circuit():
+    text = "20 seconds on, 10 seconds off\n10 Squats\n10 Push-ups\n3 rounds"
+    data = raw({"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10, "intervals": None},
+               [move("Squats", "10 Squats"), move("Push-ups", "10 Push-ups")], "20 seconds on, 10 seconds off",
+               grouping="interval")
+    data["blocks"][0]["evidence"].append(ev("execution.intervals", "3 rounds"))
+    workout, _, _ = ground(text, data)
+    assert execution(workout) == {"mode": "work_rest", "work_seconds": 20, "rest_seconds": 10}
