@@ -13,6 +13,7 @@ import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Scree
 import { RecordRow } from "@/components/record-row";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
+import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { ensureAiConsent } from "../../lib/ai-consent";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
@@ -21,6 +22,7 @@ export default function RecordDetail() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [missing, setMissing] = useState(false),
+    [editingTiming, setEditingTiming] = useState(false),
     record = b.records.find((r) => r.id === id),
     pending = b.state.outbox.some((m) => m.type !== "import" && m.record.id === id);
   useEffect(() => {
@@ -205,7 +207,10 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
+      {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
+        onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
       <Grouped>
+      {record.kind === "source" && !record.cache_partial && !editingTiming && <TimingRow relevance={data.relevance} onPress={() => setEditingTiming(true)} />}
       <Row
         title="Edit this entry"
         icon="pencil-outline"

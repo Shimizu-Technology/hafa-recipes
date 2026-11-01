@@ -866,7 +866,7 @@ async def test_production_fallback_tracks_workout_schema_no_actual_provider(monk
     ]
     assert all(attempt.values["capability"] == "workout_extraction" for attempt in attempts)
     assert all(
-        attempt.values["schema_version"] == "workout-prescription-v2" for attempt in attempts
+        attempt.values["schema_version"] == "workout-prescription-v3" for attempt in attempts
     )
     assert payloads[0]["store"] is False and payloads[0]["response_format"]["type"] == "json_schema"
     assert len(payloads) == (1 if denied else 2)

@@ -1,7 +1,7 @@
 """Versioned prescriptions are independent from immutable recorded actuals."""
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -47,6 +47,11 @@ class ExercisePrescription(DomainModel):
     load_unit: Literal["kg", "lb"] | None = None
     load_convention: Literal["total", "per_hand", "added", "assistance"] | None = None
     effort: str | None = Field(default=None, max_length=500)
+    # Reps per round for 21-15-9 style schemes, or an open/closed rep ladder.
+    # Absent keys keep legacy snapshots, and their content hashes, unchanged.
+    rep_scheme: list[Annotated[StrictInt, Field(ge=1, le=1000)]] | None = Field(
+        default=None, min_length=2, max_length=100, exclude_if=lambda value: value is None)
+    ladder: "RepLadder | None" = Field(default=None, exclude_if=lambda value: value is None)
     # Shareable prescription cues; legacy notes remain owner-only.
     instructions: str | None = Field(default=None, max_length=2000, exclude_if=lambda value: value is None)
     notes: str | None = Field(default=None, max_length=2000)
@@ -62,9 +67,52 @@ class ExercisePrescription(DomainModel):
         return self
 
 
-class WorkoutExecution(DomainModel):
+class RepLadder(DomainModel):
+    """Reps change by step each round or interval; an open ladder runs to failure."""
+
+    start: StrictInt = Field(ge=1, le=1000)
+    step: StrictInt = Field(ge=-100, le=100)
+    end: StrictInt | None = Field(default=None, ge=1, le=1000)
+
+
+ExercisePrescription.model_rebuild()
+
+
+class AmrapExecution(DomainModel):
     mode: Literal["amrap"]
     time_cap_seconds: StrictInt = Field(ge=1, le=86400)
+
+
+class EmomExecution(DomainModel):
+    """Every interval (60 s for EMOM/OTM), for a known or unknown number of intervals."""
+
+    mode: Literal["emom"]
+    interval_seconds: StrictInt = Field(default=60, ge=1, le=3600)
+    intervals: StrictInt | None = Field(default=None, ge=1, le=1440)
+    rotation: Literal["alternating", "together"] | None = None
+
+
+class ForTimeExecution(DomainModel):
+    """Complete the block's rounds (one pass when unset) as fast as possible."""
+
+    mode: Literal["for_time"]
+    time_cap_seconds: StrictInt | None = Field(default=None, ge=1, le=86400)
+
+
+class WorkRestExecution(DomainModel):
+    """Fixed work and rest intervals, such as Tabata or 30 on / 30 off."""
+
+    mode: Literal["work_rest"]
+    work_seconds: StrictInt = Field(ge=1, le=3600)
+    rest_seconds: StrictInt = Field(ge=0, le=3600)
+    intervals: StrictInt | None = Field(default=None, ge=1, le=1000)
+
+
+# Clients that predate a mode never receive it; see extraction typed_formats.
+WorkoutExecution = Annotated[
+    Union[AmrapExecution, EmomExecution, ForTimeExecution, WorkRestExecution],
+    Field(discriminator="mode"),
+]
 
 
 class WorkoutBlock(DomainModel):

@@ -18,10 +18,12 @@ export default function TabLayout() {
   useEffect(() => {
     if (isLoaded) prefetchTabData(queryClient, Boolean(isSignedIn));
   }, [queryClient, isSignedIn, isLoaded, userId]);
-  return <NativeTabs unstable_nativeProps={{ colorScheme }} tintColor={colors.tint} minimizeBehavior="onScrollDown">
+  // iOS 18 draws a full-width bar that turns transparent at the scroll edge, so labels vanish over
+  // photo grids. Keep its material on; iOS 26 Liquid Glass ignores this and still floats.
+  return <NativeTabs unstable_nativeProps={{ colorScheme }} tintColor={colors.tint} minimizeBehavior="onScrollDown" disableTransparentOnScrollEdge>
     <NativeTabs.Trigger name="recipes">
       <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
-      <NativeTabs.Trigger.Icon sf="books.vertical" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="book-outline" />} />
+      <NativeTabs.Trigger.Icon sf={{ default: "books.vertical", selected: "books.vertical.fill" }} src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="book-outline" />} />
     </NativeTabs.Trigger>
     <NativeTabs.Trigger name="discover">
       <NativeTabs.Trigger.Label>Discover</NativeTabs.Trigger.Label>
@@ -33,7 +35,7 @@ export default function TabLayout() {
     </NativeTabs.Trigger>
     <NativeTabs.Trigger name="grocery">
       <NativeTabs.Trigger.Label>Grocery</NativeTabs.Trigger.Label>
-      <NativeTabs.Trigger.Icon sf="cart" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="cart-outline" />} />
+      <NativeTabs.Trigger.Icon sf={{ default: "cart", selected: "cart.fill" }} src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="cart-outline" />} />
     </NativeTabs.Trigger>
     <NativeTabs.Trigger name="search" role="search">
       <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>

@@ -13,7 +13,7 @@ import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 export function JournalContent({ careHistory = false }: { careHistory?: boolean }) {
-  const params = useLocalSearchParams<{ filter?: string }>();
+  const params = useLocalSearchParams<{ filter?: string; at?: string }>();
   const b = useBaby(),
     [filter, setFilter] = useState(careHistory ? "care" : "journal"),
     [q, setQ] = useState(""),
@@ -30,7 +30,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     if (params.filter === "care") router.replace("/care-history");
     else if (params.filter && ["all", "journal", "question"].includes(params.filter))
       setFilter(params.filter === "all" ? "writing" : params.filter);
-  }, [params.filter, careHistory]);
+  }, [params.filter, params.at, careHistory]);
   useEffect(() => { setPreparing(false); setSelected([]); }, [filter]);
   const latest = useRef(b);
   latest.current = b;

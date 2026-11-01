@@ -153,6 +153,7 @@ class CaptureRequest(DomainModel):
     capture_id: UUID
     url: str = Field(min_length=1, max_length=2000)
     is_public: StrictBool = False
+    typed_formats: StrictBool = False  # The sharing build runs EMOM/for-time/work-rest formats.
 
     @field_validator("url")
     @classmethod
@@ -178,7 +179,8 @@ async def submit(request: CaptureRequest, db: Database, credential: Credential):
             raise HTTPException(403, "Open Workouts to enable sharing to Discover")
         await require_discover(db)
         await require_current_publishing_disclosure(db, credential.app_user_id)
-    source = ExtractionRequest(kind="url", source_url=request.url, ai_consent=True)
+    source = ExtractionRequest(kind="url", source_url=request.url, ai_consent=True,
+                               typed_formats=request.typed_formats)
     existing = await db.scalar(
         select(WorkoutImport).where(
             WorkoutImport.app_user_id == credential.app_user_id,
