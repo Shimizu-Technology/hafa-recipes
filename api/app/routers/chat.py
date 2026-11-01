@@ -686,10 +686,9 @@ async def chat_about_recipe(
     - And more!
     """
     recipe = await _authorized_recipe(db, recipe_id, user)
-    library = await _library_for_turn(db, request, user, exclude_recipe_id=recipe.id)
-
-    # Build the context and system prompt
+    # Read the recipe before the library lookup, which ends the transaction.
     recipe_context = build_recipe_context(recipe)
+    library = await _library_for_turn(db, request, user, exclude_recipe_id=recipe_id)
     system_prompt = build_system_prompt(recipe_context, library)
 
     messages = _chat_messages(
@@ -752,10 +751,12 @@ async def stream_chat_about_recipe(
     recipe = await _authorized_recipe(db, recipe_id, user)
     if not settings.is_ai_capability_enabled("recipe_chat"):
         raise HTTPException(status_code=503, detail="Recipe chat is temporarily unavailable")
-    library = await _library_for_turn(db, request, user, exclude_recipe_id=recipe.id)
+    # Read the recipe before the library lookup, which ends the transaction.
+    recipe_context = build_recipe_context(recipe)
+    library = await _library_for_turn(db, request, user, exclude_recipe_id=recipe_id)
 
     messages = _chat_messages(
-        system_prompt=build_system_prompt(build_recipe_context(recipe), library),
+        system_prompt=build_system_prompt(recipe_context, library),
         request=request,
         user_id=user.id,
     )

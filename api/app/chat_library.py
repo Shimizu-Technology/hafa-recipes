@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import String, and_, cast, func, literal_column, or_, select
+from sqlalchemy import String, and_, case, cast, func, literal, literal_column, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.recipe import Recipe, SavedRecipe
@@ -25,8 +25,6 @@ logger = logging.getLogger(__name__)
 FULL_INDEX_MAX = 40
 # Larger libraries send at most this many best matches, then recent recipes.
 RETRIEVED_MAX = 25
-# Upper bound on keyword candidates loaded from SQL before ranking.
-SEARCH_CANDIDATE_MAX = 200
 MAX_RECIPE_REFS = 8
 MAX_QUERY_TERMS = 10
 MAX_TITLE_CHARS = 100
@@ -34,6 +32,10 @@ MAX_LABEL_CHARS = 40
 MAX_TAGS = 6
 MAX_INGREDIENTS = 8
 QUICK_MINUTES = 30
+# A slow lookup degrades to "library unavailable" instead of stalling chat.
+LOOKUP_STATEMENT_TIMEOUT = "1s"
+# Naming a recipe's whole title outranks any number of single-word matches.
+TITLE_PHRASE_SCORE = 10
 
 _STOPWORDS = frozenset("""
 about all also and any anything are can cook cooked cooking could did dish dishes
@@ -46,6 +48,12 @@ what whats when where which who why will with would you your yours
 _QUICK_WORDS = frozenset({"quick", "quickly", "fast", "speedy", "weeknight"})
 _MINUTES_PATTERN = re.compile(r"\b(\d{1,3})\s*-?\s*(?:min|mins|minute|minutes)\b")
 _WORD_PATTERN = re.compile(r"[^\W_]+")
+# One-word titles ("Rice") link only when the answer clearly names them.
+_OPENERS = ("**", "__", '"', "\u201c", "'", "\u2018", "*", "_")
+_CLOSERS = {"**": "**", "__": "__", '"': '"', "\u201c": "\u201d", "'": "'",
+            "\u2018": "\u2019", "*": "*", "_": "_"}
+_LIST_PREFIX = re.compile(r"^\s*(?:[-*\u2022+]|\d+[.)])\s+(?:\*\*|__)?$")
+_LIST_SUFFIX = re.compile(r"^(?:\*\*|__)?\s*(?:$|[:(\u2014\u2013-])")
 
 
 @dataclass(frozen=True)
@@ -111,37 +119,37 @@ class LibraryContext:
 
 Library rules:
 - When the user asks what recipes they have, only name recipes listed in <recipe_library>. Never invent a library recipe or claim they have one that is not listed.
-- When you mention a library recipe, write its exact title so the app can link it.
+- When you mention a library recipe, write its exact title in bold so the app can link it.
 - Refer to these simply as the user's recipes. Do not mention this list or how it was chosen.
 - {missing} You may then offer general ideas, clearly labelled as not from their library."""
 
     def recipe_refs(self, answer: str) -> list[dict]:
-        """Return library recipes whose exact title the answer mentions, in order."""
-        text = f" {_normalize(answer)} "
-        titles = {entry.id: _normalize(entry.title) for entry in self.entries}
-        spans: dict[str, list[tuple[int, int]]] = {}
-        for title in set(titles.values()):
-            if len(title) >= 3:
-                spans[title] = [
-                    match.span()
-                    for match in re.finditer(rf"(?<= ){re.escape(title)}(?= )", text)
-                ]
+        """Return library recipes the answer names by whole title, in answer order."""
+        spans: dict[tuple[str, ...], list[tuple[int, int]]] = {}
+        for entry in self.entries:
+            words = tuple(_WORD_PATTERN.findall(entry.title.lower()))
+            if words in spans or len("".join(words)) < 3:
+                continue
+            spans[words] = [
+                match.span() for match in _title_pattern(words).finditer(answer)
+                if len(words) > 1 or _clearly_named(answer, *match.span())
+            ]
 
-        def first_uncovered(title: str) -> int | None:
-            # "Chicken" should not link when the answer names "Chicken Adobo".
+        def first_uncovered(words: tuple[str, ...]) -> int | None:
+            # "Rice" should not link when the answer names "Garlic Fried Rice".
             longer = [
                 span for other, other_spans in spans.items()
-                if len(other) > len(title) for span in other_spans
+                if len(other) > len(words) for span in other_spans
             ]
             starts = [
-                start for start, end in spans.get(title, [])
+                start for start, end in spans.get(words, [])
                 if not any(o_start <= start and end <= o_end for o_start, o_end in longer)
             ]
             return min(starts) if starts else None
 
         mentioned = []
         for entry in self.entries:
-            position = first_uncovered(titles[entry.id])
+            position = first_uncovered(tuple(_WORD_PATTERN.findall(entry.title.lower())))
             if position is not None:
                 mentioned.append((position, entry))
         mentioned.sort(key=lambda item: item[0])
@@ -157,11 +165,27 @@ Library rules:
         ]
 
 
+def _title_pattern(words: tuple[str, ...]) -> re.Pattern:
+    """Match the whole title, allowing markup or spacing but not sentence breaks."""
+    joined = r"(?:[^\w\n.!?]|_)+".join(re.escape(word) for word in words)
+    return re.compile(rf"(?<![^\W_]){joined}(?![^\W_])", re.IGNORECASE)
+
+
+def _clearly_named(answer: str, start: int, end: int) -> bool:
+    """True when a match is bold, quoted, or a whole list item."""
+    for opener in _OPENERS:
+        if answer[:start].endswith(opener) and answer[end:].startswith(_CLOSERS[opener]):
+            return True
+    line_start = answer.rfind("\n", 0, start) + 1
+    line_end = answer.find("\n", end)
+    line_end = len(answer) if line_end == -1 else line_end
+    return bool(
+        _LIST_PREFIX.match(answer[line_start:start])
+        and _LIST_SUFFIX.match(answer[end:line_end])
+    )
+
+
 UNAVAILABLE_LIBRARY = LibraryContext(total=0, entries=(), complete=False, unavailable=True)
-
-
-def _normalize(value: str) -> str:
-    return " ".join(_WORD_PATTERN.findall(value.lower()))
 
 
 def _clean(value: object, limit: int) -> str:
@@ -198,13 +222,16 @@ def query_terms(*texts: str) -> tuple[list[set[str]], int | None]:
     terms: list[set[str]] = []
     seen: set[str] = set()
     max_minutes = None
-    for text in texts:
-        lowered = text.lower()
-        if minutes := _MINUTES_PATTERN.search(lowered):
-            max_minutes = int(minutes.group(1))
-        for word in _WORD_PATTERN.findall(lowered):
-            if word in _QUICK_WORDS and max_minutes is None:
+    # Texts arrive newest first, so the current message's time hint wins.
+    for message in texts:
+        lowered = message.lower()
+        words = _WORD_PATTERN.findall(lowered)
+        if max_minutes is None:
+            if minutes := _MINUTES_PATTERN.search(lowered):
+                max_minutes = int(minutes.group(1))
+            elif any(word in _QUICK_WORDS for word in words):
                 max_minutes = QUICK_MINUTES
+        for word in words:
             if len(word) < 3 or word.isdigit() or word in _STOPWORDS or word in seen:
                 continue
             seen.add(word)
@@ -229,13 +256,12 @@ def _ingredient_names(path: str):
 _TITLE = Recipe.extracted["title"].astext
 _COMPONENT_INGREDIENTS = _ingredient_names("$.components[*].ingredients[*].name")
 _LEGACY_INGREDIENTS = _ingredient_names("$.ingredients[*].name")
-_SEARCHABLE = func.lower(func.concat_ws(
-    " ",
-    _TITLE,
-    cast(Recipe.extracted["tags"], String),
-    cast(Recipe.extracted["mealTypes"], String),
-    cast(_COMPONENT_INGREDIENTS, String),
-    cast(_LEGACY_INGREDIENTS, String),
+_TITLE_TEXT = func.lower(func.coalesce(_TITLE, ""))
+_LABEL_TEXT = func.lower(func.concat_ws(
+    " ", cast(Recipe.extracted["tags"], String), cast(Recipe.extracted["mealTypes"], String),
+))
+_INGREDIENT_TEXT = func.lower(func.concat_ws(
+    " ", cast(_COMPONENT_INGREDIENTS, String), cast(_LEGACY_INGREDIENTS, String),
 ))
 _COLUMNS = (
     Recipe.id,
@@ -281,11 +307,13 @@ def _entry(row) -> LibraryEntry:
     )
 
 
-def _score(entry: LibraryEntry, terms: list[set[str]], max_minutes: int | None) -> int:
+def _score(
+    entry: LibraryEntry, terms: list[set[str]], max_minutes: int | None, question: str
+) -> int:
     title = entry.title.lower()
     labels = " ".join(entry.labels)
     ingredients = " ".join(entry.ingredients)
-    score = 0
+    score = TITLE_PHRASE_SCORE if len(title) >= 3 and title in question else 0
     for variants in terms:
         if any(variant in title for variant in variants):
             score += 3
@@ -299,12 +327,41 @@ def _score(entry: LibraryEntry, terms: list[set[str]], max_minutes: int | None) 
 
 
 def _ranked(
-    entries: list[LibraryEntry], terms: list[set[str]], max_minutes: int | None
+    entries: list[LibraryEntry], terms: list[set[str]], max_minutes: int | None, question: str
 ) -> list[tuple[int, LibraryEntry]]:
-    scored = [(_score(entry, terms, max_minutes), entry) for entry in entries]
+    scored = [(_score(entry, terms, max_minutes, question), entry) for entry in entries]
     # Python's sort is stable, so equal scores keep newest-first SQL order.
     scored.sort(key=lambda item: -item[0])
     return scored
+
+
+def _sql_score(terms: list[set[str]], max_minutes: int | None, question: str):
+    """The same score as _score, computed in SQL so ranking covers the whole library."""
+    def contains(column, variants):
+        return or_(*[column.like(f"%{variant}%") for variant in variants])
+
+    parts = [
+        case(
+            (and_(func.length(_TITLE_TEXT) >= 3,
+                  func.strpos(literal(question), _TITLE_TEXT) > 0), TITLE_PHRASE_SCORE),
+            else_=0,
+        )
+    ]
+    parts += [
+        case(
+            (contains(_TITLE_TEXT, variants), 3),
+            (contains(_LABEL_TEXT, variants), 2),
+            (contains(_INGREDIENT_TEXT, variants), 1),
+            else_=0,
+        )
+        for variants in terms
+    ]
+    if max_minutes is not None:
+        parts.append(case((Recipe.total_minutes <= max_minutes, 2), else_=0))
+    score = parts[0]
+    for part in parts[1:]:
+        score = score + part
+    return score
 
 
 async def load_library_context(
@@ -319,6 +376,7 @@ async def load_library_context(
     if exclude_recipe_id is not None:
         scope.append(Recipe.id != exclude_recipe_id)
     terms, max_minutes = query_terms(*texts)
+    question = " ".join(" ".join(message.split()) for message in texts).lower()
     newest = (Recipe.created_at.desc(), Recipe.id.desc())
 
     recent_rows = (await db.execute(
@@ -326,26 +384,24 @@ async def load_library_context(
     )).all()
     recent = [_entry(row) for row in recent_rows]
     if len(recent) <= FULL_INDEX_MAX:
-        ranked = _ranked(recent, terms, max_minutes)
+        ranked = _ranked(recent, terms, max_minutes, question)
         return LibraryContext(
             total=len(recent), entries=tuple(entry for _, entry in ranked), complete=True,
         )
 
     total = (await db.execute(select(func.count()).select_from(Recipe).where(*scope))).scalar_one()
-    matches: list[LibraryEntry] = []
-    filters = [_SEARCHABLE.like(f"%{variant}%") for variants in terms for variant in variants]
-    if max_minutes is not None:
-        filters.append(Recipe.total_minutes <= max_minutes)
-    if filters:
-        candidate_rows = (await db.execute(
-            select(*_COLUMNS).where(*scope, or_(*filters))
-            .order_by(*newest).limit(SEARCH_CANDIDATE_MAX)
-        )).all()
-        matches = [
-            entry for score, entry in
-            _ranked([_entry(row) for row in candidate_rows], terms, max_minutes)
-            if score > 0
-        ][:RETRIEVED_MAX]
+    # Rank every matching recipe in SQL so older, better matches are never
+    # crowded out by many newer partial ones.
+    score = _sql_score(terms, max_minutes, question).label("score")
+    ranked = (
+        select(*_COLUMNS, score).where(*scope).subquery()
+    )
+    match_rows = (await db.execute(
+        select(ranked).where(ranked.c.score > 0)
+        .order_by(ranked.c.score.desc(), ranked.c.created_at.desc(), ranked.c.id.desc())
+        .limit(RETRIEVED_MAX)
+    )).all()
+    matches = [_entry(row) for row in match_rows]
 
     chosen = {entry.id: entry for entry in matches}
     for entry in recent:
@@ -356,9 +412,17 @@ async def load_library_context(
 
 
 async def safe_library_context(db: AsyncSession, **kwargs) -> LibraryContext:
-    """Never let library lookup break chat; tell the model it is unavailable."""
+    """Never let library lookup break chat; tell the model it is unavailable.
+
+    The transaction always ends here, so chat never holds a pooled connection
+    idle in transaction while the model answers. Callers must read anything
+    they need from loaded ORM objects first: the failure rollback expires them.
+    """
     try:
-        return await load_library_context(db, **kwargs)
+        await db.execute(text(f"SET LOCAL statement_timeout = '{LOOKUP_STATEMENT_TIMEOUT}'"))
+        library = await load_library_context(db, **kwargs)
+        await db.commit()
+        return library
     except Exception as exc:
         logger.warning("chat_library_unavailable error=%s", type(exc).__name__)
         try:

@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -13,6 +14,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.chat_library as chat_library_module
 import app.routers.chat as chat_router_module
 from app import ai_governance
 from app.auth import ClerkUser, get_current_user
@@ -23,6 +25,7 @@ from app.chat_library import (
     LibraryEntry,
     load_library_context,
     query_terms,
+    safe_library_context,
 )
 from app.db.database import Base, get_db
 from app.models import ai, deletion, grocery, identity, meal_plan, moderation  # noqa: F401
@@ -74,6 +77,13 @@ def test_query_terms_drop_filler_words_and_read_time_hints():
     assert query_terms("dinner under 20 minutes")[1] == 20
 
 
+def test_current_message_time_hint_beats_earlier_turns():
+    assert query_terms("under 15 minutes please", "anything quick?")[1] == 15
+    assert query_terms("something quick", "under 45 minutes")[1] == 30
+    # A follow-up with no hint of its own keeps the earlier one.
+    assert query_terms("and for dessert?", "under 45 minutes")[1] == 45
+
+
 def test_refs_only_name_listed_recipes_in_answer_order_preferring_longer_titles():
     adobo = _entry("Chicken Adobo", thumbnail_url=None)
     chicken = _entry("Chicken")
@@ -89,6 +99,25 @@ def test_refs_only_name_listed_recipes_in_answer_order_preferring_longer_titles(
     assert refs[1] == {"id": str(adobo.id), "title": "Chicken Adobo", "image_url": None}
     assert library.recipe_refs("Nothing in your library matches.") == []
     assert UNAVAILABLE_LIBRARY.recipe_refs("Chicken Adobo") == []
+
+
+def test_one_word_titles_link_only_when_clearly_named():
+    rice, salad = _entry("Rice"), _entry("Salad")
+    garlic_rice = _entry("Garlic Fried Rice")
+    library = LibraryContext(total=3, entries=(rice, salad, garlic_rice), complete=True)
+
+    def titles(answer):
+        return [ref["title"] for ref in library.recipe_refs(answer)]
+
+    assert titles("Serve it over rice with a green salad.") == []
+    assert titles("Make your garlic fried rice. Plain rice works too.") == ["Garlic Fried Rice"]
+    assert titles('Try **Rice** first, or your "Salad".') == ["Rice", "Salad"]
+    assert titles("From your recipes:\n- Salad — crisp and quick\n1. **Rice**") == [
+        "Salad", "Rice",
+    ]
+    assert titles("- Salad dressing goes on last") == []
+    # Multi-word titles need the whole phrase, not a sentence break between words.
+    assert titles("Use garlic. Fried rice is best cold.") == []
 
 
 def test_prompt_section_states_empty_unavailable_and_partial_libraries():
@@ -413,3 +442,100 @@ async def test_chat_endpoints_return_only_library_refs_end_to_end(sessions, monk
     assert "Chicken Adobo" not in library_block
     assert "Secret Chicken Curry" not in recipe_prompt
     assert "Private Chicken Pie" not in recipe_prompt
+
+
+@requires_postgres
+@pytest.mark.asyncio
+async def test_old_exact_title_beats_many_newer_partial_matches(sessions):
+    now = datetime.now(UTC)
+    async with sessions() as db:
+        db.add(AppUser(id="lib_crowded"))
+        await db.flush()
+        old_adobo = _recipe("lib_crowded", "Chicken Adobo", ingredients=["chicken", "vinegar"],
+                            created_at=now - timedelta(days=1_000))
+        db.add_all([old_adobo, *[
+            _recipe("lib_crowded", f"Chicken Soup {index}", ingredients=["chicken"],
+                    created_at=now - timedelta(minutes=index))
+            for index in range(300)
+        ]])
+        await db.commit()
+        library = await load_library_context(
+            db, user_id="lib_crowded", texts=["what goes with Chicken Adobo?"]
+        )
+
+    assert not library.complete and library.total == 301
+    assert library.entries[0].id == old_adobo.id
+
+
+@requires_postgres
+@pytest.mark.asyncio
+async def test_lookup_always_ends_its_transaction_and_times_out(sessions, monkeypatch):
+    async with sessions() as db:
+        db.add(AppUser(id="lib_txn"))
+        await db.commit()
+        library = await safe_library_context(db, user_id="lib_txn", texts=["chicken"])
+        assert library.total == 0 and not db.in_transaction()
+
+    async def slow_lookup(db, **_kwargs):
+        await db.execute(text("SELECT pg_sleep(5)"))
+
+    monkeypatch.setattr(chat_library_module, "load_library_context", slow_lookup)
+    async with sessions() as db:
+        started = time.monotonic()
+        library = await safe_library_context(db, user_id="lib_txn", texts=["chicken"])
+        assert library is UNAVAILABLE_LIBRARY
+        assert time.monotonic() - started < 4
+        assert not db.in_transaction()
+
+
+@requires_postgres
+@pytest.mark.asyncio
+async def test_recipe_chat_answers_normally_when_library_lookup_fails(sessions, monkeypatch):
+    async with sessions() as db:
+        adobo = await _seed_two_users(db)
+
+    async def failing_lookup(db, **_kwargs):
+        # Abort the real transaction so the fallback must roll back.
+        await db.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(chat_library_module, "load_library_context", failing_lookup)
+    monkeypatch.setattr(ai_governance, "record_ai_invocation", AsyncMock())
+
+    async def create(**kwargs):
+        if kwargs.get("stream"):
+            return FakeProviderStream([provider_chunk("Simmer gently.")])
+        return SimpleNamespace(
+            id="provider",
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Simmer gently."))],
+            usage=None,
+        )
+
+    provider = AsyncMock(side_effect=create)
+    monkeypatch.setattr(chat_router_module.openai_client.chat.completions, "create", provider)
+    app = FastAPI()
+    app.include_router(chat_router_module.router)
+    app.dependency_overrides[get_current_user] = lambda: _user("lib_owner")
+
+    async def db_session():
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = db_session
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/api/recipes/{adobo.id}/chat", json={"message": "heat?"})
+        assert response.status_code == 200
+        assert response.json() == {"response": "Simmer gently.", "recipe_refs": []}
+        stream = await client.post(
+            f"/api/recipes/{adobo.id}/chat/stream", json={"message": "heat?"}
+        )
+        assert [json.loads(line) for line in stream.text.splitlines()] == [
+            {"type": "delta", "text": "Simmer gently."},
+            {"type": "done"},
+        ]
+
+    for call in provider.await_args_list:
+        prompt = call.kwargs["messages"][0]["content"]
+        assert "RECIPE: Chicken Adobo" in prompt
+        assert "could not be loaded" in prompt
