@@ -21,6 +21,16 @@ export function headerActions(element: ReactElement | undefined) {
   };
 }
 
+/** The back control as stack options: our header button instead of the system one (which iOS 26 draws as glass). Swipe-back still works. */
+export function headerBack(element: ReactElement | undefined) {
+  if (!element) return {};
+  return {
+    headerBackVisible: false,
+    headerLeft: () => element,
+    unstable_headerLeftItems: () => [{ type: "custom" as const, element, hidesSharedBackground: true }],
+  };
+}
+
 /** Each tab owns a native stack so iOS can collapse its large title on scroll. The header is always opaque. */
 export function NativeTabStack({ title }: { title: string }) {
   const c = useColors();
