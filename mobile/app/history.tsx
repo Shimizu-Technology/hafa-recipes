@@ -25,6 +25,8 @@ import { useViewPreference } from '@/hooks/useViewPreference';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import { useAuth } from '@clerk/expo';
 
+const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
+
 const ITEMS_PER_PAGE = 20;
 
 /** Render a library recipe as a compact list card. */
@@ -454,8 +456,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       );
     }
 
-    return <LibraryStatus active={active} needsCheck={needsCheckCount} checking={needsCheckOnly} onNeedsCheck={() => { setNeedsCheckOnly(value => !value); setDisplayCount(ITEMS_PER_PAGE); }} onFilter={() => setShowFilterModal(true)} />;
-  }, [active, colors, needsCheckCount, needsCheckOnly, isSelectionMode, selectedRecipeIds.size, allShownSelected, exitSelectionMode, selectAllRecipes, clearSelection]);
+    return <LibraryStatus active={active} needsCheck={needsCheckCount} checking={needsCheckOnly} onNeedsCheck={() => { setNeedsCheckOnly(value => !value); setDisplayCount(ITEMS_PER_PAGE); }} onFilter={() => setShowFilterModal(true)} filterCount={activeFilterCount} />;
+  }, [active, colors, needsCheckCount, needsCheckOnly, activeFilterCount, isSelectionMode, selectedRecipeIds.size, allShownSelected, exitSelectionMode, selectAllRecipes, clearSelection]);
 
   const filteredEmpty = needsCheckOnly || hasActiveFilters || ownershipFilter !== 'all';
   const clearSearchAndFilters = () => {
@@ -580,9 +582,12 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
                 </RNView>
               </RNView>
             )}
-            {activeFilterCount > 0 && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear library filters" onPress={clearSearchAndFilters} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
-              <Text style={{ color: colors.textSecondary }}>{[sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && (timeFilter === 'quick' ? 'Under 30 min' : timeFilter === 'medium' ? '30–60 min' : '60+ min'), ...selectedTags, ownershipFilter !== 'all' && ownershipFilter].filter(Boolean).join(' · ')} ×</Text>
-            </TouchableOpacity>}
+            {activeFilterCount > 0 && <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, marginTop: -8, marginBottom: 12 }}>
+              <Text style={{ flexShrink: 1, fontSize: 15, lineHeight: 20, color: colors.textSecondary }}>{`Showing: ${[sourceFilter !== 'all' && SOURCE_LABELS[sourceFilter], timeFilter !== 'all' && (timeFilter === 'quick' ? 'Under 30 min' : timeFilter === 'medium' ? '30–60 min' : '60+ min'), ...selectedTags, ownershipFilter !== 'all' && (ownershipFilter === 'own' ? 'My recipes' : 'Saved')].filter(Boolean).join(', ')}`}</Text>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear library filters" onPress={clearSearchAndFilters} hitSlop={{ left: 8, right: 8 }} style={{ minHeight: 44, justifyContent: 'center' }}>
+                <Text style={{ fontSize: 15, lineHeight: 20, color: colors.actionText }}>Clear</Text>
+              </TouchableOpacity>
+            </RNView>}
           </>}
           ListEmptyComponent={ListEmpty}
           ListFooterComponent={ListFooter}

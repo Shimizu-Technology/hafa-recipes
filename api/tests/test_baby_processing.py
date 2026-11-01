@@ -27,7 +27,7 @@ async def test_import_keeps_text_and_only_accepts_actual_visual_locations(monkey
     class Provider:
         enabled = True
 
-        async def extract(self, source):
+        async def extract(self, source, categories=None):
             return ExtractionOutput(
                 title="Labor notes",
                 summary="The creator says something",

@@ -236,6 +236,22 @@ describe("daily AI limit privacy boundary", () => {
       async () => new Response("not JSON", { status: 429 }));
     await expect(api.records()).rejects.toMatchObject({ status: 429, message: "Please wait a moment before trying again." });
   });
+
+  it.each([
+    ["Add the birth date to see what is relevant now", "Add the birth date to see what is relevant now."],
+    ["Choose which child to show timing for", "Choose which child to show timing for."],
+    ["private provider detail", "Some details need review. Check your entries and try again."],
+    [{ msg: "Add the birth date to see what is relevant now" }, "Some details need review. Check your entries and try again."],
+  ])("shows only the server's fixed timing 422 messages (%s)", async (detail, message) => {
+    const api = createBabyApi("https://service.example", async () => "token", () => true,
+      async () => Response.json({ detail }, { status: 422 }));
+    await expect(api.records({ timing: "now" })).rejects.toMatchObject({ status: 422, message });
+  });
+  it("keeps malformed 422 bodies private", async () => {
+    const api = createBabyApi("https://service.example", async () => "token", () => true,
+      async () => new Response("not JSON", { status: 422 }));
+    await expect(api.records()).rejects.toMatchObject({ status: 422, message: "Some details need review. Check your entries and try again." });
+  });
 });
 
 
