@@ -938,6 +938,24 @@ it("mounted source import freezes its request UUID/source through lost acknowled
   });
 });
 
+it("retrying an import an older build froze keeps its original body, without typed formats, under the same request ID", async () => {
+  fixture.map.set(draftKey(fixture.owner, "capture:1"), JSON.stringify({ generation: 1, request_id: "older-build-request", kind: "url",
+    source_url: "https://example.test/older", text: "", files: [], pending_import: true, server_auto_save: false, auto_save: true,
+    is_public: false, created_at: "2026-10-30T00:00:00Z" }));
+  await mount(Capture);
+  fixture.startImport.mockResolvedValueOnce({ id: "older-import" });
+  await click("Retry import");
+  expect(fixture.sourceFor.mock.calls[0][0]).toMatchObject({ request_id: "older-build-request", typed_formats: false });
+  expect(fixture.startImport.mock.calls[0][0]).toBe("older-build-request");
+  // A new import from this build freezes typed formats on, so its own retries keep sending them.
+  await unmount(); fixture.map.clear(); fixture.sourceFor.mockClear();
+  await mount(Capture);
+  await act(async () => nodes("Field").find((n) => n.props.label === "Workout link")!.props.onChange("https://example.test/new"));
+  fixture.startImport.mockResolvedValueOnce({ id: "new-import" });
+  await click("Import workout");
+  expect(fixture.sourceFor.mock.calls[0][0]).toMatchObject({ pending_import: true, typed_formats: true });
+});
+
 it("mounted source import checks owner retirement again after asynchronous consent before sending the source", async () => {
   fixture.aiConsent.mockResolvedValue({ accepted: false, disclosure_version: 1 });
   await mount(Capture);

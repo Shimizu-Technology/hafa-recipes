@@ -83,7 +83,7 @@ describe("EMOM", () => {
     await s.store.finish("partial", 150_000);
     const saved = s.store.snapshot().history[0];
     expect(saved.request.actuals.map((a) => a.completed)).toEqual([true, false, true]);
-    expect(formatScore(saved.workout, saved.request)).toBe("2 of 3 minutes");
+    expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBe("2 of 3 minutes");
   });
   it("stops the clock at the end of the last interval", async () => {
     const w = workout({ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ name: "Power clean", reps_min: 5 }] });
@@ -102,22 +102,29 @@ describe("EMOM", () => {
     await mark(s, true, 10_000, 1);
     await mark(s, true, 70_000, 2);
     expect(s.draft().steps).toHaveLength(3);
+    // Death by isn't over until a minute is missed, so it can't be saved as completed yet.
+    await expect(s.store.finish("completed", 80_000)).rejects.toThrow("Death by ends when you miss an interval");
     await mark(s, false, 170_000, 1);
     expect(s.draft().steps).toHaveLength(3);
-    await s.store.undo();
+    // A missed minute ends Death by and stops its clock.
+    expect(s.draft().paused).toBe(true);
+    expect(s.draft().active_milliseconds).toBe(170_000);
+    // Undoing the miss restarts the clock as if it had never stopped: the minutes kept passing.
+    s.clock.now = 175_000; await s.store.undo();
+    expect(s.draft().paused).toBe(false);
+    expect(sessionElapsedMilliseconds(s.draft(), 180_000)).toBe(180_000);
+    expect(s.draft().active_intervals).toEqual([]);
     expect(s.draft().steps).toHaveLength(3);
     await s.store.undo();
     expect(s.draft().steps).toHaveLength(2);
     await mark(s, true, 70_000 + 100_000, 2);
     await mark(s, false, 190_000, 1);
-    // A missed minute ends Death by and stops its clock. The first miss stopped it at 170 s;
-    // undoing that miss leaves the session paused, so the clock never ran on by itself.
     expect(s.draft().paused).toBe(true);
-    expect(s.draft().active_milliseconds).toBe(170_000);
+    expect(s.draft().active_milliseconds).toBe(190_000);
     await s.store.finish("completed", 200_000);
     const saved = s.store.snapshot().history[0];
     expect(saved.request.status).toBe("completed");
-    expect(formatScore(saved.workout, saved.request)).toBe("2 full minutes + 1 rep");
+    expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBe("2 full minutes + 1 rep");
   });
 });
 
@@ -146,7 +153,7 @@ describe("ladders inside bounded formats", () => {
     expect(s.draft().steps).toHaveLength(3);
     await s.store.finish("partial", 95_000);
     const saved = s.store.snapshot().history[0];
-    expect(formatScore(saved.workout, saved.request)).toBe("12 reps · 2 of 3 intervals");
+    expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBe("12 reps · 2 of 3 intervals");
   });
 });
 
@@ -164,11 +171,28 @@ describe("for time", () => {
     }
     expect(s.draft().paused).toBe(true);
     expect(s.draft().active_milliseconds).toBe(400_000);
+    // Undoing the final tick restarts the clock from where it was, counting the time since it stopped.
+    s.clock.now = 410_000; await s.store.undo();
+    expect(s.draft().paused).toBe(false);
+    expect(sessionElapsedMilliseconds(s.draft(), 420_000)).toBe(420_000);
+    s.clock.now = 430_000;
+    const last = s.draft().steps.slice(s.draft().cursor);
+    await s.store.logGroup(last.map((step) => actual(step, true, 9)), 430_000);
+    expect(s.draft().paused).toBe(true);
+    expect(s.draft().active_milliseconds).toBe(430_000);
+    // A clock the person paused stays paused after an undo: only a clock the tick stopped restarts.
+    s.clock.now = 440_000; await s.store.undo(); await s.store.pause(true, 440_000);
+    s.clock.now = 450_000; await s.store.logGroup(last.map((step) => actual(step, true, 9)), 450_000);
+    await s.store.undo();
+    expect(s.draft().paused).toBe(true);
+    expect(s.draft().active_milliseconds).toBe(440_000);
+    s.clock.now = 460_000; await s.store.pause(false, 460_000);
+    s.clock.now = 470_000; await s.store.logGroup(last.map((step) => actual(step, true, 9)), 470_000);
     await s.store.finish("completed", 999_000);
     const saved = s.store.snapshot().history[0];
-    expect(saved.request.active_seconds).toBe(400);
+    expect(saved.request.active_seconds).toBe(450);
     expect(saved.request.actuals.map((a) => a.reps)).toEqual([21, 21, 15, 15, 9, 9]);
-    expect(formatScore(saved.workout, saved.request)).toBe("Time 6:40");
+    expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBe("Time 7:30");
   });
   it("records a capped result with rounds and reps done, and keeps it partial", async () => {
     const w = workout({ grouping: "circuit", rounds: 5, execution: { mode: "for_time", time_cap_seconds: 1200 },
@@ -188,7 +212,7 @@ describe("for time", () => {
     await s.store.finish("partial", 1_300_000);
     const saved = s.store.snapshot().history[0];
     expect(saved.request.active_seconds).toBe(1200);
-    expect(formatScore(saved.workout, saved.request)).toBe("Capped · 2 rounds + 22 reps");
+    expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBe("Capped · 2 rounds + 22 reps");
   });
 });
 
@@ -208,7 +232,7 @@ describe("work and rest", () => {
     await s.store.logGroup([actual(s.draft().steps[1], false)], 31_000);
     await s.store.finish("partial", 40_000);
     const saved = s.store.snapshot().history[0];
-    expect(formatScore(saved.workout, saved.request)).toBe("14 reps · 1 of 8 intervals");
+    expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBe("14 reps · 1 of 8 intervals");
   });
   it("needs an interval count before the timer can run", () => {
     const w = tabata();
@@ -230,5 +254,36 @@ describe("superset rest", () => {
     expect(s.draft().rest_until).toBe(92_000);
     await s.store.log(actual(s.draft().steps[2], true), 100_000);
     expect(s.draft().rest_until).toBeNull();
+  });
+});
+
+describe("scores", () => {
+  it("scores only a session that ran on the format clock, never one logged as you go or with chosen rounds", async () => {
+    // Several moves with no rotation: the timer can't run, so the start sheet offers log-as-you-go instead.
+    const unset = workout({ execution: { mode: "emom", interval_seconds: 60, intervals: 12, rotation: null },
+      exercises: [{ name: "Burpees", reps_min: 10 }, { name: "Air squats", reps_min: 15 }] });
+    for (const [w, choice] of [[unset, { log_as_you_go: true }], [emom20(), { log_as_you_go: true }], [emom20(), { rounds: 3 }]] as const) {
+      const store = createTrainingStore(memory(), "owner", 1, () => 0);
+      await store.load();
+      await store.start(w, source, "choice", 0, choice);
+      await store.activityType("general_fitness");
+      const d = store.snapshot().active!;
+      expect(d.timed_format).toBeUndefined();
+      await store.log(actual(d.steps[0], true), 30_000);
+      await store.finish("partial", 60_000);
+      const saved = store.snapshot().history[0];
+      expect(saved.timed_format).toBeUndefined();
+      expect(formatScore(saved.workout, saved.request, saved.timed_format === true)).toBeNull();
+      // The synced copy carries the original workout as its snapshot; without proof the timer ran it is not scored.
+      expect(formatScore(w, saved.request, false)).toBeNull();
+    }
+    // A timer session keeps its score, and the same result on a workout the timer can't run gets none.
+    const s = await started(emom20());
+    await mark(s, true, 30_000);
+    await s.store.finish("partial", 60_000);
+    const saved = s.store.snapshot().history[0];
+    expect(saved.timed_format).toBe(true);
+    expect(formatScore(saved.workout, saved.request, true)).toBe("1 of 20 minutes");
+    expect(formatScore(unset, saved.request, true)).toBeNull();
   });
 });

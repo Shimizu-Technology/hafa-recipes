@@ -48,8 +48,12 @@ export interface SessionDraft {
   timed_format?: TimedFormat;
   /** Started without fixed set/round counts; the person adds rounds and sets as they go. */
   open_ended?: boolean;
-  /** `steps_length` restores steps a Death by session added after this point. */
-  undo: Array<{ actuals: ActualSet[]; cursor: number; steps_length?: number }>;
+  /**
+   * `steps_length` restores steps a Death by session added after this point. `clock` is the running clock
+   * a final for-time tick or Death by miss stopped, so undoing that tick restarts it as if it never stopped.
+   */
+  undo: Array<{ actuals: ActualSet[]; cursor: number; steps_length?: number;
+    clock?: { active_started_at: number; active_milliseconds: number; intervals: number } }>;
 }
 /** How to track a workout whose source gives no fixed set or round counts. */
 export type StartChoice = { log_as_you_go: true } | { rounds: number };
@@ -68,6 +72,8 @@ export interface SavedLocalSession {
   recovery_origin?: RecoveryOrigin;
   recovered_with?: ResultRecoveryCommand;
   state: "queued" | "synced" | "blocked";
+  /** The session ran on the EMOM, for-time or work/rest clock (not logged as you go or with chosen rounds). */
+  timed_format?: true;
 }
 export interface TrainingState {
   version: 1;
@@ -462,10 +468,15 @@ export function createTrainingStore(
       clearTimers(d);
       if (d.timed_format) {
         const done = d.cursor === d.steps.length;
-        if (done && d.timed_format.mode === "for_time") {
-          // The last movement stops the clock: the finish time is when the work ended, not when Save is tapped.
+        const stopClock = () => {
+          if (d.active_started_at != null) d.undo.at(-1)!.clock = { active_started_at: d.active_started_at,
+            active_milliseconds: d.active_milliseconds, intervals: d.active_intervals?.length ?? 0 };
           closeActive(d, now);
           d.paused = true;
+        };
+        if (done && d.timed_format.mode === "for_time") {
+          // The last movement stops the clock: the finish time is when the work ended, not when Save is tapped.
+          stopClock();
         } else if (done && isDeathBy(d.timed_format, d.workout.blocks[0])) {
           // Death by continues while each interval is finished. A missed interval, the ladder's end or the
           // tracking limit ends it and stops the clock.
@@ -474,10 +485,7 @@ export function createTrainingStore(
             d.workout.blocks[0].exercises.every((e) => e.ladder && ladderReps(e.ladder, round) != null)
             ? intervalSteps(d.workout, round, round) : [];
           if (next.length) d.steps.push(...next);
-          else {
-            closeActive(d, now);
-            d.paused = true;
-          }
+          else stopClock();
         }
         return s;
       }
@@ -599,6 +607,14 @@ export function createTrainingStore(
         d.actuals = prior.actuals;
         d.cursor = prior.cursor;
         if (prior.steps_length != null) d.steps.splice(prior.steps_length);
+        if (prior.clock && d.paused && d.active_started_at == null) {
+          // The undone tick stopped the clock. The work wasn't over, so the clock runs on from where it was,
+          // counting the time since then too: the person kept working while the clock showed stopped.
+          d.active_started_at = prior.clock.active_started_at;
+          d.active_milliseconds = prior.clock.active_milliseconds;
+          d.active_intervals?.splice(prior.clock.intervals);
+          d.paused = false;
+        }
         clearTimers(d);
         return s;
       });
@@ -754,8 +770,11 @@ export function createTrainingStore(
           if (d.timed_circuit) {
             if (capRemainingSeconds(d, now)! > 0 || d.timed_circuit.limit_reached || !d.actuals.some((a) => a.completed))
               throw Error("Reach the source time cap with recorded work, or save this as a partial session.");
-          } else if (!failureEnds && d.cursor !== d.steps.length)
-            throw Error(d.timed_format ? "Mark every interval or round first, or save this as a partial session."
+          } else if (d.cursor !== d.steps.length)
+            // Death by adds the next interval after each finished one, so it is over only once one is missed
+            // (or the ladder or tracking limit ends it).
+            throw Error(failureEnds ? "Death by ends when you miss an interval. Keep going, or save this as a partial session."
+              : d.timed_format ? "Mark every interval or round first, or save this as a partial session."
               : "Some sets were not completed. Save this as a partial session.");
           if (d.actuals.some((a) => !a.completed && !(failureEnds && a.round_index === lastRound)))
             throw Error("Skipped work stays partial. Save this as a partial session.");
@@ -785,6 +804,7 @@ export function createTrainingStore(
         const warning = historicalStructureWarning(d.workout, request.actuals, d.cell_identity_version);
         s.history.unshift({ request, workout: d.workout, generation: d.generation, state: "queued",
           ...(d.cell_identity_version ? { cell_identity_version: d.cell_identity_version } : {}),
+          ...(d.timed_format ? { timed_format: true as const } : {}),
           ...(warning ? { problem: warning } : {}) });
         s.active = null;
         return s;

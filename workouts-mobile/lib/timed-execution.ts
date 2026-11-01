@@ -32,6 +32,8 @@ export function formatError(execution: TimedFormat, block: Pick<Block, "rounds">
 export function isTimedFormat(execution: Block["execution"]): execution is TimedFormat {
   return execution?.mode === "emom" || execution?.mode === "for_time" || execution?.mode === "work_rest";
 }
+/** A mode from a newer API than this build knows: shown as text, never run or blocked on. */
+export const isUnknownMode = (execution: Block["execution"]) => execution != null && execution.mode !== "amrap" && !isTimedFormat(execution);
 /** Reps for interval or round `index` (1-based) of a ladder, or null past its end. */
 export function ladderReps(ladder: RepLadder, index: number) {
   if (!ladder.step) return index === 1 ? ladder.start : null;
@@ -127,6 +129,8 @@ export function timedFormatProblem(workout: Pick<Workout, "kind" | "blocks">) {
   if (workout.blocks.length > 1)
     return `This workout has ${workout.blocks.length} parts, and the timer runs one timed part per session. Track every part without the timer, or edit the workout so the timed part is a workout of its own.`;
   const execution = timed[0].execution!;
+  if (isUnknownMode(execution))
+    return "This version of the app can’t run this workout’s timer yet. Track it without the timer, or update the app.";
   if (!isTimedFormat(execution)) return null;
   if (formatError(execution, timed[0])) return `${formatError(execution, timed[0])} Edit the workout before starting.`;
   if (unsetRotation(execution, timed[0]))
@@ -134,6 +138,18 @@ export function timedFormatProblem(workout: Pick<Workout, "kind" | "blocks">) {
   if (execution.mode !== "for_time" && execution.intervals == null)
     return "The source doesn't say how many intervals to do. Edit the workout to add the count before starting.";
   return `The timer tracks up to ${trackedIntervalLimit} intervals or rounds. Split this workout into shorter sessions first.`;
+}
+
+/** The detail screen's one-line hint when the timer can't run a timed workout as it is. */
+export function timedStartHint(workout: Pick<Workout, "blocks">) {
+  const timed = workout.blocks.filter((block) => block.execution);
+  if (timed.some((block) => isUnknownMode(block.execution))) return "This app version can’t run this timer — you’ll choose how to track it.";
+  if (workout.blocks.length > 1) {
+    const others = workout.blocks.length - timed.length;
+    return timed.length > 1 ? `${timed.length} timed parts — you’ll choose how to track it.`
+      : `A timed part and ${others} other ${others === 1 ? "part" : "parts"} — you’ll choose how to track it.`;
+  }
+  return "The timer needs one more detail — you’ll choose how to track it.";
 }
 
 const minutes = (seconds: number) => (seconds % 60 ? formatSeconds(seconds) : String(seconds / 60));
@@ -200,12 +216,14 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 /**
  * The result in the format's own terms, from recorded actuals only:
  * intervals completed, finish time, "capped · 2 rounds + 12 reps", or Death by's last full interval.
+ * `ranTimer` says the session itself ran on the format clock. A session logged as you go, with chosen
+ * rounds, or by an older build has no interval or finish-time meaning, so it gets no score.
  */
 export function formatScore(workout: Pick<Workout, "kind" | "blocks">,
-  request: { actuals: readonly Result[]; active_seconds?: number | null; status: "completed" | "partial" }) {
-  const block = workout.blocks.length === 1 ? workout.blocks[0] : null;
-  const execution = block?.execution;
-  if (!block || !isTimedFormat(execution) || !request.actuals.length) return null;
+  request: { actuals: readonly Result[]; active_seconds?: number | null; status: "completed" | "partial" }, ranTimer: boolean) {
+  const execution = ranTimer ? timedFormat(workout) : null;
+  const block = workout.blocks[0];
+  if (!execution || !request.actuals.length) return null;
   const rounds = byRound(request.actuals);
   const complete = [...rounds.values()].filter((items) => items.every((item) => item.completed)).length;
   if (execution.mode === "emom") {

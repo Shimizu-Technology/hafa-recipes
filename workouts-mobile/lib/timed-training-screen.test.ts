@@ -37,7 +37,7 @@ vi.mock("@/components/training/session-parts", () => ({ LastLogged: "LastLogged"
 import Training from "../app/training";
 import { WorkoutStartSheet } from "../components/workout-start-sheet";
 
-let renderer: ReactTestRenderer | undefined, cache: QueryClient;
+let renderer: ReactTestRenderer | undefined, cache: QueryClient, memory = new Map<string, string>();
 const workout: Workout = { id: "source", generation: 1, revision: 1, title: "Whole-source AMRAP", kind: "session", provenance: "source",
   blocks: [{ id: "main", label: "Circuit", grouping: "circuit", execution: { mode: "amrap", time_cap_seconds: 1200 },
     exercises: Array.from({ length: 9 }, (_, index) => ({ name: `Exercise ${index + 1}`, reps_min: 10 })) }] };
@@ -51,7 +51,7 @@ beforeEach(async () => {
   fixture.owner = "owner"; fixture.generation = 1; fixture.current = true; fixture.storage = { isCurrent: () => fixture.current };
   vi.useFakeTimers(); vi.setSystemTime(10000); fixture.writeFailure = false; fixture.listeners.clear(); fixture.replace.mockReset(); fixture.saveSession.mockReset();
   fixture.dismiss.mockReset(); fixture.success.mockReset(); fixture.announce.mockReset();
-  const memory = new Map<string, string>();
+  memory = new Map<string, string>();
   fixture.store = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null,
     setItem: async (key, value) => { if (fixture.writeFailure) throw Error("device write failed"); memory.set(key, value); }, removeItem: async (key) => { memory.delete(key); } }, "owner", 1);
   await fixture.store.load(); await fixture.store.start(workout, { workout_id: "source", workout_revision: 1 }, "client");
@@ -70,6 +70,24 @@ it("shows the typed cap and explicitly pauses once on background without countin
   await act(async () => { vi.advanceTimersByTime(60000); }); await settle();
   expect(fixture.store!.snapshot().active!.active_milliseconds).toBe(0);
   expect(footer().props.disabled).toBe(true); expect(text()).toContain("20:00");
+});
+
+it("keeps an interval clock running in the background, saves when it left, and restores it paused there after the app closes", async () => {
+  const emom: Workout = { id: "emom", generation: 1, revision: 1, title: "EMOM 20", kind: "session", provenance: "source",
+    blocks: [{ id: "main", label: "Main", grouping: "interval", execution: { mode: "emom", interval_seconds: 60, intervals: 20, rotation: null },
+      exercises: [{ name: "Burpees", reps_min: 10 }] }] };
+  await act(async () => { await fixture.store!.discard(); await fixture.store!.start(emom, { workout_id: "emom", workout_revision: 1 }, "emom-client"); }); await settle();
+  expect(renderer!.root.findAllByType("FormatSession" as never)).toHaveLength(1);
+  const pause = vi.spyOn(fixture.store!, "pause");
+  await act(async () => { vi.setSystemTime(85_000); fixture.listeners.forEach((listener) => listener("background")); }); await settle();
+  // Unlike an AMRAP, the wall clock keeps going while away; nothing is marked for the person.
+  expect(pause).not.toHaveBeenCalled();
+  expect(fixture.store!.snapshot().active).toMatchObject({ paused: false, checkpoint_at: 85_000, actuals: [] });
+  // The app is closed in the background and relaunched much later: it resumes paused at the moment it left.
+  const relaunched = createTrainingStore({ getItem: async (key) => memory.get(key) ?? null, setItem: async (key, value) => { memory.set(key, value); },
+    removeItem: async (key) => { memory.delete(key); } }, "owner", 1, () => 9_000_000);
+  await relaunched.load();
+  expect(relaunched.snapshot().active).toMatchObject({ paused: true, active_milliseconds: 75_000, actuals: [] });
 });
 
 it("expiry does not imply completion; actual work enables an explicit cap save and preserves the original source", async () => {

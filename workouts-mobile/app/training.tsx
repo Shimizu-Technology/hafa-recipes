@@ -291,7 +291,7 @@ export default function Training() {
     haptics.success();
     const saved = store!.snapshot().history.find((h) => h.request.client_session_id === d!.id);
     void store!.sync(api.saveSession).then(() => { if (current()) void cache.invalidateQueries({ queryKey: [owner, "sessions"] }); });
-    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request) });
+    if (saved) setSummary({ ...sessionSummary(saved.request), partial: status === "partial", score: formatScore(saved.workout, saved.request, saved.timed_format === true) });
     else router.replace("/progress");
   }
   const recorded = d.actuals.filter((a) => a.completed).length;

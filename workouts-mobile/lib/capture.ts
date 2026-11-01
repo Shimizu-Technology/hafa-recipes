@@ -51,6 +51,11 @@ export interface CaptureDraft {
   server_auto_save?: boolean;
   /** Exact native share visibility; never replace it with a later default. */
   is_public?: boolean;
+  /**
+   * Frozen with the pending import: false when an older build froze it without typed formats, so a retry
+   * repeats the original request body instead of changing it under the same request ID.
+   */
+  typed_formats?: boolean;
   created_at: string;
 }
 /** Supplied by the original account/enrollment/screen; native helpers stay UI-free. */

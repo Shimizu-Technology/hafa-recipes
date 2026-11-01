@@ -436,6 +436,13 @@ it.each(["normalization", "picker", "document"] as const)(
   }
 );
 
+it("asks for typed formats unless the pending import was frozen without them by an older build", async () => {
+  expect(await sourceFor(draft, () => {})).toEqual({ kind: "url", source_url: "https://example.test/workout", ai_consent: true, typed_formats: true });
+  expect(await sourceFor({ ...draft, pending_import: true, typed_formats: true }, () => {})).toMatchObject({ typed_formats: true });
+  expect(await sourceFor({ ...draft, pending_import: true, typed_formats: false }, () => {}))
+    .toEqual({ kind: "url", source_url: "https://example.test/workout", ai_consent: true });
+});
+
 it("source reading stops after scope changes before a body can be passed to transport", async () => {
   const held = deferred<string>();
   let current = true;

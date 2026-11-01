@@ -4,8 +4,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createTrainingStore, type SessionDraft } from "./training";
 import type { ActualSet, Workout } from "./models";
 
-const fixture = vi.hoisted(() => ({ speak: vi.fn(), warning: vi.fn(), announce: vi.fn() }));
-vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: 1 }), View: "View", Pressable: "Pressable" }));
+const fixture = vi.hoisted(() => ({ speak: vi.fn(), warning: vi.fn(), announce: vi.fn(), fontScale: 1,
+  awake: vi.fn(async (_tag?: string) => {}), asleep: vi.fn(async (_tag?: string) => {}) }));
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Pressable: "Pressable" }));
+vi.mock("expo-keep-awake", () => ({ activateKeepAwakeAsync: fixture.awake, deactivateKeepAwake: fixture.asleep }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-speech", () => ({ speak: fixture.speak }));
 vi.mock("@/components/ui", () => ({ Screen: "Screen", Card: "Card", Copy: "Copy", Notice: "Notice", Button: "Button", Field: "Field",
@@ -42,7 +44,9 @@ function elements(node: unknown): Array<{ type: unknown; props: Record<string, a
 }
 const button = (title: string) => [...renderer!.root.findAll((n) => (n.type as unknown) === "Button"),
   ...elements(renderer!.root.findByType("Screen" as never).props.footer)].find((n) => n.type === "Button" && n.props.title === title)!;
-beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); fixture.announce.mockReset(); });
+beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); fixture.announce.mockReset();
+  fixture.fontScale = 1; fixture.awake.mockClear(); fixture.asleep.mockClear(); });
+const field = (label: string) => renderer!.root.findAll((n) => (n.type as unknown) === "Field").find((n) => n.props.label === label);
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
 
 it("shows the minute, this minute's move from the rotation and a countdown, and marks only on a tap", async () => {
@@ -95,4 +99,85 @@ it("counts up for time, shows this round's reps from the scheme, and records rep
   await act(async () => renderer!.root.findAll((n) => (n.type as unknown) === "Field")[0].props.onChange("12"));
   await act(async () => button("Save capped result").props.onPress());
   expect(finish).toHaveBeenCalledWith("partial", [expect.objectContaining({ exercise_index: 0, reps: 12, completed: false })]);
+});
+
+it("asks for reps only on the EMOM move with no dose, names it, and keeps the prescribed reps on the others", async () => {
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 60, intervals: 10, rotation: "together" },
+    exercises: [{ name: "Burpees", reps_min: 10 }, { name: "Air squats" }, { name: "Lunges", per_side: true }] }));
+  await render(d, 5_000);
+  expect(field("Reps in minute 1")).toBeUndefined();
+  expect(field("Burpees reps in minute 1")).toBeUndefined();
+  expect(field("Air squats reps in minute 1")).toBeDefined();
+  expect(field("Lunges reps in minute 1, each side")).toBeDefined();
+  // Each dose-less move needs its count before Done.
+  expect(button("Done · minute 1").props.disabled).toBe(true);
+  await act(async () => field("Air squats reps in minute 1")!.props.onChange("12"));
+  expect(button("Done · minute 1").props.disabled).toBe(true);
+  await act(async () => field("Lunges reps in minute 1, each side")!.props.onChange("8"));
+  expect(button("Done · minute 1").props.disabled).toBe(false);
+  await act(async () => button("Done · minute 1").props.onPress());
+  expect(log).toHaveBeenCalledWith([
+    expect.objectContaining({ exercise_index: 0, reps: 10, completed: true }),
+    expect.objectContaining({ exercise_index: 1, reps: 12, completed: true }),
+    expect.objectContaining({ exercise_index: 2, side: "left", reps: 8, completed: true }),
+    expect.objectContaining({ exercise_index: 2, side: "right", reps: 8, completed: true }),
+  ]);
+  // A miss keeps only what was typed, on the move it was typed for.
+  await act(async () => field("Air squats reps in minute 1")!.props.onChange("5"));
+  await act(async () => field("Lunges reps in minute 1, each side")!.props.onChange(""));
+  await act(async () => button("Missed").props.onPress());
+  expect(log).toHaveBeenLastCalledWith([
+    expect.objectContaining({ exercise_index: 0, reps: null, completed: false }),
+    expect.objectContaining({ exercise_index: 1, reps: 5, completed: false }),
+    expect.objectContaining({ exercise_index: 2, side: "left", reps: null }),
+    expect.objectContaining({ exercise_index: 2, side: "right", reps: null }),
+  ]);
+});
+
+it("logs work/rest reps on both sides of a per-side move", async () => {
+  const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Lunges", per_side: true }] }));
+  await render(d, 5_000);
+  await act(async () => field("Reps in interval 1, each side")!.props.onChange("6"));
+  await act(async () => button("Log interval 1").props.onPress());
+  expect(log).toHaveBeenCalledWith([expect.objectContaining({ side: "left", reps: 6, duration_seconds: 20 }),
+    expect.objectContaining({ side: "right", reps: 6, duration_seconds: 20 })]);
+});
+
+it("keeps the screen awake only while the clock runs", async () => {
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 60, intervals: 20, rotation: null }, exercises: [{ name: "Burpees", reps_min: 10 }] }));
+  await render(d, 5_000);
+  expect(fixture.awake).toHaveBeenCalledWith("format-session:s");
+  expect(fixture.asleep).not.toHaveBeenCalled();
+  await render({ ...d, paused: true, active_started_at: null, active_milliseconds: 5_000 }, 9_000);
+  expect(fixture.asleep).toHaveBeenCalledWith("format-session:s");
+  await render(d, 10_000);
+  expect(fixture.awake).toHaveBeenCalledTimes(2);
+  // The clock has run out: nothing is left to cue, so the screen may sleep again.
+  await render({ ...d, paused: true, active_started_at: null, active_milliseconds: 1_200_000 }, 1_300_000);
+  expect(fixture.asleep).toHaveBeenCalledTimes(2);
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  expect(fixture.asleep).toHaveBeenCalledTimes(2);
+});
+
+it("caps the clock's growth at the largest text size so it stays on one line inside the card", async () => {
+  const d = await draft(workout({ grouping: "circuit", rounds: 1, execution: { mode: "for_time", time_cap_seconds: null }, exercises: [{ name: "Burpees", reps_min: 100 }] }));
+  fixture.fontScale = 3.1;
+  await render(d, 3_599_000);
+  const clock = renderer!.root.findAllByType("Copy" as never).find((n) => n.props.kind === "numeric")!;
+  expect(clock.props.children).toBe("59:59");
+  expect(clock.props.numberOfLines).toBe(1);
+  expect(clock.props.allowFontScaling).toBe(false);
+  expect(clock.props.style.fontSize * 5 * 0.62).toBeLessThanOrEqual(390 - 96);
+  fixture.fontScale = 1;
+  await render(d, 65_000);
+  expect(renderer!.root.findAllByType("Copy" as never).find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(56);
+});
+
+it("exposes for-time moves as checkboxes", async () => {
+  const d = await draft(workout({ grouping: "circuit", rounds: 5, execution: { mode: "for_time", time_cap_seconds: null },
+    exercises: [{ name: "Burpees", reps_min: 10 }, { name: "Air squats", reps_min: 20 }] }));
+  await render({ ...d, actuals: [{ block_id: "main", exercise_index: 0, set_index: 1, round_index: 1, side: null, completed: true, reps: 10 }], cursor: 1 }, 30_000);
+  const rows = renderer!.root.findAll((n) => (n.type as unknown) === "Pressable");
+  expect(rows.map((r) => [r.props.accessibilityRole, r.props.accessibilityLabel, r.props.accessibilityState.checked]))
+    .toEqual([["checkbox", "10 Burpees", true], ["checkbox", "20 Air squats", false]]);
 });
