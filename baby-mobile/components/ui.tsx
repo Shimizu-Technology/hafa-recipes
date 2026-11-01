@@ -25,7 +25,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Stack, router } from "expo-router";
+import { Stack, router, useSegments } from "expo-router";
+import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "../lib/bottom-overlay";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
@@ -341,7 +342,8 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
-            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? footerHeight : 0 }}
+            // The automatic content inset already covers the safe area (tab bar or home indicator) that the docked footer pads.
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? Math.max(0, footerHeight - (keyboardVisible ? 0 : insets.bottom)) : 0 }}
           >
             {content}
           </ScrollView>
@@ -813,6 +815,10 @@ export function useToast() {
 }
 export function ToastProvider({ children }: PropsWithChildren) {
   const insets = useSafeAreaInsets();
+  const inTabs = isTabRoute(useSegments());
+  const tabInset = useTabScreenBottomInset();
+  // Above the measured native tab bar in tabs (Undo after a quick log); elsewhere clear of footers.
+  const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 88 });
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),
     enter = useRef(new Animated.Value(0)).current,
@@ -855,7 +861,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           accessibilityLiveRegion="polite"
           style={{
             position: "absolute",
-            bottom: insets.bottom + 88,
+            bottom,
             left: 22,
             right: 22,
             backgroundColor: c.text,

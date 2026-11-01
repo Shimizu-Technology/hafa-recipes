@@ -17,7 +17,7 @@ export default function AddRecipeOptions() {
   const { isSignedIn } = useAuth();
   const router = useRouter();
   return <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ backgroundColor: colors.groupedBackground }} contentContainerStyle={styles.content}>
-    {!isSignedIn && <SignInBanner message="Sign in to add a recipe" />}
+    {!isSignedIn && <SignInBanner message="Sign in to add a recipe" style={{ marginBottom: 0 }} />}
     <View style={[styles.group, { backgroundColor: colors.backgroundElevated }]}>
       {entries.map(({ title, icon, route }, index) => <Pressable key={title} accessibilityRole="button" accessibilityLabel={title} disabled={!isSignedIn} accessibilityState={{ disabled: !isSignedIn }} onPress={isSignedIn ? () => router.replace(route) : undefined} style={({ pressed }) => [styles.row, { opacity: !isSignedIn ? 0.5 : pressed ? 0.65 : 1 }]}>
         <Ionicons name={icon} size={22} color={colors.actionText} />

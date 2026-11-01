@@ -35,6 +35,7 @@ vi.mock("expo-router", () => ({
 }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
+vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/files", () => ({ exportVisit: mock.exportVisit }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
@@ -212,10 +213,13 @@ it("reserves the measured Ask composer, adjusts for keyboard, and removes both s
   const footer = () => renderer!.root.findAllByType("View" as React.ElementType).find(v => v.props.onLayout)!;
   expect(Object.keys(mock.keyboard)).toEqual(["keyboardWillShow", "keyboardWillHide"]);
   await act(async () => footer().props.onLayout({ nativeEvent: { layout: { height: 150 } } }));
-  expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).find(s => !s.props.horizontal)!.props.contentContainerStyle.paddingBottom).toBe(150);
+  const reserved = () => renderer!.root.findAllByType("ScrollView" as React.ElementType).find(s => !s.props.horizontal)!.props.contentContainerStyle.paddingBottom;
+  // The automatic content inset already covers the 34pt safe area the footer pads, so only the rest is reserved.
+  expect(reserved()).toBe(150 - 34);
   expect(footer().props.style.paddingBottom).toBe(34);
   await act(async () => mock.keyboard.keyboardWillShow());
   expect(footer().props.style.paddingBottom).toBe(10);
+  expect(reserved()).toBe(150);
   await act(async () => mock.keyboard.keyboardWillHide());
   expect(footer().props.style.paddingBottom).toBe(34);
   await act(async () => renderer!.unmount()); renderer = undefined;

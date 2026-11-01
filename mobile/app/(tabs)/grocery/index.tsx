@@ -766,6 +766,7 @@ function GroceryScreenContent() {
         key={fontScale}
         contentInsetAdjustmentBehavior="automatic"
         ListHeaderComponent={<RNView style={styles.header}>
+        {isGuest && <SignInBanner message="Sign in to create grocery lists" />}
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
@@ -826,7 +827,8 @@ function GroceryScreenContent() {
         contentContainerStyle={[
           styles.listContent,
           {
-            paddingBottom: Math.max(insets.bottom, 80) + spacing.xl,
+            // The native tab bar inset is applied by contentInsetAdjustmentBehavior.
+            paddingBottom: spacing.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -869,9 +871,7 @@ function GroceryScreenContent() {
         isVisible={showSettings}
         onClose={() => setShowSettings(false)}
       />}
-      
-      {/* Sign In Banner for guests */}
-      {isGuest && <SignInBanner message="Sign in to create grocery lists" />}
+
     </>
   );
 }

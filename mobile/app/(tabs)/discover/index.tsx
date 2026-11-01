@@ -8,7 +8,6 @@ import { useRouter } from 'expo-router';
 import { useIsFocused } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, Pressable, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AllContributorsModal from '@/components/AllContributorsModal';
 import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
@@ -153,7 +152,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
-  const insets = useSafeAreaInsets();
   const { userId, isSignedIn } = useAuth();
   const identity = useCurrentUserIdentity(active && Boolean(isSignedIn));
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
@@ -579,6 +577,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           numColumns={!largeText ? 2 : 1}
           columnWrapperStyle={!largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
+            {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
             </TouchableOpacity>}
@@ -593,7 +592,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           contentContainerStyle={[
             styles.listContent,
             {
-              paddingBottom: Math.max(insets.bottom + spacing.xl, 80),
+              // The native tab bar inset is applied by contentInsetAdjustmentBehavior.
+              paddingBottom: spacing.xl,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -608,9 +608,6 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           }
         />
       )}
-
-      {/* Sign In Banner for guests - shows save prompt */}
-      {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
 
       {/* All Contributors Modal */}
       <AllContributorsModal

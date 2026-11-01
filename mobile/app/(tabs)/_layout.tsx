@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/expo';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useColors } from '@/components/Themed';
+import { useCookTimerAccessory } from '@/components/CookTimerAccessory';
 import { prefetchTabData } from '@/lib/tabPrefetch';
 
 export const unstable_settings = { initialRouteName: 'recipes' };
@@ -14,6 +15,8 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const queryClient = useQueryClient();
   const { isSignedIn, isLoaded, userId } = useAuth();
+  // iOS 26: a running cook timer rides above the tab bar as its native accessory.
+  const cookTimerAccessory = useCookTimerAccessory();
   // Parent AuthTokenSync clears private queries before warming a new account.
   useEffect(() => {
     if (isLoaded) prefetchTabData(queryClient, Boolean(isSignedIn));
@@ -41,5 +44,6 @@ export default function TabLayout() {
       <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
       <NativeTabs.Trigger.Icon sf="magnifyingglass" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="search-outline" />} />
     </NativeTabs.Trigger>
+    {cookTimerAccessory}
   </NativeTabs>;
 }

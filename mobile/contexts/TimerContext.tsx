@@ -56,6 +56,13 @@ interface TimerContextValue {
 }
 
 const TimerContext = createContext<TimerContextValue | null>(null);
+// A separate boolean so tab chrome re-renders only when a timer starts or stops, not every tick.
+const CookTimerRunningContext = createContext(false);
+
+/** True while a cook timer is counting outside cook mode. */
+export function useCookTimerRunning() {
+  return useContext(CookTimerRunningContext);
+}
 
 export function useTimerContext() {
   const context = useContext(TimerContext);
@@ -171,6 +178,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     setTimers(new Map());
   }, [generation]);
   
+  const timerRunning = hasActiveTimers && session !== null && !isInCookMode;
+
   return (
     <TimerContext.Provider
       value={{
@@ -184,7 +193,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         hasActiveTimers,
       }}
     >
-      {children}
+      <CookTimerRunningContext.Provider value={timerRunning}>
+        {children}
+      </CookTimerRunningContext.Provider>
     </TimerContext.Provider>
   );
 }

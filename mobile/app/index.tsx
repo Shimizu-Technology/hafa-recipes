@@ -783,6 +783,7 @@ function ExtractScreenContent() {
         keyboardVerticalOffset={insets.top + 64}>
         <ScrollView ref={importScroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.md }]}
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {!isSignedIn && <SignInBanner message="Sign in to extract recipes" onSignIn={signInToImport} />}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
             style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
             <RNView style={[styles.composerLabelRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'flex-start' }] }>
@@ -994,8 +995,6 @@ function ExtractScreenContent() {
             </TouchableOpacity>}
           </RNView>
         </ScrollView>
-
-        {!isSignedIn && <SignInBanner message="Sign in to extract recipes" onSignIn={signInToImport} />}
       </KeyboardAvoidingView>
       <ImportSettingsPanel visible={panel === 'settings'} onClose={() => setPanel(null)}
         isPublic={isPublic} onVisibilityChange={(value) => { setIsPublic(value); rememberImportSettings({ isPublic: value }); }} location={selectedLocation}

@@ -1,8 +1,9 @@
 /**
  * Floating Timer Overlay
- * 
- * Shows a compact timer banner at the top of the screen when user leaves 
- * cook mode with active timers. Tap to return to cook mode.
+ *
+ * Shows the running cook timer when the user leaves cook mode. Tap to return to
+ * cook mode. On tab screens it sits above the native tab bar (as the iOS 26 bottom
+ * accessory, or a docked pill on older iOS); elsewhere it floats under the header.
  */
 
 import React from 'react';
@@ -11,7 +12,7 @@ import {
   TouchableOpacity,
   View as RNView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, {
@@ -24,36 +25,35 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Text, useColors } from '@/components/Themed';
-import { useTimerContext } from '@/contexts/TimerContext';
+import { formatTime, timerAccessibilityLabel, useCookTimerSummary } from '@/components/CookTimerAccessory';
+import { useCookTimerRunning } from '@/contexts/TimerContext';
 import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
-import { lightHaptic } from '@/utils/haptics';
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
+import {
+  DOCKED_TIMER_HEIGHT,
+  cookTimerPlacement,
+  isTabRoute,
+  overlayBottom,
+  supportsTabBottomAccessory,
+  useTabScreenBottomInset,
+} from '@/lib/bottomOverlay';
 
 export function FloatingTimerOverlay() {
-  const { timers, session, isInCookMode, hasActiveTimers } = useTimerContext();
-  const router = useRouter();
+  const summary = useCookTimerSummary();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+  const inTabs = isTabRoute(useSegments());
+  const tabInset = useTabScreenBottomInset();
+  const running = useCookTimerRunning();
+  const placement = cookTimerPlacement({
+    running: running && summary !== null,
+    inTabs,
+    supportsAccessory: supportsTabBottomAccessory,
+  });
+
   // Animation for pulsing when timer is about to complete
   const pulseOpacity = useSharedValue(1);
-  
-  // Get the most urgent timer (lowest remaining time)
-  const sortedTimers = React.useMemo(() => {
-    return Array.from(timers.entries())
-      .filter(([_, timer]) => timer.remaining > 0)
-      .sort((a, b) => a[1].remaining - b[1].remaining);
-  }, [timers]);
-  
-  const primaryTimer = sortedTimers[0]?.[1];
-  const otherTimersCount = Math.max(0, sortedTimers.length - 1);
-  const isUrgent = primaryTimer ? primaryTimer.remaining <= 30 && !primaryTimer.isPaused : false;
-  
+  const isUrgent = summary?.isUrgent ?? false;
+
   // Pulse animation when urgent - MUST be before any returns
   React.useEffect(() => {
     if (isUrgent) {
@@ -69,54 +69,34 @@ export function FloatingTimerOverlay() {
       pulseOpacity.value = withSpring(1);
     }
   }, [isUrgent, pulseOpacity]);
-  
+
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: pulseOpacity.value,
   }));
-  
-  // Don't show if in cook mode, no active timers, or no session
+
+  // The iOS 26 tab bar shows the timer as its native bottom accessory instead.
   // Note: We avoid using exiting animations here due to a race condition bug
   // with React Native's New Architecture (Fabric) on Android that causes crashes
   // when views with exit animations are removed during navigation transitions
-  if (isInCookMode || !hasActiveTimers || !session || sortedTimers.length === 0) {
+  if (!summary || placement === 'hidden' || placement === 'accessory') {
     return null;
   }
-  
-  const handlePress = () => {
-    lightHaptic();
-    
-    // Push recipe detail first, then cook mode
-    // Stack becomes: [current] → Recipe Detail → Cook Mode
-    // When leaving cook mode, user lands on Recipe Detail (with back button to previous screen)
-    router.push({
-      pathname: '/recipe/[id]',
-      params: { id: session.recipeId },
-    });
-    
-    // Small delay to let the push complete, then push cook mode on top
-    setTimeout(() => {
-      router.push({
-        pathname: '/cook-mode/[id]',
-        params: {
-          id: session.recipeId,
-          ...(session.scaleFactor !== undefined && { scaleFactor: session.scaleFactor.toString() }),
-          ...(session.servings !== undefined && { servings: session.servings.toString() }),
-        },
-      });
-    }, 100);
-  };
-  
+  const { primaryTimer, otherTimersCount, recipeTitle, resume } = summary;
+
   const foreground = isUrgent ? colors.onError : colors.onTint;
 
-  // Position below typical header height (safe area + ~50px for header)
-  const topPosition = insets.top + 50;
-  
+  // Docked just above the tab bar on tab screens; otherwise below the header.
+  const position = placement === 'dock'
+    ? { bottom: overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 72 }) }
+    : { top: insets.top + 50 };
+
   return (
     <Animated.View
       entering={FadeIn.duration(200)}
+      pointerEvents="box-none"
       style={[
         styles.container,
-        { top: topPosition },
+        position,
       ]}
     >
       <Animated.View style={animatedStyle}>
@@ -127,37 +107,40 @@ export function FloatingTimerOverlay() {
               backgroundColor: isUrgent ? colors.error : colors.tint,
             },
           ]}
-          onPress={handlePress}
+          onPress={resume}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={timerAccessibilityLabel(summary)}
+          accessibilityHint="Returns to cook mode"
         >
           <Ionicons
             name={primaryTimer.isPaused ? 'pause-circle' : 'timer-outline'}
             size={18}
             color={foreground}
           />
-          
+
           <Text style={[styles.timerText, { color: foreground }]}>
             {formatTime(primaryTimer.remaining)}
           </Text>
-          
+
           {primaryTimer.isPaused && (
             <Text style={[styles.statusText, { color: foreground }]}>paused</Text>
           )}
-          
+
           {otherTimersCount > 0 && (
             <Text style={[styles.statusText, { color: foreground }]}>+{otherTimersCount}</Text>
           )}
-          
+
           <RNView style={[styles.separator, { backgroundColor: foreground, opacity: 0.3 }]} />
-          
+
           <Text style={[styles.recipeTitle, { color: foreground }]} numberOfLines={1}>
-            {session.recipeTitle}
+            {recipeTitle}
           </Text>
-          
-          <Ionicons 
-            name="chevron-forward" 
-            size={16} 
-            color={foreground} 
+
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={foreground}
           />
         </TouchableOpacity>
       </Animated.View>
@@ -177,6 +160,7 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: DOCKED_TIMER_HEIGHT,
     paddingVertical: spacing.xs + 2,
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,

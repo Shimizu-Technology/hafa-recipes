@@ -633,7 +633,8 @@ function PlannerScreenContent() {
           contentContainerStyle={[
             styles.signedOutContent,
             {
-              paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.xl,
+              // The native tab bar inset is applied by contentInsetAdjustmentBehavior.
+              paddingBottom: spacing.xl,
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -653,6 +654,8 @@ function PlannerScreenContent() {
               Sign in to map recipes across breakfast, lunch, dinner, and snacks — then send the whole week to your grocery list.
             </Text>
           </RNView>
+
+          <SignInBanner message="Sign in to plan your meals for the week" style={{ marginBottom: 0 }} />
 
           <RNView
             style={[
@@ -725,7 +728,6 @@ function PlannerScreenContent() {
             </RNView>
           </RNView>
         </ScrollView>
-        <SignInBanner message="Sign in to plan your meals for the week!" />
       </>
     );
   }
@@ -1114,7 +1116,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 80,
+    paddingBottom: spacing.xl,
   },
   dayTitle: {
     fontSize: fontSize.xl,

@@ -5,120 +5,95 @@ import {
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/components/Themed';
-import { shadows, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { radius, spacing, typography } from '@/constants/Colors';
 
 interface SignInBannerProps {
   message?: string;
   onSignIn?: () => void;
+  style?: StyleProp<ViewStyle>;
 }
 
-/** Show guest account actions in the screen's layout, without covering content. */
-export function SignInBanner({ message = 'Sign in to use this feature', onSignIn }: SignInBannerProps) {
+/**
+ * Guest account prompt shown inline at the top of a screen's content.
+ * It scrolls with the content so it never sits under the native tab bar.
+ */
+export function SignInBanner({ message = 'Sign in to use this feature', onSignIn, style }: SignInBannerProps) {
   const colors = useColors();
   const router = useRouter();
   const { fontScale } = useWindowDimensions();
   const usesLargeTextLayout = fontScale >= 1.5;
   return (
     <View
-      style={[
-        styles.container,
-        usesLargeTextLayout && styles.containerLargeText,
-        {
-          backgroundColor: colors.card,
-          borderColor: colors.border,
-          shadowColor: colors.shadowColor,
-        },
-      ]}
+      style={[styles.container, { backgroundColor: colors.card }, style]}
       accessibilityRole="summary"
     >
-      <View style={[styles.iconContainer, { backgroundColor: colors.accentSoft }]}>
-        <Ionicons name="bookmark-outline" size={19} color={colors.accent} />
-      </View>
-      <View style={styles.copy}>
-        <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
+      <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
+      <View style={[styles.actions, usesLargeTextLayout && styles.actionsLargeText]}>
         <TouchableOpacity
+          style={[styles.signInButton, { backgroundColor: colors.tint }]}
+          onPress={onSignIn ?? (() => router.push('/(auth)/sign-in'))}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+        >
+          <Text style={[styles.signInButtonText, { color: colors.onTint }]}>Sign in</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.createAccountButton}
           onPress={() => router.push('/(auth)/sign-up')}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Create account"
-          hitSlop={6}
         >
-          <Text style={[styles.createAccountText, { color: colors.textSecondary }]}>Create a free account</Text>
+          <Text style={[styles.createAccountText, { color: colors.actionText }]}>Create a free account</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={[
-          styles.signInButton,
-          usesLargeTextLayout && styles.signInButtonLargeText,
-          { backgroundColor: colors.tint },
-        ]}
-        onPress={onSignIn ?? (() => router.push('/(auth)/sign-in'))}
-        activeOpacity={0.8}
-        accessibilityRole="button"
-        accessibilityLabel="Sign in"
-      >
-        <Text style={[styles.signInButtonText, { color: colors.onTint }]}>Sign in</Text>
-        <Ionicons name="arrow-forward" size={16} color={colors.onTint} />
-      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderRadius: radius.xl,
-    padding: spacing.sm + 2,
-    ...shadows.medium,
-  },
-  containerLargeText: {
-    flexWrap: 'wrap',
-    alignItems: 'flex-start',
-  },
-  iconContainer: {
-    width: 36,
-    height: 36,
     borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  copy: {
-    flex: 1,
-    minWidth: 0,
+    padding: spacing.md,
+    gap: 12,
+    marginBottom: spacing.lg,
   },
   message: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
+    ...typography.headline,
   },
-  signInButton: {
+  actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.full,
+    flexWrap: 'wrap',
+    columnGap: spacing.md,
+    rowGap: spacing.sm,
   },
-  signInButtonLargeText: {
-    width: '100%',
+  actionsLargeText: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  signInButton: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.full,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   signInButtonText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
+    ...typography.subhead,
+    fontWeight: '600',
+  },
+  createAccountButton: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   createAccountText: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
-    textDecorationLine: 'underline',
+    ...typography.subhead,
   },
 });

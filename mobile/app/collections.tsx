@@ -24,7 +24,7 @@ function CollectionsScreenContent() {
     isFetching: isFetchingCollections, refetch: refetchCollections } = useCollections(Boolean(isSignedIn));
   return <View style={{ flex: 1, backgroundColor: colors.groupedBackground }}>
     <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Collections', headerRight: () => isSignedIn ? <TouchableOpacity onPress={() => setShowCreateCollectionModal(true)} accessibilityRole="button" accessibilityLabel="New collection" style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="add" size={22} color={colors.actionText} /></TouchableOpacity> : null }} />
-    {!isSignedIn ? <SignInBanner message="Sign in to open your collections" /> : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 8 }}>
+    {!isSignedIn ? <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16 }}><SignInBanner message="Sign in to open your collections" /></ScrollView> : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 8 }}>
       {isLoadingCollections && <ActivityIndicator accessibilityLabel="Loading collections" />}
       {isCollectionsError && <View>
         <Text accessibilityRole="alert">{collections === undefined
