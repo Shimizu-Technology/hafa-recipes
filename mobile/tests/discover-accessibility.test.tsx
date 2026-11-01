@@ -1,4 +1,5 @@
-vi.mock('@/components/chrome/SearchField', () => ({ SearchLauncher: 'SearchLauncher', SearchRow: 'SearchRow', SearchField: 'SearchField', FilterButton: 'FilterButton' }));
+vi.mock('@/components/chrome/SearchField', () => ({ SearchLauncher: 'SearchLauncher', SearchRow: ({ children }: any) => <>{children}</>, SearchField: 'SearchField', FilterButton: ({ onPress, count }: any) => React.createElement('button', { accessibilityLabel: 'Filter recipes', onPress, count }) }));
+vi.mock('@/components/chrome/Chips', () => ({ ChipRow: ({ children }: any) => <>{children}</>, Chip: ({ label, accessibilityLabel, onPress }: any) => React.createElement('button', { accessibilityLabel: accessibilityLabel ?? label, onPress }) }));
 vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -193,7 +194,7 @@ describe('Discover accessibility', () => {
       expect(byText(renderer, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
       await act(async () => byText(renderer, 'Apply (1)').props.onPress());
       expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
-      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Top contributors', 'Surprise me', 'Search by ingredient']);
+      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Surprise me', 'Top contributors', 'What can I make, search by ingredient']);
       await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Top contributors')!.props.onPress());
       const contributors = renderer.root.findByType('AllContributorsModal' as any);
       expect(contributors.props.visible).toBe(true);

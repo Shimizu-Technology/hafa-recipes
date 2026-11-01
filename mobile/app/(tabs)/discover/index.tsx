@@ -1,5 +1,6 @@
 import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
-import { SearchLauncher, SearchRow } from '@/components/chrome/SearchField';
+import { FilterButton, SearchLauncher, SearchRow } from '@/components/chrome/SearchField';
+import { Chip, ChipRow } from '@/components/chrome/Chips';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { discoverSections } from '@/lib/recipeBrowse';
@@ -451,6 +452,19 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
+  // Search, filter and tools stay usable while the first page loads.
+  const discoverTools = <>
+    <SearchRow>
+      <SearchLauncher />
+      <FilterButton count={activeFilterCount} onPress={() => setShowFilterModal(true)} />
+    </SearchRow>
+    <ChipRow accessibilityLabel="Discover tools">
+      <Chip label="Surprise me" icon="shuffle-outline" onPress={() => { if (!randomRequestPending.current) setShowSurpriseModal(true); }} />
+      <Chip label="Top contributors" icon="people-outline" onPress={() => setShowAllContributors(true)} />
+      <Chip label="What can I make?" icon="basket-outline" onPress={() => router.push('/ingredient-search')} accessibilityLabel="What can I make, search by ingredient" />
+    </ChipRow>
+  </>;
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
     <View style={styles.container}>
@@ -566,15 +580,13 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         </Pressable>
       </Modal>
 
-      <RecipeBrowseHeader actions={[
-        { title: 'Filter recipes', onPress: () => setShowFilterModal(true) },
-        { title: 'Top contributors', onPress: () => setShowAllContributors(true) },
-        { title: 'Surprise me', onPress: () => { if (!randomRequestPending.current) setShowSurpriseModal(true); } },
-        { title: 'Search by ingredient', onPress: () => router.push('/ingredient-search') },
-      ]} />
+      <RecipeBrowseHeader actions={[]} />
       {isRandomLoading && <ActivityIndicator accessibilityLabel="Finding a recipe" color={colors.tint} style={{ marginVertical: 12 }} />}
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
-        <SkeletonRecipeList count={6} layout="grid" />
+        <View style={{ flex: 1 }}>
+          <RNView style={[styles.listContent, { paddingTop: 8, paddingBottom: 0 }]}>{discoverTools}</RNView>
+          <SkeletonRecipeList count={6} layout="grid" />
+        </View>
       ) : (
         <FlatList
           ref={listRef}
@@ -586,7 +598,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           numColumns={!largeText ? 2 : 1}
           columnWrapperStyle={!largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
-            <SearchRow><SearchLauncher /></SearchRow>
+            {discoverTools}
             {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>
