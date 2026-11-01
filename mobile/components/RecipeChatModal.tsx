@@ -35,6 +35,7 @@ import { useAuth } from '@clerk/expo';
 
 import { View, Text, useColors } from '@/components/Themed';
 import ChatComposer from './ChatComposer';
+import { ChatScopeChips, type ChatScope } from './ChatScopeChips';
 import { Recipe, ChatMessage } from '@/types/recipe';
 import { useChatWithRecipe, useCookingChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
@@ -117,12 +118,17 @@ const COOKING_SUGGESTIONS = [
 export default function RecipeChatModal(props: RecipeChatModalProps) {
   const authority = useRecipeOwnerGeneration();
   const origin = useRef(authority);
+  // On a recipe the cook can widen the question to the whole library; each scope keeps its own conversation.
+  const [scope, setScope] = useState<ChatScope>('recipe');
   // Recipe context belongs to the screen that opened it; general chat starts clean.
   if (props.recipe && origin.current !== authority) return null;
-  return <RecipeChatModalContent key={authority} {...props} />;
+  const focused = props.recipe && scope === 'recipe' ? props.recipe : undefined;
+  // The content reloads the matching conversation when the recipe focus changes, so the sheet stays open.
+  return <RecipeChatModalContent key={authority} {...props} recipe={focused}
+    context={<ChatScopeChips scope={focused ? 'recipe' : 'all'} canFocusRecipe={Boolean(props.recipe)} onChange={setScope} />} />;
 }
 
-function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalProps) {
+function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeChatModalProps & { context?: React.ReactNode }) {
   const authority = useRef(recipeScope()).current;
   const writeChatDraft = useCallback((key: string, text: string) => {
     try { assertRecipeScope(authority); } catch (error) { return Promise.reject(error); }
@@ -1347,6 +1353,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe }: RecipeChatModalP
           isSending={isDelivering}
           isUnavailable={isComposerUnavailable}
           isGeneralMode={isGeneralMode}
+          context={context}
           onChangeText={updateInputText}
           onSend={() => { void handleSend(); }}
           onCancel={handleStopGenerating}

@@ -16,6 +16,7 @@ import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, shadows, spacing } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { DiscoverSort, filterRecipesLocally, SearchFilters, useCurrentUserIdentity, useDiscoverRecipes, useIsRecipeSaved, usePopularTags, useSaveRecipe, useSearchPublicRecipes, useUnsaveRecipe, } from '@/hooks/useRecipes';
@@ -155,7 +156,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
-  const endPadding = useTabScrollEndPadding(spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl, { askPill: true });
+  const onAskPillScroll = useAskPillScroll();
   const listRef = useRef<FlatList<RecipeListItem>>(null);
   useTabScrollToTop('discover', listRef);
   const { userId, isSignedIn } = useAuth();
@@ -606,6 +608,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
+          onScroll={onAskPillScroll}
+          scrollEventThrottle={32}
           refreshControl={
             <RefreshControl
               refreshing={isPullRefreshing}

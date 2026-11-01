@@ -9,12 +9,15 @@ import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSegments } from 'expo-router';
+import { useAuth } from '@clerk/expo';
 
 import { Text } from '@/components/Themed';
 import Colors, { fontFamily, fontSize, radius, shadows, spacing } from '@/constants/Colors';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { useCookTimerRunning } from '@/contexts/TimerContext';
+import { showsAskPill } from '@/lib/askPill';
 import {
+  ASK_PILL_HEIGHT,
   DOCKED_TIMER_HEIGHT,
   OVERLAY_GAP,
   cookTimerPlacement,
@@ -49,13 +52,16 @@ export function ToastHost() {
   const [shown, setShown] = useState<ToastState | null>(toast);
   const reduceMotion = useReduceMotion();
   const insets = useSafeAreaInsets();
-  const inTabs = isTabRoute(useSegments());
+  const segments = useSegments();
+  const inTabs = isTabRoute(segments);
+  const { isSignedIn } = useAuth();
   const tabInset = useTabScreenBottomInset();
   const timerRunning = useCookTimerRunning();
   const timerDocked = cookTimerPlacement({ running: timerRunning, inTabs }) === 'dock';
+  const askPill = showsAskPill(segments, Boolean(isSignedIn));
   const bottom = overlayBottom({
     inTabs, tabInset, windowInset: insets.bottom, clearance: BOTTOM_CLEARANCE,
-    stacked: timerDocked ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0,
+    stacked: (timerDocked ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0) + (askPill ? ASK_PILL_HEIGHT + OVERLAY_GAP : 0),
   });
   const progress = useSharedValue(0);
 

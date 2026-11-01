@@ -1,3 +1,4 @@
+vi.mock('./ChatScopeChips', () => ({ ChatScopeChips: 'ChatScopeChips' }));
 import React from 'react';
 import { act } from 'react';
 import { createRoot } from 'test-renderer';
