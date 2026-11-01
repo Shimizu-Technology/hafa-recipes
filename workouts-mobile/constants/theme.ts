@@ -117,7 +117,7 @@ export const dark: ColorTokens = {
   onHeroSoft: "rgba(118,118,128,0.24)", success: "#30D158", warning: "#FFD60A",
   error: "#FF453A", errorSoft: "#301412", focus: "#FF7A50", overlay: "rgba(0,0,0,0.6)",
   skeleton: "#2C2C2E", shadow: "#000000", tint: "rgba(118,118,128,0.24)",
-  tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", segment: "#2C2C2E",
+  tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", segment: "#636366",
 };
 
 export const spacing = { xxs: 4, xs: 8, sm: 12, md: 16, lg: 24, xl: 32, xxl: 40 } as const;
