@@ -48,6 +48,8 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const deathBy = format.mode === "emom" && openLadder(block);
   const lastRound = Math.max(0, ...d.actuals.map((a) => a.round_index));
   const allMarked = d.cursor === d.steps.length;
+  // The work is over: for time finished or capped, or Death by ended. The clock is stopped, so Pause no longer applies.
+  const finished = capReached || (allMarked && (format.mode === "for_time" || deathBy));
   const canComplete = allMarked && d.actuals.length > 0 && d.actuals.every((a) => a.completed || (deathBy && a.round_index === lastRound));
   const interval = format.mode === "for_time" ? null : format;
   const position = interval ? intervalPosition(interval, elapsed) : null;
@@ -97,7 +99,8 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     finish("partial", partial);
   };
 
-  const clockText = format.mode === "for_time" ? formatClock(elapsed / 1000) : formatClock(position!.remaining);
+  // Whole seconds elapsed, the same way the saved finish time counts them.
+  const clockText = format.mode === "for_time" ? formatClock(Math.floor(elapsed / 1000)) : formatClock(position!.remaining);
   const caption = format.mode === "for_time"
     ? [format.time_cap_seconds != null ? `Cap ${formatClock(format.time_cap_seconds)}` : "No time cap", `Round ${Math.min(target ?? lastRound, block.rounds ?? 1)} of ${block.rounds ?? 1}`].join(" · ")
     : `${unit} ${position!.index}${interval!.intervals != null ? ` of ${interval!.intervals}` : ""}`;
@@ -130,16 +133,16 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   ) : null;
 
   return (
-    <Screen native back title={formatLabel(block) ?? d.workout.title} subtitle={d.workout.title}
+    <Screen native back title={formatLabel(block)?.split(" · ")[0] ?? d.workout.title} subtitle={d.workout.title}
       action={<IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />}
       footer={<>
         {!!error && <Notice error>{error}</Notice>}
         {primary}
         <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
-          <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
+          {!finished && <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
             <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"} variant="secondary"
-              disabled={busy || capReached || (format.mode === "for_time" && allMarked)} onPress={() => pause(!d.paused)} />
-          </View>
+              disabled={busy} onPress={() => pause(!d.paused)} />
+          </View>}
           <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
             <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
               onPress={() => (canComplete ? finish("completed") : setStopping(true))} />
@@ -154,9 +157,9 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
         {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small">{formatClock(remaining)} left</Copy>}
         {!!nowLine && <Copy kind="label">{nowLine}</Copy>}
         {hasNext && <Copy kind="small" tone="muted">Next · {unit} {position!.index + 1}: {moves(position!.index + 1)}</Copy>}
-        {format.mode === "for_time" && allMarked && <Copy kind="label">Finished in {formatClock(elapsed / 1000)}</Copy>}
+        {format.mode === "for_time" && allMarked && <Copy kind="label">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
       </Card>
-      {d.paused && !capReached && !(format.mode === "for_time" && allMarked) && <Notice tone="warning">Paused. The clock is stopped and time away isn’t counted.</Notice>}
+      {d.paused && !finished && <Notice tone="warning">Paused. The clock is stopped and time away isn’t counted.</Notice>}
       {format.mode === "for_time" && step && (
         <>
           <SectionHeader title={capReached ? "Time cap reached · tick what you finished" : `Round ${target}`} />

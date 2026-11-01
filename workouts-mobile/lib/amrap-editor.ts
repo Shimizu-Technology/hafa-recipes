@@ -33,8 +33,11 @@ export function blockSummary(block: Block, label?: string) {
     const alternating = block.execution.mode === "emom" && block.execution.rotation === "alternating" && block.exercises.length > 1;
     const name = formatLabel(block);
     // A block already labelled "EMOM 20" doesn't need it twice.
-    const named = !!label && !!name && label.toLowerCase().includes(name.toLowerCase());
-    return [named ? null : name, alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
+    const said = label?.trim().toLowerCase() ?? "";
+    // A block already labelled "EMOM 20" or "21-15-9 for time" doesn't need the name twice; only what it adds ("cap 12").
+    const rest = !name || !said ? name : said.includes(name.toLowerCase()) ? null
+      : name.toLowerCase().startsWith(said) ? name.slice(said.length).replace(/^\s*·\s*/, "") || null : name;
+    return [rest, alternating ? "alternating moves" : null].filter(Boolean).join(" · ");
   }
   const grouping = groupingLabels[block.grouping] ?? block.grouping;
   const repeated = !!label && label.toLowerCase().includes(grouping.toLowerCase());
