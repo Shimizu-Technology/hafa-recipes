@@ -1403,6 +1403,21 @@ it("Needs info finds matches after the first library page", async () => {
   expect(summaryText()).toBeUndefined();
   expect(filterButton().props.count).toBe(1);
 });
+it("Select workouts from Collections switches to the workouts so Select all only takes what you can see", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 1 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  await act(async () => nodes("Segmented")[0].props.onChange("collections"));
+  expect(nodes("LibraryCard")).toHaveLength(0);
+  await act(async () => listRow("Select workouts")!.props.onPress());
+  expect(nodes("Segmented")).toHaveLength(0);
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual([saved.title]);
+  await act(async () => button("Select all")!.props.onPress());
+  expect(nodes("LibraryCard").every(n => n.props.selected)).toBe(true);
+  // Leaving selection shows the workouts view it switched to.
+  await act(async () => button("Done")!.props.onPress());
+  expect(nodes("Segmented")[0].props.value).toBe("all");
+});
 it("Library shows Programs as a segment and switches back to All", async () => {
   fixture.library.mockResolvedValue([saved]);
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });

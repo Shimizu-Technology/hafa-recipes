@@ -90,7 +90,8 @@ export default function Library() {
   }
   function startSelecting(id?: string) {
     if (!enrollment?.enrolled || bulkBusy) return;
-    interact(() => { haptics.tick(); setMenu(false); setSelecting(true); setSelectedIds(id ? [id] : []); setBulkMessage(""); setBulkError(""); });
+    // Selection works on visible workouts, so it starts from the workouts view, never from Collections.
+    interact(() => { haptics.tick(); setMenu(false); setShowCollections(false); setSelecting(true); setSelectedIds(id ? [id] : []); setBulkMessage(""); setBulkError(""); });
   }
   async function addSelected() {
     if (scope.lock || !selectedIds.length || !bulkTarget || !enrollment?.generation) return;
