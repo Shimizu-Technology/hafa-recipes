@@ -1,3 +1,4 @@
+vi.mock('@/components/chrome/SearchLauncher', () => ({ SearchLauncher: 'SearchLauncher' }));
 vi.mock('@/components/LibraryStatus', () => ({ LibraryStatus: 'LibraryStatus' }));
 vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';

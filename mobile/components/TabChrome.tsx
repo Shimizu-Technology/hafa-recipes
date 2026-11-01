@@ -27,12 +27,13 @@ export function AccountHeaderButton() {
     >
       {isSignedIn && hasProfilePhoto(user) ? (
         <Image source={{ uri: user.imageUrl }} style={styles.accountImage} accessibilityIgnoresInvertColors />
-      ) : isSignedIn && initial ? (
-        <RNView style={[styles.accountInitial, { backgroundColor: colors.accentSoft }]}>
-          <Text maxFontSizeMultiplier={1} style={[styles.accountInitialText, { color: colors.accent }]}>{initial}</Text>
-        </RNView>
       ) : (
-        <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={19} color={colors.actionText} />
+        // Same tonal circle as the other header buttons, so the header reads as one group.
+        <RNView style={[styles.accountInitial, { backgroundColor: colors.surface2 }]}>
+          {isSignedIn && initial
+            ? <Text maxFontSizeMultiplier={1} style={[styles.accountInitialText, { color: colors.text }]}>{initial}</Text>
+            : <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={18} color={colors.text} />}
+        </RNView>
       )}
     </TouchableOpacity>
   );
@@ -49,19 +50,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   accountImage: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: radius.full,
   },
   accountInitial: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
   },
   accountInitialText: {
     fontFamily: fontFamily.semibold, fontWeight: '600',
-    fontSize: fontSize.lg,
+    fontSize: fontSize.md,
   },
 });

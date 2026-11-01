@@ -149,7 +149,7 @@ function GroceryScreenContent() {
   const { fontScale } = useWindowDimensions();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl);
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;

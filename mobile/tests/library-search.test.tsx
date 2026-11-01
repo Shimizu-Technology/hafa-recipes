@@ -17,7 +17,7 @@ vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => state.generation }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (q: string) => state.debounced ?? q }));
 vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: (_filters: any, enabled: boolean) => { state.publicEnabled = enabled; return ({ isError: state.error, refetch: vi.fn(), recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }); }, useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any, enabled: boolean) => { state.filters = filters; state.enabled = enabled; return { isError: state.error, refetch: vi.fn(), isFetching: state.fetching, isFetchingNextPage: state.fetchingNext, recipes: [{ id: 'recipe-a', is_public: false, thumbnail_url: 'https://images.test/private-a.jpg', title: filters.query === 'Rice' ? 'Rice pilaf' : 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
-import SearchRoute from '@/app/(tabs)/search';
+import SearchRoute from '@/app/search';
 beforeEach(() => { state.signedIn = true; state.error = false; state.debounced = null; state.fetching = false; state.fetchingNext = false; state.next.mockClear(); state.push.mockClear(); });
 it('uses native library search, opens results, paginates, and clears query context for the next owner', async () => {
   const r = createRoot();

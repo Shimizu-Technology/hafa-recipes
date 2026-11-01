@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('react-native', () => ({ Platform: { OS: 'ios', Version: '18.5' } }));
+vi.mock('@/contexts/CookTimerRunning', () => ({ useCookTimerRunning: () => false }));
 
 import {
   DOCKED_TIMER_HEIGHT,
@@ -14,7 +14,6 @@ import {
   overlayBottom,
   reportTabScreenBottomInset,
   scrollEndPadding,
-  supportsTabBottomAccessory,
   useTabScreenBottomInset,
 } from './bottomOverlay';
 
@@ -25,11 +24,9 @@ describe('bottom overlay placement', () => {
     expect(isTabRoute([])).toBe(false);
   });
 
-  it('floats above the measured tab bar inside tabs instead of a fixed JS tab bar height', () => {
-    // iOS 18 full-width bar: 49pt bar + 34pt home indicator.
-    expect(overlayBottom({ inTabs: true, tabInset: 83, windowInset: 34, clearance: 80 })).toBe(83 + OVERLAY_GAP);
-    // iOS 26 floating bar with a bottom accessory reports a taller inset.
-    expect(overlayBottom({ inTabs: true, tabInset: 140, windowInset: 34, clearance: 80 })).toBe(140 + OVERLAY_GAP);
+  it('floats above the reported tab bar inside tabs', () => {
+    // 56pt Håfa bar + 34pt home indicator.
+    expect(overlayBottom({ inTabs: true, tabInset: 90, windowInset: 34, clearance: 80 })).toBe(90 + OVERLAY_GAP);
     // A docked timer pill stacks under the toast.
     expect(overlayBottom({ inTabs: true, tabInset: 83, windowInset: 34, clearance: 80, stacked: 52 })).toBe(83 + OVERLAY_GAP + 52);
   });
@@ -39,18 +36,15 @@ describe('bottom overlay placement', () => {
     expect(overlayBottom({ inTabs: true, tabInset: 0, windowInset: 34, clearance: 80 })).toBe(114);
   });
 
-  it('puts the cook timer in the native accessory on iOS 26 tabs and docks it on older tab bars', () => {
-    expect(cookTimerPlacement({ running: false, inTabs: true, supportsAccessory: true })).toBe('hidden');
-    expect(cookTimerPlacement({ running: true, inTabs: true, supportsAccessory: true })).toBe('accessory');
-    expect(cookTimerPlacement({ running: true, inTabs: true, supportsAccessory: false })).toBe('dock');
-    expect(cookTimerPlacement({ running: true, inTabs: false, supportsAccessory: true })).toBe('top');
-    expect(supportsTabBottomAccessory).toBe(false);
+  it('docks a running cook timer above the tab bar on every OS and under the header elsewhere', () => {
+    expect(cookTimerPlacement({ running: false, inTabs: true })).toBe('hidden');
+    expect(cookTimerPlacement({ running: true, inTabs: true })).toBe('dock');
+    expect(cookTimerPlacement({ running: true, inTabs: false })).toBe('top');
   });
 
-  it('leaves the tab bar inset to iOS automatic content insets and adds it elsewhere', () => {
-    expect(scrollEndPadding(83, 32)).toBe(32);
-    // Room for the docked timer pill (iOS 18) so the last row scrolls clear of it.
-    expect(scrollEndPadding(83, 32, true)).toBe(32 + DOCKED_TIMER_HEIGHT + OVERLAY_GAP);
+  it('pads tab lists only for their own spacing and a docked timer', () => {
+    expect(scrollEndPadding(32)).toBe(32);
+    expect(scrollEndPadding(32, true)).toBe(32 + DOCKED_TIMER_HEIGHT + OVERLAY_GAP);
   });
 
   it('ignores empty insets from tab screens that are not on screen', async () => {

@@ -1,10 +1,10 @@
 import { LibraryStatus } from '@/components/LibraryStatus';
 import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
+import { SearchLauncher } from '@/components/chrome/SearchLauncher';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnimatedListItem, useInitialListEntrance } from '@/components/Animated';
 import BulkAddToCollectionModal from '@/components/BulkAddToCollectionModal';
@@ -90,8 +90,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
-  const insets = useSafeAreaInsets();
-  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl);
   const { isSignedIn } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   // Local filtering follows every keystroke; the server search uses the debounced value.
@@ -558,6 +557,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           numColumns={isGrid && !largeText ? 2 : 1}
           columnWrapperStyle={isGrid && !largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
+            {!isSelectionMode && <SearchLauncher />}
             <ListHeaderTitle />
             {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
             {/* Selection Action Bar */}

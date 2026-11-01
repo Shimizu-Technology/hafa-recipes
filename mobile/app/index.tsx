@@ -785,7 +785,7 @@ function ExtractScreenContent() {
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {!isSignedIn && <SignInBanner message="Sign in to extract recipes" onSignIn={signInToImport} />}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
-            style={[styles.linkComposer, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+            style={[styles.linkComposer, { backgroundColor: colors.backgroundSecondary }]}>
             <RNView style={[styles.composerLabelRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'flex-start' }] }>
               <Text style={[styles.composerLabel, { color: colors.text }]}>Recipe link</Text>
               <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} disabled={isLoading} accessibilityRole="button"
@@ -837,7 +837,7 @@ function ExtractScreenContent() {
 
           {Platform.OS === 'web' && (entry === 'photos' || entry === 'scan') && <Button title={entry === 'photos' ? 'Choose photos' : 'Take photo'} onPress={() => { void pickImage(entry === 'scan' ? 'camera' : 'library'); }} disabled={!scanDraft.ready || !recoveryDraft.ready || !!scanDraft.available || !!recoveryDraft.available} />}
           <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
-          <RNView style={[styles.alternateMethods, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+          <RNView style={[styles.alternateMethods, { backgroundColor: colors.backgroundSecondary }]}>
             {([
               { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
               { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
@@ -1007,7 +1007,7 @@ function ExtractScreenContent() {
 }
 
 const styles = StyleSheet.create({
-  linkComposer: { padding: spacing.md, borderWidth: 1, borderRadius: radius.lg, marginBottom: spacing.md, gap: spacing.xs },
+  linkComposer: { padding: spacing.md, borderRadius: 16, marginBottom: spacing.lg, gap: spacing.xs },
   detailsAction: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   statusActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
@@ -1021,7 +1021,7 @@ const styles = StyleSheet.create({
   settingsCopy: { flex: 1 },
   settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },
   otherWaysLabel: { fontSize: fontSize.sm, fontFamily: fontFamily.semibold, fontWeight: '600', marginBottom: spacing.sm },
-  alternateMethods: { borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', marginBottom: spacing.md },
+  alternateMethods: { borderRadius: 16, overflow: 'hidden', marginBottom: spacing.md },
   alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
   alternateTitle: { flex: 1, fontSize: fontSize.md },
   helpActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },

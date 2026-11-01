@@ -340,7 +340,7 @@ function PlannerScreenContent() {
     servings?: string;
   }>();
   const insets = useSafeAreaInsets();
-  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl);
   const colors = useColors();
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 

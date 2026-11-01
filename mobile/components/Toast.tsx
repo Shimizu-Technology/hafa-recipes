@@ -20,7 +20,6 @@ import {
   cookTimerPlacement,
   isTabRoute,
   overlayBottom,
-  supportsTabBottomAccessory,
   useTabScreenBottomInset,
 } from '@/lib/bottomOverlay';
 import {
@@ -53,9 +52,7 @@ export function ToastHost() {
   const inTabs = isTabRoute(useSegments());
   const tabInset = useTabScreenBottomInset();
   const timerRunning = useCookTimerRunning();
-  const timerDocked = cookTimerPlacement({
-    running: timerRunning, inTabs, supportsAccessory: supportsTabBottomAccessory,
-  }) === 'dock';
+  const timerDocked = cookTimerPlacement({ running: timerRunning, inTabs }) === 'dock';
   const bottom = overlayBottom({
     inTabs, tabInset, windowInset: insets.bottom, clearance: BOTTOM_CLEARANCE,
     stacked: timerDocked ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0,

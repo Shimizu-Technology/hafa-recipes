@@ -1,17 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 const source = readFileSync(new URL('../app/(tabs)/_layout.tsx', import.meta.url), 'utf8');
-describe('native tab shell', () => {
-  it('keeps all five content destinations and leaves capture on the root stack', () => {
-    expect(source.match(/<NativeTabs.Trigger name=/g)).toHaveLength(5);
-    expect(source).toContain('role="search"');
-    expect(source).toContain('minimizeBehavior="onScrollDown"');
-    expect(source).not.toContain('tabBarButton');
-    expect(source).not.toContain('ImportTabIcon');
+describe('tab shell', () => {
+  it('draws its own bar with four destinations and leaves capture on the root stack', () => {
+    expect(source).not.toContain('unstable-native-tabs');
+    expect(source).toContain('tabBar={props => <HafaTabBar');
+    expect(source.match(/<Tabs.Screen name=/g)).toHaveLength(4);
     expect(source).not.toContain('name="index"');
-    expect(source).not.toContain('hidden');
+    expect(source).not.toContain('name="search"');
   });
-  it.each(['recipes', 'discover', 'planner', 'grocery', 'search'])('%s uses a native stack', route => {
+  it.each(['recipes', 'discover', 'planner', 'grocery'])('%s uses a native stack', route => {
     const layout = readFileSync(new URL(`../app/(tabs)/${route}/_layout.tsx`, import.meta.url), 'utf8');
     expect(layout).toContain('RecipeTabStack');
   });
@@ -21,11 +19,10 @@ describe('native tab shell', () => {
   });
 });
 
-// Keep the workaround scoped to UIKit 26 while older platforms retain a solid header.
-describe('tab header compatibility', () => {
-  it.each([['ios', 26, true], ['ios', '26.5', true], ['ios', 18, false], ['android', 36, false]])('%s %s header transparency is %s', (os, version, expected) => {
+describe('tab header', () => {
+  it('stays opaque on every OS so content never slides under the title', () => {
     const code = readFileSync(new URL('../components/RecipeTabStack.tsx', import.meta.url), 'utf8');
-    const expression = code.match(/const transparentHeader = (.*);/)[1];
-    expect(new Function('Platform', `return ${expression}`)({ OS: os, Version: version })).toBe(expected);
+    expect(code).toContain('headerTransparent: false');
+    expect(code).toContain('headerStyle: { backgroundColor: colors.background }');
   });
 });

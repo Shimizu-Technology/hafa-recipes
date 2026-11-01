@@ -1,18 +1,9 @@
-/**
- * The running cook timer as the iOS 26 tab bar's native bottom accessory, plus the
- * timer summary shared with the floating overlay used everywhere else.
- */
+/** The running cook timer's summary and resume action, shared by the floating timer overlay. */
 
 import React from 'react';
-import { Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Text, useColors } from '@/components/Themed';
-import { useCookTimerRunning, useTimerContext } from '@/contexts/TimerContext';
-import { spacing, typography } from '@/constants/Colors';
-import { supportsTabBottomAccessory } from '@/lib/bottomOverlay';
+import { useTimerContext } from '@/contexts/TimerContext';
 import { lightHaptic } from '@/utils/haptics';
 
 export function formatTime(seconds: number): string {
@@ -77,55 +68,3 @@ export function timerAccessibilityLabel(summary: NonNullable<ReturnType<typeof u
     recipeTitle,
   ].filter(Boolean).join(', ');
 }
-
-/** Running cook timer inside the iOS 26 tab bar's native bottom accessory. */
-export function CookTimerAccessory() {
-  const summary = useCookTimerSummary();
-  const colors = useColors();
-  const inline = NativeTabs.BottomAccessory.usePlacement() === 'inline';
-  if (!summary) return null;
-  const { primaryTimer, otherTimersCount, isUrgent, recipeTitle, resume } = summary;
-  const tone = isUrgent ? colors.error : colors.actionText;
-  return (
-    <Pressable
-      onPress={resume}
-      accessibilityRole="button"
-      accessibilityLabel={timerAccessibilityLabel(summary)}
-      accessibilityHint="Returns to cook mode"
-      style={({ pressed }) => [styles.accessory, { opacity: pressed ? 0.6 : 1 }]}
-    >
-      <Ionicons name={primaryTimer.isPaused ? 'pause-circle' : 'timer-outline'} size={20} color={tone} />
-      <Text style={[styles.accessoryTime, { color: tone }]}>{formatTime(primaryTimer.remaining)}</Text>
-      <Text style={[styles.accessoryTitle, { color: colors.text }]} numberOfLines={1}>
-        {primaryTimer.isPaused ? 'Paused · ' : ''}{otherTimersCount > 0 && !inline ? `+${otherTimersCount} · ` : ''}{recipeTitle}
-      </Text>
-      {!inline && <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />}
-    </Pressable>
-  );
-}
-
-/** The accessory element for the tab layout, or null while no timer runs. */
-export function useCookTimerAccessory() {
-  const running = useCookTimerRunning();
-  return React.useMemo(() => supportsTabBottomAccessory && running
-    ? <NativeTabs.BottomAccessory><CookTimerAccessory /></NativeTabs.BottomAccessory>
-    : null, [running]);
-}
-
-const styles = StyleSheet.create({
-  accessory: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  accessoryTime: {
-    ...typography.headline,
-    fontVariant: ['tabular-nums'],
-  },
-  accessoryTitle: {
-    ...typography.subhead,
-    flex: 1,
-  },
-});

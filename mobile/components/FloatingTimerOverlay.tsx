@@ -2,8 +2,8 @@
  * Floating Timer Overlay
  *
  * Shows the running cook timer when the user leaves cook mode. Tap to return to
- * cook mode. On tab screens it sits above the native tab bar (as the iOS 26 bottom
- * accessory, or a docked pill on older iOS); elsewhere it floats under the header.
+ * cook mode. On tab screens it docks just above the tab bar on every OS; elsewhere
+ * it floats under the header.
  */
 
 import React from 'react';
@@ -33,7 +33,6 @@ import {
   cookTimerPlacement,
   isTabRoute,
   overlayBottom,
-  supportsTabBottomAccessory,
   useTabScreenBottomInset,
 } from '@/lib/bottomOverlay';
 
@@ -44,11 +43,7 @@ export function FloatingTimerOverlay() {
   const inTabs = isTabRoute(useSegments());
   const tabInset = useTabScreenBottomInset();
   const running = useCookTimerRunning();
-  const placement = cookTimerPlacement({
-    running: running && summary !== null,
-    inTabs,
-    supportsAccessory: supportsTabBottomAccessory,
-  });
+  const placement = cookTimerPlacement({ running: running && summary !== null, inTabs });
 
   // Animation for pulsing when timer is about to complete
   const pulseOpacity = useSharedValue(1);
@@ -74,11 +69,10 @@ export function FloatingTimerOverlay() {
     opacity: pulseOpacity.value,
   }));
 
-  // The iOS 26 tab bar shows the timer as its native bottom accessory instead.
   // Note: We avoid using exiting animations here due to a race condition bug
   // with React Native's New Architecture (Fabric) on Android that causes crashes
   // when views with exit animations are removed during navigation transitions
-  if (!summary || placement === 'hidden' || placement === 'accessory') {
+  if (!summary || placement === 'hidden') {
     return null;
   }
   const { primaryTimer, otherTimersCount, recipeTitle, resume } = summary;
