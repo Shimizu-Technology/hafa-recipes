@@ -23,7 +23,8 @@ export function AskHafaFloating() {
   const timerRunning = useCookTimerRunning();
   const [showChat, setShowChat] = useState(false);
   const [hasOpenedChat, setHasOpenedChat] = useState(false);
-  const tab = segments[1];
+  // Typed routes narrow segments per route; the tab is the second segment when present.
+  const tab = (segments as readonly string[])[1];
   // Each tab starts with the full label.
   useEffect(() => { setAskPillCollapsed(false); }, [tab]);
   // A signed-out device keeps no chat open from the previous account.
