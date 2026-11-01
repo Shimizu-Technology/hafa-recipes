@@ -58,6 +58,7 @@ import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { useRecipe } from '@/hooks/useRecipes';
 import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { haptics, lightHaptic, successHaptic } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
 import {
@@ -340,11 +341,12 @@ function PlannerScreenContent() {
     servings?: string;
   }>();
   const insets = useSafeAreaInsets();
-  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl);
   const colors = useColors();
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
   const weekScroll = useRef<ScrollView>(null);
+  useTabScrollToTop('planner', weekScroll);
   const dayPositions = useRef<Record<string, number>>({});
   const scrollSize = useRef({ height: 0, contentHeight: 0 });
   const pendingScrollDate = useRef<string | null>(null);
@@ -630,6 +632,7 @@ function PlannerScreenContent() {
     return (
       <>
         <ScrollView
+          ref={weekScroll}
           contentInsetAdjustmentBehavior="automatic"
           style={[styles.signedOutScroll, { backgroundColor: colors.background }]}
           contentContainerStyle={[

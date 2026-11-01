@@ -1,4 +1,5 @@
 import { RecipeBrowseHeader } from '@/components/RecipeBrowseHeader';
+import { SearchLauncher } from '@/components/chrome/SearchLauncher';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { guestRecipeIntent } from '@/lib/guestRecipeIntent';
 import { discoverSections } from '@/lib/recipeBrowse';
@@ -8,7 +9,6 @@ import { useRouter } from 'expo-router';
 import { useIsFocused } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, Pressable, RefreshControl, View as RNView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AllContributorsModal from '@/components/AllContributorsModal';
 import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
@@ -16,6 +16,7 @@ import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, shadows, spacing } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
+import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { DiscoverSort, filterRecipesLocally, SearchFilters, useCurrentUserIdentity, useDiscoverRecipes, useIsRecipeSaved, usePopularTags, useSaveRecipe, useSearchPublicRecipes, useUnsaveRecipe, } from '@/hooks/useRecipes';
 import { api } from '@/lib/api';
@@ -154,8 +155,9 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
-  const insets = useSafeAreaInsets();
-  const endPadding = useTabScrollEndPadding(insets.bottom, spacing.xl);
+  const endPadding = useTabScrollEndPadding(spacing.xl);
+  const listRef = useRef<FlatList<RecipeListItem>>(null);
+  useTabScrollToTop('discover', listRef);
   const { userId, isSignedIn } = useAuth();
   const identity = useCurrentUserIdentity(active && Boolean(isSignedIn));
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
@@ -566,13 +568,14 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
         { title: 'Filter recipes', onPress: () => setShowFilterModal(true) },
         { title: 'Top contributors', onPress: () => setShowAllContributors(true) },
         { title: 'Surprise me', onPress: () => { if (!randomRequestPending.current) setShowSurpriseModal(true); } },
-        { title: 'Search recipes', onPress: () => router.navigate('/(tabs)/search') },
+        { title: 'Search by ingredient', onPress: () => router.push('/ingredient-search') },
       ]} />
       {isRandomLoading && <ActivityIndicator accessibilityLabel="Finding a recipe" color={colors.tint} style={{ marginVertical: 12 }} />}
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <SkeletonRecipeList count={6} layout="grid" />
       ) : (
         <FlatList
+          ref={listRef}
           contentInsetAdjustmentBehavior="automatic"
           key={!largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
@@ -581,6 +584,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           numColumns={!largeText ? 2 : 1}
           columnWrapperStyle={!largeText ? styles.gridRow : undefined}
           ListHeaderComponent={<>
+            <SearchLauncher />
             {!isSignedIn && <SignInBanner message="Sign in to save recipes" />}
             {hasVisibleFilters && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear Discover filters" onPress={() => { setSourceFilter('all'); setTimeFilter('all'); setSelectedTags([]); setSelectedExtractor(null); setMealTypeFilter('all'); setHideMyRecipes(false); setSortOrder('recent'); }} style={{ minHeight: 44, justifyContent: 'center', marginBottom: 12 }}>
               <Text style={{ color: colors.textSecondary }}>{[selectedExtractor?.name, sourceFilter !== 'all' && sourceFilter, timeFilter !== 'all' && timeFilter, ...selectedTags, mealTypeFilter !== 'all' && mealTypeFilter, hideMyRecipes && 'Mine hidden'].filter(Boolean).join(' · ')} ×</Text>

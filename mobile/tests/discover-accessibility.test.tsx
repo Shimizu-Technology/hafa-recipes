@@ -1,3 +1,4 @@
+vi.mock('@/components/chrome/SearchLauncher', () => ({ SearchLauncher: 'SearchLauncher' }));
 vi.mock('@/components/RecipeBrowseHeader', () => ({ RecipeBrowseHeader: ({ actions }: any) => <>{actions.map((action: any) => React.createElement('button', { key: action.title, accessibilityLabel: action.title, onPress: action.onPress }))}</>, showBrowseMenu: vi.fn() }));
 import React from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -192,7 +193,7 @@ describe('Discover accessibility', () => {
       expect(byText(renderer, 'YouTube').props.accessibilityState).toEqual({ selected: true, checked: true });
       await act(async () => byText(renderer, 'Apply (1)').props.onPress());
       expect(mocks.searchArgs.at(-1)).toEqual(expect.objectContaining({ sourceType: 'youtube' }));
-      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Top contributors', 'Surprise me', 'Search recipes']);
+      expect(renderer.root.findAllByType('button' as any).map(n => n.props.accessibilityLabel)).toEqual(['Filter recipes', 'Top contributors', 'Surprise me', 'Search by ingredient']);
       await act(async () => renderer.root.findAllByType('button' as any).find(n => n.props.accessibilityLabel === 'Top contributors')!.props.onPress());
       const contributors = renderer.root.findByType('AllContributorsModal' as any);
       expect(contributors.props.visible).toBe(true);
