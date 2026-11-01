@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   fontScale: 1, ask: {} as any, keyboard: {} as Record<string, () => void>, removed: [] as string[],
-  params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[],
+  params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
   exportVisit: vi.fn(async (_text: string, _owner: string) => {}),
 }));
 vi.mock("react-native", () => ({
@@ -54,7 +54,7 @@ vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/chat-citations", () => import("./chat-citations"));
 vi.mock("@/components/header-search", () => import("../components/header-search"));
 vi.mock("@/components/tab-stack", () => import("../components/tab-stack"));
-vi.mock("@/components/ui", () => import("../components/ui"));
+vi.mock("@/components/ui", async () => ({ ...(await import("../components/ui")), useToast: () => (message: string, action?: unknown) => mock.toasts.push([message, action]) }));
 vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
 vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
@@ -64,11 +64,12 @@ vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: (view: { kind: 
   refresh: () => {}, loadMore: async () => {},
 }) }));
 vi.mock("@/lib/categories", () => import("./categories"));
-vi.mock("@/components/category-picker", () => ({ CategoryPicker: () => null }));
+vi.mock("@/components/category-picker", () => ({ CategoryPicker: (props: any) => (mock.picker = props, null) }));
 vi.mock("@/components/import-updates", () => ({ ImportUpdates: () => null }));
 vi.mock("@/components/tips", () => import("../components/tips"));
 vi.mock("@/components/timing-editor", () => import("../components/timing-editor"));
 vi.mock("@/lib/timing", () => import("./timing"));
+vi.mock("@/lib/suggestions", () => import("./suggestions"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/components/saved-post-row", () => import("../components/saved-post-row"));
 import Library from "../app/(tabs)/library";
@@ -90,7 +91,7 @@ async function press(label: string) {
 }
 beforeEach(() => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  mock.params = {}; mock.stack = []; mock.views = []; mock.exportVisit.mockClear();
+  mock.params = {}; mock.stack = []; mock.views = []; mock.picker = null; mock.toasts = []; mock.exportVisit.mockClear();
   mock.fontScale = 1; mock.ask = {}; mock.keyboard = {}; mock.removed = [];
   const records = [row("Journal observation", "journal"), row("Bottle observation", "feeding"), row("Doctor question", "question"), row("Saved source", "source")];
   mock.baby = {
@@ -273,6 +274,28 @@ it.each([false, true])("refreshes the scoped timeline from page zero after sync,
 
 const tip = (id: string, data: Record<string, unknown>) => ({ ...optimisticRecord({ id, kind: "source", title: id, body: "", child_id: null,
   occurred_at: "2026-10-30T00:00:00Z", data: { status: "ready", ...data } }), revision: 3 });
+const labor = { name: "Labor prep", collection_id: "labor", confidence: 0.9, status: "pending" };
+it("accepts one suggested category, all of them, or says not this from Uncategorized", async () => {
+  const records = [tip("Pregnancy tea at 37 weeks", { suggested_category: labor }), tip("Hospital bag list", { suggested_category: { ...labor, name: "Hospital bag", collection_id: null } }),
+    tip("Untitled reel", {})];
+  const decide = vi.fn(async (items: { record_id: string }[], _g: number, action = "accept") => ({
+    results: items.map(({ record_id }) => ({ record_id, status: action === "accept" ? "accepted" : "dismissed", collection_id: "labor" })), records: [], collections: [] }));
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records }, api: { ...mock.baby.api, decideSuggestions: decide, record: async () => records[0] } };
+  await mount(<Library />);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType).map(n => [n.props.children].flat().join(""));
+  expect(text()).toContain("Suggested: Labor prep");
+  expect(text()).toContain("Suggested: Hospital bag (new)");
+  await press("Add “Pregnancy tea at 37 weeks” to Labor prep");
+  expect(decide).toHaveBeenLastCalledWith([{ record_id: "Pregnancy tea at 37 weeks", revision: 3 }], 1);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await press("Accept all 2 suggestions");
+  expect(decide).toHaveBeenLastCalledWith([{ record_id: "Pregnancy tea at 37 weeks", revision: 3 }, { record_id: "Hospital bag list", revision: 3 }], 1);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await press("Not Hospital bag for “Hospital bag list”");
+  expect(decide).toHaveBeenLastCalledWith([{ record_id: "Hospital bag list", revision: 3 }], 1, "dismiss");
+  await press("All saved");
+  expect(text()).not.toContain("Suggested: Labor prep");
+});
 const sourceView = () => mock.views.filter(view => view.kind === "source").at(-1);
 it("filters Saved to what's useful now or coming up once a due date exists, including from Today's See all", async () => {
   const due = new Date(Date.now() + 39 * 86400000), iso = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;
@@ -351,4 +374,45 @@ it("switches Journal's filter each time Today opens it, even to the same filter"
   mock.params = { filter: "question", at: "2" };
   await act(async () => renderer!.update(<Journal />));
   expect(checked()).toEqual(["Doctor questions"]);
+});
+it("hides suggestions on posts with a queued save, drops (new) for a same-name category, and ignores a double tap", async () => {
+  const records = [tip("Pregnancy tea", { suggested_category: labor }), tip("Bag list", { suggested_category: { ...labor, name: "hospital bag", collection_id: null } }),
+    tip("Colostrum", { suggested_category: { ...labor, name: "Breastfeeding", collection_id: null } }),
+    { ...optimisticRecord({ id: "bag-folder", kind: "collection", title: "Hospital Bag", body: "", child_id: null, occurred_at: "2026-10-30T00:00:00Z", data: { record_ids: [] } }), revision: 2 }];
+  let finish!: () => void;
+  const decide = vi.fn((items: { record_id: string }[]) => new Promise((done) => { finish = () => done({
+    results: items.map(({ record_id }) => ({ record_id, status: "accepted", collection_id: "labor" })), records: [], collections: [] }); }));
+  const outbox = [{ type: "save", id: "m1", generation: 1, files: [], record: records[0] }];
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records, outbox }, api: { ...mock.baby.api, decideSuggestions: decide, record: async () => records[1] } };
+  await mount(<Library />);
+  const labels = () => renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel));
+  expect(labels().some(label => label.includes("“Pregnancy tea”"))).toBe(false);
+  expect(labels()).toContain("Add “Bag list” to hospital bag");
+  expect(labels()).toContain("Add “Colostrum” to Breastfeeding (new category)");
+  const button = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(n => n.props.accessibilityLabel === "Accept all 2 suggestions")!;
+  await act(async () => { button.props.onPress(); button.props.onPress(); });
+  expect(decide).toHaveBeenCalledTimes(1);
+  expect(decide.mock.calls[0][0].map((item: { record_id: string }) => item.record_id)).toEqual(["Bag list", "Colostrum"]);
+  await act(async () => { finish(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(mock.toasts.at(-1)[0]).toBe("Filed 2 posts into 2 categories.");
+});
+it("offers another category when the suggested one can't be updated, and says plainly when offline", async () => {
+  const records = [tip("Pregnancy tea", { suggested_category: labor })];
+  const { ApiError } = await import("./api");
+  const decide = vi.fn(async () => { throw new ApiError("Some details need review.", 422); });
+  mock.baby = { ...mock.baby, records, state: { ...mock.baby.state, records }, api: { ...mock.baby.api, decideSuggestions: decide } };
+  await mount(<Library />);
+  await press("Add “Pregnancy tea” to Labor prep");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  const notices = () => renderer!.root.findAllByType("Text" as React.ElementType).map(n => [n.props.children].flat().join(""));
+  expect(notices()).toContain("This category can’t be updated. Choose another category.");
+  await press("Choose another category");
+  expect(mock.picker.sourceIds).toEqual(["Pregnancy tea"]);
+  decide.mockImplementation(async () => { throw new ApiError("Could not connect.", 0); });
+  await act(async () => mock.picker.onClose());
+  await press("Add “Pregnancy tea” to Labor prep");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(notices()).toContain("You’re offline. Try again when you’re connected.");
+  expect(labels422()).not.toContain("Choose another category");
+  function labels422() { return renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel)); }
 });

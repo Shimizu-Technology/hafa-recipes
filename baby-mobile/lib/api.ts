@@ -3,6 +3,7 @@ import type {
   Bootstrap,
   BabyRecord,
   ChatResult,
+  SuggestionResult,
   Child,
   Conversation,
   ImportJob,
@@ -234,6 +235,9 @@ export function createBabyApi(
         g
       );
     },
+    /** Accept or dismiss suggested categories; each item reports its own result. */
+    decideSuggestions: (items: { record_id: string; revision: number }[], g: number, action: "accept" | "dismiss" = "accept") =>
+      request<SuggestionResult>("/suggested-categories", "POST", { action, items }, g),
     remove: (value: BabyRecord, g: number) =>
       request<void>(`/records/${value.id}?revision=${value.revision}`, "DELETE", undefined, g),
     import: (
