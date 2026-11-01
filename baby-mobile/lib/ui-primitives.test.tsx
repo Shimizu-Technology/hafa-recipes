@@ -8,6 +8,8 @@ const mock = vi.hoisted(() => ({
   timings: [] as { toValue: number; duration: number; useNativeDriver: boolean }[],
   baby: { online: true, syncing: false, error: "", state: { outbox: [] as any[] } }, push: vi.fn(),
 }));
+/** iOS header actions arrive as one custom item; render it like headerRight. */
+const headerElement = (options: any) => options?.headerRight?.() ?? options?.unstable_headerRightItems?.()[0]?.element ?? null;
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
@@ -27,7 +29,7 @@ vi.mock("react-native", () => ({
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "SafeAreaView", useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Icon", MaterialCommunityIcons: "CareIcon" }));
 vi.mock("expo-haptics", () => ({ selectionAsync: async () => {} }));
-vi.mock("expo-router", () => ({ router: { push: mock.push, back: mock.back, replace: mock.replace, canGoBack: () => mock.canGoBack }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, screenOptions.headerRight()), { Screen: ({ options }: any) => { mock.options.push(options); return options?.headerRight?.() ?? null; } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
+vi.mock("expo-router", () => ({ router: { push: mock.push, back: mock.back, replace: mock.replace, canGoBack: () => mock.canGoBack }, useSegments: () => ["(tabs)", "index"], Stack: Object.assign(({ screenOptions }: any) => React.createElement("Stack", null, headerElement(screenOptions)), { Screen: ({ options }: any) => { mock.options.push(options); return headerElement(options); } }), Tabs: Object.assign(({ children }: any) => React.createElement("Tabs", null, children), { Screen: () => null }) }));
 vi.mock("../components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 vi.mock("@/lib/input-purpose", () => ({ inputTraits: () => ({}) }));
 vi.mock("expo-router/react-navigation", () => ({ useIsFocused: () => true, NavigationContext: React.createContext(undefined) }));
@@ -40,7 +42,7 @@ import { View } from "react-native";
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
-import { TabStack } from "../components/tab-stack";
+import { TabStack, headerActions, initials } from "../components/tab-stack";
 import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TextLinks } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
@@ -169,22 +171,22 @@ it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside
 });
 
 
-it.each([
-  ["Today", "/add", "/add"],
-  ["Saved", { pathname: "/edit", params: { kind: "source" } }, { pathname: "/edit", params: { kind: "source" } }],
-  ["Journal", { pathname: "/edit", params: { kind: "journal" } }, { pathname: "/edit", params: { kind: "journal" } }],
-] as const)("keeps %s's contextual Add destination in its native header", async (title, add, expected) => {
-  await mount(<TabStack title={title} add={add} />);
-  const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
-  await act(async () => controls[0].props.onPress());
-  expect(mock.push).toHaveBeenLastCalledWith(expected);
-  await act(async () => controls[1].props.onPress());
-  expect(mock.push).toHaveBeenLastCalledWith("/settings");
-});
-it("leaves Ask's composer unobstructed by an Add control", async () => {
-  await mount(<TabStack title="Ask" />);
+it.each(["Today", "Saved", "Journal", "Ask"])("leaves Add to the tab bar and shows %s's account as initials", async title => {
+  mock.baby = { ...mock.baby, state: { ...mock.baby.state, bootstrap: { profile: { display_name: "Kami Shimizu" } } } as any };
+  await mount(<TabStack title={title} />);
+  expect(mock.options).toEqual([]);
   const controls = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType);
   expect(controls.map(c => c.props.accessibilityLabel)).toEqual(["Settings and profiles"]);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).map(node => node.props.children)).toEqual(["KS"]);
+  await act(async () => controls[0].props.onPress());
+  expect(mock.push).toHaveBeenLastCalledWith("/settings");
+});
+it.each([["Kami", "K"], ["  kami  shimizu ", "KS"], ["Mary Jane Watson", "MW"], ["Éowyn", "É"], ["", ""], ["🍼", ""]])("reads initials from %j", (name, expected) => {
+  expect(initials(name)).toBe(expected);
+});
+it("hides iOS 26's shared glass behind header actions", () => {
+  const options = headerActions(React.createElement("View")) as any;
+  expect(options.unstable_headerRightItems()).toEqual([{ type: "custom", element: React.createElement("View"), hidesSharedBackground: true }]);
 });
 
 
@@ -206,6 +208,9 @@ it.each(["light", "dark"])("keeps enabled text at 4.5:1 across all %s surfaces",
     const a = luminance(fg.slice(0, 3).map((v, i) => v * alpha + bg[i] * (1 - alpha))), b = luminance(bg);
     return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
   }
+  // Tab labels need 3:1 on the bar; the selected tab and Add glyph stay at 4.5:1.
+  expect(contrast(palette.muted, palette.tabBar)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(palette.action, palette.tabBar)).toBeGreaterThanOrEqual(4.5);
   for (const ink of [palette.text, palette.muted, palette.accentText, palette.error])
     for (const ground of [palette.background, palette.hero, palette.soft, palette.surface, palette.errorBg])
       expect(contrast(ink, ground), `${ink} on ${ground}`).toBeGreaterThanOrEqual(4.5);

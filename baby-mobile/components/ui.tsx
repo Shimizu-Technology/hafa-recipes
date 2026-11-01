@@ -27,7 +27,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Stack, router, useSegments } from "expo-router";
 import { NavigationContext } from "expo-router/react-navigation";
-import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, useTabScreenBottomInset } from "../lib/bottom-overlay";
+import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, useTabBarHeight } from "../lib/bottom-overlay";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
@@ -41,6 +41,8 @@ const light = {
   // Tonal fill behind a selected text link; accentText on it stays ≥4.5:1.
   accentTint: "rgba(201,144,126,0.2)",
   scrim: "rgba(45,36,32,0.42)",
+  // JS-drawn chrome: the same solid bar and tonal header buttons on iOS 18, iOS 26 and Android.
+  tabBar: "#FFFFFF", tabBarBorder: "rgba(60,60,67,0.18)", headerFill: "rgba(118,118,128,0.12)",
 };
 const dark: typeof light = {
   background: "#000000", groupedBackground: "#000000", surface: "#1C1C1E",
@@ -50,6 +52,7 @@ const dark: typeof light = {
   accent: "#E3C9B8", accentText: "#E3C9B8", error: "#FF5148", errorBg: "#3A1F1C",
   accentTint: "rgba(227,201,184,0.2)",
   scrim: "rgba(0,0,0,0.6)",
+  tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", headerFill: "rgba(118,118,128,0.24)",
 };
 export function useColors() {
   return useColorScheme() === "dark" ? dark : light;
@@ -75,6 +78,8 @@ const type = {
 };
 /** Tab roots supply their title and controls through a native stack. */
 export const NativeHeaderContext = createContext(false);
+/** Tab roots end at the top of the JS tab bar, so the home indicator inset is the bar's, not theirs. */
+export const TabScreenContext = createContext(false);
 const GroupedPageContext = createContext(false);
 
 /** Gentle confirmation on deliberate choices; skipped where the platform has no haptics. */
@@ -288,7 +293,10 @@ export function Screen({
   scroll?: boolean;
 }) {
   const inheritedNativeHeader = useContext(NativeHeaderContext),
-    nativeHeader = nativeHeaderOverride ?? inheritedNativeHeader, insets = useSafeAreaInsets(),
+    nativeHeader = nativeHeaderOverride ?? inheritedNativeHeader, safeArea = useSafeAreaInsets(),
+    // An RN modal (nativeHeader={false}) covers the tab bar and reaches the home indicator again.
+    inTabBar = useContext(TabScreenContext) && nativeHeader,
+    insets = inTabBar ? { ...safeArea, bottom: 0 } : safeArea,
     { fontScale } = useWindowDimensions();
   const c = useColors(),
     scroller = useRef<ScrollView>(null),
@@ -365,7 +373,7 @@ export function Screen({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
-            // On iOS the automatic content inset already covers the safe area (tab bar or home indicator) that the docked footer pads.
+            // On iOS the automatic content inset already covers the home indicator that the docked footer pads (tab roots have none).
             contentContainerStyle={{ flexGrow: 1, paddingBottom: footer ? Math.max(0, footerHeight - (keyboardVisible || Platform.OS !== "ios" ? 0 : insets.bottom)) : 0 }}
           >
             {content}
@@ -839,9 +847,9 @@ export function useToast() {
 export function ToastProvider({ children }: PropsWithChildren) {
   const insets = useSafeAreaInsets();
   const inTabs = isTabRoute(useSegments());
-  const tabInset = useTabScreenBottomInset();
+  const tabInset = useTabBarHeight();
   const footer = useDockedFooterHeight();
-  // Above the measured native tab bar in tabs (Undo after a quick log) and any docked footer such as the Ask composer.
+  // Above the tab bar in tabs (Undo after a quick log) and any docked footer such as the Ask composer.
   const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 88, footer });
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
     c = useColors(),

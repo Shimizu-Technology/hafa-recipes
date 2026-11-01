@@ -1,2 +1,2 @@
 import { TabStack } from "@/components/tab-stack";
-export default function Layout() { return <TabStack title="Saved" add={{ pathname: "/edit", params: { kind: "source" } }} />; }
+export default function Layout() { return <TabStack title="Saved" />; }

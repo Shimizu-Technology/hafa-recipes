@@ -1,16 +1,15 @@
 /**
- * Placement for app-wide overlays (toasts) near the native tab bar.
+ * Placement for app-wide overlays (toasts) near the tab bar.
  *
- * JS can't measure the native tab bar, but each tab screen's own safe area
- * already includes it. Tab stacks report that inset here; overlays mounted at
- * the root use it while a tab screen is showing.
+ * The JS tab bar reports its measured height (bar + home indicator) here; overlays
+ * mounted at the root use it while a tab screen is showing.
  */
 import { useSyncExternalStore } from "react";
 
 /** Space between a floating overlay and the chrome below it. */
 export const OVERLAY_GAP = 12;
 
-let tabScreenBottomInset = 0;
+let tabBarHeight = 0;
 /** Docked footers (the Ask composer, selection bars) on focused screens, by owner. */
 const dockedFooters = new Map<object, number>();
 let dockedFooterHeight = 0;
@@ -20,21 +19,21 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 const notify = () => listeners.forEach((listener) => listener());
-const getInset = () => tabScreenBottomInset;
+const getInset = () => tabBarHeight;
 
-/** Record the focused tab screen's bottom safe-area inset (tab bar + home indicator). */
-export function reportTabScreenBottomInset(bottom: number) {
-  if (!(bottom > 0) || bottom === tabScreenBottomInset) return;
-  tabScreenBottomInset = bottom;
+/** Record the tab bar's height from the window bottom (bar + home indicator). */
+export function reportTabBarHeight(height: number) {
+  if (!(height > 0) || height === tabBarHeight) return;
+  tabBarHeight = height;
   notify();
 }
 
-export function useTabScreenBottomInset(): number {
+export function useTabBarHeight(): number {
   return useSyncExternalStore(subscribe, getInset, getInset);
 }
 
 /**
- * Record a focused screen's docked footer height, measured up from the window bottom,
+ * Record a focused screen's docked footer height, measured up from the bottom of that screen,
  * so toasts clear it. Pass 0 (or unmount) when it hides, blurs, or rides the keyboard.
  */
 export function reportDockedFooter(owner: object, height: number) {
@@ -53,18 +52,20 @@ export function useDockedFooterHeight(): number {
   return useSyncExternalStore(subscribe, getDockedFooterHeight, getDockedFooterHeight);
 }
 
-/** The native tab bar is on screen whenever the root route is the tab group. */
+/** The tab bar is on screen whenever the root route is the tab group. */
 export function isTabRoute(segments: readonly string[]): boolean {
   return segments[0] === "(tabs)";
 }
 
 /**
- * Distance from the window bottom: just above the measured tab bar in tabs, else the
- * screen's own clearance, and always above a docked footer such as the Ask composer.
+ * Distance from the window bottom: just above the tab bar in tabs, else the screen's own
+ * clearance, and always above a docked footer such as the Ask composer. Tab screens end at
+ * the top of the bar, so their footer stacks on it; elsewhere it is measured from the window.
  */
 export function overlayBottom({ inTabs, tabInset, windowInset, clearance, footer = 0 }: {
   inTabs: boolean; tabInset: number; windowInset: number; clearance: number; footer?: number;
 }): number {
-  const base = inTabs && tabInset > 0 ? tabInset + OVERLAY_GAP : windowInset + clearance;
+  if (inTabs && tabInset > 0) return tabInset + Math.max(0, footer) + OVERLAY_GAP;
+  const base = windowInset + clearance;
   return footer > 0 ? Math.max(base, footer + OVERLAY_GAP) : base;
 }

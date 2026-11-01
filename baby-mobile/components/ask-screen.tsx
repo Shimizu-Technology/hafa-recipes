@@ -7,7 +7,7 @@ import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
 import { Button, HeaderAction, Card, TextLinks, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
-import { TabActions } from "./tab-stack";
+import { HeaderPill, TabActions, headerActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
@@ -66,7 +66,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </View>
       }
     >
-      {!back && <Stack.Screen options={{ headerRight: () => <TabActions title="Ask" action={<HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} /> }} />}
+      {!back && <Stack.Screen options={headerActions(<TabActions action={<HeaderPill title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} />)} />}
       {!available && (
         <Card tone="soft">
           <Copy kind="heading">AI is optional.</Copy>

@@ -7,14 +7,14 @@ import { messageFor, type BabyRecord } from "@/lib/models";
 import { useLibraryHistory } from "@/lib/use-library-history";
 import { changeCategory } from "@/lib/categories";
 import { replaceRecord } from "@/lib/outbox";
-import { Button, HeaderAction, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
+import { Button, Card, TextLinks, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
 import { SyncStatus } from "@/components/sync-status";
 import { ChildFilter } from "@/components/child-filter";
 import { CategoryPicker } from "@/components/category-picker";
 import { ImportUpdates } from "@/components/import-updates";
 import { HeaderSearch } from "@/components/header-search";
-import { TabActions } from "@/components/tab-stack";
+import { HeaderPill, TabActions, headerActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
 import { SuggestionLine } from "@/components/tips";
 import { byStart, profileToday, timingChild, timingContext } from "@/lib/timing";
@@ -117,9 +117,8 @@ export default function Library() {
       {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
       <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
     </Card> : undefined}>
-    <Stack.Screen options={{ headerRight: () => <TabActions title="Saved" add={{ pathname: "/edit", params: { kind: "source" } }}
-      action={<HeaderAction title={selecting ? "Cancel" : "Select"} disabled={listingCategories || !history.rows.length}
-        onPress={() => { setSelecting(!selecting); setSelected([]); }} />} /> }} />
+    <Stack.Screen options={headerActions(<TabActions action={<HeaderPill title={selecting ? "Cancel" : "Select"}
+      disabled={listingCategories || !history.rows.length} onPress={() => { setSelecting(!selecting); setSelected([]); }} />} />)} />
     <HeaderSearch value={q} onChange={setQ} placeholder="Search saved posts" />
     <SyncStatus />
     <ChildFilter scroll />

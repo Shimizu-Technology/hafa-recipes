@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { OVERLAY_GAP, isTabRoute, overlayBottom, getDockedFooterHeight, reportDockedFooter, reportTabScreenBottomInset } from "./bottom-overlay";
+import { OVERLAY_GAP, isTabRoute, overlayBottom, getDockedFooterHeight, reportDockedFooter, reportTabBarHeight } from "./bottom-overlay";
 
 describe("bottom overlay placement", () => {
-  it("treats only the tab group as showing the native tab bar", () => {
+  it("treats only the tab group as showing the tab bar", () => {
     expect(isTabRoute(["(tabs)", "journal"])).toBe(true);
     expect(isTabRoute(["record", "[id]"])).toBe(false);
     expect(isTabRoute([])).toBe(false);
   });
 
-  it("floats toasts above the measured tab bar rather than a fixed JS tab bar height", () => {
+  it("floats toasts above the measured tab bar, home indicator included", () => {
     expect(overlayBottom({ inTabs: true, tabInset: 83, windowInset: 34, clearance: 88 })).toBe(83 + OVERLAY_GAP);
     expect(overlayBottom({ inTabs: true, tabInset: 118, windowInset: 34, clearance: 88 })).toBe(118 + OVERLAY_GAP);
   });
@@ -19,8 +19,8 @@ describe("bottom overlay placement", () => {
   });
 
   it("lifts toasts above a docked footer such as the Ask composer", () => {
-    // The footer is measured from the window bottom, so it already includes the tab bar it sits on.
-    expect(overlayBottom({ inTabs: true, tabInset: 83, windowInset: 34, clearance: 88, footer: 142 })).toBe(142 + OVERLAY_GAP);
+    // Tab screens end at the top of the bar, so the composer stacks on it.
+    expect(overlayBottom({ inTabs: true, tabInset: 90, windowInset: 34, clearance: 88, footer: 66 })).toBe(90 + 66 + OVERLAY_GAP);
     expect(overlayBottom({ inTabs: false, tabInset: 0, windowInset: 34, clearance: 88, footer: 60 })).toBe(122);
   });
 
@@ -35,8 +35,8 @@ describe("bottom overlay placement", () => {
     expect(getDockedFooterHeight()).toBe(0);
   });
 
-  it("ignores empty reports from tab screens that are off screen", () => {
-    expect(() => reportTabScreenBottomInset(0)).not.toThrow();
-    expect(() => reportTabScreenBottomInset(Number.NaN)).not.toThrow();
+  it("ignores empty tab bar height reports", () => {
+    expect(() => reportTabBarHeight(0)).not.toThrow();
+    expect(() => reportTabBarHeight(Number.NaN)).not.toThrow();
   });
 });
