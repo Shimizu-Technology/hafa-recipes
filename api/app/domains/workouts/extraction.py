@@ -1585,6 +1585,10 @@ SCALED_LABEL = rf"\b(?:{LEVEL_WORDS}|lite)\b"
 # Only a named level marks a version; "Option 2", "Advanced finisher" or "Push-up
 # variations" can be a different workout part.
 VERSION_LABEL = rf"\b(?:{LEVEL_WORDS})\b"
+# The level must head a source line ("Beginner", "• Scaled:", "2. Intermediate -",
+# "Beginner version"); "modified push-ups are fine" in prose names no version.
+VERSION_HEADING = (r"^[^\w\n]*(?:\d+[.)][^\w\n]*)?({level})"
+                   r"(?:[^\S\n]+(?:version|variation|variant|option|level))?[^\S\n]*(?:[:\-–—]|$)")
 
 
 def _movement_key(name):
@@ -1593,12 +1597,12 @@ def _movement_key(name):
 
 
 def _version_level(block, source):
-    """The level word of a version label as the source spells it ("Intermediate"), else None."""
+    """The level word of a version label as a source heading spells it ("Intermediate"), else None."""
     text = "\n".join(part.text for part in source.parts)
     for match in re.finditer(VERSION_LABEL, block.label, re.I):
-        found = re.search(rf"\b{re.escape(match[0])}\b", text, re.I)
+        found = re.search(VERSION_HEADING.format(level=re.escape(match[0])), text, re.I | re.M)
         if found:
-            return found[0]
+            return found[1]
     return None
 
 
@@ -1627,12 +1631,14 @@ def _version_summary(block, level, text_locations):
     return f"{level}: {rounds}{'; '.join(moves)}{cap}{timer}"[:2000]
 
 
-def _fold_scaled_versions(workout, source, block_warnings, warnings):
+def _fold_scaled_versions(workout, source, block_warnings, clean_execution, warnings):
     """Rx'd plus its Intermediate/Beginner versions is one workout with alternatives.
 
-    The first timed block stays the workout. Each later block runs the same format,
-    is labelled with a level the source text also names, and shares a movement with
-    the first block; it becomes one instruction line and its review warnings go with it.
+    The first timed block stays the workout. Each later block runs the same format
+    with a cleanly grounded clock, is labelled with a level a source heading names,
+    and shares a movement with the first block; it becomes one instruction line and
+    its review warnings go with it. A version whose clock disagrees with the source
+    (5 RFT beside 21-15-9) keeps every block and warning for review.
     """
     if len(workout.blocks) < 2:
         return []
@@ -1640,7 +1646,7 @@ def _fold_scaled_versions(workout, source, block_warnings, warnings):
     main_moves = {_movement_key(item.name) for item in main.exercises}
     levels = [_version_level(block, source) for block in versions]
     if not is_timed(main) or re.search(SCALED_LABEL, main.label, re.I) or not all(
-            level and block.execution is not None
+            level and block.execution is not None and clean_execution[id(block)]
             and block.execution.mode == main.execution.mode and block.exercises
             and all(map(_grounded_movement, block.exercises))
             and main_moves & {_movement_key(item.name) for item in block.exercises}
@@ -1705,7 +1711,7 @@ def ground_workout(
     workout.instructions = []  # Only exact workout-wide evidence may restore these.
     warnings, collected = [], []
     format_warnings = warnings if typed_formats else []
-    block_warnings = {}
+    block_warnings, clean_execution = {}, {}
     for block in workout.blocks:
         first_warning = len(warnings)
         block.evidence = [item for item in block.evidence if _quote_is_supported(item, source)]
@@ -1722,7 +1728,8 @@ def ground_workout(
                 if block.execution is None or block.execution.mode not in {"emom", "work_rest", "for_time"}:
                     warnings.append(f"Unsupported {field_name} removed from {block.label}.")
         _ground_rep_patterns(block, source, format_warnings)
-        if not _ground_execution(block, source, format_warnings):
+        clean_execution[id(block)] = _ground_execution(block, source, format_warnings)
+        if not clean_execution[id(block)]:
             (format_warnings if typed_block else warnings).append(
                 f"The timed execution for {block.label} needs source review.")
         collected.extend(block.evidence)
@@ -1805,7 +1812,8 @@ def ground_workout(
                              if entry.field == "notes" else entry for entry in item.evidence]
             collected.extend(item.evidence)
         block_warnings[id(block)] = (first_warning, len(warnings))
-    scaled_versions = _fold_scaled_versions(workout, source, block_warnings, warnings) if typed_formats else []
+    scaled_versions = _fold_scaled_versions(
+        workout, source, block_warnings, clean_execution, warnings) if typed_formats else []
     # The existing block Evidence shape can carry workout-wide context without
     # changing stored/client schemas. Never trust a model estimate or paraphrase:
     # instructions are source quotes, plus one line per folded version built only

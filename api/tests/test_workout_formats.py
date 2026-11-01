@@ -13,6 +13,7 @@ from app.domains.workouts.extraction import (
     SourceMetadata,
     SourcePart,
     WorkoutExtractor,
+    _complete,
     _numeric_supported,
     _overall_minutes_supported,
     ground_workout,
@@ -793,6 +794,49 @@ def test_a_folded_emom_version_keeps_its_clock_in_the_line():
     workout, warnings, _ = on_page(text, data)
     assert warnings == [] and len(workout.blocks) == 1
     assert workout.instructions == ["EMOM 10", "Scaled: Burpees 6 (EMOM 8)"]
+
+
+@pytest.mark.parametrize("heading", ["Scaled", "• Scaled:", "2. Scaled -", "🔥 Scaled version", "Scaled — lighter"])
+def test_a_level_heading_folds_its_version(heading):
+    text = f"EMOM 10\n10 Burpees\n{heading}\nEMOM 8\n6 Burpees"
+    data = {"title": "EMOM", "kind": "session", "blocks": [
+        emom_part("rx", "Rx", "EMOM 10", "EMOM 10", ("Burpees", 10)),
+        emom_part("scaled", "Scaled", "Scaled", "EMOM 8", ("Burpees", 6))]}
+    data["blocks"][1]["execution"]["intervals"] = 8
+    workout, warnings, _ = on_page(text, data)
+    assert warnings == [] and len(workout.blocks) == 1
+    assert workout.instructions[-1] == "Scaled: Burpees 6 (EMOM 8)"
+
+
+@pytest.mark.parametrize("label,prose", [
+    ("Modified finisher", "Modified burpees are fine too, or use modified push-ups."),
+    ("Scaled", "The scaled version is just fewer reps."),
+    ("Easier finisher", "Make it easier: step back instead of jumping."),
+])
+def test_a_level_word_only_in_prose_folds_nothing(label, prose):
+    text = f"EMOM 10\n10 Burpees\nFinisher\nEMOM 8\n6 Burpees\n{prose}"
+    data = {"title": "EMOM", "kind": "session", "blocks": [
+        emom_part("rx", "Rx", "EMOM 10", "EMOM 10", ("Burpees", 10)),
+        emom_part("finisher", label, "Finisher", "EMOM 8", ("Burpees", 6))]}
+    data["blocks"][1]["execution"]["intervals"] = 8
+    workout, warnings, _ = on_page(text, data)
+    assert [block.label for block in workout.blocks] == ["Rx", label]
+    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any("Burpees 6" in line for line in workout.instructions)
+
+
+def test_a_version_whose_clock_conflicts_with_the_source_keeps_its_block_and_warning():
+    # "5 rounds for time" beside a three-round 21-15-9 scheme is a disagreement to review.
+    text = CROSSFIT_FRAN.replace("Beginner Variation\n21-15-9 reps for time of:",
+                                 "Beginner Variation\n5 rounds for time of:")
+    data = fran_blocks()
+    data["blocks"][2]["evidence"][0] = ev("execution.mode", "5 rounds for time of:")
+    workout, warnings, _ = on_page(text, data)
+    assert [block.label for block in workout.blocks] == ["Rx’d", "Intermediate Variation", "Beginner Variation"]
+    assert "The timed execution for Beginner Variation needs source review." in warnings
+    assert "Review the timed blocks as separate single-circuit workouts before training." in warnings
+    assert not any(line.startswith(("Intermediate:", "Beginner:")) for line in workout.instructions)
+    assert not _complete(workout, warnings)
 
 
 def test_two_back_to_back_tabatas_keep_their_work_rest_clock():
