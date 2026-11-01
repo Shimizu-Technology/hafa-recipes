@@ -281,6 +281,21 @@ class BabyWorker:
                     if attachment.state != "ready":
                         raise ValueError("Attachment unavailable")
                     attachments.append(attachment)
+                # Category titles let extraction suggest the parent's own words.
+                request["categories"] = [
+                    {"id": str(row.id), "title": row.title}
+                    for row in await db.scalars(
+                        select(BabyRecord)
+                        .where(
+                            BabyRecord.app_user_id == owner,
+                            BabyRecord.generation == generation,
+                            BabyRecord.kind == "collection",
+                            BabyRecord.deleted_at.is_(None),
+                        )
+                        .order_by(BabyRecord.updated_at.desc(), BabyRecord.id)
+                        .limit(100)
+                    )
+                ]
             provider = self.provider_factory(gate=ai_gate)
             with ai_request_context(
                 request_id=str(identifier), user_id=owner, job_id=None, route="/api/v1/baby/imports"
@@ -311,7 +326,7 @@ class BabyWorker:
                         )
                     ):
                         source.title = result["title"]
-                    source.data = {**source.data, **result["data"]}
+                    source.data = {**source.data, **keep_user_decisions(source.data, result["data"])}
                     source.revision, source.updated_at = source.revision + 1, now()
                 else:
                     # A user edit wins; expose the conflict rather than overwrite.
@@ -353,6 +368,16 @@ class BabyWorker:
         source.data = {**source.data, "status": row.status}
         source.revision, source.updated_at = source.revision + 1, now()
         row.lease_token, row.lease_until, row.updated_at = None, None, now()
+
+
+def keep_user_decisions(current, organized):
+    """Reprocessing never overrides timing the user set or a suggestion they decided."""
+    organized = dict(organized)
+    if (current.get("relevance") or {}).get("origin") == "user":
+        organized.pop("relevance", None)
+    if (current.get("suggested_category") or {}).get("status") in {"accepted", "dismissed"}:
+        organized.pop("suggested_category", None)
+    return organized
 
 
 baby_worker = BabyWorker()

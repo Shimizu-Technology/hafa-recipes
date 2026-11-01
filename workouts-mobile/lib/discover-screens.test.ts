@@ -186,7 +186,10 @@ import type { ShareSnapshot } from "./sharing";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
-const button = (title: string) => nodes("Button").find((n) => n.props.title === title);
+const summaryText = () => nodes("Copy").find((n) => String(n.props.children).startsWith("Showing: "))?.props.children;
+// Browse links render as their own pressables (with a selected state) rather than Buttons.
+const link = (title: string) => nodes("Pressable").find((n) => n.props.accessibilityLabel === title);
+const button = (title: string) => nodes("Button").find((n) => n.props.title === title) ?? link(title);
 const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === "small")?.children.join("");
 const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
@@ -358,10 +361,11 @@ it("keeps all Discover filters in one sheet and one dismissible summary", async 
   for (const label of ["Under 15 min", "Dumbbell", "YouTube"]) await act(async () => nodes("Chip").find(n => n.props.label === label)!.props.onPress());
   await settle();
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ duration: "short", equipment: "dumbbell", platform: "youtube" });
-  const summary = nodes("Button").find(n => String(n.props.title).endsWith(" · Clear"))!;
-  expect(summary.props.title).toContain("Under 15 min · Dumbbell · YouTube");
-  await act(async () => summary.props.onPress()); await settle();
-  expect(nodes("Button").some(n => String(n.props.title).endsWith(" · Clear"))).toBe(false);
+  expect(link("Filter · 3")).toBeDefined();
+  expect(summaryText()).toBe("Showing: Under 15 min, Dumbbell, YouTube");
+  await act(async () => link("Clear filters")!.props.onPress()); await settle();
+  expect(summaryText()).toBeUndefined();
+  expect(link("Filter")).toBeDefined();
 });
 
 it("keeps sharing one of yours reachable once the feed has workouts", async () => {
@@ -423,10 +427,9 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
   await act(async () => people()[0].props.onPress());
   await settle();
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ contributor: "chef_leon1234" });
-  const summary = nodes("Button").find(n => String(n.props.title).endsWith(" · Clear"))!;
-  expect(summary.props.title).toContain("by Leon");
+  expect(summaryText()).toContain("by Leon");
   expect(people()[0].props.selected).toBe(true);
-  await act(async () => summary.props.onPress()); await settle();
+  await act(async () => link("Clear filters")!.props.onPress()); await settle();
   expect(people()[0].props.selected).toBe(false);
 });
 
@@ -1352,15 +1355,34 @@ it("surfaces collection filters and management directly beside library search", 
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("gym");
   await act(async () => nodes("Chip").find(node => node.props.label === "Up to 15 min")!.props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ collection_id: "gym", max_minutes: 15 });
-  expect(nodes("Button").some(n => n.props.title === "Up to 15 min · Gym days · Clear")).toBe(true);
+  expect(summaryText()).toBe("Showing: Up to 15 min, Gym days");
+  expect(link("Filter · 2")).toBeDefined();
 });
 it("Needs info finds matches after the first library page", async () => {
   const incomplete = { ...saved, id: "needs", title: "Needs timing", extraction_warnings: ["Rest unknown"] };
   fixture.library.mockResolvedValue([saved, incomplete]);
   fixture.searchLibrary.mockImplementation(async (_filters, cursor) => cursor ? { items: [incomplete], total: 2, has_more: false, next_cursor: null } : { items: [saved], total: 2, has_more: true, next_cursor: "next" });
   await mount(Library);
+  expect(link("Needs info · 1")!.props.accessibilityState).toMatchObject({ selected: false });
   await act(async () => button("Needs info · 1")!.props.onPress()); await settle();
   expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Needs timing"]);
+  // The link itself shows the filter is on, so it isn't repeated in the summary or the Filter count.
+  expect(link("Needs info · 1")!.props.accessibilityState).toMatchObject({ selected: true });
+  expect(summaryText()).toBeUndefined();
+  expect(link("Filter")).toBeDefined();
+});
+it("Library shows Programs as a selected filter link and toggles it off again", async () => {
+  fixture.library.mockResolvedValue([saved]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  expect(link("Collections")!.props.accessibilityState).toEqual({ disabled: false });
+  expect(link("Programs")!.props.accessibilityState).toMatchObject({ selected: false });
+  await act(async () => link("Programs")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ kind: "program" });
+  expect(link("Programs")!.props.accessibilityState).toMatchObject({ selected: true });
+  expect(summaryText()).toBeUndefined();
+  await act(async () => link("Programs")!.props.onPress()); await settle();
+  expect(link("Programs")!.props.accessibilityState).toMatchObject({ selected: false });
 });
 
 const gym = { id: "gym", title: "Gym days", revision: 3, workout_count: 1 };

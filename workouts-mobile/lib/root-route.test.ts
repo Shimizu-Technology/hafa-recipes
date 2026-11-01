@@ -20,12 +20,18 @@ it("waits for auth and sends signed-in cold launches to Today", () => {
 });
 it("uses four native tabs in the approved order, with a separate Search role", () => {
   const tabs = Layout();
-  expect(tabs.props).toMatchObject({ tintColor: "coral", minimizeBehavior: "onScrollDown" });
+  // iOS 18's full-width bar must keep its material over the photo grid.
+  expect(tabs.props).toMatchObject({ tintColor: "coral", minimizeBehavior: "onScrollDown", disableTransparentOnScrollEdge: true });
   expect(unstable_settings.initialRouteName).toBe("train");
   expect(tabs.props.children.map((tab: { props: any }) => tab.props.name)).toEqual(["train", "library", "discover", "search"]);
   expect(tabs.props.children.map((tab: { props: any }) => tab.props.children[0].props.children)).toEqual(["Today", "Library", "Discover", "Search"]);
   expect(tabs.props.children[3].props.role).toBe("search");
-  expect(tabs.props.children.map((tab: { props: any }) => tab.props.children[1].props.sf)).toEqual(["figure.run", "square.stack", "safari", "magnifyingglass"]);
+  expect(tabs.props.children.map((tab: { props: any }) => tab.props.children[1].props.sf)).toEqual([
+    "figure.run",
+    { default: "square.stack", selected: "square.stack.fill" },
+    { default: "safari", selected: "safari.fill" },
+    "magnifyingglass",
+  ]);
 });
 it("redirects legacy training and capture routes without dropping parameters", () => {
   const params = { source: "legacy", session_id: "saved" };

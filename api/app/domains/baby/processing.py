@@ -3,12 +3,13 @@
 import asyncio
 import base64
 import re
+import unicodedata
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.domains.baby.attachments import read_bytes
 from app.domains.baby.provider import budget_failure_message
-from app.domains.baby.schemas import SourceData
+from app.domains.baby.schemas import CategorySuggestion, SourceData, SourceRelevance
 from app.domains.workouts.budget import BudgetError
 from app.domains.workouts.extraction import (
     ProductionSourceAcquirer,
@@ -44,6 +45,162 @@ def safe_metadata(metadata):
         "platform": metadata.platform.strip()[:80] or None if metadata.platform else None,
         "thumbnail_url": thumbnail,
     }
+
+
+def folded(text):
+    # Emoji variation selectors and joiners are presentation, not part of a name.
+    return re.sub("[\ufe00-\ufe0f\u200d]", "", unicodedata.normalize("NFKC", str(text)).casefold())
+
+
+def words(text):
+    """Letters and numbers in any script, width- and case-folded, as a word list."""
+    return "".join(
+        char if unicodedata.category(char)[0] in "LMN" else " " for char in folded(text)
+    ).split()
+
+
+def comparable(text):
+    """A name's comparison key. Names made only of symbols (emoji) keep their symbols."""
+    return " ".join(words(text)) or " ".join(folded(text).split())
+
+
+def whole_number(value, high):
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return value if type(value) is int and 0 <= value <= high else None
+
+
+NUMBER_WORDS = {
+    word: value
+    for value, word in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve thirteen "
+        "fourteen fifteen sixteen seventeen eighteen nineteen".split()
+    )
+}
+TENS = {"twenty": 20, "thirty": 30, "forty": 40}
+TRIMESTERS = {
+    "first": (1, 13), "1st": (1, 13),
+    "second": (14, 27), "2nd": (14, 27),
+    "third": (28, 40), "3rd": (28, 40),
+}
+
+
+def wordlike(char):
+    # Digits and cased letters (Latin, Greek, Cyrillic) are written between spaces.
+    return char.isdigit() or char.lower() != char.upper()
+
+
+def contains_phrase(text, phrase):
+    """Whole words in order; scripts written without spaces (CJK, Thai) match inside a run."""
+    start = text.find(phrase)
+    while start != -1:
+        end = start + len(phrase)
+        if not (start and wordlike(text[start - 1]) and wordlike(phrase[0])) and not (
+            end < len(text) and wordlike(text[end]) and wordlike(phrase[-1])
+        ):
+            return True
+        start = text.find(phrase, start + 1)
+    return False
+
+
+def stated_numbers(quote):
+    """Numbers a quote says, as digits ("37", "#37weeks") or English words ("thirty-seven")."""
+    found = set()
+    for index, word in enumerate(quote):
+        found.update(int(digits) for digits in re.findall(r"\d+", word))
+        if word in NUMBER_WORDS:
+            found.add(NUMBER_WORDS[word])
+        if word in TENS:
+            found.add(TENS[word])
+            following = NUMBER_WORDS.get(quote[index + 1] if index + 1 < len(quote) else "")
+            if following and following < 10:
+                found.add(TENS[word] + following)
+    return found
+
+
+def states_bounds(quote, weeks, ages, unit):
+    """Each bound is a number in the quote; a trimester range needs the word trimester.
+
+    A lower bound of 0 is the same as no start, so it needs no stated number.
+    """
+    said = stated_numbers(quote)
+    week_bounds, age_bounds = set(said), set(said)
+    if {"trimester", "trimesters"} & set(quote):
+        for word in quote:
+            week_bounds.update(TRIMESTERS.get(word, ()))
+        if {"fourth", "4th"} & set(quote):
+            age_bounds.update({0, 3 if unit == "months" else 13})
+    return all(
+        low in {None, 0, *allowed} and high in {None, *allowed}
+        for (low, high), allowed in ((weeks, week_bounds), (ages, age_bounds))
+    )
+
+
+def stated_relevance(raw, readable):
+    """Keep timing only when its quote is in what was read and states every bound.
+
+    The quote must match whole words in order ("7 weeks" is not inside "37 weeks"),
+    so a short or partial phrase cannot ground timing on its own.
+    """
+    if not isinstance(raw, dict) or not isinstance(raw.get("quote"), str):
+        return None
+    quote = words(raw["quote"])
+    phrase = " ".join(quote)
+    if len(phrase.replace(" ", "")) < 4 or not contains_phrase(
+        " ".join(words(" ".join(readable))), phrase
+    ):
+        return None
+    unit = raw.get("baby_age_unit") if raw.get("baby_age_unit") in {"weeks", "months"} else None
+    weeks = [whole_number(raw.get(key), 45) for key in ("pregnancy_week_min", "pregnancy_week_max")]
+    ages = [  # in the unit the source used
+        whole_number(raw.get(key), 120 if unit == "months" else 520) if unit else None
+        for key in ("baby_age_min", "baby_age_max")
+    ]
+    if not states_bounds(quote, weeks, ages, unit):
+        return None
+    scale = 52 / 12 if unit == "months" else 1
+    ages = [None if value is None else round(value * scale) for value in ages]
+    values = {
+        "stage": raw.get("stage") if raw.get("stage") in {"pregnancy", "postpartum", "baby"} else None,
+        "pregnancy_week_min": weeks[0],
+        "pregnancy_week_max": weeks[1],
+        "baby_age_min_weeks": ages[0],
+        "baby_age_max_weeks": ages[1],
+    }
+    for low, high in (
+        ("pregnancy_week_min", "pregnancy_week_max"),
+        ("baby_age_min_weeks", "baby_age_max_weeks"),
+    ):
+        if values[low] is not None and values[high] is not None and values[low] > values[high]:
+            values[low] = values[high] = None
+    if values["pregnancy_week_min"] is not None and (
+        values["pregnancy_week_min"] == values["pregnancy_week_max"]
+    ):
+        # One stated week ("at 37 weeks", "#37weekspregnant") applies from then on.
+        values["pregnancy_week_max"] = None
+    has_age = values["baby_age_min_weeks"] is not None or values["baby_age_max_weeks"] is not None
+    relevance = SourceRelevance(
+        **values, baby_age_unit=unit if has_age else None, quote=raw["quote"].strip()[:300]
+    )
+    return None if relevance.empty else relevance
+
+
+def category_suggestion(raw, categories):
+    """Map a proposed name onto the owner's category; filing waits for the user."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+        return None
+    name, confidence = " ".join(raw["name"].split())[:80], raw.get("confidence")
+    if not name or type(confidence) not in {int, float} or not 0 <= confidence <= 1:
+        return None
+    key = comparable(name)
+    match = next(
+        (item for item in categories if key and comparable(item["title"]) == key), None
+    )
+    return CategorySuggestion(
+        name=match["title"].strip()[:80] if match else name,
+        collection_id=match["id"] if match else None,
+        confidence=round(float(confidence), 2),
+    )
 
 
 async def local_media(payload, mime, provider, *, may_use_ai, gate):
@@ -192,10 +349,12 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
     title = source.metadata.title
     summary, topics = None, request.get("topics", [])
     key_points, steps = [], []
+    relevance = suggestion = None
     if may_use_ai and provider.enabled and (source.parts or source.images):
         await gate()
         try:
-            result = await provider.extract(source)
+            categories = request.get("categories", [])
+            result = await provider.extract(source, categories=[item["title"] for item in categories])
             title, summary = result.title, result.summary
             key_points, steps = result.key_points, result.steps
             topics = list(dict.fromkeys([*topics, *result.topics]))[:30]
@@ -203,6 +362,14 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
             for entry in result.visual_text:
                 if entry.location in image_locations:
                     source.parts.append(SourcePart(entry.location, entry.text))
+            # Grounding includes visual_text: on-screen captions are often where a
+            # creator states timing. It is literal frame text, kept only for real
+            # image locations, and stored as evidence the parent can see beside
+            # the quote. Timing only sorts tips; it never schedules anything.
+            relevance = stated_relevance(
+                result.relevance, [source.metadata.title or "", *(part.text for part in source.parts)]
+            )
+            suggestion = category_suggestion(result.suggested_category, categories)
         except asyncio.CancelledError:
             raise
         except BudgetError as failure:
@@ -242,6 +409,8 @@ async def process_capture(request, attachments, provider, *, may_use_ai, gate):
         status=status,
         attachment_ids=request.get("attachment_ids", []),
         coverage_notes=notes,
+        relevance=relevance,
+        suggested_category=suggestion,
     ).model_dump(mode="json")
     return {
         "title": title,

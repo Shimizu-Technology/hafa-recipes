@@ -16,12 +16,12 @@ from app.domains.workouts.router import (
     validated_workout,
 )
 from app.domains.workouts.schemas import (
+    AmrapExecution,
     Evidence,
     ProgramProposal,
     ScheduledPrescription,
     TrainingProfile,
     WorkoutContent,
-    WorkoutExecution,
 )
 from app.domains.workouts.sharing_service import project_program, project_workout
 from app.domains.workouts.source_planning import (
@@ -211,7 +211,7 @@ def amrap_source():
     source.source_url = "https://example.com/workout"
     source.estimated_minutes = None
     source.blocks[0].grouping = "circuit"
-    source.blocks[0].execution = WorkoutExecution(mode="amrap", time_cap_seconds=1200)
+    source.blocks[0].execution = AmrapExecution(mode="amrap", time_cap_seconds=1200)
     source.blocks[0].exercises[0].sets = None
     source.blocks[0].exercises[0].provenance = "source"
     return source

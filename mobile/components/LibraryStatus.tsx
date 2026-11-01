@@ -8,7 +8,11 @@ import { offlineRecipes } from '@/lib/offlineRecipes';
 import { useExtractionJobs } from '@/hooks/useRecipes';
 import { useImportInbox } from '@/hooks/useImportInbox';
 
-export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, active }: { needsCheck: number | undefined; checking: boolean; onNeedsCheck: () => void; onFilter: () => void; active: boolean }) {
+// Every link carries the capsule padding so selecting one never shifts the row;
+// the row pulls back by the same amount so unselected text lines up with the screen margin.
+const CAPSULE_INSET = 10;
+
+export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, filterCount = 0, active }: { needsCheck: number | undefined; checking: boolean; onNeedsCheck: () => void; onFilter: () => void; filterCount?: number; active: boolean }) {
   const router = useRouter();
   const colors = useColors();
   const largeText = useWindowDimensions().fontScale >= 1.3;
@@ -29,20 +33,22 @@ export function LibraryStatus({ needsCheck, checking, onNeedsCheck, onFilter, ac
   const needsAttention = Boolean(isSignedIn) && (jobs.data?.some(job => ['failed', 'expired'].includes(job.status) && !job.recipe_id) || inbox.entries.some(entry => entry.state === 'error'));
   const needsReview = Boolean(isSignedIn) && inbox.entries.some(entry => entry.state === 'waiting');
   const importing = Boolean(isSignedIn) && (jobs.data?.some(job => ['queued', 'claimed', 'processing'].includes(job.status)) || inbox.entries.some(entry => ['ready', 'submitting'].includes(entry.state)));
-  const links = [
+  // `selected` marks an on/off filter; it shows as a tonal capsule so the state is visible, not just announced.
+  const links: { title: string; onPress: () => void; selected?: boolean }[] = [
     ...(isSignedIn ? [{ title: 'Collections', onPress: () => router.push('/collections') }] : []),
     ...(isSignedIn && lease && offlineCount ? [{ title: 'Offline', onPress: () => router.push('/offline-recipes') }] : []),
-    { title: `Needs a check${needsCheck ? ` · ${needsCheck}` : ''}`, onPress: onNeedsCheck },
-    { title: 'Filter', onPress: onFilter },
+    { title: `Needs a check${needsCheck ? ` · ${needsCheck}` : ''}`, onPress: onNeedsCheck, selected: checking },
+    { title: filterCount ? `Filter · ${filterCount}` : 'Filter', onPress: onFilter },
   ];
   return <View style={{ gap: 4, marginBottom: 12 }}>
-    <ScrollView horizontal={!largeText} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', flexWrap: largeText ? 'wrap' : 'nowrap', alignItems: 'center' }}>
-      {links.map((link, i) => <View key={link.title} style={{ flexDirection: 'row', alignItems: 'center', maxWidth: '100%' }}>
-        {i > 0 && <Text style={{ color: colors.textSecondary }}> · </Text>}
-        <Pressable onPress={link.onPress} accessibilityRole="button" accessibilityState={link.title.startsWith('Needs') ? { selected: checking } : undefined} style={{ minWidth: 44, minHeight: 44, flexShrink: 1, justifyContent: 'center' }}>
-          <Text style={{ fontSize: 15, lineHeight: 20, color: colors.actionText }}>{link.title}</Text>
-        </Pressable>
-      </View>)}
+    <ScrollView horizontal={!largeText} showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -CAPSULE_INSET }} contentContainerStyle={{ flexDirection: 'row', flexWrap: largeText ? 'wrap' : 'nowrap', alignItems: 'center', columnGap: 4 }}>
+      {links.map(link => <Pressable key={link.title} onPress={link.onPress} accessibilityRole="button" accessibilityLabel={link.title}
+        accessibilityState={link.selected === undefined ? undefined : { selected: link.selected }}
+        style={{ minWidth: 44, minHeight: 44, maxWidth: '100%', flexShrink: 1, justifyContent: 'center' }}>
+        <View style={{ paddingHorizontal: CAPSULE_INSET, paddingVertical: 6, borderRadius: 999, backgroundColor: link.selected ? colors.accentTint : 'transparent' }}>
+          <Text style={{ fontSize: 15, lineHeight: 20, color: colors.actionText, fontWeight: link.selected ? '600' : '400' }}>{link.title}</Text>
+        </View>
+      </Pressable>)}
     </ScrollView>
     {(needsAttention || needsReview || importing) && <Pressable onPress={() => router.push('/')} accessibilityRole="button" accessibilityLabel={needsAttention ? 'Imports need attention, view options' : needsReview ? 'Import ready to review, view options' : 'Import in progress, view progress'} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
       {!needsAttention && !needsReview && <ActivityIndicator size="small" color={colors.textSecondary} />}
