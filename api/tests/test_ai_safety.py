@@ -218,8 +218,8 @@ def test_food_safety_prompt_requires_uncertainty_and_thermometer():
 
 
 def test_chat_prompt_versions_change_with_safety_contract():
-    assert PROMPT_VERSIONS["recipe_chat"] == "recipe-chat-safety-v3"
-    assert PROMPT_VERSIONS["cooking_chat"] == "cooking-chat-safety-v3"
+    assert PROMPT_VERSIONS["recipe_chat"] == "recipe-chat-library-v4"
+    assert PROMPT_VERSIONS["cooking_chat"] == "cooking-chat-library-v4"
 
 
 def test_model_registry_defaults_and_kill_switch():
