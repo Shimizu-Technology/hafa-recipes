@@ -2,7 +2,8 @@
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.domains.baby.dependencies import Database, Generation, User
@@ -89,7 +90,13 @@ async def decide(body, user, db, generation):
                 db.add(target)
                 collections.append(target)
                 created.add(target.id)
-            members = CollectionData.model_validate(target.data).record_ids
+            try:
+                members = CollectionData.model_validate(target.data).record_ids
+            except ValidationError:
+                # Nothing is saved: the whole request rolls back.
+                raise HTTPException(
+                    422, "This category could not be updated; choose another category"
+                ) from None
             if source.id not in members:
                 if len(members) >= 500:
                     outcome["status"] = "category_full"
@@ -123,7 +130,7 @@ def category_for(collections, suggestion):
     if suggestion.get("collection_id") in by_id:
         return by_id[suggestion["collection_id"]]
     name = comparable(suggestion["name"])
-    return next((row for row in collections if comparable(row.title) == name), None)
+    return next((row for row in collections if name and comparable(row.title) == name), None)
 
 
 def new_category(owner, generation, name):

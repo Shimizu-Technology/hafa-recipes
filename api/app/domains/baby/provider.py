@@ -8,7 +8,7 @@ import asyncio
 import json
 import math
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from pydantic import Field
@@ -51,8 +51,8 @@ class ExtractionOutput(DomainModel):
     visual_text: list[Evidence] = Field(default_factory=list, max_length=30)
     # Parsed defensively in processing: a malformed timing or category guess
     # drops only that suggestion, never the organized source.
-    relevance: dict | None = None
-    suggested_category: dict | None = None
+    relevance: Any = None
+    suggested_category: Any = None
 
 
 class AnswerOutput(DomainModel):

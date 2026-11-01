@@ -84,29 +84,37 @@ def record_response(row):
 SOURCE_ADDITIONS = ("relevance", "suggested_category")
 
 
+def user_timing(relevance):
+    """Timing the parent set. Only extraction writes "source" timing with a quote."""
+    return {**relevance, "origin": "user", "quote": None}
+
+
 def source_patch_data(current, patch):
     data = dict(patch)
     for key in SOURCE_ADDITIONS:
         if key not in data and key in current:
             data[key] = deepcopy(current[key])
-    relevance = data.get("relevance")
-    if isinstance(relevance, dict):
-        stored = current.get("relevance") or {}
-        # A deliberate timing edit is the user's, and reprocessing keeps it.
-        origin = (
-            stored.get("origin", "source") if same_timing(relevance, stored) else "user"
+    stored, relevance = current.get("relevance"), data.get("relevance")
+    if relevance is None and stored:
+        # Clearing is a decision too: an empty user marker keeps reprocessing
+        # from restoring the extracted timing. Timing filters never match it.
+        data["relevance"] = user_timing({})
+    elif isinstance(relevance, dict):
+        data["relevance"] = (
+            deepcopy(stored) if same_timing(relevance, stored) else user_timing(relevance)
         )
-        data["relevance"] = {**relevance, "origin": origin}
     return data
 
 
 def same_timing(proposed, current):
     try:
-        return SourceRelevance.model_validate(
-            {**proposed, "origin": "source"}
-        ) == SourceRelevance.model_validate({**(current or {}), "origin": "source"})
+        return timing_values(proposed) == timing_values(current or {})
     except ValidationError:
         return False
+
+
+def timing_values(relevance):
+    return SourceRelevance.model_validate(relevance).model_dump(exclude={"origin", "quote"})
 
 
 def revision_matches(row, revision):
@@ -449,6 +457,10 @@ async def record_list(
     }
 
 
+# Past 44 weeks without a birth date the due date is stale, not late pregnancy.
+LATEST_PREGNANCY_DAYS = 44 * 7 + 6
+
+
 async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_weeks):
     """Where the parent is now: an explicit week/age, or one child's due/birth date."""
     if pregnancy_week is not None and baby_age_weeks is not None:
@@ -457,6 +469,11 @@ async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_w
         return {"stage": "pregnancy", "pregnancy_week": pregnancy_week, "basis": "query"}
     if baby_age_weeks is not None:
         return {"stage": "baby", "baby_age_weeks": baby_age_weeks, "basis": "query"}
+    today = datetime.now(ZoneInfo(Profile.model_validate(member.profile).timezone)).date()
+
+    def born(child):
+        return child.birth_date is not None and child.birth_date <= today
+
     if child_id is not None:
         child = await owned(db, BabyChild, owner, member.generation, child_id)
     else:
@@ -470,19 +487,31 @@ async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_w
                 )
             )
         )
+        # The ongoing pregnancy is what "now" means beside older siblings.
+        expecting = [
+            item
+            for item in children
+            if not born(item)
+            and item.due_date is not None
+            and 280 - (item.due_date - today).days <= LATEST_PREGNANCY_DAYS
+        ]
+        if len(expecting) == 1:
+            children = expecting
         if len(children) > 1:
             raise HTTPException(422, "Choose which child to show timing for")
         child = children[0] if children else None
     if child is None or not (child.birth_date or child.due_date):
         raise HTTPException(422, "Add a due date or birth date to see what is relevant now")
-    today = datetime.now(ZoneInfo(Profile.model_validate(member.profile).timezone)).date()
     base = {"child_id": str(child.id), "basis": "child", "today": today.isoformat()}
-    if child.birth_date and child.birth_date <= today:
+    if born(child):
         return {**base, "stage": "baby", "baby_age_weeks": min((today - child.birth_date).days // 7, 520)}
     if child.due_date is None:
         raise HTTPException(422, "Add a due date to see what is relevant now")
     # Gestational age counts 280 days to the due date; weeks are completed weeks.
-    days = max(0, min(280 - (child.due_date - today).days, 45 * 7 + 6))
+    days = 280 - (child.due_date - today).days
+    if days > LATEST_PREGNANCY_DAYS:
+        raise HTTPException(422, "Add the birth date to see what is relevant now")
+    days = max(0, days)
     return {**base, "stage": "pregnancy", "pregnancy_week": days // 7, "pregnancy_day": days % 7}
 
 
@@ -511,6 +540,8 @@ async def records(
     conditions, order, extra = [], None, None
     if stage is not None:
         conditions.append(stage_filter(stage))
+    if timing == "now" and within_weeks is not None:
+        raise HTTPException(422, "within_weeks works with timing=upcoming")
     if timing is not None:
         context = await timing_context(
             db, user.id, member, timing_child_id, pregnancy_week, baby_age_weeks
@@ -589,6 +620,8 @@ async def get_record(identifier: UUID, user: User, db: Database):
 @router.post("/records")
 async def create_record(body: RecordCreate, user: User, db: Database, generation: Generation):
     await membership_for(db, user.id, generation=generation, write=True)
+    if body.kind == "source" and body.data.get("relevance") is not None:
+        body.data["relevance"] = user_timing(body.data["relevance"])
     fingerprint = digest(body.model_dump(mode="json"))
     prior = await db.get(BabyRecord, body.id)
     if prior:

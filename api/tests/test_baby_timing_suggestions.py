@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.domains.baby import processing
+from app.domains.baby.models import BabyRecord
 from app.domains.baby.provider import ExtractionOutput
 from app.domains.baby.runtime import BabyWorker, keep_user_decisions
 from app.domains.baby.schemas import RecordCreate, SourceData
@@ -19,6 +20,16 @@ needs_database = pytest.mark.skipif(
     not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required"
 )
 TEA = "When you get to 37 weeks, start the pregnancy tea. Ask your provider first."
+CLEARED = {
+    "stage": None,
+    "pregnancy_week_min": None,
+    "pregnancy_week_max": None,
+    "baby_age_min_weeks": None,
+    "baby_age_max_weeks": None,
+    "baby_age_unit": None,
+    "quote": None,
+    "origin": "user",
+}
 
 
 class Provider:
@@ -162,7 +173,107 @@ async def test_category_suggestion_prefers_existing_categories_and_never_files()
     assert fresh["data"]["suggested_category"]["collection_id"] is None
     for invalid in ({"name": "Teas", "confidence": 1.5}, {"name": " ", "confidence": 0.5}, "Teas"):
         dropped, _ = await organize(TEA, suggested_category=invalid)
+        assert dropped["status"] == "ready" and dropped["title"] == "Pregnancy tea"
         assert "suggested_category" not in dropped["data"]
+
+
+@pytest.mark.parametrize("malformed", ["37 weeks", ["Teas"], 37, True])
+async def test_a_malformed_suggestion_keeps_the_organized_source(malformed):
+    result, _ = await organize(TEA, relevance=malformed, suggested_category=malformed)
+    assert result["status"] == "ready"
+    assert result["title"] == "Pregnancy tea"
+    assert result["data"]["summary"] == "The creator says."
+    assert "relevance" not in result["data"] and "suggested_category" not in result["data"]
+
+
+@pytest.mark.parametrize(
+    ("text", "relevance"),
+    [
+        # A quote must match whole words: "7 weeks" is not inside "37 weeks".
+        (TEA, {"stage": "pregnancy", "pregnancy_week_min": 7, "quote": "7 weeks"}),
+        # Every bound must be a number the quote states.
+        (TEA, {"stage": "pregnancy", "pregnancy_week_min": 12, "quote": "37 weeks"}),
+        (TEA, {"pregnancy_week_min": 37, "pregnancy_week_max": 40, "quote": "get to 37 weeks"}),
+        # One letter or a fragment cannot ground anything.
+        (TEA, {"stage": "pregnancy", "pregnancy_week_min": 37, "quote": "t"}),
+        (TEA, {"stage": "pregnancy", "quote": "a"}),
+        (TEA, {"stage": "pregnancy", "pregnancy_week_min": 37, "quote": "en you get to 37 we"}),
+        ("妊娠37週からのお茶", {"pregnancy_week_min": 7, "quote": "7週から"}),
+        # Only a lower bound of 0 may go unstated.
+        (
+            "Newborn tips for tired parents",
+            {"stage": "baby", "baby_age_min": 0, "baby_age_max": 0, "baby_age_unit": "weeks",
+             "quote": "Newborn tips"},
+        ),
+        # A trimester range needs the word trimester.
+        (
+            "Late pregnancy stretches for back pain",
+            {"pregnancy_week_min": 28, "pregnancy_week_max": 40, "quote": "Late pregnancy stretches"},
+        ),
+        (
+            "Tips for 0-3 months",
+            {"stage": "baby", "baby_age_min": 0, "baby_age_max": 6, "baby_age_unit": "months",
+             "quote": "Tips for 0-3 months"},
+        ),
+    ],
+)
+async def test_timing_quotes_must_state_their_words_and_numbers(text, relevance):
+    result, _ = await organize(text, relevance=relevance)
+    assert result["status"] == "ready"
+    assert "relevance" not in result["data"]
+
+
+@pytest.mark.parametrize(
+    ("text", "relevance", "expected"),
+    [
+        (
+            "Second and third trimester stretches",
+            {"stage": "pregnancy", "pregnancy_week_min": 14, "pregnancy_week_max": 40,
+             "quote": "second and third trimester"},
+            {"pregnancy_week_min": 14, "pregnancy_week_max": 40},
+        ),
+        (
+            "From thirty-seven weeks I drink this tea",
+            {"stage": "pregnancy", "pregnancy_week_min": 37, "quote": "From thirty-seven weeks"},
+            {"pregnancy_week_min": 37, "pregnancy_week_max": None},
+        ),
+        (
+            "Surviving the fourth trimester",
+            {"stage": "postpartum", "baby_age_min": 0, "baby_age_max": 3,
+             "baby_age_unit": "months", "quote": "the FOURTH trimester"},
+            {"baby_age_min_weeks": 0, "baby_age_max_weeks": 13},
+        ),
+        (
+            "妊娠37週からのお茶",
+            {"stage": "pregnancy", "pregnancy_week_min": 37, "quote": "妊娠37週から"},
+            {"pregnancy_week_min": 37},
+        ),
+    ],
+)
+async def test_stated_words_ranges_and_scripts_are_grounded(text, relevance, expected):
+    result, _ = await organize(text, relevance=relevance)
+    assert result["data"]["relevance"].items() >= expected.items()
+
+
+def test_names_in_any_script_compare_safely():
+    from types import SimpleNamespace
+
+    from app.domains.baby.suggestions import category_for
+
+    assert processing.comparable("Labor-Prep!") == processing.comparable("ＬＡＢＯＲ prep")
+    assert processing.comparable("❤️") == processing.comparable("❤")
+    keys = [processing.comparable(name) for name in ("👶", "授乳", "❤️", "Håfa", "Hafa")]
+    assert len(set(keys)) == 5 and all(keys)
+    titles = ["👶", "授乳", "Håfa"]
+    categories = [{"id": str(uuid4()), "title": title} for title in titles]
+    for name, expected in [("👶", 0), ("授乳", 1), ("HÅFA", 2), ("❤️", None), ("Hafa", None)]:
+        suggestion = processing.category_suggestion({"name": name, "confidence": 0.5}, categories)
+        expected_id = None if expected is None else categories[expected]["id"]
+        assert (suggestion.collection_id and str(suggestion.collection_id)) == expected_id
+    rows = [SimpleNamespace(id=uuid4(), title=title) for title in titles]
+    assert category_for(rows, {"name": "授乳"}) is rows[1]
+    assert category_for(rows, {"name": "❤️"}) is None
+    assert category_for(rows, {"name": "  "}) is None
 
 
 def test_old_payloads_and_hashes_are_unchanged():
@@ -178,7 +289,10 @@ def test_old_payloads_and_hashes_are_unchanged():
         SourceData(relevance={"pregnancy_week_min": 38, "pregnancy_week_max": 30})
     with pytest.raises(ValidationError):
         SourceData(relevance={"pregnancy_week_min": "37"})
-    assert SourceData(relevance={"origin": "user"}).relevance is None
+    assert SourceData(relevance={}).relevance is None
+    assert SourceData(relevance={"origin": "source", "quote": "x"}).relevance is None
+    # An empty user marker records that the parent cleared the timing.
+    assert SourceData(relevance={"origin": "user"}).relevance.origin == "user"
 
 
 def test_reprocessing_keeps_user_timing_and_decided_suggestions():
@@ -196,6 +310,8 @@ def test_reprocessing_keeps_user_timing_and_decided_suggestions():
         organized,
     )
     assert kept == {"summary": "New"}
+    cleared = keep_user_decisions({"relevance": {"origin": "user"}}, organized)
+    assert "relevance" not in cleared
 
 
 def source(title, relevance=None, **data):
@@ -312,6 +428,41 @@ async def test_timing_comes_from_the_childs_due_or_birth_date(baby_api):
         json={"name": "Second", "birth_date": "2019-05-01"},
     )
     assert (await c.get("/api/v1/baby/records", params={"timing": "now"})).status_code == 422
+    # An ongoing pregnancy beside born siblings is what "now" means.
+    expecting = (
+        await c.post(
+            "/api/v1/baby/children",
+            headers=GEN,
+            json={"name": "Next", "due_date": (today + timedelta(days=39)).isoformat()},
+        )
+    ).json()
+    now, body = await titles(c, timing="upcoming")
+    assert now == ["Tea from 37"] and body["timing"]["child_id"] == expecting["id"]
+    sibling, body = await titles(c, timing="now", timing_child_id=child["id"])
+    assert body["timing"]["stage"] == "baby"
+    # A due date long past without a birth date asks for the birth date.
+    stale = await c.patch(
+        f"/api/v1/baby/children/{expecting['id']}",
+        headers=GEN,
+        json={"revision": expecting["revision"], "due_date": (today - timedelta(days=35)).isoformat()},
+    )
+    assert stale.status_code == 200
+    late = await c.get(
+        "/api/v1/baby/records", params={"timing": "now", "timing_child_id": expecting["id"]}
+    )
+    assert late.status_code == 422 and "birth date" in late.json()["detail"]
+    assert (await c.get("/api/v1/baby/records", params={"timing": "now"})).status_code == 422
+    still_late = await c.patch(
+        f"/api/v1/baby/children/{expecting['id']}",
+        headers=GEN,
+        json={"revision": stale.json()["revision"], "due_date": (today - timedelta(days=34)).isoformat()},
+    )
+    _, body = await titles(c, timing="now", timing_child_id=still_late.json()["id"])
+    assert body["timing"]["pregnancy_week"] == 44 and body["timing"]["pregnancy_day"] == 6
+    window = await c.get(
+        "/api/v1/baby/records", params={"timing": "now", "pregnancy_week": 30, "within_weeks": 2}
+    )
+    assert window.status_code == 422
     other = (
         await c.post(
             "/api/v1/baby/children",
@@ -339,6 +490,11 @@ async def test_timing_is_user_editable_and_old_clients_keep_new_fields(baby_api)
         ),
     )
     url = f"/api/v1/baby/records/{record['id']}"
+    # Only the worker writes extracted ("source") timing; seed it as it would.
+    async with baby_api.sessions() as db:
+        row = await db.get(BabyRecord, record["id"])
+        row.data = {**row.data, "relevance": {**row.data["relevance"], "origin": "source", "quote": "at 37 weeks"}}
+        await db.commit()
     # An older client sends only the fields it knows about.
     legacy = await c.patch(
         url,
@@ -350,11 +506,13 @@ async def test_timing_is_user_editable_and_old_clients_keep_new_fields(baby_api)
     assert data["topics"] == ["Tea"]
     assert data["relevance"]["pregnancy_week_min"] == 37
     assert data["relevance"]["origin"] == "source"
+    assert data["relevance"]["quote"] == "at 37 weeks"
     assert data["suggested_category"] == {**suggestion, "collection_id": None}
     echoed = await c.patch(
         url, headers=GEN, json={"revision": legacy.json()["revision"], "data": data}
     )
     assert echoed.json()["data"]["relevance"]["origin"] == "source"
+    assert echoed.json()["data"]["relevance"]["quote"] == "at 37 weeks"
     edited = await c.patch(
         url,
         headers=GEN,
@@ -366,12 +524,16 @@ async def test_timing_is_user_editable_and_old_clients_keep_new_fields(baby_api)
     assert edited.status_code == 200
     assert edited.json()["data"]["relevance"]["pregnancy_week_min"] == 36
     assert edited.json()["data"]["relevance"]["origin"] == "user"
+    # The source's words no longer explain timing the parent changed.
+    assert edited.json()["data"]["relevance"]["quote"] is None
     cleared = await c.patch(
         url,
         headers=GEN,
         json={"revision": edited.json()["revision"], "data": {**data, "relevance": None}},
     )
-    assert "relevance" not in cleared.json()["data"]
+    assert cleared.json()["data"]["relevance"] == CLEARED
+    for params in ({"timing": "now", "pregnancy_week": 37}, {"stage": "pregnancy"}):
+        assert (await titles(c, **params))[0] == []
     invalid = await c.patch(
         url,
         headers=GEN,
@@ -513,3 +675,87 @@ async def test_accept_bulk_accept_dismiss_and_ownership(baby_api):
         json={"items": [{"record_id": two["id"], "revision": 1}] * 2},
     )
     assert duplicate.status_code == 422
+
+
+@needs_database
+async def test_timing_created_through_the_api_is_the_users(baby_api):
+    c = baby_api.client
+    body = source(
+        "Tea",
+        {"stage": "pregnancy", "pregnancy_week_min": 37, "quote": "at 37 weeks", "origin": "source"},
+    )
+    record = await create(c, body)
+    assert record["data"]["relevance"]["origin"] == "user"
+    assert record["data"]["relevance"]["quote"] is None
+    assert record["data"]["relevance"]["pregnancy_week_min"] == 37
+    # A replay of the same create is still the same entry.
+    assert (await create(c, body))["id"] == record["id"]
+    empty = await create(c, source("Plain", {"stage": None, "origin": "source"}))
+    assert "relevance" not in empty["data"]
+
+
+@needs_database
+async def test_cleared_timing_survives_reprocessing(baby_api):
+    c = baby_api.client
+    provider = Provider(
+        relevance={"stage": "pregnancy", "pregnancy_week_min": 37, "quote": "at 37 weeks"}
+    )
+
+    async def processor(request, assets, _provider, **kwargs):
+        return await processing.process_capture(
+            request, assets, provider, may_use_ai=True, gate=kwargs["gate"]
+        )
+
+    worker = BabyWorker(baby_api.sessions, processor=processor)
+    body = {"id": str(uuid4()), "text": "Pack the hospital bag at 37 weeks."}
+    created = (await c.post("/api/v1/baby/imports", headers=GEN, json=body)).json()
+    assert await worker.tick()
+    url = f"/api/v1/baby/records/{created['record_id']}"
+    record = (await c.get(url)).json()
+    assert record["data"]["relevance"]["origin"] == "source"
+    cleared = await c.patch(
+        url,
+        headers=GEN,
+        json={"revision": record["revision"], "data": {**record["data"], "relevance": None}},
+    )
+    assert cleared.json()["data"]["relevance"] == CLEARED
+    again = await c.post(
+        "/api/v1/baby/imports",
+        headers=GEN,
+        json={"id": str(uuid4()), "record_id": created["record_id"]},
+    )
+    assert again.status_code == 200, again.text
+    assert await worker.tick()
+    reprocessed = (await c.get(url)).json()
+    assert reprocessed["revision"] > cleared.json()["revision"]
+    assert reprocessed["data"]["status"] == "ready"
+    assert reprocessed["data"]["relevance"] == CLEARED
+
+
+@needs_database
+async def test_a_malformed_category_is_a_friendly_error(baby_api):
+    c = baby_api.client
+    category = await create(
+        c, shared.payload("collection", title="Labor prep", data={"record_ids": []})
+    )
+    tip = await create(
+        c,
+        source(
+            "Bag list",
+            suggested_category={"name": "Labor prep", "confidence": 0.8, "collection_id": category["id"]},
+        ),
+    )
+    async with baby_api.sessions() as db:
+        row = await db.get(BabyRecord, category["id"])
+        row.data = {"record_ids": "not a list"}
+        await db.commit()
+    response = await c.post(
+        f"/api/v1/baby/records/{tip['id']}/suggested-category",
+        headers=GEN,
+        json={"revision": tip["revision"]},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "This category could not be updated; choose another category"
+    unchanged = (await c.get(f"/api/v1/baby/records/{tip['id']}")).json()
+    assert unchanged["revision"] == tip["revision"]
+    assert unchanged["data"]["suggested_category"]["status"] == "pending"

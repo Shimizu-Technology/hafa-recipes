@@ -181,7 +181,8 @@ class SourceData(DomainModel):
 
     @model_validator(mode="after")
     def drop_empty_relevance(self):
-        if self.relevance is not None and self.relevance.empty:
+        # Empty user timing is kept: it records that the parent cleared it.
+        if self.relevance is not None and self.relevance.empty and self.relevance.origin != "user":
             self.relevance = None
         return self
 
