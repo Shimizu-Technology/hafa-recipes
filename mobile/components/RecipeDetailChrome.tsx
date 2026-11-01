@@ -64,7 +64,8 @@ function HeaderCircle({ action, solid }: { action: RecipeHeaderAction; solid: De
     >
       <Animated.View style={[styles.circle, styles.circleShadow, { backgroundColor: fills.solid }, solidStyle]} />
       <Animated.View style={[styles.circle, { backgroundColor: fills.tonal }, tonalStyle]} />
-      <Ionicons name={action.icon} size={20} color={colors.text} />
+      {/* Android draws by elevation, so the glyph needs more than the shadowed fill to stay on top. */}
+      <View style={styles.circleGlyph}><Ionicons name={action.icon} size={20} color={colors.text} /></View>
     </Pressable>
   );
 }
@@ -196,5 +197,6 @@ const styles = StyleSheet.create({
   circleTarget: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   circle: { position: 'absolute', width: 36, height: 36, borderRadius: 18 },
   circleShadow: { shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowRadius: 3, shadowOpacity: 0.18, elevation: 2 },
+  circleGlyph: { elevation: 3, zIndex: 1 },
   pressed: { opacity: 0.6 },
 });

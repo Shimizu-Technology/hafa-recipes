@@ -66,3 +66,16 @@ it('sets the status bar only while the recipe is the focused screen', async () =
     expect(root.container.queryAll(node => node.type === 'StatusBar')).toHaveLength(0);
   } finally { await act(async () => root.unmount()); m.focused = true; }
 });
+
+it('keeps each header glyph above its shadowed fill on Android', async () => {
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailFrame><></></RecipeDetailFrame>));
+    const button = root.container.queryAll(node => node.type === 'Pressable')[0];
+    const flat = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flat)) : (style ?? {});
+    const fillElevation = Math.max(...button.queryAll((node: any) => node.type === 'AnimatedView').map((node: any) => flat(node.props.style).elevation ?? 0));
+    const glyph = button.queryAll((node: any) => node.type === 'Icon')[0];
+    expect(fillElevation).toBeGreaterThan(0);
+    expect(flat(glyph.parent?.props.style).elevation).toBeGreaterThan(fillElevation);
+  } finally { await act(async () => root.unmount()); }
+});
