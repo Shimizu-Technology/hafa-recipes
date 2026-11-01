@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import type { BabyRecord, Child } from "@/lib/models";
 import { useBaby } from "@/lib/context";
 import { pendingSuggestion } from "@/lib/suggestions";
+import { sourceTitle } from "@/lib/source-title";
 import { dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing";
 import { Card, Copy, Grouped, Icon, PressTarget, Section, fonts, typeScale, useColors } from "./ui";
 import { SavedPostRow } from "./saved-post-row";
@@ -44,23 +45,25 @@ export function TipSection({ title, rows, view, empty, showTiming }: { title: st
 }
 
 /** "Suggested: Labor prep" with a one-tap Add and a quiet way to say no. */
-export function SuggestionLine({ record, busy, onAccept, onDismiss }: { record: BabyRecord; busy: boolean; onAccept: () => void; onDismiss: () => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), suggestion = pendingSuggestion(record);
+export function SuggestionLine({ record, busy, isNew, onAccept, onDismiss }: {
+  record: BabyRecord; busy: boolean; isNew: boolean; onAccept: () => void; onDismiss: () => void;
+}) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), suggestion = pendingSuggestion(record), title = sourceTitle(record);
   if (!suggestion) return null;
-  const name = suggestion.name + (suggestion.collection_id ? "" : " (new)");
+  const name = suggestion.name + (isNew ? " (new)" : "");
   return <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", alignItems: fontScale >= 1.3 ? "flex-start" : "center",
     gap: 8, paddingLeft: fontScale >= 1.3 ? 12 : 80, paddingRight: 12, paddingBottom: 12, marginTop: -4, backgroundColor: c.surface }}>
     <View style={{ flex: fontScale >= 1.3 ? undefined : 1 }}>
       <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>Suggested: {name}</Copy>
     </View>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-      <PressTarget accessibilityRole="button" accessibilityLabel={`Add to ${suggestion.name}`} accessibilityState={{ disabled: busy, busy }}
+      <PressTarget accessibilityRole="button" accessibilityLabel={`Add “${title}” to ${suggestion.name}${isNew ? " (new category)" : ""}`} accessibilityState={{ disabled: busy, busy }}
         disabled={busy} onPress={onAccept}
         style={{ minHeight: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.soft, justifyContent: "center", opacity: busy ? 0.5 : 1 }}
         hitSlop={4}>
         <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontWeight: "600", color: c.action }}>Add</Text>
       </PressTarget>
-      <PressTarget accessibilityRole="button" accessibilityLabel={`Not ${suggestion.name}`} accessibilityHint="Keeps this post in Uncategorized without a suggestion"
+      <PressTarget accessibilityRole="button" accessibilityLabel={`Not ${suggestion.name} for “${title}”`} accessibilityHint="Keeps this post in Uncategorized without a suggestion"
         disabled={busy} onPress={onDismiss} hitSlop={4}
         style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" }}>
         <Icon name="close" size={18} color={c.muted} />
