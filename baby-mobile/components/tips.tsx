@@ -54,7 +54,7 @@ export function SuggestionLine({ record, busy, isNew, onAccept, onDismiss }: {
   return <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", alignItems: fontScale >= 1.3 ? "flex-start" : "center",
     gap: 8, paddingLeft: fontScale >= 1.3 ? 12 : 80, paddingRight: 12, paddingBottom: 12, marginTop: -4, backgroundColor: c.surface }}>
     <View style={{ flex: fontScale >= 1.3 ? undefined : 1 }}>
-      <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>Suggested: {name}</Copy>
+      <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 2}>Suggested: {name}</Copy>
     </View>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
       <PressTarget accessibilityRole="button" accessibilityLabel={`Add “${title}” to ${suggestion.name}${isNew ? " (new category)" : ""}`} accessibilityState={{ disabled: busy, busy }}
