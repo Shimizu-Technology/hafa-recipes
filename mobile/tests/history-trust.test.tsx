@@ -305,6 +305,24 @@ describe('Saved library filtering', () => {
 });
 
 describe('Library shown selection', () => {
+  it('returns to Recipes when selection starts from Collections, so Cancel and the selection bar are reachable', async () => {
+    library.cached = [{ ...recipe('ready'), id: 'one' }];
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const header = createRoot({ textComponentTypes: ['Text'] });
+    const list = () => renderer.container.queryAll(n => n.type === 'FlatList')[0];
+    try {
+      await act(async () => renderer.render(<HistoryScreen />));
+      await act(async () => header.render(list().props.ListHeaderComponent));
+      await act(async () => header.container.queryAll(n => n.type === 'SegmentedControl')[0].props.onChange('collections'));
+      expect(list()).toBeUndefined();
+      expect(renderer.container.queryAll(n => n.type === 'CollectionCard' || n.props.accessibilityLabel === 'New collection').length).toBeGreaterThan(0);
+      await act(async () => renderer.container.queryAll(n => n.props.accessibilityLabel === 'Select recipes')[0].props.onPress());
+      expect(list()).toBeDefined();
+      await act(async () => header.render(list().props.ListHeaderComponent));
+      expect(header.container.queryAll(n => n.props.children === 'Cancel')).toHaveLength(1);
+      expect(header.container.queryAll(n => n.props.accessibilityLabel === 'Add selected recipes to collection')).toHaveLength(1);
+    } finally { await act(async () => header.unmount()); await act(async () => renderer.unmount()); }
+  });
   it('selects the displayed page without claiming the full server library', async () => {
     library.ownTotal = 100;
     library.cached = Array.from({ length: 25 }, (_, i) => ({ ...recipe('ready'), id: `saved-${i}` }));

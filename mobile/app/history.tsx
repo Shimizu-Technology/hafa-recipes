@@ -371,6 +371,8 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   }, []);
 
   const enterSelectionMode = useCallback((initialRecipeId?: string) => {
+    // Selection works on recipes; leaving Collections keeps the selection bar and Cancel on screen.
+    setSegment('recipes');
     setIsSelectionMode(true);
     if (initialRecipeId) {
       setSelectedRecipeIds(new Set([initialRecipeId]));
