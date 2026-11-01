@@ -36,6 +36,11 @@ export function todayStage(child: Pick<Child, "birth_date" | "due_date"> | null 
   return pregnancyDays(due, now) > latestPregnancyDays ? ("needs_birth" as const) : ("pregnancy" as const);
 }
 
+/** Feed, sleep and diaper logs start once a child is born; while every child is still expected the Add sheet leaves them out. */
+export function careLogsStarted(children: Pick<Child, "birth_date" | "due_date">[], now = new Date()) {
+  return !children.length || children.some((child) => !["pregnancy", "needs_birth"].includes(todayStage(child, now)));
+}
+
 /** Completed weeks and days of 280 - (due - today), from 0 up to the API's 44 weeks 6 days. */
 export function pregnancyProgress(dueDate: string, now = new Date()) {
   const due = localDay(dueDate);
