@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { optimisticRecord, type BabyRecord, type Child, type Relevance } from "./models";
 import {
-  babyAgeWeeks, byStart, dueLine, matchesTiming, pregnancyProgress, profileToday, relevanceFromForm, timingChild, timingContext, timingForm,
+  babyAgeWeeks, byStart, careLogsStarted, dueLine, matchesTiming, pregnancyProgress, profileToday, relevanceFromForm, timingChild, timingContext, timingForm,
   timingLabel, tipTopic, todayStage,
 } from "./timing";
 
@@ -33,6 +33,14 @@ describe("pregnancy progress", () => {
 });
 
 describe("a stale due date, several children and the profile's day", () => {
+  it("starts care logs once any child is born, not while every child is expected", () => {
+    expect(careLogsStarted([{ due_date: "2026-12-10" }], today)).toBe(false);
+    expect(careLogsStarted([{ due_date: "2025-12-10" }], today)).toBe(false);
+    expect(careLogsStarted([{ due_date: "2026-12-10" }, { birth_date: "2019-05-01" }], today)).toBe(true);
+    expect(careLogsStarted([{ due_date: "2026-12-10", birth_date: "2026-11-01" }], today)).toBe(true);
+    expect(careLogsStarted([{}], today)).toBe(true);
+    expect(careLogsStarted([], today)).toBe(true);
+  });
   it("asks for the birth date past 44 weeks 6 days instead of showing a late week forever", () => {
     // Due 2026-09-21 → 280 + 41 = 321 days on 2026-11-01; 2026-09-28 → 314 days (44w6d), the last pregnant day.
     expect(todayStage({ due_date: "2026-09-28" }, today)).toBe("pregnancy");
