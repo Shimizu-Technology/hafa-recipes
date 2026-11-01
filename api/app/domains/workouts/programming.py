@@ -11,7 +11,13 @@ import math
 from datetime import date, timedelta
 
 from app.domains.workouts.catalog import EXERCISES, compatible, find_alternative, match_exercise
-from app.domains.workouts.execution import is_amrap, supports_amrap, timed_duration_minutes
+from app.domains.workouts.execution import (
+    has_dose,
+    is_amrap,
+    is_timed,
+    supports_timed,
+    timed_duration_minutes,
+)
 from app.domains.workouts.schemas import (
     AdaptationProposal,
     CompletedExposure,
@@ -554,6 +560,8 @@ def _shorten(workout: WorkoutContent, minutes: int, source_minutes: int) -> list
     # Capture every source cue before reducing sets, evidence or the exercise list.
     original_block = block.model_copy(deep=True)
     ratio = minutes / source_minutes
+    if block.execution is not None and not is_amrap(block):
+        return []  # Interval and for-time formats keep their source structure.
     if is_amrap(block):
         if minutes * 60 >= block.execution.time_cap_seconds:
             return []
@@ -648,7 +656,7 @@ def adapt_workout(
         source_minutes = max(source_minutes or 0, timed_minutes)
     shortening = minutes is not None and source_minutes is not None and minutes < source_minutes
     unmatched = []
-    if any(block.execution for block in content.blocks) and not supports_amrap(content):
+    if any(block.execution for block in content.blocks) and not supports_timed(content):
         questions.append("Split these timed blocks into separate single-circuit workouts before changing them.")
     for block in adapted.blocks:
         for item in block.exercises:
@@ -683,16 +691,11 @@ def adapt_workout(
                 item.evidence = [
                     evidence for evidence in item.evidence if not evidence.field.startswith("load")
                 ]
-            if item.sets is None and block.rounds is None and not is_amrap(block):
+            if item.sets is None and block.rounds is None and not is_timed(block):
                 questions.append(
                     f"How many sets or rounds of {item.name} would you like? The source does not say."
                 )
-            if (
-                item.reps_min is None
-                and item.reps_max is None
-                and item.duration_seconds is None
-                and item.distance_meters is None
-            ):
+            if not has_dose(block, item):
                 questions.append(
                     f"How many reps, how much time or what distance should {item.name} use? The source does not say."
                 )
