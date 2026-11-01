@@ -49,6 +49,10 @@ describe("validation", () => {
     const w = { kind: "session" as const, blocks: [warmup, block({ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null })] };
     expect(timedFormat(w)).toBeNull();
     expect(timedFormatProblem(w)).toMatch(/2 parts, and the timer runs one timed part per session/);
+    const unset = block({ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null }, { exercises: [{ name: "Burpees", reps_min: 12 }, { name: "Squats", reps_min: 15 }] });
+    expect(timedFormat({ kind: "session", blocks: [unset] })).toBeNull();
+    expect(timedFormatProblem({ kind: "session", blocks: [unset] })).toMatch(/one move per interval or every move/);
+    expect(timedFormat({ kind: "session", blocks: [{ ...unset, execution: { mode: "emom", interval_seconds: 60, intervals: 20, rotation: "alternating" } }] })).not.toBeNull();
     expect(timedFormatProblem({ kind: "session", blocks: [block({ mode: "emom", interval_seconds: 60, intervals: 200, rotation: null })] }))
       .toMatch(/up to 100 intervals/);
   });
