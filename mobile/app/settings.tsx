@@ -2,7 +2,7 @@ import { fontFamily } from '@/constants/Colors';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
-import { StyleSheet, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Pressable, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
@@ -10,7 +10,7 @@ import { Stack, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 
-import { View, Text, Card, Divider, useColors } from '@/components/Themed';
+import { View, Text, Card, Divider, useColors, TextScaleContext } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { SettingsProfileCard } from '@/components/SettingsProfileCard';
 import { useRecipeCount } from '@/hooks/useRecipes';
@@ -102,7 +102,7 @@ export default function SettingsScreen() {
   const { themePreference, setThemePreference } = useTheme();
   const { soundPreference, setTimerSound } = useTimerSoundPreference();
   const { voice: ttsVoice, setVoice: setTTSVoice } = useTTSVoice();
-  const { textSize, setTextSize } = useTextSize();
+  const { textSize, setTextSize, scale } = useTextSize();
 
   // UI state for compact pickers
   const [showTimerSoundPicker, setShowTimerSoundPicker] = useState(false);
@@ -330,6 +330,7 @@ export default function SettingsScreen() {
   const profileName = resolveSettingsProfileName(isSignedIn, user);
 
   return (
+    <TextScaleContext.Provider value={scale}>
     <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Settings', headerTitle: 'Settings' }} />
       <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -402,7 +403,7 @@ export default function SettingsScreen() {
                   { key: 'light', label: 'Light' },
                   { key: 'dark', label: 'Dark' },
                 ] as const).map((theme, index) => (
-                  <TouchableOpacity
+                  <Pressable
                     key={theme.key}
                     onPress={() => setThemePreference(theme.key)}
                     accessibilityRole="button"
@@ -421,7 +422,7 @@ export default function SettingsScreen() {
                     ]}>
                       {theme.label}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 ))}
               </RNView>
             </RNView>
@@ -438,7 +439,7 @@ export default function SettingsScreen() {
                   { key: 'large', label: 'L' },
                   { key: 'extra-large', label: 'XL' },
                 ] as const).map((size, index) => (
-                  <TouchableOpacity
+                  <Pressable
                     key={size.key}
                     onPress={() => setTextSize(size.key)}
                     accessibilityRole="button"
@@ -457,7 +458,7 @@ export default function SettingsScreen() {
                     ]}>
                       {size.label}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 ))}
               </RNView>
             </RNView>
@@ -896,6 +897,7 @@ export default function SettingsScreen() {
         </KeyboardAvoidingView>
       </Modal>
     </View>
+    </TextScaleContext.Provider>
   );
 }
 

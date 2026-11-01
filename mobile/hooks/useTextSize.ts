@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useSyncExternalStore, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TEXT_SIZE_KEY = '@text_size_preference';
@@ -19,36 +19,49 @@ export const TEXT_SIZE_LABELS: Record<TextSizeOption, string> = {
   'extra-large': 'Extra Large',
 };
 
-export function useTextSize() {
-  const [textSize, setTextSize] = useState<TextSizeOption>('medium');
-  const [isLoaded, setIsLoaded] = useState(false);
+// One preference for every mounted consumer; storage is persistence, not pub/sub.
+let preference: TextSizeOption = 'medium';
+let loaded = false;
+let loading: Promise<void> | undefined;
+let revision = 0;
+const listeners = new Set<() => void>();
+const publish = () => { listeners.forEach(listener => listener()); };
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+};
+const snapshot = () => `${preference}:${loaded}`;
 
-  // Load preference on mount
-  useEffect(() => {
-    const loadPreference = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(TEXT_SIZE_KEY);
-        if (stored && (stored in TEXT_SIZE_SCALES)) {
-          setTextSize(stored as TextSizeOption);
-        }
-      } catch (error) {
-        console.error('Error loading text size preference:', error);
-      } finally {
-        setIsLoaded(true);
+function loadPreference() {
+  if (!loading) {
+    const startedAt = revision;
+    loading = AsyncStorage.getItem(TEXT_SIZE_KEY).then(stored => {
+      // A slow storage read must not overwrite a choice made since mount.
+      if (startedAt === revision && stored && Object.hasOwn(TEXT_SIZE_SCALES, stored)) {
+        preference = stored as TextSizeOption;
       }
-    };
-    loadPreference();
-  }, []);
+    }).catch(error => console.error('Error loading text size preference:', error))
+      .finally(() => { loaded = true; publish(); });
+  }
+  return loading;
+}
 
-  // Save preference when changed
-  const updateTextSize = useCallback(async (size: TextSizeOption) => {
-    setTextSize(size);
-    try {
-      await AsyncStorage.setItem(TEXT_SIZE_KEY, size);
-    } catch (error) {
-      console.error('Error saving text size preference:', error);
-    }
-  }, []);
+async function updateTextSize(size: TextSizeOption) {
+  revision += 1;
+  preference = size;
+  publish();
+  try {
+    await AsyncStorage.setItem(TEXT_SIZE_KEY, size);
+  } catch (error) {
+    console.error('Error saving text size preference:', error);
+  }
+}
+
+export function useTextSize() {
+  useSyncExternalStore(subscribe, snapshot, snapshot);
+  useEffect(() => { void loadPreference(); }, []);
+  const textSize = preference;
+  const isLoaded = loaded;
 
   // Get the scale multiplier
   const scale = TEXT_SIZE_SCALES[textSize];

@@ -5,8 +5,8 @@
  * User can override to always-dark or always-light in Settings.
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useColorScheme as useSystemColorScheme } from 'react-native';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useState } from 'react';
+import { Appearance, Platform, useColorScheme as useSystemColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { normalizeColorScheme } from '@/lib/theme';
@@ -59,6 +59,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       console.warn('Failed to save theme preference:', error);
     }
   };
+
+  // Keep UIKit glass, native header controls and JS on the same appearance.
+  // RN 0.86 uses 'unspecified' to resume following live system changes.
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') {
+      Appearance.setColorScheme(themePreference === 'system' ? 'unspecified' : themePreference);
+    }
+  }, [themePreference]);
 
   // Resolve the actual color scheme
   const colorScheme: 'light' | 'dark' = 

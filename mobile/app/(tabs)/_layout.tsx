@@ -3,6 +3,7 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/expo';
+import { useColorScheme } from '@/components/useColorScheme';
 import { useColors } from '@/components/Themed';
 import { prefetchTabData } from '@/lib/tabPrefetch';
 
@@ -10,13 +11,14 @@ export const unstable_settings = { initialRouteName: 'recipes' };
 
 export default function TabLayout() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
   const queryClient = useQueryClient();
   const { isSignedIn, isLoaded, userId } = useAuth();
   // Parent AuthTokenSync clears private queries before warming a new account.
   useEffect(() => {
     if (isLoaded) prefetchTabData(queryClient, Boolean(isSignedIn));
   }, [queryClient, isSignedIn, isLoaded, userId]);
-  return <NativeTabs tintColor={colors.tint} minimizeBehavior="onScrollDown">
+  return <NativeTabs unstable_nativeProps={{ colorScheme }} tintColor={colors.tint} minimizeBehavior="onScrollDown">
     <NativeTabs.Trigger name="recipes">
       <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
       <NativeTabs.Trigger.Icon sf="books.vertical" src={<NativeTabs.Trigger.VectorIcon family={Ionicons} name="book-outline" />} />

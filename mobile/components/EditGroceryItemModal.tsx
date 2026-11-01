@@ -5,6 +5,8 @@
 import { useState, useEffect } from 'react';
 import {
   StyleSheet,
+  ScrollView,
+  useWindowDimensions,
   Modal,
   TouchableOpacity,
   TextInput,
@@ -35,7 +37,9 @@ export default function EditGroceryItemModal({
 }: EditGroceryItemModalProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.3;
+
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
@@ -70,42 +74,47 @@ export default function EditGroceryItemModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={[styles.container, { paddingTop: insets.top }]}>
-          {/* Header */}
-          <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-              <Text style={[styles.headerButtonText, { color: colors.actionText }]}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Item</Text>
-            <TouchableOpacity 
-              onPress={handleSave} 
-              style={styles.headerButton}
-              disabled={!canSave || isLoading}
-            >
-              <Text style={[
-                styles.headerButtonText, 
-                { color: canSave ? colors.actionText : colors.textMuted }
-              ]}>
-                {isLoading ? 'Saving...' : 'Save'}
-              </Text>
-            </TouchableOpacity>
+          {/* Remeasure native text when Dynamic Type changes inside an open sheet. */}
+          <RNView key={fontScale} style={[styles.header, largeText && styles.stackedHeader, { borderBottomColor: colors.border }]}>
+            {largeText && <Text accessibilityRole="header" style={styles.headerTitle}>Edit Item</Text>}
+            <RNView style={[styles.headerActions, { minHeight: Math.max(44, Math.ceil(22 * fontScale)) }]}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Cancel editing item" onPress={onClose} style={styles.headerButton}>
+                <Text style={[styles.headerButtonText, { color: colors.actionText }]}>Cancel</Text>
+              </TouchableOpacity>
+              {!largeText && <Text accessibilityRole="header" style={[styles.headerTitle, { color: colors.text }]}>Edit Item</Text>}
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Save item"
+                onPress={handleSave}
+                style={styles.headerButton}
+                disabled={!canSave || isLoading}
+              >
+                <Text style={[
+                  styles.headerButtonText,
+                  { color: canSave ? colors.actionText : colors.textMuted }
+                ]}>
+                  {isLoading ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </RNView>
           </RNView>
 
           {/* Form */}
-          <RNView style={styles.form}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.form, { paddingBottom: insets.bottom + spacing.lg }]}>
             {/* Name (Required) */}
             <RNView style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>
+              <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
                 Item Name *
               </Text>
               <TextInput
                 style={[
                   styles.input,
-                  { 
+                  {
                     color: colors.text,
                     backgroundColor: colors.card,
                     borderColor: colors.border,
@@ -120,15 +129,15 @@ export default function EditGroceryItemModal({
             </RNView>
 
             {/* Quantity & Unit Row */}
-            <RNView style={styles.row}>
-              <RNView style={[styles.inputGroup, styles.halfWidth]}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>
+            <RNView style={[styles.row, largeText && styles.stackedRow]}>
+              <RNView style={[styles.inputGroup, !largeText && styles.halfWidth]}>
+                <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
                   Quantity
                 </Text>
                 <TextInput
                   style={[
                     styles.input,
-                    { 
+                    {
                       color: colors.text,
                       backgroundColor: colors.card,
                       borderColor: colors.border,
@@ -142,14 +151,14 @@ export default function EditGroceryItemModal({
                 />
               </RNView>
 
-              <RNView style={[styles.inputGroup, styles.halfWidth]}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>
+              <RNView style={[styles.inputGroup, !largeText && styles.halfWidth]}>
+                <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
                   Unit
                 </Text>
                 <TextInput
                   style={[
                     styles.input,
-                    { 
+                    {
                       color: colors.text,
                       backgroundColor: colors.card,
                       borderColor: colors.border,
@@ -165,14 +174,14 @@ export default function EditGroceryItemModal({
 
             {/* Notes */}
             <RNView style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>
+              <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
                 Notes
               </Text>
               <TextInput
                 style={[
                   styles.input,
                   styles.notesInput,
-                  { 
+                  {
                     color: colors.text,
                     backgroundColor: colors.card,
                     borderColor: colors.border,
@@ -190,7 +199,7 @@ export default function EditGroceryItemModal({
             {/* Recipe source (read-only) */}
             {item?.recipe_title && (
               <RNView style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                <Text key={fontScale} style={[styles.label, { color: colors.textSecondary }]}>
                   From Recipe
                 </Text>
                 <Text style={[styles.recipeTitle, { color: colors.textMuted }]}>
@@ -198,7 +207,7 @@ export default function EditGroceryItemModal({
                 </Text>
               </RNView>
             )}
-          </RNView>
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -213,21 +222,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  stackedHeader: { gap: spacing.md },
+  stackedRow: { flexDirection: 'column', gap: 0 },
   headerButton: {
-    minWidth: 70,
+    minWidth: 44, minHeight: 44, justifyContent: 'center', flexShrink: 1,
   },
   headerButtonText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
   },
   headerTitle: {
+    flexShrink: 1,
     fontSize: fontSize.lg,
     fontWeight: fontWeight.semibold,
   },
@@ -238,6 +248,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   label: {
+    flexShrink: 1,
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
     marginBottom: spacing.sm,
