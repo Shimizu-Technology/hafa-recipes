@@ -32,6 +32,7 @@ import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/li
 import type { Workout } from "@/lib/models";
 import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
+import { TabScrollToTop, useScrollRest } from "@/components/tab-scroll-to-top";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
@@ -51,6 +52,8 @@ export default function Library() {
   const [collection, setCollection] = useState<string>();
   const [maxMinutes, setMaxMinutes] = useState<number>();
   const [needsInfo, setNeedsInfo] = useState(false);
+  const list = useRef<FlatList<Workout> | null>(null);
+  const listRest = useScrollRest();
   const [search, setSearch] = useState("");
   const [settledSearch, setSettledSearch] = useState("");
   useEffect(() => { const timer = setTimeout(() => setSettledSearch(search.trim()), 300); return () => clearTimeout(timer); }, [search]);
@@ -239,6 +242,7 @@ export default function Library() {
       { title: "Manage collections", onPress: () => router.push("/collections") },
       { title: archived ? "Show active workouts" : "Show archived workouts", onPress: () => setArchived(!archived) },
     ]} />)} />
+    <TabScrollToTop target={list} rest={listRest.rest} />
     <Screen
       title="Library"
       refreshing={freshness.refreshing}
@@ -247,6 +251,8 @@ export default function Library() {
         onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
+          ref={list}
+          onScrollBeginDrag={listRest.onScrollBeginDrag}
           contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
           data={visible}
