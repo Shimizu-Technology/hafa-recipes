@@ -3,13 +3,15 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createTrainingStore } from "./training";
-import type { TrainingSession, Workout } from "./models";
+import type { SessionRequest, TrainingSession, Workout } from "./models";
 
 const fixture = vi.hoisted(() => ({ store: null as ReturnType<typeof createTrainingStore> | null,
   session: vi.fn(), saveSession: vi.fn(), replace: vi.fn() }));
-vi.mock("@/lib/context", () => ({ useTraining: () => ({ owner: "owner", units: "imperial",
-  api: { session: fixture.session, saveSession: fixture.saveSession } }),
-  useOfflineTraining: () => ({ store: fixture.store, ready: true }) }));
+vi.mock("@/lib/context", async () => {
+  const { useSyncExternalStore } = await import("react");
+  return { useTraining: () => ({ owner: "owner", units: "imperial", api: { session: fixture.session, saveSession: fixture.saveSession } }),
+    useOfflineTraining: () => ({ store: fixture.store, ready: true, state: useSyncExternalStore(fixture.store!.subscribe, fixture.store!.snapshot) }) };
+});
 vi.mock("expo-router", () => ({ router: { replace: fixture.replace }, useLocalSearchParams: () => ({ id: "saved" }) }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => "correction-client" }));
 vi.mock("@/components/health-export", () => ({ HealthExport: () => null }));
@@ -102,4 +104,35 @@ it("reads as a compact table per exercise with the chat action in the header", a
   const screen = renderer!.root.findByType("Screen" as never);
   expect(screen.props.subtitle).toMatch(/· Completed · 30 min$/);
   expect(screen.props.action.props.label).toBe("Chat about this session");
+});
+
+it("scores a timed session only when this device recorded it on the clock, and keeps that through a correction", async () => {
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  const emom: Workout = { id: "workout", revision: 1, generation: 1, title: "EMOM 3", provenance: "user", kind: "session",
+    blocks: [{ id: "main", label: "Main", grouping: "interval", execution: { mode: "emom", interval_seconds: 60, intervals: 3, rotation: null },
+      exercises: [{ name: "Burpees", reps_min: 10 }] }] };
+  const t0 = Date.now() - 100_000;
+  await fixture.store!.start(emom, { workout_id: "workout", workout_revision: 1 }, "timed-client", t0);
+  await fixture.store!.activityType("general_fitness");
+  const step = fixture.store!.snapshot().active!.steps[0];
+  await fixture.store!.log({ block_id: "main", exercise_index: 0, set_index: step.set_index, round_index: 1, side: null, completed: true, reps: 10 }, t0 + 10_000);
+  await fixture.store!.finish("partial", t0 + 20_000);
+  const request: SessionRequest = fixture.store!.snapshot().history[0].request;
+  const subtitle = () => renderer!.root.findByType("Screen" as never).props.subtitle as string;
+  const mount = async (content: SessionRequest) => {
+    cache.clear(); fixture.session.mockResolvedValue({ ...saved, title: "EMOM 3", content: { ...content, prescription_snapshot: emom } });
+    if (renderer) await act(async () => renderer!.unmount());
+    await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(SessionDetail))); }); await settle();
+  };
+  await mount(request);
+  expect(subtitle()).toContain("1 of 3 minutes");
+  // The same result recorded on another device (or logged as you go) has no proof the clock ran: no score.
+  await mount({ ...request, client_session_id: "recorded-elsewhere" });
+  expect(subtitle()).not.toContain("minutes ·");
+  expect(subtitle()).not.toContain("of 3 minutes");
+  // A correction of the clock-recorded session keeps its score.
+  await mount(request);
+  await act(async () => button("Correct these results").props.onPress());
+  await act(async () => button("Save correction").props.onPress()); await settle();
+  expect(fixture.store!.snapshot().history[0]).toMatchObject({ timed_format: true, request: { supersedes_session_id: "saved" } });
 });

@@ -14,7 +14,7 @@ const whole = (value: unknown, min: number, max: number): value is number =>
 const optionalWhole = (value: unknown, min: number, max: number) => value == null || whole(value, min, max);
 
 /** The same limits the API enforces. AMRAP keeps its own rules in `executionError`. */
-export function formatError(execution: TimedFormat, block: Pick<Block, "rounds">) {
+export function formatError(execution: TimedFormat, block: Pick<Block, "rounds" | "exercises">) {
   if (execution.mode === "emom") {
     if (!whole(execution.interval_seconds, 1, 3600)) return "Each interval must be 1 second through 60 minutes, in whole seconds.";
     if (!optionalWhole(execution.intervals, 1, 1440)) return "Use 1 to 1440 intervals, or leave the count blank.";
@@ -23,8 +23,14 @@ export function formatError(execution: TimedFormat, block: Pick<Block, "rounds">
     if (!whole(execution.work_seconds, 1, 3600)) return "Work must be 1 second through 60 minutes, in whole seconds.";
     if (!whole(execution.rest_seconds, 0, 3600)) return "Rest must be 0 seconds through 60 minutes, in whole seconds.";
     if (!optionalWhole(execution.intervals, 1, 1000)) return "Use 1 to 1000 intervals, or leave the count blank.";
-  } else if (!optionalWhole(execution.time_cap_seconds, 1, 86400))
+  } else if (!optionalWhole(execution.time_cap_seconds, 1, 86400)) {
     return "A time cap must be 1 second through 1440 minutes, or blank.";
+  } else {
+    // Each round reads its reps from the scheme, so a scheme must list exactly one number per round.
+    const rounds = block.rounds ?? 1;
+    const scheme = block.exercises.find((e) => e.rep_scheme?.length && e.rep_scheme.length !== rounds)?.rep_scheme;
+    if (scheme) return `Reps per round list ${scheme.length} rounds, but the block has ${rounds === 1 ? "1 round" : `${rounds} rounds`}. Make them match.`;
+  }
   // Interval formats count intervals; a round count beside them would be ambiguous.
   if (execution.mode !== "for_time" && block.rounds != null) return "Interval workouts count intervals, not rounds. Clear the rounds.";
   return null;

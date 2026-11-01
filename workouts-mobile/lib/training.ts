@@ -87,6 +87,13 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 // Synced results live on the server. Keep only the newest few on the device so
 // each local save stays small; queued and blocked results are always kept.
 export const syncedHistoryLimit = 20;
+/**
+ * Whether this device ran the session on the format clock. The server keeps no such fact, so a synced
+ * session without its local record (another device, or pruned) is not scored.
+ */
+export function ranFormatTimer(history: readonly SavedLocalSession[], clientSessionId: string) {
+  return history.some((item) => item.request.client_session_id === clientSessionId && item.timed_format === true);
+}
 export function pruneHistory(history: SavedLocalSession[]) {
   let synced = 0;
   return history.filter((item) => item.state !== "synced" || ++synced <= syncedHistoryLimit);
@@ -932,7 +939,9 @@ export function createTrainingStore(
           notes,
           supersedes_session_id: saved.id,
         };
-        s.history.unshift({ request, workout: saved.content.prescription_snapshot, generation, state: "queued" });
+        s.history.unshift({ request, workout: saved.content.prescription_snapshot, generation, state: "queued",
+          // A corrected result was still recorded on the clock the original ran on.
+          ...(ranFormatTimer(s.history, saved.content.client_session_id) ? { timed_format: true as const } : {}) });
         return s;
       });
     },

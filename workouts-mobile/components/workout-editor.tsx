@@ -7,7 +7,8 @@ import { sourceURL } from "@/lib/source-playback";
 import { SavedSourceText } from "./workout-source";
 import { useTraining } from "@/lib/context";
 import type { AuthoredWorkout, ExercisePrescription } from "@/lib/models";
-import { blockSummary, changeFormat, changeFormatFields, changeGrouping, changeTimeCap, executionError, formatChoice, parseCap, parseRepScheme, type FormatChoice } from "@/lib/amrap-editor";
+import { blockSummary, changeFormat, changeFormatFields, changeGrouping, changeRepScheme, changeTimeCap, executionError, formatChoice, parseCap, parseRepScheme,
+  repSchemeEntry, type FormatChoice } from "@/lib/amrap-editor";
 import { formatDescription, isTimedFormat, ladderText } from "@/lib/timed-execution";
 import { defaultLoadUnit, distanceText, distanceUnit, typedDistance } from "@/lib/workout-units";
 const groupings = [["sequential", "One after another"], ["circuit", "Circuit"], ["superset", "Superset"], ["interval", "Intervals"]] as const;
@@ -211,6 +212,7 @@ export function WorkoutEditor({
                 onPress={() => update(changeFormat(value, bi, choice))} /></Column>
             ))}
           </Columns>
+          {formatChoice(block) === "unknown" && <Copy kind="small" tone="muted">This workout uses a timer this app version doesn’t know. It’s kept as it is unless you choose another timer here.</Copy>}
           {block.execution?.mode === "amrap" && <TimeCapField seconds={block.execution.time_cap_seconds} disabled={disabled}
             onChange={(seconds) => update(changeTimeCap(value, bi, seconds))} />}
           {block.execution?.mode === "emom" && <>
@@ -276,7 +278,7 @@ export function WorkoutEditor({
                   onChange={(reps_max) => exercise(bi, ei, { reps_max })} /></Column>}
               </Columns>
               {(e.rep_scheme != null || block.execution?.mode === "for_time") && <RepSchemeField disabled={disabled} value={e.rep_scheme ?? null}
-                onChange={(rep_scheme) => exercise(bi, ei, { rep_scheme, ...(rep_scheme ? { reps_min: null, reps_max: null } : {}) })} />}
+                onChange={(rep_scheme) => update(changeRepScheme(value, bi, ei, rep_scheme))} />}
               {!!e.ladder && <View style={{ gap: 4 }}>
                 <Copy kind="small" tone="muted">{ladderText(e.ladder)}</Copy>
                 <Button title={`Remove ladder for ${e.name || "exercise"}`} variant="ghost" size="sm" inline disabled={disabled}
@@ -437,16 +439,19 @@ function TimeCapField({ seconds, onChange, disabled }: {
       onChange={next => { if (!disabled) { setText(next); onChange(parseCap(next, units)); } }} />
   </>;
 }
-/** Reps per round as typed ("21-15-9"); a value that can't be read is shown as an error and never saved. */
+/**
+ * Reps per round as typed ("21-15-9"). A value that can't be read still reaches the workout as read, so it shows
+ * an error here and blocks saving instead of leaving the previous scheme to be saved.
+ */
 function RepSchemeField({ value, onChange, disabled }: { value: number[] | null; onChange(value: number[] | null): void; disabled: boolean }) {
   const [text, setText] = useState(value?.join("-") ?? "");
   useEffect(() => {
-    if (JSON.stringify(parseRepScheme(text) ?? null) !== JSON.stringify(value)) setText(value?.join("-") ?? "");
+    if (JSON.stringify(repSchemeEntry(text)) !== JSON.stringify(value)) setText(value?.join("-") ?? "");
   }, [value]);
   const invalid = parseRepScheme(text) === undefined;
   return <>
     <Field label="Reps per round · e.g. 21-15-9" optional disabled={disabled} value={text}
-      onChange={(next) => { if (disabled) return; setText(next); const parsed = parseRepScheme(next); if (parsed !== undefined) onChange(parsed); }} />
+      onChange={(next) => { if (disabled) return; setText(next); onChange(repSchemeEntry(next)); }} />
     {invalid && <Copy kind="small" tone="error">Use 2 to 100 whole numbers from 1 to 1000, like 21-15-9.</Copy>}
   </>;
 }

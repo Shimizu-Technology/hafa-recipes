@@ -9,7 +9,7 @@ import { ProgressRecords } from "@/components/progress-records";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { canRecoverResult } from "@/lib/result-recovery";
 import { ApiError } from "@/lib/api";
-import { isTransientSyncError } from "@/lib/training";
+import { isTransientSyncError, ranFormatTimer } from "@/lib/training";
 import { exerciseLines, exerciseRecords, friendlyDate } from "@/lib/progress-insights";
 import { sessionStatusLabel } from "@/lib/labels";
 import { formatScore } from "@/lib/timed-execution";
@@ -17,8 +17,8 @@ import type { SessionRequest, Workout } from "@/lib/models";
 import { sessionsQuery } from "@/lib/session-query";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
 /** The top of a session card: date, title, totals and what was done. Tappable when the session is saved to the account. */
-function SessionSummary({ title, when, request, workout, onOpen }: {
-  title: string; when: string; request: SessionRequest; workout: Workout; onOpen?: () => void;
+function SessionSummary({ title, when, request, workout, ranTimer, onOpen }: {
+  title: string; when: string; request: SessionRequest; workout: Workout; ranTimer: boolean; onOpen?: () => void;
 }) {
   const c = useColors();
   const { units } = useTraining();
@@ -26,7 +26,7 @@ function SessionSummary({ title, when, request, workout, onOpen }: {
   const minutes = Math.round((request.active_seconds ?? 0) / 60);
   const lines = exerciseLines(request, workout, units);
   // EMOM, for-time and work/rest results read in their own terms: "18 of 20 minutes", "Time 8:42", "Capped · 2 rounds + 12 reps".
-  const score = formatScore(workout, request);
+  const score = formatScore(workout, request, ranTimer);
   const body = <>
     <Row justify="space-between">
       <Copy kind="caption" tone="muted">{when}</Copy>
@@ -161,7 +161,7 @@ export default function Progress() {
       {visibleLocal
         .map((h) => (
           <Card key={h.request.client_session_id}>
-            <SessionSummary title={h.workout.title} request={h.request} workout={h.workout}
+            <SessionSummary title={h.workout.title} request={h.request} workout={h.workout} ranTimer={h.timed_format === true}
               when={[friendlyDate(h.request.started_at), sessionStatusLabel(h.request.status),
                 h.state === "synced" ? null : h.state === "blocked" ? "Needs review" : "Saved on this device"].filter(Boolean).join(" · ")}
               onOpen={h.synced_id ? () => openSession(h.synced_id!) : undefined} />
@@ -227,6 +227,7 @@ export default function Progress() {
       {visibleRemote.map((s) => (
         <Card key={s.id}>
           <SessionSummary title={s.title} request={s.content} workout={s.content.prescription_snapshot}
+            ranTimer={ranFormatTimer(offline.state.history, s.content.client_session_id)}
             when={`${friendlyDate(s.started_at)} · ${sessionStatusLabel(s.status)}`} onOpen={() => openSession(s.id)} />
           {!!s.content.supersedes_session_id && <Button title="View previous saved result" variant="ghost" size="sm" inline
             onPress={() => openSession(s.content.supersedes_session_id!)} />}

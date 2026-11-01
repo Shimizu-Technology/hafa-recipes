@@ -2,6 +2,7 @@ import { createElement, useState } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AuthoredWorkout } from "./models";
+import { workoutErrors } from "./library";
 
 vi.mock("react-native", () => ({ View: "View" }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Choice: "Choice", Copy: "Copy", Field: "Field", Notice: "Notice" }));
@@ -14,6 +15,7 @@ import { WorkoutEditor } from "../components/workout-editor";
 let renderer: ReactTestRenderer | undefined;
 let latest: AuthoredWorkout | undefined;
 const field = (label: string) => renderer!.root.findAllByType("Field" as never).find(node => node.props.label === label);
+const copy = () => renderer!.root.findAllByType("Copy" as never).map((n) => [n.props.children].flat().join("")).join("\n");
 const button = (title: string) => renderer!.root.findAllByType("Button" as never).find(node => node.props.title === title)!;
 async function render(initial: AuthoredWorkout, review = false) {
   function Editor() {
@@ -173,13 +175,19 @@ it("edits EMOM, work/rest and for-time timers with simple fields and keeps the w
   await act(async () => button("Show block settings: Main").props.onPress());
   const choice = (label: string) => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === label)!;
   await act(async () => choice("Every minute (EMOM)").props.onPress());
-  expect(latest!.blocks[0]).toMatchObject({ grouping: "interval", rounds: null, execution: { mode: "emom", interval_seconds: 60, intervals: null, rotation: "alternating" } });
+  // Two moves: one per minute or both each minute is the person's choice, never assumed.
+  expect(latest!.blocks[0]).toMatchObject({ grouping: "interval", rounds: null, execution: { mode: "emom", interval_seconds: 60, intervals: null, rotation: null } });
+  expect(choice("Alternate the moves").props.selected).toBe(false);
+  expect(choice("Every move each interval").props.selected).toBe(false);
+  expect(copy()).toContain("Choose whether to alternate the moves or do every move each interval.");
+  expect(workoutErrors(latest!)).toContain("Choose whether to alternate the moves or do every move each interval.");
   expect(field("Rounds")).toBeUndefined();
   await act(async () => field("How many intervals")!.props.onChange("20"));
   expect(latest!.blocks[0].execution).toMatchObject({ intervals: 20 });
   expect(latest!.estimated_minutes).toBe(20);
   await act(async () => choice("Every move each interval").props.onPress());
   expect(latest!.blocks[0].execution).toMatchObject({ rotation: "together" });
+  expect(workoutErrors(latest!)).toEqual([]);
   await act(async () => choice("Work and rest (Tabata)").props.onPress());
   expect(latest!.blocks[0].execution).toEqual({ mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 });
   await act(async () => field("Work · seconds")!.props.onChange("40"));
@@ -200,9 +208,55 @@ it("edits EMOM, work/rest and for-time timers with simple fields and keeps the w
   const scheme = renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9");
   await act(async () => scheme[0].props.onChange("21-15-9"));
   expect(latest!.blocks[0].exercises[0]).toMatchObject({ rep_scheme: [21, 15, 9], reps_min: null, reps_max: null });
-  await act(async () => scheme[1].props.onChange("21-x"));
-  expect(latest!.blocks[0].exercises[1].rep_scheme).toBeUndefined();
+  await act(async () => scheme[1].props.onChange("21-15-9"));
+  expect(workoutErrors(latest!)).toEqual([]);
+  // An entry that can't be read replaces the old scheme in the workout, so Save is blocked with a visible error.
+  await act(async () => renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9")[1].props.onChange("21-15-x"));
+  expect(latest!.blocks[0].exercises[1].rep_scheme).toEqual([21, 15, NaN]);
+  expect(renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9")[1].props.value).toBe("21-15-x");
+  expect(copy()).toContain("Use 2 to 100 whole numbers from 1 to 1000, like 21-15-9.");
+  expect(workoutErrors(latest!)).toContain("Burpees: reps per round need 2 to 100 whole numbers from 1 to 1000.");
+  await act(async () => renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9")[1].props.onChange("21-15-9"));
+  expect(workoutErrors(latest!)).toEqual([]);
+  // Rounds that don't match the reps per round are an error, not a silent mismatch.
+  await act(async () => field("Rounds")!.props.onChange("5"));
+  expect(workoutErrors(latest!)).toContain("Reps per round list 3 rounds, but the block has 5 rounds. Make them match.");
+  expect(copy()).toContain("Reps per round list 3 rounds, but the block has 5 rounds. Make them match.");
+  await act(async () => field("Rounds")!.props.onChange("3"));
   await act(async () => choice("Set number of rounds").props.onPress());
   expect(latest!.blocks[0].execution).toBeUndefined();
   expect(latest!.blocks[0].rounds).toBe(3);
+  // No timer keeps the length: without a clock there is nothing to derive a new one from.
+  expect(latest!.estimated_minutes).toBe(12);
+});
+
+it("fills blank for-time rounds from the reps per round", async () => {
+  const initial = workout(); initial.blocks[0].exercises.push({ name: "Pull-ups" });
+  await render(initial);
+  await act(async () => button("Show block settings: Main").props.onPress());
+  await act(async () => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === "For time")!.props.onPress());
+  expect(latest!.blocks[0].rounds ?? null).toBeNull();
+  await act(async () => renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9")[0].props.onChange("21-15-9"));
+  expect(latest!.blocks[0].rounds).toBe(3);
+  expect(field("Rounds")!.props.value).toBe("3");
+  // A block switched to for time picks up rounds from an existing scheme too.
+  const schemed = workout(); schemed.blocks[0].exercises[0] = { name: "Thrusters", rep_scheme: [15, 12, 9, 6] };
+  await act(async () => renderer!.unmount()); renderer = undefined;
+  await render(schemed);
+  await act(async () => button("Show block settings: Main").props.onPress());
+  await act(async () => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === "For time")!.props.onPress());
+  expect(latest!.blocks[0].rounds).toBe(4);
+});
+
+it("keeps a timer from a newer app version until the person replaces or clears it", async () => {
+  const initial = workout();
+  initial.blocks[0].execution = { mode: "ladder_clock", minutes: 9 } as never;
+  await render(initial);
+  await act(async () => button("Show block settings: Main").props.onPress());
+  const choices = renderer!.root.findAllByType("Choice" as never).filter((n) => n.props.role === "radio" && ["No timer", "Set number of rounds", "Every minute (EMOM)", "For time"].includes(n.props.label));
+  expect(choices.some((n) => n.props.selected)).toBe(false);
+  expect(copy()).toContain("uses a timer this app version doesn’t know");
+  expect(workoutErrors({ ...initial })).toEqual([]);
+  await act(async () => renderer!.root.findAllByType("Choice" as never).find((n) => n.props.label === "No timer")!.props.onPress());
+  expect(latest!.blocks[0].execution).toBeUndefined();
 });
