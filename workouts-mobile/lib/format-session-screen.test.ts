@@ -181,3 +181,12 @@ it("exposes for-time moves as checkboxes", async () => {
   expect(rows.map((r) => [r.props.accessibilityRole, r.props.accessibilityLabel, r.props.accessibilityState.checked]))
     .toEqual([["checkbox", "10 Burpees", true], ["checkbox", "20 Air squats", false]]);
 });
+
+it("caps the footer labels at the largest text sizes so the clock stays in view", async () => {
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ name: "Power clean", reps_min: 5 }] }));
+  fixture.fontScale = 3.1;
+  await render(d, 5_000);
+  const footer = elements(renderer!.root.findByType("Screen" as never).props.footer).filter((n) => n.type === "Button");
+  expect(footer.map((n) => n.props.title)).toEqual(["Done · interval 1", "Missed", "Pause", "Finish"]);
+  expect(footer.every((n) => n.props.maxScale === 1.6)).toBe(true);
+});
