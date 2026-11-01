@@ -30,12 +30,13 @@ vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: host('NutritionPanel') }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));
 vi.mock('@/components/AddIngredientsModal', () => ({ default: () => null }));
-vi.mock('@/components/RecipeChatModal', () => ({ default: () => null }));
+vi.mock('@/components/RecipeChatModal', () => ({ default: host('RecipeChatModal') }));
+vi.mock('@/components/AssistantFloatingButton', () => ({ AskHafaPill: host('AskHafaPill') }));
 vi.mock('@/components/AddToCollectionModal', () => ({ default: () => null }));
 vi.mock('@/components/RecipeOrganizer', () => ({ RecipeOrganizer: host('RecipeOrganizer') }));
 vi.mock('@/components/RecipeHero', () => ({ RecipeHero: () => null }));
 vi.mock('@/components/RecipeDetailChrome', () => ({
-  RecipeDetailScroll: (props: any) => React.createElement('RecipeDetailScroll', props, props.hero, props.children),
+  RecipeDetailScroll: (props: any) => React.createElement('RecipeDetailScroll', props, props.hero, props.children, props.floating?.(false)),
   RecipeDetailFrame: host('RecipeDetailFrame'),
 }));
 vi.mock('@/components/RecipeDetailPreview', () => ({ RecipeDetailPreview: () => null }));
@@ -204,4 +205,18 @@ it('shows only known facts, readable tags, and Scale only when servings are know
     expect(root.container.queryAll(node => node.props.accessibilityLabel === '4 servings')).toHaveLength(1);
     expect(scale(root)).toHaveLength(1);
   } finally { await act(async () => root.unmount()); m.tags = []; m.times = {}; }
+});
+
+it('opens recipe-scoped chat from the Ask about this pill', async () => {
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    const pill = root.container.queryAll(node => node.type === 'AskHafaPill')[0];
+    expect(pill.props.label).toBe('Ask about this');
+    expect(root.container.queryAll(node => node.type === 'RecipeChatModal')[0].props.isVisible).toBe(false);
+    await act(async () => pill.props.onPress());
+    const chat = root.container.queryAll(node => node.type === 'RecipeChatModal')[0];
+    expect(chat.props.isVisible).toBe(true);
+    expect(chat.props.recipe.id).toBe('recipe-id');
+  } finally { await act(async () => root.unmount()); }
 });

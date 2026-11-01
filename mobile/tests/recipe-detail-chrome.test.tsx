@@ -3,7 +3,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ canGoBack: true, back: vi.fn(), replace: vi.fn(), focused: true }));
+const m = vi.hoisted(() => ({ canGoBack: true, back: vi.fn(), replace: vi.fn(), focused: true, keyboard: false }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   Pressable: (props: any) => React.createElement('Pressable', props, props.children),
@@ -22,9 +22,11 @@ vi.mock('expo-router', () => ({ useRouter: () => ({ canGoBack: () => m.canGoBack
 vi.mock('expo-router/react-navigation', () => ({ useIsFocused: () => m.focused }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 54, bottom: 34 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
+vi.mock('@/components/chrome/HafaTabBar', () => ({ useKeyboardVisible: () => m.keyboard }));
 vi.mock('@/components/Themed', () => ({ Text: host('Text'), useColors: () => ({ background: '#FFFFFF', text: '#000000' }) }));
 
 import { RecipeDetailFrame, RecipeDetailScroll, recipeHeaderRanges } from '../components/RecipeDetailChrome';
+const View = (props: any) => React.createElement('View', props);
 
 it('turns the bar opaque as the photo leaves and keeps it opaque without a photo', () => {
   expect(recipeHeaderRanges(300, 106)).toEqual({ solid: [146, 194], title: [218, 250] });
@@ -78,4 +80,19 @@ it('keeps each header glyph above its shadowed fill on Android', async () => {
     expect(fillElevation).toBeGreaterThan(0);
     expect(flat(glyph.parent?.props.style).elevation).toBeGreaterThan(fillElevation);
   } finally { await act(async () => root.unmount()); }
+});
+
+it('floats the Ask pill above the content and hides it with the keyboard', async () => {
+  const root = createRoot();
+  const page = () => <RecipeDetailScroll title="Kelaguen" expectHero hero={null}
+    floating={(collapsed) => <View testID="pill" collapsed={collapsed} />}><></></RecipeDetailScroll>;
+  try {
+    await act(async () => root.render(page()));
+    const pill = root.container.queryAll(node => node.props.testID === 'pill');
+    expect(pill).toHaveLength(1);
+    expect(pill[0].props.collapsed).toBe(false);
+    m.keyboard = true;
+    await act(async () => root.render(page()));
+    expect(root.container.queryAll(node => node.props.testID === 'pill')).toHaveLength(0);
+  } finally { await act(async () => root.unmount()); m.keyboard = false; }
 });

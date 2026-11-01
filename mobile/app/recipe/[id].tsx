@@ -35,6 +35,8 @@ import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeOrganizer } from '@/components/RecipeOrganizer';
 import { RecipeHero } from '@/components/RecipeHero';
 import { RecipeDetailFrame, RecipeDetailScroll } from '@/components/RecipeDetailChrome';
+import { AskHafaPill } from '@/components/AssistantFloatingButton';
+import { ASK_PILL_HEIGHT, OVERLAY_GAP } from '@/lib/bottomOverlay';
 import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
@@ -753,7 +755,11 @@ function RecipeDetailScreenContent() {
             { icon: 'share-outline', accessibilityLabel: 'Share recipe', onPress: handleShare },
             { icon: 'ellipsis-horizontal', accessibilityLabel: 'More recipe options', onPress: handleMoreOptions },
           ]}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg }]}
+          // Room below the last section so the Ask pill never covers it.
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg + (userId ? ASK_PILL_HEIGHT + OVERLAY_GAP : 0) }]}
+          floating={userId ? (collapsed) => <AskHafaPill label="Ask about this" collapsed={collapsed}
+            accessibilityHint="Opens chat about this recipe, or about all your recipes"
+            onPress={() => setShowChatModal(true)} /> : undefined}
           hero={<RecipeHero
             key={recipe.id}
             photoOnly
