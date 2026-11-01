@@ -15,8 +15,7 @@ import { ImportUpdates } from "@/components/import-updates";
 import { HeaderSearch } from "@/components/header-search";
 import { TabActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
-import { glanceChild } from "@/lib/care-glance";
-import { byStart, timingContext } from "@/lib/timing";
+import { byStart, profileToday, timingChild, timingContext } from "@/lib/timing";
 
 export default function Library() {
   const b = useBaby();
@@ -26,10 +25,13 @@ export default function Library() {
   const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
   const [undoing, setUndoing] = useState(false), undoBusy = useRef(false);
   const params = useLocalSearchParams<{ view?: string; at?: string }>();
-  const timingChild = glanceChild(b.state), context = timingContext(timingChild),
-    timed = (view === "now" || view === "upcoming") && timingChild && context ? { mode: view, childId: timingChild.id, context } as const : undefined;
+  const today = profileToday(new Date(), b.state.bootstrap?.profile.timezone), tipsChild = timingChild(b.state, today),
+    context = timingContext(tipsChild, today), timedView = view === "now" || view === "upcoming",
+    timed = timedView && tipsChild && context ? { mode: view, childId: tipsChild.id, context } as const : undefined;
   useEffect(() => { if (params.view && ["inbox", "all", "now", "upcoming", "categories"].includes(params.view)) chooseView(params.view); },
     [params.view, params.at]);
+  // For now and Coming up need a current week or age; without one (a past due date, a removed child) show everything.
+  useEffect(() => { if (timedView && !context) chooseView("all"); }, [timedView, !!context]);
   const history = useLibraryHistory({ kind: "source", childId: b.state.selectedChild, query: q,
     collectionId: collection || undefined, uncategorized: view === "inbox", timing: timed });
   const rows = timed?.mode === "upcoming" ? [...history.rows].sort(byStart(timed.context.stage)) : history.rows;

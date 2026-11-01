@@ -21,9 +21,9 @@ export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
   </Card>;
 }
 
-function SeeAll({ view }: { view: string }) {
+function SeeAll({ view, title }: { view: string; title: string }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
-  return <PressTarget accessibilityRole="link" accessibilityLabel="See all" hitSlop={8}
+  return <PressTarget accessibilityRole="link" accessibilityLabel={`See all, ${title}`} hitSlop={8}
     onPress={() => router.navigate({ pathname: "/library", params: { view, at: String(Date.now()) } })}
     style={{ minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "flex-end" }}>
     <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText }}>See all</Text>
@@ -34,7 +34,7 @@ function SeeAll({ view }: { view: string }) {
 export function TipSection({ title, rows, view, empty, showTiming }: { title: string; rows: BabyRecord[]; view: string; empty?: string; showTiming?: boolean }) {
   const b = useBaby(), collections = b.records.filter((row) => row.kind === "collection");
   if (!rows.length && !empty) return null;
-  return <Section title={title} action={rows.length ? <SeeAll view={view} /> : undefined}>
+  return <Section title={title} action={rows.length ? <SeeAll view={view} title={title} /> : undefined}>
     {rows.length ? <Grouped separatorInset={80}>
       {rows.map((row) => <SavedPostRow key={row.id} record={row} pending={false}
         meta={[showTiming ? timingLabel(row.data.relevance) : "", tipTopic(row, collections)].filter(Boolean).join(" · ") || undefined} />)}

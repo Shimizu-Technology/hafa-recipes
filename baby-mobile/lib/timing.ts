@@ -1,6 +1,9 @@
-import type { BabyRecord, Child, Relevance, TimingStage } from "./models";
+import type { BabyRecord, Child, DeviceState, Relevance, TimingStage } from "./models";
+import { glanceChild } from "./care-glance";
 
 const day = 24 * 60 * 60_000;
+/** Past 44 weeks 6 days without a birth date the due date is stale, not late pregnancy (the API's rule). */
+const latestPregnancyDays = 44 * 7 + 6;
 
 function localDay(value?: string | null) {
   const [year, month, date] = (value ?? "").split("-").map(Number);
@@ -10,21 +13,46 @@ function startOfDay(now: Date) {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** Pregnant until a birth date on or before today; a profile with no dates keeps the care layout. */
-export function todayStage(child: Pick<Child, "birth_date" | "due_date"> | null | undefined, now = new Date()) {
-  if (!child) return "none" as const;
-  const birth = localDay(child.birth_date);
-  if (birth && birth.getTime() <= startOfDay(now).getTime()) return "baby" as const;
-  return localDay(child.due_date) ? ("pregnancy" as const) : ("none" as const);
+/** Today's calendar date in the profile's time zone (as the API counts it), at local midnight. */
+export function profileToday(now = new Date(), timeZone?: string | null) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timeZone || undefined, year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(now), part = (type: string) => Number(parts.find((value) => value.type === type)?.value);
+    if (part("year") && part("month") && part("day")) return new Date(part("year"), part("month") - 1, part("day"));
+  } catch { /* An unknown zone falls back to the device date. */ }
+  return startOfDay(now);
 }
 
-/** Completed weeks and days of 280 - (due - today), clamped like the API (0–45 weeks). */
+function pregnancyDays(due: Date, now: Date) {
+  return 280 - Math.round((due.getTime() - startOfDay(now).getTime()) / day);
+}
+
+/** Pregnant until a birth date on or before today; past 44w6d with no birth date the parent needs to add it. */
+export function todayStage(child: Pick<Child, "birth_date" | "due_date"> | null | undefined, now = new Date()) {
+  if (!child) return "none" as const;
+  const birth = localDay(child.birth_date), due = localDay(child.due_date);
+  if (birth && birth.getTime() <= startOfDay(now).getTime()) return "baby" as const;
+  if (!due) return "none" as const;
+  return pregnancyDays(due, now) > latestPregnancyDays ? ("needs_birth" as const) : ("pregnancy" as const);
+}
+
+/** Completed weeks and days of 280 - (due - today), from 0 up to the API's 44 weeks 6 days. */
 export function pregnancyProgress(dueDate: string, now = new Date()) {
   const due = localDay(dueDate);
   if (!due) return null;
-  const left = Math.round((due.getTime() - startOfDay(now).getTime()) / day),
-    days = Math.max(0, Math.min(280 - left, 45 * 7 + 6));
+  const left = 280 - pregnancyDays(due, now),
+    days = Math.max(0, Math.min(280 - left, latestPregnancyDays));
   return { week: Math.floor(days / 7), day: days % 7, daysLeft: left };
+}
+
+/** Whose timing "now" means, like the API: the selected child, else the one ongoing pregnancy, else the one dated child. */
+export function timingChild(state: Pick<DeviceState, "bootstrap" | "selectedChild">, now = new Date()) {
+  const children = state.bootstrap?.children ?? [], selected = children.find((child) => child.id === state.selectedChild);
+  if (selected) return selected;
+  const expecting = children.filter((child) => todayStage(child, now) === "pregnancy"),
+    dated = children.filter((child) => localDay(child.birth_date) || localDay(child.due_date));
+  // Where the API would ask which child, keep the child Today already shows.
+  return expecting.length === 1 ? expecting[0] : dated.length === 1 ? dated[0] : glanceChild(state);
 }
 
 /** "Due Dec 10 · 39 days to go". */
@@ -104,11 +132,10 @@ export function byStart(stage: TimingContext["stage"]) {
     (bounds(a.data.relevance, stage)?.low ?? Infinity) - (bounds(b.data.relevance, stage)?.low ?? Infinity);
 }
 
-/** The parent's own category first, then a pending suggestion, then an extracted topic. */
+/** The parent's own category first, then an extracted topic. A pending AI suggestion isn't hers yet, so it never shows here. */
 export function tipTopic(record: Pick<BabyRecord, "id" | "data">, collections: readonly Pick<BabyRecord, "kind" | "title" | "data">[]) {
   const filed = collections.find((row) => row.kind === "collection" && row.data.record_ids?.includes(record.id));
-  return filed?.title || (record.data.suggested_category?.status === "pending" ? record.data.suggested_category.name : "")
-    || record.data.topics?.[0] || "";
+  return filed?.title || record.data.topics?.[0] || "";
 }
 
 /** The simple editor's shape: when it's useful, and an optional start/end. */
