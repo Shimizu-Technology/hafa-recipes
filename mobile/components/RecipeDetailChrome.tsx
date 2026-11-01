@@ -125,8 +125,8 @@ export function RecipeDetailFrame({ children }: { children: ReactNode }) {
   const hidden = useSharedValue(0);
   return (
     <View style={[styles.fill, { backgroundColor: colors.background, paddingTop: insets.top + RECIPE_HEADER_BAR }]}>
-      {children}
       <RecipeDetailHeader solid={opaque} titleShown={hidden} />
+      {children}
     </View>
   );
 }
@@ -165,6 +165,8 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
+      {/* First in reading order so VoiceOver reaches Back before the recipe; zIndex keeps it above the scroll. */}
+      <RecipeDetailHeader title={title} actions={actions} solid={solid} titleShown={titleShown} />
       <Animated.ScrollView
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -179,14 +181,13 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
         </Animated.View>
         {children}
       </Animated.ScrollView>
-      <RecipeDetailHeader title={title} actions={actions} solid={solid} titleShown={titleShown} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  header: { position: 'absolute', top: 0, left: 0, right: 0 },
+  header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1, elevation: 3 },
   hairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
   row: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 4 },
   titleWrap: { flex: 1, paddingHorizontal: 8 },
