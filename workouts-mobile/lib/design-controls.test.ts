@@ -111,7 +111,9 @@ import { FilterButton, ChipRow } from "../components/design/controls";
 it("shows a filter count as an accent badge and says it to VoiceOver", () => {
   const onPress = vi.fn();
   act(() => { view = create(createElement(FilterButton, { count: 0, onPress })); });
-  expect(view!.root.findByType("Pressable" as never).props).toMatchObject({ accessibilityLabel: "Filter", style: { width: 40, height: 40, backgroundColor: light.sunken } });
+  // A 44pt target around the 40pt circle (the search row is only 40pt tall, so hitSlop wouldn't reach).
+  expect(view!.root.findByType("Pressable" as never).props).toMatchObject({ accessibilityLabel: "Filter", style: { width: 44, height: 44 } });
+  expect(view!.root.findByType("Pressable" as never).findAllByType("View" as never)[0].props.style).toMatchObject({ width: 40, height: 40, backgroundColor: light.sunken });
   expect(view!.root.findAllByType("Text" as never)).toHaveLength(0);
   act(() => { view!.update(createElement(FilterButton, { count: 2, onPress })); });
   const button = view!.root.findByType("Pressable" as never);
@@ -141,4 +143,24 @@ it("header circles keep their 36pt (32pt avatar) look inside a full 44pt touch t
   const avatar = view!.root.findByType("Pressable" as never);
   expect(avatar.props.style).toMatchObject({ width: 44, height: 44 });
   expect(avatar.findAllByType("View" as never)[0].props.style).toMatchObject({ width: 32, height: 32 });
+});
+
+it("chips and segments keep their compact look but reach 44pt, with room in their parents for the reach", () => {
+  const reach = (slop: number | { top?: number; bottom?: number }, size: number) =>
+    size + (typeof slop === "number" ? 2 * slop : (slop.top ?? 0) + (slop.bottom ?? 0));
+  act(() => { view = create(createElement(ChipRow, { label: "Filters" }, createElement(Chip, { label: "Needs info", onPress() {} }))); });
+  const chip = view!.root.findByType("Pressable" as never);
+  expect(chip.props.style[0].minHeight).toBe(34);
+  expect(reach(chip.props.hitSlop, 34)).toBeGreaterThanOrEqual(44);
+  expect(view!.root.findByType("ScrollView" as never).props.contentContainerStyle.paddingVertical).toBeGreaterThanOrEqual(chip.props.hitSlop);
+  act(() => { view!.update(createElement(ChipRow, { wrap: true, label: "Time" }, createElement(Chip, { label: "Up to 15 min", onPress() {} }))); });
+  const wrapped = view!.root.findAllByType("View" as never).find(node => node.props.style?.flexWrap === "wrap")!;
+  expect(wrapped.props.style.paddingVertical).toBeGreaterThanOrEqual(view!.root.findByType("Pressable" as never).props.hitSlop);
+  act(() => { view!.update(createElement(Segmented, { label: "Show", value: "all", options: [{ value: "all", label: "All" }, { value: "programs", label: "Programs" }], onChange() {} })); });
+  const segment = view!.root.findAllByType("Pressable" as never)[0];
+  expect(segment.props.style.minHeight).toBe(32);
+  expect(reach(segment.props.hitSlop, 32)).toBeGreaterThanOrEqual(44);
+  // The track pads 2pt; the outer wrapper holds the rest of the reach.
+  const outer = view!.root.findAllByType("View" as never)[0];
+  expect(outer.props.style.paddingVertical + 2).toBeGreaterThanOrEqual(segment.props.hitSlop.top);
 });

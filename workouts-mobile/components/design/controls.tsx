@@ -245,6 +245,8 @@ export function AccountButton() {
   );
 }
 
+/** Interactive chips are 34pt; this slop on every side makes them 44pt targets. */
+const CHIP_REACH = (touch.min - 34) / 2;
 /**
  * Compact pill (spec v2 §1.4). Pass `onPress` for a selectable filter / quick action; omit it for a static tag.
  * Unselected chips sit on a tonal fill; selected chips fill with the accent.
@@ -313,7 +315,7 @@ export function Chip({
       accessibilityState={role === "button" ? { disabled } : { checked: selected, disabled }}
       aria-checked={role === "button" ? undefined : selected}
       disabled={disabled}
-      hitSlop={5}
+      hitSlop={CHIP_REACH}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       onPress={() => {
@@ -335,7 +337,8 @@ export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithC
   const c = useColors();
   if (wrap)
     return (
-      <View accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      // Padding (cancelled by the margin) keeps the first and last rows' 44pt reach inside the row.
+      <View accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: CHIP_REACH, marginVertical: -CHIP_REACH }}>
         {children}
       </View>
     );
@@ -346,7 +349,7 @@ export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithC
         horizontal
         accessibilityLabel={label}
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 8, paddingVertical: 5, paddingHorizontal: 16 }}
+        contentContainerStyle={{ gap: 8, paddingVertical: CHIP_REACH, paddingHorizontal: 16 }}
         style={{ flexGrow: 0 }}
       >
         {children}
@@ -367,19 +370,24 @@ export function FilterButton({ count, onPress, label = "Filter" }: { count: numb
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
   return (
+    // A padded 44pt target (the row is only as tall as the 40pt search field); margins keep the circle where it was.
     <AnimatedPressable accessibilityRole="button" accessibilityLabel={count ? `${label}, ${count} on` : label} onPress={onPress}
-      onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={2}
-      style={{ width: 40, height: 40, borderRadius: radii.full, backgroundColor: count ? c.accentTint : c.sunken, alignItems: "center", justifyContent: "center",
+      onPressIn={press.onPressIn} onPressOut={press.onPressOut}
+      style={{ width: touch.min, height: touch.min, marginHorizontal: -2, alignItems: "center", justifyContent: "center",
         opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-      <Ionicons name="options-outline" size={20} color={count ? c.accentText : c.text} />
-      {!!count && <View style={{ position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4,
-        backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
-        <Text allowFontScaling={false} style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.onAccent }}>{count}</Text>
-      </View>}
+      <View style={{ width: 40, height: 40, borderRadius: radii.full, backgroundColor: count ? c.accentTint : c.sunken, alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name="options-outline" size={20} color={count ? c.accentText : c.text} />
+        {!!count && <View style={{ position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4,
+          backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
+          <Text allowFontScaling={false} style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.onAccent }}>{count}</Text>
+        </View>}
+      </View>
     </AnimatedPressable>
   );
 }
 
+/** Segments are 32pt to look like the spec's 36pt control; this much vertical slop makes each one a 44pt target. */
+const SEGMENT_REACH = (touch.min - 32) / 2;
 /** Mutually exclusive options in one compact control (spec v2 §1.4): tonal track, raised selected segment. */
 export function Segmented<T extends string>({
   options,
@@ -394,13 +402,16 @@ export function Segmented<T extends string>({
 }) {
   const c = useColors();
   return (
-    <View
-      accessibilityRole="radiogroup"
-      accessibilityLabel={label}
-      style={{ flexDirection: "row", backgroundColor: c.sunken, borderRadius: 10, padding: 2, gap: 2 }}
-    >
-      {options.map((option) => <SegmentOption key={option.value} label={option.label} selected={option.value === value}
-        onPress={() => { if (option.value !== value) haptics.tick(); onChange(option.value); }} />)}
+    // The outer padding (cancelled by the margin) holds each segment's 44pt reach inside a parent.
+    <View style={{ paddingVertical: SEGMENT_REACH - 2, marginVertical: -(SEGMENT_REACH - 2) }}>
+      <View
+        accessibilityRole="radiogroup"
+        accessibilityLabel={label}
+        style={{ flexDirection: "row", backgroundColor: c.sunken, borderRadius: 10, padding: 2, gap: 2 }}
+      >
+        {options.map((option) => <SegmentOption key={option.value} label={option.label} selected={option.value === value}
+          onPress={() => { if (option.value !== value) haptics.tick(); onChange(option.value); }} />)}
+      </View>
     </View>
   );
 }
@@ -410,7 +421,7 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
   return <AnimatedPressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: selected }}
-    aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={{ top: 4, bottom: 4 }}
+    aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={{ top: SEGMENT_REACH, bottom: SEGMENT_REACH }}
     style={{ flex: 1, minHeight: 32, paddingVertical: 6, paddingHorizontal: 4, borderRadius: 8, alignItems: "center", justifyContent: "center",
       backgroundColor: selected ? c.segment : "transparent",
       shadowColor: c.shadow, shadowOpacity: selected ? 0.12 : 0, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: selected ? 1 : 0,
