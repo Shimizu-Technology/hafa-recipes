@@ -42,6 +42,9 @@ export function ladderReps(ladder: RepLadder, index: number) {
 }
 export const openLadder = (block: Pick<Block, "exercises">) =>
   block.exercises.length > 0 && block.exercises.every((e) => e.ladder != null && e.ladder.end == null);
+/** Death by: an EMOM with no interval count whose moves climb an open ladder until a minute is missed. */
+export const isDeathBy = (execution: Block["execution"], block: Pick<Block, "exercises">) =>
+  execution?.mode === "emom" && execution.intervals == null && openLadder(block);
 /** The prescribed reps for one round or interval; never invented when the source gave none. */
 export function repsFor(exercise: ExercisePrescription, index: number) {
   if (exercise.rep_scheme?.length) return exercise.rep_scheme[index - 1] ?? null;
@@ -102,7 +105,7 @@ export function timedFormat(workout: Pick<Workout, "kind" | "blocks">): TimedFor
   if (!isTimedFormat(execution) || !block.exercises.length || formatError(execution, block)) return null;
   if (execution.mode === "for_time") return (block.rounds ?? 1) <= trackedIntervalLimit ? execution : null;
   if (unsetRotation(execution, block)) return null;
-  if (execution.intervals == null) return execution.mode === "emom" && openLadder(block) ? execution : null;
+  if (execution.intervals == null) return isDeathBy(execution, block) ? execution : null;
   return execution.intervals <= trackedIntervalLimit ? execution : null;
 }
 /** Why a timed block can't run, in words the person can act on. */
@@ -130,7 +133,7 @@ export function formatLabel(block: Pick<Block, "execution" | "rounds" | "exercis
     case "amrap":
       return `AMRAP ${minutes(execution.time_cap_seconds)}`;
     case "emom": {
-      if (openLadder(block)) return "Death by";
+      if (isDeathBy(execution, block)) return "Death by";
       const { interval_seconds: length, intervals } = execution;
       if (length === 60) return intervals == null ? "EMOM" : `EMOM ${intervals}`;
       const name = length % 60 === 0 ? `E${length / 60}MOM` : `Every ${formatSeconds(length)}`;
@@ -190,7 +193,7 @@ export function formatScore(workout: Pick<Workout, "kind" | "blocks">,
   const complete = [...rounds.values()].filter((items) => items.every((item) => item.completed)).length;
   if (execution.mode === "emom") {
     const unit = execution.interval_seconds === 60 ? "minute" : "interval";
-    if (openLadder(block)) {
+    if (isDeathBy(execution, block)) {
       let full = 0;
       while (rounds.get(full + 1)?.every((item) => item.completed)) full++;
       const extra = reps(rounds.get(full + 1) ?? []);
