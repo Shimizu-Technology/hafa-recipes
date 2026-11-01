@@ -205,7 +205,7 @@ export function TrainToday() {
       </ListGroup>
       <View style={{ gap: 12 }}>
         <Copy kind="heading">This week</Copy>
-        <Pressable accessibilityRole="button" accessibilityLabel={summary ? `History & progress. ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak` : "History & progress. Not available yet"} onPress={() => router.push("/history-progress")} style={{ flexDirection: "row", flexWrap: "wrap", gap: 24, minHeight: 44 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={summary ? `History & progress. ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak` : "History & progress. Not available yet"} onPress={() => router.navigate("/(tabs)/progress")} style={{ flexDirection: "row", flexWrap: "wrap", gap: 24, minHeight: 44 }}>
           {[[summary?.sessions, "Sessions"], [summary?.minutes, "Minutes"], [summary?.streak, "Day streak"]].map(([value, label]) => <View key={label} style={{ minWidth: 88, gap: 4 }}>
             <Copy kind="numeric" style={{ fontVariant: ["tabular-nums"] }}>{value ?? "—"}</Copy><Copy kind="small" tone="muted">{label}</Copy>
           </View>)}

@@ -17,6 +17,7 @@ vi.mock("@/lib/context", () => {
     useOfflineTraining: () => ({ state: { history: fixture.history, recovery_receipts: fixture.receipts }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
+vi.mock("@/components/native-tab-stack", () => ({ useNativeHeader: () => false }));
 vi.mock("@/components/progress-records", () => ({ ProgressRecords: "ProgressRecords" }));
 vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
