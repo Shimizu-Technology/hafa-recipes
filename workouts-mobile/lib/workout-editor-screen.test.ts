@@ -189,6 +189,12 @@ it("edits EMOM, work/rest and for-time timers with simple fields and keeps the w
   await act(async () => choice("For time").props.onPress());
   expect(latest!.blocks[0]).toMatchObject({ grouping: "circuit", execution: { mode: "for_time", time_cap_seconds: null } });
   await act(async () => field("Time cap · minutes")!.props.onChange("12"));
+  expect(latest!.estimated_minutes).toBe(12);
+  // Clearing the field and typing again keeps the length in step.
+  await act(async () => field("Time cap · minutes")!.props.onChange(""));
+  await act(async () => field("Time cap · minutes")!.props.onChange("1"));
+  expect(latest!.estimated_minutes).toBe(1);
+  await act(async () => field("Time cap · minutes")!.props.onChange("12"));
   expect(latest!.blocks[0].execution).toEqual({ mode: "for_time", time_cap_seconds: 720 });
   await act(async () => field("Rounds")!.props.onChange("3"));
   const scheme = renderer!.root.findAllByType("Field" as never).filter((n) => n.props.label === "Reps per round · e.g. 21-15-9");

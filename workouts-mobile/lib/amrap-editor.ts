@@ -115,7 +115,8 @@ export function changeFormatFields(workout: AuthoredWorkout, index: number, patc
   if (!isTimedFormat(block?.execution)) return workout;
   const next = { ...block.execution, ...patch } as TimedFormat;
   const before = clockMinutes(block);
-  const inherited = workout.blocks.length === 1 && (workout.estimated_minutes == null || workout.estimated_minutes === before);
+  // While a field is cleared mid-edit there is no clock, so the length still follows the next value typed.
+  const inherited = workout.blocks.length === 1 && (workout.estimated_minutes == null || before == null || workout.estimated_minutes === before);
   const after = clockMinutes({ ...block, execution: next });
   return { ...workout, ...(inherited && after != null ? { estimated_minutes: after } : {}),
     blocks: workout.blocks.map((b, i) => (i === index ? { ...b, execution: next } : b)) };
