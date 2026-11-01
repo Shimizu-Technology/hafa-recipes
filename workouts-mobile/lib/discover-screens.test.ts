@@ -1328,6 +1328,19 @@ it("Library scrolls back to the top when its selected tab is tapped again", asyn
   expect(nodes("TabScrollToTop")).toHaveLength(1);
   expect(nodes("FlatList")[0].props.onScrollBeginDrag).toBe(fixture.beginDrag);
 });
+it("Library search still finds a workout by its required equipment, as the old Search tab did", async () => {
+  const bodyweight = { ...saved, equipment_required: [] };
+  const dumbbells = { ...saved, id: "db", title: "Arm day", equipment_required: ["Dumbbells"] };
+  fixture.library.mockResolvedValue([bodyweight, dumbbells]);
+  // The server search matches titles, exercises and tags only.
+  fixture.searchLibrary.mockImplementation(async (filters: { q?: string }) => ({ items: filters.q ? [] : [bodyweight, dumbbells], total: 0, has_more: false }));
+  await mount(Library);
+  await act(async () => nodes("SearchField")[0].props.onChange("dumbbells"));
+  // Past the 300ms search debounce.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); }); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells" });
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm day"]);
+});
 it("Library loads the next page as the list nears its end", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
   fixture.searchLibrary.mockResolvedValueOnce({ items: [saved], total: 2, has_more: true, next_cursor: "next" })
