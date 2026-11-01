@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { expect, it, vi } from 'vitest';
 
-vi.mock('react-native', () => ({ useColorScheme: () => 'dark' }));
+vi.mock('react-native', () => ({ Platform: { OS: 'web' }, Appearance: { setColorScheme: vi.fn() }, useColorScheme: () => 'dark' }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: vi.fn(async () => null), setItem: vi.fn(async () => undefined) },
 }));

@@ -30,6 +30,7 @@ vi.mock('react-native', async () => {
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Linking: { openURL: vi.fn() },
     Modal: host('Modal'),
+    Pressable: host('Pressable'),
     Platform: { OS: 'ios' },
     ScrollView: host('ScrollView'),
     Share: { share: vi.fn() },
@@ -54,6 +55,7 @@ vi.mock('@/components/Themed', async () => {
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return {
+    TextScaleContext: ReactModule.createContext(1),
     Card: host('Card'),
     Divider: () => null,
     SectionHeader: ({ title }: { title: string }) => ReactModule.createElement('SectionHeader', null, title),
@@ -117,7 +119,7 @@ vi.mock('@/hooks/useTTS', () => ({
 }));
 vi.mock('@/hooks/useTextSize', () => ({
   TEXT_SIZE_LABELS: { small: 'Small', medium: 'Medium', large: 'Large', 'extra-large': 'Extra Large' },
-  useTextSize: () => ({ textSize: 'large', setTextSize: mocks.setTextSize }),
+  useTextSize: () => ({ textSize: 'large', setTextSize: mocks.setTextSize, scale: 1.15 }),
 }));
 vi.mock('@/constants/Colors', () => ({ fontFamily: { display: 'Fraunces_600SemiBold' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 20, xxl: 24, xxxl: 30 },
@@ -140,7 +142,8 @@ function touchables(renderer: ReactTestRenderer) {
 }
 
 function byLabel(renderer: ReactTestRenderer, label: string) {
-  return touchables(renderer).find((node) => node.props.accessibilityLabel === label);
+  return renderer.root.findAll(node => node.type === ('TouchableOpacity' as unknown) || node.type === ('Pressable' as unknown))
+    .find((node) => node.props.accessibilityLabel === label);
 }
 
 async function renderSettings() {
@@ -195,6 +198,7 @@ describe('SettingsScreen accessibility', () => {
     const expected = { 'Automatic theme': 'system', 'Light theme': 'light', 'Dark theme': 'dark' } as const;
     for (const [label, key] of Object.entries(expected)) {
       const option = byLabel(renderer, label)!;
+      expect(option.type, label).toBe('Pressable');
       expect(option.props.accessibilityRole, label).toBe('button');
       expect(option.props.accessibilityState, label).toEqual({ selected: key === 'dark' });
     }
@@ -214,6 +218,7 @@ describe('SettingsScreen accessibility', () => {
     } as const;
     for (const [label, key] of Object.entries(expected)) {
       const option = byLabel(renderer, label)!;
+      expect(option.type, label).toBe('Pressable');
       expect(option.props.accessibilityRole, label).toBe('button');
       expect(option.props.accessibilityState, label).toEqual({ selected: key === 'large' });
     }

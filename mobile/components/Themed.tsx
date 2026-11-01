@@ -51,6 +51,8 @@ export function useColors() {
   return Colors[theme];
 }
 
+export const TextScaleContext = createContext(1);
+
 const TextMetricsContext = createContext<{ fontSize: number; lineHeight: number } | null>(null);
 
 // Nested text keeps its parent's metrics, including recipe text-size overrides.
@@ -64,9 +66,12 @@ export function Text(props: TextProps) {
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
 
   const inherited = useContext(TextMetricsContext);
+  const scale = useContext(TextScaleContext);
   const resolved = StyleSheet.flatten(style);
-  const size = resolved?.fontSize ?? inherited?.fontSize ?? typography.body.fontSize;
-  const leading = resolved?.lineHeight ?? (resolved?.fontSize !== undefined
+  const size = resolved?.fontSize !== undefined
+    ? Math.round(resolved.fontSize * scale)
+    : inherited?.fontSize ?? Math.round(typography.body.fontSize * scale);
+  const leading = (resolved?.lineHeight !== undefined ? Math.round(resolved.lineHeight * scale) : undefined) ?? (resolved?.fontSize !== undefined
     ? lineHeightForSize(size)
     : inherited?.lineHeight ?? lineHeightForSize(size));
   const defaults = inherited
@@ -74,7 +79,7 @@ export function Text(props: TextProps) {
     : { color, fontFamily: fontFamily.regular, ...typography.body, fontSize: size, lineHeight: leading };
   return (
     <TextMetricsContext.Provider value={{ fontSize: size, lineHeight: leading }}>
-      <DefaultText style={[defaults, style]} {...otherProps} />
+      <DefaultText style={[defaults, style, { fontSize: size, lineHeight: leading }]} {...otherProps} />
     </TextMetricsContext.Provider>
   );
 }
