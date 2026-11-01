@@ -5,6 +5,7 @@ vi.mock("react-native", () => ({ Pressable: "Pressable", View: "View", useWindow
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
+vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", PressTarget: "Pressable", useColors: () => ({ tile: "#eee", border: "#ddd" }) }));
 import { router } from "expo-router";
 import { SavedPostRow } from "../components/saved-post-row";

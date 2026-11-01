@@ -16,6 +16,9 @@ import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
 import { FeedTimerCard } from "@/components/feed-timer";
+import { PregnancyHero, TipSection } from "@/components/tips";
+import { todayStage } from "@/lib/timing";
+import { useTimingTips } from "@/lib/use-timing-tips";
 
 const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
   { label: "Wet", type: "wet" },
@@ -64,7 +67,11 @@ export default function Today() {
     latestCare = useTodayCare(),
     glance = careGlance(latestCare.all, child?.id ?? null, now),
     routines = records.filter((r) => routineToday(r, now)),
-    showCare = !!child && (!child.due_date || !!child.birth_date),
+    stage = todayStage(child, now),
+    pregnant = stage === "pregnancy",
+    showCare = !!child && !pregnant,
+    tipsNow = useTimingTips(child, "now", 5, now),
+    tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, now),
     timer = activeTimer(b.state),
     timerChild = timer && children.find((c) => c.id === timer.child_id),
     writing = useRef(false);
@@ -171,10 +178,47 @@ export default function Today() {
     sleepDetail = glance.openSleep ? careSummary("sleep", glance.openSleep.data, glance.openSleep.occurred_at, now).replace("Sleeping now · ", "")
       : glance.lastSleep ? `Woke ${timeAgo(glance.lastSleep.data.end_at!, now)} · Last sleep ${duration((new Date(glance.lastSleep.data.end_at!).getTime() - new Date(glance.lastSleep.occurred_at).getTime()) / 60_000)}`
       : "Log sleep or review your care history.",
-    routine = routines[0];
+    routine = routines[0],
+    questions = records.filter((r) => r.kind === "question").length;
+  const titleText = child?.name.trim() || "Today";
+  if (pregnant && child && !timer) return (
+    <Screen title={titleText}>
+      <Stack.Screen options={{ title: titleText }} />
+      <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
+      <SyncStatus />
+      {children.length > 1 && <ChildFilter />}
+      <PregnancyHero child={child} now={now} />
+      <TipSection title="For this week" view="now" rows={tipsNow.rows}
+        empty="Tips you save that mention this week show up here." />
+      <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
+      <View style={{ gap: 8 }}>
+        <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
+          <Tile icon="link-outline" label="Save a link" hint="Paste a link, or share from TikTok, Instagram or Safari"
+            onPress={() => router.push({ pathname: "/edit", params: { kind: "source" } })} />
+          <Tile icon="book-outline" label="Journal" hint="Write a note or add photos and documents"
+            onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
+          <Tile icon={kindIcon.question} label="Doctor question" hint="Keep a question for your next visit"
+            onPress={() => router.push({ pathname: "/edit", params: { kind: "question" } })} />
+        </View>
+        <Copy kind="small" tone="muted">Tip: share straight from TikTok, Instagram or Safari.</Copy>
+      </View>
+      <Grouped>
+        <Row title="Doctor questions" icon={kindIcon.question} numericDetail
+          detail={questions ? `${questions} saved · for your next visit` : "Keep questions for your next visit"}
+          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "question" } })} />
+        <Row title="Journal" detail="Notes, photos and documents" icon="book-outline"
+          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal" } })} />
+        <Row numericDetail title={routine?.title || "Lists & routines"}
+          detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
+          icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
+      </Grouped>
+      <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
+        onPress={() => router.push({ pathname: "/child", params: { id: child.id } })} />
+    </Screen>
+  );
   return (
-    <Screen title={child && showCare ? child.name : "Today"} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}>
-      <Stack.Screen options={{ title: child && showCare ? child.name : "Today" }} />
+    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}>
+      <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
@@ -209,6 +253,7 @@ export default function Today() {
           onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
         <Row title="Care history" numericDetail detail={showCare ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
+      {stage === "baby" && <TipSection title="For this age" view="now" rows={tipsNow.rows} />}
       {!children.length && <Row title="Add a baby profile" detail="Personalize everyday care when you’re ready"
         icon="person-add-outline" onPress={() => router.push("/child")} />}
     </Screen>

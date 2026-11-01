@@ -24,6 +24,9 @@ export interface RecordFilters {
   uncategorized?: boolean;
   offset?: number;
   limit?: number;
+  timing?: "now" | "upcoming";
+  timing_child_id?: string;
+  within_weeks?: number;
 }
 export class ApiError extends Error {
   constructor(

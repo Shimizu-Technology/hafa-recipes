@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Stack, router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
 import { sourceTitle } from "@/lib/source-title";
 import { messageFor, type BabyRecord } from "@/lib/models";
@@ -15,6 +15,8 @@ import { ImportUpdates } from "@/components/import-updates";
 import { HeaderSearch } from "@/components/header-search";
 import { TabActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
+import { glanceChild } from "@/lib/care-glance";
+import { byStart, timingContext } from "@/lib/timing";
 
 export default function Library() {
   const b = useBaby();
@@ -23,8 +25,14 @@ export default function Library() {
   const [organizing, setOrganizing] = useState(false), [error, setError] = useState("");
   const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
   const [undoing, setUndoing] = useState(false), undoBusy = useRef(false);
+  const params = useLocalSearchParams<{ view?: string; at?: string }>();
+  const timingChild = glanceChild(b.state), context = timingContext(timingChild),
+    timed = (view === "now" || view === "upcoming") && timingChild && context ? { mode: view, childId: timingChild.id, context } as const : undefined;
+  useEffect(() => { if (params.view && ["inbox", "all", "now", "upcoming", "categories"].includes(params.view)) chooseView(params.view); },
+    [params.view, params.at]);
   const history = useLibraryHistory({ kind: "source", childId: b.state.selectedChild, query: q,
-    collectionId: collection || undefined, uncategorized: view === "inbox" });
+    collectionId: collection || undefined, uncategorized: view === "inbox", timing: timed });
+  const rows = timed?.mode === "upcoming" ? [...history.rows].sort(byStart(timed.context.stage)) : history.rows;
   const categories = useLibraryHistory({ kind: "collection", childId: null, query: "" });
   const category = categories.rows.find((r) => r.id === collection);
   const drafts = Object.entries(b.state.drafts).filter(([, d]) => d.kind === "source" &&
@@ -71,7 +79,9 @@ export default function Library() {
     <SyncStatus />
     <ChildFilter scroll />
     <TextLinks value={view} label="Saved posts" options={[
-      { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" }, { label: "Categories", value: "categories" },
+      { label: "Uncategorized", value: "inbox" }, { label: "All saved", value: "all" },
+      ...(context ? [{ label: "For now", value: "now" }, { label: "Coming up", value: "upcoming" }] : []),
+      { label: "Categories", value: "categories" },
     ]} onChange={chooseView} />
     {!!error && <Notice error>{error}</Notice>}
     {listingCategories ? <>
@@ -87,14 +97,17 @@ export default function Library() {
         onPress={() => router.push({ pathname: "/edit", params: { kind: "collection", id: category.id } })} />}
       {!!history.error && <><Notice error>{history.error} Saved posts already on this device remain available.</Notice>
         <Button secondary title="Try loading posts again" onPress={history.refresh} busy={history.loading} /></>}
-      {history.loading && !history.rows.length ? <Loading label="Loading saved posts…" /> : history.rows.length ? (
+      {history.loading && !rows.length ? <Loading label="Loading saved posts…" /> : rows.length ? (
         <Grouped separatorInset={selecting ? 52 : 80}>
-          {history.rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
+          {rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
             : <RecordRow key={record.id} record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />)}
         </Grouped>
-      ) : <Empty title={q ? "No matching posts" : view === "inbox" ? "You’re caught up." : "Keep something worth remembering."}
-        body={q ? "Try another phrase. Search includes text inside saved posts." : view === "inbox"
+      ) : <Empty title={q ? "No matching posts" : view === "now" ? "Nothing for right now yet" : view === "upcoming" ? "Nothing coming up yet"
+        : view === "inbox" ? "You’re caught up." : "Keep something worth remembering."}
+        body={q ? "Try another phrase. Search includes text inside saved posts." : timed
+          ? "Saved tips that mention a pregnancy week or baby age show up here. You can add timing to any saved post."
+          : view === "inbox"
           ? "New saves stay here until you choose a category. Your organized posts are in All saved."
           : "Share a post from another app or paste a link. You can organize it later."}
         action={<Button secondary title={view === "inbox" ? "See all saved posts" : "Save a post"}

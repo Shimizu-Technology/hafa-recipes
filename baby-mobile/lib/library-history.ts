@@ -1,6 +1,7 @@
 import type { RecordFilters } from "./api";
 import type { BabyRecord, DeviceState, RecordPage } from "./models";
 import { pendingRecords, searchLocal } from "./outbox";
+import { matchesTiming, type TimingContext } from "./timing";
 
 export interface LibraryView {
   kind: "source" | "collection";
@@ -10,6 +11,8 @@ export interface LibraryView {
   topic?: string;
   uncategorized?: boolean;
   pageSize?: number;
+  /** Tips for where this child is now or next; the context answers offline. */
+  timing?: { mode: "now" | "upcoming"; childId: string; context: TimingContext };
 }
 export function libraryViewKey(view: LibraryView) {
   return JSON.stringify([
@@ -20,6 +23,7 @@ export function libraryViewKey(view: LibraryView) {
     view.topic ?? "",
     view.pageSize ?? 30,
     view.uncategorized ?? false,
+    view.timing ? [view.timing.mode, view.timing.childId, view.timing.context.stage, view.timing.context.value] : null,
   ]);
 }
 /** One sequential, filtered cursor per focused view. Every refresh starts at
@@ -66,6 +70,8 @@ export function createLibraryPager(load: (filters: RecordFilters, current: () =>
             collection_id: view.collectionId || undefined,
             topic: view.topic || undefined,
             uncategorized: view.uncategorized || undefined,
+            timing: view.timing?.mode,
+            timing_child_id: view.timing?.childId,
             limit: view.pageSize ?? 30,
             offset: start,
           },
@@ -125,6 +131,8 @@ export function libraryRows(
         (memberSet ? memberSet.has(row.id) : remote?.has(row.id) || (changed.has(row.id) && cachedMembers.has(row.id)))
     )
     .filter((row) => remote === null || remote.has(row.id) || changed.has(row.id) || added.has(row.id))
+    .filter((row) => !view.timing || (remote?.has(row.id) && !changed.has(row.id)) ||
+      matchesTiming(row, view.timing.mode, view.timing.context))
     .filter(
       (row) =>
         !view.query.trim() || (remote?.has(row.id) && !changed.has(row.id)) || searchLocal(row, view.query.trim())

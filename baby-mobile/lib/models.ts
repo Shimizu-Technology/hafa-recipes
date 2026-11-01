@@ -48,6 +48,25 @@ export interface RoutineItem {
   label: string;
   done: boolean;
 }
+export type TimingStage = "pregnancy" | "postpartum" | "baby";
+/** When a saved tip applies, only as the source (or the parent) stated it. */
+export interface Relevance {
+  stage?: TimingStage | null;
+  pregnancy_week_min?: number | null;
+  pregnancy_week_max?: number | null;
+  baby_age_min_weeks?: number | null;
+  baby_age_max_weeks?: number | null;
+  baby_age_unit?: "weeks" | "months" | null;
+  quote?: string | null;
+  origin?: "source" | "user";
+}
+/** An AI-proposed category; nothing is filed until the parent accepts it. */
+export interface SuggestedCategory {
+  name: string;
+  collection_id?: string | null;
+  confidence?: number;
+  status: "pending" | "accepted" | "dismissed";
+}
 export interface RecordData {
   provenance?: "caregiver_observation" | "clinician_instruction";
   url?: string;
@@ -77,6 +96,8 @@ export interface RecordData {
   enabled?: boolean;
   attachment_ids?: string[];
   record_ids?: string[];
+  relevance?: Relevance | null;
+  suggested_category?: SuggestedCategory | null;
   [key: string]: unknown;
 }
 export interface BabyRecord {
@@ -99,7 +120,10 @@ export interface RecordPage {
   items: BabyRecord[];
   total: number;
   has_more: boolean;
+  timing?: { mode: "now" | "upcoming"; stage: "pregnancy" | "baby"; pregnancy_week?: number; pregnancy_day?: number;
+    baby_age_weeks?: number; child_id?: string; basis: "child" | "query"; today?: string };
 }
+
 export interface ImportJob {
   id: string;
   status: string;

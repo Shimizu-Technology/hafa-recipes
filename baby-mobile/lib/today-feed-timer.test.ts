@@ -49,6 +49,9 @@ vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ CareGlance: "CareGlance", FirstStep: "FirstStep", useMinuteClock: () => new Date() }));
 vi.mock("@/components/feed-timer", () => import("../components/feed-timer"));
+vi.mock("@/components/tips", () => ({ PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
+vi.mock("@/lib/timing", () => import("./timing"));
+vi.mock("@/lib/use-timing-tips", () => ({ useTimingTips: () => ({ rows: [], total: 0 }) }));
 import Today from "../app/(tabs)/(today)/index";
 
 const start = new Date("2026-10-20T03:00:00.000Z");
@@ -211,15 +214,29 @@ it("uses the child name in the header, replaces the hero with a timer, and stack
   expect(feed.parent!.parent!.props.style.flexDirection).toBe("column");
   expect(feed.props.style({ pressed: false }).flexBasis).toBeUndefined();
 });
-it("shows a calm first step for pregnancy and no-child states", async () => {
-  const account = setup();
-  account.state.bootstrap!.children[0].due_date = "2026-11-20";
+it("leads with the pregnancy and saved tips while pregnant, then switches to care once the birth date arrives", async () => {
+  const account = setup(), child = account.state.bootstrap!.children[0];
+  child.due_date = "2026-11-20";
   scope.care = [optimisticRecord({ id: "another-baby-feed", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: start.toISOString(), data: { method: "breast" } })];
   await render();
-  expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
-  expect(find("FirstStep", () => true)).toHaveLength(1);
+  expect(find("StackScreen", () => true)[0].props.options.title).toBe("Mia");
+  expect(find("PregnancyHero", () => true)).toHaveLength(1);
+  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["For this week", "Coming up"]);
   expect(find("Pressable", p => p.accessibilityLabel === "Feed")).toHaveLength(0);
+  expect(find("CareGlance", () => true)).toHaveLength(0);
+  for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(1);
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Doctor questions", "Journal", "Lists & routines", "Baby’s here?"]);
+  await act(async () => (find("Row", p => p.title === "Baby’s here?")[0].props.onPress as () => void)());
+  expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/child", params: { id: "baby" } });
+  child.birth_date = "2026-11-02"; await render();
+  expect(find("PregnancyHero", () => true)).toHaveLength(1);
+  child.birth_date = "2026-10-19"; await render();
+  expect(find("PregnancyHero", () => true)).toHaveLength(0);
+  expect(find("CareGlance", () => true)).toHaveLength(1);
+  expect(find("Pressable", p => p.accessibilityLabel === "Feed")).toHaveLength(1);
+  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["For this age"]);
   account.state.bootstrap!.children = []; await render();
+  expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
   expect(find("FirstStep", () => true)[0].props.child).toBeNull();
   expect(find("Row", p => p.title === "Add a baby profile")).toHaveLength(1);
 });
