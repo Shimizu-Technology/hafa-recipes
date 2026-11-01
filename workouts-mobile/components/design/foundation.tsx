@@ -97,6 +97,7 @@ export function Copy({
   accessibilityLabel,
   selectable,
   allowFontScaling,
+  maxScale,
 }: PropsWithChildren<{
   kind?: TypeKind;
   tone?: Tone;
@@ -108,12 +109,14 @@ export function Copy({
   accessibilityLabel?: string;
   selectable?: boolean;
   allowFontScaling?: boolean;
+  /** Caps growth with the text-size setting, for controls that must leave room for content (like a session footer). */
+  maxScale?: number;
 }>) {
   const c = useColors();
   const surface = useSurface();
   const { fontScale } = useWindowDimensions();
   const textStyle = StyleSheet.flatten([typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
-  const scale = allowFontScaling === false ? 1 : fontScale;
+  const scale = allowFontScaling === false ? 1 : Math.min(fontScale, maxScale ?? Infinity);
   // Explicit sizes keep Fabric layout and glyph metrics together on a live Dynamic Type change.
   const scaled = { ...textStyle, fontSize: (textStyle.fontSize ?? typography[kind].fontSize) * scale,
     lineHeight: (textStyle.lineHeight ?? typography[kind].lineHeight) * scale };

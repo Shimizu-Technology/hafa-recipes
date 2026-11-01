@@ -137,21 +137,23 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     : `This ${unit.toLowerCase()}: ${moves(position.index)}`;
   const hasNext = !!position && !allMarked && position.phase !== "ended" && (interval!.intervals == null || position.index < interval!.intervals);
 
+  // At the largest text sizes four stacked footer buttons would cover the clock; their labels stop growing at 1.6×.
+  const footerScale = 1.6;
   const primary = canComplete ? (
-    <Button title="Save session" icon="checkmark-done" size="lg" busy={busy} onPress={() => finish("completed")} />
+    <Button maxScale={footerScale} title="Save session" icon="checkmark-done" size="lg" busy={busy} onPress={() => finish("completed")} />
   ) : format.mode === "for_time" ? (
-    step && !capReached ? <Button size="lg" icon="checkmark" busy={busy}
+    step && !capReached ? <Button maxScale={footerScale} size="lg" icon="checkmark" busy={busy}
       title={(block.rounds ?? 1) === 1 ? "Done · stop the clock" : target === (block.rounds ?? 1) ? `Round ${target} done · stop the clock` : `Round ${target} done`}
       onPress={() => log(targetSteps.map((s) => actualFor(s, true, null, null)))} />
-      : <Button title="Save capped result" icon="checkmark-done" size="lg" busy={busy} disabled={!typedValid} onPress={stopEarly} />
+      : <Button maxScale={footerScale} title="Save capped result" icon="checkmark-done" size="lg" busy={busy} disabled={!typedValid} onPress={stopEarly} />
   ) : step && started ? (
     <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
       <View style={{ flex: largeText(fontScale) ? undefined : 2 }}>
-        <Button size="lg" icon="checkmark" busy={busy} disabled={!typedValid || doseless.some((i) => countFor(i) == null)}
+        <Button maxScale={footerScale} size="lg" icon="checkmark" busy={busy} disabled={!typedValid || doseless.some((i) => countFor(i) == null)}
           title={format.mode === "work_rest" ? `Log interval ${target}` : `Done · ${unit.toLowerCase()} ${target}`} onPress={() => mark(true)} />
       </View>
       <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
-        <Button size="lg" variant="secondary" disabled={busy || !typedValid} title={format.mode === "work_rest" ? "Skip" : "Missed"} onPress={() => mark(false)} />
+        <Button maxScale={footerScale} size="lg" variant="secondary" disabled={busy || !typedValid} title={format.mode === "work_rest" ? "Skip" : "Missed"} onPress={() => mark(false)} />
       </View>
     </View>
   ) : null;
@@ -164,11 +166,11 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
         {primary}
         <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
           {!finished && <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
-            <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"} variant="secondary"
+            <Button maxScale={footerScale} title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"} variant="secondary"
               disabled={busy} onPress={() => pause(!d.paused)} />
           </View>}
           <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
-            <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
+            <Button maxScale={footerScale} title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
               onPress={() => (canComplete ? finish("completed") : setStopping(true))} />
           </View>
         </View>
