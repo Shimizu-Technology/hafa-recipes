@@ -3,6 +3,7 @@ import { Text, ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressa
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { Image } from "expo-image";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
@@ -245,59 +246,53 @@ export function AccountButton() {
 }
 
 /**
- * Compact pill. Pass `onPress` for a selectable filter / quick action; omit it for a static tag.
+ * Compact pill (spec v2 §1.4). Pass `onPress` for a selectable filter / quick action; omit it for a static tag.
+ * Unselected chips sit on a tonal fill; selected chips fill with the accent.
  */
 export function Chip({
   label,
   icon,
+  trailingIcon,
   selected = false,
   onPress,
   tone = "default",
   disabled = false,
   role,
+  accessibilityLabel,
 }: {
   label: string;
   icon?: IconName;
+  /** e.g. a close mark on a removable filter chip. */
+  trailingIcon?: IconName;
   selected?: boolean;
   onPress?: () => void;
   tone?: "default" | "accent";
   disabled?: boolean;
   role?: "radio" | "checkbox" | "button";
+  accessibilityLabel?: string;
 }) {
   const c = useColors();
   const surface = useSurface();
   const press = usePressScale(disabled);
   const onHero = surface === "hero";
-  const bg = selected
-    ? onHero
-      ? c.onHero
-      : c.action
-    : tone === "accent"
-      ? c.accentSoft
-      : onHero
-        ? c.onHeroSoft
-        : c.surface;
-  const fg = selected ? (onHero ? c.hero : c.onAction) : tone === "accent" ? c.accentText : onHero ? c.onHero : c.text;
-  const border = selected || onHero || tone === "accent" ? "transparent" : c.borderStrong;
+  const bg = selected ? (onHero ? c.onHero : c.accent) : tone === "accent" ? c.accentTint : c.sunken;
+  const fg = selected ? (onHero ? c.hero : c.onAccent) : tone === "accent" ? c.accentText : c.text;
   const body = (
     <>
-      {selected && onPress ? (
+      {selected && onPress && role !== "button" ? (
         <Ionicons name="checkmark" size={16} color={fg} />
       ) : icon ? (
         <Ionicons name={icon} size={16} color={fg} />
       ) : null}
-      <Copy kind="cardTitle" color={fg} style={{ textAlign: "center" }}>
-        {label}
-      </Copy>
+      <Text style={{ fontSize: 15, lineHeight: 20, fontWeight: "500", color: fg, textAlign: "center" }}>{label}</Text>
+      {!!trailingIcon && <Ionicons name={trailingIcon} size={15} color={fg} />}
     </>
   );
   const style = {
-    minHeight: onPress ? 40 : 32,
-    paddingHorizontal: onPress ? 14 : 12,
-    paddingVertical: 6,
+    minHeight: onPress ? 34 : 28,
+    paddingHorizontal: onPress ? 14 : 10,
+    paddingVertical: onPress ? 6 : 4,
     borderRadius: radii.full,
-    borderWidth: 0,
-    borderColor: border,
     backgroundColor: bg,
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -314,11 +309,11 @@ export function Chip({
   return (
     <AnimatedPressable
       accessibilityRole={role ?? "checkbox"}
-      accessibilityLabel={label}
-      accessibilityState={{ checked: selected, disabled }}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={role === "button" ? { disabled } : { checked: selected, disabled }}
       aria-checked={role === "button" ? undefined : selected}
       disabled={disabled}
-      hitSlop={4}
+      hitSlop={5}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       onPress={() => {
@@ -332,28 +327,60 @@ export function Chip({
   );
 }
 
-/** A row of chips. Scrolls horizontally by default; `wrap` flows onto new lines instead. */
-export function ChipRow({ children, wrap = false, label }: PropsWithChildren<{ wrap?: boolean; label?: string }>) {
+/**
+ * A row of chips. Scrolls horizontally by default and fades at the trailing edge instead of
+ * clipping a label mid-word; `wrap` flows onto new lines instead.
+ */
+export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithChildren<{ wrap?: boolean; label?: string; fadeColor?: string }>) {
+  const c = useColors();
   if (wrap)
     return (
       <View accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {children}
       </View>
     );
+  const fade = fadeColor ?? c.background;
   return (
-    <ScrollView
-      horizontal
-      accessibilityLabel={label}
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
-      style={{ flexGrow: 0 }}
-    >
-      {children}
-    </ScrollView>
+    <View style={{ marginHorizontal: -16 }}>
+      <ScrollView
+        horizontal
+        accessibilityLabel={label}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 8, paddingVertical: 5, paddingHorizontal: 16 }}
+        style={{ flexGrow: 0 }}
+      >
+        {children}
+      </ScrollView>
+      <Svg pointerEvents="none" width={24} height="100%" style={{ position: "absolute", right: 0, top: 0, bottom: 0 }}>
+        <Defs><LinearGradient id="chip-fade" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0" stopColor={fade} stopOpacity={0} /><Stop offset="1" stopColor={fade} stopOpacity={1} />
+        </LinearGradient></Defs>
+        <Rect x="0" y="0" width="24" height="100%" fill="url(#chip-fade)" />
+      </Svg>
+    </View>
   );
 }
 
-/** Mutually exclusive options in one compact control (e.g. reps / time / distance). */
+/** Filter entry beside a search field: a 40pt tonal circle with an accent count badge when filters are on. */
+export function FilterButton({ count, onPress, label = "Filter" }: { count: number; onPress(): void; label?: string }) {
+  const c = useColors();
+  const press = usePressScale();
+  const AnimatedPressable = animatedPressableComponent();
+  return (
+    <AnimatedPressable accessibilityRole="button" accessibilityLabel={count ? `${label}, ${count} on` : label} onPress={onPress}
+      onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={2}
+      style={{ width: 40, height: 40, borderRadius: radii.full, backgroundColor: count ? c.accentTint : c.sunken, alignItems: "center", justifyContent: "center",
+        opacity: press.opacity, transform: [{ scale: press.scale }] }}>
+      <Ionicons name="options-outline" size={20} color={count ? c.accentText : c.text} />
+      {!!count && <View style={{ position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4,
+        backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
+        <Text allowFontScaling={false} style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.onAccent }}>{count}</Text>
+      </View>}
+    </AnimatedPressable>
+  );
+}
+
+/** Mutually exclusive options in one compact control (spec v2 §1.4): tonal track, raised selected segment. */
 export function Segmented<T extends string>({
   options,
   value,
@@ -370,7 +397,7 @@ export function Segmented<T extends string>({
     <View
       accessibilityRole="radiogroup"
       accessibilityLabel={label}
-      style={{ flexDirection: "row", backgroundColor: c.sunken, borderRadius: radii.full, padding: 4, gap: 4 }}
+      style={{ flexDirection: "row", backgroundColor: c.sunken, borderRadius: 10, padding: 2, gap: 2 }}
     >
       {options.map((option) => <SegmentOption key={option.value} label={option.label} selected={option.value === value}
         onPress={() => { if (option.value !== value) haptics.tick(); onChange(option.value); }} />)}
@@ -383,11 +410,12 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
   return <AnimatedPressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: selected }}
-    aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}
-    style={{ flex: 1, minHeight: 44, borderRadius: radii.full, alignItems: "center", justifyContent: "center",
-      backgroundColor: selected ? c.action : "transparent", borderWidth: 0, borderColor: c.border,
+    aria-checked={selected} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} hitSlop={{ top: 4, bottom: 4 }}
+    style={{ flex: 1, minHeight: 32, paddingVertical: 6, borderRadius: 8, alignItems: "center", justifyContent: "center",
+      backgroundColor: selected ? c.segment : "transparent",
+      shadowColor: c.shadow, shadowOpacity: selected ? 0.12 : 0, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: selected ? 1 : 0,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-    <Copy kind="cardTitle" color={selected ? c.onAction : c.muted} align="center">{label}</Copy>
+    <Copy kind="cardTitle" color={c.text} align="center">{label}</Copy>
   </AnimatedPressable>;
 }
 

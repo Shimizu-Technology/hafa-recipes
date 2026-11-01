@@ -21,6 +21,7 @@ export {
   ChipRow,
   Choice,
   Field,
+  FilterButton,
   HeaderButton,
   IconButton,
   SearchField,

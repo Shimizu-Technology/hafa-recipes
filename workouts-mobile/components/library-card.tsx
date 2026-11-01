@@ -1,4 +1,3 @@
-import { GlassView } from "expo-glass-effect";
 import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { useState } from "react";
 import { Animated, Pressable, View, useWindowDimensions } from "react-native";
@@ -24,8 +23,9 @@ function Cover({ uri, icon, size }: { uri?: string | null; icon: IconName; size:
   if (uri && uri !== failed)
     return <Image source={{ uri }} onError={() => setFailed(uri)} contentFit="cover" transition={reduced ? 0 : motion.base}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} accessibilityIgnoresInvertColors />;
-  return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.actionSoft }}>
-    <Ionicons name={icon} size={size} color={c.onActionSoft} />
+  // A quiet tonal tile, not a coral slab: the title below carries the card.
+  return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}>
+    <Ionicons name={icon} size={size} color={c.tertiaryLabel} />
   </View>;
 }
 
@@ -97,10 +97,10 @@ export function LibraryCard({
       }}
     >
       <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: 14, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
-        <Cover uri={image} icon={icon} size={grid ? 36 : 26} />
-        {grid && !!meta && <GlassView glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
+        <Cover uri={image} icon={icon} size={grid ? 28 : 24} />
+        {grid && !!meta && <View style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
           <Copy kind="caption2" color={c.onImage}>{meta}</Copy>
-        </GlassView>}
+        </View>}
 
         {!!corner && <View style={{ position: "absolute", top: grid ? 8 : 4, right: grid ? 8 : 4 }}>{corner}</View>}
       </View>
@@ -112,43 +112,59 @@ export function LibraryCard({
     </AnimatedPressable>
         {save && <Pressable accessibilityRole="button" accessibilityLabel={save.saved ? "Saved to your library" : `Save ${title}`} accessibilityState={{ disabled: save.busy || save.saved, selected: save.saved }} disabled={save.busy || save.saved}
           onPress={event => { event.stopPropagation(); save.onPress(); }} hitSlop={7} style={{ position: "absolute", right: 7, top: 7, width: 30, height: 30, borderRadius: 15, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
-          <GlassView pointerEvents="none" glassEffectStyle="clear" tintColor={c.imageOverlay} style={{ position: "absolute", inset: 0, borderRadius: 15 }} />
           <Ionicons name={save.saved ? "bookmark" : "bookmark-outline"} size={17} color={c.onImage} />
         </Pressable>}
     </View>
   );
 }
 
-/** Horizontal tiles for collections: a 2×2 mosaic with four covers, else one cover or a folder. */
-export function CollectionTile({ title, count, covers, onPress }: {
-  title: string; count: number; covers: string[]; onPress(): void;
+/**
+ * Collection card (spec v2 §1.5): one wide cover over two half covers, 1pt gaps, radius 16.
+ * One cover fills the card; none shows a tonal tile with a folder.
+ */
+export function CollectionCard({ title, count, covers, onPress, width }: {
+  title: string; count: number; covers: string[]; onPress(): void; width: number;
 }) {
   const c = useColors();
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
-  const { width, fontScale } = useWindowDimensions();
-  const tileWidth = largeText(fontScale) ? workoutGridWidth(width, fontScale) : 128;
-  const mosaic = covers.length >= 4;
+  const { fontScale } = useWindowDimensions();
+  const height = Math.round(width * 0.8);
+  const top = Math.round(height * 0.6);
   return (
-    <AnimatedPressable
-      accessibilityRole="button"
-      accessibilityLabel={`${title}, ${count} ${count === 1 ? "workout" : "workouts"}`}
-      accessibilityHint="Opens this collection"
-      onPress={onPress}
-      onPressIn={press.onPressIn}
-      onPressOut={press.onPressOut}
-      style={{ width: tileWidth, gap: 6, opacity: press.opacity, transform: [{ scale: press.scale }] }}
-    >
-      <View style={{ width: tileWidth, height: largeText(fontScale) ? 160 : 88, borderRadius: radii.md, overflow: "hidden", borderWidth: 1, borderColor: c.border,
-        flexDirection: "row", flexWrap: "wrap", gap: 1, backgroundColor: c.border }}>
-        {mosaic ? covers.slice(0, 4).map((uri, index) => <View key={index} style={{ width: (tileWidth - 3) / 2, height: largeText(fontScale) ? 78.5 : 42.5 }}>
-          <Cover uri={uri} icon="image-outline" size={18} />
-        </View>) : <Cover uri={covers[0]} icon="folder-open-outline" size={28} />}
+    <AnimatedPressable accessibilityRole="button" accessibilityLabel={`${title}, ${count} ${count === 1 ? "workout" : "workouts"}`}
+      accessibilityHint="Opens this collection" onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}
+      style={{ width, gap: 8, opacity: press.opacity, transform: [{ scale: press.scale }] }}>
+      <View style={{ width, height, borderRadius: 16, overflow: "hidden", gap: 1, backgroundColor: c.background }}>
+        {covers.length >= 3 ? <>
+          <View style={{ height: top }}><Cover uri={covers[0]} icon="image-outline" size={22} /></View>
+          <View style={{ flex: 1, flexDirection: "row", gap: 1 }}>
+            <View style={{ flex: 1 }}><Cover uri={covers[1]} icon="image-outline" size={18} /></View>
+            <View style={{ flex: 1 }}><Cover uri={covers[2]} icon="image-outline" size={18} /></View>
+          </View>
+        </> : <Cover uri={covers[0]} icon="folder-open-outline" size={30} />}
       </View>
-      <View>
-        <Copy kind="label" numberOfLines={largeText(fontScale) ? undefined : 1}>{title}</Copy>
-        <Copy kind="small" tone="muted">{count} {count === 1 ? "workout" : "workouts"}</Copy>
+      <View style={{ gap: 2 }}>
+        <Copy numberOfLines={largeText(fontScale) ? undefined : 1} style={{ fontSize: 16, lineHeight: 21, fontWeight: "600" }}>{title}</Copy>
+        <Copy kind="caption" tone="muted">{count} {count === 1 ? "workout" : "workouts"}</Copy>
       </View>
+    </AnimatedPressable>
+  );
+}
+
+/** First tile in the collections grid: a dashed outline that starts a new collection. */
+export function NewCollectionCard({ width, onPress }: { width: number; onPress(): void }) {
+  const c = useColors();
+  const press = usePressScale();
+  const AnimatedPressable = animatedPressableComponent();
+  return (
+    <AnimatedPressable accessibilityRole="button" accessibilityLabel="New collection" onPress={onPress}
+      onPressIn={press.onPressIn} onPressOut={press.onPressOut} style={{ width, gap: 8, opacity: press.opacity, transform: [{ scale: press.scale }] }}>
+      <View style={{ width, height: Math.round(width * 0.8), borderRadius: 16, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.borderStrong,
+        alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <Ionicons name="add" size={28} color={c.accentText} />
+      </View>
+      <Copy style={{ fontSize: 16, lineHeight: 21, fontWeight: "600" }}>New collection</Copy>
     </AnimatedPressable>
   );
 }
