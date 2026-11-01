@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { sourceTitle } from "@/lib/source-title";
 import { View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
@@ -41,14 +42,17 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
   try { const url = new URL(record.data.thumbnail_url ?? "");
     if (url.protocol === "https:" && !url.username && !url.password) thumbnail = url.toString();
   } catch { /* A thumbnail is optional; the saved post stays readable. */ }
+  const [failed, setBroken] = useState<string>(), broken = !!thumbnail && failed === thumbnail;
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={({ pressed }) => ({ minHeight: 80, flexDirection: stacked ? "column" : "row", gap: 12, alignItems: stacked ? "flex-start" : "center",
       padding: 12, backgroundColor: c.surface })}>
     <View style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", backgroundColor: c.tile,
       alignItems: "center", justifyContent: "center" }}>
-      {thumbnail ? <Image source={{ uri: thumbnail }} style={{ width: 56, height: 56 }} cachePolicy="none" contentFit="cover" />
-        : <Icon name={marks[platform] ?? "bookmark-outline"} size={23} />}
+      {/* The platform mark stays underneath, so a loading or broken thumbnail never leaves an empty tile. */}
+      <Icon name={marks[platform] ?? "bookmark-outline"} size={23} />
+      {thumbnail && !broken && <Image source={{ uri: thumbnail }} style={{ position: "absolute", width: 56, height: 56 }}
+        cachePolicy="memory" contentFit="cover" transition={150} onError={() => setBroken(thumbnail)} />}
     </View>
     <View style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
       <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>

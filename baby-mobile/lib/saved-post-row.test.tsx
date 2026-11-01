@@ -24,6 +24,11 @@ it("shows a platform mark and known creator without a redundant ready line", asy
   expect(copy.some(n => n.props.children === "Ready to read")).toBe(false);
   await act(async () => { renderer.update(<SavedPostRow record={{ ...row, data: { ...row.data, thumbnail_url: "https://example.com/thumbnail.jpg" } }} pending />); });
   expect(renderer.root.findAll(n => String(n.type) === "Image")).toHaveLength(1);
+  // The platform mark stays under the photo while it loads, and takes over if it fails.
+  expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "logo-instagram")).toBe(true);
+  await act(async () => renderer.root.findByType("Image" as React.ElementType).props.onError());
+  expect(renderer.root.findAll(n => String(n.type) === "Image")).toHaveLength(0);
+  expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "logo-instagram")).toBe(true);
   expect(renderer.root.findAll(n => String(n.type) === "Copy").some(n => n.props.children === "Saved on this device")).toBe(true);
   await act(async () => renderer.unmount());
 });
