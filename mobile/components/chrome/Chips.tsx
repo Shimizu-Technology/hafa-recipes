@@ -2,8 +2,11 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
+import { MIN_TOUCH, touchInset } from '@/components/chrome/touch';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+export const CHIP_HEIGHT = 34;
 
 /** A 34pt filter/status pill: tonal at rest, accent-filled when selected. */
 export function Chip({ label, onPress, selected, icon, tone = 'default', accessibilityLabel, testID }: {
@@ -20,9 +23,11 @@ export function Chip({ label, onPress, selected, icon, tone = 'default', accessi
   const color = selected ? colors.onTint : tone === 'alert' ? colors.error : colors.text;
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} testID={testID}
     accessibilityState={selected === undefined ? undefined : { selected }}
-    style={({ pressed }) => [styles.chip, { backgroundColor: selected ? colors.tint : colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
-    {icon && <Ionicons name={icon} size={16} color={color} />}
-    <Text maxFontSizeMultiplier={1.6} numberOfLines={1} style={[styles.label, { color }]}>{label}</Text>
+    style={({ pressed }) => [styles.target, { opacity: pressed ? 0.7 : 1 }]}>
+    <View style={[styles.chip, { backgroundColor: selected ? colors.tint : colors.surface2 }]}>
+      {icon && <Ionicons name={icon} size={16} color={color} />}
+      <Text maxFontSizeMultiplier={1.6} numberOfLines={1} style={[styles.label, { color }]}>{label}</Text>
+    </View>
   </Pressable>;
 }
 
@@ -36,9 +41,10 @@ export function ChipRow({ children, accessibilityLabel }: { children: React.Reac
 }
 
 const styles = StyleSheet.create({
-  chip: { minHeight: 34, borderRadius: 17, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  target: { minHeight: MIN_TOUCH, justifyContent: 'center' },
+  chip: { minHeight: CHIP_HEIGHT, borderRadius: CHIP_HEIGHT / 2, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 15, lineHeight: 20, fontWeight: '500' },
-  rowWrap: { marginHorizontal: -16, marginBottom: 12 },
+  rowWrap: { marginHorizontal: -16, marginTop: -touchInset(CHIP_HEIGHT), marginBottom: 12 - touchInset(CHIP_HEIGHT) },
   scroll: { flexGrow: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 },
   fade: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 24 },

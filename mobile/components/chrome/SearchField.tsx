@@ -2,8 +2,12 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { Text, useColors } from '@/components/Themed';
+import { touchInset } from '@/components/chrome/touch';
 
 const FIELD_HEIGHT = 40;
+const OVERHANG = touchInset(FIELD_HEIGHT);
+/** 40pt controls per the spec; the row is padded so this slop stays inside it and works on Android too. */
+const FIELD_HIT_SLOP = { top: OVERHANG, bottom: OVERHANG, left: OVERHANG * 2 };
 
 /** A 40pt tonal search field for filtering the list it sits above. */
 export function SearchField({ value, onChangeText, placeholder, accessibilityLabel }: { value: string; onChangeText: (text: string) => void; placeholder: string; accessibilityLabel?: string }) {
@@ -24,7 +28,7 @@ export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder
   const colors = useColors();
   const router = useRouter();
   return <Pressable onPress={() => router.push('/search')} accessibilityRole="search" accessibilityLabel={placeholder} accessibilityHint="Opens search"
-    testID="search-launcher" style={({ pressed }) => [styles.field, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
+    testID="search-launcher" hitSlop={FIELD_HIT_SLOP} style={({ pressed }) => [styles.field, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
     <Text numberOfLines={1} style={[styles.placeholder, { color: colors.textMuted }]}>{placeholder}</Text>
   </Pressable>;
@@ -33,7 +37,7 @@ export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder
 /** A 40pt round filter button beside the search field, with an accent count when filters are on. */
 export function FilterButton({ count, onPress }: { count: number; onPress: () => void }) {
   const colors = useColors();
-  return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={count ? `Filter, ${count} on` : 'Filter'} testID="filter-button"
+  return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={count ? `Filter, ${count} on` : 'Filter'} testID="filter-button" hitSlop={FIELD_HIT_SLOP}
     style={({ pressed }) => [styles.filter, { backgroundColor: count ? colors.chromeIndicator : colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="options-outline" size={20} color={count ? colors.actionText : colors.text} />
     {count > 0 && <View style={[styles.badge, { backgroundColor: colors.tint }]}>
@@ -48,7 +52,7 @@ export function SearchRow({ children }: { children: React.ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: OVERHANG, marginTop: -OVERHANG, marginBottom: 12 - OVERHANG },
   field: { flex: 1, minHeight: FIELD_HEIGHT, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
   input: { flex: 1, fontSize: 17, paddingVertical: 8 },
   placeholder: { flex: 1, fontSize: 17, lineHeight: 22 },
