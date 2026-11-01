@@ -46,6 +46,17 @@ export function formatPlanDate(iso: string, now = new Date(), locale?: string) {
   }).format(at);
 }
 
+const NO_EQUIPMENT = new Set(["none", "no equipment", "n/a", "na"]);
+/**
+ * Equipment for a meta line. Imports sometimes store a literal "None"; that reads as
+ * "No equipment", blanks are dropped, and real items are listed as given.
+ */
+export function equipmentLabel(equipment?: string[] | null) {
+  const items = (equipment ?? []).map(item => item.trim()).filter(Boolean);
+  const real = items.filter(item => !NO_EQUIPMENT.has(item.toLowerCase()));
+  return real.length ? real.join(", ") : items.length ? "No equipment" : null;
+}
+
 /** One quiet line under a workout title: "45 min · 4 exercises · Dumbbells, pull-up bar". */
 export function workoutMeta({
   minutes,
@@ -64,7 +75,7 @@ export function workoutMeta({
   return [
     format ?? (timeCap ? `${timeCap} AMRAP` : minutes ? `${minutes} min` : null),
     `${exercises} ${exercises === 1 ? "exercise" : "exercises"}`,
-    equipment?.length ? equipment.join(", ") : null,
+    equipmentLabel(equipment),
   ]
     .filter(Boolean)
     .join(" · ");

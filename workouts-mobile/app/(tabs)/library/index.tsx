@@ -1,8 +1,8 @@
-import { BrowseHeader } from "@/components/native-tab-stack";
-import { BrowseLinks, FilterSummary } from "@/components/browse-links";
+import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { filterLibrary } from "@/lib/library";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
@@ -14,23 +14,27 @@ import {
   Copy,
   Empty,
   Field,
+  FilterButton,
   ListGroup,
   ListRow,
   Notice,
   Row,
   Screen,
+  SearchField,
+  Segmented,
   Sheet,
   SkeletonCard,
   haptics,
   useColors,
 } from "@/components/ui";
-import { LIBRARY_GRID_GAP, LibraryCard } from "@/components/library-card";
+import { CollectionCard, LIBRARY_GRID_GAP, LibraryCard, NewCollectionCard, useLibraryGridWidth } from "@/components/library-card";
 import { spacing } from "@/constants/theme";
 import { useTraining } from "@/lib/context";
 import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/lib/organization";
 import type { Workout } from "@/lib/models";
 import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
+import { TabScrollToTop, useScrollRest } from "@/components/tab-scroll-to-top";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
@@ -50,6 +54,14 @@ export default function Library() {
   const [collection, setCollection] = useState<string>();
   const [maxMinutes, setMaxMinutes] = useState<number>();
   const [needsInfo, setNeedsInfo] = useState(false);
+  const list = useRef<FlatList<Workout> | null>(null);
+  const listRest = useScrollRest();
+  const [showCollections, setShowCollections] = useState(false);
+  const cardWidth = useLibraryGridWidth();
+  const [search, setSearch] = useState("");
+  const [settledSearch, setSettledSearch] = useState("");
+  useEffect(() => { const timer = setTimeout(() => setSettledSearch(search.trim()), 300); return () => clearTimeout(timer); }, [search]);
+  useEffect(() => { setSearch(""); setSettledSearch(""); }, [owner, enrollment?.generation]);
   const [filters, setFilters] = useState(false);
   const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false), [bulkTarget, setBulkTarget] = useState<string>();
@@ -78,7 +90,8 @@ export default function Library() {
   }
   function startSelecting(id?: string) {
     if (!enrollment?.enrolled || bulkBusy) return;
-    interact(() => { haptics.tick(); setMenu(false); setSelecting(true); setSelectedIds(id ? [id] : []); setBulkMessage(""); setBulkError(""); });
+    // Selection works on visible workouts, so it starts from the workouts view, never from Collections.
+    interact(() => { haptics.tick(); setMenu(false); setShowCollections(false); setSelecting(true); setSelectedIds(id ? [id] : []); setBulkMessage(""); setBulkError(""); });
   }
   async function addSelected() {
     if (scope.lock || !selectedIds.length || !bulkTarget || !enrollment?.generation) return;
@@ -106,6 +119,7 @@ export default function Library() {
     enabled: !!enrollment?.enrolled,
   });
   const selected: LibraryFilters = {
+    q: settledSearch || undefined,
     equipment: equipment.trim(),
     kind,
     favorite_only: favorite,
@@ -142,26 +156,39 @@ export default function Library() {
   // Workouts saved on another device or from a share appear without relaunching.
   // Each query refetches only once it is stale; loaded pages refetch together so the list stays consistent.
   const freshness = useFocusRefresh([q, collections, all], { enabled: !!enrollment?.enrolled });
-  const visible = [
-    ...new Map(q.data?.pages.flatMap((page) => page.items).map((workout) => [workout.id, workout]) ?? []).values(),
-  ];
   const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
-  const narrowed = !!filterCount;
+  // Server search covers titles, exercises and tags. The old Search tab also matched required equipment
+  // ("Dumbbells"), so a plain search adds those local matches after the server's results.
+  const localMatches = settledSearch && !filterCount ? filterLibrary(all.data ?? [], settledSearch, null, null) : [];
+  const visible = [
+    ...new Map([...(q.data?.pages.flatMap((page) => page.items) ?? []), ...localMatches].map((workout) => [workout.id, workout])).values(),
+  ];
+  const narrowed = !!filterCount || !!settledSearch;
+  const caps = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities });
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   const needsLink = !archived && !!needsCount;
-  // Programs and Needs info show as selected links; everything else is summarised once below them.
-  const sheetFilters = [
-    archived ? "Archived" : null,
-    needsInfo && !needsLink ? "Needs info" : null,
-    favorite ? "Favorites" : null,
-    kind && kind !== "program" ? kindLabels[kind] : null,
-    maxMinutes ? `Up to ${maxMinutes} min` : null,
-    collectionTitle,
-    equipment.trim(),
-    tags.trim(),
-  ].filter((item): item is string => !!item);
+  // Programs is a segment and Needs info a toggle chip; every other filter shows as a removable chip.
+  const activeChips = ([
+    archived && { label: "Archived", clear: () => setArchived(false) },
+    needsInfo && !needsLink && { label: "Needs info", clear: () => setNeedsInfo(false) },
+    favorite && { label: "Favorites", clear: () => setFavorite(false) },
+    kind && kind !== "program" && { label: kindLabels[kind], clear: () => setKind(undefined) },
+    maxMinutes && { label: `Up to ${maxMinutes} min`, clear: () => setMaxMinutes(undefined) },
+    collectionTitle && { label: collectionTitle, clear: () => setCollection(undefined) },
+    equipment.trim() && { label: equipment.trim(), clear: () => setEquipment("") },
+    tags.trim() && { label: tags.trim(), clear: () => setTags("") },
+  ] as const).filter((chip): chip is { label: string; clear(): void } => !!chip);
+  const sheetCount = activeChips.length + (needsInfo && needsLink ? 1 : 0);
+  const segment = showCollections ? "collections" : kind === "program" ? "programs" : "all";
+  function chooseSegment(next: typeof segment) {
+    setShowCollections(next === "collections");
+    if (next === "programs") setKind("program");
+    else if (kind === "program") setKind(undefined);
+  }
   function clear() {
+    setSearch("");
+    setSettledSearch("");
     setNeedsInfo(false);
     setEquipment("");
     setTags("");
@@ -182,13 +209,26 @@ export default function Library() {
           <Button title={allSelected ? "Clear selection" : "Select all"} variant="ghost" size="sm" inline disabled={bulkBusy || !visible.length || q.isPlaceholderData}
             onPress={() => interact(() => { setSelectedIds(allSelected ? [] : [...new Set([...selectedIds, ...visible.map((w) => w.id)])]); setBulkMessage(""); setBulkError(""); })} />
         </Row>
-      ) : <BrowseLinks links={[
-        { title: "Collections", onPress: () => router.push("/collections") },
-        { title: "Programs", selected: kind === "program", onPress: () => setKind(kind === "program" ? undefined : "program") },
-        ...(needsLink ? [{ title: `Needs info · ${needsCount}`, selected: needsInfo, onPress: () => setNeedsInfo(!needsInfo) }] : []),
-        { title: sheetFilters.length ? `Filter · ${sheetFilters.length}` : "Filter", onPress: () => setFilters(true) },
-      ]} />}
-      {!selecting && <FilterSummary items={sheetFilters} onClear={clear} />}
+      ) : <>
+        <Segmented label="Show" value={segment} onChange={chooseSegment}
+          options={[{ value: "all", label: "All" }, { value: "programs", label: "Programs" }, { value: "collections", label: "Collections" }]} />
+        {!showCollections && !!enrollment?.enrolled && <Row gap={8}>
+          <SearchField value={search} onChange={setSearch} label="Search your library"
+            placeholder={all.data?.length ? `Search ${all.data.length} workouts` : "Search workouts"} />
+          <FilterButton count={sheetCount} label="Filter workouts" onPress={() => setFilters(true)} />
+        </Row>}
+        {!showCollections && (needsLink || !!activeChips.length) && <ChipRow label="Filters">
+          {needsLink && <Chip label={`Needs info · ${needsCount}`} icon="alert-circle-outline" selected={needsInfo} onPress={() => setNeedsInfo(!needsInfo)} />}
+          {activeChips.map(chip => <Chip key={chip.label} role="button" label={chip.label} trailingIcon="close" selected
+            accessibilityLabel={`Remove filter ${chip.label}`} onPress={chip.clear} />)}
+        </ChipRow>}
+        {showCollections && <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: LIBRARY_GRID_GAP, rowGap: 20 }}>
+          <NewCollectionCard width={cardWidth} onPress={() => router.push("/collections")} />
+          {collections.data?.map(item => <CollectionCard key={item.id} width={cardWidth} title={item.title} count={item.workout_count}
+            covers={item.preview_thumbnail_urls ?? []} onPress={() => router.push({ pathname: "/collection/[id]", params: { id: item.id } })} />)}
+        </View>}
+        {showCollections && collections.isPending && <SkeletonCard label="Loading collections" />}
+      </>}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
       {!!q.error && visible.length > 0 && <>
         <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
@@ -223,12 +263,13 @@ export default function Library() {
   );
   return (
     <>
-    <Stack.Screen options={{ headerRight: () => <BrowseHeader add onMenu={() => setMenu(true)} menuItems={[
+    <Stack.Screen options={headerActions(<BrowseHeader onMenu={() => setMenu(true)} menuItems={[
       { title: view === "grid" ? "Show as a list" : "Show as a grid", onPress: () => setView(view === "grid" ? "list" : "grid") },
       { title: "Select workouts", disabled: !enrollment?.enrolled || bulkBusy, onPress: () => startSelecting() },
       { title: "Manage collections", onPress: () => router.push("/collections") },
       { title: archived ? "Show active workouts" : "Show archived workouts", onPress: () => setArchived(!archived) },
-    ]} /> }} />
+    ]} />)} />
+    <TabScrollToTop target={list} rest={listRest.rest} />
     <Screen
       title="Library"
       refreshing={freshness.refreshing}
@@ -237,9 +278,11 @@ export default function Library() {
         onPress={() => interact(() => { setBulkTarget(collection ?? collections.data?.[0]?.id); setBulkMessage(""); setBulkError(""); setBulkOpen(true); })} /> : undefined}
       list={({ header: screenHeader, contentContainerStyle, refreshControl }) => (
         <FlatList
+          ref={list}
+          onScrollBeginDrag={listRest.onScrollBeginDrag}
           contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
-          data={visible}
+          data={showCollections ? [] : visible}
           numColumns={view === "grid" ? columns : 1}
           keyExtractor={(w) => w.id}
           columnWrapperStyle={view === "grid" && columns > 1 ? { gap: LIBRARY_GRID_GAP } : undefined}
@@ -248,9 +291,11 @@ export default function Library() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ListHeaderComponent={header(screenHeader)}
-          ListEmptyComponent={empty}
+          ListEmptyComponent={showCollections ? null : empty}
           ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
-            : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} /> : null}
+            : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} />
+            : settledSearch && caps.data?.discover && !selecting && !showCollections ? <ListGroup><ListRow icon="compass-outline" title={`Search Discover for “${settledSearch}”`}
+              onPress={() => router.navigate({ pathname: "/(tabs)/discover", params: { q: settledSearch } })} /></ListGroup> : null}
           onEndReachedThreshold={0.6}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (

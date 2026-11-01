@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
   publishWorkout: vi.fn(),
   back: vi.fn(),
   navigate: vi.fn(),
+  beginDrag: vi.fn(),
   announce: vi.fn(),
   share: vi.fn(),
   active: null as null | { workout: { title: string }; source: { workout_id: string; workout_revision: number } },
@@ -92,7 +93,7 @@ vi.mock("@/lib/context", () => {
     }),
   };
 });
-vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader" }));
+vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader", headerActions: (element: unknown) => ({ headerRight: () => element }) }));
 vi.mock("@/components/publishing-disclosure", async () => {
   const { withPublishingDisclosure } = await import("./discover");
   return {
@@ -142,7 +143,7 @@ vi.mock("expo-router", async () => {
 }); });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
-  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "Grow", "IconButton",
+  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "FilterButton", "Grow", "HeaderButton", "Segmented", "IconButton", "SearchField",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])),
     Screen: ({ children, footer, list, ...props }: PropsWithChildren<{ footer?: ReactNode; list?: (body: object) => ReactNode; [key: string]: unknown }>) =>
@@ -157,7 +158,8 @@ vi.mock("@/components/discover-card", () => ({
   CreditLine: "CreditLine",
 }));
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
-vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionTile: "CollectionTile", LIBRARY_GRID_GAP: 12 }));
+vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
+vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionCard: "CollectionCard", NewCollectionCard: "NewCollectionCard", useLibraryGridWidth: () => 170, LIBRARY_GRID_GAP: 12 }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/discover-grid-card", () => ({
   DiscoverGrid: "DiscoverGrid",
@@ -186,13 +188,16 @@ import type { ShareSnapshot } from "./sharing";
 
 let renderer: ReactTestRenderer | undefined, cache: QueryClient;
 const nodes = (type: string) => renderer!.root.findAll((n) => String(n.type) === type);
-const summaryText = () => nodes("Copy").find((n) => String(n.props.children).startsWith("Showing: "))?.props.children;
-// Browse links render as their own pressables (with a selected state) rather than Buttons.
-const link = (title: string) => nodes("Pressable").find((n) => n.props.accessibilityLabel === title);
+// Active filters show as removable chips; read them back as one line for the assertions below.
+const removable = () => nodes("Chip").filter((n) => n.props.trailingIcon === "close");
+const summaryText = () => removable().length ? `Showing: ${removable().map((n) => n.props.label).join(", ")}` : undefined;
+const chip = (label: string) => nodes("Chip").find((n) => n.props.label === label);
+const filterButton = () => nodes("FilterButton")[0];
+const link = (title: string) => nodes("Pressable").find((n) => n.props.accessibilityLabel === title) ?? chip(title);
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title) ?? link(title);
 const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === "small")?.children.join("");
-const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
+const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => ["IconButton", "HeaderButton"].includes(String(n.type)) && n.props.label === label)[0];
 it("omits an empty reference card when source identity is already in the header", async () => {
   await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
     source_thumbnail_url: "https://example.test/cover.jpg", source_url: "https://example.test/source",
@@ -356,16 +361,16 @@ it("a young feed explains Discover and offers sharing or importing instead of a 
 it("keeps all Discover filters in one sheet and one dismissible summary", async () => {
   fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  await act(async () => button("Filter")!.props.onPress());
+  await act(async () => filterButton().props.onPress());
   expect(sheet("Filters").props.visible).toBe(true);
   for (const label of ["Under 15 min", "Dumbbell", "YouTube"]) await act(async () => nodes("Chip").find(n => n.props.label === label)!.props.onPress());
   await settle();
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ duration: "short", equipment: "dumbbell", platform: "youtube" });
-  expect(link("Filter · 3")).toBeDefined();
+  expect(filterButton().props.count).toBe(3);
   expect(summaryText()).toBe("Showing: Under 15 min, Dumbbell, YouTube");
-  await act(async () => link("Clear filters")!.props.onPress()); await settle();
+  for (const label of ["Under 15 min", "Dumbbell", "YouTube"]) { await act(async () => removable().find(n => n.props.label === label)!.props.onPress()); await settle(); }
   expect(summaryText()).toBeUndefined();
-  expect(link("Filter")).toBeDefined();
+  expect(filterButton().props.count).toBe(0);
 });
 
 it("keeps sharing one of yours reachable once the feed has workouts", async () => {
@@ -419,7 +424,7 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
   await mount(Discover);
   const sheet = nodes("Sheet").find(n => n.props.title === "Filters")!;
   expect(sheet.props.visible).toBe(false);
-  await act(async () => button("Filter")!.props.onPress());
+  await act(async () => filterButton().props.onPress());
   expect(nodes("Sheet").find(n => n.props.title === "Filters")!.props.visible).toBe(true);
   const strip = () => nodes("ChipRow").find((n) => n.props.label === "People")!;
   const people = () => strip().findAll((n) => String(n.type) === "Chip");
@@ -429,7 +434,7 @@ it("shows who is sharing and narrows the feed to one person, removable like any 
   expect(fixture.discover.mock.calls.at(-1)![0]).toMatchObject({ contributor: "chef_leon1234" });
   expect(summaryText()).toContain("by Leon");
   expect(people()[0].props.selected).toBe(true);
-  await act(async () => link("Clear filters")!.props.onPress()); await settle();
+  await act(async () => removable().find(n => n.props.label === "by Leon")!.props.onPress()); await settle();
   expect(people()[0].props.selected).toBe(false);
 });
 
@@ -550,7 +555,7 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
   // Contextual Coach is labelled in content; share and overflow stay in the header.
-  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "IconButton").map((n) => n.props.label))
+  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "HeaderButton").map((n) => n.props.label))
     .toEqual(["Share workout", "More workout actions"]);
   await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
@@ -1135,8 +1140,9 @@ it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a sep
   await mount(WorkoutDetail);
   expect(nodes("StatTile")).toHaveLength(0);
   const meta = metaLine()!;
-  // Named like the library card and the other formats ("EMOM 20"): the cap, not the separate estimate.
-  expect(meta).toBe(`AMRAP ${seconds === 1200 ? "20" : "2m 5s"} · 1 exercise`); expect(meta).not.toContain("25 min");
+  // Named like the library card and the other formats ("EMOM 20"): the cap, not the separate estimate, said once as a chip.
+  expect(chip(`AMRAP ${seconds === 1200 ? "20" : "2m 5s"}`)).toBeDefined();
+  expect(meta).toBe("1 exercise"); expect(meta).not.toContain("25 min");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
   expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
 });
@@ -1319,6 +1325,26 @@ it("Library long-press starts selecting that workout, and Select all covers ever
   await act(async () => libraryCard(saved.title)!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: saved.id } });
 });
+it("Library scrolls back to the top when its selected tab is tapped again", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  // Library draws its own list, so it registers that list for tab re-taps itself.
+  expect(nodes("TabScrollToTop")).toHaveLength(1);
+  expect(nodes("FlatList")[0].props.onScrollBeginDrag).toBe(fixture.beginDrag);
+});
+it("Library search still finds a workout by its required equipment, as the old Search tab did", async () => {
+  const bodyweight = { ...saved, equipment_required: [] };
+  const dumbbells = { ...saved, id: "db", title: "Arm day", equipment_required: ["Dumbbells"] };
+  fixture.library.mockResolvedValue([bodyweight, dumbbells]);
+  // The server search matches titles, exercises and tags only.
+  fixture.searchLibrary.mockImplementation(async (filters: { q?: string }) => ({ items: filters.q ? [] : [bodyweight, dumbbells], total: 0, has_more: false }));
+  await mount(Library);
+  await act(async () => nodes("SearchField")[0].props.onChange("dumbbells"));
+  // Past the 300ms search debounce.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); }); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells" });
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm day"]);
+});
 it("Library loads the next page as the list nears its end", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
   fixture.searchLibrary.mockResolvedValueOnce({ items: [saved], total: 2, has_more: true, next_cursor: "next" })
@@ -1336,7 +1362,7 @@ it("Library remembers grid or list for this account and covers collections from 
   fixture.searchLibrary.mockResolvedValue({ items: [{ ...saved, source_thumbnail_url: "https://example.test/cover.jpg",
     organization: { ...emptyOrganization(), collection_ids: ["gym"] } }], total: 1, has_more: false });
   await mount(Library);
-  expect(button("Collections")).toBeDefined();
+  expect(nodes("Segmented")[0].props.options.map((o: { label: string }) => o.label)).toEqual(["All", "Programs", "Collections"]);
   expect(nodes("FlatList")[0].props.numColumns).toBe(2);
   await act(async () => listRow("Show as a list")!.props.onPress()); await settle();
   expect(nodes("FlatList")[0].props.numColumns).toBe(1);
@@ -1350,40 +1376,74 @@ it("surfaces collection filters and management directly beside library search", 
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await mount(Library);
   expect(listRow("Manage collections")).toBeDefined();
-  await act(async () => button("Collections")!.props.onPress());
+  await act(async () => nodes("Segmented")[0].props.onChange("collections"));
+  expect(nodes("SearchField")).toHaveLength(0);
+  expect(nodes("CollectionCard").map(n => n.props.title)).toEqual(["Gym days"]);
+  await act(async () => nodes("NewCollectionCard")[0].props.onPress());
   expect(fixture.push).toHaveBeenCalledWith("/collections");
+  await act(async () => nodes("CollectionCard")[0].props.onPress());
+  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/collection/[id]", params: { id: "gym" } });
+  await act(async () => nodes("Segmented")[0].props.onChange("all"));
   await act(async () => filterChoice("Gym days").props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0].collection_id).toBe("gym");
   await act(async () => nodes("Chip").find(node => node.props.label === "Up to 15 min")!.props.onPress()); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ collection_id: "gym", max_minutes: 15 });
   expect(summaryText()).toBe("Showing: Up to 15 min, Gym days");
-  expect(link("Filter · 2")).toBeDefined();
+  expect(filterButton().props.count).toBe(2);
 });
 it("Needs info finds matches after the first library page", async () => {
   const incomplete = { ...saved, id: "needs", title: "Needs timing", extraction_warnings: ["Rest unknown"] };
   fixture.library.mockResolvedValue([saved, incomplete]);
   fixture.searchLibrary.mockImplementation(async (_filters, cursor) => cursor ? { items: [incomplete], total: 2, has_more: false, next_cursor: null } : { items: [saved], total: 2, has_more: true, next_cursor: "next" });
   await mount(Library);
-  expect(link("Needs info · 1")!.props.accessibilityState).toMatchObject({ selected: false });
+  expect(chip("Needs info · 1")!.props.selected).toBe(false);
   await act(async () => button("Needs info · 1")!.props.onPress()); await settle();
   expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Needs timing"]);
-  // The link itself shows the filter is on, so it isn't repeated in the summary or the Filter count.
-  expect(link("Needs info · 1")!.props.accessibilityState).toMatchObject({ selected: true });
+  // The chip itself shows the filter is on, so it isn't repeated as a removable chip.
+  expect(chip("Needs info · 1")!.props.selected).toBe(true);
   expect(summaryText()).toBeUndefined();
-  expect(link("Filter")).toBeDefined();
+  expect(filterButton().props.count).toBe(1);
 });
-it("Library shows Programs as a selected filter link and toggles it off again", async () => {
+it("Select workouts from Collections switches to the workouts so Select all only takes what you can see", async () => {
+  fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 1 }]);
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  await act(async () => nodes("Segmented")[0].props.onChange("collections"));
+  expect(nodes("LibraryCard")).toHaveLength(0);
+  await act(async () => listRow("Select workouts")!.props.onPress());
+  expect(nodes("Segmented")).toHaveLength(0);
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual([saved.title]);
+  await act(async () => button("Select all")!.props.onPress());
+  expect(nodes("LibraryCard").every(n => n.props.selected)).toBe(true);
+  // Leaving selection shows the workouts view it switched to.
+  await act(async () => button("Done")!.props.onPress());
+  expect(nodes("Segmented")[0].props.value).toBe("all");
+});
+it("Library shows Programs as a segment and switches back to All", async () => {
   fixture.library.mockResolvedValue([saved]);
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
   await mount(Library);
-  expect(link("Collections")!.props.accessibilityState).toEqual({ disabled: false });
-  expect(link("Programs")!.props.accessibilityState).toMatchObject({ selected: false });
-  await act(async () => link("Programs")!.props.onPress()); await settle();
+  const segment = () => nodes("Segmented")[0];
+  expect(segment().props.value).toBe("all");
+  await act(async () => segment().props.onChange("programs")); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ kind: "program" });
-  expect(link("Programs")!.props.accessibilityState).toMatchObject({ selected: true });
+  expect(segment().props.value).toBe("programs");
   expect(summaryText()).toBeUndefined();
-  await act(async () => link("Programs")!.props.onPress()); await settle();
-  expect(link("Programs")!.props.accessibilityState).toMatchObject({ selected: false });
+  await act(async () => segment().props.onChange("all")); await settle();
+  expect(segment().props.value).toBe("all");
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0].kind).toBeUndefined();
+});
+it("Library search sends the query and offers the same search in Discover", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  vi.useFakeTimers();
+  await act(async () => nodes("SearchField")[0].props.onChange("squat"));
+  await act(async () => { vi.advanceTimersByTime(350); });
+  vi.useRealTimers(); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "squat" });
+  await act(async () => row("Search Discover for “squat”")!.props.onPress());
+  expect(fixture.navigate).toHaveBeenCalledWith({ pathname: "/(tabs)/discover", params: { q: "squat" } });
 });
 
 const gym = { id: "gym", title: "Gym days", revision: 3, workout_count: 1 };
@@ -1707,11 +1767,11 @@ it.each([undefined, false, true])("gates the owner cover editor on actual server
   }
 });
 
-it("Discover has one text-link row and no inline search or count", async () => {
+it("Discover leads with a search field, a filter button and a Surprise me chip", async () => {
   fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
   await mount(Discover);
-  expect(nodes("Field")).toHaveLength(0);
-  expect(button("Filter")).toBeDefined(); expect(button("Surprise me")).toBeDefined();
+  expect(nodes("SearchField")[0].props.label).toBe("Search Discover");
+  expect(filterButton()).toBeDefined(); expect(chip("Surprise me")).toBeDefined();
   expect(button("Share yours")).toBeDefined();
   expect(nodes("Copy").some(n => n.children.join("") === "All workouts")).toBe(true);
 });

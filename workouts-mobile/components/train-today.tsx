@@ -1,6 +1,7 @@
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 import { durationLabel } from "@/lib/timed-execution";
 import { Pressable, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { useColors } from "@/components/ui";
 import { dayAdjustments } from "@/lib/day-adjustments";
@@ -203,15 +204,26 @@ export function TrainToday() {
         <ListRow icon="chatbubble-ellipses-outline" title="Ask your coach" detailLines={1} detail={suggestion ?? "Questions about training or a change to your plan"} onPress={() => router.push("/coach")} />
 
       </ListGroup>
-      <View style={{ gap: 12 }}>
-        <Copy kind="heading">This week</Copy>
-        <Pressable accessibilityRole="button" accessibilityLabel={summary ? `History & progress. ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak` : "History & progress. Not available yet"} onPress={() => router.push("/history-progress")} style={{ flexDirection: "row", flexWrap: "wrap", gap: 24, minHeight: 44 }}>
-          {[[summary?.sessions, "Sessions"], [summary?.minutes, "Minutes"], [summary?.streak, "Day streak"]].map(([value, label]) => <View key={label} style={{ minWidth: 88, gap: 4 }}>
-            <Copy kind="numeric" style={{ fontVariant: ["tabular-nums"] }}>{value ?? "—"}</Copy><Copy kind="small" tone="muted">{label}</Copy>
+      {/* One tappable card: the numbers, a visible "See progress" and a chevron. */}
+      <Pressable accessibilityRole="button" accessibilityLabel={summary ? `This week: ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak. See progress` : "This week. See progress"}
+        onPress={() => router.navigate("/(tabs)/progress")}
+        style={({ pressed }) => ({ gap: 12, padding: 16, borderRadius: 16, backgroundColor: c.surface, opacity: pressed ? 0.7 : 1 })}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <Copy kind="subheading">This week</Copy>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+            <Copy kind="small" color={c.accentText}>See progress</Copy>
+            <Ionicons name="chevron-forward" size={16} color={c.accentText} />
+          </View>
+        </View>
+        {summary ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 24 }}>
+          {([[summary.sessions, "Sessions"], [summary.minutes, "Minutes"], [summary.streak, "Day streak"]] as const).map(([value, label]) => <View key={label} style={{ minWidth: 76, gap: 2 }}>
+            <Copy kind="numericSmall" style={{ fontSize: 28, lineHeight: 34 }}>{value}</Copy><Copy kind="small" tone="muted">{label}</Copy>
           </View>)}
-        </Pressable>
-        <Button title="Log an activity you did" variant="ghost" size="sm" onPress={() => router.push("/activity")} />
-      </View>
+        </View> : <Copy kind="small" tone="muted">Your totals appear once your history loads.</Copy>}
+      </Pressable>
+      <ListGroup>
+        <ListRow icon="add-circle-outline" title="Log an activity you did" detail="A run, a class or anything outside Håfa" onPress={() => router.push("/activity")} />
+      </ListGroup>
       {adjust && <AdjustTraining key={`${adjust.program.id}:${adjust.session?.id ?? "missed"}`} visible={adjustOpen} onClose={() => setAdjustOpen(false)} program={programs.data?.find(p => p.id === adjust.program.id) ?? adjust.program} session={adjust.session} />}
       {!!error && <Notice error>{error}</Notice>}
     </>
