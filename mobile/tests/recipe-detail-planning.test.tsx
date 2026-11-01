@@ -34,6 +34,10 @@ vi.mock('@/components/RecipeChatModal', () => ({ default: () => null }));
 vi.mock('@/components/AddToCollectionModal', () => ({ default: () => null }));
 vi.mock('@/components/RecipeOrganizer', () => ({ RecipeOrganizer: host('RecipeOrganizer') }));
 vi.mock('@/components/RecipeHero', () => ({ RecipeHero: () => null }));
+vi.mock('@/components/RecipeDetailChrome', () => ({
+  RecipeDetailScroll: (props: any) => React.createElement('RecipeDetailScroll', props, props.hero, props.children),
+  RecipeDetailFrame: host('RecipeDetailFrame'),
+}));
 vi.mock('@/components/RecipeDetailPreview', () => ({ RecipeDetailPreview: () => null }));
 vi.mock('@/components/VersionHistoryModal', () => ({ default: () => null }));
 vi.mock('@/components/SafetyActionModal', () => ({ SafetyActionModal: () => null }));
