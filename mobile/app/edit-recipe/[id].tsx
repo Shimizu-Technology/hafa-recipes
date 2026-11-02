@@ -43,7 +43,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 
-import { View, Text, useColors } from '@/components/Themed';
+import { Card, View, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/apiErrorMessage';
 import {
@@ -969,14 +969,15 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                 </TouchableOpacity>
               </RNView>
               {recipeComponents.map((component, index) => (
-                <RNView key={component.id} style={[styles.componentEditor, { borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]}>
+                <Card key={component.id} style={styles.componentEditor}>
                   <RNView style={styles.componentTitleRow}>
-                    <Text style={[styles.componentNumber, { color: colors.actionText }]}>Part {index + 1}</Text>
+                    <Text style={[styles.componentNumber, { color: colors.textSecondary }]}>Part {index + 1}</Text>
                     {recipeComponents.length > 1 && (
                       <TouchableOpacity
                         onPress={() => removeComponent(component.id)}
                         accessibilityRole="button"
                         accessibilityLabel={`Remove ${component.name || `part ${index + 1}`}`}
+                        style={styles.removeButton}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.error} />
                       </TouchableOpacity>
@@ -986,6 +987,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                     style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
                     value={component.name}
                     onChangeText={(name) => setRecipeComponents(recipeComponents.map(item => item.id === component.id ? { ...item, name } : item))}
+                    multiline
                     placeholder="e.g., Sauce, Filling, Main"
                     placeholderTextColor={colors.textMuted}
                     accessibilityLabel={`Name for recipe part ${index + 1}`}
@@ -994,10 +996,12 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                     style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
                     value={component.notes}
                     onChangeText={(componentNotes) => setRecipeComponents(recipeComponents.map(item => item.id === component.id ? { ...item, notes: componentNotes } : item))}
+                    multiline
+                    accessibilityLabel={`Notes for recipe part ${index + 1}`}
                     placeholder="Optional notes for this part"
                     placeholderTextColor={colors.textMuted}
                   />
-                </RNView>
+                </Card>
               ))}
             </RNView>
 
@@ -1008,10 +1012,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
               </RNView>
               
               {ingredients.map((ingredient, index) => (
-                <RNView 
-                  key={ingredient.id} 
-                  style={[styles.ingredientCard, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}
-                >
+                <Card key={ingredient.id} style={styles.ingredientCard}>
                   {/* Header row with number and delete */}
                   <RNView style={styles.ingredientHeader}>
                     <RNView style={styles.ingredientIdentity}>
@@ -1019,14 +1020,14 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                         <Text style={[styles.ingredientBadgeText, { color: colors.actionText }]}>{index + 1}</Text>
                       </RNView>
                       <TouchableOpacity
-                        style={[styles.componentPill, { backgroundColor: colors.background, borderColor: colors.border }]}
+                        style={[styles.componentPill, { backgroundColor: colors.surface2 }]}
                         onPress={() => selectComponent('Move ingredient', componentId => {
                           setIngredients(ingredients.map(item => item.id === ingredient.id ? { ...item, componentId } : item));
                         })}
                         accessibilityRole="button"
                         accessibilityLabel={`Recipe part: ${componentName(ingredient.componentId)}`}
                       >
-                        <Text style={[styles.componentPillText, { color: colors.textSecondary }]} numberOfLines={1}>
+                        <Text style={[styles.componentPillText, { color: colors.textSecondary }]}>
                           {componentName(ingredient.componentId)}
                         </Text>
                         <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
@@ -1035,7 +1036,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                     {ingredients.length > 1 && (
                       <TouchableOpacity
                         onPress={() => removeIngredient(ingredient.id)}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        style={styles.removeButton}
                         accessibilityRole="button"
                         accessibilityLabel={`Remove ingredient ${index + 1}`}
                       >
@@ -1049,6 +1050,7 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                     style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
                     value={ingredient.name}
                     onChangeText={(v) => updateIngredient(ingredient.id, 'name', v)}
+                    multiline
                     placeholder="Ingredient name"
                     placeholderTextColor={colors.textMuted}
                     accessibilityLabel={`Ingredient ${index + 1} name`}
@@ -1104,12 +1106,13 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                     style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
                     value={ingredient.notes}
                     onChangeText={(v) => updateIngredient(ingredient.id, 'notes', v)}
+                    multiline
                     placeholder="Notes (e.g., diced, room temp)"
                     placeholderTextColor={colors.textMuted}
                     accessibilityLabel={`Ingredient ${index + 1} notes`}
                   />
 
-                </RNView>
+                </Card>
               ))}
               
               <TouchableOpacity
@@ -1128,45 +1131,35 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
               </RNView>
               
               {steps.map((step, index) => (
-                <RNView key={step.id} style={styles.stepCard}>
-                  <RNView style={styles.stepRow}>
-                    <RNView style={styles.stepIdentity}>
-                      <Text style={[styles.stepNumber, { color: colors.actionText }]}>{index + 1}.</Text>
+                <Card key={step.id} style={styles.stepCard}>
+                  <RNView style={styles.ingredientHeader}>
+                    <RNView style={styles.ingredientIdentity}>
+                      <Text style={[styles.stepNumber, { color: colors.textSecondary }]}>{index + 1}.</Text>
                       <TouchableOpacity
-                        style={[styles.stepComponentButton, { borderColor: colors.border }]}
+                        style={[styles.componentPill, { backgroundColor: colors.surface2 }]}
                         onPress={() => selectComponent('Move instruction', componentId => {
                           setSteps(steps.map(item => item.id === step.id ? { ...item, componentId } : item));
                         })}
                         accessibilityRole="button"
                         accessibilityLabel={`Recipe part: ${componentName(step.componentId)}`}
                       >
-                        <Text style={[styles.stepComponentText, { color: colors.textMuted }]} numberOfLines={1}>
-                          {componentName(step.componentId)}
-                        </Text>
+                        <Text style={[styles.componentPillText, { color: colors.textSecondary }]}>{componentName(step.componentId)}</Text>
+                        <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
                       </TouchableOpacity>
                     </RNView>
-                    <TextInput
-                      style={[styles.input, styles.stepInput, { backgroundColor: colors.backgroundSecondary, color: colors.text, borderColor: colors.border }]}
-                      value={step.text}
-                      onChangeText={(v) => updateStep(step.id, v)}
-                      placeholder="Describe this step..."
-                      placeholderTextColor={colors.textMuted}
-                      multiline
-                      accessibilityLabel={`Instruction ${index + 1}`}
-                    />
                     {steps.length > 1 && (
-                      <TouchableOpacity
-                        onPress={() => removeStep(step.id)}
-                        style={styles.removeButton}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove instruction ${index + 1}`}
-                      >
+                      <TouchableOpacity onPress={() => removeStep(step.id)} style={styles.removeButton}
+                        accessibilityRole="button" accessibilityLabel={`Remove instruction ${index + 1}`}>
                         <Ionicons name="close-circle" size={24} color={colors.error} />
                       </TouchableOpacity>
                     )}
                   </RNView>
-
-                </RNView>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                    value={step.text} onChangeText={(v) => updateStep(step.id, v)}
+                    placeholder="Describe this step..." placeholderTextColor={colors.textMuted}
+                    multiline accessibilityLabel={`Instruction ${index + 1}`} />
+                </Card>
               ))}
               
               <TouchableOpacity
@@ -1473,16 +1466,15 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   componentEditor: {
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: spacing.sm,
     marginBottom: spacing.sm,
   },
   componentTitleRow: {
-    minHeight: 32,
+    minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
   componentNumber: {
@@ -1499,8 +1491,11 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderRadius: radius.md,
-    padding: spacing.sm,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: fontSize.md,
+    textAlignVertical: 'top',
   },
   smallInput: {
     flex: 1,
@@ -1514,9 +1509,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   ingredientCard: {
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     marginBottom: spacing.md,
     gap: spacing.sm,
   },
@@ -1534,14 +1528,14 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
   },
   componentPill: {
-    maxWidth: 180,
-    minHeight: 32,
+    flexShrink: 1,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    borderWidth: 1,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.sm,
+    gap: 4,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   componentPillText: {
     flexShrink: 1,
@@ -1610,8 +1604,10 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   removeButton: {
-    padding: spacing.xs,
-    marginTop: spacing.xs,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   addButton: {
     flexDirection: 'row',
@@ -1634,8 +1630,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stepCard: {
-    marginBottom: spacing.md,
-    gap: spacing.xs,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+    gap: 8,
   },
   stepReviewRow: {
     paddingLeft: 76 + spacing.sm,
@@ -1658,8 +1656,8 @@ const styles = StyleSheet.create({
   stepNumber: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
-    width: 24,
-    marginTop: spacing.sm,
+    minWidth: 24,
+    paddingTop: 8,
   },
   stepInput: {
     flex: 1,
