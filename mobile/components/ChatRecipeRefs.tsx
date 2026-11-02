@@ -9,14 +9,18 @@ import type { ChatRecipeRef } from '@/types/recipe';
 /** The user's recipes an answer mentions, as cards that open the recipe. */
 export function ChatRecipeRefs({ refs, onOpen }: { refs: ChatRecipeRef[]; onOpen: (ref: ChatRecipeRef) => void }) {
   const colors = useColors();
-  const { fontScale } = useWindowDimensions();
+  const { width: windowWidth, fontScale } = useWindowDimensions();
   const [containerWidth, setContainerWidth] = useState(0);
   if (!refs.length) return null;
+  // The message column shrink-wraps its content, so cards start from the window width (giving the
+  // row a real size) and then fit the measured width. iOS 18 keeps a title's first measurement when
+  // its card narrows, so the cards remount whenever their width changes.
+  const cardWidth = Math.min(containerWidth || windowWidth - 48, fontScale >= 1.3 ? 320 : 280);
   return <ScrollView onLayout={event => setContainerWidth(event.nativeEvent.layout.width)} horizontal showsHorizontalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.row}
     accessibilityLabel={`${refs.length} ${refs.length === 1 ? 'recipe' : 'recipes'} from your library`}>
-    {refs.map(ref => <Pressable key={ref.id} onPress={() => onOpen(ref)} accessibilityRole="button" accessibilityLabel={`Open ${ref.title}`}
+    {refs.map(ref => <Pressable key={`${ref.id}-${cardWidth}`} onPress={() => onOpen(ref)} accessibilityRole="button" accessibilityLabel={`Open ${ref.title}`}
       testID={`chat-recipe-ref-${ref.id}`}
-      style={({ pressed }) => [styles.card, { width: containerWidth ? Math.min(containerWidth, fontScale >= 1.3 ? 320 : 280) : '100%', backgroundColor: colors.backgroundSecondary, opacity: pressed ? 0.7 : 1 }]}>
+      style={({ pressed }) => [styles.card, { width: cardWidth, backgroundColor: colors.backgroundSecondary, opacity: pressed ? 0.7 : 1 }]}>
       <RecipeThumbnail uri={ref.image_url} accessible={false} placeholderIconSize={20} style={[styles.thumb, { backgroundColor: colors.surface2 }]} />
       <View style={styles.copy}>
         <Text numberOfLines={fontScale >= 1.3 ? 4 : 3} style={[styles.title, { color: colors.text }]}>{ref.title}</Text>
