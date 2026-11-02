@@ -46,7 +46,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
     if (!route) return null;
     const selected = focused === tab.route;
     const color = selected ? c.accentText : c.muted;
-    return <Pressable key={tab.route} testID={`tab-${tab.route}`} accessibilityRole="tab" accessibilityLabel={tab.label}
+    return <Pressable key={tab.route} testID={`tab-${tab.route}`} accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityShowsLargeContentViewer accessibilityLargeContentTitle={tab.label}
       accessibilityState={{ selected }}
       onPress={() => {
         const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
@@ -66,7 +66,7 @@ export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
     <View style={styles.row}>
       {item(tabs[0])}
       {item(tabs[1])}
-      <Pressable testID="tab-add" accessibilityRole="button" accessibilityLabel="Add a workout" accessibilityHint="Import from a link, video or photo, or build one"
+      <Pressable testID="tab-add" accessibilityRole="button" accessibilityLabel="Add a workout" accessibilityShowsLargeContentViewer accessibilityLargeContentTitle="Add" accessibilityHint="Import from a link, video or photo, or build one"
         onPress={() => { haptics.light(); router.push("/add"); }}
         style={({ pressed }) => [styles.slot, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}>
         <View style={[styles.indicator, { backgroundColor: c.action }]}><Ionicons name="add" size={26} color={c.onAction} /></View>

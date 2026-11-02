@@ -46,7 +46,7 @@ export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
     if (!route) return null;
     const selected = focused === tab.route, color = selected ? c.action : c.muted;
     return <PressTarget key={tab.route} testID={`tab-${tab.label.toLowerCase()}`} accessibilityRole="tab"
-      accessibilityLabel={tab.label} accessibilityState={{ selected }}
+      accessibilityLabel={tab.label} accessibilityShowsLargeContentViewer accessibilityLargeContentTitle={tab.label} accessibilityState={{ selected }}
       onPress={() => {
         // A second tap on the current tab lets its stack return to the top.
         const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
@@ -66,7 +66,7 @@ export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
     <View style={styles.row}>
       {item(tabs[0])}
       {item(tabs[1])}
-      <PressTarget testID="tab-add" accessibilityRole="button" accessibilityLabel="Add"
+      <PressTarget testID="tab-add" accessibilityRole="button" accessibilityLabel="Add" accessibilityShowsLargeContentViewer accessibilityLargeContentTitle="Add"
         accessibilityHint={care ? "Save a source, write, or log care" : "Save a source, write in your journal, or keep a doctor question"}
         onPress={() => { tap(); router.push("/add"); }} style={styles.slot}>
         <View style={[styles.indicator, { backgroundColor: c.action }]}><Icon name="add" size={26} color={c.onAction} /></View>
