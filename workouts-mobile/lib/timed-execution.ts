@@ -6,6 +6,10 @@ import { formatSeconds } from "./discover";
  * timestamps, and completed work always comes from what the person marked.
  */
 type Block = Workout["blocks"][number];
+/** Public card projections omit exercise names and personal fields. */
+export type FormatBlock = Pick<Block, "execution" | "rounds"> & {
+  exercises: Partial<ExercisePrescription>[];
+};
 export type TimedFormat = Extract<WorkoutExecution, { mode: "emom" | "for_time" | "work_rest" }>;
 export type IntervalFormat = Extract<WorkoutExecution, { mode: "emom" | "work_rest" }>;
 
@@ -60,10 +64,10 @@ export function repPattern(e: Pick<ExercisePrescription, "rep_scheme" | "ladder"
   const first = [1, 2, 3].map((i) => ladderReps(e.ladder!, i)).filter((n) => n != null);
   return e.ladder.end == null ? `${first.join(", ")}… reps` : `${e.ladder.start} to ${e.ladder.end} reps`;
 }
-export const openLadder = (block: Pick<Block, "exercises">) =>
+export const openLadder = (block: Pick<FormatBlock, "exercises">) =>
   block.exercises.length > 0 && block.exercises.every((e) => e.ladder != null && e.ladder.end == null);
 /** Death by: an EMOM with no interval count whose moves climb an open ladder until a minute is missed. */
-export const isDeathBy = (execution: Block["execution"], block: Pick<Block, "exercises">) =>
+export const isDeathBy = (execution: Block["execution"], block: Pick<FormatBlock, "exercises">) =>
   execution?.mode === "emom" && execution.intervals == null && openLadder(block);
 /** The prescribed reps for one round or interval; never invented when the source gave none. */
 export function repsFor(exercise: ExercisePrescription, index: number) {
@@ -160,7 +164,7 @@ export function timedStartHint(workout: Pick<Workout, "blocks">) {
 
 const minutes = (seconds: number) => (seconds % 60 ? formatSeconds(seconds) : String(seconds / 60));
 /** Short format name for chips and summaries: "EMOM 20", "Tabata 4 min", "For time · cap 20". Null for untimed blocks. */
-export function formatLabel(block: Pick<Block, "execution" | "rounds" | "exercises">, short = false) {
+export function formatLabel(block: FormatBlock, short = false) {
   const execution = block.execution;
   if (!execution) return null;
   switch (execution.mode) {
@@ -189,7 +193,7 @@ export function formatLabel(block: Pick<Block, "execution" | "rounds" | "exercis
   }
 }
 /** The card chip and meta length: the format for a single timed block ("EMOM 20"), otherwise "25 min". */
-export function durationLabel(workout: { kind?: Workout["kind"]; estimated_minutes?: number | null; blocks?: Pick<Block, "execution" | "rounds" | "exercises">[] }) {
+export function durationLabel(workout: { kind?: Workout["kind"]; estimated_minutes?: number | null; blocks?: FormatBlock[] }) {
   const only = workout.kind !== "program" && workout.blocks?.length === 1 ? workout.blocks[0] : null;
   return (only && formatLabel(only, true)) || (workout.estimated_minutes ? `${workout.estimated_minutes} min` : null);
 }
