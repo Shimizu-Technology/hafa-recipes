@@ -10,7 +10,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: (s: unknown) => s }, useWindowDimensions: () => ({ fontScale: state.fontScale }),
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 34 }) }));
-vi.mock('./Themed', () => ({ Text: 'Text', View: 'View', useColors: () => ({ text: '#000', actionText: '#155c52' }) }));
+vi.mock('./Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: 'Text', View: 'View', useColors: () => ({ text: '#000', actionText: '#155c52' }) }));
 import EditGroceryItemModal from './EditGroceryItemModal';
 
 it('stacks the title above actions and Quantity/Unit vertically at AX5, preserving cancel and save', async () => {

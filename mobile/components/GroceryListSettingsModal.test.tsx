@@ -8,7 +8,7 @@ vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets:()=>({ bott
 vi.mock('expo-router', () => ({ useRouter:()=>({ push:vi.fn() }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default:'Ionicons' }));
 vi.mock('expo-clipboard', () => ({ setStringAsync:vi.fn() }));
-vi.mock('@/components/Themed', () => ({ Text:'Text', View:'View', useColors:()=>({}) }));
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text:'Text', View:'View', useColors:()=>({}) }));
 vi.mock('@/utils/haptics', () => ({ haptics:{ success:m.success, warning:m.warning, light:vi.fn() } }));
 vi.mock('@/hooks/useGrocery', () => ({ useGroceryListInfo:()=>({ data:{ members:[], is_shared:false } }), useCreateGroceryInvite:()=>({}), useLeaveGroceryList:()=>({}), useRemoveGroceryMember:()=>({}), useJoinGroceryList:()=>({ mutateAsync:m.join }) }));
 import GroceryListSettingsModal from './GroceryListSettingsModal';

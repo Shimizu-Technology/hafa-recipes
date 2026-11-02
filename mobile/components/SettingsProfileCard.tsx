@@ -60,7 +60,7 @@ export function SettingsProfileCard({
             <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />
           ) : isLoaded && isSignedIn && initial ? (
             <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.accentSoft }]}>
-              <Text maxFontSizeMultiplier={1} style={[styles.userInitial, { color: colors.accent }]}>{initial}</Text>
+              <Text style={[styles.userInitial, { color: colors.accent }]}>{initial}</Text>
             </RNView>
           ) : (
             <RNView style={[styles.userAvatarPlaceholder, { backgroundColor: colors.tint + '20' }]}>
@@ -105,8 +105,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
   },
   userAvatarPlaceholder: {
-    width: 56,
-    height: 56,
+    minWidth: 56,
+    minHeight: 56,
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',

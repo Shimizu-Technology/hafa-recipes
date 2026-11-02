@@ -59,7 +59,7 @@ vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
-  return {
+  return { TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
     Button: ({ title, ...props }: { title: string }) =>
       ReactModule.createElement('Button', props, title),
     Chip: ({ label, ...props }: { label: string }) =>

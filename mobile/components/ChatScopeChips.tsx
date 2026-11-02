@@ -31,7 +31,7 @@ export function ChatScopeChips({ scope, canFocusRecipe, onChange }: { scope: Cha
         style={styles.target}>
         <View style={[styles.chip, { backgroundColor: selected ? colors.chromeIndicator : colors.surface2 }]}>
           <Ionicons name={chip.icon} size={14} color={tone} />
-          <Text maxFontSizeMultiplier={1.4} style={[styles.label, { color: tone }]}>{chip.label}</Text>
+          <Text style={[styles.label, { color: tone }]}>{chip.label}</Text>
         </View>
       </Pressable>;
     })}

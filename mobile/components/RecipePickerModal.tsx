@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 /**
  * Recipe Picker Modal
  *
@@ -13,7 +14,6 @@ import {
   FlatList,
   TouchableOpacity,
   View as RNView,
-  TextInput,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,

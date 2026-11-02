@@ -13,7 +13,7 @@ vi.mock('react-native-reanimated', () => ({
   withTiming: (value: number) => value,
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
-vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({ tint: '#1E7F6E', onTint: '#FFFFFF' }) }));
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: 'Text', useColors: () => ({ tint: '#1E7F6E', onTint: '#FFFFFF' }) }));
 vi.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => true }));
 vi.mock('@/lib/bottomOverlay', () => ({ ASK_PILL_HEIGHT: 48 }));
 vi.mock('@/utils/haptics', () => ({ haptics: { medium: vi.fn() } }));

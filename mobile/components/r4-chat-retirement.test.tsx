@@ -115,7 +115,7 @@ vi.mock('react-native-safe-area-context', () => ({
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@believer/react-native-markdown-display', () => ({ Markdown: 'Text' }));
-vi.mock('@/components/Themed', () => ({
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
   Text: 'Text',
   View: 'View',
   useColors: () => ({

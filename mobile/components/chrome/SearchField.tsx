@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { TextInput } from '@/components/Themed';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { Text, useColors } from '@/components/Themed';
@@ -30,7 +31,7 @@ export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder
   return <Pressable onPress={() => router.push('/search')} accessibilityRole="search" accessibilityLabel={placeholder} accessibilityHint="Opens search"
     testID="search-launcher" hitSlop={FIELD_HIT_SLOP} style={({ pressed }) => [styles.field, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
-    <Text numberOfLines={1} style={[styles.placeholder, { color: colors.textMuted }]}>{placeholder}</Text>
+    <Text style={[styles.placeholder, { color: colors.textMuted }]}>{placeholder}</Text>
   </Pressable>;
 }
 
@@ -41,7 +42,7 @@ export function FilterButton({ count, onPress }: { count: number; onPress: () =>
     style={({ pressed }) => [styles.filter, { backgroundColor: count ? colors.chromeIndicator : colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="options-outline" size={20} color={count ? colors.actionText : colors.text} />
     {count > 0 && <View style={[styles.badge, { backgroundColor: colors.tint }]}>
-      <Text maxFontSizeMultiplier={1} style={[styles.badgeText, { color: colors.onTint }]}>{count}</Text>
+      <Text style={[styles.badgeText, { color: colors.onTint }]}>{count}</Text>
     </View>}
   </Pressable>;
 }
@@ -57,6 +58,6 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: 17, paddingVertical: 8 },
   placeholder: { flex: 1, fontSize: 17, lineHeight: 22 },
   filter: { width: FIELD_HEIGHT, height: FIELD_HEIGHT, borderRadius: FIELD_HEIGHT / 2, alignItems: 'center', justifyContent: 'center' },
-  badge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', top: -2, right: -2, minWidth: 18, minHeight: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
   badgeText: { fontSize: 11, lineHeight: 13, fontWeight: '700' },
 });

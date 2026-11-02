@@ -1,3 +1,6 @@
+import { useContext } from 'react';
+import { TextScaleContext } from '@/components/Themed';
+import { TextInput } from '@/components/Themed';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 /**
  * Grocery List Screen
@@ -17,7 +20,6 @@ import {
   RefreshControl,
   View as RNView,
   Alert,
-  TextInput,
   Keyboard,
   Platform,
   Share,
@@ -59,7 +61,6 @@ import { Chip } from '@/components/chrome/Chips';
 import { HeaderIconButton, headerRightOptions } from '@/components/chrome/HeaderButton';
 import { SegmentedControl } from '@/components/chrome/SegmentedControl';
 import { AccountHeaderButton } from '@/components/TabChrome';
-import { useTextSize } from '@/hooks/useTextSize';
 import { haptics } from '@/utils/haptics';
 import { showToast } from '@/lib/toast';
 import { ScalePressable } from '@/components/Animated';
@@ -98,7 +99,8 @@ function GroceryItemRow({
   scaleFontSize: (size: number) => number;
 }) {
   const { fontScale } = useWindowDimensions();
-  const firstLineHeight = scaleFontSize(22) * fontScale;
+  const textScale = useContext(TextScaleContext);
+  const firstLineHeight = scaleFontSize(22) * textScale * fontScale;
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
   const normalizedUnit = normalizeIngredientUnit(item.unit);
@@ -162,7 +164,7 @@ function GroceryScreenContent() {
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;
-  const { scaleFontSize } = useTextSize();
+  const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   const router = useRouter();
   const { focusAdd, editItem } = useLocalSearchParams<{
     focusAdd?: string;

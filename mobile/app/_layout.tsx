@@ -1,3 +1,6 @@
+import { TextScaleContext } from '@/components/Themed';
+import { useTextSize } from '@/hooks/useTextSize';
+import { Button, Text } from '@/components/Themed';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
@@ -8,7 +11,7 @@ import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, Text, View } from 'react-native';
+import { View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
@@ -258,6 +261,7 @@ function ShareIntentHandler({ children }: { children: React.ReactNode }) {
 }
 
 function RootLayoutNav() {
+  const { scale } = useTextSize();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   // Screens without their own background show the navigation theme's, which is
@@ -278,6 +282,7 @@ function RootLayoutNav() {
   }, [colorScheme, colors]);
 
   return (
+    <TextScaleContext.Provider value={scale}>
     <QueryClientProvider client={queryClient}>
       <NavigationThemeProvider value={navigationTheme}>
         <TimerProvider>
@@ -296,7 +301,7 @@ function RootLayoutNav() {
                     screenOptions={{
                       headerStyle: { backgroundColor: colors.background },
                       headerTintColor: colors.tint,
-                      headerTitleStyle: { color: colors.text, fontWeight: '600', fontFamily: fontFamily.semibold },
+                      headerTitleStyle: { fontSize: Math.round(17 * scale), color: colors.text, fontWeight: '600', fontFamily: fontFamily.semibold },
                       headerShadowVisible: false,
                       headerBackTitle: 'Back',
                     }}
@@ -341,5 +346,6 @@ function RootLayoutNav() {
         </TimerProvider>
       </NavigationThemeProvider>
     </QueryClientProvider>
+    </TextScaleContext.Provider>
   );
 }
