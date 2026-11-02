@@ -46,7 +46,7 @@ it.each([
   await act(async () => { renderer = create(<SavedPostRow record={{ ...row, data: { ...row.data, status } }} pending={false} />); });
   const copy = renderer.root.findAll(n => String(n.type) === "Copy");
   expect(copy).toHaveLength(2);
-  expect(copy[1].props).toMatchObject({ children: label, kind: "small", tone, lines: 1 });
+  expect(copy[1].props).toMatchObject({ children: label, kind: "small", tone });
   const target = renderer.root.findByType("Pressable" as React.ElementType);
   expect(target.props.accessibilityLabel).toContain("Example parent");
   await act(async () => target.props.onPress());
@@ -59,12 +59,25 @@ it("stacks the thumbnail above the text at accessibility sizes so long titles do
   let renderer!: ReturnType<typeof create>;
   const style = () => renderer.root.findByType("Pressable" as React.ElementType).props.style({ pressed: false });
   await act(async () => { renderer = create(<SavedPostRow record={row} pending={false} />); });
-  expect(style()).toMatchObject({ flexDirection: "row", alignItems: "center" });
+  expect(style()).toMatchObject({ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12 });
   expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "chevron-forward")).toBe(true);
   scale.font = 3.1;
   await act(async () => { renderer.update(<SavedPostRow record={{ ...row }} pending={false} />); });
   expect(style()).toMatchObject({ flexDirection: "column", alignItems: "flex-start" });
   expect(renderer.root.findAll(n => String(n.type) === "Icon").some(n => n.props.name === "chevron-forward")).toBe(false);
   scale.font = 1;
+  await act(async () => renderer.unmount());
+});
+
+it("keeps long titles and source information available at the default size", async () => {
+  vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  let renderer!: ReturnType<typeof create>;
+  const title = "A long saved tip about preparing for the first weeks with a newborn and finding support";
+  const creator = "A very long creator or publication name";
+  await act(async () => { renderer = create(<SavedPostRow record={{ ...row, title, data: { ...row.data, creator } }} pending={false} />); });
+  const copy = renderer.root.findAll(n => String(n.type) === "Copy");
+  expect(copy[0].props.children).toBe(title);
+  expect(copy[1].props.children).toContain(creator);
+  expect(copy.every(n => n.props.lines === undefined)).toBe(true);
   await act(async () => renderer.unmount());
 });
