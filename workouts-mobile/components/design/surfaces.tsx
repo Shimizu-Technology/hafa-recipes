@@ -57,9 +57,11 @@ export function Screen({
   list,
   native = false,
   grouped = false,
+  reserveAskRoom = true,
 }: PropsWithChildren<{
   native?: boolean;
   grouped?: boolean;
+  reserveAskRoom?: boolean;
   title: string;
   subtitle?: string;
   /** Short context (e.g. the date, or a step count); shown with the subtitle, never above the title. */
@@ -103,7 +105,7 @@ export function Screen({
   const tabRoot = tabHeader && !back;
   const scroller = useRef<ScrollView | null>(null);
   const scrollRest = useScrollRest();
-  const askRoom = tabHeader && !back && !footer;
+  const askRoom = reserveAskRoom && tabHeader && !back && !footer;
   const heading = root ? (
     !!(subtitle || eyebrow) && (
       <Copy tone="muted">{[eyebrow, subtitle].filter(Boolean).join(" · ")}</Copy>

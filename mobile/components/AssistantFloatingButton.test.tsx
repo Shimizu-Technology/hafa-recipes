@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('react-native', () => ({ Pressable: 'Pressable', StyleSheet: { create: (styles: unknown) => styles } }));
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }));
+vi.mock('react-native', () => ({ Pressable: 'Pressable', Text: 'Text', useWindowDimensions: () => dimensions, StyleSheet: { create: (styles: unknown) => styles } }));
 vi.mock('react-native-reanimated', () => ({
   default: { View: 'AnimatedView' },
   useSharedValue: (value: number) => ({ value }),
@@ -33,6 +34,16 @@ describe('AskHafaPill', () => {
       await act(async () => button.props.onPress());
       expect(onPress).toHaveBeenCalledOnce();
     } finally { await act(async () => r.unmount()); }
+  });
+
+  it('folds the label at accessibility sizes while retaining its name', async () => {
+    dimensions.fontScale = 3;
+    const r = createRoot();
+    try {
+      await act(async () => r.render(<AskHafaPill onPress={vi.fn()} />));
+      expect(r.container.queryAll(n => n.type === 'AnimatedView')[1].props.style[1].maxWidth).toBe(0);
+      expect(r.container.queryAll(n => n.props.accessibilityLabel === 'Ask Håfa')).toHaveLength(1);
+    } finally { dimensions.fontScale = 1; await act(async () => r.unmount()); }
   });
 
   it('folds the label away while collapsed but keeps the accessible name', async () => {

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Keyboard, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { useRouter } from 'expo-router';
-import { Text, useColors } from '@/components/Themed';
+import { useColors } from '@/components/Themed';
 import { reportTabScreenBottomInset } from '@/lib/bottomOverlay';
 import { scrollTabToTop } from '@/lib/tabScrollToTop';
 import { lightHaptic } from '@/utils/haptics';
@@ -61,22 +61,22 @@ export function HafaTabBar({ state, descriptors, navigation }: BottomTabBarProps
       navigation.navigate(route.name, route.params);
     };
     return <Pressable key={route.key} onPress={onPress} onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
-      accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: focused }} testID={`tab-${route.name}`}
+      accessibilityRole="tab" accessibilityLabel={label} accessibilityShowsLargeContentViewer accessibilityLargeContentTitle={label} accessibilityState={{ selected: focused }} testID={`tab-${route.name}`}
       style={({ pressed }) => [styles.slot, pressed && styles.pressed]}>
       <View style={[styles.indicator, focused && { backgroundColor: colors.chromeIndicator }]}>
         <Ionicons name={focused ? selectedIcon : icon} size={24} color={focused ? colors.tint : colors.tabIconDefault} />
       </View>
-      <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[styles.label, { color: focused ? colors.tint : colors.tabIconDefault }]}>{label}</Text>
+      <Text allowFontScaling={false} numberOfLines={1} style={[styles.label, { color: focused ? colors.tint : colors.tabIconDefault }]}>{label}</Text>
     </Pressable>;
   });
 
   const importAction = <Pressable key="import" onPress={() => { lightHaptic(); router.push('/'); }}
-    accessibilityRole="button" accessibilityLabel="Import a recipe" testID="tab-import"
+    accessibilityRole="button" accessibilityLabel="Import a recipe" accessibilityShowsLargeContentViewer accessibilityLargeContentTitle="Import" testID="tab-import"
     style={({ pressed }) => [styles.slot, pressed && styles.pressed]}>
     <View style={[styles.importAction, { backgroundColor: colors.tint }]}>
       <Ionicons name="add" size={24} color={colors.onTint} />
     </View>
-    <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[styles.label, { color: colors.tabIconDefault }]}>Import</Text>
+    <Text allowFontScaling={false} numberOfLines={1} style={[styles.label, { color: colors.tabIconDefault }]}>Import</Text>
   </Pressable>;
 
   return <View style={[styles.bar, { height, paddingBottom: bottom, backgroundColor: colors.chromeBar, borderTopColor: colors.chromeHairline }]}>

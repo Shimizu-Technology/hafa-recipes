@@ -26,6 +26,7 @@ export function TrainToday() {
   const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const c = useColors();
+  const [failedCover, setFailedCover] = useState<string | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjust, setAdjust] = useState<{ program: Program; session?: ScheduledSession } | null>(null);
   const [error, setError] = useState("");
@@ -118,6 +119,7 @@ export function TrainToday() {
     <Button title="Build a plan" icon="add" size="lg" onPress={() =>
       router.push(pathname === "/profile" ? { pathname, params: { return_to: "build-plan" } } : pathname)} />
   );
+  const askCoach = <Button title="Ask Coach" size="sm" secondary accessibilityHint="Opens a chat with your AI coach" onPress={() => router.push("/coach")} />;
   let hero: { title: string; detail: string; cover?: string | null; meta?: string[]; action?: ReactNode; extra?: ReactNode };
   if (active) {
     hero = { title: active.workout.title, cover: active.workout.source_thumbnail_url, detail: `${recorded} ${recorded === 1 ? "set" : "sets"} recorded so far · saved on this device`,
@@ -130,7 +132,10 @@ export function TrainToday() {
       action: <>
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}
         <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => { void start(planned.program, planned.session); }} />
-        <Button title="Adjust today" size="sm" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} />
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flex: 1 }}><Button title="Adjust today" size="sm" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} /></View>
+          <View style={{ flex: 1 }}>{askCoach}</View>
+        </View>
       </> };
   } else if (!profile.data) {
     hero = { title: "Set up your training", detail: "Add your goal and free days, then build a plan that fits your week.",
@@ -149,12 +154,13 @@ export function TrainToday() {
   }
   const heroCard = (
     <View style={{ gap: 12 }}>
-      {!!hero.cover && <Image source={{ uri: hero.cover }} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
+      {!!hero.cover && hero.cover !== failedCover && <Image source={{ uri: hero.cover }} onError={() => setFailedCover(hero.cover ?? null)} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
       <Copy kind="heading">{hero.title}</Copy>
       {!!hero.detail && <Copy tone="muted">{hero.detail}</Copy>}
       {!!hero.meta?.length && <Copy kind="small" tone="muted">{hero.meta.join(" · ")}</Copy>}
       {hero.action}
       {hero.extra}
+      {enabled && (active || !planned) && askCoach}
     </View>
   );
   if (!enabled)

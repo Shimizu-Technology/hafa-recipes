@@ -10,7 +10,7 @@ import { OVERLAY_GAP, useTabScreenBottomInset } from "@/lib/bottom-overlay";
 
 export const unstable_settings = { initialRouteName: "train" };
 /** Tabs where the floating Ask Coach pill opens a general coach chat. */
-export const askTabs = ["train", "library", "discover", "history"];
+export const askTabs = ["library", "discover", "history"];
 /**
  * JS tabs with our own solid bar so iOS 18, iOS 26 and Android match (no Liquid Glass or
  * translucent material). Search lives in Library and Discover; its old route stays for links.
