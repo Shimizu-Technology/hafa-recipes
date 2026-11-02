@@ -5,7 +5,7 @@ import { useAuth } from '@clerk/expo';
 import { ActivityIndicator, FlatList, Platform, Pressable, View } from 'react-native';
 import type { SearchBarCommands } from 'react-native-screens';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
-import { Input, Text, Button, useColors } from '@/components/Themed';
+import { Card, Input, Text, Button, useColors } from '@/components/Themed';
 import { SignInBanner } from '@/components/SignInBanner';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useRecipeCount, useSearchRecipes, useSearchPublicRecipes, useSavedRecipes } from '@/hooks/useRecipes';
@@ -68,10 +68,10 @@ function LibrarySearch() {
           <Pressable accessibilityRole="button" onPress={() => router.push('/ingredient-search')} style={{ minHeight: 44, justifyContent: 'center' }}><Text style={{ color: colors.actionText }}>Search by ingredient</Text></Pressable>
         </>}
       </View>}
-      renderItem={({ item }) => 'heading' in item ? <View style={{ gap: 12, marginTop: 8 }}><Text style={typography.headline}>{item.heading}</Text>{status(item.heading)}</View> : <Pressable accessibilityRole="button" accessibilityLabel={item.recipe.title} onPress={() => { remember(); router.push(`/recipe/${item.recipe.id}`); }} style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 64, opacity: pressed ? 0.65 : 1 })}>
+      renderItem={({ item }) => 'heading' in item ? <View style={{ gap: 12, marginTop: 8 }}><Text style={typography.headline}>{item.heading}</Text>{status(item.heading)}</View> : <Card noPadding><Pressable accessibilityRole="button" accessibilityLabel={item.recipe.title} onPress={() => { remember(); router.push(`/recipe/${item.recipe.id}`); }} style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'flex-start', minHeight: 80, paddingHorizontal: 16, paddingVertical: 12, opacity: pressed ? 0.65 : 1 })}>
         <RecipeThumbnail uri={item.recipe.thumbnail_url} accessible={false} placeholderIconSize={22} style={{ width: 56, height: 56, borderRadius: 10, backgroundColor: colors.surface2 }} />
-        <View style={{ flex: 1, gap: 2 }}><Text style={typography.cardTitle}>{item.recipe.title}</Text><Text style={{ ...typography.footnote, color: colors.textSecondary }}>{[item.id.startsWith('public-') ? item.recipe.extractor_display_name : getRecipeSourcePresentation(item.recipe.source_type).label, item.recipe.total_time].filter(Boolean).join(' · ')}</Text></View>
-      </Pressable>}
+        <View style={{ flex: 1, minWidth: 0, gap: 4 }}><Text style={typography.cardTitle}>{item.recipe.title}</Text><Text style={{ ...typography.footnote, color: colors.textSecondary }}>{[item.id.startsWith('public-') ? item.recipe.extractor_display_name : getRecipeSourcePresentation(item.recipe.source_type).label, item.recipe.total_time].filter(Boolean).join(' · ')}</Text></View>
+      </Pressable></Card>}
       onEndReached={() => { if (waiting || !query.trim()) return; if (!search.isFetching && isSignedIn && search.hasNextPage) void search.fetchNextPage(); if (!discover.isFetching && discover.hasNextPage) void discover.fetchNextPage(); }}
       ListFooterComponent={search.isFetchingNextPage || discover.isFetchingNextPage ? <ActivityIndicator accessibilityLabel="Loading more recipes" /> : null}
     />
