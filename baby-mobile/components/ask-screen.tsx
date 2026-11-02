@@ -14,7 +14,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
   const b = useBaby(),
     params = useLocalSearchParams<{ record_id?: string }>(),
     { fontScale, height } = useWindowDimensions(),
-    composerMinimum = Math.max(46, Math.ceil(17 * Math.min(fontScale, 1.5) * 1.45 + 24)),
+    composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
     chat = useAskSession(params.record_id, screenFocused),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
   const focused = !!chat.context.record_id;
@@ -31,13 +31,13 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
-      subtitleMaxScale={1.5}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       action={back ? fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
+            key={fontScale}
             accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
@@ -46,12 +46,12 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             editable={available && !busy && !chat.resolving}
             multiline
             maxLength={4000}
-            allowFontScaling={false}
+            maxFontSizeMultiplier={0}
             scrollEnabled
             style={{ flex: 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
               minHeight: composerMinimum, borderRadius: 22,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
-              fontFamily: fonts.regular, fontSize: 17 * Math.min(fontScale, 1.5), lineHeight: 22 * Math.min(fontScale, 1.5) }}
+              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
           />
           <PressTarget
             accessibilityRole="button"
