@@ -21,7 +21,7 @@ import { LibraryCard } from "../components/library-card";
 import { DiscoverGridCard } from "../components/discover-grid-card";
 import { DiscoverCardView } from "../components/discover-card";
 import type { DiscoverCard } from "./discover";
-import { AccountButton, Button, Choice, HeaderButton, Segmented, Field, Chip } from "../components/design/controls";
+import { AccountButton, Button, Choice, HeaderButton, Segmented, Field, Chip, SearchField } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.fontScale = 1; f.timing.mockClear(); });
 afterEach(() => { act(() => view?.unmount()); });
@@ -136,7 +136,7 @@ it("shows a filter count as an accent badge and says it to VoiceOver", () => {
   act(() => { view!.update(createElement(FilterButton, { count: 2, onPress })); });
   const button = view!.root.findByType("Pressable" as never);
   expect(button.props.accessibilityLabel).toBe("Filter, 2 on");
-  expect(view!.root.findByType("Text" as never).props.children).toBe(2);
+  expect(view!.root.findByType("Copy" as never).props.children).toBe(2);
   act(() => button.props.onPress()); expect(onPress).toHaveBeenCalledOnce();
 });
 it("draws chips with a shape: tonal when off, accent-filled when on, 34pt with a 44pt reach", () => {
@@ -194,4 +194,14 @@ it("fades the chip row's right edge only while more chips are off-screen to the 
   expect(faded()).toBe(true); // chips continue past the edge
   act(() => scroll().props.onScroll({ nativeEvent: { contentOffset: { x: 270 } } }));
   expect(faded()).toBe(false); // scrolled to the end: the last chip is fully visible
+});
+
+it("remounts a search input when the system text size changes", () => {
+  const props = { value: "squat", onChange() {}, placeholder: "Search", label: "Search" };
+  act(() => { view = create(createElement(SearchField, props)); });
+  const original = view!.root.findByType("Input" as never);
+  f.fontScale = 2;
+  act(() => view!.update(createElement(SearchField, props)));
+  expect(view!.root.findByType("Input" as never)).not.toBe(original);
+  expect(view!.root.findByType("Input" as never).props.value).toBe("squat");
 });

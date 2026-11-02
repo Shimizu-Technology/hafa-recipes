@@ -46,7 +46,6 @@ export function BrandLockup({ height = 24, mono, fill }: { height?: number; mono
   // lockup steps down to a fixed 16pt size (~148pt) instead of ellipsizing "Workouts".
   const compact = useWindowDimensions().width < 360;
   const size = compact ? { fontSize: 16, lineHeight: 22 } : null;
-  const scale = compact ? 1 : 1.2;
   return (
     <View
       accessible
@@ -57,14 +56,13 @@ export function BrandLockup({ height = 24, mono, fill }: { height?: number; mono
       <BrandMark height={compact ? Math.min(height, 20) : height} mono={mono} />
       {/* Two sibling texts, not nested ones: iOS measures a nested run with the outer font, so the
           lighter "Workouts" face was truncated. No adjustsFontSizeToFit (it clips on the new architecture);
-          cap growth and let only the descriptor ellipsize on very narrow screens. */}
-      <View style={{ flexDirection: "row", alignItems: "baseline", flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}>
-        <Text numberOfLines={1} maxFontSizeMultiplier={scale} style={[typography.subheading, size, { color: mono ?? c.text, letterSpacing: 0 }]}>
+          allow the wordmark to wrap at larger text sizes. */}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", flexShrink: 1, minWidth: 0, flexGrow: fill ? 1 : 0 }}>
+        <Text style={[typography.subheading, size, { color: mono ?? c.text, letterSpacing: 0 }]}>
           Håfa{" "}
         </Text>
         <Text
-          numberOfLines={1}
-          maxFontSizeMultiplier={scale}
+
           style={[typography.subheading, size, { fontFamily: typography.body.fontFamily, color: mono ?? c.muted, letterSpacing: 0, flexShrink: 1, flexGrow: fill ? 1 : 0 }]}
         >
           Workouts
