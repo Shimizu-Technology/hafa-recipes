@@ -1,4 +1,5 @@
-import { View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
+import { largeText } from "@/lib/readable-layout";
 import { spacing } from "@/constants/theme";
 import type { ActualSet, Workout } from "@/lib/models";
 import type { UnitSystem } from "@/lib/training";
@@ -16,6 +17,7 @@ const feel = (a: ActualSet) => [
 /** A recorded session as one compact table per exercise: set · reps · weight, with notes summarised below. */
 export function SessionTable({ actuals, workout, units }: { actuals: ActualSet[]; workout: Workout; units: UnitSystem }) {
   const c = useColors();
+  const { fontScale, width } = useWindowDimensions();
   const groups = new Map<string, ActualSet[]>();
   for (const a of actuals) groups.set(`${a.block_id}:${a.exercise_index}`, [...(groups.get(`${a.block_id}:${a.exercise_index}`) ?? []), a]);
   return <>{[...groups.entries()].map(([key, sets]) => {
@@ -26,24 +28,28 @@ export function SessionTable({ actuals, workout, units }: { actuals: ActualSet[]
       { title: "Weight", value: (s) => formatWeight(s) || null },
     ] as Column[]).filter((column) => sets.some((s) => s.completed && column.value(s) != null));
     const rounds = new Set(sets.map((s) => s.round_index)).size > 1;
+    const stacked = largeText(fontScale) || (width < 360 && columns.length >= 3);
     const label = (s: ActualSet) => setLabel(s, rounds);
     const notes = sets.flatMap((s) => (feel(s) ? [`Set ${label(s)} · ${feel(s)}`] : []));
     return (
       <Card key={key} compact>
         <Copy kind="subheading">{exerciseName(workout, sets[0])}</Copy>
         <View>
-          <View style={{ flexDirection: "row", gap: spacing.sm, paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
+          {!stacked && <View style={{ flexDirection: "row", gap: spacing.sm, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: c.border }}>
             <Copy kind="caption" tone="muted" style={{ width: rounds ? 64 : 40 }}>Set</Copy>
             {columns.map((column) => <Copy key={column.title} kind="caption" tone="muted" style={{ flex: 1 }}>{column.title}</Copy>)}
-          </View>
+          </View>}
           {sets.map((s, i) => (
-            <View key={i} accessible
+            <View key={i}>
+            {i > 0 && <View style={{ marginLeft: (rounds ? 64 : 40) + spacing.sm, borderTopWidth: 1, borderTopColor: c.border }} />}
+            <View accessible
               accessibilityLabel={`Set ${label(s)}: ${s.completed ? columns.flatMap((column) => column.value(s) ? [`${column.value(s)} ${column.title.toLowerCase()}`] : []).join(", ") : "skipped"}`}
-              style={{ flexDirection: "row", gap: spacing.sm, minHeight: 36, alignItems: "center" }}>
-              <Copy kind="label" tone="muted" style={{ width: rounds ? 64 : 40 }}>{label(s)}</Copy>
-              {s.completed ? columns.map((column) => (
+              style={{ flexDirection: "row", gap: spacing.sm, minHeight: 44, paddingVertical: 12, alignItems: "flex-start" }}>
+              <Copy kind="label" tone="muted" style={stacked ? { minWidth: rounds ? 64 : 40 } : { width: rounds ? 64 : 40 }}>{label(s)}</Copy>
+              {s.completed && stacked ? <Copy style={{ flex: 1 }}>{columns.flatMap(column => column.value(s) != null ? [`${column.value(s)} ${column.title.toLowerCase()}`] : []).join(" · ") || "Completed"}</Copy> : s.completed ? columns.map((column) => (
                 <Copy key={column.title} kind="label" style={{ flex: 1, fontVariant: ["tabular-nums"] }}>{column.value(s) ?? "–"}</Copy>
               )) : <Copy tone="muted" style={{ flex: 1 }}>Skipped</Copy>}
+            </View>
             </View>
           ))}
         </View>

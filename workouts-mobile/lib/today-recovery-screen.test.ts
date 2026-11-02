@@ -33,7 +33,7 @@ vi.mock("@/lib/context", async () => {
     },
   };
 });
-vi.mock("react-native", () => ({ ActivityIndicator: "ActivityIndicator", View: "View", Pressable: "Pressable",
+vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: 1 }), ActivityIndicator: "ActivityIndicator", View: "View", Pressable: "Pressable",
   AppState: { addEventListener: (_event: string, listener: (state: string) => void) => {
     fixture.appListeners.add(listener); return { remove: () => fixture.appListeners.delete(listener) };
   } } }));
