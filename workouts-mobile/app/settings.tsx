@@ -35,7 +35,7 @@ function IdentityCard() {
         {identity.imageUrl ? (
           <Image source={{ uri: identity.imageUrl }} style={{ width: avatarSize, height: avatarSize }} accessibilityIgnoresInvertColors />
         ) : identity.initial ? (
-          <Text maxFontSizeMultiplier={1.2} style={[typography.heading, { color: c.onActionSoft }]}>{identity.initial}</Text>
+          <Text style={[typography.heading, { color: c.onActionSoft }]}>{identity.initial}</Text>
         ) : (
           <Ionicons name="person-outline" size={26} color={c.onActionSoft} />
         )}

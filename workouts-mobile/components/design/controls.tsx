@@ -236,7 +236,7 @@ export function AccountButton() {
       {image ? (
         <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: size, height: size }} accessibilityIgnoresInvertColors />
       ) : identity?.initial ? (
-        <Text allowFontScaling={false} style={{ fontSize: 15, lineHeight: 20, fontWeight: "600", color: c.text }}>{identity.initial}</Text>
+        <Copy style={{ fontSize: 15, lineHeight: 20, fontWeight: "600", color: c.text }}>{identity.initial}</Copy>
       ) : (
         <Ionicons name="person" size={18} color={c.text} />
       )}
@@ -385,9 +385,9 @@ export function FilterButton({ count, onPress, label = "Filter" }: { count: numb
         opacity: press.opacity, transform: [{ scale: press.scale }] }}>
       <View style={{ width: 40, height: 40, borderRadius: radii.full, backgroundColor: count ? c.accentTint : c.sunken, alignItems: "center", justifyContent: "center" }}>
         <Ionicons name="options-outline" size={20} color={count ? c.accentText : c.text} />
-        {!!count && <View style={{ position: "absolute", top: -3, right: -3, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4,
+        {!!count && <View style={{ position: "absolute", top: -3, right: -3, minWidth: 18, minHeight: 18, borderRadius: 9, paddingHorizontal: 4,
           backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
-          <Text allowFontScaling={false} style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.onAccent }}>{count}</Text>
+          <Copy style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.onAccent }}>{count}</Copy>
         </View>}
       </View>
     </AnimatedPressable>
@@ -435,7 +435,7 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
       shadowColor: c.shadow, shadowOpacity: selected ? 0.12 : 0, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: selected ? 1 : 0,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
     {/* One line at every text size: segments never break a word across lines. */}
-    <Copy kind="cardTitle" color={c.text} align="center" numberOfLines={1} maxScale={1.35}>{label}</Copy>
+    <Copy kind="cardTitle" color={c.text} align="center">{label}</Copy>
   </AnimatedPressable>;
 }
 
@@ -449,7 +449,7 @@ export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
   return (
     <View style={{ flex: 1, minHeight: height, borderRadius: 12, backgroundColor: c.sunken, flexDirection: "row", alignItems: "center", paddingLeft: 10, gap: 6 }}>
       <Ionicons name="search" size={18} color={c.muted} />
-      <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
+      <TextInput key={fontScale} value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
         accessibilityLabel={label} accessibilityRole="search" returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         clearButtonMode="never" onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
         style={{ flex: 1, minHeight: height, fontSize: 17, color: c.text, paddingVertical: 0 }} />
