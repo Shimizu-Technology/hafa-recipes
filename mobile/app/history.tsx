@@ -103,7 +103,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const { isSignedIn } = useAuth();
   // Recipes and Collections are siblings in one Library; Collections loads only when shown.
   const [segment, setSegment] = useState<'recipes' | 'collections'>('recipes');
-  useTabScrollToTop('recipes', segment === 'collections' ? collectionsRef : listRef);
+  const tabScroll = useTabScrollToTop('recipes', segment === 'collections' ? collectionsRef : listRef);
   const [showCreateCollection, setShowCreateCollection] = useState(false);
   const collections = useCollections(active && Boolean(isSignedIn) && segment === 'collections');
   const [searchQuery, setSearchQuery] = useState('');
@@ -570,6 +570,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       ]} />
       {segment === 'collections' ? (
         <ScrollView ref={collectionsRef} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.listContent, { paddingBottom: endPadding }]}
+          {...tabScroll}
           onScroll={onAskPillScroll} scrollEventThrottle={32}
           refreshControl={<RefreshControl refreshing={collections.isRefetching} onRefresh={() => { void collections.refetch(); }} tintColor={colors.tint} />}>
           {librarySwitch}
@@ -588,6 +589,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
       ) : (
         <FlatList
           ref={listRef}
+          {...tabScroll}
           contentInsetAdjustmentBehavior="automatic"
           key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
@@ -645,7 +647,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={Keyboard.dismiss}
+          onScrollBeginDrag={event => { tabScroll.onScrollBeginDrag(event); Keyboard.dismiss(); }}
           onScroll={onAskPillScroll}
           scrollEventThrottle={32}
           refreshControl={
