@@ -3,11 +3,11 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { light } from "../constants/theme";
 const f = vi.hoisted(() => ({ push: vi.fn(), keyboard: false, fontScale: 1 }));
-vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", Text: "Text", Platform: { OS: "ios" },
-  useWindowDimensions: () => ({ fontScale: f.fontScale }), LayoutAnimation: { configureNext() {}, create: () => ({}) } }));
+vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", Text: "Text",
+  useWindowDimensions: () => ({ fontScale: f.fontScale }) }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: { push: f.push } }));
-vi.mock("../components/design/foundation", () => ({ useColors: () => light, useReducedMotion: () => false, haptics: { light() {} } }));
+vi.mock("../components/design/foundation", () => ({ useColors: () => light, haptics: { light() {} } }));
 vi.mock("../components/design/tab-bar", () => ({ useKeyboardShown: () => f.keyboard }));
 import { AskCoachPill } from "../components/ask-coach-pill";
 import { reportAskScroll, resetAskScroll } from "./ask-pill";

@@ -1032,9 +1032,10 @@ it("shows the saved timed prescription, source details and cues without missing-
       rest_seconds: 45, load: 5, load_unit: "kg", load_convention: "total", tempo: "Controlled", notes: "Stay comfortable" }],
   }] });
   await mount(WorkoutDetail);
-  const text = nodes("Copy").flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ");
+  const row = nodes("ListRow").find(node => node.props.title === "Run")!;
+  const text = row.props.detail as string;
   expect(text).toContain("2 × 1m 30s · 400 m · 45s rest · Source load: 5 kg total · Tempo Controlled");
-  expect(text).toContain("1 min between rounds");
+  expect(nodes("ListGroup").some(node => node.props.header?.includes("1 min between rounds"))).toBe(true);
   expect(text).toContain("Stay comfortable");
   expect(text).not.toContain("Reps not specified");
   expect(nodes("IconButton").find(node => node.props.label === "Open original source")).toBeDefined();
@@ -1149,7 +1150,8 @@ it.each([1200, 125])("presents a %s-second AMRAP cap as authoritative over a sep
   expect(chip(`AMRAP ${seconds === 1200 ? "20" : "2m 5s"}`)).toBeDefined();
   expect(meta).toBe("1 exercise"); expect(meta).not.toContain("25 min");
   const text = nodes("Copy").flatMap(node => node.children.filter(child => typeof child === "string")).join(" ");
-  expect(text).toContain("AMRAP"); expect(text).not.toContain("Rounds not specified");
+  const headers = nodes("ListGroup").map(node => node.props.header ?? "").join(" ");
+  expect(headers).toContain("AMRAP"); expect(headers).not.toContain("Rounds not specified");
 });
 it("gives an empty manual workout a usable add-exercises action", async () => {
   fixture.params = { id: saved.id }; fixture.capabilities.mockResolvedValue(caps(false));
