@@ -160,6 +160,8 @@ vi.mock("@/components/discover-card", () => ({
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", tabScrollProps: { scrollToOverflowEnabled: true }, useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
 vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionCard: "CollectionCard", NewCollectionCard: "NewCollectionCard", useLibraryGridWidth: () => 170, LIBRARY_GRID_GAP: 12 }));
+vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
+vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 34, left: 0 }) }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/discover-grid-card", () => ({
   DiscoverGrid: "DiscoverGrid",
@@ -559,6 +561,9 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
     .toEqual(["Share workout", "More workout actions"]);
   await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
+  // The floating pill opens the same workout-scoped chat.
+  expect(nodes("AskCoachPill")[0].props).toMatchObject({ label: "Ask about this",
+    href: { pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } } });
   await act(async () => header("Share workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/share", params: { id: saved.id, kind: "workout" } });
   for (const title of ["Favorite workout", "Organize workout", "Edit workout details", "Remove from Discover", "See it in Discover",
@@ -1400,6 +1405,25 @@ it("Library search still finds a workout by its required equipment, as the old S
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); }); await settle();
   expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells" });
   expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm day"]);
+});
+it("selecting in Library hides the Ask pill only while Library is focused", async () => {
+  const { peekAskPill } = await import("./ask-pill");
+  fixture.focus = true;
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  await act(async () => libraryCard(saved.title)!.props.onLongPress());
+  expect(peekAskPill().hidden).toBe(true);
+  // Switching tabs blurs Library (it stays mounted, still selecting): the pill comes back elsewhere.
+  fixture.focus = false;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Library))));
+  expect(peekAskPill().hidden).toBe(false);
+  // Returning to Library while still selecting hides it again.
+  fixture.focus = true;
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Library))));
+  expect(libraryCard(saved.title)!.props.selected).toBe(true);
+  expect(peekAskPill().hidden).toBe(true);
+  await act(async () => button("Done")!.props.onPress());
+  expect(peekAskPill().hidden).toBe(false);
 });
 it("Library loads the next page as the list nears its end", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };

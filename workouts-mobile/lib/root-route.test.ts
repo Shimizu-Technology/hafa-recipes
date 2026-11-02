@@ -1,10 +1,14 @@
 import { it, expect, vi } from "vitest";
 const auth = vi.hoisted(() => ({ value: { isLoaded: true, isSignedIn: false } }));
 vi.mock("@clerk/expo", () => ({ useAuth: () => auth.value }));
-vi.mock("expo-router", () => ({ Redirect: () => null, useLocalSearchParams: () => ({ source: "legacy", session_id: "saved" }) }));
+vi.mock("expo-router", () => ({ Redirect: () => null, useSegments: () => ["(tabs)", "library"], useLocalSearchParams: () => ({ source: "legacy", session_id: "saved" }) }));
+vi.mock("react-native", () => ({ View: "View" }));
+vi.mock("react", async () => ({ ...await vi.importActual<object>("react"), useEffect: () => undefined }));
+vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
+vi.mock("@/lib/bottom-overlay", () => ({ OVERLAY_GAP: 12, useTabScreenBottomInset: () => 90 }));
 vi.mock("expo-router/js-tabs", () => ({ Tabs: Object.assign(() => null, { Screen: () => null }) }));
 vi.mock("@/components/design/tab-bar", () => ({ AppTabBar: "AppTabBar" }));
-vi.mock("@/components/ui", () => ({ useColors: () => ({ accent: "coral" }) }));
+vi.mock("@/components/ui", () => ({ useColors: () => ({ accent: "coral", background: "white" }) }));
 import Layout, { unstable_settings } from "../app/(tabs)/_layout";
 import RootDestination from "../app/index";
 import LegacyPlan from "../app/plan";
@@ -20,7 +24,10 @@ it("waits for auth and sends signed-in cold launches to Today", () => {
   expect(RootDestination()).toBeNull();
 });
 it("draws its own tab bar over Today, Library, Discover and Progress, keeping Search reachable by link", () => {
-  const tabs = Layout();
+  const root = Layout();
+  const [tabs, pill] = root.props.children;
+  // The Ask Coach pill floats 12pt above the measured bar on the main tabs.
+  expect(pill.props.bottom).toBe(102);
   expect(unstable_settings.initialRouteName).toBe("train");
   expect(tabs.props.screenOptions).toMatchObject({ headerShown: false });
   expect(tabs.props.tabBar({}).type).toBe("AppTabBar");

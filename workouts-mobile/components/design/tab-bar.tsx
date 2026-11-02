@@ -20,7 +20,7 @@ export const tabs: TabSpec[] = [
 ];
 
 /** iOS covers the bar with the keyboard; Android pushes it up. Hide it on both while typing. */
-function useKeyboardShown() {
+export function useKeyboardShown() {
   const [shown, setShown] = useState(false);
   useEffect(() => {
     const ios = Platform.OS === "ios";
