@@ -154,6 +154,7 @@ vi.mock('@/components/Themed', async () => {
       ReactModule.createElement('Button', props, title),
     Chip: ({ label, ...props }: { label: string }) =>
       ReactModule.createElement('Chip', props, label),
+    Card: host('Card'),
     Input: host('Input'),
     IconButton: host('IconButton'),
     Text: host('ThemedText'),

@@ -10,6 +10,7 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
+    Card: (props: Record<string, unknown>) => ReactModule.createElement('Card', props, props.children as React.ReactNode),
     Text: (props: Record<string, unknown>) =>
       ReactModule.createElement('Text', props, props.children as React.ReactNode),
     useColors: () => ({
