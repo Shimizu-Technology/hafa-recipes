@@ -9,7 +9,7 @@ import {
   Card,
   Copy,
   Empty,
-  IconButton,
+  HeaderButton,
   ListGroup,
   ListRow,
   Notice,
@@ -191,10 +191,10 @@ export default function WorkoutDetail() {
       title={workout?.title ?? "Your workout."}
       // The hero leads; the title and meta line follow it in the page body.
       hideTitle
-      action={workout ? <Row gap={4}>
-        {workout.kind !== "program" && <IconButton icon="share-outline" label="Share workout" variant="plain"
+      action={workout ? <Row gap={0}>
+        {workout.kind !== "program" && <HeaderButton icon="share-outline" label="Share workout"
           onPress={() => router.push({ pathname: "/share", params: { id: workout.id, kind: "workout" } })} />}
-        <IconButton icon="ellipsis-horizontal" label="More workout actions" variant="plain" onPress={() => setMore(true)} />
+        <HeaderButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} />
       </Row> : undefined}
 
     >

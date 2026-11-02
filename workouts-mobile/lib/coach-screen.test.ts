@@ -43,7 +43,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("../components/brand-mark", () => ({ BrandLockup: "BrandLockup", BrandMark: "BrandMark" }));
 vi.mock("../components/design/foundation", () => ({ GroupedPage: { Provider: "GroupedPage" }, useGroupedPage: () => false, Copy: "Copy", SurfaceProvider: "SurfaceProvider", useColors: () => ({ background: "background", groupedBackground: "grouped" }), useReducedMotion: () => true, useSurface: () => "surface" }));
-vi.mock("../components/design/controls", () => ({ Chip: "Chip", IconButton: "IconButton" }));
+vi.mock("../components/design/controls", () => ({ Chip: "Chip", HeaderButton: "HeaderButton", IconButton: "IconButton" }));
 vi.mock("expo-speech", () => ({ speak: f.speak, stop: f.speechStop, isSpeakingAsync: f.speechQuiet,
   getAvailableVoicesAsync: async () => [{ identifier: "local", language: "en-US" }], maxSpeechInputLength: 4000 }));
 vi.mock("expo-clipboard", () => ({ setStringAsync: f.copy }));
@@ -1341,6 +1341,9 @@ it.each(["ios", "android"])("opted-in detail screens use native navigation and a
   const { Screen } = await vi.importActual<typeof import("../components/design/surfaces")>("../components/design/surfaces");
   await act(async () => { view = create(createElement(Screen, { title: "Workout", native: true, grouped: true, back: true, hideTitle: true })); });
   expect(nodes("NativeHeader")[0].props.options).toMatchObject({ headerShown: true, headerTransparent: true, headerLargeTitleEnabled: false });
+  // Back is our tonal header button on every OS (no system glass back on iOS 26); swipe-back is unaffected.
+  expect(nodes("NativeHeader")[0].props.options.headerBackVisible).toBe(false);
+  expect(nodes("NativeHeader")[0].props.options.unstable_headerLeftItems()[0]).toMatchObject({ type: "custom", hidesSharedBackground: true });
   const fallback = nodes("NativeHeader")[0].props.options.headerLeft();
   expect(fallback.props.label).toBe("Go back");
   fallback.props.onPress();

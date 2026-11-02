@@ -1,4 +1,5 @@
 import type { Workout, AuthoredWorkout } from "./models";
+import type { LibraryFilters } from "./organization";
 import { authoredWorkout } from "./api";
 import { executionError } from "./amrap-editor";
 export function editedContent(workout: Workout | AuthoredWorkout): AuthoredWorkout {
@@ -100,4 +101,23 @@ export function filterLibrary(workouts: Workout[], search: string, equipment: st
       (!equipment || (w.equipment_required ?? []).includes(equipment)) &&
       (!kind || w.kind === kind)
   );
+}
+
+/**
+ * The Library's server filters, applied to a locally loaded workout (same rules as the API):
+ * every tag, required or optional equipment containing the text, at most `max_minutes`.
+ * Archived scope is server-only, so a local match never stands in for it.
+ */
+export function matchesLibraryFilters(workout: Workout, filters: LibraryFilters, needsInfo = false) {
+  const org = workout.organization;
+  const tags = new Set((org?.tags ?? []).map(tag => tag.toLocaleLowerCase()));
+  const equipment = filters.equipment?.trim().toLocaleLowerCase();
+  return !filters.archived_only && !org?.archived &&
+    (!filters.kind || workout.kind === filters.kind) &&
+    (!filters.favorite_only || !!org?.favorite) &&
+    (!filters.collection_id || !!org?.collection_ids.includes(filters.collection_id)) &&
+    (filters.tags ?? []).every(tag => tags.has(tag.toLocaleLowerCase())) &&
+    (!filters.max_minutes || (workout.estimated_minutes != null && workout.estimated_minutes <= filters.max_minutes)) &&
+    (!equipment || [...(workout.equipment_required ?? []), ...(workout.equipment_optional ?? [])].join(" ").toLocaleLowerCase().includes(equipment)) &&
+    (!needsInfo || !!workout.extraction_warnings?.length);
 }

@@ -63,7 +63,9 @@ const pairs: Pair[] = [
   ["borderStrong", "elevated", 3],
   ["focus", "elevated", 3],
   ["muted", "accentSoft", 4.5], // stat tile label on accent tone
-  ["accentText", "surface", 4.5], // active tab label on tab bar
+  ["accentText", "surface", 4.5], // selected text on grouped surfaces
+  ["accentText", "tabBar", 4.5], // selected tab label on the solid tab bar
+  ["muted", "tabBar", 4.5], // unselected tab labels and icons
 ];
 
 describe.each([
@@ -72,6 +74,12 @@ describe.each([
 ] as const)("%s theme", (_, c) => {
   it.each(pairs)("%s on %s meets %s:1", (fg, bg, min, backdrop) => {
     expect(contrast(c[fg], c[bg], backdrop ?? c.background)).toBeGreaterThanOrEqual(min);
+  });
+});
+
+describe.each([["light", light], ["dark", dark]] as const)("%s tab bar", (_, c) => {
+  it("keeps the selected icon readable on its tonal pill over the bar", () => {
+    expect(contrast(c.accentText, c.accentTint, c.tabBar)).toBeGreaterThanOrEqual(3);
   });
 });
 

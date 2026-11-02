@@ -1,4 +1,4 @@
-import { BrowseHeader } from "@/components/native-tab-stack";
+import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ import {
   haptics,
   Row,
   Screen,
+  SearchField,
   Sheet,
   Stack,
   useToast,
@@ -72,7 +73,8 @@ function useDiscoverView() {
 
 export default function Discover() {
   const { api, owner, enrollment, isCurrentAccount } = useTraining();
-  const params = useLocalSearchParams<{ q?: string }>();
+  // `at` makes each "Search Discover for …" hand-off distinct, so repeating a term still fills the field.
+  const params = useLocalSearchParams<{ q?: string; at?: string }>();
   const cache = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string>();
   const [menu, setMenu] = useState(false);
@@ -80,7 +82,7 @@ export default function Discover() {
   const saveLock = useRef(false);
   const [search, setSearch] = useState(params.q ?? "");
   const [settledSearch, setSettledSearch] = useState(params.q ?? "");
-  useEffect(() => { setSearch(params.q ?? ""); setSettledSearch(params.q ?? ""); }, [params.q]);
+  useEffect(() => { setSearch(params.q ?? ""); setSettledSearch(params.q ?? ""); }, [params.q, params.at]);
   const [equipment, setEquipment] = useState<string>();
   const [duration, setDuration] = useState<DurationRange>();
   const [platform, setPlatform] = useState<string>();
@@ -187,10 +189,10 @@ export default function Discover() {
   const loadingFeed = capabilities.isPending || (ready && feed.isPending);
   return (
     <>
-    <RouterStack.Screen options={{ headerRight: () => <BrowseHeader onMenu={() => setMenu(true)} menuItems={[
+    <RouterStack.Screen options={headerActions(<BrowseHeader onMenu={() => setMenu(true)} menuItems={[
       { title: "Share yours", disabled: !enrollment?.enrolled, onPress: () => router.push("/discover/share") },
       { title: view === "grid" ? "Show workouts as a list" : "Show workouts as a grid", onPress: toggleView },
-    ]} /> }} />
+    ]} />)} />
     <Screen
       title="Discover"
       refreshing={pulling}
@@ -216,11 +218,12 @@ export default function Discover() {
         </Stack>
       ) : (
         <>
+          <Row><SearchField value={search} onChange={setSearch} label="Search Discover" placeholder="Search shared workouts" /></Row>
           <BrowseLinks links={[
             { title: surprising ? "Choosing…" : "Surprise me", onPress: () => void surprise(), disabled: surprising },
             { title: active.length ? `Filter · ${active.length}` : "Filter", onPress: () => setFiltersOpen(true) },
           ]} />
-          <FilterSummary items={[settledSearch.trim() && `“${settledSearch.trim()}”`, ...active.map(f => f.label)].filter((item): item is string => !!item)} onClear={clear} />
+          <FilterSummary items={active.map(f => f.label)} onClear={clearFilters} />
           {loadingFeed ? (
             view === "grid" ? <DiscoverGridSkeleton /> : <DiscoverCardSkeleton />
           ) : feed.error && !cards.length ? (

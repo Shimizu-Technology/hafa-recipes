@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
   publishWorkout: vi.fn(),
   back: vi.fn(),
   navigate: vi.fn(),
+  beginDrag: vi.fn(),
   announce: vi.fn(),
   share: vi.fn(),
   active: null as null | { workout: { title: string }; source: { workout_id: string; workout_revision: number } },
@@ -92,7 +93,7 @@ vi.mock("@/lib/context", () => {
     }),
   };
 });
-vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader" }));
+vi.mock("@/components/native-tab-stack", () => ({ BrowseHeader: "BrowseHeader", headerActions: (element: unknown) => ({ headerRight: () => element }) }));
 vi.mock("@/components/publishing-disclosure", async () => {
   const { withPublishingDisclosure } = await import("./discover");
   return {
@@ -142,7 +143,7 @@ vi.mock("expo-router", async () => {
 }); });
 vi.mock("expo-crypto", () => ({ randomUUID: () => "uuid" }));
 vi.mock("@/components/ui", () => {
-  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "Grow", "IconButton",
+  const names = ["AccountButton", "Button", "Card", "Chip", "ChipRow", "Choice", "Copy", "Empty", "Field", "Grow", "HeaderButton", "IconButton", "SearchField",
     "ListGroup", "ListRow", "MediaCard", "Notice", "Row", "Screen", "SectionHeader", "Sheet", "Skeleton", "SkeletonCard", "Stack", "StatTile"];
   return { ...Object.fromEntries(names.map((name) => [name, name])),
     Screen: ({ children, footer, list, ...props }: PropsWithChildren<{ footer?: ReactNode; list?: (body: object) => ReactNode; [key: string]: unknown }>) =>
@@ -158,6 +159,7 @@ vi.mock("@/components/discover-card", () => ({
 }));
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionTile: "CollectionTile", LIBRARY_GRID_GAP: 12 }));
+vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", tabScrollProps: { scrollToOverflowEnabled: true }, useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/discover-grid-card", () => ({
   DiscoverGrid: "DiscoverGrid",
@@ -192,7 +194,7 @@ const link = (title: string) => nodes("Pressable").find((n) => n.props.accessibi
 const button = (title: string) => nodes("Button").find((n) => n.props.title === title) ?? link(title);
 const row = (title: string) => nodes("ListRow").find((n) => n.props.title === title);
 const metaLine = () => nodes("Copy").find((n) => n.props.tone === "muted" && n.props.kind === "small")?.children.join("");
-const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => String(n.type) === "IconButton" && n.props.label === label)[0];
+const header = (label: string) => nodes("ScreenAction")[0]?.findAll((n) => ["IconButton", "HeaderButton"].includes(String(n.type)) && n.props.label === label)[0];
 it("omits an empty reference card when source identity is already in the header", async () => {
   await act(async () => { renderer = create(createElement(WorkoutSource, { source: {
     source_thumbnail_url: "https://example.test/cover.jpg", source_url: "https://example.test/source",
@@ -550,7 +552,7 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   expect(nodes("Screen")[0].props).not.toHaveProperty("eyebrow");
   expect(nodes("StatTile")).toHaveLength(0);
   // Contextual Coach is labelled in content; share and overflow stay in the header.
-  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "IconButton").map((n) => n.props.label))
+  expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "HeaderButton").map((n) => n.props.label))
     .toEqual(["Share workout", "More workout actions"]);
   await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
@@ -1318,6 +1320,82 @@ it("Library long-press starts selecting that workout, and Select all covers ever
   expect(libraryCard(saved.title)!.props.selected).toBeUndefined(); expect(button("Add selected to collection")).toBeUndefined();
   await act(async () => libraryCard(saved.title)!.props.onPress());
   expect(fixture.push).toHaveBeenCalledWith({ pathname: "/workout/[id]", params: { id: saved.id } });
+});
+it("Library scrolls back to the top when its selected tab is tapped again", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  // Library draws its own list, so it registers that list for tab re-taps itself.
+  expect(nodes("TabScrollToTop")).toHaveLength(1);
+  expect(nodes("FlatList")[0].props.onScrollBeginDrag).toBe(fixture.beginDrag);
+  // Lets the re-tap reach the negative resting offset under the large title instead of clamping at 0.
+  expect(nodes("FlatList")[0].props.scrollToOverflowEnabled).toBe(true);
+});
+const typeLibrarySearch = async (text: string) => {
+  await act(async () => nodes("SearchField")[0].props.onChange(text));
+  // Past the 300ms search debounce.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); }); await settle();
+};
+it("Library: clearing filters keeps the search, the empty state's Clear filters clears both", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  await mount(Library);
+  await typeLibrarySearch("squat");
+  await act(async () => filterChoice("Favorites only").props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "squat", favorite_only: true });
+  // The filter summary's Clear leaves the search alone.
+  await act(async () => link("Clear filters")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "squat", favorite_only: false });
+  expect(nodes("SearchField")[0].props.value).toBe("squat");
+  // The empty state ("No matching workouts") clears the search too.
+  await act(async () => nodes("Button").find(n => n.props.title === "Clear filters")!.props.onPress()); await settle();
+  expect(nodes("SearchField")[0].props.value).toBe("");
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0].q).toBeUndefined();
+});
+it("Library: each Search Discover hand-off is distinct, so Discover shows the term even when it repeats", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  await typeLibrarySearch("squat");
+  await act(async () => row("Search Discover for “squat”")!.props.onPress());
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await act(async () => row("Search Discover for “squat”")!.props.onPress());
+  const [first, second] = fixture.navigate.mock.calls.slice(-2).map(call => call[0].params);
+  expect(first.q).toBe("squat"); expect(second.q).toBe("squat");
+  expect(first.at).not.toBe(second.at);
+});
+it("Discover refills its search from a repeated hand-off after you typed something else", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
+  fixture.params = { q: "squat", at: "1" };
+  await mount(Discover);
+  expect(nodes("SearchField")[0].props.value).toBe("squat");
+  await act(async () => nodes("SearchField")[0].props.onChange("press"));
+  fixture.params = { q: "squat", at: "2" };
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Discover))));
+  expect(nodes("SearchField")[0].props.value).toBe("squat");
+});
+it("Library: equipment-only search matches still follow the active filters", async () => {
+  const program = { ...saved, id: "plan", title: "Arm block", kind: "program" as const, equipment_required: ["Dumbbells"] };
+  const session = { ...saved, id: "db", title: "Arm day", equipment_required: ["Dumbbells"] };
+  fixture.library.mockResolvedValue([program, session]);
+  fixture.searchLibrary.mockImplementation(async (filters: { q?: string }) => ({ items: filters.q ? [] : [program, session], total: 0, has_more: false }));
+  await mount(Library);
+  await typeLibrarySearch("dumbbells");
+  expect(nodes("LibraryCard").map(n => n.props.title).sort()).toEqual(["Arm block", "Arm day"]);
+  await act(async () => link("Programs")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells", kind: "program" });
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm block"]);
+});
+it("Library search still finds a workout by its required equipment, as the old Search tab did", async () => {
+  const bodyweight = { ...saved, equipment_required: [] };
+  const dumbbells = { ...saved, id: "db", title: "Arm day", equipment_required: ["Dumbbells"] };
+  fixture.library.mockResolvedValue([bodyweight, dumbbells]);
+  // The server search matches titles, exercises and tags only.
+  fixture.searchLibrary.mockImplementation(async (filters: { q?: string }) => ({ items: filters.q ? [] : [bodyweight, dumbbells], total: 0, has_more: false }));
+  await mount(Library);
+  await act(async () => nodes("SearchField")[0].props.onChange("dumbbells"));
+  // Past the 300ms search debounce.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); }); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells" });
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm day"]);
 });
 it("Library loads the next page as the list nears its end", async () => {
   const second = { ...saved, id: "copy-2", title: "Second workout" };
