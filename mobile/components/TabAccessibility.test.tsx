@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ push: vi.fn(), keyboard: false, inset: 0, listeners: {} as Record<string, () => void> }));
 vi.mock('react-native', () => ({
   Keyboard: { isVisible: () => state.keyboard, addListener: (name: string, fn: () => void) => { state.listeners[name] = fn; return { remove: vi.fn() }; } },
-  Platform: { OS: 'ios' }, Pressable: 'Pressable', View: 'View', StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
+  Platform: { OS: 'ios' }, Pressable: 'Pressable', Text: 'Text', View: 'View', StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 34 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
@@ -35,6 +35,8 @@ it('puts Import between Discover and Plan and announces the selected tab', async
     expect(slots.filter(n => n.props.accessibilityRole === 'tab').map(n => n.props.accessibilityState.selected)).toEqual([false, true, false, false]);
     expect(slots[2].props.accessibilityRole).toBe('button');
     expect(state.inset).toBe(TAB_BAR_HEIGHT + 34);
+    expect(r.container.queryAll(n => n.type === 'Text').every(n => n.props.allowFontScaling === false)).toBe(true);
+    expect(slots.every(n => n.props.accessibilityShowsLargeContentViewer)).toBe(true);
   } finally { await act(async () => r.unmount()); }
 });
 

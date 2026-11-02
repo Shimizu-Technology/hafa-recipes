@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { Text, useColors } from '@/components/Themed';
+import { useColors } from '@/components/Themed';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { ASK_PILL_HEIGHT } from '@/lib/bottomOverlay';
 import { haptics } from '@/utils/haptics';
@@ -23,11 +23,13 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
   accessibilityHint?: string;
 }) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
+  const compact = collapsed || fontScale >= 1.5;
   const reduceMotion = useReduceMotion();
-  const open = useSharedValue(collapsed ? 0 : 1);
+  const open = useSharedValue(compact ? 0 : 1);
   useEffect(() => {
-    open.value = reduceMotion ? (collapsed ? 0 : 1) : withTiming(collapsed ? 0 : 1, { duration: 180 });
-  }, [collapsed, open, reduceMotion]);
+    open.value = reduceMotion ? (compact ? 0 : 1) : withTiming(compact ? 0 : 1, { duration: 180 });
+  }, [compact, open, reduceMotion]);
   const labelStyle = useAnimatedStyle(() => ({
     maxWidth: open.value * LABEL_MAX_WIDTH,
     marginLeft: open.value * 8,
@@ -47,7 +49,7 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
       <Animated.View style={[styles.pill, { backgroundColor: colors.tint }, pillStyle]}>
         <Ionicons name="sparkles" size={22} color={colors.onTint} />
         <Animated.View style={[styles.labelClip, labelStyle]}>
-          <Text maxFontSizeMultiplier={1.3} numberOfLines={1} style={[styles.label, { color: colors.onTint }]}>{label}</Text>
+          <Text allowFontScaling={false} numberOfLines={1} style={[styles.label, { color: colors.onTint }]}>{label}</Text>
         </Animated.View>
       </Animated.View>
     </Pressable>
