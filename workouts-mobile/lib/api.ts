@@ -236,6 +236,7 @@ export function createWorkoutsApi(
       guardAccount();
       if (controller.signal.aborted) throw new ApiError("This request was retired. Refresh before continuing.", 409, true);
       if (!response.ok) {
+        const detail = await errorDetail(response);
         const message =
           response.status === 401
             ? "Your session expired. Sign in again."
@@ -248,13 +249,15 @@ export function createWorkoutsApi(
                   : response.status === 410
                     ? "This saved request or source was cleared or expired. Start a new request deliberately."
                     : response.status === 422
-                      ? "Some details could not be saved. Review your entries and try again."
+                      ? detail === "Source cover expired; save the workout without its cover"
+                        ? detail
+                        : "Some details could not be saved. Review your entries and try again."
                       : response.status === 429
                         ? "The service is busy or a request limit was reached. Your draft is safe; try again later."
                         : response.status === 428
                           ? "Reload the saved record before editing; a revision is required."
                           : "The training service could not finish this request. Please try again.";
-        throw new ApiError(message, response.status, false, await errorDetail(response));
+        throw new ApiError(message, response.status, false, detail);
       }
       const data = response.status === 204 ? (undefined as T) : ((await response.json()) as T);
       guardAccount();
