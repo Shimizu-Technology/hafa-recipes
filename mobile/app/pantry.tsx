@@ -1,9 +1,10 @@
+import { TextInput } from '@/components/Themed';
 import { fontFamily } from '@/constants/Colors';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView,
-  StyleSheet, TextInput, TouchableOpacity, View as RNView,
+  StyleSheet, TouchableOpacity, View as RNView,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/expo';

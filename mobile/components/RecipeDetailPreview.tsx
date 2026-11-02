@@ -6,7 +6,6 @@ import { RecipeDetailScroll } from '@/components/RecipeDetailChrome';
 import { Skeleton } from '@/components/Skeleton';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
-import { useTextSize } from '@/hooks/useTextSize';
 import type { RecipePreview } from '@/lib/recipePreview';
 import { recipeFacts } from '@/lib/recipeDetailPresentation';
 
@@ -17,7 +16,7 @@ import { recipeFacts } from '@/lib/recipeDetailPresentation';
  */
 export function RecipeDetailPreview({ preview }: { preview: RecipePreview }) {
   const colors = useColors();
-  const { scaleFontSize } = useTextSize();
+  const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   const sourceUrl = preview.sourceUrl ?? '';
   const facts = recipeFacts(preview.servings ?? null, { total: preview.totalTime });
 

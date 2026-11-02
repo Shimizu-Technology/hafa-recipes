@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({ textScale: 1, dark: false }));
 vi.mock('react-native', () => ({ ActivityIndicator: 'ActivityIndicator', View: 'View', TouchableOpacity: 'TouchableOpacity',
   StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.5 } }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
-vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: 'Text', useColors: () => ({
   text: state.dark ? '#F8F0E7' : '#17120E', textSecondary: state.dark ? '#B8AEA2' : '#6D5D50', textMuted: '#756659',
   background: state.dark ? '#101411' : '#FFF7EC', backgroundSecondary: state.dark ? '#171D1A' : '#F8EFE3',
   border: '#ddd', error: '#c00', warning: '#960', tint: '#347D73', actionText: state.dark ? '#69C8BA' : '#155C52',
@@ -138,14 +138,14 @@ describe('NutritionPanel', () => {
       expect(panel.byLabel('Whole recipe')[0].props.style[0].minHeight).toBeGreaterThanOrEqual(44);
     } finally { await act(async () => panel.renderer.unmount()); }
   });
-  it('uses semantic action color and the app text-size preference', async () => {
+  it('uses semantic action color and leaves base metrics for shared Text scaling', async () => {
     state.dark = true; state.textScale = 1.3;
     const panel = renderPanel({ onRefresh: vi.fn() });
     try {
       await act(async () => panel.render());
       const refreshText = panel.renderer.container.queryAll(node => node.type === 'Text' && node.props.children === 'Refresh')[0];
       expect(refreshText.props.style[1].color).toBe('#69C8BA');
-      expect(refreshText.props.style[0].fontSize).toBe(17);
+      expect(refreshText.props.style[0].fontSize).toBe(13);
     } finally { state.dark = false; state.textScale = 1; await act(async () => panel.renderer.unmount()); }
   });
 });

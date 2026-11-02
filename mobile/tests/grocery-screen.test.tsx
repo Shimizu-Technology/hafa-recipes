@@ -109,7 +109,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     setItem: vi.fn(async () => undefined),
   },
 }));
-vi.mock('@/components/Themed', () => ({
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
   Button: ({ title, ...props }: { title: string }) => React.createElement('Button', { title, ...props }),
   Text: host('Text'),
   View: host('ThemedView'),

@@ -1,9 +1,9 @@
+import { TextInput } from '@/components/Themed';
 import React, { useEffect, useState } from 'react';
 import {
   Image,
   Platform,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View as RNView,

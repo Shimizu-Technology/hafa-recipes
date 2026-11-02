@@ -73,7 +73,6 @@ import {
   isRecipeOwner,
 } from '@/lib/recipeReviewPresentation';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
-import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
 import { Ingredient } from '@/types/recipe';
 import { useScaledServings, scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
@@ -149,7 +148,7 @@ function RecipeDetailScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { scaleFontSize } = useTextSize();
+  const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   const [activeTab, selectTab] = useState<TabType>('ingredients');
   const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set());
   const [showScale, setShowScale] = useState(false);
@@ -780,7 +779,7 @@ function RecipeDetailScreenContent() {
               </TouchableOpacity>
             </RNView>}
             {/* Title */}
-            <Text accessibilityRole="header" maxFontSizeMultiplier={1.6} style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}>
+            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}>
               {extracted.title}
             </Text>
 

@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Text } from '@/components/Themed';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { APP_ENVIRONMENT, ENVIRONMENT_LABEL } from '@/lib/apiConfig';
@@ -20,7 +21,7 @@ export function EnvironmentBanner() {
         },
       ]}
     >
-      <Text allowFontScaling={false} style={styles.label}>{APP_ENVIRONMENT === 'preview' ? 'PREVIEW' : 'DEVELOPMENT'}</Text>
+      <Text style={styles.label}>{APP_ENVIRONMENT === 'preview' ? 'PREVIEW' : 'DEVELOPMENT'}</Text>
     </View>
   );
 }

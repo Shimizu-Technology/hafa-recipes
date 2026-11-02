@@ -26,7 +26,7 @@ export function Chip({ label, onPress, selected, icon, tone = 'default', accessi
     style={({ pressed }) => [styles.target, { opacity: pressed ? 0.7 : 1 }]}>
     <View style={[styles.chip, { backgroundColor: selected ? colors.tint : colors.surface2 }]}>
       {icon && <Ionicons name={icon} size={16} color={color} />}
-      <Text maxFontSizeMultiplier={1.6} numberOfLines={1} style={[styles.label, { color }]}>{label}</Text>
+      <Text style={[styles.label, { color }]}>{label}</Text>
     </View>
   </Pressable>;
 }

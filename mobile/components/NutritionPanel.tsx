@@ -4,7 +4,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 import type { DerivedValueMetadata, Nutrition } from '@/types/recipe';
-import { useTextSize } from '@/hooks/useTextSize';
 import {
   nutritionAssumptions, nutritionBases, nutritionProvenance, nutritionStatusMessage,
   selectNutritionBasis, type NutritionBasisId,
@@ -18,7 +17,7 @@ export function NutritionPanel({ nutrition, metadata, scaleFactor = 1, isLoading
   recipeServings?: number | null;
 }) {
   const colors = useColors();
-  const { scaleFontSize } = useTextSize();
+  const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   const [localBasisId, setLocalBasisId] = useState<NutritionBasisId>();
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const bases = nutritionBases(nutrition, scaleFactor, recipeServings);

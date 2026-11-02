@@ -26,7 +26,7 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'owner', isLoaded: tru
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
 vi.mock('@/components/OfflineRecipeControl', () => ({ OfflineRecipeControl: () => null }));
-vi.mock('@/components/Themed', () => ({ Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => Colors[m.theme] }));
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => Colors[m.theme] }));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: host('NutritionPanel') }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));
 vi.mock('@/components/AddIngredientsModal', () => ({ default: () => null }));

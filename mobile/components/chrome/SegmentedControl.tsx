@@ -26,7 +26,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
         accessibilityRole="tab" accessibilityState={{ selected }} accessibilityLabel={option.label} testID={`segment-${option.value}`}
         style={styles.target}>
         <View style={[styles.segment, selected && [styles.selected, { backgroundColor: colors.chromeSegment }]]}>
-          <Text maxFontSizeMultiplier={1.4} numberOfLines={1} style={[styles.label, { color: colors.text }]}>{option.label}</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{option.label}</Text>
         </View>
       </Pressable>;
     })}

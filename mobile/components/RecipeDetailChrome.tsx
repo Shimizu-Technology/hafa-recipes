@@ -109,7 +109,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown }: {
         <View style={{ width: sideWidth }}><HeaderCircle action={back} solid={solid} /></View>
         <Animated.View style={[styles.titleWrap, titleStyle]} pointerEvents="none"
           accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={[styles.title, { color: colors.text }]}>{title}</Text>
+          <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>{title}</Text>
         </Animated.View>
         <View style={[styles.actions, { width: sideWidth }]}>
           {actions.map((action) => <HeaderCircle key={action.accessibilityLabel} action={action} solid={solid} />)}

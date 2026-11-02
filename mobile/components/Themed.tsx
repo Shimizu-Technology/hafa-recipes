@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, forwardRef } from 'react';
 /**
  * Themed components with clean, minimal styling
  */
@@ -90,6 +90,17 @@ export function Text(props: TextProps) {
     </TextMetricsContext.Provider>
   );
 }
+
+/** App preference scales the base metrics; native text applies Dynamic Type once. */
+export type TextInput = DefaultTextInput;
+export const TextInput = forwardRef<DefaultTextInput, DefaultTextInput['props']>(function TextInput({ style, ...props }, ref) {
+  const scale = useContext(TextScaleContext);
+  const resolved = StyleSheet.flatten(style);
+  const size = Math.round((resolved?.fontSize ?? typography.body.fontSize) * scale);
+  return <DefaultTextInput ref={ref} {...props} style={[style, { fontSize: size,
+    ...(resolved?.lineHeight !== undefined ? { lineHeight: Math.round(resolved.lineHeight * scale) } : {}),
+  }]} />;
+});
 
 // Basic View component
 export function View(props: ViewProps) {
@@ -183,7 +194,7 @@ export function Input({
 
   return (
     <DefaultView style={{ position: 'relative' }}>
-      <DefaultTextInput
+      <TextInput
         ref={inputRef}
         textContentType={textContentType}
         accessibilityLabel={accessibilityLabel}
@@ -318,7 +329,7 @@ export function Button({
       ]}
     >
       {loading && <ActivityIndicator color={getTextColor()} size="small" />}
-      <MeasuredText
+      <Text
         style={{
           color: getTextColor(),
           flexShrink: 1,
@@ -328,7 +339,7 @@ export function Button({
         }}
       >
         {title}
-      </MeasuredText>
+      </Text>
     </ScalePressable>
   );
 }
@@ -366,7 +377,7 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
       ]}
     >
       {icon && <Ionicons name={icon} size={16} color={selected ? colors.background : colors.textMuted} />}
-      <MeasuredText
+      <Text
         style={{
           flexShrink: 1,
           color: selected ? colors.background : colors.text,
@@ -379,7 +390,7 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
         }}
       >
         {label}
-      </MeasuredText>
+      </Text>
     </DefaultView>
   );
 
@@ -435,7 +446,7 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
 
   return (
     <DefaultView style={{ marginBottom: spacing.md }}>
-      <MeasuredText
+      <Text
         style={{
           fontSize: 20,
           lineHeight: 25,
@@ -445,16 +456,16 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
         }}
       >
         {title}
-      </MeasuredText>
+      </Text>
       {subtitle && (
-        <MeasuredText
+        <Text
             style={{
             ...typography.footnote,
             color: colors.textSecondary,
           }}
         >
           {subtitle}
-        </MeasuredText>
+        </Text>
       )}
     </DefaultView>
   );

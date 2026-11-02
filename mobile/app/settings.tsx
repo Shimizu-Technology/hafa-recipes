@@ -1,8 +1,9 @@
+import { TextInput } from '@/components/Themed';
 import { fontFamily } from '@/constants/Colors';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import React, { useState } from 'react';
-import { StyleSheet, Pressable, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Pressable, TouchableOpacity, Linking, Alert, View as RNView, ScrollView, Share, ActivityIndicator, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser, useClerk, useAuth } from '@clerk/expo';
@@ -416,7 +417,7 @@ export default function SettingsScreen() {
                       index === 2 && styles.segmentedLast,
                     ]}
                   >
-                    <Text maxFontSizeMultiplier={1.6} style={[
+                    <Text style={[
                       styles.segmentedText,
                       { color: themePreference === theme.key ? colors.text : colors.textSecondary },
                     ]}>
@@ -452,7 +453,7 @@ export default function SettingsScreen() {
                       index === 3 && styles.segmentedLast,
                     ]}
                   >
-                    <Text maxFontSizeMultiplier={1.6} style={[
+                    <Text style={[
                       styles.segmentedText,
                       { color: textSize === size.key ? colors.text : colors.textSecondary },
                     ]}>

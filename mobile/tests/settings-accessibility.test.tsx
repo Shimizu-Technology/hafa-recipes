@@ -54,7 +54,7 @@ vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   const host = (name: string) => (props: Record<string, unknown>) =>
     ReactModule.createElement(name, props, props.children as React.ReactNode);
-  return {
+  return { TextInput: 'TextInput',
     TextScaleContext: ReactModule.createContext(1),
     Card: host('Card'),
     Divider: () => null,
