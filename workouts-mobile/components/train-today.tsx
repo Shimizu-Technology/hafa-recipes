@@ -26,6 +26,7 @@ export function TrainToday() {
   const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const c = useColors();
+  const [failedCover, setFailedCover] = useState<string | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjust, setAdjust] = useState<{ program: Program; session?: ScheduledSession } | null>(null);
   const [error, setError] = useState("");
@@ -153,7 +154,7 @@ export function TrainToday() {
   }
   const heroCard = (
     <View style={{ gap: 12 }}>
-      {!!hero.cover && <Image source={{ uri: hero.cover }} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
+      {!!hero.cover && hero.cover !== failedCover && <Image source={{ uri: hero.cover }} onError={() => setFailedCover(hero.cover ?? null)} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
       <Copy kind="heading">{hero.title}</Copy>
       {!!hero.detail && <Copy tone="muted">{hero.detail}</Copy>}
       {!!hero.meta?.length && <Copy kind="small" tone="muted">{hero.meta.join(" · ")}</Copy>}

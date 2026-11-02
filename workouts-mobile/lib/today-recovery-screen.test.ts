@@ -8,7 +8,7 @@ import type { SavedLocalSession } from "./training";
 const fixture = vi.hoisted(() => ({
   owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false, deviceReady: true,
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
-  active: null as null | { workout: { title: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
+  active: null as null | { workout: { title: string; source_thumbnail_url?: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
   session: vi.fn(), correct: vi.fn(), sync: vi.fn(), appListeners: new Set<(state: string) => void>(),
 }));
@@ -754,6 +754,18 @@ it("keeps the existing Coach entry reachable from Today", async () => {
   expect(coach.props.icon).toBe("chatbubble-ellipses-outline");
   await act(async () => coach.props.onPress());
   expect(router.push).toHaveBeenLastCalledWith("/coach");
+});
+
+it("removes a failed Today cover and retries a different cover", async () => {
+  fixture.active = { workout: { title: "Training", source_thumbnail_url: "https://example.test/a.jpg" }, actuals: [] };
+  await mount();
+  const images = () => renderer!.root.findAllByType("Image" as never);
+  expect(images()).toHaveLength(1);
+  await act(async () => images()[0].props.onError());
+  expect(images()).toHaveLength(0);
+  fixture.active = { workout: { title: "Training", source_thumbnail_url: "https://example.test/b.jpg" }, actuals: [] };
+  await act(async () => renderer!.update(tree()));
+  expect(images()).toHaveLength(1);
 });
 
 it("the Today hero gives each state one clear next step", async () => {
