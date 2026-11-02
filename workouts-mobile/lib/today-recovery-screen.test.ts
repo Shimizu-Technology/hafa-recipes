@@ -8,7 +8,7 @@ import type { SavedLocalSession } from "./training";
 const fixture = vi.hoisted(() => ({
   owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false, deviceReady: true,
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
-  active: null as null | { workout: { title: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
+  active: null as null | { workout: { title: string; source_thumbnail_url?: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
   session: vi.fn(), correct: vi.fn(), sync: vi.fn(), appListeners: new Set<(state: string) => void>(),
 }));
@@ -756,6 +756,18 @@ it("keeps the existing Coach entry reachable from Today", async () => {
   expect(router.push).toHaveBeenLastCalledWith("/coach");
 });
 
+it("removes a failed Today cover and retries a different cover", async () => {
+  fixture.active = { workout: { title: "Training", source_thumbnail_url: "https://example.test/a.jpg" }, actuals: [] };
+  await mount();
+  const images = () => renderer!.root.findAllByType("Image" as never);
+  expect(images()).toHaveLength(1);
+  await act(async () => images()[0].props.onError());
+  expect(images()).toHaveLength(0);
+  fixture.active = { workout: { title: "Training", source_thumbnail_url: "https://example.test/b.jpg" }, actuals: [] };
+  await act(async () => renderer!.update(tree()));
+  expect(images()).toHaveLength(1);
+});
+
 it("the Today hero gives each state one clear next step", async () => {
   const { router } = await import("expo-router");
   fixture.available = true;
@@ -779,6 +791,13 @@ it("the Today hero gives each state one clear next step", async () => {
   fixture.programs.mockResolvedValue([plan(dateInTimezone(new Date(), "UTC"), "Today strength")]);
   await remount();
   expect(text()).toContain("Today strength");
+  expect(buttons("Adjust today")).toHaveLength(1);
+  expect(buttons("Ask Coach")).toHaveLength(1);
+  const adjustParent = buttons("Adjust today")[0].parent!;
+  const coachParent = buttons("Ask Coach")[0].parent!;
+  expect(adjustParent.parent).toBe(coachParent.parent);
+  expect(adjustParent.props.style.flex).toBe(1);
+  expect(coachParent.props.style.flex).toBe(1);
   await act(async () => buttons("Start")[0].props.onPress()); await settle();
   expect(fixture.start).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenLastCalledWith("/training");
@@ -860,4 +879,18 @@ it("keeps cached weekly totals when a history refresh fails", async () => {
   fixture.sessions.mockRejectedValue(Error("Offline during refresh"));
   await act(async () => { await cache.invalidateQueries({ queryKey: [fixture.owner, "sessions", fixture.generation] }); }); await settle();
   expect(weeklyValues()).toEqual(values); expect(weeklyLabel()).toBe(label);
+});
+
+
+it("offers Coach in the Today hero only for enrolled members", async () => {
+  fixture.available = true;
+  await mount();
+  expect(buttons("Ask Coach")).toHaveLength(1);
+  expect(buttons("Ask Coach")[0].props.accessibilityHint).toBe("Opens a chat with your AI coach");
+  const { router } = await import("expo-router");
+  await act(async () => buttons("Ask Coach")[0].props.onPress());
+  expect(router.push).toHaveBeenCalledWith("/coach");
+  fixture.enrolled = false;
+  await act(async () => renderer!.update(tree()));
+  expect(buttons("Ask Coach")).toHaveLength(0);
 });
