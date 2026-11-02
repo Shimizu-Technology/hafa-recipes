@@ -91,12 +91,20 @@ it("keeps full row labels and wrapping choices reachable at large text", async (
   const choice = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(c => c.props.accessibilityRole === "radio")!;
   expect(choice.props.accessibilityState).toEqual({ selected: true, checked: true });
 });
-it("does not truncate long row titles or supporting details at the default size", async () => {
+it.each([1, 3.1])("keeps long row text and first-line alignment at font scale %s", async fontScale => {
+  mock.fontScale = fontScale;
   await mount(<Row title="A long journal title about the first weeks and the support we will need"
     detail="A longer date and description that needs room to wrap" icon="book-outline" onPress={() => {}} />);
   const text = renderer!.root.findAllByType("Text" as React.ElementType);
   expect(text).toHaveLength(2);
   expect(text.every(t => !t.props.numberOfLines)).toBe(true);
+  const pressable = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
+  const style = Object.assign({}, ...pressable.props.style);
+  expect(style).toMatchObject({ minHeight: 68, paddingHorizontal: 16, paddingVertical: 14, alignItems: "flex-start" });
+  const views = pressable.findAllByType("View" as React.ElementType);
+  const textContainer = views.find(v => v.props.style?.gap === 2 && v.props.style?.minWidth === 0)!;
+  const iconContainer = views.find(v => v.props.style?.width === 44)!;
+  expect(textContainer.props.style.paddingTop + 11 * fontScale).toBeCloseTo(iconContainer.props.style.marginTop + 22);
 });
 it("keeps normal sync quiet but expands rejected changes for action", async () => {
   mock.baby.state.outbox = [{ id: "queued" }]; mock.baby.syncing = true;
