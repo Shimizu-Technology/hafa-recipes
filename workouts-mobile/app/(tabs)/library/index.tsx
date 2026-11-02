@@ -2,7 +2,7 @@ import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { BrowseLinks, FilterSummary } from "@/components/browse-links";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
-import { filterLibrary } from "@/lib/library";
+import { filterLibrary, matchesLibraryFilters } from "@/lib/library";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useWindowDimensions, ActivityIndicator, FlatList, View } from "react-native";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +33,7 @@ import { tagsFromText, addWorkoutsToCollection, type LibraryFilters } from "@/li
 import type { Workout } from "@/lib/models";
 import { useLibraryView, workoutCardBadge, workoutCardMeta } from "@/lib/library-view";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
-import { TabScrollToTop, useScrollRest } from "@/components/tab-scroll-to-top";
+import { TabScrollToTop, tabScrollProps, useScrollRest } from "@/components/tab-scroll-to-top";
 
 const kindIcons = { exercise: "fitness-outline", accessory: "body-outline", session: "barbell-outline", program: "calendar-outline" } as const;
 const kindLabels: Record<Workout["kind"], string> = { exercise: "Exercises", accessory: "Accessory", session: "Sessions", program: "Programs" };
@@ -154,8 +154,9 @@ export default function Library() {
   const freshness = useFocusRefresh([q, collections, all], { enabled: !!enrollment?.enrolled });
   const filterCount = [needsInfo, favorite, kind, archived, equipment.trim(), tags.trim(), collection, maxMinutes].filter(Boolean).length;
   // Server search covers titles, exercises and tags. The old Search tab also matched required equipment
-  // ("Dumbbells"), so a plain search adds those local matches after the server's results.
-  const localMatches = settledSearch && !filterCount ? filterLibrary(all.data ?? [], settledSearch, null, null) : [];
+  // ("Dumbbells"), so a search adds those local matches, narrowed by the same filters, after the server's results.
+  const localMatches = settledSearch
+    ? filterLibrary(all.data ?? [], settledSearch, null, null).filter(w => matchesLibraryFilters(w, selected, needsInfo)) : [];
   const visible = [
     ...new Map([...(q.data?.pages.flatMap((page) => page.items) ?? []), ...localMatches].map((workout) => [workout.id, workout])).values(),
   ];
@@ -175,9 +176,13 @@ export default function Library() {
     equipment.trim(),
     tags.trim(),
   ].filter((item): item is string => !!item);
+  /** The empty state's "Clear filters" also clears the search; the filter summary keeps it. */
   function clear() {
     setSearch("");
     setSettledSearch("");
+    clearFilters();
+  }
+  function clearFilters() {
     setNeedsInfo(false);
     setEquipment("");
     setTags("");
@@ -205,7 +210,7 @@ export default function Library() {
         ...(needsLink ? [{ title: `Needs info · ${needsCount}`, selected: needsInfo, onPress: () => setNeedsInfo(!needsInfo) }] : []),
         { title: sheetFilters.length ? `Filter · ${sheetFilters.length}` : "Filter", onPress: () => setFilters(true) },
       ]} /></>}
-      {!selecting && <FilterSummary items={sheetFilters} onClear={clear} />}
+      {!selecting && <FilterSummary items={sheetFilters} onClear={clearFilters} />}
       {collections.error && <><Notice error>Could not load collections.</Notice><Button title="Retry loading collections" secondary onPress={() => void collections.refetch()} /></>}
       {!!q.error && visible.length > 0 && <>
         <Notice error>Couldn’t refresh. Showing your saved workouts.</Notice>
@@ -257,6 +262,7 @@ export default function Library() {
         <FlatList
           ref={list}
           onScrollBeginDrag={listRest.onScrollBeginDrag}
+          {...tabScrollProps}
           contentInsetAdjustmentBehavior="automatic"
           key={`${view}:${columns}`}
           data={visible}
@@ -272,7 +278,7 @@ export default function Library() {
           ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={c.action} accessibilityLabel="Loading more workouts" />
             : q.isFetchNextPageError ? <Button title="Retry loading more" secondary onPress={() => void q.fetchNextPage()} />
             : settledSearch && caps.data?.discover && !selecting ? <ListGroup><ListRow icon="compass-outline" title={`Search Discover for “${settledSearch}”`}
-              onPress={() => router.navigate({ pathname: "/(tabs)/discover", params: { q: settledSearch } })} /></ListGroup> : null}
+              onPress={() => router.navigate({ pathname: "/(tabs)/discover", params: { q: settledSearch, at: String(Date.now()) } })} /></ListGroup> : null}
           onEndReachedThreshold={0.6}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (

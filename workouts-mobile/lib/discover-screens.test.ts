@@ -159,7 +159,7 @@ vi.mock("@/components/discover-card", () => ({
 }));
 vi.mock("../components/source-player", () => ({ SourcePlayerModal: "SourcePlayerModal" }));
 vi.mock("@/components/library-card", () => ({ LibraryCard: "LibraryCard", CollectionTile: "CollectionTile", LIBRARY_GRID_GAP: 12 }));
-vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
+vi.mock("@/components/tab-scroll-to-top", () => ({ TabScrollToTop: "TabScrollToTop", tabScrollProps: { scrollToOverflowEnabled: true }, useScrollRest: () => ({ rest: { current: null }, onScrollBeginDrag: fixture.beginDrag }) }));
 vi.mock("@/components/library-search", () => ({ LibrarySearch: "LibrarySearch" }));
 vi.mock("@/components/discover-grid-card", () => ({
   DiscoverGrid: "DiscoverGrid",
@@ -1327,6 +1327,62 @@ it("Library scrolls back to the top when its selected tab is tapped again", asyn
   // Library draws its own list, so it registers that list for tab re-taps itself.
   expect(nodes("TabScrollToTop")).toHaveLength(1);
   expect(nodes("FlatList")[0].props.onScrollBeginDrag).toBe(fixture.beginDrag);
+  // Lets the re-tap reach the negative resting offset under the large title instead of clamping at 0.
+  expect(nodes("FlatList")[0].props.scrollToOverflowEnabled).toBe(true);
+});
+const typeLibrarySearch = async (text: string) => {
+  await act(async () => nodes("SearchField")[0].props.onChange(text));
+  // Past the 300ms search debounce.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); }); await settle();
+};
+it("Library: clearing filters keeps the search, the empty state's Clear filters clears both", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [], total: 0, has_more: false });
+  await mount(Library);
+  await typeLibrarySearch("squat");
+  await act(async () => filterChoice("Favorites only").props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "squat", favorite_only: true });
+  // The filter summary's Clear leaves the search alone.
+  await act(async () => link("Clear filters")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "squat", favorite_only: false });
+  expect(nodes("SearchField")[0].props.value).toBe("squat");
+  // The empty state ("No matching workouts") clears the search too.
+  await act(async () => nodes("Button").find(n => n.props.title === "Clear filters")!.props.onPress()); await settle();
+  expect(nodes("SearchField")[0].props.value).toBe("");
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0].q).toBeUndefined();
+});
+it("Library: each Search Discover hand-off is distinct, so Discover shows the term even when it repeats", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true));
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  await mount(Library);
+  await typeLibrarySearch("squat");
+  await act(async () => row("Search Discover for “squat”")!.props.onPress());
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await act(async () => row("Search Discover for “squat”")!.props.onPress());
+  const [first, second] = fixture.navigate.mock.calls.slice(-2).map(call => call[0].params);
+  expect(first.q).toBe("squat"); expect(second.q).toBe("squat");
+  expect(first.at).not.toBe(second.at);
+});
+it("Discover refills its search from a repeated hand-off after you typed something else", async () => {
+  fixture.capabilities.mockResolvedValue(caps(true)); fixture.discover.mockResolvedValue(page());
+  fixture.params = { q: "squat", at: "1" };
+  await mount(Discover);
+  expect(nodes("SearchField")[0].props.value).toBe("squat");
+  await act(async () => nodes("SearchField")[0].props.onChange("press"));
+  fixture.params = { q: "squat", at: "2" };
+  await act(async () => renderer!.update(createElement(QueryClientProvider, { client: cache }, createElement(Discover))));
+  expect(nodes("SearchField")[0].props.value).toBe("squat");
+});
+it("Library: equipment-only search matches still follow the active filters", async () => {
+  const program = { ...saved, id: "plan", title: "Arm block", kind: "program" as const, equipment_required: ["Dumbbells"] };
+  const session = { ...saved, id: "db", title: "Arm day", equipment_required: ["Dumbbells"] };
+  fixture.library.mockResolvedValue([program, session]);
+  fixture.searchLibrary.mockImplementation(async (filters: { q?: string }) => ({ items: filters.q ? [] : [program, session], total: 0, has_more: false }));
+  await mount(Library);
+  await typeLibrarySearch("dumbbells");
+  expect(nodes("LibraryCard").map(n => n.props.title).sort()).toEqual(["Arm block", "Arm day"]);
+  await act(async () => link("Programs")!.props.onPress()); await settle();
+  expect(fixture.searchLibrary.mock.calls.at(-1)![0]).toMatchObject({ q: "dumbbells", kind: "program" });
+  expect(nodes("LibraryCard").map(n => n.props.title)).toEqual(["Arm block"]);
 });
 it("Library search still finds a workout by its required equipment, as the old Search tab did", async () => {
   const bodyweight = { ...saved, equipment_required: [] };

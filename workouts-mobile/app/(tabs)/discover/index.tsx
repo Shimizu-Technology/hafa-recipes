@@ -73,7 +73,8 @@ function useDiscoverView() {
 
 export default function Discover() {
   const { api, owner, enrollment, isCurrentAccount } = useTraining();
-  const params = useLocalSearchParams<{ q?: string }>();
+  // `at` makes each "Search Discover for …" hand-off distinct, so repeating a term still fills the field.
+  const params = useLocalSearchParams<{ q?: string; at?: string }>();
   const cache = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string>();
   const [menu, setMenu] = useState(false);
@@ -81,7 +82,7 @@ export default function Discover() {
   const saveLock = useRef(false);
   const [search, setSearch] = useState(params.q ?? "");
   const [settledSearch, setSettledSearch] = useState(params.q ?? "");
-  useEffect(() => { setSearch(params.q ?? ""); setSettledSearch(params.q ?? ""); }, [params.q]);
+  useEffect(() => { setSearch(params.q ?? ""); setSettledSearch(params.q ?? ""); }, [params.q, params.at]);
   const [equipment, setEquipment] = useState<string>();
   const [duration, setDuration] = useState<DurationRange>();
   const [platform, setPlatform] = useState<string>();
