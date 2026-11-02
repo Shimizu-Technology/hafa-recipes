@@ -1,4 +1,3 @@
-import { spokenQuantity } from '@/lib/quantityPresentation';
 /**
  * Modal for selecting which ingredients to add to grocery list
  */
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';

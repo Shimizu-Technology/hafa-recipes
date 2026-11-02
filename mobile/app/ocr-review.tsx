@@ -1,4 +1,3 @@
-import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { importInbox } from '@/lib/importInbox';
@@ -21,6 +20,7 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 
 import { View, Text, Button, useColors } from '@/components/Themed';
 import {

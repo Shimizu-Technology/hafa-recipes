@@ -1,4 +1,3 @@
-import { spokenQuantity } from '@/lib/quantityPresentation';
 import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
 import { RecipeDetailAction, RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -28,6 +27,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Button, Text, View, Card, Divider, useColors } from '@/components/Themed';
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';

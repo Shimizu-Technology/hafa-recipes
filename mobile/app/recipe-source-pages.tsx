@@ -1,4 +1,3 @@
-import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { useRecipeQuery as useQuery } from '@/hooks/useRecipeQuery';
 import { useRef, useState } from 'react';
@@ -8,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { useCurrentUserIdentity, useRecipe } from '@/hooks/useRecipes';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 
 /** Original pages never enter public recipe data or the image disk cache. */
 export default function RecipeSourcePagesScreen() {

@@ -1,4 +1,3 @@
-import { spokenQuantity } from '@/lib/quantityPresentation';
 import { recipeScope, assertRecipeScope, scopedRecipeKey, ownerQueryClient } from '@/lib/recipeQueryScope';
 import { getIngredientAmount, formatIngredientAmount, normalizeIngredientUnit } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
@@ -9,6 +8,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Button, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';

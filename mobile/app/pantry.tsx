@@ -1,4 +1,3 @@
-import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { fontFamily } from '@/constants/Colors';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useMemo, useState } from 'react';
@@ -10,6 +9,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Text, useColors } from '@/components/Themed';
 import { fontSize, fontWeight, radius, spacing } from '@/constants/Colors';

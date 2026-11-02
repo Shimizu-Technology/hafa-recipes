@@ -1,6 +1,6 @@
-import { spokenQuantity } from '@/lib/quantityPresentation';
 import { Alert, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { spokenQuantity } from '@/lib/quantityPresentation';
 import { Card, Text, useColors } from '@/components/Themed';
 import { scaleQuantity } from '@/hooks/useScaledServings';
 import { getCookingNotes, getIngredientAmount } from '@/lib/recipeTrust';
