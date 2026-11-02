@@ -17,7 +17,8 @@ vi.mock("@/lib/context", () => {
     useOfflineTraining: () => ({ state: { history: fixture.history, recovery_receipts: fixture.receipts }, error: "", ready: fixture.ready, store: fixture.store }) };
 });
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
-vi.mock("@/components/native-tab-stack", () => ({ useNativeHeader: () => false }));
+const tab = vi.hoisted(() => ({ inTab: false }));
+vi.mock("@/components/native-tab-stack", () => ({ useNativeHeader: () => tab.inTab }));
 vi.mock("@/components/progress-records", () => ({ ProgressRecords: "ProgressRecords" }));
 vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", AppState: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: fixture.alert } }));
 vi.mock("expo-router", () => ({ router: { push: fixture.push, replace: fixture.replace },
@@ -57,7 +58,16 @@ beforeEach(() => {
   Object.values(fixture.store).forEach((fn) => fn.mockClear());
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
-afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); });
+afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; cache.clear(); tab.inTab = false; });
+it("is titled Progress with no back control as a tab, and History & progress with back when pushed", async () => {
+  tab.inTab = true;
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(renderer!.root.findByType("Screen" as never).props).toMatchObject({ title: "Progress", back: false });
+  await act(async () => renderer!.unmount());
+  tab.inTab = false;
+  await act(async () => { renderer = create(tree()); }); await settle();
+  expect(renderer!.root.findByType("Screen" as never).props).toMatchObject({ title: "History & progress", back: true });
+});
 
 it("mounted Progress shows one session immediately after a local correction and retains it through sync with stale/fresh server cache", async () => {
   const original = saved("A"), correction = saved("B", "A");

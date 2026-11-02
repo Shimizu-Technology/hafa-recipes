@@ -14,7 +14,7 @@ export default function Layout() {
     <Tabs.Screen name="train" />
     <Tabs.Screen name="library" />
     <Tabs.Screen name="discover" />
-    <Tabs.Screen name="progress" />
+    <Tabs.Screen name="history" />
     <Tabs.Screen name="search" options={{ href: null }} />
   </Tabs>;
 }

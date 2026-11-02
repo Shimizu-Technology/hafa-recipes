@@ -13,7 +13,7 @@ vi.mock("../components/design/foundation", () => ({ useColors: () => f.scheme ==
 import { AppTabBar } from "../components/design/tab-bar";
 
 let view: ReactTestRenderer | undefined;
-const routes = ["train", "library", "discover", "progress", "search"].map(name => ({ key: `${name}-key`, name, params: undefined }));
+const routes = ["train", "library", "discover", "history", "search"].map(name => ({ key: `${name}-key`, name, params: undefined }));
 const navigation = { emit: vi.fn(() => ({ defaultPrevented: false })), navigate: vi.fn() };
 const render = (index = 1) => act(() => {
   view = create(createElement(AppTabBar, { state: { index, routes }, navigation, insets: { top: 0, right: 0, bottom: 34, left: 0 }, descriptors: {} } as never));

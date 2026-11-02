@@ -16,7 +16,7 @@ export const tabs: TabSpec[] = [
   { route: "train", label: "Today", icon: "today-outline", selectedIcon: "today" },
   { route: "library", label: "Library", icon: "albums-outline", selectedIcon: "albums" },
   { route: "discover", label: "Discover", icon: "compass-outline", selectedIcon: "compass" },
-  { route: "progress", label: "Progress", icon: "stats-chart-outline", selectedIcon: "stats-chart" },
+  { route: "history", label: "Progress", icon: "stats-chart-outline", selectedIcon: "stats-chart" },
 ];
 
 /** iOS covers the bar with the keyboard; Android pushes it up. Hide it on both while typing. */

@@ -24,7 +24,7 @@ it("draws its own tab bar over Today, Library, Discover and Progress, keeping Se
   expect(unstable_settings.initialRouteName).toBe("train");
   expect(tabs.props.screenOptions).toMatchObject({ headerShown: false });
   expect(tabs.props.tabBar({}).type).toBe("AppTabBar");
-  expect(tabs.props.children.map((tab: { props: any }) => tab.props.name)).toEqual(["train", "library", "discover", "progress", "search"]);
+  expect(tabs.props.children.map((tab: { props: any }) => tab.props.name)).toEqual(["train", "library", "discover", "history", "search"]);
   expect(tabs.props.children[4].props.options).toEqual({ href: null });
 });
 it("redirects legacy training and capture routes without dropping parameters", () => {
