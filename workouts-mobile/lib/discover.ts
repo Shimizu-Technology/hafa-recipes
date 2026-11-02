@@ -3,7 +3,7 @@
  * the screens share. Contract: docs/hafa-workouts/DISCOVER.md.
  */
 import type { AuthoredWorkout, ExercisePrescription, Workout } from "./models";
-import { repPattern } from "./timed-execution";
+import { formatLabel, repPattern, type FormatBlock } from "./timed-execution";
 
 export interface Publication {
   is_public: boolean;
@@ -22,6 +22,8 @@ export interface DiscoverContributorSummary {
   is_you: boolean;
 }
 export interface DiscoverCard {
+  /** Absent on older servers; reuse Library's format chip formatter. */
+  format?: FormatBlock | null;
   id: string;
   title: string;
   kind: Workout["kind"];
@@ -267,10 +269,15 @@ export function formatSeconds(seconds: number) {
   return `${seconds / 60} min`;
 }
 
-/** Card meta line: minutes · exercises · contributor. */
-export function cardMeta(card: Pick<DiscoverCard, "estimated_minutes" | "exercise_count" | "contributor" | "is_owner">) {
+/** Library's short format name, or null so an older response keeps its minutes. */
+export function discoverFormatLabel(card: Pick<DiscoverCard, "format">) {
+  return card.format ? formatLabel(card.format, true) : null;
+}
+
+/** Card meta line: format or minutes · exercises · contributor. */
+export function cardMeta(card: Pick<DiscoverCard, "format" | "estimated_minutes" | "exercise_count" | "contributor" | "is_owner">) {
   return [
-    card.estimated_minutes ? `${card.estimated_minutes} min` : null,
+    discoverFormatLabel(card) || (card.estimated_minutes ? `${card.estimated_minutes} min` : null),
     `${card.exercise_count} ${card.exercise_count === 1 ? "exercise" : "exercises"}`,
     card.is_owner ? "Shared by you" : `Shared by ${card.contributor.display_name}`,
   ]

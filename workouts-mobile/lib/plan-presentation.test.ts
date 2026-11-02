@@ -13,6 +13,11 @@ describe("plan presentation", () => {
   it("summarizes a workout in one line and lets an AMRAP cap replace the estimate", () => {
     expect(workoutMeta({ minutes: 45, exercises: 4, equipment: ["Dumbbells", "pull-up bar"] })).toBe("45 min · 4 exercises · Dumbbells, pull-up bar");
     expect(workoutMeta({ minutes: 25, timeCap: "20 min", exercises: 1, equipment: [] })).toBe("20 min AMRAP · 1 exercise");
+    // Imports sometimes store a literal "None": say "No equipment", never "None".
+    for (const none of [["None"], ["none"], ["No equipment"], ["N/A"], ["None", " "]])
+      expect(workoutMeta({ exercises: 2, equipment: none })).toBe("2 exercises · No equipment");
+    expect(workoutMeta({ exercises: 2, equipment: ["", "  "] })).toBe("2 exercises");
+    expect(workoutMeta({ exercises: 2, equipment: ["None", "Dumbbells"] })).toBe("2 exercises · Dumbbells");
     expect(workoutMeta({ minutes: null, exercises: 0 })).toBe("0 exercises");
   });
   it("lists exercise targets compactly and keeps unknowns honest", () => {

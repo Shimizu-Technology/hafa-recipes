@@ -1,9 +1,8 @@
 /**
- * Placement for app-wide overlays (toasts) near the native tab bar.
+ * Placement for app-wide overlays (toasts) above the tab bar.
  *
- * JS can't measure the native tab bar, but each tab screen's own safe area
- * already includes it. Tab stacks report that inset here; overlays mounted at
- * the root use it while a tab screen is showing.
+ * The JS tab bar reports its measured height (bar + home indicator) here;
+ * overlays mounted at the root use it while a tab screen is showing.
  */
 import { useSyncExternalStore } from "react";
 
@@ -18,7 +17,7 @@ const subscribe = (listener: () => void) => {
 };
 const getInset = () => tabScreenBottomInset;
 
-/** Record the focused tab screen's bottom safe-area inset (tab bar + home indicator). */
+/** Record the tab bar's height including the home indicator. */
 export function reportTabScreenBottomInset(bottom: number) {
   if (!(bottom > 0) || bottom === tabScreenBottomInset) return;
   tabScreenBottomInset = bottom;
@@ -29,7 +28,7 @@ export function useTabScreenBottomInset(): number {
   return useSyncExternalStore(subscribe, getInset, getInset);
 }
 
-/** The native tab bar is on screen whenever the root route is the tab group. */
+/** The tab bar is on screen whenever the root route is the tab group. */
 export function isTabRoute(segments: readonly string[]): boolean {
   return segments[0] === "(tabs)";
 }

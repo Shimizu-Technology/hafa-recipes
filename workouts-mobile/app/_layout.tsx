@@ -83,7 +83,10 @@ function Routes() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
-        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text }, headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /> }} />
+        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text },
+          // The centre tab opens this sheet; its header matches the grouped page in light and dark.
+          headerStyle: { backgroundColor: c.groupedBackground }, headerShadowVisible: false, contentStyle: { backgroundColor: c.groupedBackground },
+          headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /> }} />
         <Stack.Screen name="extract" />
         <Stack.Screen name="plan" />
         <Stack.Screen name="progress" />

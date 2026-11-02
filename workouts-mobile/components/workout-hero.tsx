@@ -17,7 +17,7 @@ type Source = Pick<Workout, "title" | "source_title" | "source_creator" | "sourc
  * the play button really plays it: the official player in the app, or the original
  * post when in-app playback isn't available. Other covers enlarge on tap.
  */
-export function WorkoutHero({ source }: { source: Source }) {
+export function WorkoutHero({ source, format }: { source: Source; format?: string | null }) {
   const c = useColors();
   const [playing, setPlaying] = useState(false), [failed, setFailed] = useState<string | null>(null), [error, setError] = useState("");
   const press = usePressScale();
@@ -28,7 +28,9 @@ export function WorkoutHero({ source }: { source: Source }) {
   const embedded = !!player && Platform.OS !== "web" && embeddedSourcesEnabled();
   const image = source.source_thumbnail_url && failed !== source.source_thumbnail_url ? source.source_thumbnail_url : null;
   const label = source.cover_origin === "user" ? "Custom workout cover photo" : source.source_title ?? "Original workout source";
-  const credit = source.source_creator ? `Original by ${source.source_creator}` : source.source_title;
+  // A source title that only repeats the workout title or its format ("EMOM 20") says nothing new.
+  const repeats = (text?: string | null) => !!text && [source.title, format].some(other => !!other && other.toLowerCase().includes(text.trim().toLowerCase()));
+  const credit = source.source_creator ? `Original by ${source.source_creator}` : repeats(source.source_title) ? (source.source_url ? "Original post" : null) : source.source_title;
   const openOriginal = () => {
     close();
     setError("");

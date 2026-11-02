@@ -8,6 +8,7 @@ import {
   creatorCredit,
   defaultShareToDiscover,
   discoverKeys,
+  discoverFormatLabel,
   discoverFilterQuery,
   discoverQuery,
   discoverUnavailable,
@@ -24,6 +25,7 @@ import {
   type DiscoverPage,
 } from "./discover";
 import type { Workout } from "./models";
+import { durationLabel, type FormatBlock } from "./timed-execution";
 
 const card: DiscoverCard = {
   id: "a", title: "Legs", kind: "session", estimated_minutes: 10, equipment_required: [], equipment_optional: [],
@@ -32,6 +34,30 @@ const card: DiscoverCard = {
   saved_workout_id: null,
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+it.each<[FormatBlock["execution"], string]>([
+  [{ mode: "emom", interval_seconds: 60, intervals: 20, rotation: null }, "EMOM 20"],
+  [{ mode: "emom", interval_seconds: 120, intervals: 10, rotation: null }, "E2MOM × 10"],
+  [{ mode: "amrap", time_cap_seconds: 1200 }, "AMRAP 20"],
+  [{ mode: "for_time", time_cap_seconds: 900 }, "For time · cap 15"],
+  [{ mode: "for_time", time_cap_seconds: null }, "For time"],
+  [{ mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, "Tabata 4 min"],
+  [{ mode: "work_rest", work_seconds: 30, rest_seconds: 30, intervals: 10 }, "30/30 × 10"],
+])("Discover formats %s with the same label as Library", (execution, expected) => {
+  const format: FormatBlock = { execution, rounds: 3, exercises: [{ rep_scheme: [21, 15, 9] }] };
+  expect(discoverFormatLabel({ format })).toBe(expected);
+  expect(cardMeta({ ...card, format })).toBe(`${expected} · 1 exercise · Shared by Leon`);
+  expect(durationLabel({ blocks: [format], estimated_minutes: 35 })).toBe(expected);
+});
+
+it("keeps Death by and older-server duration fallback consistent", () => {
+  expect(discoverFormatLabel({ format: { execution: { mode: "emom", interval_seconds: 60, intervals: null, rotation: null },
+    exercises: [{ ladder: { start: 1, step: 1, end: null } }] } })).toBe("Death by");
+  for (const format of [undefined, null]) {
+    expect(cardMeta({ ...card, format })).toBe("10 min · 1 exercise · Shared by Leon");
+    expect(cardMeta({ ...card, format, estimated_minutes: null })).toBe("1 exercise · Shared by Leon");
+  }
+});
 
 describe("discover query mapping", () => {
   it("maps filters to the API's parameters and omits empty ones", () => {

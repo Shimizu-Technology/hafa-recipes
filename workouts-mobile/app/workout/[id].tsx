@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,9 +7,10 @@ import { useLocalSearchParams } from "expo-router";
 import {
   Button,
   Card,
+  Chip,
   Copy,
   Empty,
-  IconButton,
+  HeaderButton,
   ListGroup,
   ListRow,
   Notice,
@@ -37,6 +38,9 @@ import { workoutMeta } from "@/lib/plan-presentation";
 import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
 import { formatLabel } from "@/lib/timed-execution";
 import { workoutDeletionBlock } from "@/lib/organization";
+import { AskCoachPill } from "@/components/ask-coach-pill";
+import { reportAskScroll, resetAskScroll } from "@/lib/ask-pill";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 export default function WorkoutDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment, isCurrentAccount } = useTraining();
@@ -53,6 +57,8 @@ export default function WorkoutDetail() {
   });
   const workout = q.data;
   const offline = useOfflineTraining();
+  const insets = useSafeAreaInsets();
+  useEffect(() => { resetAskScroll(); }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [more, setMore] = useState(false);
@@ -161,8 +167,10 @@ export default function WorkoutDetail() {
   const diagnostics = [...new Set(workout?.extraction_warnings ?? [])];
   // Same words as the library card: "EMOM 20", "AMRAP 15", "21-15-9 for time · cap 12".
   const format = workout?.blocks.length === 1 ? formatLabel(workout.blocks[0]) : null;
+  // The format is said once, as a chip ("EMOM 20"); the meta line carries the rest.
+  const formatChip = format ?? (timeCap != null ? `AMRAP ${formatSeconds(timeCap)}` : null);
   const meta = workout ? workoutMeta({ minutes: workout.estimated_minutes, timeCap: timeCap != null ? formatSeconds(timeCap) : null, format,
-    exercises, equipment: workout.equipment_required }) : undefined;
+    exercises, equipment: workout.equipment_required }).split(" · ").slice(formatChip ? 1 : 0).join(" · ") : undefined;
   const go = (to: Parameters<typeof router.push>[0]) => {
     setMore(false);
     router.push(to);
@@ -186,22 +194,27 @@ export default function WorkoutDetail() {
         : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
   return (
+    <>
     <Screen native
       back
+      onScroll={event => reportAskScroll(event.nativeEvent.contentOffset.y)}
       title={workout?.title ?? "Your workout."}
       // The hero leads; the title and meta line follow it in the page body.
       hideTitle
-      action={workout ? <Row gap={4}>
-        {workout.kind !== "program" && <IconButton icon="share-outline" label="Share workout" variant="plain"
+      action={workout ? <Row gap={0}>
+        {workout.kind !== "program" && <HeaderButton icon="share-outline" label="Share workout"
           onPress={() => router.push({ pathname: "/share", params: { id: workout.id, kind: "workout" } })} />}
-        <IconButton icon="ellipsis-horizontal" label="More workout actions" variant="plain" onPress={() => setMore(true)} />
+        <HeaderButton icon="ellipsis-horizontal" label="More workout actions" onPress={() => setMore(true)} />
       </Row> : undefined}
 
     >
-      {workout && <WorkoutHero source={workout} />}
+      {workout && <WorkoutHero source={workout} format={formatChip} />}
       <Stack gap={6}>
         <Copy kind="heading">{workout?.title ?? "Your workout."}</Copy>
-        {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
+        {(!!formatChip || !!meta) && <Row gap={8} wrap>
+          {!!formatChip && <Chip label={formatChip} tone="accent" icon="timer-outline" />}
+          {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
+        </Row>}
       </Stack>
       {primary}
       {!!hint && <Copy kind="small" tone="muted">{hint}</Copy>}
@@ -232,18 +245,21 @@ export default function WorkoutDetail() {
           />
         ) : (
           <>
-            <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} />
+            <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} said={formatChip} />
             {exercises > 0 && <SectionHeader title="Exercises" />}
             {workout.blocks.map((block, index) => block.exercises.length > 0 && (
               <ListGroup key={index}>
-                <Copy kind="caption" tone="muted">
-                  {[
-                    block.label || null,
-                    blockSummary(block, block.label),
+                {(() => {
+                  // A single block's format is already in the chip above; don't repeat it here.
+                  const said = workout.blocks.length === 1 && formatChip ? formatChip : "";
+                  const caption = [
+                    block.label && block.label.trim().toLowerCase() !== said.toLowerCase() ? block.label : null,
+                    blockSummary(block, [block.label, said].filter(Boolean).join(" ")),
                     block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? "Rounds not specified" : null,
                     block.rest_between_rounds_seconds != null ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
-                  ].filter(Boolean).join(" · ")}
-                </Copy>
+                  ].filter(Boolean).join(" · ");
+                  return caption ? <Copy kind="caption" tone="muted">{caption}</Copy> : null;
+                })()}
                 {block.exercises.map((e, i) => (
                   <Row key={i} gap={14} align="flex-start">
                     <Copy kind="numericSmall" tone="muted" style={{ minWidth: 24 }}>
@@ -338,6 +354,11 @@ export default function WorkoutDetail() {
         onEdit={() => { setChoosing(false); router.push({ pathname: "/edit-workout/[id]", params: { id: workout.id } }); }}
       />}
       {disclosure.sheet}
+      {/* Room for the floating Ask pill below the last section. */}
+      <View style={{ height: 56 }} />
     </Screen>
+    {workout && <AskCoachPill bottom={insets.bottom + 16} label="Ask about this" hint="Opens a coach chat about this workout"
+      href={{ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } }} />}
+    </>
   );
 }

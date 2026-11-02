@@ -5,12 +5,13 @@ every Discover route answers 503 and private Workouts behave exactly as before,
 so this code may be deployed before an operator applies the migration.
 """
 
+import logging
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import Field
+from pydantic import Field, StrictInt, ValidationError
 from sqlalchemy import (
     Boolean,
     Column,
@@ -48,7 +49,12 @@ from app.domains.workouts.router import (
     refresh_library_source,
     validated_workout,
 )
-from app.domains.workouts.schemas import DomainModel, WorkoutContent
+from app.domains.workouts.schemas import (
+    DomainModel,
+    RepLadder,
+    WorkoutContent,
+    WorkoutExecution,
+)
 from app.domains.workouts.security import WorkoutsRoute
 from app.domains.workouts.sharing_service import project_workout
 from app.models.identity import AppUser
@@ -58,6 +64,8 @@ from app.public_identity import public_contributor_id
 from app.publishing import require_current_publishing_disclosure
 from app.services.storage import storage_service
 from app.source_urls import canonicalize_source
+
+logger = logging.getLogger(__name__)
 
 # Discover columns are deliberately not mapped on WorkoutRecord: ORM reads of
 # the private library must keep working on a database without migration 045.
@@ -254,11 +262,25 @@ class Contributor(DomainModel):
     display_name: str
 
 
+class DiscoverFormatExercise(DomainModel):
+    rep_scheme: list[StrictInt] | None = None
+    ladder: RepLadder | None = None
+
+
+class DiscoverFormat(DomainModel):
+    """Only the prescription fields needed by the shared client chip formatter."""
+
+    execution: WorkoutExecution
+    rounds: int | None = None
+    exercises: list[DiscoverFormatExercise]
+
+
 class DiscoverCard(DomainModel):
     id: UUID
     title: str
     kind: str
     estimated_minutes: int | None
+    format: DiscoverFormat | None = None
     equipment_required: list[str]
     equipment_optional: list[str]
     block_count: int
@@ -292,12 +314,45 @@ def save_key(public_id):
 
 
 def card(row, viewer_id, saved, *, detail=False):
-    workout, _ = public_workout(row.content)
+    content = row.content
+    blocks = content.get("blocks") or []
+    format_block = blocks[0] if content.get("kind") != "program" and len(blocks) == 1 else None
+    try:
+        workout_format = (
+            DiscoverFormat(
+                execution=format_block["execution"],
+                rounds=format_block.get("rounds"),
+                exercises=[
+                    DiscoverFormatExercise(
+                        rep_scheme=exercise.get("rep_scheme"), ladder=exercise.get("ladder")
+                    )
+                    for exercise in format_block["exercises"]
+                ],
+            )
+            if format_block and format_block.get("execution") is not None
+            else None
+        )
+    except (ValidationError, KeyError):
+        # Never log content or validation exceptions, which include input values.
+        logger.warning("Ignoring invalid Discover card format")
+        workout_format = None
+        # The public projection validates WorkoutContent too. Remove the broken
+        # optional format from a copy so the card survives that validation.
+        content = {**content, "blocks": [{
+            **format_block, "execution": None,
+            "exercises": [
+                {key: value for key, value in exercise.items()
+                 if key not in {"rep_scheme", "ladder"}}
+                for exercise in format_block.get("exercises", [])
+            ],
+        }]}
+    workout, _ = public_workout(content)
     values = dict(
         id=row.id,
         title=workout["title"],
         kind=workout["kind"],
         estimated_minutes=workout["estimated_minutes"],
+        format=workout_format,
         equipment_required=workout["equipment_required"],
         equipment_optional=workout["equipment_optional"],
         block_count=len(workout["blocks"]),

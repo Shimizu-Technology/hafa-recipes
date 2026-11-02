@@ -156,7 +156,7 @@ function GroceryScreenContent() {
   const insets = useSafeAreaInsets();
   const endPadding = useTabScrollEndPadding(spacing.xl);
   const listRef = useRef<SectionList<GroceryItem, any>>(null);
-  useTabScrollToTop('grocery', listRef);
+  const tabScroll = useTabScrollToTop('grocery', listRef);
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthenticated = isLoaded && isSignedIn === true;
   const isGuest = isLoaded && isSignedIn === false;
@@ -771,6 +771,7 @@ function GroceryScreenContent() {
       <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placement: 'stacked', placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, ...headerRightOptions(() => <>{isAuthenticated && <HeaderIconButton icon="ellipsis-horizontal" accessibilityLabel="More grocery list actions" onPress={handleShowOverflowMenu} />}<AccountHeaderButton /></>) }} />
       <SectionList
         ref={listRef}
+        {...tabScroll}
         style={[styles.container, { backgroundColor: colors.groupedBackground }]}
         key={fontScale}
         contentInsetAdjustmentBehavior="automatic"
