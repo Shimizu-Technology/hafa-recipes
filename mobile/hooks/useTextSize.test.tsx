@@ -4,7 +4,7 @@ import { expect, it, vi } from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const storage = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem: storage.get, setItem: storage.set } }));
-vi.mock('react-native', () => ({ Text: 'Text', StyleSheet: { flatten: (s: unknown) => Array.isArray(s) ? Object.assign({}, ...s) : s }, }));
+vi.mock('react-native', () => ({ useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1, scale: 3 }), Text: 'Text', StyleSheet: { flatten: (s: unknown) => Array.isArray(s) ? Object.assign({}, ...s) : s }, }));
 vi.mock('@/components/useColorScheme', () => ({ useColorScheme: () => 'light' }));
 vi.mock('@/components/Animated', () => ({ ScalePressable: 'Pressable' }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Icon' }));

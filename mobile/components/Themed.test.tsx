@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import Colors from '@/constants/Colors';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-vi.mock('react-native', () => ({ Text: 'Text', View: 'View', TextInput: 'TextInput', ActivityIndicator: 'ActivityIndicator', StyleSheet: { create: (s: unknown) => s, flatten: (s: unknown) => Array.isArray(s) ? Object.assign({}, ...s) : s } }));
+const metrics = vi.hoisted(() => ({ fontScale: 1, nativeId: 0 }));
+vi.mock('react-native', () => ({ useWindowDimensions: () => metrics, Text: (props: any) => { const [id] = React.useState(() => ++metrics.nativeId); return React.createElement('Text', { ...props, nativeId: id }, props.children); }, View: 'View', TextInput: 'TextInput', ActivityIndicator: 'ActivityIndicator', StyleSheet: { create: (s: unknown) => s, flatten: (s: unknown) => Array.isArray(s) ? Object.assign({}, ...s) : s } }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('./useColorScheme', () => ({ useColorScheme: () => 'dark' }));
 vi.mock('./Animated', () => ({ ScalePressable: 'ScalePressable' }));
@@ -96,4 +97,22 @@ it('keeps ingredient quantities and notes at the parent’s scaled text size and
     expect(nodes).toHaveLength(3);
     for (const node of nodes) expect(node.props.style[0]).toMatchObject({ fontSize: 28, lineHeight: 40 });
   } finally { await act(async () => r.unmount()); }
+});
+
+it('remeasures native text after a system font-size change without doubling nested metrics', async () => {
+  const r = createRoot();
+  const press = vi.fn();
+  const page = () => <><Text style={{ fontSize: 17, lineHeight: 24 }}>Oil<Text style={{ fontWeight: '600' }}> 1 cup</Text></Text><Button title="Import recipes" onPress={press} /><Chip label="Favorites" onPress={vi.fn()} /></>;
+  try {
+    await act(async () => r.render(page()));
+    const before = r.container.queryAll(n => n.type === 'Text').map(n => n.props.nativeId);
+    metrics.fontScale = 1.4;
+    await act(async () => r.render(page()));
+    const after = r.container.queryAll(n => n.type === 'Text');
+    expect(after).toHaveLength(4);
+    expect(after.every(n => !before.includes(n.props.nativeId))).toBe(true);
+    after.slice(0, 2).forEach(n => expect(n.props.style[0]).toMatchObject({ fontSize: 17, lineHeight: 24 }));
+    await act(async () => r.container.queryAll(n => n.type === 'ScalePressable')[0].props.onPress());
+    expect(press).toHaveBeenCalledOnce();
+  } finally { await act(async () => r.unmount()); metrics.fontScale = 1; }
 });
