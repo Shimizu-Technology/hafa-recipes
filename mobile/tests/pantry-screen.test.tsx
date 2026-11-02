@@ -38,7 +38,7 @@ vi.mock('expo-router', () => {
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isSignedIn: mocks.signedIn }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Ionicons') }));
-vi.mock('@/components/Themed', () => ({ Text: host('Text'), useColors: () => ({
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: host('Text'), useColors: () => ({
   background: '#fff', backgroundSecondary: '#eee', border: '#ccc', card: '#fff', cardBorder: '#ddd',
   text: '#111', textSecondary: '#444', textMuted: '#666', tint: '#165', warning: '#a61', success: '#080',
 }) }));

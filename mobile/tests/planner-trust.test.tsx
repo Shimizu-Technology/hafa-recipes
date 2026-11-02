@@ -40,7 +40,7 @@ vi.mock('react-native-safe-area-context', () => ({
 }));
 vi.mock('@clerk/expo', () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: reviewMocks.session, sessionId: reviewMocks.session }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
-vi.mock('@/components/Themed', () => ({
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
   IconButton: 'IconButton',
   Button: 'Button',
   Text: 'Text',

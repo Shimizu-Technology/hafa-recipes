@@ -1,9 +1,9 @@
+import { TextInput } from '@/components/Themed';
 import { recipeScope, assertRecipeScope, scopedRecipeKey, ownerQueryClient } from '@/lib/recipeQueryScope';
 import { getIngredientAmount, formatIngredientAmount, normalizeIngredientUnit } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet,
-  TextInput, TouchableOpacity, View,
+  Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';

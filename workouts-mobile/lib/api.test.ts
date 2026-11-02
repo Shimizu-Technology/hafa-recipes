@@ -394,3 +394,12 @@ it("explicit account onboarding uses the shared authenticated endpoint without e
     headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
   }));
 });
+
+it("surfaces the expired source cover instruction when scheduling and keeps other validation details private", async () => {
+  const transport = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Source cover expired; save the workout without its cover" }), { status: 422 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "internal validation detail" }), { status: 422 }));
+  const api = createWorkoutsApi("https://example.test", async () => "token", transport);
+  await expect(api.scheduleOnce({} as never, 1)).rejects.toMatchObject({ message: "Source cover expired; save the workout without its cover", status: 422 });
+  await expect(api.scheduleOnce({} as never, 1)).rejects.toMatchObject({ message: "Some details could not be saved. Review your entries and try again.", status: 422 });
+});

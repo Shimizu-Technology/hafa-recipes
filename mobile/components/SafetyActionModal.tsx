@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -5,7 +6,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View as RNView,
 } from 'react-native';

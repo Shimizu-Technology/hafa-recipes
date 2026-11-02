@@ -559,8 +559,7 @@ it("workout detail reads at a glance, keeps each action in one place and confirm
   // Contextual Coach is labelled in content; share and overflow stay in the header.
   expect(nodes("ScreenAction")[0].findAll((n) => String(n.type) === "HeaderButton").map((n) => n.props.label))
     .toEqual(["Share workout", "More workout actions"]);
-  await act(async () => nodes("ListRow").find(n => n.props.title === "Ask about this workout")!.props.onPress());
-  expect(fixture.push).toHaveBeenCalledWith({ pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } });
+  expect(nodes("ListRow").find(n => n.props.title === "Ask about this workout")).toBeUndefined();
   // The floating pill opens the same workout-scoped chat.
   expect(nodes("AskCoachPill")[0].props).toMatchObject({ label: "Ask about this",
     href: { pathname: "/coach", params: { workout_id: saved.id, revision: String(saved.revision) } } });

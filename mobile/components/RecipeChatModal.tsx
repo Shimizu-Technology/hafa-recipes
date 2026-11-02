@@ -11,7 +11,7 @@ import { assertRecipeScope, recipeScope } from '@/lib/recipeQueryScope';
  * - Wine pairings
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import {
   Modal,
   StyleSheet,
@@ -33,7 +33,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@clerk/expo';
 
-import { View, Text, useColors } from '@/components/Themed';
+import { View, Text, TextScaleContext, useColors } from '@/components/Themed';
 import ChatComposer from './ChatComposer';
 import { ChatRecipeRefs } from './ChatRecipeRefs';
 import { useRouter } from 'expo-router';
@@ -142,6 +142,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
     return persistChatHistory(key, text);
   }, [authority]);
   const colors = useColors();
+  const textScale = useContext(TextScaleContext);
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
   
@@ -1238,20 +1239,20 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                     rules={CHAT_MARKDOWN_RULES}
                     onLinkPress={handleAssistantLink}
                     style={{
-                      body: { color: colors.text, fontFamily: fontFamily.regular, fontSize: fontSize.md, lineHeight: 24, flexShrink: 1 },
+                      body: { color: colors.text, fontFamily: fontFamily.regular, fontSize: Math.round(fontSize.md * textScale), lineHeight: Math.round(24 * textScale), flexShrink: 1 },
                       paragraph: { marginVertical: 4, flexShrink: 1 },
                       strong: { fontFamily: fontFamily.bold, fontWeight: '700', color: colors.text },
                       em: { fontStyle: 'italic' },
                       bullet_list: { marginVertical: 4 },
                       ordered_list: { marginVertical: 4 },
                       list_item: { marginVertical: 2, flexShrink: 1, flexWrap: 'wrap' },
-                      bullet_list_icon: { color: colors.actionText, fontSize: 8, marginRight: 8 },
+                      bullet_list_icon: { color: colors.actionText, fontSize: Math.round(8 * textScale), marginRight: 8 },
                       ordered_list_icon: { color: colors.actionText, fontWeight: '600', marginRight: 8 },
                       bullet_list_content: { flexShrink: 1 },
                       ordered_list_content: { flexShrink: 1 },
-                      heading1: { fontFamily: fontFamily.display, fontSize: fontSize.xl, color: colors.text, marginVertical: 8 },
-                      heading2: { fontFamily: fontFamily.displaySemibold, fontSize: fontSize.lg, color: colors.text, marginVertical: 6 },
-                      heading3: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md, color: colors.text, marginVertical: 4 },
+                      heading1: { fontFamily: fontFamily.display, fontSize: Math.round(fontSize.xl * textScale), color: colors.text, marginVertical: 8 },
+                      heading2: { fontFamily: fontFamily.displaySemibold, fontSize: Math.round(fontSize.lg * textScale), color: colors.text, marginVertical: 6 },
+                      heading3: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: Math.round(fontSize.md * textScale), color: colors.text, marginVertical: 4 },
                       code_inline: { backgroundColor: colors.backgroundSecondary, paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
                       fence: { backgroundColor: colors.backgroundSecondary, padding: 8, borderRadius: 8, marginVertical: 4 },
                       link: { color: colors.actionText },

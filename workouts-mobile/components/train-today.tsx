@@ -161,6 +161,7 @@ export function TrainToday() {
       {hero.action}
       {hero.extra}
       {enabled && (active || !planned) && askCoach}
+      {enabled && !!suggestion && <Pressable accessibilityRole="button" accessibilityHint="Opens a chat with your AI coach" onPress={() => router.push("/coach")}><Copy kind="small" tone="muted">{suggestion}</Copy></Pressable>}
     </View>
   );
   if (!enabled)
@@ -206,10 +207,6 @@ export function TrainToday() {
       {receipts.data?.map(receipt => <Button key={receipt.proposal.id} title={`Review saved adjustment · ${receipt.program.title}`} secondary
         onPress={() => { setAdjust({ program: receipt.program, session: receipt.session }); setAdjustOpen(true); }} />)}
       {!!receipts.error && <><Notice error>Could not restore saved adjustments.</Notice><Button title="Retry saved adjustments" secondary onPress={() => void receipts.refetch()} /></>}
-      <ListGroup>
-        <ListRow icon="chatbubble-ellipses-outline" title="Ask your coach" detailLines={1} detail={suggestion ?? "Questions about training or a change to your plan"} onPress={() => router.push("/coach")} />
-
-      </ListGroup>
       {/* One tappable card: the numbers, a visible "See progress" and a chevron. */}
       <Pressable accessibilityRole="button" accessibilityLabel={summary ? `This week: ${summary.sessions} sessions, ${summary.minutes} minutes, ${summary.streak} day streak. See progress` : "This week. See progress"}
         onPress={() => router.navigate("/(tabs)/history")}

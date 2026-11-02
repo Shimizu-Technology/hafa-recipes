@@ -54,7 +54,7 @@ vi.mock('@/hooks/usePublishingDisclosure', () => ({ usePublishingDisclosure: () 
 vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe, saveCapturedRecipe: mocks.captureSave } }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
-  return {
+  return { TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
     Card: (props: Record<string, unknown>) => ReactModule.createElement('Card', props, props.children as React.ReactNode),
     Text: (props: Record<string, unknown>) => ReactModule.createElement('Text', props, props.children as React.ReactNode),
     Button: (props: Record<string, unknown>) => ReactModule.createElement('Button', props),

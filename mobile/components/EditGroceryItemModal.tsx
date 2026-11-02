@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 /**
  * Modal for editing a grocery item
  */
@@ -9,7 +10,6 @@ import {
   useWindowDimensions,
   Modal,
   TouchableOpacity,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   View as RNView,

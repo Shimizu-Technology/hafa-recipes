@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions } from 'react-native';
+import { useEffect, useContext } from 'react';
+import { Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useColors } from '@/components/Themed';
+import { Text, TextScaleContext, useColors } from '@/components/Themed';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { ASK_PILL_HEIGHT } from '@/lib/bottomOverlay';
 import { haptics } from '@/utils/haptics';
@@ -24,7 +24,8 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
 }) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
-  const compact = collapsed || fontScale >= 1.5;
+  const scale = useContext(TextScaleContext);
+  const compact = collapsed || fontScale * scale >= 1.5;
   const reduceMotion = useReduceMotion();
   const open = useSharedValue(compact ? 0 : 1);
   useEffect(() => {
@@ -49,7 +50,7 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
       <Animated.View style={[styles.pill, { backgroundColor: colors.tint }, pillStyle]}>
         <Ionicons name="sparkles" size={22} color={colors.onTint} />
         <Animated.View style={[styles.labelClip, labelStyle]}>
-          <Text allowFontScaling={false} numberOfLines={1} style={[styles.label, { color: colors.onTint }]}>{label}</Text>
+          <Text numberOfLines={1} style={[styles.label, { color: colors.onTint }]}>{label}</Text>
         </Animated.View>
       </Animated.View>
     </Pressable>

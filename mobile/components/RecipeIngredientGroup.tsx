@@ -1,3 +1,5 @@
+import { useContext } from 'react';
+import { TextScaleContext } from '@/components/Themed';
 import { Alert, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { spokenQuantity } from '@/lib/quantityPresentation';
@@ -23,6 +25,7 @@ export function RecipeIngredientGroup({ title, ingredients, scaleFactor, isScale
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
   const lineHeight = scaleFontSize(24);
+  const textScale = useContext(TextScaleContext);
   if (ingredients.length === 0) return null;
   return <View style={styles.group}>
     {title ? <Text accessibilityRole="header" style={[styles.title, { color: colors.textSecondary, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>{title}</Text> : null}
@@ -38,7 +41,7 @@ export function RecipeIngredientGroup({ title, ingredients, scaleFactor, isScale
         return <View key={index} style={[styles.row, onToggle && styles.checkRow]}>
           {onToggle && <TouchableOpacity accessibilityRole="checkbox" accessibilityLabel={spokenQuantity(`${prefix}${ingredient.name}`)}
             accessibilityState={{ checked: isChecked }} onPress={() => onToggle(index)}
-            style={[styles.check, { top: 12 + (lineHeight * fontScale - 44) / 2 }]}>
+            style={[styles.check, { top: 12 + (lineHeight * textScale * fontScale - 44) / 2 }]}>
             <Ionicons name={isChecked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={isChecked ? colors.actionText : colors.textSecondary} />
           </TouchableOpacity>}
           <View style={styles.main}>

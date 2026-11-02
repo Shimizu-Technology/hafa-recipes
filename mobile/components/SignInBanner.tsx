@@ -1,7 +1,7 @@
+import { Text } from '@/components/Themed';
 import React from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,

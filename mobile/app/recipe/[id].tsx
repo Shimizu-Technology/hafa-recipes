@@ -74,7 +74,6 @@ import {
   isRecipeOwner,
 } from '@/lib/recipeReviewPresentation';
 import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
-import { useTextSize } from '@/hooks/useTextSize';
 import { useAuth, useUser } from '@clerk/expo';
 import { Ingredient } from '@/types/recipe';
 import { useScaledServings, scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
@@ -150,7 +149,7 @@ function RecipeDetailScreenContent() {
   const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { scaleFontSize } = useTextSize();
+  const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   const [activeTab, selectTab] = useState<TabType>('ingredients');
   const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set());
   const [showScale, setShowScale] = useState(false);
@@ -757,10 +756,10 @@ function RecipeDetailScreenContent() {
             { icon: 'ellipsis-horizontal', accessibilityLabel: 'More recipe options', onPress: handleMoreOptions },
           ]}
           // Room below the last section so the Ask pill never covers it.
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg + (userId ? ASK_PILL_HEIGHT + OVERLAY_GAP : 0) }]}
-          floating={userId ? (collapsed) => <AskHafaPill label="Ask about this" collapsed={collapsed}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg + (ASK_PILL_HEIGHT + OVERLAY_GAP) }]}
+          floating={(collapsed) => <AskHafaPill label="Ask about this" collapsed={collapsed}
             accessibilityHint="Opens chat about this recipe, or about all your recipes"
-            onPress={() => setShowChatModal(true)} /> : undefined}
+            onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} />}
           hero={<RecipeHero
             key={recipe.id}
             photoOnly
@@ -781,7 +780,7 @@ function RecipeDetailScreenContent() {
               </TouchableOpacity>
             </RNView>}
             {/* Title */}
-            <Text accessibilityRole="header" maxFontSizeMultiplier={1.6} style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}>
+            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}>
               {extracted.title}
             </Text>
 
@@ -1097,8 +1096,6 @@ function RecipeDetailScreenContent() {
                 value={visibilityPresentation?.value} />
             )}
 
-            <RecipeDetailRow icon="chatbubbles-outline" title="Ask Håfa"
-              onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityLabel="Ask Håfa about this recipe" />
             {hasExternalSource && !sourcePlayback && (
               <RecipeDetailRow icon={sourceIcon as keyof typeof Ionicons.glyphMap} title={`View on ${sourceLabel}`} onPress={handleOpenSource}
                 accessibilityRole="link" accessibilityLabel={`View recipe on ${sourceLabel}`}

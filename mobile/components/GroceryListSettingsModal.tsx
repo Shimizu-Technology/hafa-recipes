@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 /**
  * Grocery Share household Modal
  * 
@@ -15,7 +16,6 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
