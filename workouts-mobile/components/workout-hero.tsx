@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
@@ -22,6 +22,8 @@ export function WorkoutHero({ source, format }: { source: Source; format?: strin
   const [playing, setPlaying] = useState(false), [failed, setFailed] = useState<string | null>(null), [error, setError] = useState("");
   const press = usePressScale();
   const close = useCallback(() => setPlaying(false), []);
+  // Forget a failed cover once the workout shows a different (or no) cover, so restoring it retries.
+  useEffect(() => { if (failed && failed !== source.source_thumbnail_url) setFailed(null); }, [failed, source.source_thumbnail_url]);
   useFocusEffect(useCallback(() => close, [close]));
   const url = sourceURL(source.source_url);
   const player = url ? sourcePlayer(url.href) : null;
