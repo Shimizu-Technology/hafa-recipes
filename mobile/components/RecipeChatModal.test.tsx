@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => {
     getClipboardImage: vi.fn(),
     getClipboardString: vi.fn(async () => ''),
     nativePasteAvailable: true,
+    fontScale: 1,
+    nativePasteId: 0,
     ttsState: { isLoading: false, isPlaying: false },
     speechListeners: new Map<string, (event?: any) => void>(),
     speechStart: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.clerkUserId }) }
 vi.mock('expo/fetch', () => ({ fetch: vi.fn() }));
 
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ width: 393, fontScale: mocks.fontScale }),
   ActivityIndicator: 'ActivityIndicator',
   Alert: { alert: mocks.alert },
   Image: 'Image',
@@ -79,7 +82,11 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 vi.mock('expo-clipboard', () => ({
-  ClipboardPasteButton: 'ClipboardPasteButton',
+  // Each mount gets a new id so tests can tell a remount from a re-render.
+  ClipboardPasteButton: (props: any) => {
+    const [mountId] = React.useState(() => ++mocks.nativePasteId);
+    return React.createElement('ClipboardPasteButton', { ...props, mountId });
+  },
   get isPasteButtonAvailable() { return mocks.nativePasteAvailable; },
   setStringAsync: vi.fn(async () => undefined),
   hasImageAsync: mocks.hasClipboardImage,
@@ -1322,4 +1329,39 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => renderer.unmount());
     }
   });
+
+  it('resizes and remounts native Paste at larger text and keeps its draft callback', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] });
+    const paste = () => renderer.container.queryAll((node) => node.type === 'ClipboardPasteButton')[0];
+    const pasteSize = () => flattenStyle(paste().props.style);
+    try {
+      await renderModal(renderer, 'first');
+      const originalMount = paste().props.mountId;
+      expect(pasteSize()).toMatchObject({ width: 44, height: 44 });
+
+      mocks.fontScale = 1.4;
+      await renderModal(renderer, 'first');
+      expect(paste().props.mountId).not.toBe(originalMount);
+      expect(pasteSize()).toMatchObject({ width: 62, height: 62 });
+      const send = renderer.container.queryAll(
+        (node) => node.props.accessibilityLabel === 'Send message',
+      )[0];
+      expect(flattenStyle(send.props.style)).toMatchObject({ width: 62, height: 62 });
+
+      await act(async () => paste().props.onPress({ type: 'text', text: 'Make ahead for lunch?' }));
+      expect(renderer.container.queryAll((node) => node.type === 'TextInput')[0].props.value)
+        .toBe('Make ahead for lunch?');
+      await vi.waitFor(() => expect(
+        mocks.storageValues.get('hafa.chat.v2.stable-user.recipe.first.draft'),
+      ).toBe('Make ahead for lunch?'));
+    } finally {
+      await act(async () => renderer.unmount());
+      mocks.fontScale = 1;
+    }
+  });
 });
+
+function flattenStyle(style: unknown): Record<string, unknown> {
+  if (!Array.isArray(style)) return (style ?? {}) as Record<string, unknown>;
+  return Object.assign({}, ...style.map(flattenStyle));
+}
