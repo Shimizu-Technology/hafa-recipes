@@ -1459,6 +1459,25 @@ it("Needs info finds matches after the first library page", async () => {
   expect(summaryText()).toBeUndefined();
   expect(filterButton().props.count).toBe(1);
 });
+it("Library keeps two filters with the same label apart (equipment and a tag both 'Dumbbells')", async () => {
+  fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+  await mount(Library);
+  const field = (label: string) => nodes("Field").find(n => n.props.label === label)!;
+  await act(async () => field("Equipment").props.onChange("Dumbbells"));
+  await act(async () => field("Tags").props.onChange("Dumbbells")); await settle();
+  const removable = () => nodes("Chip").filter(n => n.props.trailingIcon === "close");
+  expect(removable().map(n => n.props.label)).toEqual(["Dumbbells", "Dumbbells"]);
+  expect(errors.mock.calls.some(call => String(call[0]).includes("same key"))).toBe(false);
+  // Removing the equipment chip leaves the tag filter in place.
+  await act(async () => removable()[0].props.onPress()); await settle();
+  const last = fixture.searchLibrary.mock.calls.at(-1)![0];
+  expect(last.equipment).toBe("");
+  expect(last.tags.map((tag: string) => tag.toLowerCase())).toEqual(["dumbbells"]);
+  expect(removable().map(n => n.props.label)).toEqual(["Dumbbells"]);
+  } finally { errors.mockRestore(); }
+});
 it("Select workouts from Collections switches to the workouts so Select all only takes what you can see", async () => {
   fixture.collections.mockResolvedValue([{ id: "gym", title: "Gym days", workout_count: 1 }]);
   fixture.searchLibrary.mockResolvedValue({ items: [saved], total: 1, has_more: false });

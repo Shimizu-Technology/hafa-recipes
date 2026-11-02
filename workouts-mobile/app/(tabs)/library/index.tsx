@@ -170,16 +170,17 @@ export default function Library() {
   const collectionTitle = collections.data?.find((item) => item.id === collection)?.title;
   const needsLink = !archived && !!needsCount;
   // Programs is a segment and Needs info a toggle chip; every other filter shows as a removable chip.
+  // Keyed by filter, not label: free-text equipment, tags and a collection can share a label ("Dumbbells").
   const activeChips = ([
-    archived && { label: "Archived", clear: () => setArchived(false) },
-    needsInfo && !needsLink && { label: "Needs info", clear: () => setNeedsInfo(false) },
-    favorite && { label: "Favorites", clear: () => setFavorite(false) },
-    kind && kind !== "program" && { label: kindLabels[kind], clear: () => setKind(undefined) },
-    maxMinutes && { label: `Up to ${maxMinutes} min`, clear: () => setMaxMinutes(undefined) },
-    collectionTitle && { label: collectionTitle, clear: () => setCollection(undefined) },
-    equipment.trim() && { label: equipment.trim(), clear: () => setEquipment("") },
-    tags.trim() && { label: tags.trim(), clear: () => setTags("") },
-  ] as const).filter((chip): chip is { label: string; clear(): void } => !!chip);
+    archived && { id: "archived", label: "Archived", clear: () => setArchived(false) },
+    needsInfo && !needsLink && { id: "needs-info", label: "Needs info", clear: () => setNeedsInfo(false) },
+    favorite && { id: "favorite", label: "Favorites", clear: () => setFavorite(false) },
+    kind && kind !== "program" && { id: "kind", label: kindLabels[kind], clear: () => setKind(undefined) },
+    maxMinutes && { id: "minutes", label: `Up to ${maxMinutes} min`, clear: () => setMaxMinutes(undefined) },
+    collectionTitle && { id: "collection", label: collectionTitle, clear: () => setCollection(undefined) },
+    equipment.trim() && { id: "equipment", label: equipment.trim(), clear: () => setEquipment("") },
+    tags.trim() && { id: "tags", label: tags.trim(), clear: () => setTags("") },
+  ] as const).filter((chip): chip is { id: string; label: string; clear(): void } => !!chip);
   const sheetCount = activeChips.length + (needsInfo && needsLink ? 1 : 0);
   const segment = showCollections ? "collections" : kind === "program" ? "programs" : "all";
   function chooseSegment(next: typeof segment) {
@@ -224,7 +225,7 @@ export default function Library() {
         </Row>}
         {!showCollections && (needsLink || !!activeChips.length) && <ChipRow label="Filters">
           {needsLink && <Chip label={`Needs info · ${needsCount}`} icon="alert-circle-outline" selected={needsInfo} onPress={() => setNeedsInfo(!needsInfo)} />}
-          {activeChips.map(chip => <Chip key={chip.label} role="button" label={chip.label} trailingIcon="close" selected
+          {activeChips.map(chip => <Chip key={chip.id} role="button" label={chip.label} trailingIcon="close" selected
             accessibilityLabel={`Remove filter ${chip.label}`} onPress={chip.clear} />)}
         </ChipRow>}
         {showCollections && <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: LIBRARY_GRID_GAP, rowGap: 20 }}>
