@@ -10,7 +10,7 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const m = vi.hoisted(() => ({ tags: [] as string[], times: {} as Record<string, string>, isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn() }));
+const m = vi.hoisted(() => ({ userId: 'owner' as string | null, tags: [] as string[], times: {} as Record<string, string>, isPublic: false, moderationStatus: null as string | null, unavailable: false, revision: 1, servings: null as number | null, scaled: 1, theme: 'dark' as 'light' | 'dark', activeTab: 'ingredients', totalEstimatedCost: 12, push: vi.fn() }));
 function host(name: string) { return (props: any) => React.createElement(name, props, props.children); }
 vi.mock('react-native', () => ({
   useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1, scale: 3 }),
@@ -22,7 +22,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'recipe-id' }),
   useRouter: () => ({ push: m.push }), Stack: { Screen: () => null } }));
-vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: 'owner', isLoaded: true }), useUser: () => ({ user: {} }) }));
+vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: m.userId, isLoaded: true }), useUser: () => ({ user: {} }) }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
 vi.mock('@/components/OfflineRecipeControl', () => ({ OfflineRecipeControl: () => null }));
@@ -66,6 +66,7 @@ vi.mock('@/hooks/useRecipes', () => ({
   useToggleRecipeSharing: () => ({}), useIsRecipeSaved: () => ({}), useSaveRecipe: () => ({}),
   useUnsaveRecipe: () => ({}), useRecipeNote: () => ({}), useUpdateRecipeNote: () => ({}), useSimilarRecipes: () => ({ data: [] }),
 }));
+import { guestRecipeIntent } from '../lib/guestRecipeIntent';
 import RecipeDetailScreen from '../app/recipe/[id]';
 
 it.each([[null, 1, undefined], [4, 8, '8'], [1, 1, '1']] as const)(
@@ -219,4 +220,19 @@ it('opens recipe-scoped chat from the Ask about this pill', async () => {
     expect(chat.props.isVisible).toBe(true);
     expect(chat.props.recipe.id).toBe('recipe-id');
   } finally { await act(async () => root.unmount()); }
+});
+
+it('keeps one Ask entry for guests and preserves the recipe chat intent through sign-in', async () => {
+  m.userId = null; m.push.mockClear();
+  const root = createRoot();
+  try {
+    await act(async () => root.render(<RecipeDetailScreen />));
+    const pills = root.container.queryAll(node => node.type === 'AskHafaPill');
+    expect(pills).toHaveLength(1);
+    expect(root.container.queryAll(node => node.props.accessibilityLabel === 'Ask Håfa about this recipe')).toHaveLength(0);
+    await act(async () => pills[0].props.onPress());
+    expect(m.push).toHaveBeenCalledWith('/(auth)/sign-in');
+    expect(root.container.queryAll(node => node.type === 'RecipeChatModal')[0].props.isVisible).toBe(false);
+    expect(guestRecipeIntent.bind(null)).toMatchObject({ recipeId: 'recipe-id', action: 'chat' });
+  } finally { await act(async () => root.unmount()); m.userId = 'owner'; guestRecipeIntent.clear(); }
 });
