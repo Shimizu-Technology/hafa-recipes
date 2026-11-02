@@ -1,9 +1,8 @@
-import { useEffect } from "react";
-import { LayoutAnimation, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, type Href } from "expo-router";
 import { useAskPill } from "@/lib/ask-pill";
-import { haptics, useColors, useReducedMotion } from "./design/foundation";
+import { haptics, useColors } from "./design/foundation";
 import { useKeyboardShown } from "./design/tab-bar";
 
 /** Height of the pill; lists add this plus a gap so it never covers the last card. */
@@ -17,14 +16,10 @@ export function AskCoachPill({ bottom, href = "/coach", label = "Ask Coach", hin
   bottom: number; href?: Href; label?: string; hint?: string;
 }) {
   const c = useColors();
-  const reduced = useReducedMotion();
   const { collapsed, hidden } = useAskPill();
   const keyboard = useKeyboardShown();
   const { fontScale } = useWindowDimensions();
   const compact = collapsed || fontScale >= 1.5;
-  useEffect(() => {
-    if (!reduced && Platform.OS === "ios") LayoutAnimation.configureNext(LayoutAnimation.create(180, "easeInEaseOut", "opacity"));
-  }, [compact, reduced]);
   if (hidden || keyboard) return null;
   return <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom }}>
     <Pressable testID="ask-coach" accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint}

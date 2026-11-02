@@ -172,10 +172,10 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
           />
         ))}
       {loading && !records.length ? <Loading label={careHistory ? "Loading care history…" : "Loading your journal…"} /> : records.length ? (
-        <Grouped>
+        <Grouped separatorInset={preparing ? 52 : 72}>
           {records.map((r) =>
             preparing ? (
-              <Card key={r.id} tone="soft">
+              <View key={r.id} style={{ paddingHorizontal: 16 }}>
                 <Choice
                   label={r.title}
                   detail={r.body.slice(0, 160) || new Date(r.occurred_at).toLocaleString()}
@@ -184,7 +184,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
                     setSelected((ids) => (ids.includes(r.id) ? ids.filter((id) => id !== r.id) : [...ids, r.id]))
                   }
                 />
-              </Card>
+              </View>
             ) : (
               <RecordRow
                 key={r.id}
