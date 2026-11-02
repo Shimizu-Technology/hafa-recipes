@@ -1031,7 +1031,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     padding: spacing.md,
-    marginBottom: spacing.md,
     gap: spacing.sm,
   },
   pendingShareCopy: {

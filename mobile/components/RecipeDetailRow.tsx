@@ -50,7 +50,7 @@ export function RecipeDetailAction({ icon, title, onPress, selected }: {
 }
 
 const styles = StyleSheet.create({
-  action: { flexGrow: 1, flexBasis: 96, minHeight: 44, borderRadius: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  action: { flexGrow: 1, flexShrink: 1, maxWidth: '100%', flexBasis: 96, minHeight: 44, borderRadius: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   actionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
   pressed: { opacity: 0.7 },
   row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },

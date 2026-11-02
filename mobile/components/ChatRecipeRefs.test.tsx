@@ -18,7 +18,10 @@ it.each([1, 2])('keeps long answer references identifiable and opens the chosen 
   ];
   try {
     await act(async () => root.render(<ChatRecipeRefs refs={refs} onOpen={open} />));
+    await act(async () => root.container.queryAll(n => n.type === 'ScrollView')[0].props.onLayout({ nativeEvent: { layout: { width: 288 } } }));
     const buttons = root.container.queryAll(n => n.type === 'Pressable');
+    expect(buttons.map(n => n.props.style({ pressed: false })[1].width)).toEqual([280, 280].map(width => fontScale >= 1.3 ? 288 : width));
+    expect(root.container.queryAll(n => n.type === 'Text').map(n => n.props.numberOfLines)).toEqual([fontScale >= 1.3 ? 4 : 3, fontScale >= 1.3 ? 4 : 3]);
     expect(buttons.map(n => n.props.accessibilityLabel)).toEqual(refs.map(ref => `Open ${ref.title}`));
     await act(async () => buttons[1].props.onPress());
     expect(open).toHaveBeenCalledWith(refs[1]);

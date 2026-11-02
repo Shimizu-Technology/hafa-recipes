@@ -24,7 +24,7 @@ export function RecipeIngredientGroup({ title, ingredients, scaleFactor, isScale
   const lineHeight = scaleFontSize(24);
   if (ingredients.length === 0) return null;
   return <View style={styles.group}>
-    {title ? <Text accessibilityRole="header" style={[styles.title, { color: colors.textSecondary }]}>{title}</Text> : null}
+    {title ? <Text accessibilityRole="header" style={[styles.title, { color: colors.textSecondary, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>{title}</Text> : null}
     <Card noPadding style={styles.card}>
       {ingredients.map((ingredient, index) => {
         const amount = getIngredientAmount(ingredient);
