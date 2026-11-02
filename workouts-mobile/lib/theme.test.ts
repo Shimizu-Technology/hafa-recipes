@@ -66,6 +66,8 @@ const pairs: Pair[] = [
   ["accentText", "surface", 4.5], // selected text on grouped surfaces
   ["accentText", "tabBar", 4.5], // selected tab label on the solid tab bar
   ["muted", "tabBar", 4.5], // unselected tab labels and icons
+  ["text", "segment", 4.5], // selected segment label
+  ["text", "sunken", 4.5], // unselected segment labels on the tonal track
 ];
 
 describe.each([
