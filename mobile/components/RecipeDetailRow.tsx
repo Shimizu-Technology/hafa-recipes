@@ -37,11 +37,12 @@ export function RecipeDetailAction({ icon, title, onPress, selected }: {
   selected?: boolean;
 }) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
   const tint = selected ? colors.actionText : colors.text;
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
+    <Pressable key={fontScale} onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
       accessibilityState={selected === undefined ? undefined : { expanded: selected }}
-      style={({ pressed }) => [styles.action, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
       <Ionicons name={icon} size={18} color={tint} />
       <Text numberOfLines={1} style={[styles.actionTitle, { color: tint }]}>{title}</Text>
     </Pressable>
