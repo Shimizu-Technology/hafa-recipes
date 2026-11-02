@@ -360,3 +360,14 @@ it("keeps fontVariant an array when a mounted number turns back into text", asyn
   await act(async () => renderer!.update(<Copy>Today</Copy>));
   expect(variant()).toEqual([]);
 });
+
+
+it("caps an explicitly constrained subtitle while retaining its full text", async () => {
+  mock.fontScale = 3.1;
+  await mount(<Copy maxScale={1.5}>Find what you saved and make sense of your notes.</Copy>);
+  const text = renderer!.root.findByType("Text" as React.ElementType);
+  expect(text.props.allowFontScaling).toBe(false);
+  expect(text.props.style.fontSize).toBe(25.5);
+  expect(text.props.style.lineHeight).toBe(33);
+  expect(text.props.children).toContain("make sense");
+});

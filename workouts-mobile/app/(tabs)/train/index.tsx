@@ -377,7 +377,7 @@ export default function Plan() {
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
     >
-      <Copy kind="caption" tone="muted">{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}</Copy>
+      <Copy kind="caption" tone="muted" maxScale={1.5}>{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: profile.data?.timezone }).format(new Date())}</Copy>
       <TrainToday />
       {loaded && (!!shownPrograms?.length || view === "archived" || archivedCount > 0) && (
         <SectionHeader

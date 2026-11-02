@@ -161,6 +161,7 @@ export function Copy({
   align,
   lines,
   numeric = false,
+  maxScale,
 }: {
   children: React.ReactNode;
   kind?: "body" | "small" | "heading" | "title" | "label";
@@ -168,6 +169,7 @@ export function Copy({
   align?: "left" | "center";
   lines?: number;
   numeric?: boolean;
+  maxScale?: number;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     style = type[kind];
@@ -175,10 +177,12 @@ export function Copy({
     <Text
       key={`${kind}:${fontScale}`}
       numberOfLines={lines}
+      allowFontScaling={maxScale === undefined}
       maxFontSizeMultiplier={0}
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
+        ...(maxScale === undefined ? {} : { fontSize: style.fontSize * Math.min(fontScale, maxScale), lineHeight: style.lineHeight * Math.min(fontScale, maxScale) }),
         fontFamily: numeric ? fonts.rounded : fonts.regular,
         // Never undefined: when `numeric` turns off on a mounted Text, React Native diffs a removed
         // fontVariant to null and processFontVariant(null) throws a render error.
@@ -271,6 +275,7 @@ export function Screen({
   children,
   title,
   subtitle,
+  subtitleMaxScale,
   numericSubtitle = false,
   titleKind = "title",
   nativeHeader: nativeHeaderOverride,
@@ -297,6 +302,7 @@ export function Screen({
   /** Pull to refresh. */
   onRefresh?: () => Promise<unknown> | void;
   subtitle?: string;
+  subtitleMaxScale?: number;
   numericSubtitle?: boolean;
   back?: boolean;
   /** For screens presented as a sheet: a Close button replaces Back. */
@@ -355,7 +361,7 @@ export function Screen({
       {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading") && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
         <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
           {(!nativeHeader || titleKind === "heading") && <Copy kind={titleKind}>{title}</Copy>}
-          {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
+          {!!subtitle && <Copy numeric={numericSubtitle} tone="muted" maxScale={subtitleMaxScale}>{subtitle}</Copy>}
         </View>
         {(!nativeHeader || !grouped) && action}
       </View>}

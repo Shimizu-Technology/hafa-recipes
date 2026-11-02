@@ -7,14 +7,14 @@ import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
 import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
-import { HeaderPill, TabActions, headerActions } from "./tab-stack";
+import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
   const b = useBaby(),
     params = useLocalSearchParams<{ record_id?: string }>(),
     { fontScale, height } = useWindowDimensions(),
-    composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
+    composerMinimum = Math.max(46, Math.ceil(17 * Math.min(fontScale, 1.5) * 1.45 + 24)),
     chat = useAskSession(params.record_id, screenFocused),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
   const focused = !!chat.context.record_id;
@@ -31,11 +31,12 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
+      subtitleMaxScale={1.5}
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
-      action={back ? <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
+      action={back ? fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={
-        <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-end", gap: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
             value={question}
@@ -45,12 +46,12 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             editable={available && !busy && !chat.resolving}
             multiline
             maxLength={4000}
-            maxFontSizeMultiplier={0}
+            allowFontScaling={false}
             scrollEnabled
-            style={{ flex: fontScale >= 1.5 ? undefined : 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
+            style={{ flex: 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
               minHeight: composerMinimum, borderRadius: 22,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
-              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
+              fontFamily: fonts.regular, fontSize: 17 * Math.min(fontScale, 1.5), lineHeight: 22 * Math.min(fontScale, 1.5) }}
           />
           <PressTarget
             accessibilityRole="button"
@@ -66,7 +67,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </View>
       }
     >
-      {!back && <Stack.Screen options={headerActions(<TabActions action={<HeaderPill title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} />)} />}
+      {!back && <Stack.Screen options={headerActions(<TabActions action={fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderPill title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} />)} />}
       {!available && (
         <Card tone="soft">
           <Copy kind="heading">AI is optional.</Copy>
