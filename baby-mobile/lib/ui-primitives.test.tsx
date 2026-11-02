@@ -91,6 +91,13 @@ it("keeps full row labels and wrapping choices reachable at large text", async (
   const choice = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).find(c => c.props.accessibilityRole === "radio")!;
   expect(choice.props.accessibilityState).toEqual({ selected: true, checked: true });
 });
+it("does not truncate long row titles or supporting details at the default size", async () => {
+  await mount(<Row title="A long journal title about the first weeks and the support we will need"
+    detail="A longer date and description that needs room to wrap" icon="book-outline" onPress={() => {}} />);
+  const text = renderer!.root.findAllByType("Text" as React.ElementType);
+  expect(text).toHaveLength(2);
+  expect(text.every(t => !t.props.numberOfLines)).toBe(true);
+});
 it("keeps normal sync quiet but expands rejected changes for action", async () => {
   mock.baby.state.outbox = [{ id: "queued" }]; mock.baby.syncing = true;
   await mount(<SyncStatus />);

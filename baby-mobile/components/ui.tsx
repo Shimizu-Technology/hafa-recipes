@@ -862,7 +862,7 @@ export function Row({
   numericTitle?: boolean;
   numericDetail?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors();
   return (
     <PressTarget
       accessibilityRole="button"
@@ -885,9 +885,9 @@ export function Row({
     >
       {icon && <View style={{ width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
+        <Copy numeric={numericTitle} kind="label">{title}</Copy>
         {detail && (
-          <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>
+          <Copy numeric={numericDetail} kind="small" tone="muted">
             {detail}
           </Copy>
         )}
