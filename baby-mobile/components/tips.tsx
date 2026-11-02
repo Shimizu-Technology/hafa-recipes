@@ -37,7 +37,7 @@ export function TipSection({ title, rows, view, empty, showTiming }: { title: st
   const b = useBaby(), collections = b.records.filter((row) => row.kind === "collection");
   if (!rows.length && !empty) return null;
   return <Section title={title} action={rows.length ? <SeeAll view={view} title={title} /> : undefined}>
-    {rows.length ? <Grouped separatorInset={80}>
+    {rows.length ? <Grouped separatorInset={84}>
       {rows.map((row) => <SavedPostRow key={row.id} record={row} pending={false}
         meta={[showTiming ? timingLabel(row.data.relevance) : "", tipTopic(row, collections)].filter(Boolean).join(" · ") || undefined} />)}
     </Grouped> : <Copy kind="small" tone="muted">{empty}</Copy>}
@@ -52,7 +52,7 @@ export function SuggestionLine({ record, busy, isNew, onAccept, onDismiss }: {
   if (!suggestion) return null;
   const name = suggestion.name + (isNew ? " (new)" : "");
   return <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", alignItems: fontScale >= 1.3 ? "flex-start" : "center",
-    gap: 8, paddingLeft: fontScale >= 1.3 ? 12 : 80, paddingRight: 12, paddingBottom: 12, marginTop: -4, backgroundColor: c.surface }}>
+    gap: 8, paddingLeft: fontScale >= 1.3 ? 16 : 84, paddingRight: 16, paddingBottom: 12, marginTop: -4, backgroundColor: c.surface }}>
     <View style={{ flex: fontScale >= 1.3 ? undefined : 1 }}>
       <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 2}>Suggested: {name}</Copy>
     </View>

@@ -142,8 +142,8 @@ export default function RecordDetail() {
       {record.kind === "routine" && (
         <>
           <Section title={data.routine_type === "checklist" ? "Your checklist" : "Your chosen routine"}>
-            <Grouped>{(data.items ?? []).map((item) => (
-              <View key={item.id} style={{ padding: 12 }}>
+            <Grouped separatorInset={52}>{(data.items ?? []).map((item) => (
+              <View key={item.id} style={{ paddingHorizontal: 16 }}>
                 <Choice
                   label={item.label}
                   selected={item.done}

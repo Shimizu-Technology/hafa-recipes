@@ -153,9 +153,10 @@ export default function Library() {
         title={suggested.length === 1 ? "Accept suggestion" : `Accept all ${suggested.length} suggestions`}
         onPress={() => void accept(suggested, "all")} />}
       {history.loading && !rows.length ? <Loading label="Loading saved posts…" /> : rows.length ? (
-        <Grouped separatorInset={selecting ? 52 : 80}>
-          {rows.map((record) => selecting ? <Choice key={record.id} label={sourceTitle(record)}
+        <Grouped separatorInset={selecting ? 52 : 84}>
+          {rows.map((record) => selecting ? <View key={record.id} style={{ paddingHorizontal: 16 }}><Choice label={sourceTitle(record)}
             detail={record.data.creator || record.data.summary?.slice(0, 100)} selected={selected.includes(record.id)} onPress={() => toggle(record.id)} />
+            </View>
             : <View key={record.id}>
               <RecordRow record={record} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === record.id)} />
               {view === "inbox" && decidable(b.state, record) && <SuggestionLine record={record} busy={!!deciding}
