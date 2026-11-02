@@ -48,7 +48,12 @@ from app.domains.workouts.router import (
     refresh_library_source,
     validated_workout,
 )
-from app.domains.workouts.schemas import DomainModel, WorkoutContent
+from app.domains.workouts.schemas import (
+    DomainModel,
+    RepLadder,
+    WorkoutContent,
+    WorkoutExecution,
+)
 from app.domains.workouts.security import WorkoutsRoute
 from app.domains.workouts.sharing_service import project_workout
 from app.models.identity import AppUser
@@ -254,11 +259,25 @@ class Contributor(DomainModel):
     display_name: str
 
 
+class DiscoverFormatExercise(DomainModel):
+    rep_scheme: list[int] | None = None
+    ladder: RepLadder | None = None
+
+
+class DiscoverFormat(DomainModel):
+    """Only the prescription fields needed by the shared client chip formatter."""
+
+    execution: WorkoutExecution
+    rounds: int | None = None
+    exercises: list[DiscoverFormatExercise]
+
+
 class DiscoverCard(DomainModel):
     id: UUID
     title: str
     kind: str
     estimated_minutes: int | None
+    format: DiscoverFormat | None = None
     equipment_required: list[str]
     equipment_optional: list[str]
     block_count: int
@@ -293,11 +312,27 @@ def save_key(public_id):
 
 def card(row, viewer_id, saved, *, detail=False):
     workout, _ = public_workout(row.content)
+    blocks = workout["blocks"]
+    format_block = blocks[0] if workout["kind"] != "program" and len(blocks) == 1 else None
     values = dict(
         id=row.id,
         title=workout["title"],
         kind=workout["kind"],
         estimated_minutes=workout["estimated_minutes"],
+        format=(
+            DiscoverFormat(
+                execution=format_block["execution"],
+                rounds=format_block.get("rounds"),
+                exercises=[
+                    DiscoverFormatExercise(
+                        rep_scheme=exercise.get("rep_scheme"), ladder=exercise.get("ladder")
+                    )
+                    for exercise in format_block["exercises"]
+                ],
+            )
+            if format_block and format_block.get("execution")
+            else None
+        ),
         equipment_required=workout["equipment_required"],
         equipment_optional=workout["equipment_optional"],
         block_count=len(workout["blocks"]),

@@ -75,7 +75,7 @@ REEL = {
 CARD_KEYS = {
     "id", "title", "kind", "estimated_minutes", "equipment_required", "equipment_optional",
     "block_count", "exercise_count", "source_url", "source_platform", "source_creator",
-    "thumbnail_url", "published_at", "contributor", "is_owner", "saved_workout_id",
+    "thumbnail_url", "published_at", "contributor", "is_owner", "saved_workout_id", "format",
 }  # fmt: skip
 WORKOUT_KEYS = {
     "id", "version", "parent_version_id", "title", "kind", "provenance", "blocks", "source_url",

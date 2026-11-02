@@ -16,12 +16,30 @@ vi.mock("expo-router", () => ({ router: {} }));
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("react-native-svg", () => ({ default: "Svg", Defs: "Defs", LinearGradient: "LinearGradient", Rect: "Rect", Stop: "Stop" }));
 vi.mock("expo-glass-effect", () => ({ GlassView: "GlassView" }));
-vi.mock("@/components/ui", () => ({ Copy: "Copy", Button: "Button", useColors: () => light, useReducedMotion: () => false }));
+vi.mock("@/components/ui", () => ({ Copy: "Copy", Button: "Button", MediaCard: "MediaCard", useColors: () => light, useReducedMotion: () => false }));
 import { LibraryCard } from "../components/library-card";
+import { DiscoverGridCard } from "../components/discover-grid-card";
+import { DiscoverCardView } from "../components/discover-card";
+import type { DiscoverCard } from "./discover";
 import { AccountButton, Button, Choice, HeaderButton, Segmented, Field, Chip } from "../components/design/controls";
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.reduced = false; f.fontScale = 1; f.timing.mockClear(); });
 afterEach(() => { act(() => view?.unmount()); });
+it.each([undefined, null, { execution: { mode: "emom" as const, interval_seconds: 60, intervals: 20, rotation: null }, exercises: [] }])(
+  "Discover grid chip and list metadata use format %s with the duration fallback", format => {
+    const card: DiscoverCard = { id: "d", title: "Legs", kind: "session", estimated_minutes: 35, format,
+      equipment_required: [], equipment_optional: [], block_count: 1, exercise_count: 2, source_url: null,
+      source_platform: null, source_creator: null, thumbnail_url: null, published_at: null,
+      contributor: { contributor_id: "c", display_name: "Kai" }, is_owner: false, saved_workout_id: null };
+    const expected = format ? "EMOM 20" : "35 min";
+    act(() => { view = create(createElement(DiscoverGridCard, { card, onPress() {} })); });
+    expect(view!.root.findAllByType("Copy" as never).map(node => node.props.children)).toContain(expected);
+    expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain(expected);
+    act(() => { view!.update(createElement(DiscoverCardView, { card, onPress() {} })); });
+    const media = view!.root.findByType("MediaCard" as never);
+    expect(media.props.meta).toBe(`${expected} · 2 exercises · Shared by Kai`);
+    expect(media.props.accessibilityLabel).toContain(expected);
+  });
 it("distinguishes exclusive radio choices from independent checkboxes", () => {
   act(() => { view = create(createElement(Choice, { label: "Ready", role: "radio", selected: true, onPress() {} })); });
   expect(view!.root.findByType("Pressable" as never).props).toMatchObject({ accessibilityRole: "radio", accessibilityState: { checked: true } });
