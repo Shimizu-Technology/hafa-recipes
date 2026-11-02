@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => {
     getClipboardImage: vi.fn(),
     getClipboardString: vi.fn(async () => ''),
     nativePasteAvailable: true,
+    fontScale: 1,
+    nativePasteId: 0,
     ttsState: { isLoading: false, isPlaying: false },
     speechListeners: new Map<string, (event?: any) => void>(),
     speechStart: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.clerkUserId }) }
 vi.mock('expo/fetch', () => ({ fetch: vi.fn() }));
 
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ width: 393, fontScale: mocks.fontScale }),
   ActivityIndicator: 'ActivityIndicator',
   Alert: { alert: mocks.alert },
   Image: 'Image',
@@ -79,7 +82,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 vi.mock('expo-clipboard', () => ({
-  ClipboardPasteButton: 'ClipboardPasteButton',
+  ClipboardPasteButton: (props: any) => { const [id] = React.useState(() => ++mocks.nativePasteId); return React.createElement('ClipboardPasteButton', { ...props, nativeId: id }); },
   get isPasteButtonAvailable() { return mocks.nativePasteAvailable; },
   setStringAsync: vi.fn(async () => undefined),
   hasImageAsync: mocks.hasClipboardImage,
@@ -185,7 +188,8 @@ function deferred<T>(): Deferred<T> {
     resolve = resolvePromise;
     reject = rejectPromise;
   });
-  return { promise, resolve, reject };
+  return {
+    useWindowDimensions: () => ({ width: 393, fontScale: 1 }), promise, resolve, reject };
 }
 
 /** Match the abort shape emitted by fetch when a request is cancelled. */
@@ -1322,4 +1326,19 @@ describe('RecipeChatModal conversation isolation', () => {
       await act(async () => renderer.unmount());
     }
   });
+});
+
+it('remeasures native Paste after larger text and preserves its draft callback', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  try {
+    await renderModal(renderer, 'first');
+    const paste = () => renderer.container.queryAll(n => n.type === 'ClipboardPasteButton')[0];
+    const original = paste().props.nativeId;
+    mocks.fontScale = 1.4;
+    await renderModal(renderer, 'first');
+    expect(paste().props.nativeId).not.toBe(original);
+    await act(async () => paste().props.onPress({ type: 'text', text: 'Make ahead for lunch?' }));
+    expect(renderer.container.queryAll(n => n.type === 'TextInput')[0].props.value).toBe('Make ahead for lunch?');
+    await vi.waitFor(() => expect(mocks.storageValues.get('hafa.chat.v2.stable-user.recipe.first.draft')).toBe('Make ahead for lunch?'));
+  } finally { await act(async () => renderer.unmount()); mocks.fontScale = 1; }
 });
