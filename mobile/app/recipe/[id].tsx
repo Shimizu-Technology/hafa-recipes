@@ -27,6 +27,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Button, Text, View, Card, Divider, useColors } from '@/components/Themed';
 import { RecipeDetailsReview } from '@/components/RecipeDetailsReview';
@@ -495,7 +496,7 @@ function RecipeDetailScreenContent() {
       }
       component.ingredients.forEach(ing => {
         const amount = getIngredientAmount(ing);
-        const qty = scaleQuantity(amount.quantity, scaleFactor) || '';
+        const qty = scaleQuantity(amount.quantity, scaleFactor, amount.unit) || '';
         const unit = amount.unit || '';
         const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
         const usefulNotes = getCookingNotes(ing.notes);
@@ -1031,7 +1032,7 @@ function RecipeDetailScreenContent() {
                           .map((ing, ingIndex) => {
                             const scaledCost = (ing.estimatedCost || 0) * scaleFactor;
                             const amount = getIngredientAmount(ing);
-                            const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
+                            const scaledQty = scaleQuantity(amount.quantity, scaleFactor, amount.unit);
                             const unit = amount.unit || '';
                             
                             return (
@@ -1044,7 +1045,7 @@ function RecipeDetailScreenContent() {
                                     {ing.name}
                                   </Text>
                                   {scaledQty && (
-                                    <Text style={[styles.costItemQty, { color: colors.textMuted }]}>
+                                    <Text accessibilityLabel={spokenQuantity(`${scaledQty}${unit ? ` ${unit}` : ''}${amount.isEstimate ? ' · AI estimate' : ''}`)} style={[styles.costItemQty, { color: colors.textMuted }]}>
                                       {scaledQty}{unit ? ` ${unit}` : ''}{amount.isEstimate ? ' · AI estimate' : ''}
                                     </Text>
                                   )}

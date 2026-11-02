@@ -53,3 +53,16 @@ it('supports read-only Cook rows without costs while retaining estimate explanat
     expect(root.container.queryAll(n => n.type === 'TouchableOpacity' && n.props.accessibilityRole === 'button')).toHaveLength(1);
   } finally { await act(async () => root.unmount()); }
 });
+
+it('shows mixed fractions in detail and Cook, keeps metric decimals, and speaks the amount naturally', async () => {
+  const root = createRoot();
+  const ingredients = [{ name: 'salt', quantity: '0.75', unit: 'tsp' }, { name: 'flour', quantity: '0.75', unit: 'kg' }];
+  try {
+    await act(async () => root.render(<RecipeIngredientGroup ingredients={ingredients} scaleFactor={2} isScaled scaleFontSize={n => n} checked={() => false} onToggle={vi.fn()} />));
+    const labels = root.container.queryAll(n => n.type === 'Text' && n.props.accessibilityLabel).map(n => n.props.accessibilityLabel);
+    expect(labels).toEqual(['1 and 1/2 tsp salt', '1.5 kg flour']);
+    const text = root.container.queryAll(n => n.type === 'Text').flatMap(n => n.props.children ?? []).filter(v => typeof v === 'string').join(' ');
+    expect(text).toContain('1½ tsp'); expect(text).toContain('1.5 kg');
+    expect(ingredients[0].quantity).toBe('0.75');
+  } finally { await act(async () => root.unmount()); }
+});

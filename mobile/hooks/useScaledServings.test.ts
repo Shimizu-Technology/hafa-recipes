@@ -4,7 +4,7 @@ import { scaleIngredient, scaleQuantity } from './useScaledServings';
 import { ingredientToGroceryItem } from '../lib/recipeTrust';
 
 describe('scaled recipe amounts', () => {
-  it.each([['1/2', 2, '1'], ['1 1/2', 2, '3'], ['1½', 2, '3'], ['¾', 2, '1.5'], ['0.5', 0.5, '¼'], ['2', 2, '4']])(
+  it.each([['1/2', 2, '1'], ['1 1/2', 2, '3'], ['1½', 2, '3'], ['¾', 2, '1½'], ['0.5', 0.5, '¼'], ['2', 2, '4']])(
     'scales %s by %s without parsing a fraction as a whole number', (quantity, factor, expected) => {
       expect(scaleQuantity(String(quantity), Number(factor))).toBe(expected);
     },
@@ -20,4 +20,14 @@ describe('scaled recipe amounts', () => {
     expect(original.quantityEstimate.quantity).toBe('1/2');
     expect(ingredientToGroceryItem(scaled)).toMatchObject({ quantity: '1', unit: 'cup', notes: 'AI estimate: For the stated flour amount.' });
   });
+});
+
+it('formats unscaled decimals and keeps scaled metric values decimal without rewriting source ingredients', () => {
+  expect(scaleQuantity('1.5', 1, 'tsp')).toBe('1½');
+  expect(scaleQuantity('0.75', 2, 'kg')).toBe('1.5');
+  expect(scaleQuantity('2.333', 1)).toBe('2⅓');
+  const original = { quantity: '0.75', unit: 'kg' };
+  expect(scaleIngredient(original, 2)).toEqual({ ...original, quantity: '1.5', estimatedCost: undefined });
+  expect(scaleIngredient(original, 1)).toBe(original);
+  expect(original.quantity).toBe('0.75');
 });

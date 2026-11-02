@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';
@@ -97,7 +98,7 @@ export default function AddIngredientsModal({
         ...scaleIngredient(ing, scaleFactor),
         // Scale quantity for grocery list
         quantity: hasStatedIngredientAmount(ing.quantity)
-          ? scaleQuantity(ing.quantity!, scaleFactor)
+          ? scaleIngredient(ing, scaleFactor).quantity!
           : null,
         unit: normalizeIngredientUnit(ing.unit),
         // Scale cost estimate
@@ -186,10 +187,10 @@ export default function AddIngredientsModal({
                   color={isSelected ? colors.actionText : colors.textMuted}
                 />
                 <RNView style={styles.ingredientContent}>
-                  <Text style={[styles.ingredientName, { color: colors.text }]}>
+                  <Text accessibilityLabel={spokenQuantity(`${hasAmount ? `${scaleQuantity(amount.quantity!, scaleFactor, amount.unit)}${normalizedUnit ? ` ${normalizedUnit}` : ''} ` : ''}${ingredient.name}`)} style={[styles.ingredientName, { color: colors.text }]}>
                     {hasAmount && (
                       <Text style={isScaled ? { color: colors.actionText, fontWeight: fontWeight.semibold } : {}}>
-                        {scaleQuantity(amount.quantity!, scaleFactor)}{' '}
+                        {scaleQuantity(amount.quantity!, scaleFactor, amount.unit)}{' '}
                       </Text>
                     )}
                     {hasAmount && normalizedUnit && `${normalizedUnit} `}

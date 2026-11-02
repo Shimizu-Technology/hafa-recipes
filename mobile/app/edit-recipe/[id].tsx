@@ -41,6 +41,7 @@ import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 
 
 import { Card, View, Text, useColors } from '@/components/Themed';
@@ -1097,8 +1098,8 @@ export function EditRecipeForm({ owner, capture }: { owner: string | null | unde
                   </RNView>
                   
                   {!ingredient.quantity.trim() && ingredient.quantityEstimate && (
-                    <Text style={{ color: colors.textMuted, fontSize: fontSize.sm }}>
-                      {`AI estimate: ${ingredient.quantityEstimate.quantity}${ingredient.quantityEstimate.unit ? ` ${ingredient.quantityEstimate.unit}` : ''}. Enter an amount above only if you can confirm it.`}
+                    <Text accessibilityLabel={spokenQuantity(`AI estimate: ${formatIngredientAmount(ingredient.quantityEstimate.quantity, ingredient.quantityEstimate.unit)}. Enter an amount above only if you can confirm it.`)} style={{ color: colors.textMuted, fontSize: fontSize.sm }}>
+                      {`AI estimate: ${formatIngredientAmount(ingredient.quantityEstimate.quantity, ingredient.quantityEstimate.unit)}. Enter an amount above only if you can confirm it.`}
                     </Text>
                   )}
                   {/* Notes */}

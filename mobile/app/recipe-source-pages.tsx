@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button, Text, useColors } from '@/components/Themed';
 import { api } from '@/lib/api';
 import { useCurrentUserIdentity, useRecipe } from '@/hooks/useRecipes';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 
 /** Original pages never enter public recipe data or the image disk cache. */
 export default function RecipeSourcePagesScreen() {
@@ -82,7 +83,7 @@ export default function RecipeSourcePagesScreen() {
             <Text accessibilityRole="header">{recipe?.extracted.title || 'Extracted recipe'}</Text>
             {(components.length ? components : [{ name: '', ingredients: recipe?.extracted.ingredients || [], steps: recipe?.extracted.steps || [] }]).map((part, partIndex) => <View key={partIndex} style={{ gap: 8 }}>
               {!!part.name && <Text accessibilityRole="header">{part.name}</Text>}
-              {part.ingredients?.map((item, i) => <Text key={`ingredient-${i}`}>{[item.quantity, item.unit, item.name].filter(Boolean).join(' ')}</Text>)}
+              {part.ingredients?.map((item, i) => <Text key={`ingredient-${i}`} accessibilityLabel={spokenQuantity(`${formatIngredientAmount(item.quantity, item.unit)} ${item.name}`)}>{formatIngredientAmount(item.quantity, item.unit)} {item.name}</Text>)}
               {part.steps?.map((step, i) => <Text key={`step-${i}`}>{i + 1}. {step}</Text>)}
             </View>)}
           </View>

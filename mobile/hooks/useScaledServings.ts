@@ -1,3 +1,4 @@
+import { formatQuantity, parseQuantity } from '@/lib/quantityPresentation';
 import { useRecipeOwnerGeneration } from './useOfflineLease';
 import { recipeScope } from '@/lib/recipeQueryScope';
 /**
@@ -100,37 +101,17 @@ export function useScaledServings(recipeId: string, originalServings: number) {
 /**
  * Utility to scale a quantity string by a factor.
  */
-export function scaleQuantity(quantity: string | null, scaleFactor: number): string | null {
-  if (!quantity || scaleFactor === 1) return quantity;
-  
-  const unicodeFractions: Record<string, number> = {
-    '¼': 1 / 4, '½': 1 / 2, '¾': 3 / 4, '⅓': 1 / 3, '⅔': 2 / 3,
-    '⅛': 1 / 8, '⅜': 3 / 8, '⅝': 5 / 8, '⅞': 7 / 8,
-  };
-  const input = quantity.trim();
-  const fraction = input.match(/^(?:(\d+)\s+)?(\d+)\/(\d+)$/);
-  const unicode = input.match(/^(\d+)?\s*([¼½¾⅓⅔⅛⅜⅝⅞])$/);
-  const parsed = fraction && Number(fraction[3]) !== 0
-    ? Number(fraction[1] || 0) + Number(fraction[2]) / Number(fraction[3])
-    : unicode ? Number(unicode[1] || 0) + unicodeFractions[unicode[2]]
-      : /^\d+(?:\.\d+)?$/.test(input) ? Number(input) : NaN;
-  if (Number.isFinite(parsed) && Number.isFinite(scaleFactor) && scaleFactor > 0) {
-    const scaled = parsed * scaleFactor;
-    const fractions: Record<string, string> = {
-      '0.13': '⅛', '0.25': '¼', '0.33': '⅓', '0.38': '⅜', '0.50': '½',
-      '0.63': '⅝', '0.67': '⅔', '0.75': '¾', '0.88': '⅞',
-    };
-    return (scaled < 1 ? fractions[scaled.toFixed(2)] : null)
-      || String(Number(scaled < 0.01 ? scaled.toPrecision(4) : scaled.toFixed(2)));
-  }
-
-  return quantity;
+export function scaleQuantity(quantity: string | null, scaleFactor: number, unit?: string | null): string | null {
+  if (!quantity) return quantity;
+  const parsed = parseQuantity(quantity);
+  if (parsed === null || !Number.isFinite(scaleFactor) || scaleFactor <= 0) return quantity;
+  return formatQuantity(String(parsed * scaleFactor), unit);
 }
 
 /**
  * Scale an ingredient object with a given scale factor.
  */
-export function scaleIngredient<T extends { quantity?: string | null; quantityEstimate?: QuantityEstimate | null; estimatedCost?: number | null }>(
+export function scaleIngredient<T extends { unit?: string | null; quantity?: string | null; quantityEstimate?: QuantityEstimate | null; estimatedCost?: number | null }>(
   ingredient: T,
   scaleFactor: number
 ): T {
@@ -138,13 +119,19 @@ export function scaleIngredient<T extends { quantity?: string | null; quantityEs
   
   return {
     ...ingredient,
-    quantity: scaleQuantity(ingredient.quantity ?? null, scaleFactor),
+    quantity: scaleStoredQuantity(ingredient.quantity ?? null, scaleFactor),
     ...(ingredient.quantityEstimate ? { quantityEstimate: {
       ...ingredient.quantityEstimate,
-      quantity: scaleQuantity(ingredient.quantityEstimate.quantity, scaleFactor)!,
+      quantity: scaleStoredQuantity(ingredient.quantityEstimate.quantity, scaleFactor)!,
     } } : {}),
     estimatedCost: ingredient.estimatedCost 
       ? ingredient.estimatedCost * scaleFactor 
       : ingredient.estimatedCost,
   };
+}
+
+function scaleStoredQuantity(quantity: string | null, factor: number): string | null {
+  if (!quantity) return quantity;
+  const value = parseQuantity(quantity);
+  return value === null || !Number.isFinite(factor) || factor <= 0 ? quantity : String(Number((value * factor).toPrecision(12)));
 }
