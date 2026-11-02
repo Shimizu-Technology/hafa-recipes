@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View as RNView,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -58,6 +59,14 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
+  // At larger text the field gets its own row so the placeholder stays readable.
+  const largeText = fontScale >= 1.3;
+  // UIPasteControl hides its icon when its frame is smaller than the scaled glyph,
+  // which left a blank tinted square at larger text; size it, and the buttons
+  // beside it, to the font scale.
+  const controlSize = Math.max(44, Math.ceil(44 * fontScale));
+  const controlFrame = { width: controlSize, height: controlSize };
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const areAttachmentsDisabled = isUnavailable || isListening;
   const canSend = Boolean(text.trim() || attachedImageUri) && !isUnavailable && !isListening;
@@ -73,6 +82,47 @@ export default function ChatComposer({
     setAttachmentsOpen(false);
     action();
   };
+
+  const messageInput = (
+    <RNView style={[styles.inputColumn, largeText && styles.inputColumnFullWidth]}>
+      <TextInput
+        value={text}
+        onChangeText={onChangeText}
+        placeholder={attachedImageUri
+          ? 'Add a message (optional)…'
+          : isListening
+            ? 'Listening…'
+            : isGeneralMode
+              ? 'Ask anything about cooking…'
+              : 'Ask about this recipe…'}
+        placeholderTextColor={isListening ? colors.tint : colors.textMuted}
+        multiline
+        maxLength={CHAT_MESSAGE_MAX_CHARS}
+        editable={!isUnavailable && !isListening}
+        accessibilityLabel="Message"
+        accessibilityHint="Enter a cooking question or instruction"
+        style={[
+          styles.input,
+          {
+            backgroundColor: colors.backgroundSecondary,
+            borderColor: isListening ? colors.tint : colors.border,
+            color: colors.text,
+          },
+        ]}
+        returnKeyType="send"
+        blurOnSubmit={false}
+        onSubmitEditing={onSend}
+      />
+      {text.length >= CHAT_MESSAGE_MAX_CHARS - 400 && (
+        <Text
+          style={[styles.characterCount, { color: colors.textMuted }]}
+          accessibilityLiveRegion="polite"
+        >
+          {text.length.toLocaleString()} / {CHAT_MESSAGE_MAX_CHARS.toLocaleString()}
+        </Text>
+      )}
+    </RNView>
+  );
 
   return (
     <RNView
@@ -161,6 +211,8 @@ export default function ChatComposer({
         </RNView>
       )}
 
+      {largeText && <RNView style={[styles.inputRow, styles.largeTextInputRow]}>{messageInput}</RNView>}
+
       <RNView style={styles.inputRow}>
         <TouchableOpacity
           onPress={() => {
@@ -173,6 +225,7 @@ export default function ChatComposer({
           hitSlop={4}
           style={[
             styles.roundButton,
+            controlFrame,
             {
               backgroundColor: attachmentsOpen ? colors.tint : colors.backgroundSecondary,
               borderColor: attachmentsOpen ? colors.tint : colors.border,
@@ -186,51 +239,16 @@ export default function ChatComposer({
           />
         </TouchableOpacity>
 
-        <RNView style={styles.inputColumn}>
-          <TextInput
-            value={text}
-            onChangeText={onChangeText}
-            placeholder={attachedImageUri
-              ? 'Add a message (optional)…'
-              : isListening
-                ? 'Listening…'
-                : isGeneralMode
-                  ? 'Ask anything about cooking…'
-                  : 'Ask about this recipe…'}
-            placeholderTextColor={isListening ? colors.tint : colors.textMuted}
-            multiline
-            maxLength={CHAT_MESSAGE_MAX_CHARS}
-            editable={!isUnavailable && !isListening}
-            accessibilityLabel="Message"
-            accessibilityHint="Enter a cooking question or instruction"
-            style={[
-              styles.input,
-              {
-                backgroundColor: colors.backgroundSecondary,
-                borderColor: isListening ? colors.tint : colors.border,
-                color: colors.text,
-              },
-            ]}
-            returnKeyType="send"
-            blurOnSubmit={false}
-            onSubmitEditing={onSend}
-          />
-          {text.length >= CHAT_MESSAGE_MAX_CHARS - 400 && (
-            <Text
-              style={[styles.characterCount, { color: colors.textMuted }]}
-              accessibilityLiveRegion="polite"
-            >
-              {text.length.toLocaleString()} / {CHAT_MESSAGE_MAX_CHARS.toLocaleString()}
-            </Text>
-          )}
-        </RNView>
+        {largeText ? <RNView style={styles.controlSpacer} /> : messageInput}
 
         {showNativePaste && (
           <RNView
             pointerEvents={areAttachmentsDisabled ? 'none' : 'auto'}
             style={{ opacity: areAttachmentsDisabled ? 0.45 : 1 }}
           >
+            {/* Remount so the native control re-lays out its glyph for the new size. */}
             <Clipboard.ClipboardPasteButton
+              key={`paste-${fontScale}`}
               acceptedContentTypes={['plain-text', 'image']}
               imageOptions={{ format: 'jpeg', jpegQuality: 0.75 }}
               displayMode="iconOnly"
@@ -240,7 +258,7 @@ export default function ChatComposer({
               onPress={(payload) => {
                 if (!areAttachmentsDisabled) onNativePaste(payload);
               }}
-              style={styles.nativePasteButton}
+              style={[styles.nativePasteButton, controlFrame]}
               accessibilityLabel="Paste from clipboard"
               accessibilityState={{ disabled: areAttachmentsDisabled }}
             />
@@ -256,6 +274,7 @@ export default function ChatComposer({
           hitSlop={4}
           style={[
             styles.roundButton,
+            controlFrame,
             {
               backgroundColor: isListening ? colors.tint : colors.backgroundSecondary,
               borderColor: isListening ? colors.tint : colors.border,
@@ -278,6 +297,7 @@ export default function ChatComposer({
           hitSlop={4}
           style={[
             styles.sendButton,
+            controlFrame,
             {
               backgroundColor: isSending
                 ? colors.error
@@ -457,22 +477,31 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   roundButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     marginBottom: 2,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
   },
+  largeTextInputRow: {
+    marginBottom: spacing.sm,
+  },
+  inputColumnFullWidth: {
+    flexBasis: '100%',
+  },
+  controlSpacer: {
+    flex: 1,
+  },
   nativePasteButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     marginBottom: 2,
   },
   sendButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     marginBottom: 2,
     borderRadius: radius.full,
     alignItems: 'center',

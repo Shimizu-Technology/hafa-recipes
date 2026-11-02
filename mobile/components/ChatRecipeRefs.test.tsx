@@ -18,8 +18,13 @@ it.each([1, 2])('keeps long answer references identifiable and opens the chosen 
   ];
   try {
     await act(async () => root.render(<ChatRecipeRefs refs={refs} onOpen={open} />));
+    // Before layout, cards take a real width from the window so the shrink-wrapped message column can size itself.
+    const firstCard = root.container.queryAll(n => n.type === 'Pressable')[0];
+    expect(firstCard.props.style({ pressed: false })[1].width).toBe(fontScale >= 1.3 ? 320 : 280);
     await act(async () => root.container.queryAll(n => n.type === 'ScrollView')[0].props.onLayout({ nativeEvent: { layout: { width: 288 } } }));
     const buttons = root.container.queryAll(n => n.type === 'Pressable');
+    // A narrower width remounts the card so iOS measures its title again.
+    expect(buttons[0] === firstCard).toBe(fontScale < 1.3);
     expect(buttons.map(n => n.props.style({ pressed: false })[1].width)).toEqual([280, 280].map(width => fontScale >= 1.3 ? 288 : width));
     expect(root.container.queryAll(n => n.type === 'Text').map(n => n.props.numberOfLines)).toEqual([fontScale >= 1.3 ? 4 : 3, fontScale >= 1.3 ? 4 : 3]);
     expect(buttons.map(n => n.props.accessibilityLabel)).toEqual(refs.map(ref => `Open ${ref.title}`));
