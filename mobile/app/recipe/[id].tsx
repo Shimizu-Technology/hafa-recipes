@@ -24,7 +24,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -35,6 +35,7 @@ import RecipeChatModal from '@/components/RecipeChatModal';
 import AddToCollectionModal from '@/components/AddToCollectionModal';
 import { RecipeOrganizer } from '@/components/RecipeOrganizer';
 import { RecipeHero } from '@/components/RecipeHero';
+import { RecipeDetailFrame, RecipeDetailScroll } from '@/components/RecipeDetailChrome';
 import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
 import { SafetyActionModal } from '@/components/SafetyActionModal';
@@ -150,7 +151,6 @@ function RecipeDetailScreenContent() {
   const { fontScale } = useWindowDimensions();
   const { scaleFontSize } = useTextSize();
   const [activeTab, selectTab] = useState<TabType>('ingredients');
-  const scrollRef = useRef<ScrollView>(null);
   const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set());
   const [showScale, setShowScale] = useState(false);
   const [showSourceTools, setShowSourceTools] = useState(false);
@@ -649,12 +649,12 @@ function RecipeDetailScreenContent() {
 
   if (view === 'loading') {
     return (
-      <View style={styles.centerContainer}>
+      <RecipeDetailFrame><View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.actionText} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
           Loading recipe...
         </Text>
-      </View>
+      </View></RecipeDetailFrame>
     );
   }
 
@@ -663,7 +663,7 @@ function RecipeDetailScreenContent() {
       ? { title: 'You’re offline', message: 'Reconnect to load this recipe. Saved offline recipes are still available in your library.', canRetry: true }
       : recipeLoadError(error);
     return (
-      <View style={styles.centerContainer}>
+      <RecipeDetailFrame><View style={styles.centerContainer}>
         <Ionicons
           name="alert-circle-outline"
           size={52}
@@ -681,7 +681,7 @@ function RecipeDetailScreenContent() {
         <TouchableOpacity style={styles.retryButton} accessibilityRole="button" onPress={() => router.back()}>
           <Text style={[styles.linkText, { color: colors.actionText }]}>Go back</Text>
         </TouchableOpacity>
-      </View>
+      </View></RecipeDetailFrame>
     );
   }
 
@@ -745,54 +745,16 @@ function RecipeDetailScreenContent() {
 
   return (
     <>
-      <Stack.Screen 
-        options={{ 
-          headerTitle: '',
-          headerTransparent: true,
-          headerStyle: { backgroundColor: 'transparent' },
-          headerShadowVisible: false,
-          headerRight: () => (
-            <RNView style={styles.headerButtons}>
-              <TouchableOpacity
-                onPress={handleShare}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel="Share recipe"
-              >
-                <Ionicons name="share-outline" size={22} color={colors.actionText} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleMoreOptions}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel="More recipe options"
-              >
-                <Ionicons name="ellipsis-horizontal" size={22} color={colors.actionText} />
-              </TouchableOpacity>
-            </RNView>
-          ),
-        }} 
-      />
-      
-      <KeyboardAvoidingView 
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-        >
-        <ScrollView 
-          ref={scrollRef}
-          showsVerticalScrollIndicator={false}
-          contentInsetAdjustmentBehavior="never"
-          contentContainerStyle={[
-            styles.scrollContent,
-            {
-              paddingBottom: insets.bottom + spacing.lg,
-            },
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <RecipeDetailScroll
+          title={extracted.title}
+          expectHero={Boolean(recipe.thumbnail_url?.trim()) || thumbnailPending}
+          actions={[
+            { icon: 'share-outline', accessibilityLabel: 'Share recipe', onPress: handleShare },
+            { icon: 'ellipsis-horizontal', accessibilityLabel: 'More recipe options', onPress: handleMoreOptions },
           ]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <RNView>
-          <RecipeHero
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg }]}
+          hero={<RecipeHero
             key={recipe.id}
             photoOnly
             recipeTitle={extracted.title}
@@ -800,8 +762,8 @@ function RecipeDetailScreenContent() {
             thumbnailUrl={recipe.thumbnail_url}
             thumbnailPending={thumbnailPending}
             onOpenSource={handleOpenSource}
-          />
-
+          />}
+        >
           {/* Content */}
           <RNView style={styles.content}>
             {error && <RNView style={[styles.refreshNotice, { borderColor: colors.border }]}>
@@ -874,7 +836,6 @@ function RecipeDetailScreenContent() {
               </TouchableOpacity>
             )}
 
-          </RNView>
           </RNView>
             <RNView style={styles.content}>
 
@@ -1227,8 +1188,7 @@ function RecipeDetailScreenContent() {
               ))}
             </RNView>
           )}
-        </ScrollView>
-        
+        </RecipeDetailScroll>
       </KeyboardAvoidingView>
 
       {showDetailsReview && isOwner && (
@@ -1491,13 +1451,6 @@ const styles = StyleSheet.create({
   linkText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    gap: 0,
-  },
-  headerButton: {
-    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
   },
   content: {
     padding: 16,

@@ -1,7 +1,8 @@
-import { ScrollView, StyleSheet, View as RNView } from 'react-native';
+import { StyleSheet, View as RNView } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { RecipeHero } from '@/components/RecipeHero';
+import { RecipeDetailScroll } from '@/components/RecipeDetailChrome';
 import { Skeleton } from '@/components/Skeleton';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
@@ -19,21 +20,23 @@ export function RecipeDetailPreview({ preview }: { preview: RecipePreview }) {
   const sourceUrl = preview.sourceUrl ?? '';
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
+    <RecipeDetailScroll
+      title={preview.title}
+      expectHero={Boolean(preview.thumbnailUrl?.trim())}
       contentContainerStyle={styles.scrollContent}
-    >
-      <RecipeHero
+      hero={<RecipeHero
+        photoOnly
         recipeTitle={preview.title}
         sourceUrl={sourceUrl}
         thumbnailUrl={preview.thumbnailUrl}
         onOpenSource={() => {}}
         interactive={false}
-      />
+      />}
+    >
       <RNView style={styles.content}>
         <Text
           accessibilityRole="header"
-          style={[styles.title, { color: colors.text, fontSize: scaleFontSize(30), lineHeight: scaleFontSize(36) }]}
+          style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}
         >
           {preview.title}
         </Text>
@@ -73,13 +76,13 @@ export function RecipeDetailPreview({ preview }: { preview: RecipePreview }) {
           ))}
         </RNView>
       </RNView>
-    </ScrollView>
+    </RecipeDetailScroll>
   );
 }
 
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
-  content: { padding: spacing.lg },
+  content: { padding: spacing.md },
   title: { fontSize: fontSize.xxl, fontFamily: fontFamily.display, marginBottom: spacing.md },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
   metaItem: {

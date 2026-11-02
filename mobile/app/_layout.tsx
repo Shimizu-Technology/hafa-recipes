@@ -314,7 +314,9 @@ function RootLayoutNav() {
                     <Stack.Screen
                       name="recipe/[id]"
                       options={{
-                        headerTitle: 'Recipe',
+                        // Recipe detail draws its own header over the photo (RecipeDetailChrome).
+                        headerShown: false,
+                        title: 'Recipe',
                       }}
                     />
                     <Stack.Screen
