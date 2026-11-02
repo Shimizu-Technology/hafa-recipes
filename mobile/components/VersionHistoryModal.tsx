@@ -205,7 +205,9 @@ export default function VersionHistoryModal({
                   </Text>
                   
                   <TouchableOpacity
-                    style={[styles.restoreButton, { borderColor: colors.tint }]}
+                    style={[styles.restoreButton, { backgroundColor: colors.accentTint }]}
+                    accessibilityRole="button" accessibilityLabel={`Restore version ${version.version_number}`}
+                    accessibilityState={{ busy: restoringId === version.id }}
                     onPress={() => handleRestore(version)}
                     disabled={restoringId === version.id}
                   >
@@ -304,9 +306,10 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   versionItem: {
-    padding: spacing.md,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   versionHeader: {
     flexDirection: 'row',
@@ -344,6 +347,8 @@ const styles = StyleSheet.create({
   },
   versionFooter: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: spacing.sm,
@@ -352,13 +357,14 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
   },
   restoreButton: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
-    borderWidth: 1,
+    borderWidth: 0,
   },
   restoreButtonText: {
     fontSize: fontSize.sm,

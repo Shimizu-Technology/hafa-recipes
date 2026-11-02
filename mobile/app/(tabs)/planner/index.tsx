@@ -257,7 +257,7 @@ export function MealSlot({
                 placeholderIconSize={16}
               /></TouchableOpacity>
               <RNView style={styles.mealCardContent}>
-                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ minHeight: 44, justifyContent: 'center' }}
+                <ScalePressable onPress={() => onViewRecipe(entry.recipe_id)} style={{ minHeight: 44, justifyContent: 'flex-start' }}
                   accessibilityRole="button" accessibilityLabel={`Open ${entry.recipe_title}`}>
                 <Text
                   style={[styles.mealCardTitle, { color: colors.text }]}
@@ -270,8 +270,7 @@ export function MealSlot({
               </TouchableOpacity>
                 {entry.notes && (
                   <Text
-                    style={[styles.mealCardNotes, { color: colors.textMuted }]}
-                    numberOfLines={1}
+                    style={[styles.mealCardNotes, { color: colors.textSecondary }]}
                   >
                     {entry.notes}
                   </Text>
@@ -820,7 +819,7 @@ function PlannerScreenContent() {
               const day = weekPlan?.days.find(value => value.date === formatDateForApi(date));
               return <RNView key={formatDateForApi(date)} style={{ marginBottom: 24 }} onLayout={event => { dayPositions.current[formatDateForApi(date)] = event.nativeEvent.layout.y; scrollToRequestedDay(); }}>
                 <Text accessibilityRole="header" style={[styles.dayTitle, { color: colors.text }]}>{formatFullDayLabel(date)}</Text>
-                <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 12, paddingHorizontal: 12 }}>
+                <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 12, paddingHorizontal: 16 }}>
                   {MEAL_TYPES.map(mealType => <MealSlot entriesOnly key={mealType.type} mealType={mealType}
                     entries={day?.[mealType.type] || []} colors={colors}
                     onAdd={() => handleAddMeal(mealType.type, date)} onRemove={handleRemoveMeal} onViewRecipe={handleViewRecipe}
@@ -1181,8 +1180,8 @@ const styles = StyleSheet.create({
   },
   mealCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
+    alignItems: 'flex-start',
+    paddingVertical: 12,
     borderRadius: radius.md,
     borderWidth: 0,
   },
@@ -1200,11 +1199,12 @@ const styles = StyleSheet.create({
     fontSize: 16, lineHeight: 21, fontFamily: fontFamily.display,
   },
   mealCardNotes: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
+    fontSize: 15,
+    lineHeight: 21,
+    marginTop: 4,
   },
   removeMealButton: {
-    padding: spacing.xs,
+    minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center',
   },
   addAnotherButton: {
     minHeight: 44, flexDirection: 'row', gap: 8,
