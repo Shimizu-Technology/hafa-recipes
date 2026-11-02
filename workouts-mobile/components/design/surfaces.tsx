@@ -54,6 +54,7 @@ export function Screen({
   constrainFooter = false,
   dismiss = false,
   hideTitle = false,
+  headerHairline = false,
   list,
   native = false,
   grouped = false,
@@ -71,6 +72,7 @@ export function Screen({
   dismiss?: boolean;
   /** Pushed screens that lead with their own hero/title (e.g. workout detail) skip the large title. */
   hideTitle?: boolean;
+  headerHairline?: boolean;
   action?: ReactNode;
   footer?: ReactNode;
   /** Pull to refresh. */
@@ -132,7 +134,7 @@ export function Screen({
   return (
     <GroupedPage.Provider value={grouped}>
     {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: false, headerLargeTitleEnabled: !hideTitle,
-      headerShadowVisible: false, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: pageColor }, scrollEdgeEffects: { top: "hidden" },
+      headerShadowVisible: headerHairline, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: pageColor }, scrollEdgeEffects: { top: "hidden" },
       ...headerBack(back && !tabHeader ? <HeaderButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"}
         onPress={() => router.canGoBack?.() ? router.back() : router.replace("/(tabs)/library")} /> : undefined),
       headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, ...headerActions(action ? <>{action}</> : undefined) }} />}
@@ -360,6 +362,7 @@ export function ListRow({
   title,
   detail,
   detailLines,
+  leading,
   icon,
   value,
   onPress,
@@ -370,6 +373,7 @@ export function ListRow({
   title: string;
   detail?: string;
   detailLines?: number;
+  leading?: string;
   icon?: IconName;
   value?: string;
   onPress?: () => void;
@@ -383,6 +387,7 @@ export function ListRow({
   const fg = destructive ? c.error : surface === "hero" ? c.onHero : c.text;
   const body = (
     <>
+      {!!leading && <Copy kind="label" tone="muted" style={{ minWidth: 24 }}>{leading}</Copy>}
       {!!icon && (
         <Ionicons name={icon} size={22} color={destructive ? c.error : surface === "hero" ? c.heroMuted : c.muted} />
       )}
@@ -410,7 +415,7 @@ export function ListRow({
       )}
     </>
   );
-  const style: ViewStyle = { minHeight: 56, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 14 };
+  const style: ViewStyle = { minHeight: 56, paddingVertical: leading ? 12 : 8, flexDirection: "row", alignItems: leading ? "flex-start" : "center", gap: 14 };
   if (!onPress) return <View style={style}>{body}</View>;
   return (
     <Pressable
@@ -427,7 +432,7 @@ export function ListRow({
 }
 
 /** Groups ListRows inside one card with hairline separators. */
-export function ListGroup({ children, grouped: explicitGrouped }: PropsWithChildren<{ grouped?: boolean }>) {
+export function ListGroup({ children, grouped: explicitGrouped, header, separatorInset = 0 }: PropsWithChildren<{ grouped?: boolean; header?: string; separatorInset?: number }>) {
   const c = useColors();
   const pageGrouped = useGroupedPage();
   const grouped = explicitGrouped ?? pageGrouped;
@@ -450,8 +455,10 @@ export function ListGroup({ children, grouped: explicitGrouped }: PropsWithChild
         paddingVertical: 4,
       }}
     >
+      {!!header && <View style={{ paddingTop: 12, paddingBottom: 8 }}><Copy kind="caption" tone="muted">{header}</Copy></View>}
       {items.map((child, i) => (
-        <View key={(isValidElement(child) && child.key) || i} style={i ? { borderTopWidth: 1, borderTopColor: c.border } : null}>
+        <View key={(isValidElement(child) && child.key) || i}>
+          {i > 0 && <View style={{ marginLeft: separatorInset, borderTopWidth: 1, borderTopColor: c.border }} />}
           {child}
         </View>
       ))}
