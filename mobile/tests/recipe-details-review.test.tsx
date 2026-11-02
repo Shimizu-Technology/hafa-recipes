@@ -55,6 +55,7 @@ vi.mock('@/lib/api', () => ({ api: { editRecipe: mocks.editRecipe, saveCapturedR
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
+    Card: (props: Record<string, unknown>) => ReactModule.createElement('Card', props, props.children as React.ReactNode),
     Text: (props: Record<string, unknown>) => ReactModule.createElement('Text', props, props.children as React.ReactNode),
     Button: (props: Record<string, unknown>) => ReactModule.createElement('Button', props),
     View: (props: Record<string, unknown>) => ReactModule.createElement('View', props, props.children as React.ReactNode),
@@ -346,4 +347,23 @@ it('invalidates library and picker queries and acknowledges the inbox after cano
   expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['discover'] });
   expect(importInbox.patch).toHaveBeenCalledWith('capture-id', expect.objectContaining({ state: 'accepted', recipeId: 'saved-capture' }));
   await act(async () => tree.unmount());
+});
+
+it('lets long part and ingredient notes wrap and preserves their text on save', async () => {
+  mocks.editorRecipe = { ...recipe, is_public: false };
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<EditRecipeScreen />); });
+  try {
+    const field = (label: string) => host(tree, 'TextInput', props => props.accessibilityLabel === label)[0];
+    const notes = 'Keep refrigerated until serving. Pack the sauce separately so the vegetables stay crisp.';
+    for (const label of ['Notes for recipe part 1', 'Ingredient 1 notes']) {
+      expect(field(label).props.multiline).toBe(true);
+      await act(async () => field(label).props.onChangeText(notes));
+      expect(field(label).props.value).toBe(notes);
+    }
+    await act(async () => host(tree, 'TouchableOpacity')[0].props.onPress());
+    const component = mocks.editorSubmit.mock.calls.at(-1)![0].data.components[0];
+    expect(component.notes).toBe(notes);
+    expect(component.ingredients[0].notes).toBe(notes);
+  } finally { await act(async () => tree.unmount()); }
 });
