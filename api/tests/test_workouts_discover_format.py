@@ -1,5 +1,6 @@
 """Discover card format projection needs no database or per-card queries."""
 
+from copy import deepcopy
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -68,3 +69,31 @@ def test_untimed_program_and_multi_block_cards_keep_duration(kind, count, execut
     assert result.format is None and result.estimated_minutes == 35
     legacy = result.model_dump(exclude={"format"})
     assert DiscoverCard.model_validate(legacy).format is None
+
+
+@pytest.mark.parametrize("broken", [
+    {"execution": {"mode": "amrap", "time_cap_seconds": "private invalid cap"}},
+    {"execution": {"mode": "private unknown mode"}},
+    {"missing_exercises": True},
+    *({"rep_scheme": [21, value, 9]} for value in ["private invalid reps", "15", 1.5, True]),
+], ids=["invalid-execution", "unknown-mode", "missing-exercises",
+        "invalid-reps", "string-reps", "fractional-reps", "boolean-reps"])
+@pytest.mark.parametrize("detail", [False, True])
+def test_invalid_format_keeps_card_and_logs_no_content(broken, detail, caplog):
+    source = row({"mode": "for_time", "time_cap_seconds": 900})
+    block = source.content["blocks"][0]
+    if "execution" in broken:
+        block["execution"] = broken["execution"]
+    elif broken.get("missing_exercises"):
+        del block["exercises"]
+    else:
+        block["exercises"][0]["rep_scheme"] = broken["rep_scheme"]
+    original = deepcopy(source.content)
+    result = card(source, "viewer", {}, detail=detail)
+    assert result.id == source.id and result.title == "Workout"
+    assert result.format is None and result.estimated_minutes == 35
+    assert result.exercise_count == (0 if broken.get("missing_exercises") else 1)
+    assert source.content == original
+    assert caplog.messages == ["Ignoring invalid Discover card format"]
+    assert "private" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
