@@ -348,7 +348,7 @@ function PlannerScreenContent() {
   const { isSignedIn, isLoaded, userId, sessionId } = useAuth();
 
   const weekScroll = useRef<ScrollView>(null);
-  useTabScrollToTop('planner', weekScroll);
+  const tabScroll = useTabScrollToTop('planner', weekScroll);
   const dayPositions = useRef<Record<string, number>>({});
   const scrollSize = useRef({ height: 0, contentHeight: 0 });
   const pendingScrollDate = useRef<string | null>(null);
@@ -635,6 +635,7 @@ function PlannerScreenContent() {
       <>
         <ScrollView
           ref={weekScroll}
+          {...tabScroll}
           contentInsetAdjustmentBehavior="automatic"
           style={[styles.signedOutScroll, { backgroundColor: colors.background }]}
           contentContainerStyle={[
@@ -742,10 +743,10 @@ function PlannerScreenContent() {
     <>
       {/* Day Content */}
       <ScrollView ref={weekScroll}
+          {...tabScroll}
           onLayout={event => { scrollSize.current.height = event.nativeEvent.layout.height; scrollToRequestedDay(); }}
           onContentSizeChange={(_width, height) => { scrollSize.current.contentHeight = height; scrollToRequestedDay(); }}
-          scrollToOverflowEnabled
-          onScrollBeginDrag={() => { pendingScrollDate.current = null; }}
+          onScrollBeginDrag={event => { tabScroll.onScrollBeginDrag(event); pendingScrollDate.current = null; }}
           onScroll={onAskPillScroll}
           scrollEventThrottle={32}
           onScrollToTop={() => { pendingScrollDate.current = null; }}
