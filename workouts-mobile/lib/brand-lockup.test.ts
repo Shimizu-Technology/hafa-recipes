@@ -22,14 +22,14 @@ function texts() {
   }));
 }
 
-it("renders the wordmark as two single-line texts that grow to 1.2x on regular phones", () => {
+it("allows the wordmark to scale and wrap on regular phones", () => {
   f.width = 390;
-  expect(texts()).toEqual([{ multiplier: 1.2, fontSize: 20, lines: 1 }, { multiplier: 1.2, fontSize: 20, lines: 1 }]);
+  expect(texts()).toEqual([{ multiplier: undefined, fontSize: 20, lines: undefined }, { multiplier: undefined, fontSize: 20, lines: undefined }]);
   expect(renderer!.root.findByType("Svg" as never).props.height).toBe(24);
 });
 
-it("steps down to a fixed 16pt wordmark on 320pt headers so it fits beside two header actions", () => {
+it("allows the compact wordmark to scale and wrap", () => {
   f.width = 320;
-  expect(texts()).toEqual([{ multiplier: 1, fontSize: 16, lines: 1 }, { multiplier: 1, fontSize: 16, lines: 1 }]);
+  expect(texts()).toEqual([{ multiplier: undefined, fontSize: 16, lines: undefined }, { multiplier: undefined, fontSize: 16, lines: undefined }]);
   expect(renderer!.root.findByType("Svg" as never).props.height).toBe(20);
 });

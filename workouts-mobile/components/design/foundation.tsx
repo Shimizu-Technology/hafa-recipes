@@ -122,6 +122,7 @@ export function Copy({
     lineHeight: (textStyle.lineHeight ?? typography[kind].lineHeight) * scale };
   return (
     <Text
+      key={fontScale}
       accessibilityRole={headerKinds.has(kind) ? "header" : undefined}
       accessibilityLabel={accessibilityLabel}
       selectable={selectable}

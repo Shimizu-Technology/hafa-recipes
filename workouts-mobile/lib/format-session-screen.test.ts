@@ -183,21 +183,21 @@ it("exposes for-time moves as checkboxes", async () => {
     .toEqual([["checkbox", "10 Burpees", true], ["checkbox", "20 Air squats", false]]);
 });
 
-it("caps the footer labels at the largest text sizes so the clock stays in view", async () => {
+it("allows footer labels to scale at the largest text sizes", async () => {
   const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ name: "Power clean", reps_min: 5 }] }));
   fixture.fontScale = 3.1;
   await render(d, 5_000);
   const footer = elements(renderer!.root.findByType("Screen" as never).props.footer).filter((n) => n.type === "Button");
   expect(footer.map((n) => n.props.title)).toEqual(["Done · interval 1", "Missed", "Pause", "Finish"]);
-  expect(footer.every((n) => n.props.maxScale === 1.6)).toBe(true);
+  expect(footer.every((n) => n.props.maxScale === undefined)).toBe(true);
 });
 
-it("caps the work/rest phase word and caption at large text so the clock stays above the footer", async () => {
+it("allows phase labels to scale while capping the clock", async () => {
   const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Squats" }] }));
   fixture.fontScale = 3.1;
   await render(d, 5_000);
   const copies = renderer!.root.findAllByType("Copy" as never);
-  expect(copies.find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBe(1.6);
-  expect(copies.find((n) => n.props.kind === "caption")!.props.maxScale).toBe(2);
+  expect(copies.find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBeUndefined();
+  expect(copies.find((n) => n.props.kind === "caption")!.props.maxScale).toBeUndefined();
   expect(copies.find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(56 * 1.6);
 });

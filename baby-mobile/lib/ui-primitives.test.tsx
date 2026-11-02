@@ -214,7 +214,7 @@ it("keeps every header control's target at least 44×44 while the circles and pi
     const target = Object.assign({}, ...control.props.style);
     expect(target).toMatchObject({ minWidth: 44, minHeight: 44 });
     const shape = control.findAllByType("View" as React.ElementType)[0].props.style;
-    expect(shape.height).toBeLessThan(44);
+    expect(shape.height ?? shape.minHeight).toBeLessThan(44);
   }
 });
 it("hides iOS 26's shared glass behind header actions", () => {
@@ -288,7 +288,8 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
     feed = optimisticRecord({ id: "feed", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: "2026-10-31T00:50:00Z", data: { method: "breast", side: "left", duration_minutes: 15 } });
   await mount(<CareGlance child={{ id: "baby", name: "Isla", revision: 1 }} rows={[feed]} now={now} />);
   const texts = renderer!.root.findAllByType("Text" as React.ElementType), number = texts.find(t => t.props.maxFontSizeMultiplier === 1.4)!;
-  expect(number.props.children[0]).toBe("5h 10m");
+  expect(number.props.children).toBe("5h 10m");
+  expect(texts.find(t => t.props.children === "ago")!.props.maxFontSizeMultiplier).toBe(0);
   expect(number.props.numberOfLines).toBe(1);
   expect(number.props.style.fontSize).toBe(44);
   const detail = texts.find(t => t.props.children === "Left side · 15 min · Next: right")!;
@@ -378,12 +379,13 @@ it("keeps fontVariant an array when a mounted number turns back into text", asyn
 });
 
 
-it("caps an explicitly constrained subtitle while retaining its full text", async () => {
+it("remeasures an uncapped header pill after a live text size change", async () => {
+  await mount(<HeaderPill title="History" onPress={() => {}} />);
+  const original = renderer!.root.findByType("Text" as React.ElementType);
   mock.fontScale = 3.1;
-  await mount(<Copy maxScale={1.5}>Find what you saved and make sense of your notes.</Copy>);
-  const text = renderer!.root.findByType("Text" as React.ElementType);
-  expect(text.props.allowFontScaling).toBe(false);
-  expect(text.props.style.fontSize).toBe(25.5);
-  expect(text.props.style.lineHeight).toBe(33);
-  expect(text.props.children).toContain("make sense");
+  await act(async () => renderer!.update(<HeaderPill title="History" onPress={() => {}} />));
+  const large = renderer!.root.findByType("Text" as React.ElementType);
+  expect(large).not.toBe(original);
+  expect(large.props.maxFontSizeMultiplier).toBe(0);
+  expect(large.parent!.props.style.minHeight).toBe(36);
 });
