@@ -14,6 +14,7 @@ it.each([1, 1.4])('keeps long collection names and creation/open actions distinc
   const collection = { id: 'weeknights', name: 'Quick Dinners and Leftovers for Busy School Nights', recipe_count: 24, preview_thumbnails: [], emoji: null, created_at: '2026-11-02T00:00:00Z', updated_at: '2026-11-02T00:00:00Z' };
   try {
     await act(async () => root.render(<CollectionGrid collections={[collection]} onOpen={open} onCreate={create} />));
+    expect(root.container.queryAll(n => n.type === 'Text' && n.props.children === collection.name)[0].props.numberOfLines).toBe(fontScale >= 1.3 ? 4 : 2);
     const buttons = root.container.queryAll(n => n.type === 'Pressable');
     expect(buttons.map(n => n.props.accessibilityLabel)).toEqual(['New collection', `${collection.name}, 24 recipes`]);
     await act(async () => buttons[1].props.onPress());

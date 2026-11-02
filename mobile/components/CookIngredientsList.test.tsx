@@ -71,4 +71,22 @@ describe('CookIngredientsList', () => {
       await act(async () => renderer.unmount());
     }
   });
+  it('renders populated component groups in order and omits empty groups', async () => {
+    const renderer = createRoot();
+    const rice = { name: 'Rice', quantity: '2', unit: 'cups' };
+    const salt = { name: 'Salt', quantity: null, unit: null };
+    const milk = { name: 'Milk', quantity: null, unit: null };
+    try {
+      await act(async () => renderer.render(<CookIngredientsList ingredients={[rice, salt, milk]}
+        components={[{ name: 'Base', ingredients: [rice, salt], steps: [] }, { name: 'Empty', ingredients: [], steps: [] }, { name: 'Sauce', ingredients: [milk], steps: [] }]}
+        scaleFactor={1} isScaled={false} warningColor="#b70" scaleFontSize={size => size} />));
+      const text = renderer.container.queryAll(node => node.type === 'Text').map(node => node.props.children).flat(Infinity).filter(value => typeof value === 'string').join(' ');
+      expect(text).not.toContain('Empty');
+      expect(text.indexOf('Base')).toBeLessThan(text.indexOf('Rice'));
+      expect(text.indexOf('Rice')).toBeLessThan(text.indexOf('Salt'));
+      expect(text.indexOf('Salt')).toBeLessThan(text.indexOf('Sauce'));
+      expect(text.indexOf('Sauce')).toBeLessThan(text.indexOf('Milk'));
+    } finally { await act(async () => renderer.unmount()); }
+  });
+
 });

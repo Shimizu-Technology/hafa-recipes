@@ -168,3 +168,21 @@ it('orders mixed capture, active and saved rows chronologically and suppresses d
   expect(screen.queryByLabelText('View progress YouTube import, watch · abc')).toBeNull();
   screen.unmount();
 });
+
+
+it('places one separator between a job and capture inside one unpadded card', async () => {
+  const screen = await render(<ImportActivityCard jobs={[job()]} captures={[
+    { id: 'capture', createdAt: 0, content: React.createElement('Text', {}, 'Waiting capture') },
+  ]} onOpenRecipe={vi.fn()} onRestore={vi.fn()} />);
+  const tree = screen.toJSON();
+  const nodes: any[] = [];
+  const visit = (node: any) => { if (!node || typeof node !== 'object') return; nodes.push(node); node.children?.forEach(visit); };
+  visit(tree);
+  const cards = nodes.filter(node => node.type === 'Card');
+  expect(cards).toHaveLength(1);
+  expect(cards[0].props.noPadding).toBe(true);
+  expect(nodes.filter(node => node.type === 'NativeView' && Array.isArray(node.props.style) &&
+    node.props.style.some((style: { marginLeft?: number } | undefined) => style?.marginLeft === 48))).toHaveLength(1);
+  expect(screen.getByText('Waiting capture')).toBeTruthy();
+  screen.unmount();
+});
