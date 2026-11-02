@@ -58,7 +58,7 @@ export function WorkoutHero({ source, format }: { source: Source; format?: strin
         </View>
       </View>
     </Pressable> : image ? <View style={{ borderRadius: 20, overflow: "hidden" }}>
-      <SourceImage uri={image} cover label={label} fallback={null} />
+      <SourceImage uri={image} cover label={label} fallback={null} onFailed={() => setFailed(image)} />
     </View> : null}
     {(!!credit || !!url) && <Row gap={8}>
       {!!credit && <Copy kind="small" tone="muted" numberOfLines={2} style={{ flex: 1 }}>{credit}</Copy>}
