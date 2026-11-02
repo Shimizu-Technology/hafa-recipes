@@ -10,12 +10,13 @@ const fixture = vi.hoisted(() => ({
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
   active: null as null | { workout: { title: string; source_thumbnail_url?: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
+  coachMessages: [] as { state: string; assistant_message: string; created_at: string }[],
   session: vi.fn(), correct: vi.fn(), sync: vi.fn(), appListeners: new Set<(state: string) => void>(),
 }));
 vi.mock("@/lib/context", async () => {
   const { useQuery } = await import("@tanstack/react-query");
   const { useMemo } = await import("react");
-  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, coachHistory: async () => ({ messages: [] }), updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
+  const api = { profile: fixture.profile, programs: fixture.programs, sessions: fixture.sessions, coachHistory: async () => ({ messages: fixture.coachMessages }), updateProgram: fixture.updateProgram, session: fixture.session, archiveProgram: fixture.archiveProgram, setReadiness: fixture.setReadiness };
   return {
     useTraining: () => {
       const owner = fixture.owner, epoch = fixture.epoch;
@@ -749,10 +750,13 @@ it("Train shows today's session once, folds past weeks and keeps old Today links
 it("keeps the existing Coach entry reachable from Today", async () => {
   const { router } = await import("expo-router");
   fixture.available = true;
+  fixture.coachMessages = [{ state: "completed", assistant_message: "Try a recovery day", created_at: "2026-11-03" }];
   await mount();
-  const coach = renderer!.root.findAll(node => String(node.type) === "ListRow").find(node => node.props.title === "Ask your coach")!;
-  expect(coach.props.icon).toBe("chatbubble-ellipses-outline");
+  expect(buttons("Ask Coach")).toHaveLength(1);
+  expect(renderer!.root.findAll(node => String(node.type) === "ListRow" && node.props.title === "Ask your coach")).toHaveLength(0);
+  const coach = renderer!.root.findAll(node => String(node.type) === "Pressable").find(node => node.findAll(child => String(child.type) === "Copy" && child.props.children === "Try a recovery day").length > 0)!;
   await act(async () => coach.props.onPress());
+  fixture.coachMessages = [];
   expect(router.push).toHaveBeenLastCalledWith("/coach");
 });
 

@@ -220,8 +220,6 @@ export default function WorkoutDetail() {
       </Stack>
       {primary}
       {!!hint && <Copy kind="small" tone="muted">{hint}</Copy>}
-      {workout && <ListRow icon="chatbubble-ellipses-outline" title="Ask about this workout"
-        onPress={() => router.push({ pathname: "/coach", params: { workout_id: workout.id, revision: String(workout.revision) } })} />}
       {!!error && <Notice error>{error}</Notice>}
       {publication?.is_public && publication.moderation_status === "hidden" && (
         <Notice tone="warning">
