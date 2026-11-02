@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { api } from '@/lib/api';
 import * as Crypto from 'expo-crypto';
@@ -22,7 +23,6 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   Modal,
-  TextInput,
   ActionSheetIOS,
   Platform,
 } from 'react-native';

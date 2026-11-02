@@ -10,7 +10,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: any) => styles, hairlineWidth: 0.5 },
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Icon' }));
-vi.mock('@/components/Themed', () => ({ Card: 'Card', Text: 'Text', useColors: () => ({ text: '#000', textSecondary: '#666', actionText: '#166456', border: '#ccc', warning: '#b70' }) }));
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Card: 'Card', Text: 'Text', useColors: () => ({ text: '#000', textSecondary: '#666', actionText: '#166456', border: '#ccc', warning: '#b70' }) }));
 import { RecipeIngredientGroup } from './RecipeIngredientGroup';
 const ingredients = [
   { name: 'filling of choice', quantity: null, unit: null, estimatedCost: 4, notes: 'Use homemade halva or a thick chocolate spread; cool fully before assembling.', quantityEstimate: { quantity: '1.5', unit: 'cups', reason: 'Enough to fill twelve sandwich cookies.' } },

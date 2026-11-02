@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 import SegmentedControl from '@expo/ui/community/segmented-control';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -20,7 +21,6 @@ import {
   Vibration,
   AppState,
   AppStateStatus,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -35,7 +35,6 @@ import { View, Text, useColors } from '@/components/Themed';
 import { useRecipe } from '@/hooks/useRecipes';
 import { useTimerSoundPreference, getTimerSoundFile } from '@/hooks/useTimerSound';
 import { useBackgroundTimer } from '@/hooks/useBackgroundTimer';
-import { useTextSize } from '@/hooks/useTextSize';
 import { useTimerContext } from '@/contexts/TimerContext';
 import { CookIngredientsList } from '@/components/CookIngredientsList';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
@@ -204,7 +203,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   const { soundPreference } = useTimerSoundPreference();
   
   // Text size preference
-  const { scaleFontSize } = useTextSize();
+  const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   
   // Background timer notifications
   const {

@@ -31,7 +31,7 @@ export function AccountHeaderButton() {
         // Same tonal circle as the other header buttons, so the header reads as one group.
         <RNView style={[styles.accountInitial, { backgroundColor: colors.surface2 }]}>
           {isSignedIn && initial
-            ? <Text maxFontSizeMultiplier={1} style={[styles.accountInitialText, { color: colors.text }]}>{initial}</Text>
+            ? <Text style={[styles.accountInitialText, { color: colors.text }]}>{initial}</Text>
             : <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={18} color={colors.text} />}
         </RNView>
       )}
@@ -55,8 +55,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   accountInitial: {
-    width: 32,
-    height: 32,
+    minWidth: 32,
+    minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,

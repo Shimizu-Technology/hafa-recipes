@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 import { useRecipeQueryClient as useQueryClient } from '@/hooks/useRecipeQuery';
 import { useRecipeQuery as useQuery, useRecipeMutation as useMutation } from '@/hooks/useRecipeQuery';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
@@ -28,7 +29,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   Alert,
   Image,
   KeyboardAvoidingView,

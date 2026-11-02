@@ -16,7 +16,7 @@ vi.mock('react-native', () => ({
   View: 'View',
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push }) }));
-vi.mock('@/components/Themed', () => ({
+vi.mock('@/components/Themed', async () => ({ Text: 'Text', TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),
   useColors: () => ({
     accent: '#B94722',
     accentSoft: '#FBE8DE',

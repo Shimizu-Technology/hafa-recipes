@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 import { useState, useCallback, useRef } from 'react';
 import type { TextInput as TextInputHandle } from 'react-native';
 import {
@@ -5,7 +6,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   Image,
   View as RNView,

@@ -9,7 +9,7 @@ vi.mock('react-native', () => ({ useWindowDimensions: () => metrics, Text: (prop
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('./useColorScheme', () => ({ useColorScheme: () => 'dark' }));
 vi.mock('./Animated', () => ({ ScalePressable: 'ScalePressable' }));
-import { Button, Card, Chip, IconButton, Input, Text } from './Themed';
+import { Button, Card, Chip, IconButton, Input, Text, TextInput, TextScaleContext, SectionHeader } from './Themed';
 
 describe('shared controls', () => {
   it('allows primary text, inputs, buttons and chips to scale without a cap', async () => {
@@ -26,7 +26,7 @@ describe('shared controls', () => {
     await act(async () => r.render(<><Text style={{ fontSize: 28 }}>A long recipe</Text><Chip label="Under thirty minutes" selected onPress={vi.fn()} /></>));
     const labels = r.container.queryAll(n => n.type === 'Text');
     expect(labels[0].props.style[0].lineHeight).toBe(34);
-    expect(labels[1].props.style).toMatchObject({ lineHeight: 18, textAlign: 'center', includeFontPadding: false });
+    expect(Object.assign({}, ...labels[1].props.style)).toMatchObject({ lineHeight: 18, textAlign: 'center', includeFontPadding: false });
     await act(async () => r.unmount());
   });
 
@@ -114,5 +114,23 @@ it('remeasures native text after a system font-size change without doubling nest
     after.slice(0, 2).forEach(n => expect(n.props.style[0]).toMatchObject({ fontSize: 17, lineHeight: 24 }));
     await act(async () => r.container.queryAll(n => n.type === 'ScalePressable')[0].props.onPress());
     expect(press).toHaveBeenCalledOnce();
+  } finally { await act(async () => r.unmount()); metrics.fontScale = 1; }
+});
+
+it('applies app scale once across shared text, nested text, controls, section headings and inputs, leaving system scaling native', async () => {
+  const r = createRoot();
+  const page = () => <TextScaleContext.Provider value={1.3}><Text style={{ fontSize: 20, lineHeight: 28 }}>Body<Text>Nested</Text></Text><Button title="Save" onPress={vi.fn()} /><Chip label="Dinner" /><SectionHeader title="Ingredients" subtitle="For four" /><Input value="" onChangeText={vi.fn()} /><TextInput style={{ fontSize: 20, lineHeight: 28 }} /></TextScaleContext.Provider>;
+  try {
+    metrics.fontScale = 2;
+    await act(async () => r.render(page()));
+    const labels = r.container.queryAll(n => n.type === 'Text' || n.type === 'TextInput');
+    const sizes = labels.map(n => Object.assign({}, ...n.props.style).fontSize);
+    expect(sizes).toEqual([26, 26, 22, 17, 26, 17, 22, 26]);
+    expect(Object.assign({}, ...labels[7].props.style).minHeight).toBeGreaterThanOrEqual(72);
+    labels.forEach(n => { expect(n.props.allowFontScaling).not.toBe(false); expect(n.props.maxFontSizeMultiplier).toBeUndefined(); });
+    expect(Object.assign({}, ...labels[1].props.style).lineHeight).toBe(36);
+    metrics.fontScale = 1;
+    await act(async () => r.render(page()));
+    expect(r.container.queryAll(n => n.type === 'Text')[0].props.style[0].fontSize).toBe(26);
   } finally { await act(async () => r.unmount()); metrics.fontScale = 1; }
 });

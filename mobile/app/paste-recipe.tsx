@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { usePrivateRecipeDraft } from '@/hooks/usePrivateRecipeDraft';
 import { RecipeDraftNotice } from '@/components/RecipeDraftNotice';
@@ -10,7 +11,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View as RNView,
 } from 'react-native';

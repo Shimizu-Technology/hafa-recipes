@@ -1,6 +1,7 @@
+import { Text } from '@/components/Themed';
 /** Persistent connection status. Unknown initial connectivity gets a brief grace period. */
 import React, { useEffect, useRef, useState } from 'react';
-import { Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';

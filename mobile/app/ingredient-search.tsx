@@ -1,10 +1,10 @@
+import { TextInput } from '@/components/Themed';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,

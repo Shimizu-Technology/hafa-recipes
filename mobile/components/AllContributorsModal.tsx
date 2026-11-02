@@ -1,3 +1,4 @@
+import { TextInput } from '@/components/Themed';
 /**
  * Modal showing all contributors with search functionality.
  * Allows users to find and filter recipes by any contributor.
@@ -10,7 +11,6 @@ import {
   TouchableOpacity,
   FlatList,
   View as RNView,
-  TextInput,
   ActivityIndicator,
   Pressable,
   KeyboardAvoidingView,
