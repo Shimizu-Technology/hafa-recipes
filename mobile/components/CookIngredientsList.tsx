@@ -1,81 +1,26 @@
-import { ScrollView, StyleSheet, View as RNView } from 'react-native';
-
+import { ScrollView, StyleSheet } from 'react-native';
 import { Text, useColors } from '@/components/Themed';
-import { brand, fontSize, fontWeight, spacing } from '@/constants/Colors';
-import { scaleQuantity } from '@/hooks/useScaledServings';
-import { formatIngredientAmount, hasStatedIngredientAmount, getIngredientAmount } from '../lib/recipeTrust';
-import type { Ingredient } from '@/types/recipe';
+import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
+import type { Ingredient, RecipeComponent } from '@/types/recipe';
 
 type CookIngredientsListProps = {
   ingredients: Ingredient[];
+  components?: RecipeComponent[];
   scaleFactor: number;
   isScaled: boolean;
   warningColor: string;
   scaleFontSize: (size: number) => number;
 };
 
-/** Render Cook Mode ingredient amounts with honest missing-data language. */
-export function CookIngredientsList({
-  ingredients,
-  scaleFactor,
-  isScaled,
-  warningColor,
-  scaleFontSize,
-}: CookIngredientsListProps) {
+/** Keep component context, notes and estimate explanations available while cooking. */
+export function CookIngredientsList({ ingredients, components, scaleFactor, isScaled, scaleFontSize }: CookIngredientsListProps) {
   const colors = useColors();
-  return (
-    <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-      {ingredients.length === 0 && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(22) }}>No ingredients listed</Text>}
-      {ingredients.map((ingredient, index) => {
-        const amount = getIngredientAmount(ingredient);
-        const scaledQuantity = scaleQuantity(amount.quantity, scaleFactor);
-        const hasAmount = hasStatedIngredientAmount(amount.quantity);
-        return (
-          <RNView key={index} style={[styles.row, { borderBottomColor: colors.border }]}>
-            <Text
-              style={[
-                styles.quantity,
-                { color: colors.actionText, flexShrink: 1 },
-                isScaled && { color: colors.actionText },
-                !hasAmount && { color: warningColor },
-                { fontSize: scaleFontSize(hasAmount ? fontSize.md : fontSize.sm) },
-              ]}
-            >
-              {formatIngredientAmount(amount.quantity, amount.unit, scaledQuantity)}
-            </Text>
-            <Text style={[styles.name, { color: colors.text, fontSize: scaleFontSize(fontSize.md) }]}>
-              {ingredient.name}
-              {amount.isEstimate && <Text style={{ color: warningColor, fontSize: scaleFontSize(fontSize.sm) }}>{'\nAI estimate'}</Text>}
-            </Text>
-          </RNView>
-        );
-      })}
-    </ScrollView>
-  );
+  const groups = components?.length ? components : [{ name: '', ingredients }];
+  return <ScrollView style={styles.list} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    {ingredients.length === 0 && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }}>No ingredients listed</Text>}
+    {groups.map((group, index) => group.ingredients.length > 0 && <RecipeIngredientGroup key={index}
+      title={groups.length > 1 ? group.name : undefined} ingredients={group.ingredients}
+      scaleFactor={scaleFactor} isScaled={isScaled} scaleFontSize={scaleFontSize} />)}
+  </ScrollView>;
 }
-
-const styles = StyleSheet.create({
-  list: {
-    padding: spacing.lg,
-  },
-  row: {
-    flexDirection: 'row',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: '#222',
-  },
-  quantity: {
-    color: brand.reefHighlight,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-    width: '34%',
-    paddingRight: 8,
-  },
-  scaledQuantity: {
-    color: brand.reefHighlight,
-  },
-  name: {
-    fontSize: fontSize.md,
-    flex: 1,
-  },
-});
+const styles = StyleSheet.create({ list: { flex: 1 }, content: { padding: 16, paddingBottom: 32 } });

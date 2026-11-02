@@ -774,7 +774,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
         {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
           {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
         </Text>}
-        <CookIngredientsList ingredients={allIngredients} scaleFactor={scaleFactor} isScaled={isScaled}
+        <CookIngredientsList ingredients={allIngredients} components={recipe.extracted.components} scaleFactor={scaleFactor} isScaled={isScaled}
         warningColor={colors.warning} scaleFontSize={scaleFontSize} /></> : <>
       {/* Step Counter & Progress */}
       <RNView style={styles.progressSection}>
