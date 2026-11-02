@@ -1,6 +1,6 @@
 import { Stack, router } from "expo-router";
 import { Icon, NativeHeaderContext, PressTarget, TabScreenContext, fonts, typeScale, useColors, type IconName } from "./ui";
-import { Platform, Text, View, type ViewProps } from "react-native";
+import { Platform, Text, View, useWindowDimensions, type ViewProps } from "react-native";
 import type { NativeStackNavigationOptions } from "expo-router/native-stack";
 import { useBaby } from "@/lib/context";
 
@@ -48,11 +48,11 @@ export function HeaderIconButton({ icon, label, onPress, disabled = false }: { i
 
 /** A text action (Select, History) in the same tonal fill, so it never reads as bare text. */
 export function HeaderPill({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-    <View style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
-      <Text maxFontSizeMultiplier={1.3} style={{ ...typeScale.subhead, fontWeight: "600", color: c.text }}>{title}</Text>
+    <View style={{ minHeight: 36, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontWeight: "600", color: c.text }}>{title}</Text>
     </View>
   </PressTarget>;
 }
@@ -65,11 +65,11 @@ export function initials(name: string | undefined) {
 
 /** Settings and profiles as a 32pt initials circle, like Recipes and Workouts. */
 export function AccountButton() {
-  const c = useColors(), text = initials(useBaby().state.bootstrap?.profile.display_name);
+  const c = useColors(), { fontScale } = useWindowDimensions(), text = initials(useBaby().state.bootstrap?.profile.display_name);
   return <PressTarget accessibilityRole="button" accessibilityLabel="Settings and profiles" onPress={() => router.push("/settings")}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
-      {text ? <Text allowFontScaling={false} style={{ fontFamily: fonts.rounded, fontSize: 13, fontWeight: "700", color: c.text }}>{text}</Text>
+    <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 16, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
+      {text ? <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.rounded, fontSize: 13, fontWeight: "700", color: c.text }}>{text}</Text>
         : <Icon name="person" size={17} color={c.text} />}
     </View>
   </PressTarget>;

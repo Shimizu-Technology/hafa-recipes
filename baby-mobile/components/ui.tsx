@@ -161,7 +161,6 @@ export function Copy({
   align,
   lines,
   numeric = false,
-  maxScale,
 }: {
   children: React.ReactNode;
   kind?: "body" | "small" | "heading" | "title" | "label";
@@ -169,7 +168,6 @@ export function Copy({
   align?: "left" | "center";
   lines?: number;
   numeric?: boolean;
-  maxScale?: number;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
     style = type[kind];
@@ -177,12 +175,10 @@ export function Copy({
     <Text
       key={`${kind}:${fontScale}`}
       numberOfLines={lines}
-      allowFontScaling={maxScale === undefined}
       maxFontSizeMultiplier={0}
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
-        ...(maxScale === undefined ? {} : { fontSize: style.fontSize * Math.min(fontScale, maxScale), lineHeight: style.lineHeight * Math.min(fontScale, maxScale) }),
         fontFamily: numeric ? fonts.rounded : fonts.regular,
         // Never undefined: when `numeric` turns off on a mounted Text, React Native diffs a removed
         // fontVariant to null and processFontVariant(null) throws a render error.
@@ -198,7 +194,7 @@ export function Copy({
 }
 /** Fixed bar above scrolling content so Back and Close never scroll away. */
 function TopBar({ back, close }: { back: boolean; close: boolean }) {
-  const c = useColors(),
+  const c = useColors(), { fontScale } = useWindowDimensions(),
     leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
   if (!back && !close) return null;
   return (
@@ -230,13 +226,13 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
         })}
       >
         {close ? (
-          <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>
             Close
           </Text>
         ) : (
           <>
             <Icon name="chevron-back" size={24} />
-            <Text maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.regular, fontSize: 17, lineHeight: 22, color: c.action }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontSize: 17, lineHeight: 22, color: c.action }}>
               Back
             </Text>
           </>
@@ -275,7 +271,6 @@ export function Screen({
   children,
   title,
   subtitle,
-  subtitleMaxScale,
   numericSubtitle = false,
   titleKind = "title",
   nativeHeader: nativeHeaderOverride,
@@ -302,7 +297,6 @@ export function Screen({
   /** Pull to refresh. */
   onRefresh?: () => Promise<unknown> | void;
   subtitle?: string;
-  subtitleMaxScale?: number;
   numericSubtitle?: boolean;
   back?: boolean;
   /** For screens presented as a sheet: a Close button replaces Back. */
@@ -361,7 +355,7 @@ export function Screen({
       {(!nativeHeader || !!subtitle || (action && !grouped) || titleKind === "heading") && <View style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "stretch" : "flex-start", gap: 12 }}>
         <View style={{ flex: fontScale >= 1.5 ? undefined : 1, gap: 4 }}>
           {(!nativeHeader || titleKind === "heading") && <Copy kind={titleKind}>{title}</Copy>}
-          {!!subtitle && <Copy numeric={numericSubtitle} tone="muted" maxScale={subtitleMaxScale}>{subtitle}</Copy>}
+          {!!subtitle && <Copy numeric={numericSubtitle} tone="muted">{subtitle}</Copy>}
         </View>
         {(!nativeHeader || !grouped) && action}
       </View>}
@@ -516,19 +510,19 @@ export function Button({
     </PressTarget>
   );
 }
-/** Native bar labels stay within the bar; content text continues to scale fully. */
+/** A scalable text action for a screen header. */
 export function HeaderAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }}
     disabled={disabled} onPress={onPress}
     style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center" }}>
-    <Text key={fontScale} maxFontSizeMultiplier={1.4} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
+    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
   </PressTarget>;
 }
 let accessoryCount = 0;
 /** Number pads have no return key on iOS; a Done bar keeps Save reachable. */
 function KeyboardDone({ id }: { id: string }) {
-  const c = useColors();
+  const c = useColors(), { fontScale } = useWindowDimensions();
   if (Platform.OS !== "ios") return null;
   return (
     <InputAccessoryView nativeID={id}>
@@ -548,7 +542,7 @@ function KeyboardDone({ id }: { id: string }) {
           onPress={() => Keyboard.dismiss()}
           style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
         >
-          <Text style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
         </PressTarget>
       </View>
     </InputAccessoryView>
@@ -776,7 +770,7 @@ export function FilterChips({ options, value, onChange, label }: { options: Filt
             <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
               backgroundColor: on ? c.action : c.soft }}>
               {option.icon && <Icon name={option.icon} size={16} color={ink} />}
-              <Text key={fontScale} maxFontSizeMultiplier={2} numberOfLines={1}
+              <Text key={fontScale} maxFontSizeMultiplier={0}
                 style={{ ...typeScale.subhead, fontWeight: "500", color: ink }}>{option.label}</Text>
             </View>
           </PressTarget>;
@@ -910,7 +904,7 @@ export function useToast() {
   return useContext(ToastContext);
 }
 export function ToastProvider({ children }: PropsWithChildren) {
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets(), { fontScale } = useWindowDimensions();
   const inTabs = isTabRoute(useSegments());
   const tabInset = useTabBarHeight();
   const footer = useDockedFooterHeight();
@@ -980,7 +974,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           }}
         >
           <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
               {toast.message}
             </Text>
           </PressTarget>
@@ -1003,7 +997,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontWeight: "700", fontSize: 15, lineHeight: 20 }}>
+              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontWeight: "700", fontSize: 15, lineHeight: 20 }}>
                 {toast.action.label}
               </Text>
             </PressTarget>
