@@ -46,7 +46,7 @@ it.each([
   await act(async () => { renderer = create(<SavedPostRow record={{ ...row, data: { ...row.data, status } }} pending={false} />); });
   const copy = renderer.root.findAll(n => String(n.type) === "Copy");
   expect(copy).toHaveLength(2);
-  expect(copy[1].props).toMatchObject({ children: label, kind: "small", tone });
+  expect(copy[1].props).toMatchObject({ children: label, kind: "small", tone, lines: 1 });
   const target = renderer.root.findByType("Pressable" as React.ElementType);
   expect(target.props.accessibilityLabel).toContain("Example parent");
   await act(async () => target.props.onPress());
@@ -69,7 +69,7 @@ it("stacks the thumbnail above the text at accessibility sizes so long titles do
   await act(async () => renderer.unmount());
 });
 
-it("keeps long titles and source information available at the default size", async () => {
+it("keeps list rows compact at the default size: two-line titles, one-line source", async () => {
   vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   let renderer!: ReturnType<typeof create>;
   const title = "A long saved tip about preparing for the first weeks with a newborn and finding support";
@@ -78,6 +78,9 @@ it("keeps long titles and source information available at the default size", asy
   const copy = renderer.root.findAll(n => String(n.type) === "Copy");
   expect(copy[0].props.children).toBe(title);
   expect(copy[1].props.children).toContain(creator);
-  expect(copy.every(n => n.props.lines === undefined)).toBe(true);
+  expect(copy[0].props.lines).toBe(2);
+  expect(copy[1].props.lines).toBe(1);
+  // The full title and source stay available to VoiceOver.
+  expect(renderer.root.findByType("Pressable" as React.ElementType).props.accessibilityLabel).toContain(title);
   await act(async () => renderer.unmount());
 });

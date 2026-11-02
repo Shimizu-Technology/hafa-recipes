@@ -55,8 +55,8 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
         cachePolicy="memory" contentFit="cover" transition={150} onError={() => setBroken(thumbnail)} />}
     </View>
     <View style={{ flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
-      <Copy kind="label">{title}</Copy>
-      <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"}>
+      <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
+      <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={fontScale >= 1.3 ? undefined : 1}>
         {update || meta || [timingLabel(record.data.relevance), record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
       </Copy>
     </View>

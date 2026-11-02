@@ -887,9 +887,9 @@ export function Row({
     >
       {icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
       <View style={{ flex: 1, minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
-        <Copy numeric={numericTitle} kind="label">{title}</Copy>
+        <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
-          <Copy numeric={numericDetail} kind="small" tone="muted">
+          <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 2}>
             {detail}
           </Copy>
         )}

@@ -97,7 +97,8 @@ it.each([1, 3.1])("keeps long row text and first-line alignment at font scale %s
     detail="A longer date and description that needs room to wrap" icon="book-outline" onPress={() => {}} />);
   const text = renderer!.root.findAllByType("Text" as React.ElementType);
   expect(text).toHaveLength(2);
-  expect(text.every(t => !t.props.numberOfLines)).toBe(true);
+  // Two-line clamp at default size keeps lists scannable; accessibility sizes show everything.
+  expect(text.every(t => t.props.numberOfLines === (fontScale >= 1.3 ? undefined : 2))).toBe(true);
   const pressable = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
   const style = Object.assign({}, ...pressable.props.style);
   expect(style).toMatchObject({ minHeight: 68, paddingHorizontal: 16, paddingVertical: 14, alignItems: "flex-start" });
