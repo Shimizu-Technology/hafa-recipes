@@ -75,11 +75,12 @@ function HeaderCircle({ action, solid }: { action: RecipeHeaderAction; solid: De
  * The recipe header we draw ourselves so it reads the same on iOS 18, iOS 26 and Android:
  * solid circles over the photo, then an opaque bar with the title once the photo scrolls away.
  */
-export function RecipeDetailHeader({ title, actions = [], solid, titleShown }: {
+export function RecipeDetailHeader({ title, actions = [], solid, titleShown, onHeightChange }: {
   title?: string;
   actions?: RecipeHeaderAction[];
   solid: DerivedValue<number>;
   titleShown: DerivedValue<number>;
+  onHeightChange?: (height: number) => void;
 }) {
   const colors = useColors();
   const router = useRouter();
@@ -101,7 +102,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown }: {
   };
 
   return (
-    <View pointerEvents="box-none" style={[styles.header, { paddingTop: insets.top, height: insets.top + RECIPE_HEADER_BAR }]}>
+    <View pointerEvents="box-none" onLayout={event => onHeightChange?.(Math.ceil(event.nativeEvent.layout.height))} style={[styles.header, { paddingTop: insets.top, minHeight: insets.top + RECIPE_HEADER_BAR }]}>
       {isFocused && <StatusBar barStyle={overPhoto || dark ? 'light-content' : 'dark-content'} animated />}
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }, barStyle]} />
       <Animated.View pointerEvents="none" style={[styles.hairline, { backgroundColor: headerFills(dark).hairline }, titleStyle]} />
@@ -109,7 +110,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown }: {
         <View style={{ width: sideWidth }}><HeaderCircle action={back} solid={solid} /></View>
         <Animated.View style={[styles.titleWrap, titleStyle]} pointerEvents="none"
           accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>{title}</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         </Animated.View>
         <View style={[styles.actions, { width: sideWidth }]}>
           {actions.map((action) => <HeaderCircle key={action.accessibilityLabel} action={action} solid={solid} />)}
@@ -153,7 +154,8 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
   const { width } = useWindowDimensions();
   const keyboardVisible = useKeyboardVisible();
   const [collapsed, setCollapsed] = useState(false);
-  const headerHeight = insets.top + RECIPE_HEADER_BAR;
+  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(0);
+  const headerHeight = Math.max(insets.top + RECIPE_HEADER_BAR, measuredHeaderHeight);
   const [heroHeight, setHeroHeight] = useState(expectHero ? Math.round(width * 0.75) : 0);
   const ranges = recipeHeaderRanges(heroHeight, headerHeight);
   const scrollY = useSharedValue(0);
@@ -179,7 +181,7 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       {/* First in reading order so VoiceOver reaches Back before the recipe; zIndex keeps it above the scroll. */}
-      <RecipeDetailHeader title={title} actions={actions} solid={solid} titleShown={titleShown} />
+      <RecipeDetailHeader title={title} actions={actions} solid={solid} titleShown={titleShown} onHeightChange={setMeasuredHeaderHeight} />
       <Animated.ScrollView
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -206,7 +208,7 @@ const styles = StyleSheet.create({
   header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1, elevation: 3 },
   floating: { position: 'absolute', right: 16, zIndex: 1 },
   hairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
-  row: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 4 },
+  row: { minHeight: RECIPE_HEADER_BAR, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 4 },
   titleWrap: { flex: 1, paddingHorizontal: 8 },
   title: { fontSize: 17, lineHeight: 22, fontWeight: '600', textAlign: 'center' },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 4 },

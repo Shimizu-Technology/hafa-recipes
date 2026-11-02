@@ -96,8 +96,15 @@ export type TextInput = DefaultTextInput;
 export const TextInput = forwardRef<DefaultTextInput, DefaultTextInput['props']>(function TextInput({ style, ...props }, ref) {
   const scale = useContext(TextScaleContext);
   const resolved = StyleSheet.flatten(style);
+  const { fontScale } = useWindowDimensions();
+  const points = (value: unknown) => typeof value === 'number' ? value : 0;
   const size = Math.round((resolved?.fontSize ?? typography.body.fontSize) * scale);
-  return <DefaultTextInput ref={ref} {...props} style={[style, { fontSize: size,
+  const padding = points(resolved?.paddingTop ?? resolved?.paddingVertical ?? resolved?.padding)
+    + points(resolved?.paddingBottom ?? resolved?.paddingVertical ?? resolved?.padding);
+  const minHeight = Math.max(points(resolved?.minHeight), points(resolved?.height),
+    Math.ceil((resolved?.lineHeight ? resolved.lineHeight * scale : lineHeightForSize(size)) * fontScale + padding));
+  return <DefaultTextInput ref={ref} {...props} style={[style, { fontSize: size, minHeight,
+    ...(typeof resolved?.height === 'number' ? { height: undefined } : {}),
     ...(resolved?.lineHeight !== undefined ? { lineHeight: Math.round(resolved.lineHeight * scale) } : {}),
   }]} />;
 });

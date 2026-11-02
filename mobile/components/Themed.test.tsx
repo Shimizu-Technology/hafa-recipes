@@ -126,6 +126,7 @@ it('applies app scale once across shared text, nested text, controls, section he
     const labels = r.container.queryAll(n => n.type === 'Text' || n.type === 'TextInput');
     const sizes = labels.map(n => Object.assign({}, ...n.props.style).fontSize);
     expect(sizes).toEqual([26, 26, 22, 17, 26, 17, 22, 26]);
+    expect(Object.assign({}, ...labels[7].props.style).minHeight).toBeGreaterThanOrEqual(72);
     labels.forEach(n => { expect(n.props.allowFontScaling).not.toBe(false); expect(n.props.maxFontSizeMultiplier).toBeUndefined(); });
     expect(Object.assign({}, ...labels[1].props.style).lineHeight).toBe(36);
     metrics.fontScale = 1;

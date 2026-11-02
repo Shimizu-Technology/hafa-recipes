@@ -1,6 +1,6 @@
 import { TextScaleContext } from '@/components/Themed';
 import { useTextSize } from '@/hooks/useTextSize';
-import { Text } from '@/components/Themed';
+import { Button, Text } from '@/components/Themed';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
@@ -11,7 +11,7 @@ import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, View } from 'react-native';
+import { View } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
