@@ -373,6 +373,7 @@ export default function Plan() {
   return (
     <Screen
       title="Today"
+      reserveAskRoom={false}
 
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
