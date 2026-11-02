@@ -668,7 +668,7 @@ export function Choice({
         minHeight: 50,
         flexDirection: "row",
         gap: 12,
-        alignItems: "center",
+        alignItems: "flex-start",
         opacity: on ? 0.6 : disabled ? 0.5 : 1,
       })}
     >
@@ -863,6 +863,8 @@ export function Row({
   numericDetail?: boolean;
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
+  const firstLineHeight = typeScale.headline.lineHeight * fontScale;
+  const firstLineTop = icon ? Math.max(0, (44 - firstLineHeight) / 2) : 0;
   return (
     <PressTarget
       accessibilityRole="button"
@@ -878,21 +880,23 @@ export function Row({
         borderRadius: 12,
         flexDirection: "row",
         flexWrap: "wrap",
-        alignItems: "center",
+        alignItems: "flex-start",
         gap: 12,
 
       })}
     >
-      {icon && <View style={{ width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
-      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+      {icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
+      <View style={{ flex: 1, minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
         <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
-          <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>
+          <Copy numeric={numericDetail} kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 2}>
             {detail}
           </Copy>
         )}
       </View>
-      {trailing ?? <Icon name="chevron-forward" size={17} color={c.muted} />}
+      <View style={{ paddingTop: firstLineTop + Math.max(0, (firstLineHeight - 17) / 2) }}>
+        {trailing ?? <Icon name="chevron-forward" size={17} color={c.muted} />}
+      </View>
     </PressTarget>
   );
 }

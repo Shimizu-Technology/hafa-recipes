@@ -6,7 +6,7 @@ import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
@@ -111,7 +111,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       {showHistory && (
         <Section title="Your conversations">
           {history.length ? (
-            history.map((h) => (
+            <Grouped>{history.map((h) => (
               <Row
                 key={h.id}
                 title={h.title || "A previous conversation"}
@@ -120,7 +120,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
                 icon="chatbubbles-outline"
                 onPress={() => void load(h.id)}
               />
-            ))
+            ))}</Grouped>
           ) : (
             <Copy tone="muted">Your conversations will appear here.</Copy>
           )}
@@ -158,7 +158,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
                 <Copy kind="small" tone="muted">
                   From your saved entries
                 </Copy>
-                {m.citations.map((citation, sourceIndex) => (
+                <Grouped>{m.citations.map((citation, sourceIndex) => (
                   <Row
                     key={citation.id}
                     title={`${sourceIndex + 1}. ${citation.title}`}
@@ -167,7 +167,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
                     hint="Opens this entry"
                     onPress={() => router.push({ pathname: "/record/[id]", params: { id: citation.id } })}
                   />
-                ))}
+                ))}</Grouped>
               </View>
             )}
             {m.proposal && (

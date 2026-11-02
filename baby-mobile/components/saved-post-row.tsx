@@ -45,8 +45,8 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
   const [failed, setBroken] = useState<string>(), broken = !!thumbnail && failed === thumbnail;
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
-    style={({ pressed }) => ({ minHeight: 80, flexDirection: stacked ? "column" : "row", gap: 12, alignItems: stacked ? "flex-start" : "center",
-      padding: 12, backgroundColor: c.surface })}>
+    style={({ pressed }) => ({ minHeight: 80, flexDirection: stacked ? "column" : "row", gap: 12, alignItems: "flex-start",
+      paddingVertical: 12, paddingHorizontal: 16, backgroundColor: c.surface })}>
     <View style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", backgroundColor: c.tile,
       alignItems: "center", justifyContent: "center" }}>
       {/* The platform mark stays underneath, so a loading or broken thumbnail never leaves an empty tile. */}
@@ -54,12 +54,12 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
       {thumbnail && !broken && <Image source={{ uri: thumbnail }} style={{ position: "absolute", width: 56, height: 56 }}
         cachePolicy="memory" contentFit="cover" transition={150} onError={() => setBroken(thumbnail)} />}
     </View>
-    <View style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
+    <View style={{ flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
       <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
       <Copy kind="small" tone={!pending && record.data.status === "failed" ? "error" : "muted"} lines={fontScale >= 1.3 ? undefined : 1}>
         {update || meta || [timingLabel(record.data.relevance), record.data.creator, identity].filter(Boolean).join(" · ") || "Saved source"}
       </Copy>
     </View>
-    {!stacked && <Icon name="chevron-forward" size={16} color={c.muted} />}
+    {!stacked && <View style={{ paddingTop: 3 }}><Icon name="chevron-forward" size={16} color={c.muted} /></View>}
   </PressTarget>;
 }
