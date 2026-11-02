@@ -415,7 +415,7 @@ export function ListRow({
       )}
     </>
   );
-  const style: ViewStyle = { minHeight: 56, paddingVertical: leading ? 12 : 8, flexDirection: "row", alignItems: leading ? "flex-start" : "center", gap: 14 };
+  const style: ViewStyle = { minHeight: 56, paddingVertical: 12, flexDirection: "row", alignItems: detail || leading ? "flex-start" : "center", gap: 14 };
   if (!onPress) return <View style={style}>{body}</View>;
   return (
     <Pressable
