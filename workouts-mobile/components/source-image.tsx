@@ -2,7 +2,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Image, Modal, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button, Copy, useColors } from "./ui";
-export function SourceImage({ uri, label, cover = false, fallback }: { uri: string; label: string; cover?: boolean; fallback?: ReactNode }) {
+export function SourceImage({ uri, label, cover = false, fallback, onFailed }: {
+  uri: string; label: string; cover?: boolean;
+  /** Shown instead of the image when it fails; pass null to show nothing. */
+  fallback?: ReactNode;
+  onFailed?: () => void;
+}) {
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -10,7 +15,8 @@ export function SourceImage({ uri, label, cover = false, fallback }: { uri: stri
   const size = useWindowDimensions();
   const c = useColors();
   useEffect(() => { setFailed(false); setOpen(false); setZoom(1); }, [uri]);
-  if (failed) return fallback ?? <Copy kind="small">This image is unavailable. You can still check the original source.</Copy>;
+  // `null` means "show nothing"; `??` would treat it as missing and show the message.
+  if (failed) return fallback !== undefined ? fallback : <Copy kind="small">This image is unavailable. You can still check the original source.</Copy>;
   return (
     <>
       <Pressable
@@ -24,7 +30,7 @@ export function SourceImage({ uri, label, cover = false, fallback }: { uri: stri
         <Image
           source={{ uri }}
           accessibilityLabel={label}
-          onError={() => { setFailed(true); setOpen(false); }}
+          onError={() => { setFailed(true); setOpen(false); onFailed?.(); }}
           onLoad={(event) => {
             const source = event.nativeEvent?.source;
             if (Number.isFinite(source?.width) && Number.isFinite(source?.height) && source.width > 0 && source.height > 0) {
