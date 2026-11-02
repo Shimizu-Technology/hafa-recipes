@@ -52,6 +52,8 @@ vi.mock('@clerk/expo', () => ({ useAuth: () => ({ userId: mocks.clerkUserId }) }
 vi.mock('expo/fetch', () => ({ fetch: vi.fn() }));
 
 vi.mock('react-native', () => ({
+  useWindowDimensions: () => ({ width: 393, fontScale: 1 }),
+  Pressable: 'Pressable',
   ActivityIndicator: 'ActivityIndicator',
   Alert: { alert: mocks.alert },
   Image: 'Image',

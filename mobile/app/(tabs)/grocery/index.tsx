@@ -97,6 +97,8 @@ function GroceryItemRow({
   isSharedList?: boolean;
   scaleFontSize: (size: number) => number;
 }) {
+  const { fontScale } = useWindowDimensions();
+  const firstLineHeight = scaleFontSize(22) * fontScale;
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
   const normalizedUnit = normalizeIngredientUnit(item.unit);
@@ -127,16 +129,16 @@ function GroceryItemRow({
   };
   return <RNView {...swipe.panHandlers} style={{ flexDirection: 'row', backgroundColor: colors.backgroundElevated }}>
     <RNView style={[styles.itemRow, { flex: 1, backgroundColor: colors.backgroundElevated }]}>
-      <TouchableOpacity onPress={onToggle} activeOpacity={1} style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
+      <TouchableOpacity onPress={onToggle} activeOpacity={1} style={[styles.itemCheck, { top: 12 + (firstLineHeight - 44) / 2 }]}
         accessibilityRole="checkbox" accessibilityState={{ checked: item.checked }} accessibilityLabel={itemLabel}>
         <Ionicons name={item.checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={item.checked ? colors.tint : colors.textSecondary} />
       </TouchableOpacity>
-      <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}
+      <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={{ flex: 1, minHeight: 44, justifyContent: 'flex-start' }}
         accessibilityRole="button" accessibilityLabel={`Edit ${item.name}`}
         accessibilityActions={[{ name: 'remove', label: `Remove ${item.name}` }]}
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onDelete(); }}>
         <Text style={[styles.itemName, { fontSize: scaleFontSize(17), lineHeight: scaleFontSize(22), color: item.checked ? colors.textSecondary : colors.text }, item.checked && styles.itemNameChecked]}>{item.name}</Text>
-        {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+        {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(21), marginTop: 4 }}>
           {[hasAmount && [item.quantity, normalizedUnit].filter(Boolean).join(' '), showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
         </Text>}
       </TouchableOpacity>
@@ -578,7 +580,7 @@ function GroceryScreenContent() {
         isSharedList={listInfo?.is_shared ?? false}
         scaleFontSize={scaleFontSize}
       />
-      {index < section.data.length - 1 && <RNView style={{ height: StyleSheet.hairlineWidth, marginLeft: 60, backgroundColor: colors.border }} />}
+      {index < section.data.length - 1 && <RNView style={{ height: StyleSheet.hairlineWidth, marginLeft: 60, marginRight: 16, backgroundColor: colors.border }} />}
       </RNView>
     );
   };
@@ -1001,11 +1003,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   // Item styles
+  itemCheck: { position: 'absolute', left: 6, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   itemRow: {
-    minHeight: 52,
+    minHeight: 68,
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
+    alignItems: 'flex-start',
+    paddingLeft: 60,
+    paddingRight: 16,
+    paddingVertical: 12,
     borderRadius: 0,
     borderWidth: 0,
     marginBottom: 0,
@@ -1019,7 +1024,6 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.medium,
-    flex: 1,
     flexShrink: 1,
   },
   itemNameWithLabel: {
