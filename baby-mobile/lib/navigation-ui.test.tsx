@@ -76,7 +76,7 @@ vi.mock("@/components/saved-post-row", () => import("../components/saved-post-ro
 import Library from "../app/(tabs)/library";
 import Journal, { JournalContent } from "../app/(tabs)/journal";
 import RecordDetail from "../app/record/[id]";
-import { Screen } from "../components/ui";
+import { Grouped, Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
 import { emptyState, optimisticRecord } from "./models";
 import { getDockedFooterHeight } from "./bottom-overlay";
@@ -219,6 +219,24 @@ it("opens history separately from a long conversation and returns without losing
   await act(async () => renderer!.update(<AskEntry />));
   expect(text().some(t => t.props.children === "Earlier question")).toBe(true);
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("Keep this draft");
+});
+it("groups conversation history and saved references while keeping their navigation", async () => {
+  const load = vi.fn();
+  mock.ask = { showHistory: true, load, history: [
+    { id: "one", title: "First conversation" }, { id: "two", title: "Second conversation" },
+  ] };
+  await mount(<AskEntry />);
+  expect(renderer!.root.findAllByType(Grouped)).toHaveLength(1);
+  await press("Second conversation");
+  expect(load).toHaveBeenCalledWith("two");
+  mock.ask = { showHistory: false, messages: [{ role: "assistant", content: "Here are your sources.", citations: [
+    { id: "first", title: "A saved tip", excerpt: "Details", kind: "source" },
+    { id: "second", title: "Another saved tip", excerpt: "More details", kind: "source" },
+  ] }] };
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(renderer!.root.findAllByType(Grouped)).toHaveLength(1);
+  await press("2. Another saved tip");
+  expect(mock.stack.at(-1)).toEqual({ pathname: "/record/[id]", params: { id: "second" } });
 });
 it("reserves the measured Ask composer, lifts toasts above it, adjusts for keyboard, and removes both subscriptions", async () => {
   await mount(<AskEntry />);
