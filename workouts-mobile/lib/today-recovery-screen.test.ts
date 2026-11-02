@@ -779,6 +779,13 @@ it("the Today hero gives each state one clear next step", async () => {
   fixture.programs.mockResolvedValue([plan(dateInTimezone(new Date(), "UTC"), "Today strength")]);
   await remount();
   expect(text()).toContain("Today strength");
+  expect(buttons("Adjust today")).toHaveLength(1);
+  expect(buttons("Ask Coach")).toHaveLength(1);
+  const adjustParent = buttons("Adjust today")[0].parent!;
+  const coachParent = buttons("Ask Coach")[0].parent!;
+  expect(adjustParent.parent).toBe(coachParent.parent);
+  expect(adjustParent.props.style.flex).toBe(1);
+  expect(coachParent.props.style.flex).toBe(1);
   await act(async () => buttons("Start")[0].props.onPress()); await settle();
   expect(fixture.start).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenLastCalledWith("/training");
@@ -860,4 +867,18 @@ it("keeps cached weekly totals when a history refresh fails", async () => {
   fixture.sessions.mockRejectedValue(Error("Offline during refresh"));
   await act(async () => { await cache.invalidateQueries({ queryKey: [fixture.owner, "sessions", fixture.generation] }); }); await settle();
   expect(weeklyValues()).toEqual(values); expect(weeklyLabel()).toBe(label);
+});
+
+
+it("offers Coach in the Today hero only for enrolled members", async () => {
+  fixture.available = true;
+  await mount();
+  expect(buttons("Ask Coach")).toHaveLength(1);
+  expect(buttons("Ask Coach")[0].props.accessibilityHint).toBe("Opens a chat with your AI coach");
+  const { router } = await import("expo-router");
+  await act(async () => buttons("Ask Coach")[0].props.onPress());
+  expect(router.push).toHaveBeenCalledWith("/coach");
+  fixture.enrolled = false;
+  await act(async () => renderer!.update(tree()));
+  expect(buttons("Ask Coach")).toHaveLength(0);
 });
