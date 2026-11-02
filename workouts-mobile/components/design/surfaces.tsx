@@ -25,7 +25,7 @@ import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "@/lib/bottom
 import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { headerActions, headerBack, useNativeHeader } from "../native-tab-stack";
-import { TabScrollToTop, useScrollRest } from "../tab-scroll-to-top";
+import { TabScrollToTop, tabScrollProps, useScrollRest } from "../tab-scroll-to-top";
 import { Copy, GroupedPage, useGroupedPage, SurfaceProvider, useColors, useReducedMotion, useSurface } from "./foundation";
 import { Chip, HeaderButton, IconButton, type IconName } from "./controls";
 import { animatedPressableComponent, usePressScale } from "./press";
@@ -166,6 +166,7 @@ export function Screen({
           else if (scrollRef) (scrollRef as { current: ScrollView | null }).current = node;
         }}
         onScrollBeginDrag={tabRoot ? scrollRest.onScrollBeginDrag : undefined}
+        scrollToOverflowEnabled={tabRoot ? tabScrollProps.scrollToOverflowEnabled : undefined}
         style={Platform.OS === "web" && disableBrowserScrollAnchoring ? { overflowAnchor: "none" } as ViewStyle : undefined}
         onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"

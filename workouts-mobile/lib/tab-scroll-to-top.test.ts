@@ -32,6 +32,11 @@ it.each([["Today", false], ["Discover", false], ["Progress", true]])("re-tapping
     createNodeMock: element => element.type === "ScrollView" ? { scrollTo } : null,
   }); });
   const scroll = view!.root.findByType("ScrollView" as never);
+  // React Native clamps scrollTo at -contentInset.top (0) unless overflow is allowed.
+  expect(scroll.props.scrollToOverflowEnabled).toBe(true);
+  // Before any drag the list is already at rest: a re-tap leaves it (0 would collapse the large title).
+  retapSelectedTab();
+  expect(scrollTo).not.toHaveBeenCalled();
   // Under a large title the list rests above zero; the first drag records where "top" is.
   act(() => scroll.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: -116 } } }));
   act(() => scroll.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: 640 } } }));
@@ -55,7 +60,7 @@ it("scrolls a list root (Library) with scrollToOffset to its resting offset", ()
   function LibraryRoot() { rest = useScrollRest(); return createElement(TabScrollToTop, { target: list, rest: rest.rest }); }
   act(() => { view = create(createElement(LibraryRoot)); });
   retapSelectedTab();
-  expect(scrollToOffset).toHaveBeenLastCalledWith({ offset: 0, animated: true });
+  expect(scrollToOffset).not.toHaveBeenCalled();
   act(() => rest.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: -96 } } } as never));
   retapSelectedTab();
   expect(scrollToOffset).toHaveBeenLastCalledWith({ offset: -96, animated: true });
