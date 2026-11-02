@@ -102,6 +102,7 @@ vi.mock('@/lib/routes', () => ({ appRoutes: {} }));
 import PlannerScreen, { MealSlot } from '../app/(tabs)/planner';
 import * as planHooks from '@/hooks/useMealPlan';
 import { useRecipe } from '@/hooks/useRecipes';
+import { scrollTabToTop } from '@/lib/tabScrollToTop';
 
 function localDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -192,6 +193,23 @@ describe('planner loading recovery', () => {
 
   afterEach(() => vi.useRealTimers());
 
+  it('leaves an untouched Plan alone and re-taps back to the expanded large title after dragging', async () => {
+    vi.mocked(planHooks.useMealPlanWeek).mockReturnValue({ data: { days: [] }, refetch } as any);
+    const root = createRoot();
+    try {
+      await act(async () => root.render(<PlannerScreen />));
+      const scroll = root.container.queryAll(node => node.type === 'ScrollView' && !!node.props.onScrollBeginDrag)[0];
+      expect(scroll.props.scrollToOverflowEnabled).toBe(true);
+      scrollTabToTop('planner');
+      expect(routeMocks.scrollTo).not.toHaveBeenCalled();
+      for (const y of [-156, 640]) {
+        await act(async () => scroll.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y } } }));
+      }
+      scrollTabToTop('planner');
+      expect(routeMocks.scrollTo).toHaveBeenCalledExactlyOnceWith({ y: -156, animated: true });
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it('scrolls to another requested day in the same week using its recorded layout', async () => {
     const start = new Date('2026-10-26T12:00:00Z');
     vi.mocked(planHooks.getWeekStart).mockReturnValue(start);
@@ -223,7 +241,7 @@ describe('planner loading recovery', () => {
       await act(async () => root.render(<PlannerScreen />));
       expect(routeMocks.scrollTo).toHaveBeenLastCalledWith({ y: 344, animated: false });
       const scroll = root.container.queryAll(node => node.type === 'ScrollView' && !!node.props.onScrollBeginDrag)[0];
-      await act(async () => scroll.props.onScrollBeginDrag());
+      await act(async () => scroll.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: 344 } } }));
       routeMocks.scrollTo.mockClear();
       routeMocks.headerHeight = 104;
       await act(async () => root.render(<PlannerScreen />));

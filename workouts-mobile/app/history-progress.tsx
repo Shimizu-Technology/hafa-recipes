@@ -5,6 +5,7 @@ import { Alert, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { AccountButton, Button, Card, Copy, Empty, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
+import { useNativeHeader } from "@/components/native-tab-stack";
 import { ProgressRecords } from "@/components/progress-records";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { canRecoverResult } from "@/lib/result-recovery";
@@ -50,6 +51,7 @@ function SessionSummary({ title, when, request, workout, ranTimer, onOpen }: {
 }
 const openSession = (id: string) => router.push({ pathname: "/session/[id]", params: { id } });
 export default function Progress() {
+  const inTab = useNativeHeader();
   const { api, owner, enrollment, units } = useTraining();
   const cache = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
@@ -115,8 +117,8 @@ export default function Progress() {
   }
   return (
     <Screen native grouped
-      back
-      title="History & progress"
+      back={!inTab}
+      title={inTab ? "Progress" : "History & progress"}
       refreshing={refreshing}
       onRefresh={() => { void refresh(); }}
       action={<AccountButton />}

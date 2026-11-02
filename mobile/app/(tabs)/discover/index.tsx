@@ -160,7 +160,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
   const endPadding = useTabScrollEndPadding(spacing.xl, { askPill: true });
   const onAskPillScroll = useAskPillScroll();
   const listRef = useRef<FlatList<RecipeListItem>>(null);
-  useTabScrollToTop('discover', listRef);
+  const tabScroll = useTabScrollToTop('discover', listRef);
   const { userId, isSignedIn } = useAuth();
   const identity = useCurrentUserIdentity(active && Boolean(isSignedIn));
   const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
@@ -590,6 +590,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
       ) : (
         <FlatList
           ref={listRef}
+          {...tabScroll}
           contentInsetAdjustmentBehavior="automatic"
           key={!largeText ? 'grid' : 'list'} // Force re-render when changing layout
           data={displayRecipes}
@@ -619,7 +620,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={Keyboard.dismiss}
+          onScrollBeginDrag={event => { tabScroll.onScrollBeginDrag(event); Keyboard.dismiss(); }}
           onScroll={onAskPillScroll}
           scrollEventThrottle={32}
           refreshControl={

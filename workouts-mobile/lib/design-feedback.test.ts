@@ -42,14 +42,15 @@ it("announces confirmed toast messages on iOS", () => {
   expect(f.announce).toHaveBeenCalledWith("Saved to your library");
 });
 
-it("keeps toasts above the native tab bar the tab screen measured", () => {
+it("keeps toasts above the tab bar and the Ask Coach pill", () => {
   let show: ReturnType<typeof useToast>;
   function Probe() { show = useToast(); return null; }
   reportTabScreenBottomInset(83);
   act(() => { view = create(createElement(ToastProvider, null, createElement(Probe))); });
   act(() => show!("Saved to your library"));
   const toastBottom = () => view!.root.findAll(n => (n.type as unknown) === "AnimatedView" && n.props.accessibilityRole === "alert")[0].props.style.bottom;
-  expect(toastBottom()).toBe(83 + 12);
+  // Bar height + gap, then the 48pt pill and its 8pt spacing.
+  expect(toastBottom()).toBe(83 + 12 + 56);
   act(() => view!.unmount());
   f.segments = ["session", "abc"];
   act(() => { view = create(createElement(ToastProvider, null, createElement(Probe))); });
