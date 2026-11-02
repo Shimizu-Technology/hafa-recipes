@@ -38,11 +38,12 @@ function Mosaic({ thumbnails }: { thumbnails: string[] }) {
 export function CollectionCard({ collection, onPress }: { collection: Collection; onPress: () => void }) {
   const colors = useColors();
   const width = useTileWidth();
+  const { fontScale } = useWindowDimensions();
   const thumbnails = (collection.preview_thumbnails ?? []).filter((uri): uri is string => Boolean(uri?.trim()));
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${collection.name}, ${recipeCount(collection.recipe_count)}`}
     testID={`collection-${collection.id}`} style={({ pressed }) => [{ width, opacity: pressed ? 0.75 : 1 }]}>
     <Mosaic thumbnails={thumbnails} />
-    <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>{collection.name}</Text>
+    <Text numberOfLines={fontScale >= 1.3 ? 4 : 2} style={[styles.title, { color: colors.text }]}>{collection.name}</Text>
     <Text style={[styles.count, { color: colors.textSecondary }]}>{recipeCount(collection.recipe_count)}</Text>
   </Pressable>;
 }

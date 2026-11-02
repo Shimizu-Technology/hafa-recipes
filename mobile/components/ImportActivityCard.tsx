@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, TouchableOpacity, View as RNView } from 'react-native';
 
-import { Text, useColors } from '@/components/Themed';
+import { Card, Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, radius, spacing } from '@/constants/Colors';
 import type { JobStatus } from '@/types/recipe';
 
@@ -125,12 +125,12 @@ export function ImportActivityCard({
     tint: colors.tint, muted: colors.textMuted,
   })[kind];
 
-  const renderJob = (job: JobStatus, index: number) => {
+  const renderJob = (job: JobStatus) => {
     const presentation = importJobPresentation(job);
     const statusColor = colorFor(presentation.colorKind);
     const detail = importSourceDetail(job.url);
     return (
-      <RNView key={job.id} style={index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderLight }}>
+      <RNView key={job.id}>
         <TouchableOpacity disabled={!presentation.action}
           accessibilityRole={presentation.action ? 'button' : undefined}
           accessibilityLabel={presentation.actionLabel ? `${presentation.actionLabel} ${importSourceLabel(job.url)} import, ${detail}` : undefined}
@@ -166,25 +166,30 @@ export function ImportActivityCard({
 
   return <RNView style={styles.container}>
     <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>Imports</Text>
+    <Card noPadding style={styles.card}>
     {rows.map((row, index) => <RNView key={row.id}>
-      {'job' in row ? renderJob(row.job, index) : row.content}
+      {index > 0 && <RNView style={[styles.separator, { backgroundColor: colors.border }]} />}
+      {'job' in row ? renderJob(row.job) : row.content}
     </RNView>)}
+    </Card>
   </RNView>;
 
 }
 
 const styles = StyleSheet.create({
   container: { marginBottom: spacing.md },
+  card: { borderRadius: 12, overflow: 'hidden' },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 48, marginRight: 16 },
   unfinished: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
   title: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md, marginBottom: spacing.sm },
   historyToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
   historyTitle: { flex: 1, fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.sm },
-  jobRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
-  cancelAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  jobRow: { minHeight: 64, flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  cancelAction: { marginLeft: 48, marginRight: 16, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   jobCopy: { flex: 1, minWidth: 0 },
-  source: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.sm },
-  status: { fontSize: fontSize.xs, lineHeight: 18, marginTop: 2 },
-  age: { fontSize: fontSize.xs, maxWidth: 72 },
+  source: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: 17, lineHeight: 24 },
+  status: { fontSize: 15, lineHeight: 21, marginTop: 4 },
+  age: { fontSize: 13, lineHeight: 24, maxWidth: 72 },
   progressTrack: { height: 4, borderRadius: radius.full, overflow: 'hidden', marginTop: 5 },
   progressFill: { height: '100%', borderRadius: radius.full },
 });

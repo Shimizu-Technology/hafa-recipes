@@ -242,7 +242,9 @@ async function renderOnTimedStep() {
   mocks.storage.set(STEP_KEY, '1');
   const renderer = await renderScreen();
   expect(stepCounter(renderer)).toBe('Step 2 of 4');
-  await act(async () => buttonByText(renderer, 'Start 1 min timer').props.onPress());
+  const start = buttonByText(renderer, 'Start 1 min timer');
+  expect(start.props.accessibilityLabel).toBe('Start 1 min timer');
+  await act(async () => start.props.onPress());
   expect(mocks.scheduleTimerNotification).toHaveBeenCalledWith(1, 60, 'Simmer for 1 minute.', 'default');
   return renderer;
 }

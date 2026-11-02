@@ -21,8 +21,9 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
       {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}
     </View>
     <View style={styles.accessory}>{accessory ?? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}</View>
+    <View pointerEvents="none" style={[styles.separator, { backgroundColor: colors.border }]} />
   </>;
-  const style = [styles.row, { borderBottomColor: colors.border, gap: fontScale >= 2 ? 4 : 12 }];
+  const style = [styles.row, { gap: fontScale >= 2 ? 4 : 12 }];
   return onPress
     ? <TouchableOpacity accessibilityLabel={title} {...props} onPress={onPress} accessibilityRole={props.accessibilityRole ?? 'button'} activeOpacity={0.75} style={style}>{content}</TouchableOpacity>
     : <View style={style}>{content}</View>;
@@ -51,7 +52,8 @@ const styles = StyleSheet.create({
   action: { flexGrow: 1, flexBasis: 96, minHeight: 44, borderRadius: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   actionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
   pressed: { opacity: 0.7 },
-  row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  separator: { position: 'absolute', left: 48, right: 16, bottom: 0, height: StyleSheet.hairlineWidth },
   icon: { width: 20, alignItems: 'center' },
   accessory: { flexShrink: 0, alignItems: 'center' },
   copy: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4 },

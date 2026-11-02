@@ -1026,7 +1026,7 @@ const styles = StyleSheet.create({
   alternateTitle: { flex: 1, fontSize: fontSize.md },
   helpActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },
   compactProgress: { padding: spacing.md, borderWidth: 1, borderRadius: radius.md, marginBottom: spacing.md, gap: spacing.sm },
-  inboxRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', paddingVertical: spacing.sm },
+  inboxRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12 },
   pendingShareNotice: {
     borderWidth: 1,
     borderRadius: radius.md,

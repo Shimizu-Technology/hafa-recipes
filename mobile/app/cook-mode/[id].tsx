@@ -889,7 +889,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
               </RNView>
           ) : detectedTime ? (
               <RNView style={styles.detectedTimerRow}>
-                <TouchableOpacity onPress={startTimer} style={styles.timerButton} accessibilityRole="button">
+                <TouchableOpacity onPress={startTimer} style={styles.timerButton} accessibilityRole="button" accessibilityLabel={`Start ${detectedTime.display} timer`}>
                   <Ionicons name="timer-outline" size={22} color={cook.text} />
                   <Text style={styles.timerButtonText}>Start {detectedTime.display} timer</Text>
                 </TouchableOpacity>
@@ -903,7 +903,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
                 </TouchableOpacity>
               </RNView>
           ) : (
-            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={[styles.addTimerButton, { alignSelf: 'flex-start', paddingVertical: 8, marginTop: 0, minHeight: 44 }]} accessibilityRole="button">
+            <TouchableOpacity onPress={() => setShowCustomTimer(true)} style={[styles.addTimerButton, { alignSelf: 'flex-start', paddingVertical: 8, marginTop: 0, minHeight: 44 }]} accessibilityRole="button" accessibilityLabel="Add timer">
               <Ionicons name="add-circle-outline" size={22} color={cook.textSecondary} />
               <Text style={styles.addTimerButtonText}>Add Timer</Text>
             </TouchableOpacity>
