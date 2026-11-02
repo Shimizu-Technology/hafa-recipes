@@ -15,8 +15,9 @@ export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
   return <Card tone="hero" style={{ gap: 4 }}>
     <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}`} style={{ gap: 4 }}>
       <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontWeight: "600", color: c.accentText }}>Your pregnancy</Text>
-      <Text key={`value:${fontScale}`} allowFontScaling={false} style={{ ...typeScale.number, fontSize: 44 * Math.min(fontScale, 1.5), lineHeight: 50 * Math.min(fontScale, 1.5), color: c.text }}>
-        Week {progress.week}<Text style={{ fontFamily: fonts.rounded, fontWeight: "400", fontSize: 20 * Math.min(fontScale, 1.5), lineHeight: 25 * Math.min(fontScale, 1.5), color: c.muted }}>{" ·\u00a0Day\u00a0"}{progress.day}</Text>
+      {/* The 44pt display numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
+      <Text key={`value:${fontScale}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}>
+        Week {progress.week}<Text style={{ fontFamily: fonts.rounded, fontWeight: "400", fontSize: 20, lineHeight: 25, color: c.muted }}>{" ·\u00a0Day\u00a0"}{progress.day}</Text>
       </Text>
       <Copy numeric kind="small" tone="muted">{due}</Copy>
     </View>
