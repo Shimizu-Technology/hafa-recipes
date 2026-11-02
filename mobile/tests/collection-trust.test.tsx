@@ -540,3 +540,15 @@ describe('collection recovery', () => {
     } finally { await act(async () => screen.unmount()); client.clear(); }
   });
 });
+
+it('shows the full long collection name in a wrapping content heading', async () => {
+  const name = 'Quick Dinners and Leftovers for Busy School Nights';
+  vi.mocked(hooks.useCollections).mockReturnValue({ data: [{ ...collection, name }], refetch: retryCollections } as any);
+  const screen = await mount(<CollectionScreen />);
+  try {
+    const heading = screen.container.queryAll(n => n.type === 'Text' && n.props.children === name)[0];
+    expect(heading.props.accessibilityRole).toBe('header');
+    expect(heading.props.numberOfLines).toBeUndefined();
+    expect(text(screen, '1 recipe')).toHaveLength(1);
+  } finally { await act(async () => screen.unmount()); }
+});

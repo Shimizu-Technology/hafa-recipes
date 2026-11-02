@@ -231,7 +231,7 @@ export default function CollectionDetailScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerTitle: collection.name, headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 },
+          headerTitle: 'Collection', headerLargeTitleEnabled: false,
           ...headerRightOptions(() => <HeaderIconButton icon="ellipsis-horizontal" accessibilityLabel="Collection options" onPress={() => setShowEditModal(true)} />),
         }}
       />
@@ -254,6 +254,7 @@ export default function CollectionDetailScreen() {
         // Inside the list so the count scrolls with the photos instead of sitting under the large title.
         ListHeaderComponent={<>
         <RNView style={styles.header}>
+          <Text accessibilityRole="header" style={[styles.collectionTitle, { color: colors.text }]}>{collection.name}</Text>
           <Text style={[styles.countText, { color: colors.textSecondary }]}>
             {recipes !== undefined ? `${recipes.length} recipe${recipes.length !== 1 ? 's' : ''}` : 'Recipes'}
           </Text>
@@ -295,7 +296,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
-    paddingVertical: spacing.sm,
+    paddingTop: 12,
+    paddingBottom: 16,
+    gap: 8,
+  },
+  collectionTitle: {
+    fontFamily: fontFamily.display,
+    fontSize: 32,
+    lineHeight: 40,
   },
   countText: {
     fontSize: fontSize.sm,

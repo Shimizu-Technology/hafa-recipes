@@ -1023,7 +1023,7 @@ function RecipeDetailScreenContent() {
                     {extracted.components.map((component, compIndex) => (
                       <RNView key={compIndex}>
                         {extracted.components.length > 1 && (
-                          <Text style={[styles.componentTitle, { color: colors.actionText }]}>
+                          <Text style={[styles.componentTitle, { color: colors.textSecondary }]}>
                             {component.name}
                           </Text>
                         )}

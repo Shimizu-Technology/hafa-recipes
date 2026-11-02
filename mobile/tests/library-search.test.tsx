@@ -12,11 +12,11 @@ vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('@/lib/offlineRecipes', () => ({ offlineRecipes: { onRetire: vi.fn() } }));
 vi.mock('@/lib/recipeQueryScope', () => ({ recipeScope: () => state.generation }));
-vi.mock('@/components/Themed', () => ({ Text: 'Text', Input: 'Input', Button: 'Button', useColors: () => ({}) }));
+vi.mock('@/components/Themed', () => ({ Card: 'Card', Text: 'Text', Input: 'Input', Button: 'Button', useColors: () => ({}) }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: 'SignInBanner' }));
 vi.mock('@/hooks/useOfflineLease', () => ({ useRecipeOwnerGeneration: () => state.generation }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (q: string) => state.debounced ?? q }));
-vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: (_filters: any, enabled: boolean) => { state.publicEnabled = enabled; return ({ isError: state.error, refetch: vi.fn(), recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }); }, useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any, enabled: boolean) => { state.filters = filters; state.enabled = enabled; return { isError: state.error, refetch: vi.fn(), isFetching: state.fetching, isFetchingNextPage: state.fetchingNext, recipes: [{ id: 'recipe-a', is_public: false, thumbnail_url: 'https://images.test/private-a.jpg', title: filters.query === 'Rice' ? 'Rice pilaf' : 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
+vi.mock('@/hooks/useRecipes', () => ({ useSavedRecipes: () => ({ total: 0 }), useSearchPublicRecipes: (_filters: any, enabled: boolean) => { state.publicEnabled = enabled; return ({ isError: state.error, refetch: vi.fn(), recipes: [{ id: 'public-a', title: 'Community chicken', extractor_display_name: 'Kai Santos' }], hasNextPage: false }); }, useRecipeCount: () => ({ data: { count: 6 } }), useSearchRecipes: (filters: any, enabled: boolean) => { state.filters = filters; state.enabled = enabled; return { isError: state.error, refetch: vi.fn(), isFetching: state.fetching, isFetchingNextPage: state.fetchingNext, recipes: [{ id: 'recipe-a', is_public: false, thumbnail_url: 'https://images.test/private-a.jpg', title: filters.query === 'Rice' ? 'Rice pilaf' : filters.query === 'Long' ? 'Lemon Garlic Chicken with Crispy Potatoes for a Weekend Gathering with Friends and Neighbors' : 'Chicken with herbs', total_time: '30 min' }], hasNextPage: true, fetchNextPage: state.next }; } }));
 import SearchRoute from '@/app/search';
 beforeEach(() => { state.signedIn = true; state.error = false; state.debounced = null; state.fetching = false; state.fetchingNext = false; state.next.mockClear(); state.push.mockClear(); });
 it('uses native library search, opens results, paginates, and clears query context for the next owner', async () => {
@@ -159,5 +159,18 @@ it('renders private Search thumbnails through the authority-bound component with
     await act(async () => r.render(<SearchRoute />));
     expect(r.container.queryAll(n => n.type === 'Image')).toHaveLength(0);
     expect(state.filters.query).toBe('');
+  } finally { await act(async () => r.unmount()); }
+});
+
+ it('keeps a long result title readable and opens the same recipe', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<SearchRoute />));
+    await act(async () => r.container.queryAll(n => n.type === 'SearchBar')[0].props.onChangeText({ nativeEvent: { text: 'Long' } }));
+    const title = 'Lemon Garlic Chicken with Crispy Potatoes for a Weekend Gathering with Friends and Neighbors';
+    const label = r.container.queryAll(n => n.type === 'Text' && n.props.children === title)[0];
+    expect(label.props.numberOfLines).toBeUndefined();
+    await act(async () => r.container.queryAll(n => n.props.accessibilityLabel === title)[0].props.onPress());
+    expect(state.push).toHaveBeenCalledWith('/recipe/recipe-a');
   } finally { await act(async () => r.unmount()); }
 });
