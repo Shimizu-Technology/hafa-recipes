@@ -17,6 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Text, useColors } from '@/components/Themed';
+import { useKeyboardVisible } from '@/components/chrome/HafaTabBar';
 
 export type RecipeHeaderAction = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -136,7 +137,7 @@ export function RecipeDetailFrame({ children }: { children: ReactNode }) {
  * Scroll container for recipe detail. With a hero the photo runs full-bleed under the bar;
  * without one (missing or failed photo) content starts below an opaque bar.
  */
-export function RecipeDetailScroll({ title, hero, expectHero, actions, children, contentContainerStyle }: {
+export function RecipeDetailScroll({ title, hero, expectHero, actions, children, contentContainerStyle, floating }: {
   title: string;
   hero: ReactNode;
   /** Whether a photo is expected, so the first frame doesn't flash an opaque bar. */
@@ -144,15 +145,26 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
   actions?: RecipeHeaderAction[];
   children: ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  /** Bottom-right floating action (the Ask pill); folds while scrolling down, hidden with the keyboard. */
+  floating?: (collapsed: boolean) => ReactNode;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const keyboardVisible = useKeyboardVisible();
+  const [collapsed, setCollapsed] = useState(false);
   const headerHeight = insets.top + RECIPE_HEADER_BAR;
   const [heroHeight, setHeroHeight] = useState(expectHero ? Math.round(width * 0.75) : 0);
   const ranges = recipeHeaderRanges(heroHeight, headerHeight);
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => { scrollY.value = event.contentOffset.y; });
+  const folded = useSharedValue(false);
+  useAnimatedReaction(() => scrollY.value, (y, previous) => {
+    if (previous === null || Math.abs(y - previous) < 4) return;
+    // Fold while reading down the recipe; open again when scrolling back up or near the top.
+    const next = y > 48 && y > previous;
+    if (next !== folded.value) { folded.value = next; runOnJS(setCollapsed)(next); }
+  });
   const solid = useDerivedValue(() => (ranges.solid
     ? interpolate(scrollY.value, ranges.solid, [0, 1], Extrapolation.CLAMP) : 1));
   const titleShown = useDerivedValue(() => interpolate(scrollY.value, ranges.title, [0, 1], Extrapolation.CLAMP));
@@ -182,6 +194,9 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
         </Animated.View>
         {children}
       </Animated.ScrollView>
+      {floating && !keyboardVisible && <View pointerEvents="box-none" style={[styles.floating, { bottom: insets.bottom + 16 }]}>
+        {floating(collapsed)}
+      </View>}
     </View>
   );
 }
@@ -189,6 +204,7 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1, elevation: 3 },
+  floating: { position: 'absolute', right: 16, zIndex: 1 },
   hairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
   row: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 4 },
   titleWrap: { flex: 1, paddingHorizontal: 8 },

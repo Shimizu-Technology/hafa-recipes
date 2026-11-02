@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, TouchableOpacity, View, useWindowDimensions, type TouchableOpacityProps } from 'react-native';
+import { Pressable, StyleSheet, TouchableOpacity, View, useWindowDimensions, type TouchableOpacityProps } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
 
@@ -28,7 +28,29 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
     : <View style={style}>{content}</View>;
 }
 
+/** Tonal secondary action under Start cooking (Plan, Groceries, Scale); shares the row evenly. */
+export function RecipeDetailAction({ icon, title, onPress, selected }: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  onPress: () => void;
+  selected?: boolean;
+}) {
+  const colors = useColors();
+  const tint = selected ? colors.actionText : colors.text;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
+      accessibilityState={selected === undefined ? undefined : { expanded: selected }}
+      style={({ pressed }) => [styles.action, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
+      <Ionicons name={icon} size={18} color={tint} />
+      <Text numberOfLines={1} style={[styles.actionTitle, { color: tint }]}>{title}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  action: { flexGrow: 1, flexBasis: 96, minHeight: 44, borderRadius: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  actionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
+  pressed: { opacity: 0.7 },
   row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   icon: { width: 20, alignItems: 'center' },
   accessory: { flexShrink: 0, alignItems: 'center' },
