@@ -756,10 +756,10 @@ function RecipeDetailScreenContent() {
             { icon: 'ellipsis-horizontal', accessibilityLabel: 'More recipe options', onPress: handleMoreOptions },
           ]}
           // Room below the last section so the Ask pill never covers it.
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg + (userId ? ASK_PILL_HEIGHT + OVERLAY_GAP : 0) }]}
-          floating={userId ? (collapsed) => <AskHafaPill label="Ask about this" collapsed={collapsed}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.lg + (ASK_PILL_HEIGHT + OVERLAY_GAP) }]}
+          floating={(collapsed) => <AskHafaPill label="Ask about this" collapsed={collapsed}
             accessibilityHint="Opens chat about this recipe, or about all your recipes"
-            onPress={() => setShowChatModal(true)} /> : undefined}
+            onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} />}
           hero={<RecipeHero
             key={recipe.id}
             photoOnly
@@ -1096,8 +1096,6 @@ function RecipeDetailScreenContent() {
                 value={visibilityPresentation?.value} />
             )}
 
-            <RecipeDetailRow icon="chatbubbles-outline" title="Ask Håfa"
-              onPress={() => requireRecipeAccount('chat', () => setShowChatModal(true))} accessibilityLabel="Ask Håfa about this recipe" />
             {hasExternalSource && !sourcePlayback && (
               <RecipeDetailRow icon={sourceIcon as keyof typeof Ionicons.glyphMap} title={`View on ${sourceLabel}`} onPress={handleOpenSource}
                 accessibilityRole="link" accessibilityLabel={`View recipe on ${sourceLabel}`}
