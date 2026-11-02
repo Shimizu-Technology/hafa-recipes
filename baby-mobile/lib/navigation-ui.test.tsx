@@ -454,3 +454,14 @@ it("offers another category when the suggested one can't be updated, and says pl
   expect(labels422()).not.toContain("Choose another category");
   function labels422() { return renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => String(n.props.accessibilityLabel)); }
 });
+
+
+it("keeps Ask history named and the composer compact at accessibility sizes", async () => {
+  mock.fontScale = 3.1;
+  await mount(<AskEntry />);
+  const input = renderer!.root.findByType("TextInput" as React.ElementType);
+  expect(input.props.allowFontScaling).toBe(false);
+  expect(input.props.style.fontSize).toBe(25.5);
+  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "History")).toBe(true);
+  expect(renderer!.root.findByType(Screen).props.subtitleMaxScale).toBe(1.5);
+});
