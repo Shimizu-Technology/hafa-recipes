@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import Svg, { Circle, Polyline } from "react-native-svg";
+import { largeText } from "@/lib/readable-layout";
 import { spacing } from "@/constants/theme";
 import type { ExerciseRecord } from "@/lib/progress-insights";
 import { Button, Copy, ListGroup, SectionHeader, useColors } from "./ui";
@@ -30,6 +31,7 @@ function trendWords(values: number[]) {
 /** Personal bests per exercise with a small trend, newest first. Shows five until expanded. */
 export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
   const [all, setAll] = useState(false);
+  const { fontScale } = useWindowDimensions();
   if (!records.length) return null;
   const shown = all ? records : records.slice(0, 5);
   return (
@@ -38,12 +40,12 @@ export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
       <ListGroup>
         {shown.map((r) => (
           <View key={r.key} accessible accessibilityLabel={`${r.name}. Best ${r.best}. ${r.detail}. ${trendWords(r.trend)}`}
-            style={{ minHeight: 56, paddingVertical: spacing.xs, flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-              <Copy kind="label" numberOfLines={1}>{r.name}</Copy>
-              <Copy kind="small" tone="muted" numberOfLines={1}>{r.detail}</Copy>
+            style={{ minHeight: 56, paddingVertical: 12, flexDirection: largeText(fontScale) ? "column" : "row", alignItems: "flex-start", gap: spacing.sm }}>
+            <View style={{ flex: largeText(fontScale) ? undefined : 1, minWidth: 0, gap: 2 }}>
+              <Copy kind="label">{r.name}</Copy>
+              <Copy kind="small" tone="muted">{r.detail}</Copy>
             </View>
-            <Sparkline values={r.trend} />
+            {!largeText(fontScale) && <Sparkline values={r.trend} />}
             <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>
           </View>
         ))}

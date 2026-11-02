@@ -24,18 +24,19 @@ import {
 import { QueryState } from "@/components/query-state";
 import { usePublishingDisclosure } from "@/components/publishing-disclosure";
 import { useTraining, useOfflineTraining } from "@/lib/context";
-import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, prescriptionLine, formatSeconds } from "@/lib/discover";
+import { DECLINED, INCOMPLETE_MESSAGE, discoverKeys, isIncomplete, formatSeconds } from "@/lib/discover";
 import type { Workout } from "@/lib/models";
 import { trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
 import { timedStartHint } from "@/lib/timed-execution";
 import { WorkoutStartSheet } from "@/components/workout-start-sheet";
+import { WorkoutExerciseList } from "@/components/workout-exercise-list";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { WorkoutFavorite } from "@/components/workout-favorite";
 import { SavedSourceText } from "@/components/workout-source";
 import { WorkoutHero } from "@/components/workout-hero";
 import { workoutOriginDescription } from "@/lib/workout-presentation";
 import { workoutMeta } from "@/lib/plan-presentation";
-import { amrapCap, blockSummary, timedBlock } from "@/lib/amrap-editor";
+import { amrapCap, timedBlock } from "@/lib/amrap-editor";
 import { formatLabel } from "@/lib/timed-execution";
 import { workoutDeletionBlock } from "@/lib/organization";
 import { AskCoachPill } from "@/components/ask-coach-pill";
@@ -196,6 +197,7 @@ export default function WorkoutDetail() {
   return (
     <>
     <Screen native
+      headerHairline
       back
       onScroll={event => reportAskScroll(event.nativeEvent.contentOffset.y)}
       title={workout?.title ?? "Your workout."}
@@ -247,35 +249,7 @@ export default function WorkoutDetail() {
           <>
             <WorkoutInstructions instructions={workout.instructions} notes={workout.notes} said={formatChip} />
             {exercises > 0 && <SectionHeader title="Exercises" />}
-            {workout.blocks.map((block, index) => block.exercises.length > 0 && (
-              <ListGroup key={index}>
-                {(() => {
-                  // A single block's format is already in the chip above; don't repeat it here.
-                  const said = workout.blocks.length === 1 && formatChip ? formatChip : "";
-                  const caption = [
-                    block.label && block.label.trim().toLowerCase() !== said.toLowerCase() ? block.label : null,
-                    blockSummary(block, [block.label, said].filter(Boolean).join(" ")),
-                    block.rounds == null && block.grouping !== "sequential" && !timedBlock(block) ? "Rounds not specified" : null,
-                    block.rest_between_rounds_seconds != null ? `${formatSeconds(block.rest_between_rounds_seconds)} between rounds` : null,
-                  ].filter(Boolean).join(" · ");
-                  return caption ? <Copy kind="caption" tone="muted">{caption}</Copy> : null;
-                })()}
-                {block.exercises.map((e, i) => (
-                  <Row key={i} gap={14} align="flex-start">
-                    <Copy kind="numericSmall" tone="muted" style={{ minWidth: 24 }}>
-                      {i + 1}
-                    </Copy>
-                    <Copy kind="label" style={{ flex: 1 }}>
-                      {e.name}
-                      {"\n"}
-                      <Copy kind="small" tone="muted">{prescriptionLine(e)}</Copy>
-                      {e.instructions ? <Copy kind="small">{"\n"}{e.instructions}</Copy> : null}
-                      {e.notes ? <Copy kind="small">{"\n"}Private note · {e.notes}</Copy> : null}
-                    </Copy>
-                  </Row>
-                ))}
-              </ListGroup>
-            ))}
+            <WorkoutExerciseList blocks={workout.blocks} formatChip={formatChip} />
             {workout.kind !== "program" && exercises > 0 && <ListGroup>
               <ListRow
                 icon="calendar-outline"
