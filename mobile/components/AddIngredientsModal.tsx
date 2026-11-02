@@ -1,3 +1,4 @@
+import { spokenQuantity } from '@/lib/quantityPresentation';
 /**
  * Modal for selecting which ingredients to add to grocery list
  */
@@ -97,7 +98,7 @@ export default function AddIngredientsModal({
         ...scaleIngredient(ing, scaleFactor),
         // Scale quantity for grocery list
         quantity: hasStatedIngredientAmount(ing.quantity)
-          ? scaleQuantity(ing.quantity!, scaleFactor)
+          ? scaleIngredient(ing, scaleFactor).quantity!
           : null,
         unit: normalizeIngredientUnit(ing.unit),
         // Scale cost estimate
@@ -186,10 +187,10 @@ export default function AddIngredientsModal({
                   color={isSelected ? colors.actionText : colors.textMuted}
                 />
                 <RNView style={styles.ingredientContent}>
-                  <Text style={[styles.ingredientName, { color: colors.text }]}>
+                  <Text accessibilityLabel={spokenQuantity(`${hasAmount ? `${scaleQuantity(amount.quantity!, scaleFactor, amount.unit)}${normalizedUnit ? ` ${normalizedUnit}` : ''} ` : ''}${ingredient.name}`)} style={[styles.ingredientName, { color: colors.text }]}>
                     {hasAmount && (
                       <Text style={isScaled ? { color: colors.actionText, fontWeight: fontWeight.semibold } : {}}>
-                        {scaleQuantity(amount.quantity!, scaleFactor)}{' '}
+                        {scaleQuantity(amount.quantity!, scaleFactor, amount.unit)}{' '}
                       </Text>
                     )}
                     {hasAmount && normalizedUnit && `${normalizedUnit} `}

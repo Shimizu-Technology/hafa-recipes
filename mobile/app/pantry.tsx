@@ -1,3 +1,4 @@
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { fontFamily } from '@/constants/Colors';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useMemo, useState } from 'react';
@@ -189,9 +190,9 @@ function PantryScreenContent() {
       {Boolean(active.data?.items.length) && <TextInput style={[styles.searchInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.backgroundSecondary }]} value={search} onChangeText={setSearch} placeholder="Search pantry" placeholderTextColor={colors.textMuted} accessibilityLabel="Search pantry items" />}
       {!items.length ? <RNView style={styles.empty}><Ionicons name="basket-outline" size={42} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{search ? 'No matching items.' : 'Your pantry is empty. Add a few ingredients to get started.'}</Text></RNView> : items.map((item) => {
         const dateStatus = pantryDateStatus(item, today);
-        const detail = [item.quantity !== null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : null, item.location, item.date_value ? `${item.date_kind === 'use_by' ? 'Use by' : 'Best before'} ${item.date_value}` : null].filter(Boolean).join(' · ');
+        const detail = [item.quantity !== null ? formatIngredientAmount(item.quantity, item.unit) : null, item.location, item.date_value ? `${item.date_kind === 'use_by' ? 'Use by' : 'Best before'} ${item.date_value}` : null].filter(Boolean).join(' · ');
         return <RNView key={item.id} style={[styles.item, { backgroundColor: colors.backgroundElevated, borderColor: colors.cardBorder }]}>
-          <RNView style={styles.itemContent}><Text style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>{Boolean(detail) && <Text style={{ color: dateStatus === 'expired' ? colors.warning : colors.textSecondary, lineHeight: 20 }}>{detail}</Text>}{dateStatus === 'expired' && <Text style={{ color: colors.warning }}>Past date · excluded from recipe search</Text>}{item.notes && <Text style={{ color: colors.textMuted }}>{item.notes}</Text>}</RNView>
+          <RNView style={styles.itemContent}><Text style={[styles.itemName, { color: colors.text }]}>{item.name}</Text>{Boolean(detail) && <Text accessibilityLabel={spokenQuantity(detail)} style={{ color: dateStatus === 'expired' ? colors.warning : colors.textSecondary, lineHeight: 20 }}>{detail}</Text>}{dateStatus === 'expired' && <Text style={{ color: colors.warning }}>Past date · excluded from recipe search</Text>}{item.notes && <Text style={{ color: colors.textMuted }}>{item.notes}</Text>}</RNView>
           <TouchableOpacity onPress={() => openEditor(item)} style={styles.iconButton} accessibilityLabel={`Edit ${item.name}`}><Ionicons name="pencil-outline" size={19} color={colors.actionText} /></TouchableOpacity>
           <TouchableOpacity onPress={() => remove(item)} style={styles.iconButton} accessibilityLabel={`Remove ${item.name}`}><Ionicons name="trash-outline" size={19} color={colors.textMuted} /></TouchableOpacity>
         </RNView>;

@@ -1,3 +1,4 @@
+import { spokenQuantity } from '@/lib/quantityPresentation';
 import { Alert, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, Text, useColors } from '@/components/Themed';
@@ -28,20 +29,20 @@ export function RecipeIngredientGroup({ title, ingredients, scaleFactor, isScale
     <Card noPadding style={styles.card}>
       {ingredients.map((ingredient, index) => {
         const amount = getIngredientAmount(ingredient);
-        const quantity = scaleQuantity(amount.quantity, scaleFactor);
+        const quantity = scaleQuantity(amount.quantity, scaleFactor, amount.unit);
         const prefix = quantity ? `${quantity}${amount.unit ? ` ${amount.unit}` : ''} ` : '';
         const notes = getCookingNotes(ingredient.notes);
         const uncertainty = getMissingQuantityLabel(null, ingredient);
         const isChecked = checked?.(index) ?? false;
         const color = isChecked ? colors.textSecondary : colors.text;
         return <View key={index} style={[styles.row, onToggle && styles.checkRow]}>
-          {onToggle && <TouchableOpacity accessibilityRole="checkbox" accessibilityLabel={ingredient.name}
+          {onToggle && <TouchableOpacity accessibilityRole="checkbox" accessibilityLabel={spokenQuantity(`${prefix}${ingredient.name}`)}
             accessibilityState={{ checked: isChecked }} onPress={() => onToggle(index)}
             style={[styles.check, { top: 12 + (lineHeight * fontScale - 44) / 2 }]}>
             <Ionicons name={isChecked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={isChecked ? colors.actionText : colors.textSecondary} />
           </TouchableOpacity>}
           <View style={styles.main}>
-            <Text style={[styles.name, { color, fontSize: scaleFontSize(17), lineHeight }, isChecked && styles.checked]}>
+            <Text accessibilityLabel={spokenQuantity(`${prefix}${ingredient.name}`)} style={[styles.name, { color, fontSize: scaleFontSize(17), lineHeight }, isChecked && styles.checked]}>
               {prefix ? <Text style={[styles.amount, isScaled && !isChecked && { color: colors.actionText }]}>{prefix}</Text> : null}
               {ingredient.name}
             </Text>

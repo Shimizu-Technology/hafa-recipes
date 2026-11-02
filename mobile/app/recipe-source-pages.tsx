@@ -1,3 +1,4 @@
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { recipeScope, assertRecipeScope } from '@/lib/recipeQueryScope';
 import { useRecipeQuery as useQuery } from '@/hooks/useRecipeQuery';
 import { useRef, useState } from 'react';
@@ -82,7 +83,7 @@ export default function RecipeSourcePagesScreen() {
             <Text accessibilityRole="header">{recipe?.extracted.title || 'Extracted recipe'}</Text>
             {(components.length ? components : [{ name: '', ingredients: recipe?.extracted.ingredients || [], steps: recipe?.extracted.steps || [] }]).map((part, partIndex) => <View key={partIndex} style={{ gap: 8 }}>
               {!!part.name && <Text accessibilityRole="header">{part.name}</Text>}
-              {part.ingredients?.map((item, i) => <Text key={`ingredient-${i}`}>{[item.quantity, item.unit, item.name].filter(Boolean).join(' ')}</Text>)}
+              {part.ingredients?.map((item, i) => <Text key={`ingredient-${i}`} accessibilityLabel={spokenQuantity(`${formatIngredientAmount(item.quantity, item.unit)} ${item.name}`)}>{formatIngredientAmount(item.quantity, item.unit)} {item.name}</Text>)}
               {part.steps?.map((step, i) => <Text key={`step-${i}`}>{i + 1}. {step}</Text>)}
             </View>)}
           </View>

@@ -1,3 +1,4 @@
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { importInbox } from '@/lib/importInbox';
@@ -339,9 +340,8 @@ function OCRReviewContent({ originalOwner }: { originalOwner: string | null }) {
           {allIngredients.map((ing: any, idx: number) => (
             <RNView key={idx} style={styles.ingredientRow}>
               <Text style={[styles.bullet, { color: colors.actionText }]}>•</Text>
-              <Text style={[styles.ingredientText, { color: colors.text }]}>
-                {ing.quantity && `${ing.quantity} `}
-                {ing.unit && `${ing.unit} `}
+              <Text accessibilityLabel={spokenQuantity(`${formatIngredientAmount(ing.quantity, ing.unit)} ${ing.name}${ing.notes ? ` (${ing.notes})` : ''}`)} style={[styles.ingredientText, { color: colors.text }]}>
+                {formatIngredientAmount(ing.quantity, ing.unit)}{' '}
                 {ing.name}
                 {ing.notes && ` (${ing.notes})`}
               </Text>

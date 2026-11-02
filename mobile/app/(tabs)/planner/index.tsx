@@ -1,3 +1,4 @@
+import { formatQuantity, spokenQuantity } from '@/lib/quantityPresentation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { api } from '@/lib/api';
 import * as Crypto from 'expo-crypto';
@@ -891,9 +892,9 @@ function PlannerScreenContent() {
           {reviewData && <>
             <Text>{reviewData.items_added} ingredient lines · {reviewData.items_missing_amount} missing amounts · {reviewData.items_unscaled} amounts need checking</Text>
             <ScrollView>
-              {reviewData.totals.map((total, index) => <Text key={`total:${index}`} style={{ paddingVertical: spacing.sm }}>{total.quantity ?? 'See source amounts'} {total.unit} {total.name}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
+              {reviewData.totals.map((total, index) => <Text key={`total:${index}`} accessibilityLabel={spokenQuantity([formatQuantity(total.quantity, total.unit) ?? 'See source amounts', total.unit, total.name, total.missing ? `${total.missing} missing amounts` : '', total.uncombined ? 'source amounts kept separate' : ''].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatQuantity(total.quantity, total.unit) ?? 'See source amounts'} {total.unit} {total.name}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
               <Text>By recipe</Text>
-              {reviewData.items.map((item, index) => <Text key={index} style={{ paddingVertical: spacing.sm }}>{item.quantity ?? 'Amount not stated'} {item.unit} {item.name} · {item.recipe_title}</Text>)}</ScrollView>
+              {reviewData.items.map((item, index) => <Text key={index} accessibilityLabel={spokenQuantity([formatQuantity(item.quantity, item.unit) ?? 'Amount not stated', item.unit, item.name, item.recipe_title].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatQuantity(item.quantity, item.unit) ?? 'Amount not stated'} {item.unit} {item.name} · {item.recipe_title}</Text>)}</ScrollView>
             <Button title={reviewAdding ? 'Adding…' : 'Add reviewed groceries'} disabled={reviewAdding || (!pendingReview.current && (review.isFetching || review.isError)) || !reviewData.items_added} onPress={confirmGroceries} />
           </>}
           <Button title="Close review" variant="secondary" disabled={reviewAdding} onPress={() => setReviewVisible(false)} />

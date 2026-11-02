@@ -1,3 +1,4 @@
+import { formatQuantity, spokenQuantity } from '@/lib/quantityPresentation';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 /**
  * Grocery List Screen
@@ -102,8 +103,9 @@ function GroceryItemRow({
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
   const normalizedUnit = normalizeIngredientUnit(item.unit);
+  const displayedQuantity = formatQuantity(item.quantity, normalizedUnit);
   const hasNotes = Boolean(item.notes && item.notes !== 'null');
-  const itemName = [hasAmount && item.quantity, hasAmount && normalizedUnit, item.name]
+  const itemName = [hasAmount && displayedQuantity, hasAmount && normalizedUnit, item.name]
     .filter(Boolean)
     .join(' ');
   // The row groups its children, so read every visible detail in order.
@@ -130,7 +132,7 @@ function GroceryItemRow({
   return <RNView {...swipe.panHandlers} style={{ flexDirection: 'row', backgroundColor: colors.backgroundElevated }}>
     <RNView style={[styles.itemRow, { flex: 1, backgroundColor: colors.backgroundElevated }]}>
       <TouchableOpacity onPress={onToggle} activeOpacity={1} style={[styles.itemCheck, { top: 12 + (firstLineHeight - 44) / 2 }]}
-        accessibilityRole="checkbox" accessibilityState={{ checked: item.checked }} accessibilityLabel={itemLabel}>
+        accessibilityRole="checkbox" accessibilityState={{ checked: item.checked }} accessibilityLabel={spokenQuantity(itemLabel)}>
         <Ionicons name={item.checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={item.checked ? colors.tint : colors.textSecondary} />
       </TouchableOpacity>
       <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={{ flex: 1, minHeight: 44, justifyContent: 'flex-start' }}
@@ -139,7 +141,7 @@ function GroceryItemRow({
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onDelete(); }}>
         <Text style={[styles.itemName, { fontSize: scaleFontSize(17), lineHeight: scaleFontSize(22), color: item.checked ? colors.textSecondary : colors.text }, item.checked && styles.itemNameChecked]}>{item.name}</Text>
         {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(21), marginTop: 4 }}>
-          {[hasAmount && [item.quantity, normalizedUnit].filter(Boolean).join(' '), showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
+          {[hasAmount && [displayedQuantity, normalizedUnit].filter(Boolean).join(' '), showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
         </Text>}
       </TouchableOpacity>
     </RNView>
@@ -503,7 +505,7 @@ function GroceryScreenContent() {
     const formatItem = (item: GroceryItem) => {
       const marker = item.checked ? '[x]' : '[ ]';
       const hasAmount = hasStatedIngredientAmount(item.quantity);
-      const qty = hasAmount ? item.quantity : '';
+      const qty = hasAmount ? formatQuantity(item.quantity, item.unit) : '';
       const unit = normalizeIngredientUnit(item.unit) ?? '';
       const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
       const notes = item.notes && item.notes !== 'null' ? ` (${item.notes})` : '';

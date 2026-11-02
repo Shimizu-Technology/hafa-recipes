@@ -1,3 +1,4 @@
+import { spokenQuantity } from '@/lib/quantityPresentation';
 import { recipeScope, assertRecipeScope, scopedRecipeKey, ownerQueryClient } from '@/lib/recipeQueryScope';
 import { getIngredientAmount, formatIngredientAmount, normalizeIngredientUnit } from '@/lib/recipeTrust';
 import { useEffect, useRef, useState } from 'react';
@@ -90,7 +91,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
             return (
               <View key={issue.path ?? `source-${index}`} style={[styles.issue, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
                 <Text style={[styles.issueTitle, { color: colors.text }]}>{ingredient?.name ?? 'Source details'}</Text>
-                <Text style={[styles.message, { color: colors.textSecondary }]}>
+                <Text accessibilityLabel={amount?.isEstimate ? spokenQuantity(`${formatIngredientAmount(amount.quantity, amount.unit)} · AI estimate${amount.reason ? ` ${amount.reason}` : ''}`) : undefined} style={[styles.message, { color: colors.textSecondary }]}>
                   {amount?.isEstimate
                     ? `${formatIngredientAmount(amount.quantity, amount.unit)} · AI estimate${amount.reason ? `\n${amount.reason}` : ''}`
                     : issue.message}
@@ -108,7 +109,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
                     />
                     {!!quantities[issue.path]?.trim() && (
                       <View style={styles.unitCorrection}>
-                        <Text style={[styles.message, { color: colors.textSecondary }]}>Unit from the source</Text>
+                        <Text accessibilityLabel={amount?.isEstimate ? spokenQuantity(`${formatIngredientAmount(amount.quantity, amount.unit)} · AI estimate${amount.reason ? ` ${amount.reason}` : ''}`) : undefined} style={[styles.message, { color: colors.textSecondary }]}>Unit from the source</Text>
                         <View style={styles.unitRow}>
                           <TextInput
                             style={[styles.input, styles.unitInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
