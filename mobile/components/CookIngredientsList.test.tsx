@@ -7,11 +7,12 @@ import { describe, expect, it, vi } from 'vitest';
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('react-native', () => ({
-  ScrollView: 'ScrollView',
+  useWindowDimensions: () => ({ fontScale: 1 }),
+  ScrollView: 'ScrollView', TouchableOpacity: 'TouchableOpacity', Alert: { alert: vi.fn() },
   StyleSheet: { create: (styles: unknown) => styles },
   View: 'View',
 }));
-vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => ({ text: '#000', actionText: '#166456', border: '#ccc' }) }));
+vi.mock('@/components/Themed', () => ({ Text: 'Text', Card: 'Card', useColors: () => ({ text: '#000', actionText: '#166456', border: '#ccc' }) }));
 vi.mock('@/constants/Colors', () => ({
   brand: { reefHighlight: '#4dc7b8' },
   fontSize: { sm: 12, md: 16 },
@@ -23,6 +24,8 @@ vi.mock('@/hooks/useScaledServings', () => ({
     quantity === '2' ? String(Number(quantity) * factor) : quantity
   ),
 }));
+
+vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Icon' }));
 
 import { CookIngredientsList } from './CookIngredientsList';
 

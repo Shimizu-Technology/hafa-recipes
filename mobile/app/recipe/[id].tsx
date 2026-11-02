@@ -1,3 +1,4 @@
+import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
 import { RecipeDetailAction, RecipeDetailRow } from '@/components/RecipeDetailRow';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { OfflineRecipeControl } from '@/components/OfflineRecipeControl';
@@ -67,7 +68,6 @@ import {
   canOpenRecipeOriginal,
   countUsableInstructions,
   getCookDraftPresentation,
-  getMissingQuantityLabel,
   getRecipeReviewDetails,
   getRecipeReviewLabel,
   isRecipeOwner,
@@ -861,62 +861,18 @@ function RecipeDetailScreenContent() {
                     </Text>
                   </RNView>}
                   {extracted.components.map((component, compIndex) => (
-                    <RNView key={compIndex} style={[styles.componentSection, { backgroundColor: colors.backgroundSecondary, borderRadius: 12, overflow: 'hidden' }]}>
-                      {extracted.components.length > 1 && component.name && typeof component.name === 'string' ? (
-                        <Text style={[styles.componentTitle, { color: colors.actionText }]}>
-                          {component.name}
-                        </Text>
-                      ) : null}
-                      {component.ingredients.map((ing, ingIndex) => {
-                        // Build the quantity/unit string safely (with scaling)
-                        const amount = getIngredientAmount(ing);
-                        const scaledQty = scaleQuantity(amount.quantity, scaleFactor);
-                        const unit = amount.unit || '';
-                        const qtyUnit = scaledQty ? `${scaledQty}${unit ? ` ${unit}` : ''} ` : '';
-                        const notes = getCookingNotes(ing.notes) || '';
-                        const missingQuantityLabel = getMissingQuantityLabel(recipe.review_state, ing);
-                        const cost = typeof ing.estimatedCost === 'number' 
-                          ? `$${(ing.estimatedCost * scaleFactor).toFixed(2)}` 
-                          : null;
-                        
-                        return (
-                          <RNView key={ingIndex} style={[styles.ingredientRow, { backgroundColor: colors.backgroundSecondary, borderRadius: 0, paddingHorizontal: 12 }]}>
-                            <TouchableOpacity style={styles.ingredientCheck} accessibilityRole="checkbox"
-                              accessibilityLabel={ing.name} accessibilityState={{ checked: checkedIngredients.has(`${compIndex}:${ingIndex}`) }}
-                              onPress={() => { setCheckedIngredients(previous => { const next = new Set(previous); const key = `${compIndex}:${ingIndex}`; next.has(key) ? next.delete(key) : next.add(key); return next; }); haptics.selection(); }}>
-                              <Ionicons name={checkedIngredients.has(`${compIndex}:${ingIndex}`) ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={checkedIngredients.has(`${compIndex}:${ingIndex}`) ? colors.tint : colors.textSecondary} />
-                            </TouchableOpacity>
-                            <RNView style={styles.ingredientContent}>
-                              <RNView style={styles.ingredientMain}>
-                                <Text style={[styles.ingredientText, { color: colors.text, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>
-                                  {qtyUnit ? (
-                                    <Text style={[styles.ingredientQty, isScaled && { color: colors.actionText }]}>
-                                      {qtyUnit}
-                                    </Text>
-                                  ) : null}
-                                  {ing.name}
-                                  {notes ? <Text style={[styles.ingredientNotes, { color: colors.textMuted }]}>{` (${notes})`}</Text> : null}
-                                </Text>
-                                {missingQuantityLabel ? (
-                                  <TouchableOpacity
-                                    disabled={!amount.isEstimate || !amount.reason}
-                                    onPress={() => Alert.alert('AI estimate', amount.reason || 'Suggested from the recipe context; not stated by the source.')}
-                                    accessibilityRole={amount.isEstimate && amount.reason ? 'button' : 'text'}
-                                    accessibilityLabel={amount.isEstimate ? `AI estimate for ${ing.name}. ${amount.reason || ''}` : missingQuantityLabel}
-                                    style={amount.isEstimate ? styles.estimateAction : undefined}
-                                  >
-                                    <Text style={[styles.ingredientUncertainty, { color: amount.isEstimate ? colors.textMuted : colors.warning }]}>
-                                      {missingQuantityLabel}{amount.isEstimate && amount.reason ? ' · Why?' : ''}
-                                    </Text>
-                                  </TouchableOpacity>
-                                ) : null}
-                              </RNView>
-                              {cost !== null ? <Text style={[styles.ingredientCost, { color: colors.textMuted }]}>{cost}</Text> : null}
-                            </RNView>
-                          </RNView>
-                        );
-                      })}
-                    </RNView>
+                    <RecipeIngredientGroup key={compIndex}
+                      title={extracted.components.length > 1 ? component.name : undefined}
+                      ingredients={component.ingredients} scaleFactor={scaleFactor} isScaled={isScaled}
+                      scaleFontSize={scaleFontSize} showCosts
+                      checked={index => checkedIngredients.has(`${compIndex}:${index}`)}
+                      onToggle={index => {
+                        setCheckedIngredients(previous => {
+                          const next = new Set(previous); const key = `${compIndex}:${index}`;
+                          next.has(key) ? next.delete(key) : next.add(key); return next;
+                        });
+                        haptics.selection();
+                      }} />
                   ))}
                   
                 </>
@@ -927,13 +883,14 @@ function RecipeDetailScreenContent() {
                 <>
                   <Text accessibilityRole="header" style={styles.sectionTitle}>Steps</Text>
                   {/* Steps */}
-                  {extracted.components.map((component, compIndex) => (
+                  {extracted.components.map((component, compIndex) => component.steps.length > 0 && (
                     <RNView key={compIndex} style={styles.componentSection}>
-                      {extracted.components.length > 1 && (
-                        <Text style={[styles.componentTitle, { color: colors.actionText }]}>
+                      {extracted.components.length > 1 && component.name && (
+                        <Text accessibilityRole="header" style={[styles.componentTitle, { color: colors.textSecondary }]}>
                           {component.name}
                         </Text>
                       )}
+                      <Card noPadding style={{ borderRadius: 12, overflow: 'hidden' }}>
                       {component.steps.map((step, stepIndex) => (
                         <RNView key={stepIndex} style={styles.stepRow}>
                           <RNView style={styles.stepNumber}>
@@ -942,8 +899,11 @@ function RecipeDetailScreenContent() {
                           <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>
                             {step}
                           </Text>
+                          {stepIndex < component.steps.length - 1 && <RNView style={[styles.stepSeparator, { backgroundColor: colors.border }]} />}
                         </RNView>
                       ))}
+                      </Card>
+                      {getCookingNotes(component.notes) && <Text style={[styles.notesText, { color: colors.textSecondary, paddingHorizontal: 16, paddingTop: 8 }]}>{getCookingNotes(component.notes)}</Text>}
                     </RNView>
                   ))}
                 </>
@@ -1056,7 +1016,7 @@ function RecipeDetailScreenContent() {
                   </RNView>
 
                   {/* Cost Breakdown */}
-                  <RNView style={styles.costBreakdownSection}>
+                  <RNView style={[styles.costBreakdownSection, { paddingHorizontal: 16 }]}>
                     <Text style={[styles.costBreakdownTitle, { color: colors.text }]}>
                       Ingredient Costs
                     </Text>
@@ -1383,7 +1343,6 @@ const styles = StyleSheet.create({
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   tag: { fontSize: 13, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, overflow: 'hidden' },
   body: { paddingHorizontal: 16 },
-  ingredientCheck: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   container: {
     flex: 1,
   },
@@ -1391,7 +1350,7 @@ const styles = StyleSheet.create({
   supportingContent: { paddingHorizontal: 16 },
   errorMessage: { textAlign: 'center', marginBottom: spacing.md },
   retryButton: { minHeight: 44, minWidth: 88, alignItems: 'center', justifyContent: 'center' },
-  preparation: { paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
+  preparation: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
   prepLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   relatedDisclosure: { minHeight: 48, marginTop: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   scrollContent: {
@@ -1560,7 +1519,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
-  estimateAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   reviewCard: {
     borderWidth: 1,
     borderRadius: radius.lg,
@@ -1700,54 +1658,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   componentTitle: {
-    fontSize: fontSize.lg,
+    fontSize: 17,
+    lineHeight: 24,
     fontWeight: fontWeight.semibold,
-    marginBottom: spacing.md,
-  },
-  ingredientRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 52, paddingVertical: 4,
-  },
-  bullet: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginTop: 8,
-    marginRight: spacing.md,
-  },
-  ingredientContent: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  ingredientText: {
-    fontSize: fontSize.md,
-    lineHeight: 22,
-  },
-  ingredientMain: {
-    flex: 1,
-  },
-  ingredientUncertainty: {
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-  ingredientQty: {
-    fontWeight: fontWeight.semibold,
-  },
-  ingredientNotes: {
-    fontStyle: 'italic',
-  },
-  ingredientCost: {
-    fontSize: fontSize.sm,
-    marginLeft: spacing.sm,
+    marginBottom: spacing.sm,
   },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: spacing.md,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
+  stepSeparator: { position: 'absolute', left: 60, right: 16, bottom: 0, height: StyleSheet.hairlineWidth },
   stepNumber: {
     minWidth: 32,
     minHeight: 24,
@@ -2022,9 +1944,11 @@ const styles = StyleSheet.create({
   costItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   costItemLeft: {
     flex: 1,
