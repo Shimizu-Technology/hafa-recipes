@@ -335,6 +335,10 @@ export function Chip({
  */
 export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithChildren<{ wrap?: boolean; label?: string; fadeColor?: string }>) {
   const c = useColors();
+  // The fade only says "more to the right": it shows while chips overflow past the right edge and
+  // disappears at the end, so the last chip is never left under it.
+  const [extent, setExtent] = useState({ width: 0, content: 0, x: 0 });
+  const moreToTheRight = extent.content - (extent.x + extent.width) > 1;
   if (wrap)
     return (
       // Padding (cancelled by the margin) keeps the first and last rows' 44pt reach inside the row.
@@ -351,15 +355,19 @@ export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithC
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 8, paddingVertical: CHIP_REACH, paddingHorizontal: 16 }}
         style={{ flexGrow: 0 }}
+        scrollEventThrottle={32}
+        onLayout={event => { const width = event.nativeEvent.layout.width; setExtent(e => ({ ...e, width })); }}
+        onContentSizeChange={content => setExtent(e => ({ ...e, content }))}
+        onScroll={event => { const x = event.nativeEvent.contentOffset.x; setExtent(e => ({ ...e, x })); }}
       >
         {children}
       </ScrollView>
-      <Svg pointerEvents="none" width={24} height="100%" style={{ position: "absolute", right: 0, top: 0, bottom: 0 }}>
+      {moreToTheRight && <Svg pointerEvents="none" width={24} height="100%" style={{ position: "absolute", right: 0, top: 0, bottom: 0 }}>
         <Defs><LinearGradient id="chip-fade" x1="0" y1="0" x2="1" y2="0">
           <Stop offset="0" stopColor={fade} stopOpacity={0} /><Stop offset="1" stopColor={fade} stopOpacity={1} />
         </LinearGradient></Defs>
         <Rect x="0" y="0" width="24" height="100%" fill="url(#chip-fade)" />
-      </Svg>
+      </Svg>}
     </View>
   );
 }

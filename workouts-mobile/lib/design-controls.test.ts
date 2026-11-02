@@ -164,3 +164,16 @@ it("chips and segments keep their compact look but reach 44pt, with room in thei
   const outer = view!.root.findAllByType("View" as never)[0];
   expect(outer.props.style.paddingVertical + 2).toBeGreaterThanOrEqual(segment.props.hitSlop.top);
 });
+
+it("fades the chip row's right edge only while more chips are off-screen to the right", () => {
+  act(() => { view = create(createElement(ChipRow, { label: "Filters" }, createElement(Chip, { label: "Needs info", onPress() {} }))); });
+  const scroll = () => view!.root.findByType("ScrollView" as never);
+  const faded = () => view!.root.findAllByType("Svg" as never).length > 0;
+  act(() => scroll().props.onLayout({ nativeEvent: { layout: { width: 370 } } }));
+  act(() => scroll().props.onContentSizeChange(300, 44));
+  expect(faded()).toBe(false); // everything fits
+  act(() => scroll().props.onContentSizeChange(640, 44));
+  expect(faded()).toBe(true); // chips continue past the edge
+  act(() => scroll().props.onScroll({ nativeEvent: { contentOffset: { x: 270 } } }));
+  expect(faded()).toBe(false); // scrolled to the end: the last chip is fully visible
+});
