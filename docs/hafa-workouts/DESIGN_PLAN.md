@@ -26,7 +26,7 @@ stays unchanged. Titles and numerals use Barlow Condensed 700; controls and body
 use Inter 400/600/700. The light page is cream and dark pages use tonal near-black
 surfaces. Structural actions are neutral, with coral for Start and Add. Today has
 a workout hero, coverless workouts have format artwork, and the player has a ring
-clock. The current radius tokens are `sm 8 / md 12 / lg 20 / xl 20 / full`.
+clock. The current radius tokens are `sm 8 / md 12 / lg 20 / xl 24 / full`.
 
 ## Decisions (D1, 2026-10-13)
 
@@ -158,7 +158,7 @@ Each asset is built from one master SVG in `workouts-mobile/assets/brand/`:
   - **brand colors**: shared Håfa neutrals and reef, plus the Workouts accent;
   - **semantic tokens**: background, surface, elevated, text, muted, border, action, onAction, accent, success, warning, error, focus, overlay;
   - **spacing scale**: 4, 8, 12, 16, 24, 32, 48;
-  - **radii**: 8 / 12 / 20 / 20 / full (Athletic selection, 2026-11-03);
+  - **radii**: 8 / 12 / 20 / 24 / full (Athletic selection, 2026-11-03);
   - **type scale**: display, title, heading, body, label, small, numeric, using tabular figures for sets, reps, weight and time;
   - **elevation and shadow tokens**;
   - **motion durations**.

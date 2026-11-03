@@ -51,7 +51,8 @@ export function CoachReply({ text, scopeToken, isCurrent }: { text: string; scop
     body: { ...typography.body, color: c.text, flexShrink: 0 },
     paragraph: { marginVertical: 4, flexShrink: 0 },
     strong: { fontFamily: fonts.bold, fontWeight: "400" },
-    em: { fontStyle: "italic" },
+    // No Inter italic is bundled, so emphasis also steps up to SemiBold and stays visible on iOS and Android.
+    em: { fontFamily: fonts.semibold, fontWeight: "400", fontStyle: "italic" },
     bullet_list: { marginVertical: 4 }, ordered_list: { marginVertical: 4 },
     list_item: { marginVertical: 2, flexShrink: 0, flexWrap: "nowrap", alignItems: "flex-start" },
     bullet_list_icon: { color: c.accentText, marginRight: 8 },
