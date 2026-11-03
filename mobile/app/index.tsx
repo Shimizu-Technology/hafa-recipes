@@ -885,7 +885,7 @@ function ExtractScreenContent() {
               id: extraction.jobId || 'active',
               createdAt: Date.parse(recentImports.data?.find((job) => job.id === extraction.jobId)?.created_at || '') || 0,
               content: (extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
-            <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
+            <RNView style={styles.compactProgress}>
               <RNView style={styles.pendingShareCopy}>
                 {extraction.isExtracting ? <ActivityIndicator color={colors.actionText} /> : <Ionicons
                   name={extraction.isFailed ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={22} color={extraction.isFailed ? colors.error : colors.actionText} />}
@@ -1025,7 +1025,8 @@ const styles = StyleSheet.create({
   alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
   alternateTitle: { flex: 1, fontSize: fontSize.md },
   helpActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },
-  compactProgress: { padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, marginBottom: spacing.md, gap: spacing.sm },
+  // A row inside the Imports sheet, not a card of its own.
+  compactProgress: { padding: spacing.md, gap: spacing.sm },
   inboxRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12 },
   pendingShareNotice: {
     borderWidth: 1,
