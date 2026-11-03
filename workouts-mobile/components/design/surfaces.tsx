@@ -726,13 +726,13 @@ export function Bubble({ from, children, meta }: PropsWithChildren<{ from: "you"
           borderBottomRightRadius: you ? 6 : radii.lg,
           borderBottomLeftRadius: you ? radii.lg : 6,
           backgroundColor: you ? c.actionSoft : c.surface,
-          borderWidth: you ? 0 : 1,
+          borderWidth: 0,
           borderColor: c.border,
         }}
       >
         {!you && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <BrandMark height={12} />
+            <BrandMark height={12} mono={c.text} />
             <Copy kind="caption" tone="muted">
               Your AI coach
             </Copy>

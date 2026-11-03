@@ -18,6 +18,16 @@ Acceptance: recognize the same cover and creator from feed to saved detail; brow
 
 Choice uses radio semantics for one selection and checkbox semantics for independent preferences. Choice and Segmented share the 0.97 press response (120ms in, 160ms out); Reduce Motion uses opacity only. Disabled buttons keep readable text and explain material blockers. iOS toasts announce their message; skeleton pulses stop while backgrounded. Sheets use a Close button without a decorative drag handle. Training countdowns use tabular numerals.
 
+## Athletic selection (2026-11-03)
+
+Leon chose Athletic for every Workouts screen, with a marker under every weekday
+on Today. This supersedes the earlier UI palette/type direction below; icon artwork
+stays unchanged. Titles and numerals use Barlow Condensed 700; controls and body text
+use Inter 400/600/700. The light page is cream and dark pages use tonal near-black
+surfaces. Structural actions are neutral, with coral for Start and Add. Today has
+a workout hero, coverless workouts have format artwork, and the player has a ring
+clock. The current radius tokens are `sm 8 / md 12 / lg 20 / xl 24 / full`.
+
 ## Decisions (D1, 2026-10-13)
 
 Leon delegated the D1 choices ("whatever is clean and nice"). These are now in effect:
@@ -148,7 +158,7 @@ Each asset is built from one master SVG in `workouts-mobile/assets/brand/`:
   - **brand colors**: shared Håfa neutrals and reef, plus the Workouts accent;
   - **semantic tokens**: background, surface, elevated, text, muted, border, action, onAction, accent, success, warning, error, focus, overlay;
   - **spacing scale**: 4, 8, 12, 16, 24, 32, 48;
-  - **radii**: 8 / 14 / 20 / 28 / full;
+  - **radii**: 8 / 12 / 20 / 24 / full (Athletic selection, 2026-11-03);
   - **type scale**: display, title, heading, body, label, small, numeric, using tabular figures for sets, reps, weight and time;
   - **elevation and shadow tokens**;
   - **motion durations**.

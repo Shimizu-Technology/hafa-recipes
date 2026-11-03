@@ -1,3 +1,5 @@
+import type { UnitSystem } from "@/lib/training";
+import { PRMarker } from "./pr-marker";
 import { useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Svg, { Circle, Polyline } from "react-native-svg";
@@ -16,8 +18,8 @@ export function Sparkline({ values, width = 72, height = 28 }: { values: number[
   const points = values.map((v, i) => `${x(i)},${y(v)}`).join(" ");
   return (
     <Svg width={width} height={height} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Polyline points={points} fill="none" stroke={c.accent} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-      <Circle cx={x(values.length - 1)} cy={y(values.at(-1)!)} r={3} fill={c.accent} />
+      <Polyline points={points} fill="none" stroke={c.text} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      <Circle cx={x(values.length - 1)} cy={y(values.at(-1)!)} r={3} fill={c.text} />
     </Svg>
   );
 }
@@ -29,7 +31,7 @@ function trendWords(values: number[]) {
 }
 
 /** Personal bests per exercise with a small trend, newest first. Shows five until expanded. */
-export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
+export function ProgressRecords({ records, units, active = true }: { records: ExerciseRecord[]; units?: UnitSystem; active?: boolean }) {
   const [all, setAll] = useState(false);
   const { fontScale } = useWindowDimensions();
   if (!records.length) return null;
@@ -46,7 +48,7 @@ export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
               <Copy kind="small" tone="muted">{r.detail}</Copy>
             </View>
             {!largeText(fontScale) && <Sparkline values={r.trend} />}
-            <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>
+            <PRMarker key={units} value={r.best} measure={r.measure} active={active} />
           </View>
         ))}
       </ListGroup>

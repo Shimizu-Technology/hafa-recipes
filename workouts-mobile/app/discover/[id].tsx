@@ -1,5 +1,8 @@
+import { AskCoachPill } from "@/components/ask-coach-pill";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { reportAskScroll, resetAskScroll } from "@/lib/ask-pill";
 import { WorkoutInstructions } from "@/components/workout-instructions";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Share, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +58,8 @@ const reportCategories: Array<{ value: ReportCategory; label: string; detail: st
 type SheetMode = "menu" | "report" | "block" | "saved" | null;
 
 export default function DiscoverWorkout() {
+  const insets = useSafeAreaInsets();
+  useEffect(() => { resetAskScroll(); }, []);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment } = useTraining();
   const cache = useQueryClient();
@@ -190,30 +195,25 @@ export default function DiscoverWorkout() {
   ) : item && workout ? (
     <View style={{ borderRadius: radii.xl - 4, overflow: "hidden" }}>
       {item.thumbnail_url ? <SourceImage uri={item.thumbnail_url} label={item.title} cover
-        fallback={<SourceArtwork platform={item.source_platform} height={220} />} />
-        : <SourceArtwork platform={item.source_platform} height={220} />}
+        fallback={<SourceArtwork platform={item.source_platform} height={220} title={item.title} meta={durationLabel(workout) ?? (item.estimated_minutes ? `${item.estimated_minutes} min` : "")} />} />
+        : <SourceArtwork platform={item.source_platform} height={220} title={item.title} meta={durationLabel(workout) ?? (item.estimated_minutes ? `${item.estimated_minutes} min` : "")} />}
     </View>
   ) : undefined;
   const title = item?.title ?? (q.isPending ? "Loading workout…" : "Discover");
   const meta = item ? workoutMeta({ minutes: item.estimated_minutes, exercises: item.exercise_count, format: durationLabel(item.workout),
     equipment: item.equipment_required.length ? item.equipment_required : ["No equipment"] }) : undefined;
   return (
+    <>
     <Screen
       back
+      reserveAskRoom
+      onScroll={event => reportAskScroll(event.nativeEvent.contentOffset.y)}
       title={title}
       // The cover leads; the title and meta line follow it in the page body.
       hideTitle
       action={
         item ? (
           <Row gap={8}>
-            {!item.is_owner && (
-              <IconButton
-                icon="chatbubble-ellipses-outline"
-                label={savedId ? "Ask the coach about this workout" : "Ask the coach about this workout. Saves a private copy first"}
-                disabled={generation == null || !!busy}
-                onPress={() => void askCoach()}
-              />
-            )}
             <IconButton icon="share-outline" label="Share this workout" onPress={() => void share()} />
             {!item.is_owner && (
               <IconButton icon="ellipsis-horizontal" label="More options" onPress={() => setSheet("menu")} />
@@ -407,5 +407,9 @@ export default function DiscoverWorkout() {
         )}
       </Sheet>
     </Screen>
+    {item && !item.is_owner && <AskCoachPill bottom={insets.bottom + 16} label="Ask about this"
+      hint={savedId ? "Opens Coach about this workout" : "Saves a private copy, then opens Coach about this workout"}
+      disabled={generation == null || !!busy} onPress={() => void askCoach()} />}
+    </>
   );
 }

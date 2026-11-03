@@ -18,7 +18,7 @@ export function LibrarySearch({ value, onChange, filterCount, onFilters }: {
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
       <View style={{
         flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minHeight: 48, paddingHorizontal: 14,
-        borderRadius: radii.full, backgroundColor: c.elevated, borderWidth: focused ? 2 : 1,
+        borderRadius: radii.md, backgroundColor: c.elevated, borderWidth: focused ? 2 : 1,
         borderColor: focused ? c.focus : c.border,
       }}>
         <Ionicons name="search" size={18} color={c.muted} />

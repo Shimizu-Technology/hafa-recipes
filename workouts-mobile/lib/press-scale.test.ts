@@ -54,3 +54,18 @@ it("never scales a disabled control", () => {
   mount(true).onPressIn();
   expect(f.timing).not.toHaveBeenCalled();
 });
+
+it("restores opacity when the motion preference resolves between press-in and release", () => {
+  let press!: Press;
+  function Probe() { press = usePressScale(); return null; }
+  let tree!: ReturnType<typeof create>;
+  f.reduced = true;
+  act(() => { tree = create(createElement(Probe)); });
+  press.onPressIn();
+  expect((press.opacity as unknown as { value: number }).value).toBe(0.8);
+  f.reduced = false;
+  act(() => tree.update(createElement(Probe)));
+  press.onPressOut();
+  expect((press.opacity as unknown as { value: number }).value).toBe(1);
+  act(() => tree.unmount());
+});

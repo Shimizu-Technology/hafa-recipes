@@ -521,7 +521,7 @@ it("asks the coach about a Discover workout by saving a private copy first", asy
   fixture.discoverWorkout.mockResolvedValue(detail);
   fixture.saveDiscovered.mockResolvedValue(saved);
   await mount(DiscoverWorkout);
-  await act(async () => headerAction("Ask the coach")!.props.onPress());
+  await act(async () => nodes("AskCoachPill").find(n => n.props.label === "Ask about this")!.props.onPress());
   await settle();
   expect(fixture.saveDiscovered).toHaveBeenCalledTimes(1);
   expect(fixture.toast).toHaveBeenCalledWith("Saved a private copy to your library");
@@ -622,7 +622,9 @@ it("Discover detail leads with the cover, keeps one primary save and tucks repor
   expect(String(first.type)).toBe("View");
   expect(first.findAll((n) => String(n.type) === "SourceImage")).toHaveLength(1);
   expect(headerActions().map((n) => n.props.label)).toEqual([
-    "Ask the coach about this workout. Saves a private copy first", "Share this workout", "More options"]);
+    "Share this workout", "More options"]);
+  expect(nodes("AskCoachPill")).toHaveLength(1);
+  expect(nodes("AskCoachPill")[0].props).toMatchObject({ label: "Ask about this", hint: "Saves a private copy, then opens Coach about this workout" });
   expect(nodes("Button").filter((n) => n.props.size === "lg").map((n) => n.props.title)).toEqual(["Save to library"]);
   expect(nodes("ListRow").filter((n) => /Report|Block/.test(n.props.title)).every((n) => {
     let parent = n.parent;

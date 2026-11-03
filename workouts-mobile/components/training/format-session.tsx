@@ -196,7 +196,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     {format.mode === "for_time" && allMarked && <Copy kind="label" align="center">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
     {hasNext && moves(position!.index + 1) !== moves(position!.index) && <Copy kind="small" tone="muted" align="center">Next · {moves(position!.index + 1)}</Copy>}
   </>;
-  const clockCard = <SessionClock text={clockText} caption={caption} phase={phaseWord} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`} progress={format.mode === "for_time" ? remaining != null && format.time_cap_seconds ? remaining / format.time_cap_seconds : null : position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : position.phase === "work" ? format.work_seconds : format.rest_seconds) : null} trigger={d.actuals.length} compact={grid}>
+  const clockCard = <SessionClock text={clockText} caption={caption} phase={phaseWord} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`} progress={format.mode === "for_time" ? remaining != null && format.time_cap_seconds ? remaining / format.time_cap_seconds : null : position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : position.phase === "work" ? format.work_seconds : format.rest_seconds) : null} trigger={d.actuals.filter(actual => actual.completed).length} compact={grid}>
     {!grid && clockContext}
   </SessionClock>;
 

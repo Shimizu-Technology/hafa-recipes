@@ -43,3 +43,11 @@ it("allows an in-flight set fade to finish after the preference resolves", () =>
   expect(tree.root.findByType("AnimatedView" as never).props.style.opacity.value).toBe(1);
   act(() => tree.unmount());
 });
+
+it("does not pop when a completed set is undone", () => {
+  let tree!: ReactTestRenderer;
+  act(() => { tree = create(createElement(SetPop, { trigger: 2 }, "Clock")); });
+  act(() => tree.update(createElement(SetPop, { trigger: 1 }, "Clock")));
+  expect(f.timings).toHaveLength(0);
+  act(() => tree.unmount());
+});

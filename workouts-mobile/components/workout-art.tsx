@@ -15,10 +15,10 @@ export function WorkoutArt({ title, meta = "", compact = false }: { title: strin
       <Rect width="200" height="250" fill="url(#cover)" />
       <Path d={"M80 -20 L-40 250 M130 -20 L10 250 M180 -20 L60 250 M230 -20 L110 250"} stroke={c.border} strokeWidth={1} fill="none" opacity={0.5} />
     </Svg></View>
-    {!compact && <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}><BrandMark height={18} mono={c.text} /><Copy kind="caption2" tone="muted">HÅFA</Copy></View>}
+    {!compact && <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}><BrandMark height={18} mono={c.text} /><Copy kind="caption2" tone="muted" maxScale={1.2}>HÅFA</Copy></View>}
     <View style={{ flex: 1, justifyContent: "center", gap: compact ? 0 : 4 }}>
-      <Copy kind="numeric" maxScale={1.5} style={{ fontSize: compact ? 22 : 72, lineHeight: compact ? 27 : 76 }}>{number ?? "GO"}</Copy>
-      <Copy kind="caption2" maxScale={1.5} style={{ fontSize: compact ? 10 : 13, lineHeight: compact ? 13 : 18 }}>{label}</Copy>
+      <Copy kind="numeric" maxScale={compact ? 1 : 1.5} style={{ fontSize: compact ? 22 : 72, lineHeight: compact ? 27 : 76 }}>{number ?? "GO"}</Copy>
+      <Copy kind="caption2" maxScale={compact ? 1 : 1.5} style={{ fontSize: compact ? 10 : 13, lineHeight: compact ? 13 : 18 }}>{label}</Copy>
     </View>
   </View>;
 }

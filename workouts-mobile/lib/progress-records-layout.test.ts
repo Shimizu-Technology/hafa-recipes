@@ -1,3 +1,4 @@
+vi.mock("../components/pr-marker", () => ({ PRMarker: ({ value }: { value: string }) => createElement("Copy", null, value) }));
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { expect, it, vi } from "vitest";
@@ -11,7 +12,7 @@ import { ProgressRecords } from "../components/progress-records";
 it("keeps long record details visible and stacks the value at larger text sizes", () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   fixture.fontScale = 1.5;
-  const record = { key: "1", name: "Long exercise name", best: "100 kg × 10", detail: "12 sessions with notes", trend: [1, 2], lastDone: "2026-11-02" };
+  const record = { key: "1", name: "Long exercise name", best: "100 kg × 10", detail: "12 sessions with notes", trend: [1, 2], lastDone: "2026-11-02", measure: { metric: "kg" as const, value: 100, reps: 10 } };
   let tree!: ReturnType<typeof create>;
   act(() => { tree = create(createElement(ProgressRecords, { records: [record] })); });
   const row = tree.root.findAllByType("View" as never).find(node => node.props.accessibilityLabel?.includes(record.name))!;

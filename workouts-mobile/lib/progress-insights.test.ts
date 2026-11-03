@@ -41,9 +41,9 @@ it("finds heaviest and most reps per exercise across sessions, with a trend in t
   ];
   const records = exerciseRecords(sessions, "metric");
   expect(records.map((r) => r.name)).toEqual(["Goblet squat", "Pull-up", "Plank"]);
-  expect(records[0]).toMatchObject({ best: "20 kg × 9", detail: "Most reps 15 · 3 sessions", trend: [16, 20, 20] });
-  expect(records[1]).toMatchObject({ best: "7 reps", detail: "2 sessions", trend: [5, 7] });
-  expect(records[2]).toMatchObject({ best: "1:00", trend: [60] });
+  expect(records[0]).toMatchObject({ best: "20 kg × 9", measure: { metric: "kg", value: 20, reps: 9 }, detail: "Most reps 15 · 3 sessions", trend: [16, 20, 20] });
+  expect(records[1]).toMatchObject({ best: "7 reps", measure: { metric: "reps", value: 7 }, detail: "2 sessions", trend: [5, 7] });
+  expect(records[2]).toMatchObject({ best: "1:00", measure: { metric: "seconds", value: 60 }, trend: [60] });
 });
 
 it("skips assistance weight for heaviest and matches exercises by library id first", () => {
