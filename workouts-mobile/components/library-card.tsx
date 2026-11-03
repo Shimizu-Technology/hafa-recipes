@@ -9,7 +9,8 @@ import { Copy, useColors, useReducedMotion, type IconName } from "@/components/u
 import { animatedPressableComponent, usePressScale } from "@/components/design/press";
 import type { LibraryView } from "@/lib/library-view";
 
-export const LIBRARY_GRID_GAP = 12;
+export { WORKOUT_GRID_GAP as LIBRARY_GRID_GAP } from "@/lib/readable-layout";
+import type { FormatBlock } from "@/lib/timed-execution";
 
 /** Width of one grid column inside the screen's content padding. */
 export function useLibraryGridWidth() {
@@ -17,7 +18,7 @@ export function useLibraryGridWidth() {
   return workoutGridWidth(width, fontScale);
 }
 
-function Cover({ uri, icon, size, title = "Your collection", meta = "" }: { uri?: string | null; icon: IconName; size: number; title?: string; meta?: string }) {
+function Cover({ uri, icon, size, title = "Your collection", meta = "", blocks, cornerBadge }: { blocks?: FormatBlock[]; cornerBadge?: boolean; uri?: string | null; icon: IconName; size: number; title?: string; meta?: string }) {
   const c = useColors();
   const reduced = useReducedMotion();
   const [failed, setFailed] = useState<string | null>(null);
@@ -30,7 +31,7 @@ function Cover({ uri, icon, size, title = "Your collection", meta = "" }: { uri?
     <Copy kind="display" fit maxScale={1.3} style={{ fontSize: 56, lineHeight: 62 }}>{title.trim().split(/\s+/).slice(0, 2).map(word => Array.from(word)[0]).join("") || "HW"}</Copy>
     <Copy kind="caption2" tone="muted">COLLECTION</Copy>
   </View>;
-  return <WorkoutArt title={title} meta={meta} compact={size < 28} />;
+  return <WorkoutArt title={title} meta={meta} compact={size < 28} blocks={blocks} cornerBadge={cornerBadge} />;
 }
 
 /** Small round mark over a cover: the favorite heart or the selection checkbox. */
@@ -46,8 +47,9 @@ function Mark({ kind }: { kind: "favorite" | "selected" | "unselected" }) {
 }
 
 export function LibraryCard({
-  view, title, meta, creator, origin, image, icon, favorite, badge, selected, onPress, onLongPress, save, fill,
+  view, title, meta, creator, origin, image, icon, favorite, badge, selected, onPress, onLongPress, save, fill, blocks,
 }: {
+  blocks?: FormatBlock[];
   fill?: boolean;
   save?: { saved: boolean; busy: boolean; onPress(): void };
   view: LibraryView;
@@ -101,7 +103,7 @@ export function LibraryCard({
       }}
     >
       <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: radii.lg, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
-        <Cover uri={image} icon={icon} size={grid ? 28 : 24} title={title} meta={meta} />
+        <Cover uri={image} icon={icon} size={grid ? 28 : 24} title={title} meta={meta} blocks={blocks} cornerBadge={!!save || selecting} />
         {grid && !!meta && !!image && <View style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
           <Copy kind="caption2" color={c.onImage}>{meta}</Copy>
         </View>}

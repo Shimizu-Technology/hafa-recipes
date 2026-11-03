@@ -1,3 +1,4 @@
+import type { FormatBlock } from "@/lib/timed-execution";
 import { WorkoutArt } from "./workout-art";
 import { View, type DimensionValue } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -6,10 +7,11 @@ import { radii } from "@/constants/theme";
 import { cardMeta, creatorCredit, equipmentChips, platformInfo, type DiscoverCard } from "@/lib/discover";
 
 /** Athletic format cover shared with Library and saved workout detail. */
-export function SourceArtwork({ platform, height = 168, compact = false, title = "Workout", meta }: {
+export function SourceArtwork({ platform, height = 168, compact = false, title = "Workout", meta, blocks }: {
+  blocks?: FormatBlock[];
   platform: string | null; height?: DimensionValue; compact?: boolean; title?: string; meta?: string;
 }) {
-  return <View style={{ width: "100%", height, overflow: "hidden" }}><WorkoutArt title={title} meta={meta ?? platformInfo(platform).label} compact={compact} /></View>;
+  return <View style={{ width: "100%", height, overflow: "hidden" }}><WorkoutArt title={title} meta={meta ?? platformInfo(platform).label} compact={compact} blocks={blocks} /></View>;
 }
 
 export function DiscoverCardView({ card, onPress }: { card: DiscoverCard; onPress(): void }) {
@@ -21,7 +23,7 @@ export function DiscoverCardView({ card, onPress }: { card: DiscoverCard; onPres
       title={card.title}
       meta={cardMeta(card)}
       image={card.thumbnail_url}
-      placeholder={<SourceArtwork platform={card.source_platform} title={card.title} meta={cardMeta(card)} />}
+      placeholder={<SourceArtwork platform={card.source_platform} title={card.title} blocks={card.format ? [card.format] : undefined} meta={cardMeta(card).split(" · ")[0]} />}
       chips={equipmentChips(card)}
       badge={badge}
       footer={credit ? <CreditLine platform={card.source_platform} text={credit} /> : null}

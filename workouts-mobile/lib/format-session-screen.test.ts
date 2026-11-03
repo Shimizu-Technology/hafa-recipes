@@ -202,7 +202,7 @@ it("lays the footer actions out as a two-column grid at the largest text sizes a
   await render(d, 5_000);
   const footer = renderer!.root.findByType("Screen" as never).props.footer;
   const buttons = elements(footer).filter((n) => n.type === "Button");
-  expect(buttons.map((n) => n.props.title)).toEqual(["Done · interval 1", "Missed", "Pause", "Finish"]);
+  expect(buttons.map((n) => n.props.title)).toEqual(["Done", "Missed", "Pause", "Finish"]);
   // Two cells per row (four actions in two rows), wrapped inside the row; buttons keep their 44pt-plus size and drop icons.
   const rows = elements(footer).filter((n) => n.type === "View" && n.props.style?.flexWrap === "wrap");
   expect(rows).toHaveLength(2);
@@ -212,8 +212,9 @@ it("lays the footer actions out as a two-column grid at the largest text sizes a
   const done = buttons[0].props.maxScale, missed = buttons[1].props.maxScale;
   expect(done).toBeGreaterThanOrEqual(1);
   expect(done).toBeLessThan(3.1);
-  expect(missed).toBeGreaterThanOrEqual(done);
-  expect(done * 17 * 0.6 * "interval".length).toBeLessThanOrEqual((390 - 32 - 12) / 2 - 44 + 0.01);
+  expect(done).toBeGreaterThanOrEqual(missed);
+  expect(buttons[0].props.accessibilityLabel).toBe("Done · interval 1");
+  expect(done * 17 * 0.6 * "Done".length).toBeLessThanOrEqual((390 - 32 - 12) / 2 - 44 + 0.01);
 });
 
 it("keeps the footer a stacked row layout at default text size", async () => {
@@ -290,4 +291,13 @@ it.each([null, 60])("Athletic uses a real for-time cap ring, or no ring without 
   const rings = renderer!.root.findAllByType("ProgressRing" as never);
   expect(rings).toHaveLength(cap ? 1 : 0);
   if (cap) expect(rings[0].props.progress).toBe(0.75);
+});
+
+it.each([true, false])("describes the actual EMOM mark while resting (completed=%s)", async completed => {
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 60, intervals: 10, rotation: null }, exercises: [{ name: "Squats", reps_min: 5 }] }));
+  await render({ ...d, cursor: 2, actuals: [
+    { block_id: "main", exercise_index: 0, round_index: 1, set_index: 1, side: null, completed: true },
+    { block_id: "main", exercise_index: 0, round_index: 2, set_index: 1, side: null, completed },
+  ] }, 65_000);
+  expect(text()).toContain(`${completed ? "Done" : "Missed"} · rest until minute 3`);
 });

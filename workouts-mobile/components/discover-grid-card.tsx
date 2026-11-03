@@ -31,7 +31,7 @@ export function DiscoverGrid({ children }: PropsWithChildren) {
 
 /** Discover and Library share the same photo, title and single credit line. */
 export function DiscoverGridCard({ card, onPress, onSave, saving = false }: { card: DiscoverCard; onPress(): void; onSave?(): void; saving?: boolean }) {
-  return <LibraryCard fill view="grid" title={card.title} meta={discoverFormatLabel(card) || workoutCardMeta(card)}
+  return <LibraryCard blocks={card.format ? [card.format] : undefined} fill view="grid" title={card.title} meta={discoverFormatLabel(card) || workoutCardMeta(card)}
     creator={card.source_creator || card.contributor.display_name} origin={platformInfo(card.source_platform).label}
     image={card.thumbnail_url} icon="barbell-outline" favorite={false} onPress={onPress}
     save={!card.is_owner && onSave ? { saved: !!card.saved_workout_id, busy: saving, onPress: onSave } : undefined} />;

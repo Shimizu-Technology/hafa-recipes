@@ -131,7 +131,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const nowLine = !position ? null
     : allMarked ? (deathBy ? `Ended in ${unit.toLowerCase()} ${lastRound}` : `All ${unit.toLowerCase()}s marked`)
     : position.phase === "ended" ? "Time’s up. Mark what’s left below."
-    : resting ? `Done · rest until ${unit.toLowerCase()} ${position.index + 1}`
+    : resting ? `${d.actuals.filter(a => a.round_index === position.index).every(a => a.completed) ? "Done" : "Missed"} · rest until ${unit.toLowerCase()} ${position.index + 1}`
     : `This ${unit.toLowerCase()}: ${moves(position.index)}`;
   const hasNext = !!position && !allMarked && position.phase !== "ended" && (interval!.intervals == null || position.index < interval!.intervals);
 
@@ -173,7 +173,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
       {!!error && <Notice error>{error}</Notice>}
       {grid && marking
         ? cells(
-          action(doneTitle, { busy, disabled: doneDisabled, accessibilityHint: `Marks ${unit.toLowerCase()} ${target} done`, onPress: () => mark(true) }),
+          action(format.mode === "work_rest" ? "Log interval" : "Done", { accessibilityLabel: doneTitle, busy, disabled: doneDisabled, accessibilityHint: `Marks ${unit.toLowerCase()} ${target} done`, onPress: () => mark(true) }),
           action(missTitle, { variant: "secondary", disabled: busy || !typedValid, onPress: () => mark(false) }))
         : primary}
       {grid

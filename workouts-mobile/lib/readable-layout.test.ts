@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { largeText, workoutGridColumns, workoutGridWidth } from "./readable-layout";
+import { WORKOUT_GRID_GAP, largeText, workoutGridColumns, workoutGridWidth } from "./readable-layout";
 describe("workout grids", () => {
   it.each([320, 375, 390, 660])("uses all available width at large text on %dpt screens", width => {
     for (const scale of [1.3, 2, 3.1]) {
@@ -29,4 +29,12 @@ describe("two-column footer", () => {
     expect(footerLabelScale("Done · interval 1", cell, 3.1)).toBeGreaterThan(1);
     expect(footerLabelScale("Done · interval 1", 100, 3.1)).toBe(1);
   });
+});
+
+it.each([320, 375, 390, 393, 660, 1200])("centres the grid with equal 20pt gutters at %dpt", width => {
+  for (const discover of [true, false]) {
+    const columns = workoutGridColumns(width, 1, discover);
+    const used = columns * workoutGridWidth(width, 1, discover) + (columns - 1) * WORKOUT_GRID_GAP;
+    expect((Math.min(width, 660) - used) / 2).toBeCloseTo(20);
+  }
 });

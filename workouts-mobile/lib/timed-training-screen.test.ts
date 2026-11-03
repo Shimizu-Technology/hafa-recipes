@@ -103,8 +103,9 @@ it("expiry does not imply completion; actual work enables an explicit cap save a
   expect(fixture.store!.snapshot().history[0].request).toMatchObject({ status: "completed", active_seconds: 1200 });
   expect(fixture.store!.snapshot().history[0].workout).toEqual(workout);
   expect(fixture.replace).not.toHaveBeenCalled();
+  expect(renderer!.root.findAllByType("StatTile" as never)[0].parent!.props.align).toBe("stretch");
   expect(renderer!.root.findAllByType("StatTile" as never).map((tile) => [tile.props.label, tile.props.value]))
-    .toEqual([["Set logged", 1], ["Exercise", 1], ["Active time", 20]]);
+    .toEqual([["Set", 1], ["Exercise", 1], ["Active time", 20]]);
   await act(async () => { done().props.onPress(); }); await settle();
   expect(fixture.replace).toHaveBeenCalledWith("/history-progress");
 });
