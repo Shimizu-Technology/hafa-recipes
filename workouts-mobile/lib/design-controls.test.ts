@@ -61,6 +61,12 @@ it("makes each segment responsive to press with its radio checked state", () => 
   expect(items.map(item => item.props.accessibilityState.checked)).toEqual([true, false]);
   items[1].props.onPressIn(); expect(f.timing).toHaveBeenCalled();
 });
+it("keeps each segment label on one line, shrinking it instead of breaking a word", () => {
+  act(() => { view = create(createElement(Segmented, { label: "Show", value: "all", options: [{ value: "all", label: "All" }, { value: "collections", label: "Collections" }], onChange() {} })); });
+  const labels = view!.root.findAllByType("Copy" as never).filter(item => item.props.children === "Collections");
+  expect(labels).toHaveLength(1);
+  expect(labels[0].props.fit).toBe(true);
+});
 it("keeps disabled button text readable and explains a material blocker", () => {
   act(() => { view = create(createElement(Button, { title: "Log set", disabled: true, disabledReason: "Resume to log this set.", onPress() {} })); });
   const press = view!.root.findByType("Pressable" as never);

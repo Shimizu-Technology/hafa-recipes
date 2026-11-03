@@ -236,7 +236,7 @@ export function AccountButton() {
       {image ? (
         <Image source={{ uri: image }} onError={() => setFailedImage(image)} style={{ width: size, height: size }} accessibilityIgnoresInvertColors />
       ) : identity?.initial ? (
-        <Copy style={{ fontSize: 15, lineHeight: 20, fontWeight: "600", color: c.text }}>{identity.initial}</Copy>
+        <Copy allowFontScaling={false} style={{ fontSize: 15, lineHeight: 20, fontWeight: "600", color: c.text }}>{identity.initial}</Copy>
       ) : (
         <Ionicons name="person" size={18} color={c.text} />
       )}
@@ -435,7 +435,7 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
       shadowColor: c.shadow, shadowOpacity: selected ? 0.12 : 0, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: selected ? 1 : 0,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
     {/* One line at every text size: segments never break a word across lines. */}
-    <Copy kind="cardTitle" color={c.text} align="center">{label}</Copy>
+    <Copy kind="cardTitle" color={c.text} align="center" fit>{label}</Copy>
   </AnimatedPressable>;
 }
 

@@ -98,6 +98,7 @@ export function Copy({
   selectable,
   allowFontScaling,
   maxScale,
+  fit,
 }: PropsWithChildren<{
   kind?: TypeKind;
   tone?: Tone;
@@ -111,6 +112,8 @@ export function Copy({
   allowFontScaling?: boolean;
   /** Caps growth with the text-size setting, for controls that must leave room for content (like a session footer). */
   maxScale?: number;
+  /** One line that shrinks to fit (down to half size) instead of wrapping or breaking a word. */
+  fit?: boolean;
 }>) {
   const c = useColors();
   const surface = useSurface();
@@ -127,7 +130,9 @@ export function Copy({
       accessibilityLabel={accessibilityLabel}
       selectable={selectable}
       allowFontScaling={false}
-      numberOfLines={numberOfLines}
+      numberOfLines={fit ? 1 : numberOfLines}
+      adjustsFontSizeToFit={fit}
+      minimumFontScale={fit ? 0.5 : undefined}
       style={scaled}
     >
       {children}
