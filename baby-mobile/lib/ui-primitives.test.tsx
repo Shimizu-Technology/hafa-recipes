@@ -305,7 +305,7 @@ it("draws its own Soft search field instead of UIKit's grey one, and clears it f
   const input = () => renderer!.root.findByType("TextInput" as React.ElementType);
   expect(input().props).toMatchObject({ accessibilityLabel: "Search saved posts", returnKeyType: "search", maxFontSizeMultiplier: 0 });
   expect(input().props.style).toMatchObject({ fontFamily: "DMSans_400Regular", color: "#5A4740" });
-  const field = renderer!.root.findAllByType("View" as React.ElementType)[0].props.style;
+  const field = renderer!.root.findAllByType("View" as React.ElementType)[1].props.style;
   expect(field).toMatchObject({ minHeight: 48, backgroundColor: "#FFFFFF", borderRadius: 16 });
   expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Clear search")).toHaveLength(0);
   await act(async () => input().props.onChangeText("hospital bag"));
@@ -313,6 +313,14 @@ it("draws its own Soft search field instead of UIKit's grey one, and clears it f
   await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="hospital bag" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
   await act(async () => renderer!.root.findByProps({ accessibilityLabel: "Clear search" }).props.onPress());
   expect(onChange).toHaveBeenLastCalledWith("");
+  // While typing, Cancel clears and closes the keyboard, like UIKit's search bar.
+  expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Cancel search")).toHaveLength(0);
+  await act(async () => input().props.onFocus());
+  onChange.mockClear();
+  await act(async () => renderer!.root.findAll(n => n.props.accessibilityLabel === "Cancel search")[0].props.onPress());
+  expect(onChange).toHaveBeenLastCalledWith("");
+  await act(async () => input().props.onBlur());
+  expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Cancel search")).toHaveLength(0);
 });
 
 it.each(["back", "close"])("keeps a cold-linked native %s screen escapable without navigation history", async action => {
