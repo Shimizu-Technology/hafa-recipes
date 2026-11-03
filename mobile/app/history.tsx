@@ -609,7 +609,9 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               <FilterButton count={activeFilterCount} onPress={() => setShowFilterModal(true)} />
             </SearchRow>}
             <ListHeaderTitle />
-            {latestRecipe && <LibraryLatest recipe={latestRecipe} onPress={() => { haptics.light(); router.push(`/recipe/${latestRecipe.id}`); }} />}
+            {latestRecipe && <LibraryLatest recipe={latestRecipe} onPress={() => { haptics.light(); router.push(`/recipe/${latestRecipe.id}`); }}
+              onLongPress={() => enterSelectionMode(latestRecipe.id)}
+              saved={latestRecipe.is_saved ?? Boolean(savedRecipes?.some(saved => saved.id === latestRecipe.id))} />}
             {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
             {/* Selection Action Bar */}
             {isSelectionMode && (

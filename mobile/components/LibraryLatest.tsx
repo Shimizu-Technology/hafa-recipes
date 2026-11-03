@@ -5,6 +5,7 @@ import { PressScale } from '@/components/chrome/motion';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Text, useColors } from '@/components/Themed';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
+import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 import type { RecipeListItem } from '@/types/recipe';
 
 /**
@@ -17,12 +18,14 @@ export function pickLatestRecipe<T extends Pick<RecipeListItem, 'thumbnail_url'>
 }
 
 /** Library's quiet "Latest" row: a white sheet with a hairline, the photo, the title and where it came from. */
-export function LibraryLatest({ recipe, onPress }: { recipe: RecipeListItem; onPress: () => void }) {
+export function LibraryLatest({ recipe, onPress, onLongPress, saved }: { recipe: RecipeListItem; onPress: () => void; onLongPress?: () => void; saved?: boolean }) {
   const colors = useColors();
   const large = useWindowDimensions().fontScale >= 1.3;
   const { label: sourceLabel } = getRecipeSourcePresentation(recipe.source_type);
   const meta = [sourceLabel, recipe.total_time].filter(Boolean).join(' · ');
-  return <PressScale onPress={onPress} accessibilityRole="button" accessibilityLabel={`Latest recipe, ${recipe.title}${meta ? `, ${meta}` : ''}`}
+  // Same spoken details as the grid card it stands in for (review state, time, source, saved).
+  const label = recipeCardAccessibilityLabel({ title: recipe.title, reviewState: recipe.review_state, totalTime: recipe.total_time, sourceLabel, saved });
+  return <PressScale onPress={onPress} onLongPress={onLongPress} delayLongPress={400} accessibilityRole="button" accessibilityLabel={`Latest recipe, ${label}`}
     testID="library-latest"
     style={[styles.row, large && styles.rowLarge, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
     <RecipeThumbnail uri={recipe.thumbnail_url} style={styles.photo} accessible={false} placeholderIconSize={22} priority="high" />
