@@ -435,7 +435,7 @@ export function Segmented<T extends string>({
           onPress={() => { if (option.value !== value) haptics.tick(); onChange(option.value); }} />)}
         {/* Invisible, unconstrained copies of the labels at full size: their widths decide the shared scale. */}
         <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
-          style={{ position: "absolute", left: 0, top: 0, width: 4000, flexDirection: "row", opacity: 0 }}>
+          style={{ position: "absolute", left: 0, top: 0, width: 1500, flexDirection: "row", opacity: 0 }}>
           {options.map(option => <Text key={`${option.value}:${fontScale}`} numberOfLines={1} allowFontScaling={false}
             onLayout={event => { const width = Math.ceil(event.nativeEvent.layout.width); setNatural(known => known[option.value] === width ? known : { ...known, [option.value]: width }); }}
             style={{ fontFamily: typography.cardTitle.fontFamily, fontWeight: typography.cardTitle.fontWeight,
