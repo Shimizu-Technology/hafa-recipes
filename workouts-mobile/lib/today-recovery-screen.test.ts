@@ -43,6 +43,7 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 }, spacing: { xs: 8, sm: 12 } }));
 vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
 vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
+vi.mock("@/components/workout-start-sheet", () => ({ WorkoutStartSheet: "WorkoutStartSheet" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
 vi.mock("@/components/ui", () => ({
   Screen: "Screen", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Button: "Button", AccountButton: "AccountButton",
@@ -805,6 +806,26 @@ it("the Today hero gives each state one clear next step", async () => {
   await act(async () => buttons("Start")[0].props.onPress()); await settle();
   expect(fixture.start).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenLastCalledWith("/training");
+});
+
+it("Today asks how to track a session the timer can't run, then starts with that choice", async () => {
+  const { router } = await import("expo-router");
+  fixture.available = true;
+  const workout = { title: "Source circuit", provenance: "source", kind: "session",
+    blocks: [{ id: "a", grouping: "straight", exercises: [{ name: "Push-ups", provenance: "source" }] }] };
+  fixture.programs.mockResolvedValue([{ id: "plan", generation: 1, revision: 1, status: "ready",
+    sessions: [{ id: "s", date: dateInTimezone(new Date(), "UTC"), purpose: "Strength", workout }] } as unknown as Program]);
+  await mount();
+  const WorkoutStartSheet = "WorkoutStartSheet" as never;
+  expect(renderer!.root.findAllByType(WorkoutStartSheet)).toHaveLength(0);
+  await act(async () => buttons("Start")[0].props.onPress()); await settle();
+  expect(fixture.start).not.toHaveBeenCalled();
+  const sheet = renderer!.root.findByType(WorkoutStartSheet);
+  await act(async () => sheet.props.onStart({ log_as_you_go: true })); await settle();
+  expect(fixture.start).toHaveBeenCalledTimes(1);
+  expect(fixture.start.mock.calls[0][4]).toEqual({ log_as_you_go: true });
+  expect(router.push).toHaveBeenLastCalledWith("/training");
+  expect(renderer!.root.findAllByType(WorkoutStartSheet)).toHaveLength(0);
 });
 
 it("partly recorded work today settles the hero instead of offering a second Start", async () => {
