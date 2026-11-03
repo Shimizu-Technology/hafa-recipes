@@ -30,7 +30,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { formatGroceryReviewAmount, formatQuantity, spokenQuantity } from '@/lib/quantityPresentation';
+import { formatGroceryReviewAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { useAuth } from '@clerk/expo';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 
@@ -894,7 +894,7 @@ function PlannerScreenContent() {
             <ScrollView>
               {reviewData.totals.map((total, index) => <Text key={`total:${index}`} accessibilityLabel={spokenQuantity([formatGroceryReviewAmount(total.quantity, total.unit, total.name), total.missing ? `${total.missing} missing amounts` : '', total.uncombined ? 'source amounts kept separate' : ''].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatGroceryReviewAmount(total.quantity, total.unit, total.name)}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
               <Text>By recipe</Text>
-              {reviewData.items.map((item, index) => <Text key={index} accessibilityLabel={spokenQuantity([formatQuantity(item.quantity, item.unit) ?? 'Amount not stated', item.unit, item.name, item.recipe_title].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatQuantity(item.quantity, item.unit) ?? 'Amount not stated'} {item.unit} {item.name} · {item.recipe_title}</Text>)}</ScrollView>
+              {reviewData.items.map((item, index) => <Text key={index} accessibilityLabel={spokenQuantity([formatGroceryReviewAmount(item.quantity, item.unit, item.name), item.recipe_title].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatGroceryReviewAmount(item.quantity, item.unit, item.name)} · {item.recipe_title}</Text>)}</ScrollView>
             <Button title={reviewAdding ? 'Adding…' : 'Add reviewed groceries'} disabled={reviewAdding || (!pendingReview.current && (review.isFetching || review.isError)) || !reviewData.items_added} onPress={confirmGroceries} />
           </>}
           <Button title="Close review" variant="secondary" disabled={reviewAdding} onPress={() => setReviewVisible(false)} />

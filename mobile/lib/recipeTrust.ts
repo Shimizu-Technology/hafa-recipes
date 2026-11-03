@@ -1,4 +1,4 @@
-import { formatQuantity } from './quantityPresentation';
+import { formatIngredientAmount as presentIngredientAmount } from './quantityPresentation';
 import type { Ingredient, RecipeReviewState } from '@/types/recipe';
 
 export type RecipeTrustPresentation = {
@@ -48,10 +48,7 @@ export function formatIngredientAmount(
 ): string {
   if (!hasStatedIngredientAmount(quantity)) return MISSING_AMOUNT_LABEL;
 
-  const displayQuantity = formatQuantity(scaledQuantity ?? quantity!.trim(), normalizeIngredientUnit(unit));
-  const normalizedUnit = normalizeIngredientUnit(unit);
-  const displayUnit = normalizedUnit ? ` ${normalizedUnit}` : '';
-  return `${displayQuantity}${displayUnit}`;
+  return presentIngredientAmount(scaledQuantity ?? quantity!.trim(), normalizeIngredientUnit(unit));
 }
 
 export const MISSING_AMOUNT_LABEL = 'Amount not stated';
