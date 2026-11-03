@@ -23,7 +23,7 @@ import { Image } from "expo-image";
 import { Stack as NativeStack, router, useSegments } from "expo-router";
 import { isTabRoute, overlayBottom, useTabScreenBottomInset } from "@/lib/bottom-overlay";
 import { reportAskScroll } from "@/lib/ask-pill";
-import { contentWidth, elevation, motion, radii, spacing, typography } from "@/constants/theme";
+import { contentWidth, elevation, motion, radii, spacing, fonts, typography } from "@/constants/theme";
 import { BrandLockup, BrandMark } from "../brand-mark";
 import { headerActions, headerBack, useNativeHeader } from "../native-tab-stack";
 import { TabScrollToTop, tabScrollProps, useScrollRest } from "../tab-scroll-to-top";
@@ -136,11 +136,11 @@ export function Screen({
   ) : undefined;
   return (
     <GroupedPage.Provider value={grouped}>
-    {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: false, headerLargeTitleEnabled: !hideTitle,
-      headerShadowVisible: headerHairline, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: pageColor }, scrollEdgeEffects: { top: "hidden" },
+    {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title.toUpperCase(), headerShown: true, headerTransparent: false, headerLargeTitleEnabled: !hideTitle,
+      headerShadowVisible: headerHairline, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.text, headerStyle: { backgroundColor: pageColor }, scrollEdgeEffects: { top: "hidden" },
       ...headerBack(back && !tabHeader ? <HeaderButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"}
         onPress={() => router.canGoBack?.() ? router.back() : router.replace("/(tabs)/library")} /> : undefined),
-      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, ...headerActions(action ? <>{action}</> : undefined) }} />}
+      headerTitleStyle: { color: c.text, fontFamily: fonts.semibold }, headerLargeTitleStyle: { color: c.text, fontFamily: fonts.display }, ...headerActions(action ? <>{action}</> : undefined) }} />}
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: pageColor, paddingTop: root ? 0 : insets.top }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -237,7 +237,7 @@ export function Card({
   const base: ViewStyle = {
     padding: compact ? spacing.md : spacing.lg - 4,
     gap: compact ? spacing.sm : spacing.md - 2,
-    borderRadius: tone === "hero" ? radii.lg : radii.md,
+    borderRadius: radii.lg,
     backgroundColor: bg,
     borderWidth: 0,
     borderColor: c.border,

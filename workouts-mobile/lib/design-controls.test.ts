@@ -76,6 +76,7 @@ it("sizes every segment label to the widest one so the selected segment never ou
   act(() => track.props.onLayout({ nativeEvent: { layout: { width: 300 } } }));
   const measurers = view!.root.findAllByType("Text" as never);
   expect(measurers).toHaveLength(3);
+  expect(measurers[0].props.style).toMatchObject({ fontFamily: "BarlowCondensed_700Bold", textTransform: "uppercase", letterSpacing: 0.25 });
   const natural = [24, 70, 150];
   act(() => measurers.forEach((node, i) => node.props.onLayout({ nativeEvent: { layout: { width: natural[i] } } })));
   const [all, programs, collections] = sizes();
@@ -106,6 +107,17 @@ it("keeps disabled button text readable and explains a material blocker", () => 
   expect(press.props.accessibilityHint).toBe("Resume to log this set.");
   expect(view!.root.findAllByType("Copy" as never).map(item => item.props.children)).toContain("Resume to log this set.");
   expect(view!.root.findAllByType("Copy" as never)[0].props.color).toBe(light.text);
+});
+
+it("keeps coral for workout starts (play icon) and ink for setup calls to action", () => {
+  const bg = (props: object) => {
+    act(() => { view = create(createElement(Button, { onPress() {}, ...props } as never)); });
+    const style = view!.root.findByType("Pressable" as never).props.style;
+    return (Array.isArray(style) ? Object.assign({}, ...style.flat()) : style).backgroundColor;
+  };
+  expect(bg({ title: "Start workout", icon: "play" })).toBe(light.accent);
+  expect(bg({ title: "Resume", icon: "play" })).toBe(light.accent);
+  expect(bg({ title: "Start saving workouts" })).not.toBe(light.accent);
 });
 
 it("compact search keeps its accessible name without a duplicate visible label", async () => {
@@ -177,13 +189,13 @@ it("shows a filter count as an accent badge and says it to VoiceOver", () => {
   expect(view!.root.findByType("Copy" as never).props.children).toBe(2);
   act(() => button.props.onPress()); expect(onPress).toHaveBeenCalledOnce();
 });
-it("draws chips with a shape: tonal when off, accent-filled when on, 34pt with a 44pt reach", () => {
+it("draws chips with a shape: tonal when off, ink-filled when on, 34pt with a 44pt reach", () => {
   act(() => { view = create(createElement(ChipRow, { label: "Filters" }, createElement(Chip, { label: "Needs info · 2", onPress() {} }),
     createElement(Chip, { label: "Favorites", role: "button", trailingIcon: "close", selected: true, onPress() {} }))); });
   const [off, on] = view!.root.findAllByType("Pressable" as never);
   expect(off.props.style[0]).toMatchObject({ minHeight: 34, backgroundColor: light.sunken, borderRadius: 999 });
   expect(off.props.hitSlop).toBe(5);
-  expect(on.props.style[0].backgroundColor).toBe(light.accent);
+  expect(on.props.style[0].backgroundColor).toBe(light.text);
   expect(on.props.accessibilityState).toEqual({ disabled: false });
   expect(view!.root.findByType("ScrollView" as never).props.horizontal).toBe(true);
 });

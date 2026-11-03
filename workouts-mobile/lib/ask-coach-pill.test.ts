@@ -9,13 +9,14 @@ vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: { push: f.push } }));
 vi.mock("../components/design/foundation", () => ({ useColors: () => light, haptics: { light() {} } }));
 vi.mock("../components/design/tab-bar", () => ({ useKeyboardShown: () => f.keyboard }));
+vi.mock("../components/design/press", () => ({ animatedPressableComponent: () => "Pressable", usePressScale: () => ({ scale: 1, opacity: 1 }) }));
 import { AskCoachPill } from "../components/ask-coach-pill";
 import { reportAskScroll, resetAskScroll } from "./ask-pill";
 
 let view: ReactTestRenderer | undefined;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; f.push.mockClear(); f.keyboard = false; f.fontScale = 1; resetAskScroll(); });
 afterEach(() => { act(() => view?.unmount()); view = undefined; });
-const pillStyle = () => view!.root.findByType("Pressable" as never).props.style({ pressed: false });
+const pillStyle = () => view!.root.findByType("Pressable" as never).props.style;
 
 it("stays a full touch target when it collapses to a circle while scrolling", () => {
   act(() => { view = create(createElement(AskCoachPill, { bottom: 102 })); });

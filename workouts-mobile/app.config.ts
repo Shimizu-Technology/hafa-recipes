@@ -1,8 +1,8 @@
 import type { ExpoConfig } from "expo/config";
 
-// Brand backgrounds; lib/theme.test.ts asserts these equal constants/theme.ts (config can't import TS modules).
-const cream = "#FFFFFF";
-const night = "#000000";
+// Splash backgrounds; lib/theme.test.ts asserts these equal constants/theme.ts (config can't import TS modules).
+const cream = "#FFF7EC";
+const night = "#0B0B0C";
 
 // Independent Workouts identities. Provisioning values must never fall back to Recipes.
 const projectId = "c520b94d-aac7-49a2-be2b-838a6b992001";
@@ -24,7 +24,7 @@ const config: ExpoConfig = {
     infoPlist: { ITSAppUsesNonExemptEncryption: false },
     icon: { light: "./assets/icon.png", dark: "./assets/icon-dark.png", tinted: "./assets/icon-tinted.png" },
   },
-  android: { package: "com.shimizutechnology.hafaworkouts", predictiveBackGestureEnabled: true, adaptiveIcon: { foregroundImage: "./assets/adaptive-foreground.png", monochromeImage: "./assets/adaptive-monochrome.png", backgroundColor: cream } },
+  android: { package: "com.shimizutechnology.hafaworkouts", predictiveBackGestureEnabled: true, adaptiveIcon: { foregroundImage: "./assets/adaptive-foreground.png", monochromeImage: "./assets/adaptive-monochrome.png", backgroundColor: "#FFFFFF" } },
   web: { bundler: "metro", output: "single" },
   plugins: [
     "expo-router",

@@ -6,7 +6,7 @@ import { Image } from "expo-image";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
-import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
+import { radii, touch, typography, fonts, type ColorTokens } from "@/constants/theme";
 import { segmentLabelScale } from "@/lib/segment-scale";
 import { Copy, haptics, useGroupedPage, useColors, useSurface, type Surface } from "./foundation";
 import { animatedPressableComponent, usePressScale } from "./press";
@@ -76,7 +76,10 @@ export function Button({
   const c = useColors();
   const surface = useSurface();
   const kind = variant ?? (secondary ? "secondary" : "primary");
-  const colors = buttonColors(c, kind, surface);
+  // Coral is reserved for starting or resuming a workout; those buttons carry the play icon. A setup call to
+  // action such as "Start saving workouts" stays ink.
+  const start = icon === "play";
+  const colors = start && kind === "primary" ? { bg: c.accent, fg: c.onAccent, border: undefined } : buttonColors(c, kind, surface);
   const { bg, fg, border } = disabled || busy
     ? { bg: c.sunken, fg: c.text, border: c.border } : colors;
   const inactive = disabled || busy;
@@ -102,7 +105,7 @@ export function Button({
         minHeight: heights[size],
         paddingVertical: textLink ? 0 : size === "sm" ? 8 : 12,
         paddingHorizontal: textLink ? 0 : size === "sm" ? 16 : 22,
-        borderRadius: radii.full,
+        borderRadius: radii.md,
         backgroundColor: bg,
         borderWidth: border ? 1 : 0,
         borderColor: border,
@@ -278,8 +281,8 @@ export function Chip({
   const surface = useSurface();
   const press = usePressScale(disabled);
   const onHero = surface === "hero";
-  const bg = selected ? (onHero ? c.onHero : c.accent) : tone === "accent" ? c.accentTint : c.sunken;
-  const fg = selected ? (onHero ? c.hero : c.onAccent) : tone === "accent" ? c.accentText : c.text;
+  const bg = selected ? (onHero ? c.onHero : c.text) : tone === "accent" ? c.accentTint : c.sunken;
+  const fg = selected ? (onHero ? c.hero : c.background) : tone === "accent" ? c.accentText : c.text;
   const body = (
     <>
       {selected && onPress && role !== "button" ? (
@@ -387,11 +390,11 @@ export function FilterButton({ count, onPress, label = "Filter" }: { count: numb
       onPressIn={press.onPressIn} onPressOut={press.onPressOut}
       style={{ width: touch.min, height: touch.min, marginHorizontal: -2, alignItems: "center", justifyContent: "center",
         opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-      <View style={{ width: 40, height: 40, borderRadius: radii.full, backgroundColor: count ? c.accentTint : c.sunken, alignItems: "center", justifyContent: "center" }}>
+      <View style={{ width: 40, height: 40, borderRadius: radii.full, backgroundColor: c.sunken, alignItems: "center", justifyContent: "center" }}>
         <Ionicons name="options-outline" size={20} color={count ? c.accentText : c.text} />
         {!!count && <View style={{ position: "absolute", top: -3, right: -3, minWidth: 18, minHeight: 18, borderRadius: 9, paddingHorizontal: 4,
-          backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
-          <Copy style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.onAccent }}>{count}</Copy>
+          backgroundColor: c.text, alignItems: "center", justifyContent: "center" }}>
+          <Copy style={{ fontSize: 11, lineHeight: 13, fontWeight: "700", color: c.background }}>{count}</Copy>
         </View>}
       </View>
     </AnimatedPressable>
@@ -438,7 +441,7 @@ export function Segmented<T extends string>({
           style={{ position: "absolute", left: 0, top: 0, width: 1500, flexDirection: "row", opacity: 0 }}>
           {options.map(option => <Text key={`${option.value}:${fontScale}`} numberOfLines={1} allowFontScaling={false}
             onLayout={event => { const width = Math.ceil(event.nativeEvent.layout.width); setNatural(known => known[option.value] === width ? known : { ...known, [option.value]: width }); }}
-            style={{ fontFamily: typography.cardTitle.fontFamily, fontWeight: typography.cardTitle.fontWeight,
+            style={{ fontFamily: typography.cardTitle.fontFamily, fontWeight: typography.cardTitle.fontWeight, textTransform: "uppercase", letterSpacing: 0.25,
               fontSize: typography.cardTitle.fontSize * fontScale, lineHeight: typography.cardTitle.lineHeight * fontScale }}>{option.label}</Text>)}
         </View>
       </View>
@@ -477,7 +480,7 @@ export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
       <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
         accessibilityLabel={label} accessibilityRole="search" returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         clearButtonMode="never" onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
-        style={{ flex: 1, minHeight: height, fontSize: 17, color: c.text, paddingVertical: 0 }} />
+        style={{ flex: 1, minHeight: height, fontFamily: fonts.regular, lineHeight: 22, fontSize: 17, color: c.text, paddingVertical: 0 }} />
       {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8} onPress={() => onChange("")}
         style={{ width: 36, height: height, alignItems: "center", justifyContent: "center" }}>
         <Ionicons name="close-circle" size={18} color={c.muted} />

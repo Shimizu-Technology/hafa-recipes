@@ -1,3 +1,6 @@
+import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
+import { fonts } from "@/constants/theme";
 import { RemindersProvider } from "@/components/reminders-provider";
 import { router } from "expo-router";
 import { pendingShare } from "@/lib/sharing";
@@ -21,6 +24,8 @@ import { SignupGate } from "@/components/signup-gate";
 import { AccountIdentityProvider } from "@/components/account-identity";
 import { logoutRecovery } from "@/lib/logout-recovery-native";
 import { logoutBinding, clearLogoutQueries } from "@/lib/logout-recovery";
+
+void SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = { anchor: "(tabs)" };
 
@@ -83,7 +88,7 @@ function Routes() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
-        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text },
+        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: false, headerTintColor: c.text, headerTitleStyle: { color: c.text, fontFamily: fonts.semibold },
           // The centre tab opens this sheet; its header matches the grouped page in light and dark.
           headerStyle: { backgroundColor: c.groupedBackground }, headerShadowVisible: false, contentStyle: { backgroundColor: c.groupedBackground },
           headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /> }} />
@@ -140,6 +145,13 @@ function Routes() {
   );
 }
 export default function Root() {
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular: require("@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf"),
+    Inter_600SemiBold: require("@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf"),
+    Inter_700Bold: require("@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf"),
+    BarlowCondensed_700Bold: require("@expo-google-fonts/barlow-condensed/700Bold/BarlowCondensed_700Bold.ttf"),
+  });
+  useEffect(() => { if (fontsLoaded || fontError) void SplashScreen.hideAsync(); }, [fontsLoaded, fontError]);
   const c = useColors();
   const [cleanupReady, setCleanupReady] = useState(false);
   const [cleanupError, setCleanupError] = useState("");
@@ -166,6 +178,7 @@ export default function Root() {
     configuration.clerkEnvironment,
     configuration.environment
   );
+  if (!fontsLoaded && !fontError) return null;
   return (
     <SafeAreaProvider>
       <ToastProvider>
