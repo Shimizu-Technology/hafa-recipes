@@ -23,6 +23,22 @@ export function LibraryToday({ recipe, onPress }: { recipe: RecipeListItem; onPr
   const a11y = `Latest recipe, ${recipe.title}${meta ? `, ${meta}` : ''}`;
   const large = fontScale >= 1.3;
 
+  if (look.variants.home === 'feature' && large) {
+    // Large text: the title can't fit over the photo, so it moves below it inside the same card.
+    return <FadeUp index={0} enabled style={styles.block}>
+      <LookPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} testID="library-today"
+        style={[{ borderRadius: look.radii.card, backgroundColor: colors.backgroundElevated }, look.shadows.float]}>
+        <View style={[styles.featureClip, { borderRadius: look.radii.card }]}>
+          <RecipeThumbnail uri={recipe.thumbnail_url} style={styles.leadPhoto} accessible={false} placeholderTitle={recipe.title} priority="high" />
+          <View style={styles.featureBelow}>
+            <Text style={[styles.leadMeta, { color: colors.textSecondary, marginTop: 0 }]}>Latest save{meta ? ` · ${meta}` : ''}</Text>
+            <Text numberOfLines={6} style={[styles.featureTitle, { color: colors.text, fontFamily: look.fonts?.display }]}>{recipe.title}</Text>
+          </View>
+        </View>
+      </LookPressable>
+    </FadeUp>;
+  }
+
   if (look.variants.home === 'feature') {
     return <FadeUp index={0} enabled style={styles.block}>
       <LookPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} testID="library-today"
@@ -55,12 +71,12 @@ export function LibraryToday({ recipe, onPress }: { recipe: RecipeListItem; onPr
 
   return <FadeUp index={0} enabled style={styles.block}>
     <LookPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} testID="library-today"
-      style={[styles.row, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline, borderRadius: look.radii.card }]}>
+      style={[styles.row, large && { alignItems: 'flex-start' }, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline, borderRadius: look.radii.card }]}>
       <RecipeThumbnail uri={recipe.thumbnail_url} style={[styles.rowPhoto, { borderRadius: look.radii.photo }]} accessible={false} placeholderIconSize={22} />
       <View style={styles.rowCopy}>
         <Text style={[styles.rowLabel, { color: colors.textSecondary }]}>Latest</Text>
-        <Text numberOfLines={2} style={[styles.rowTitle, { color: colors.text }]}>{recipe.title}</Text>
-        {meta ? <Text numberOfLines={1} style={[styles.rowLabel, { color: colors.textSecondary }]}>{meta}</Text> : null}
+        <Text numberOfLines={large ? 5 : 2} style={[styles.rowTitle, { color: colors.text }]}>{recipe.title}</Text>
+        {meta ? <Text numberOfLines={large ? 3 : 1} style={[styles.rowLabel, { color: colors.textSecondary }]}>{meta}</Text> : null}
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
     </LookPressable>
@@ -78,6 +94,7 @@ const styles = StyleSheet.create({
   sunDot: { width: 8, height: 8, borderRadius: 4 },
   featureMeta: { fontSize: 13, lineHeight: 18, fontWeight: '600', opacity: 0.9 },
   featureTitle: { fontSize: 26, lineHeight: 31 },
+  featureBelow: { padding: 16, gap: 4 },
   leadPhoto: { width: '100%', aspectRatio: 16 / 9 },
   leadMeta: { fontSize: 13, lineHeight: 18, marginTop: 12 },
   leadTitle: { fontSize: 24, lineHeight: 29, marginTop: 4 },

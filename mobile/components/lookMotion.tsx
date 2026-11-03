@@ -103,3 +103,21 @@ export function LookEnterItem({ index, stagger, duration, offset, children, styl
     transform: [{ translateY: reduceMotion || !offset ? 0 : progress.interpolate({ inputRange: [0, 1], outputRange: [offset, 0] }) }],
   }]}>{children}</Animated.View>;
 }
+
+/** Island's save moment: after the server confirms, the mark springs from 0.86 to 1 (bounce about 0.3). Reduce Motion: no scale. */
+export function SavePop({ enabled, trigger, children }: { enabled: boolean; trigger: number; children: ReactNode }) {
+  // Other looks (and Current) render the mark unchanged.
+  if (!enabled) return <>{children}</>;
+  return <SavePopPlaying trigger={trigger}>{children}</SavePopPlaying>;
+}
+
+function SavePopPlaying({ trigger, children }: { trigger: number; children: ReactNode }) {
+  const reduceMotion = useReduceMotion();
+  const scale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!trigger || reduceMotion) return;
+    scale.setValue(0.86);
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...springFor(450, 0.7) }).start();
+  }, [trigger, reduceMotion, scale]);
+  return <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>;
+}

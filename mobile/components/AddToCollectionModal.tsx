@@ -30,6 +30,8 @@ import {
 } from '@/hooks/useCollections';
 import { Collection } from '@/types/recipe';
 import { haptics } from '@/utils/haptics';
+import { SavePop } from '@/components/lookMotion';
+import { useLook } from '@/contexts/LookContext';
 import { SlideUpView, ScalePressable } from '@/components/Animated';
 
 interface AddToCollectionModalProps {
@@ -49,6 +51,9 @@ export default function AddToCollectionModal({
 
   // Selected collections (local state for optimistic UI)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Island preview look: the confirmed add pops once with a success haptic.
+  const savePop = useLook().motion.signature === 'card-stagger-save-pop';
+  const [popped, setPopped] = useState<{ id: string; count: number } | null>(null);
   const [showCreateNew, setShowCreateNew] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [justCreated, setJustCreated] = useState(false); // For success feedback
@@ -131,6 +136,10 @@ export default function AddToCollectionModal({
 
     try {
       await (isCurrentlySelected ? removeFromCollection : addToCollection).mutateAsync({ collectionId, recipeId, requestGuard });
+      if (savePop && !isCurrentlySelected && alive.current && scope.current === captured) {
+        haptics.success();
+        setPopped(previous => ({ id: collectionId, count: (previous?.count ?? 0) + 1 }));
+      }
     } catch {
       if (alive.current && scope.current === captured) {
         setSelectedIds((current) => {
@@ -314,6 +323,7 @@ export default function AddToCollectionModal({
                                 </Text>
                               </RNView>
                             </RNView>
+                            <SavePop enabled={savePop} trigger={popped?.id === collection.id ? popped.count : 0}>
                             <RNView style={[
                               styles.checkbox,
                               {
@@ -325,6 +335,7 @@ export default function AddToCollectionModal({
                                 <Ionicons name="checkmark" size={16} color={colors.onTint} />
                               )}
                             </RNView>
+                            </SavePop>
                           </TouchableOpacity>
                         );
                       })}
