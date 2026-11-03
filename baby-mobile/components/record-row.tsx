@@ -3,7 +3,8 @@ import type { BabyRecord, Kind } from "@/lib/models";
 import { kindName } from "@/lib/models";
 import { careSummary, friendlyTime, isCare } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
-import { Row, type IconName } from "./ui";
+import { Text, View } from "react-native";
+import { Row, fonts, useColors, type IconName } from "./ui";
 import { SavedPostRow } from "./saved-post-row";
 export const kindIcon: Record<Kind, IconName> = {
   source: "bookmark-outline",
@@ -15,6 +16,18 @@ export const kindIcon: Record<Kind, IconName> = {
   question: "chatbubble-ellipses-outline",
   collection: "folder-outline",
 };
+/** Journal entries and doctor questions lead with their date, not the same glyph on every row. Decorative: the row says the time. */
+export function DateBlock({ iso }: { iso: string }) {
+  const c = useColors(), date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return <View accessible={false} importantForAccessibility="no-hide-descendants"
+    style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
+    <Text allowFontScaling={false} style={{ fontFamily: fonts.bold, fontSize: 10, lineHeight: 12, letterSpacing: 0.6, color: c.placeholderInk }}>
+      {date.toLocaleDateString("en-US", { month: "short" }).toUpperCase()}
+    </Text>
+    <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: 20, lineHeight: 24, color: c.text, fontVariant: ["tabular-nums"] }}>{date.getDate()}</Text>
+  </View>;
+}
 /** `now` lets a screen share one clock between rows and its summary so durations agree. */
 export function RecordRow({ record, pending = false, now }: { record: BabyRecord; pending?: boolean; now?: Date }) {
   const children = useBaby().state.bootstrap?.children ?? [],
@@ -37,6 +50,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
       numericTitle={care}
       numericDetail
       icon={kindIcon[record.kind]}
+      leading={record.kind === "journal" || record.kind === "question" ? <DateBlock iso={record.occurred_at} /> : undefined}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     />
   );

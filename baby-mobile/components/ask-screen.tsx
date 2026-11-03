@@ -6,8 +6,35 @@ import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
+/** Questions she might ask before the birth, matched to what Kami saves (hospital bag, labour prep, the weeks ahead). */
+const suggestions = [
+  "Which of my saved videos mention the hospital bag?",
+  "What did I save for the weeks ahead?",
+  "Help me prepare questions from my recent notes.",
+];
+
+/**
+ * Why Ask can't send yet, as one compact line above the question box. Consent still gates sending: the composer
+ * stays read-only and Send disabled until AI processing is allowed in Settings.
+ */
+export function AiNotice({ service, consent }: { service: boolean; consent: boolean }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <View accessibilityRole="summary" style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "flex-start" : "center",
+    gap: 10, paddingVertical: 10, paddingLeft: 14, paddingRight: consent ? 14 : 6, borderRadius: radii.notice, backgroundColor: c.tile }}>
+    <Icon name={service ? "lock-closed-outline" : "cloud-offline-outline"} size={18} color={c.accentText} />
+    <View style={{ flex: fontScale >= 1.5 ? undefined : 1 }}>
+      <Copy kind="small" tone="muted">{service
+        ? "AI is off. Ask uses your Baby entries only, never Recipes or Workouts."
+        : "AI isn’t available on this service yet. Saved, Journal and care logs still work."}</Copy>
+    </View>
+    {!consent && <PressTarget accessibilityRole="button" accessibilityLabel="Review AI permission" onPress={() => router.push("/settings")}
+      style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.accentText }}>Review</Text>
+    </PressTarget>}
+  </View>;
+}
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
@@ -34,14 +61,16 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
       subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       action={back ? fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderAction title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : undefined}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
-      footer={
+      footer={<View style={{ gap: 10 }}>
+        {!available && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}
             accessibilityLabel={focused ? "Ask about this source or entry" : "Your question"}
             value={question}
             onChangeText={chat.setQuestion}
-            placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…" : "Turn on AI in Settings to ask"}
+            placeholder={available ? fontScale >= 1.5 ? "Question" : "Ask about your saved entries…"
+              : !b.state.bootstrap!.ai_available ? "Ask isn’t available yet" : "Turn on AI in Settings to ask"}
             placeholderTextColor={c.muted}
             editable={available && !busy && !chat.resolving}
             multiline
@@ -65,22 +94,9 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             {busy ? <ActivityIndicator color={c.onAction} /> : <Icon name={error && chat.requestId ? "refresh" : "arrow-up"} color={c.onAction} size={24} />}
           </PressTarget>
         </View>
-      }
+      </View>}
     >
       {!back && <Stack.Screen options={headerActions(<TabActions action={fontScale >= 1.5 ? <HeaderIconButton icon={showHistory ? "close" : "time-outline"} label={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} /> : <HeaderPill title={showHistory ? "Done" : "History"} disabled={chat.resolving} onPress={() => void openHistory()} />} />)} />}
-      {!available && (
-        <Card tone="soft">
-          <Copy kind="heading">AI is optional.</Copy>
-          <Copy tone="muted">
-            Questions may use your selected saved sources and personal records. Permission can be changed at any time.
-            Your Recipes and Workouts information is not included.
-          </Copy>
-          <Button secondary title="Review AI permission" onPress={() => router.push("/settings")} />
-          {!b.state.bootstrap!.ai_available && (
-            <Notice>AI is not available on this service yet. Your library, journal, and care logs still work.</Notice>
-          )}
-        </Card>
-      )}
       {!focused && (
         <FilterChips
           value={chat.context.scope}
@@ -126,16 +142,24 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
           )}
         </Section>
       )}
-      {!showHistory && !messages.length && available && (
-        <Empty
-          icon="sparkles-outline"
-          title="Start with something on your mind."
-          body={
-            focused
+      {!showHistory && !messages.length && (
+        <View style={{ gap: 12 }}>
+          <Copy kind="heading">{focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
+          <Copy tone="muted">
+            {focused
               ? "Ask for a summary, find a detail, or draft a checklist from this source. You will review any proposed changes."
-              : "“Which of my saved videos mentions hospital bags?” or “Help me prepare questions from my recent notes.”"
-          }
-        />
+              : "Ask across your saved posts, journal and care logs. Try one of these:"}
+          </Copy>
+          {!focused && <Grouped separatorInset={16}>{suggestions.map((text) => (
+            <PressTarget key={text} accessibilityRole="button" accessibilityLabel={`Use question: ${text}`}
+              accessibilityHint={available ? "Puts it in the question box" : "Puts it in the question box. Sending needs AI permission."}
+              onPress={() => chat.setQuestion(text)}
+              style={{ minHeight: 52, paddingHorizontal: 16, paddingVertical: 14, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface }}>
+              <View style={{ flex: 1 }}><Copy>{text}</Copy></View>
+              <Icon name="arrow-up-circle-outline" size={20} color={c.accentText} />
+            </PressTarget>
+          ))}</Grouped>}
+        </View>
       )}
       {!showHistory && messages.map((m, index) =>
         m.role === "user" ? (

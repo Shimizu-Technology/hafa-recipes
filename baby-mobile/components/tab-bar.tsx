@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, Keyboard, Platform, StyleSheet, Text, View } from "react-native";
+import { Animated, Keyboard, Platform, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
 import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday } from "@/lib/timing";
 import { reportTabBarHeight } from "@/lib/bottom-overlay";
 import { Icon, PressTarget, fonts, tap, useColors, type IconName } from "./ui";
+import { useReducedMotion } from "./motion";
 
 /** Bar content height above the home indicator; the same in all three Håfa apps. */
 export const TAB_BAR_HEIGHT = 56;
@@ -29,18 +30,6 @@ function useKeyboardShown() {
     return () => { show.remove(); hide.remove(); };
   }, []);
   return shown;
-}
-
-/** Reduce Motion, kept current while the bar is mounted. */
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((value) => { if (active) setReduced(value); }).catch(() => undefined);
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduced);
-    return () => { active = false; subscription.remove(); };
-  }, []);
-  return reduced;
 }
 
 /** Slot order in the bar: Today, Saved, [Add], Journal, Ask. */

@@ -14,6 +14,7 @@ import { ChildFilter } from "@/components/child-filter";
 import { CategoryPicker } from "@/components/category-picker";
 import { ImportUpdates } from "@/components/import-updates";
 import { HeaderSearch } from "@/components/header-search";
+import { Swell } from "@/components/motion";
 import { HeaderPill, TabActions, headerActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
 import { SuggestionLine } from "@/components/tips";
@@ -115,11 +116,11 @@ export default function Library() {
   return <Screen title="Saved"
     onRefresh={() => { history.refresh(); categories.refresh(); }}
     footer={selecting ? <Button title={`Choose category · ${selected.length} selected`} disabled={!selected.length}
-      onPress={() => setOrganizing(true)} /> : lastChange ? <Card tone="soft">
+      onPress={() => setOrganizing(true)} /> : lastChange ? <Swell key={`${lastChange.record.id}:${lastChange.added.join(",")}`}><Card tone="soft">
       <Copy lines={2}>Saved to {lastChange.record.title}.</Copy>
       {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
       <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
-    </Card> : undefined}>
+    </Card></Swell> : undefined}>
     <Stack.Screen options={headerActions(<TabActions action={<HeaderPill title={selecting ? "Cancel" : "Select"}
       disabled={listingCategories || !history.rows.length} onPress={() => { setSelecting(!selecting); setSelected([]); }} />} />)} />
     <HeaderSearch value={q} onChange={setQ} placeholder="Search saved posts" />

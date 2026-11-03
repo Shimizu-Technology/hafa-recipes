@@ -6,33 +6,80 @@ import { useBaby } from "@/lib/context";
 import { pendingSuggestion } from "@/lib/suggestions";
 import { sourceTitle } from "@/lib/source-title";
 import { dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing";
-import { Card, Copy, Grouped, Icon, PressTarget, Section, fonts, typeScale, useColors } from "./ui";
-import { SavedPostRow } from "./saved-post-row";
+import { Image } from "expo-image";
+import { Copy, Grouped, Icon, PressTarget, Section, fonts, radii, typeScale, useColors } from "./ui";
+import { Monogram, SavedPostRow, safeThumbnail } from "./saved-post-row";
+import { FadeUp } from "./motion";
 
+const weekStyle = { fontFamily: fonts.display, fontSize: 52, lineHeight: 58, fontVariant: ["tabular-nums" as const] };
 const dayStyle = { fontFamily: fonts.displayItalic, fontSize: 22, lineHeight: 28 };
-/** "Week 34 · Day 3" in SF Rounded with the due date beneath. */
-export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
-  const c = useColors(), { fontScale, width } = useWindowDimensions(),
-    progress = pregnancyProgress(child.due_date!, now)!, due = dueLine(child.due_date!, now);
-  // "Week 34 · Day 5" stays on one line when it fits. When the numeral grows too wide, "Day 5" moves to its own
-  // line and the dot goes with it, instead of leaving a line that starts with "·". Decided per text size and width.
+const TOTAL_WEEKS = 40;
+
+/** A saved tip as a compact row inside the hero: photo (or monogram on the card colour), title and topic. */
+function MiniTip({ row, topic }: { row: BabyRecord; topic: string }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), title = sourceTitle(row), stacked = fontScale >= 2,
+    thumbnail = safeThumbnail(row), [broken, setBroken] = useState(false);
+  return <PressTarget accessibilityRole="button" accessibilityLabel={[title, topic].filter(Boolean).join(". ")}
+    onPress={() => router.push({ pathname: "/record/[id]", params: { id: row.id } })}
+    style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: 12, minHeight: 56, paddingVertical: 6 }}>
+    <View style={{ width: 48, height: 48, borderRadius: radii.thumb, overflow: "hidden" }}>
+      {/* On the blush hero the monogram sits on the card colour so it never melts into the hero. */}
+      <Monogram title={title} size={48} fill={c.surface} />
+      {thumbnail && !broken && <Image source={{ uri: thumbnail }} style={{ position: "absolute", width: 48, height: 48 }} contentFit="cover"
+        cachePolicy="memory" transition={150} onError={() => setBroken(true)} />}
+    </View>
+    <View style={{ flex: stacked ? undefined : 1, minWidth: 0, gap: 2 }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} numberOfLines={fontScale >= 1.3 ? undefined : 2}
+        style={{ fontFamily: fonts.semibold, fontSize: 16, lineHeight: 21, color: c.text }}>{title}</Text>
+      {!!topic && <Copy kind="small" tone="muted" lines={fontScale >= 1.3 ? undefined : 1}>{topic}</Copy>}
+    </View>
+    {!stacked && <Icon name="chevron-forward" size={16} color={c.muted} />}
+  </PressTarget>;
+}
+
+/**
+ * Today's moment before the birth: one blush card with "Week 34 Day 5" in Newsreader, a soft 34-of-40 bar, the due
+ * date, and the tips she saved for this week, so "find what's relevant now" is the first thing she sees.
+ */
+export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Date; tips?: BabyRecord[] }) {
+  const c = useColors(), { fontScale, width } = useWindowDimensions(), collections = useBaby().records.filter((row) => row.kind === "collection"),
+    progress = pregnancyProgress(child.due_date!, now)!, due = dueLine(child.due_date!, now),
+    fraction = Math.min(1, (progress.week + progress.day / 7) / TOTAL_WEEKS);
+  // "Week 34 Day 5" stays on one line when it fits. When the numeral grows too wide, "Day 5" moves to its own
+  // line instead of wrapping mid-phrase. Decided per text size and width.
   const layout = `${fontScale}:${width}`;
   const [stackedFor, setStackedFor] = useState<string | null>(null);
   const stacked = stackedFor === layout;
-  return <Card tone="hero" style={{ gap: 4 }}>
-    <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}`} style={{ gap: 4 }}>
-      <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Your pregnancy</Text>
-      {/* The 44pt Newsreader numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
-      {stacked ? <View style={{ gap: 2 }}>
-        <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, fontFamily: fonts.display, color: c.text }}>Week {progress.week}</Text>
-        <Text key={`day:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...dayStyle, color: c.muted }}>Day {progress.day}</Text>
-      </View> : <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, fontFamily: fonts.display, color: c.text }}
-        onTextLayout={(event) => { if (event.nativeEvent.lines.length > 1) setStackedFor(layout); }}>
-        Week {progress.week}<Text style={{ ...dayStyle, color: c.muted }}>{" ·\u00a0Day\u00a0"}{progress.day}</Text>
-      </Text>}
-      <Copy numeric kind="small" tone="muted">{due}</Copy>
+  return <FadeUp>
+    <View style={{ backgroundColor: c.hero, borderRadius: radii.hero, padding: 22, gap: 16 }}>
+      <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}. ${progress.week} of ${TOTAL_WEEKS} weeks.`} style={{ gap: 12 }}>
+        {/* The 52pt numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
+        {stacked ? <View style={{ gap: 2 }}>
+          <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...weekStyle, color: c.text }}>Week {progress.week}</Text>
+          <Text key={`day:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...dayStyle, color: c.muted }}>Day {progress.day}</Text>
+        </View> : <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...weekStyle, color: c.text }}
+          onTextLayout={(event) => { if (event.nativeEvent.lines.length > 1) setStackedFor(layout); }}>
+          Week {progress.week}<Text style={{ ...dayStyle, color: c.muted }}>{"\u00a0\u00a0Day\u00a0"}{progress.day}</Text>
+        </Text>}
+        <View style={{ height: 8, borderRadius: 4, backgroundColor: c.progressTrack, overflow: "hidden" }}>
+          <View style={{ width: `${fraction * 100}%`, height: 8, borderRadius: 4, backgroundColor: c.progressFill }} />
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", columnGap: 12, rowGap: 2 }}>
+          <Text key={`due:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.medium, color: c.text, fontVariant: ["tabular-nums"] }}>{due}</Text>
+          <Copy numeric kind="small" tone="muted">{`${progress.week} of ${TOTAL_WEEKS} weeks`}</Copy>
+        </View>
+      </View>
+      <View style={{ height: 1, backgroundColor: c.border }} />
+      <View style={{ gap: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <View style={{ flex: 1 }}><Copy kind="heading" numeric>{`Saved for week ${progress.week}`}</Copy></View>
+          {tips.length > 0 && <SeeAll view="now" title={`Saved for week ${progress.week}`} />}
+        </View>
+        {tips.length ? tips.slice(0, 3).map((row) => <MiniTip key={row.id} row={row} topic={tipTopic(row, collections)} />)
+          : <Copy kind="small" tone="muted">Tips you save for this point in your pregnancy show up here.</Copy>}
+      </View>
     </View>
-  </Card>;
+  </FadeUp>;
 }
 
 function SeeAll({ view, title }: { view: string; title: string }) {

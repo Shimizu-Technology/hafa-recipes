@@ -220,8 +220,10 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   scope.care = [optimisticRecord({ id: "another-baby-feed", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: start.toISOString(), data: { method: "breast" } })];
   await render();
   expect(find("StackScreen", () => true)[0].props.options.title).toBe("Mia");
+  // This week's saved tips live inside the hero; "Coming up" follows it.
   expect(find("PregnancyHero", () => true)).toHaveLength(1);
-  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["For now", "Coming up"]);
+  expect(find("PregnancyHero", () => true)[0].props.tips).toBeDefined();
+  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["Coming up"]);
   expect(find("Pressable", p => p.accessibilityLabel === "Feed")).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0);
   for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(1);
@@ -285,7 +287,7 @@ it("keeps the pregnancy layout with a sibling's running feed timer on top", asyn
   expect(find("View", p => String(p.accessibilityLabel).startsWith("Feeding Ana."))).toHaveLength(1);
   expect(find("Button", p => p.title === "Stop")).toHaveLength(1);
   expect(find("PregnancyHero", () => true)).toHaveLength(1);
-  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["For now", "Coming up"]);
+  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["Coming up"]);
   account.state = { ...account.state, selectedChild: "ana" };
   await render();
   expect(find("PregnancyHero", () => true)).toHaveLength(0);

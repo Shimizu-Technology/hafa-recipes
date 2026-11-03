@@ -44,7 +44,7 @@ import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
 import { AccountButton, HeaderIconButton, HeaderPill, TabStack, headerActions, initials } from "../components/tab-stack";
-import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, FilterChips } from "../components/ui";
+import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, FilterChips, Card, Field } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
 let renderer: ReactTestRenderer | undefined;
 async function mount(element: React.ReactElement) {
@@ -298,21 +298,29 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "feed" } });
 });
 
-it("uses native header search and clears its query from app actions without resetting typed text", async () => {
-  const onChange = vi.fn(), setText = vi.fn();
+it("draws its own Soft search field instead of UIKit's grey one, and clears it from the field", async () => {
+  const onChange = vi.fn();
   await mount(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>);
-  expect(renderer!.root.findAllByType("TextInput" as React.ElementType)).toHaveLength(0);
-  const search = mock.options.at(-1).headerSearchBarOptions;
-  expect(search.hideWhenScrolling).toBe(false);
-  search.ref.current = { setText };
-  await act(async () => search.onChangeText({ nativeEvent: { text: "hospital bag" } }));
+  expect(mock.options.some(options => options?.headerSearchBarOptions)).toBe(false);
+  const input = () => renderer!.root.findByType("TextInput" as React.ElementType);
+  expect(input().props).toMatchObject({ accessibilityLabel: "Search saved posts", returnKeyType: "search", maxFontSizeMultiplier: 0 });
+  expect(input().props.style).toMatchObject({ fontFamily: "DMSans_400Regular", color: "#5A4740" });
+  const field = renderer!.root.findAllByType("View" as React.ElementType)[1].props.style;
+  expect(field).toMatchObject({ minHeight: 48, backgroundColor: "#FFFFFF", borderRadius: 16 });
+  expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Clear search")).toHaveLength(0);
+  await act(async () => input().props.onChangeText("hospital bag"));
   expect(onChange).toHaveBeenLastCalledWith("hospital bag");
   await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="hospital bag" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
-  expect(setText).not.toHaveBeenCalled();
-  await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
-  expect(setText).toHaveBeenLastCalledWith("");
-  await act(async () => search.onCancelButtonPress());
+  await act(async () => renderer!.root.findByProps({ accessibilityLabel: "Clear search" }).props.onPress());
   expect(onChange).toHaveBeenLastCalledWith("");
+  // While typing, Cancel clears and closes the keyboard, like UIKit's search bar.
+  expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Cancel search")).toHaveLength(0);
+  await act(async () => input().props.onFocus());
+  onChange.mockClear();
+  await act(async () => renderer!.root.findAll(n => n.props.accessibilityLabel === "Cancel search")[0].props.onPress());
+  expect(onChange).toHaveBeenLastCalledWith("");
+  await act(async () => input().props.onBlur());
+  expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Cancel search")).toHaveLength(0);
 });
 
 it.each(["back", "close"])("keeps a cold-linked native %s screen escapable without navigation history", async action => {
@@ -388,4 +396,19 @@ it("remeasures an uncapped header pill after a live text size change", async () 
   expect(large).not.toBe(original);
   expect(large.props.maxFontSizeMultiplier).toBe(0);
   expect(large.parent!.props.style.minHeight).toBe(36);
+});
+
+it.each(["light", "dark"])("keeps fields and nested cards visible inside a card in %s", async scheme => {
+  mock.scheme = scheme;
+  const ground = scheme === "light" ? "#F8F3EE" : "#14110F", surface = scheme === "light" ? "#FFFFFF" : "#221B18";
+  await mount(<><Field label="Loose" value="" onChange={() => {}} />
+    <Card><Field label="In a card" value="Ari" onChange={() => {}} /><Card><Copy>Nested</Copy></Card></Card></>);
+  const inputs = renderer!.root.findAllByType("TextInput" as React.ElementType).map(input => input.props.style);
+  expect(inputs[0]).toMatchObject({ backgroundColor: surface });
+  expect(inputs[0].borderWidth).toBeUndefined();
+  // On a white (warm-dark) card a field takes the page ground and a hairline instead of vanishing into it.
+  expect(inputs[1]).toMatchObject({ backgroundColor: ground, borderWidth: 1 });
+  const cards = renderer!.root.findAll(n => String(n.type) === "View" && Array.isArray(n.props.style) && n.props.style[0]?.padding === 22)
+    .map(card => card.props.style[0].backgroundColor);
+  expect(cards).toEqual([surface, ground]);
 });

@@ -40,6 +40,8 @@ vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/files", () => ({ exportVisit: mock.exportVisit }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
+vi.mock("@/components/motion", () => ({ Swell: ({ children }: { children: React.ReactNode }) => children, FadeUp: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("@/components/saved-post-row", () => ({ SourceHero: "SourceHero", SavedPostRow: "SavedPostRow" }));
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: {} }));
 vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
 vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
