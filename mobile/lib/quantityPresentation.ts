@@ -26,7 +26,10 @@ export function formatQuantity(quantity: string | null | undefined, unit?: strin
   if (integer > 0 && Math.abs(value - integer) <= 0.02 + 1e-9) return String(integer);
   const whole = Math.floor(value);
   const fraction = [...fractions].sort((a, b) => Math.abs(value - whole - a[0]) - Math.abs(value - whole - b[0]))[0];
-  if (Math.abs(value - whole - fraction[0]) <= 0.02 + 1e-9) return `${whole || ''}${fraction[1]}`;
+  const snapError = Math.abs(value - whole - fraction[0]);
+  const tolerance = /^(?:cups?|tsp|tbsp|teaspoons?|tablespoons?|fl oz|fluid ounces?|pints?|quarts?|gallons?)\.?$/i.test(unit?.trim() ?? '') ? 0.03 : 0.02;
+  // The relative limit keeps small amounts honest: 0.146 → ⅛ (14% off) but 0.1 stays 0.1 (⅛ would be 25% more).
+  if (snapError <= tolerance + 1e-9 && snapError <= value * 0.15 + 1e-9) return `${whole || ''}${fraction[1]}`;
   const decimal = Number(value > 0 && value < 0.1 ? value.toPrecision(2) : value.toFixed(value >= 10 ? 0 : 1));
   // A scaled 1.458 rounds to 1.5; show it as ½ so it matches an unscaled 1.5.
   if (decimal < 10 && Math.abs(decimal % 1 - 0.5) < 1e-9) return `${Math.floor(decimal) || ''}½`;
@@ -40,5 +43,24 @@ export function spokenQuantity(text: string): string {
 }
 
 export function formatIngredientAmount(quantity: string | null | undefined, unit?: string | null): string {
-  return [formatQuantity(quantity, unit), unit].filter(Boolean).join(' ');
+  return joinAmountAndUnit(formatQuantity(quantity, unit), unit);
+}
+
+/** Pairs an already formatted amount (e.g. from scaleQuantity) with its unit, singular up to one. */
+export function joinAmountAndUnit(amount: string | null | undefined, unit?: string | null): string {
+  return [amount, inflectUnit(amount, unit)].filter(Boolean).join(' ');
+}
+
+/** The unit to show beside a formatted amount: known cooking units are singular up to one. */
+export function inflectUnit(amount: string | null | undefined, unit?: string | null): string | null | undefined {
+  const value = amount == null ? null : parseQuantity(amount);
+  const knownUnit = unit?.trim().match(/^(cup|teaspoon|tablespoon|ounce|pound|pint|quart|gallon|clove|slice|piece)s?$/i);
+  return knownUnit && value !== null ? `${knownUnit[1]}${value <= 1 ? '' : 's'}` : unit;
+}
+
+export function formatGroceryReviewAmount(quantity: string | null | undefined, unit: string | null | undefined, name: string): string {
+  const amount = formatIngredientAmount(quantity, unit);
+  return formatQuantity(quantity, unit) == null
+    ? `Amount varies · ${name.trim()}`
+    : [amount, name.trim()].filter(Boolean).join(' ');
 }

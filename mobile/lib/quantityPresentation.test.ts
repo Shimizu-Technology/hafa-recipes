@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { formatIngredientAmount, formatQuantity, spokenQuantity } from './quantityPresentation';
+import { formatGroceryReviewAmount, formatIngredientAmount, formatQuantity, inflectUnit, joinAmountAndUnit, spokenQuantity } from './quantityPresentation';
+import { scaleQuantity } from '@/hooks/useScaledServings';
 
 describe('display-only cooking quantities', () => {
   it.each([
@@ -26,4 +27,34 @@ describe('display-only cooking quantities', () => {
     expect(formatIngredientAmount('1.5', 'tsp')).toBe('1½ tsp');
     expect(spokenQuantity('1½ tsp salt, ¼ cup oil')).toBe('1 and 1/2 tsp salt, 1/4 cup oil');
   });
+});
+
+it('snaps volume approximations and inflects known cooking units', () => {
+  expect(formatIngredientAmount('0.146', 'cups')).toBe('⅛ cup');
+  expect(formatIngredientAmount('0.875', 'cups')).toBe('⅞ cup');
+  expect(formatIngredientAmount('1', 'cups')).toBe('1 cup');
+  expect(formatIngredientAmount('1.5', 'cup')).toBe('1½ cups');
+  expect(formatIngredientAmount('0.146', 'g')).toBe('0.146 g');
+  expect(formatIngredientAmount('0.146', 'custom')).toBe('0.1 custom');
+  expect(formatGroceryReviewAmount(null, '', ' filling of choice ')).toBe('Amount varies · filling of choice');
+  expect(formatGroceryReviewAmount('1', 'cups', ' flour ')).toBe('1 cup flour');
+});
+
+it('keeps small amounts honest when a fraction would be far off', () => {
+  expect(formatIngredientAmount('0.1', 'cup')).toBe('0.1 cup');
+  expect(formatIngredientAmount('0.146', 'cup')).toBe('⅛ cup');
+});
+
+it('adds the unit to an already scaled amount without formatting it twice', () => {
+  const scaled = scaleQuantity('1.42', 1, 'cup');
+  expect(joinAmountAndUnit(scaled, 'cup')).toBe('1.4 cups');
+  expect(formatGroceryReviewAmount('1.42', 'cup', 'milk')).toBe('1.4 cups milk');
+  expect(joinAmountAndUnit('½', 'cups')).toBe('½ cup');
+});
+
+it('inflects the unit beside a separately styled amount', () => {
+  expect(inflectUnit('½', 'cups')).toBe('cup');
+  expect(inflectUnit('2', 'cup')).toBe('cups');
+  expect(inflectUnit('a pinch', 'cups')).toBe('cups');
+  expect(inflectUnit('1', 'g')).toBe('g');
 });

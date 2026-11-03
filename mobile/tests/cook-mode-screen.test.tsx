@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { __DEV__: boolean }).__DEV__ = false;
 
 const mocks = vi.hoisted(() => ({
+  fontScale: 1,
   params: { id: 'recipe-1' } as Record<string, string>,
   session: null as any,
   startSession: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock('react-native', async () => {
     },
     Linking: { openSettings: mocks.openSettings },
     Dimensions: { get: () => ({ width: 400, height: 800 }) },
-    useWindowDimensions: () => ({ width: 400, height: 800, fontScale: 1 }),
+    useWindowDimensions: () => ({ width: 400, height: 800, fontScale: mocks.fontScale }),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: host('Modal'),
     Platform: { OS: 'ios' },
@@ -177,6 +178,7 @@ vi.mock('@/contexts/TimerContext', () => {
 });
 vi.mock('@/components/CookIngredientsList', () => ({ CookIngredientsList: () => null }));
 
+import { TextScaleContext } from '@/components/Themed';
 import CookModeScreen from '../app/cook-mode/[id]';
 
 const RECIPE = {
@@ -228,10 +230,10 @@ async function flush() {
   });
 }
 
-async function renderScreen(): Promise<ReactTestRenderer> {
+async function renderScreen(textScale = 1): Promise<ReactTestRenderer> {
   let renderer: ReactTestRenderer;
   await act(async () => {
-    renderer = create(<CookModeScreen />);
+    renderer = create(textScale === 1 ? <CookModeScreen /> : <TextScaleContext.Provider value={textScale}><CookModeScreen /></TextScaleContext.Provider>);
   });
   await flush();
   return renderer!;
@@ -524,4 +526,19 @@ describe('CookModeScreen', () => {
       expect(stepCounter(renderer)).toBe('Step 2 of 4');
     });
   });
+
+it.each([[2, 1], [1, 1.3], [1.15, 1.15]])('keeps scaled navigation compact and shows the current instruction (%s × %s)', async (fontScale, textScale) => {
+  mocks.recipeQuery.data = RECIPE;
+  mocks.fontScale = fontScale;
+  const r = await renderScreen(textScale);
+  try {
+    const scroll = r.root.findAllByType('ScrollView' as any)[0];
+    expect(textOf(scroll)).toContain(RECIPE.extracted.components[0].steps[0]);
+    expect(textOf(scroll)).not.toContain(RECIPE.extracted.components[0].steps[1]);
+    const next = buttonByLabel(r, 'Next step');
+    expect(JSON.stringify(next.props.style)).not.toContain('100%');
+    expect(JSON.stringify(next.props.style)).toContain('paddingVertical":8');
+  } finally { mocks.fontScale = 1; await act(async () => r.unmount()); }
+});
+
 });

@@ -29,7 +29,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { formatQuantity, spokenQuantity } from '@/lib/quantityPresentation';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { useAuth } from '@clerk/expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -105,9 +105,9 @@ function GroceryItemRow({
   const hasAmount = hasStatedIngredientAmount(item.quantity);
   const showMissingAmount = Boolean(item.recipe_id) && !hasAmount;
   const normalizedUnit = normalizeIngredientUnit(item.unit);
-  const displayedQuantity = formatQuantity(item.quantity, normalizedUnit);
+  const displayedAmount = formatIngredientAmount(item.quantity, normalizedUnit);
   const hasNotes = Boolean(item.notes && item.notes !== 'null');
-  const itemName = [hasAmount && displayedQuantity, hasAmount && normalizedUnit, item.name]
+  const itemName = [hasAmount && displayedAmount, item.name]
     .filter(Boolean)
     .join(' ');
   // The row groups its children, so read every visible detail in order.
@@ -143,7 +143,7 @@ function GroceryItemRow({
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'remove') onDelete(); }}>
         <Text style={[styles.itemName, { fontSize: scaleFontSize(17), lineHeight: scaleFontSize(22), color: item.checked ? colors.textSecondary : colors.text }, item.checked && styles.itemNameChecked]}>{item.name}</Text>
         {(hasAmount || showMissingAmount || hasNotes || (isSharedList && item.added_by_name)) && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(21), marginTop: 4 }}>
-          {[hasAmount && [displayedQuantity, normalizedUnit].filter(Boolean).join(' '), showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
+          {[hasAmount && displayedAmount, showMissingAmount && MISSING_AMOUNT_LABEL, hasNotes && item.notes, isSharedList && item.added_by_name && `Added by ${item.added_by_name}`].filter(Boolean).join(' · ')}
         </Text>}
       </TouchableOpacity>
     </RNView>
@@ -507,9 +507,8 @@ function GroceryScreenContent() {
     const formatItem = (item: GroceryItem) => {
       const marker = item.checked ? '[x]' : '[ ]';
       const hasAmount = hasStatedIngredientAmount(item.quantity);
-      const qty = hasAmount ? formatQuantity(item.quantity, item.unit) : '';
-      const unit = normalizeIngredientUnit(item.unit) ?? '';
-      const qtyUnit = qty ? `${qty}${unit ? ' ' + unit : ''} ` : '';
+      const amount = hasAmount ? formatIngredientAmount(item.quantity, normalizeIngredientUnit(item.unit)) : '';
+      const qtyUnit = amount ? `${amount} ` : '';
       const notes = item.notes && item.notes !== 'null' ? ` (${item.notes})` : '';
       const amountWarning = item.recipe_id && !hasAmount ? ` — ${MISSING_AMOUNT_LABEL}` : '';
       return `${marker} ${qtyUnit}${item.name}${notes}${amountWarning}`;

@@ -497,7 +497,7 @@ describe('GroceryScreen shopping views', () => {
       expect(row.props.accessibilityState).toEqual({ checked: false });
       expect(row.props.accessibilityLabel).toBe('Rice, Added by Ana, Amount not stated, Jasmine');
       expect(rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('2'))!.props.accessibilityLabel)
-        .toBe('2 piece Lime');
+        .toBe('2 pieces Lime');
       const edit = renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Edit Rice' && instance.props.accessibilityRole === 'button')[0];
       expect(edit).toBeDefined();
       expect(edit.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove Rice' }]);
@@ -554,6 +554,7 @@ describe('GroceryScreen shopping views', () => {
     mocks.groceryState.items = [
       item({ id: 'salt', name: 'Salt', quantity: '1', unit: ' NULL ' }),
       item({ id: 'oil', name: 'Oil', quantity: '1', unit: ' tbsp ' }),
+      item({ id: 'lime', name: 'Lime', quantity: '2', unit: 'piece' }),
     ];
     const renderer = createRoot({ textComponentTypes: ['Text'] });
 
@@ -581,6 +582,7 @@ describe('GroceryScreen shopping views', () => {
       expect(message).toContain('Grocery List — To buy');
       expect(message).toContain('[ ] 1 Salt');
       expect(message).toContain('[ ] 1 tbsp Oil');
+      expect(message).toContain('[ ] 2 pieces Lime');
       expect(message.toLowerCase()).not.toContain('null');
     } finally {
       await act(async () => renderer.unmount());
