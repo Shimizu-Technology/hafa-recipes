@@ -3,10 +3,11 @@ import { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { useShareIntentContext } from 'expo-share-intent';
 
-import { Text, View } from '@/components/Themed';
+import { Text, View, useColors } from '@/components/Themed';
 
 export default function NotFoundScreen() {
   const router = useRouter();
+  const colors = useColors();
   const { hasShareIntent } = useShareIntentContext();
 
   // If we landed here due to a share intent, redirect to home immediately
@@ -34,7 +35,7 @@ export default function NotFoundScreen() {
         <Text style={styles.title}>This screen doesn't exist.</Text>
 
         <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>Go to home screen!</Text>
+          <Text style={[styles.linkText, { color: colors.actionText }]}>Go to home screen!</Text>
         </Link>
       </View>
     </>
@@ -57,7 +58,7 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
   },
   linkText: {
-    fontSize: 14,
-    color: '#2e78b7',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

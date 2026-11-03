@@ -1481,8 +1481,6 @@ const styles = StyleSheet.create({
   componentNumber: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
   },
   label: {
     fontSize: fontSize.sm,

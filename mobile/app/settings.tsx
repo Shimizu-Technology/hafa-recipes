@@ -27,7 +27,7 @@ import { clearAccountOnboarding, clearVerifiedAccountOwner } from '@/lib/account
 import { useTimerSoundPreference, TIMER_SOUNDS, TimerSoundOption, playTimerSoundPreview } from '@/hooks/useTimerSound';
 import { useTTSVoice, TTS_VOICES, TTSVoice } from '@/hooks/useTTS';
 import { useTextSize, TEXT_SIZE_LABELS, TextSizeOption } from '@/hooks/useTextSize';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { layout, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { resolveAppVersion } from '@/lib/appVersion';
 import { resolveSettingsProfileName } from '@/lib/settingsProfile';
 import { formatSavedRecipeCount } from '@/lib/recipeCount';
@@ -41,7 +41,7 @@ const APP_VERSION = resolveAppVersion(Constants.expoConfig?.version);
 
 function SectionHeader({ title }: { title: string }) {
   const colors = useColors();
-  return <Text accessibilityRole="header" style={{ fontSize: 13, lineHeight: 18, color: colors.textSecondary, marginLeft: 16, marginBottom: 8 }}>{title}</Text>;
+  return <Text accessibilityRole="header" style={{ fontSize: 15, lineHeight: 20, fontWeight: '600', color: colors.text, marginLeft: 4, marginBottom: 8 }}>{title}</Text>;
 }
 
 interface MenuItemProps {
@@ -55,14 +55,11 @@ interface MenuItemProps {
 function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
   const content = (
     <RNView
-      style={[
-        styles.menuItem,
-        { backgroundColor: colors.backgroundElevated }
-      ]}
+      style={styles.menuItem}
     >
       <RNView style={styles.menuItemLeft}>
-        <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
-          <Ionicons name={icon} size={18} color={colors.actionText} />
+        <RNView style={[styles.menuIconCircle, { backgroundColor: colors.surface2 }]}>
+          <Ionicons name={icon} size={18} color={colors.text} />
         </RNView>
         <Text style={[styles.menuLabel, { color: colors.text }]}>{label}</Text>
       </RNView>
@@ -71,7 +68,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
           {value}
         </Text>
       ) : onPress ? (
-        <Text style={[styles.menuArrow, { color: colors.textMuted }]}>›</Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
       ) : null}
     </RNView>
   );
@@ -93,6 +90,7 @@ export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const colors = useColors();
+  const groupSheet = { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline };
   const insets = useSafeAreaInsets();
   const { isSignedIn, isLoaded, sessionId } = useAuth();
   const { user } = useUser();
@@ -373,28 +371,32 @@ export default function SettingsScreen() {
         {/* Data Section */}
         <RNView style={styles.section}>
           <SectionHeader title="Data" />
-          <MenuItem
-            icon="trash-outline"
-            label="Clear Cache"
-            onPress={handleClearCache}
-            colors={colors}
-          />
+          <RNView style={[styles.menuGroup, groupSheet]}>
+            <MenuItem
+              icon="trash-outline"
+              label="Clear Cache"
+              onPress={handleClearCache}
+              colors={colors}
+            />
+          </RNView>
         </RNView>
 
         <RNView style={styles.section}>
           <SectionHeader title="Safety" />
-          <MenuItem
-            icon="shield-checkmark-outline"
-            label="Safety Center"
-            onPress={() => router.push('/safety' as any)}
-            colors={colors}
-          />
+          <RNView style={[styles.menuGroup, groupSheet]}>
+            <MenuItem
+              icon="shield-checkmark-outline"
+              label="Safety Center"
+              onPress={() => router.push('/safety' as any)}
+              colors={colors}
+            />
+          </RNView>
         </RNView>
 
         {/* Appearance Section - Combined Theme + Text Size */}
         <RNView style={styles.section}>
           <SectionHeader title="Appearance" />
-          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
+          <RNView style={[styles.compactCard, groupSheet]}>
             {/* Theme Row */}
             <RNView style={styles.compactRow}>
               <Text style={[styles.compactLabel, { color: colors.text }]}>Theme</Text>
@@ -428,7 +430,7 @@ export default function SettingsScreen() {
               </RNView>
             </RNView>
 
-            <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.compactDivider, { backgroundColor: colors.hairline }]} />
 
             {/* Text Size Row */}
             <RNView style={styles.compactRow}>
@@ -469,7 +471,7 @@ export default function SettingsScreen() {
         {/* Sound & Voice Section - Compact Pickers */}
         <RNView style={styles.section}>
           <SectionHeader title="Sound & voice" />
-          <RNView style={[styles.compactCard, { backgroundColor: colors.backgroundElevated }]}>
+          <RNView style={[styles.compactCard, groupSheet]}>
             {/* Timer Sound Picker */}
             <TouchableOpacity
               style={styles.pickerRow}
@@ -489,7 +491,7 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </TouchableOpacity>
 
-            <RNView style={[styles.compactDivider, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.compactDivider, { backgroundColor: colors.hairline }]} />
 
             {/* AI Voice Picker */}
             <TouchableOpacity
@@ -535,7 +537,7 @@ export default function SettingsScreen() {
                   accessibilityState={{ selected: soundPreference === sound.id }}
                   style={[
                     styles.pickerOption,
-                    soundPreference === sound.id && { backgroundColor: colors.tint + '15' },
+                    soundPreference === sound.id && { backgroundColor: colors.accentTint },
                   ]}
                   onPress={() => {
                     setTimerSound(sound.id);
@@ -590,7 +592,7 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: ttsVoice === voiceOption.id }}
                     style={[
                       styles.pickerOption,
-                      ttsVoice === voiceOption.id && { backgroundColor: colors.tint + '15' },
+                      ttsVoice === voiceOption.id && { backgroundColor: colors.accentTint },
                     ]}
                     onPress={() => {
                       setTTSVoice(voiceOption.id);
@@ -618,17 +620,17 @@ export default function SettingsScreen() {
         {SHOW_DEVELOPER_TOOLS && (
           <RNView style={styles.section}>
             <SectionHeader title="Developer" />
-            <RNView style={[styles.menuGroup, { overflow: 'hidden' }]}>
+            <RNView style={[styles.menuGroup, groupSheet]}>
               <TouchableOpacity
-                style={[styles.menuItem, { backgroundColor: colors.backgroundElevated }]}
+                style={styles.menuItem}
                 onPress={() => setShowDeveloper(!showDeveloper)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: showDeveloper }}
               >
                 <RNView style={styles.menuItemLeft}>
-                  <RNView style={[styles.menuIconCircle, { backgroundColor: colors.tint + '15' }]}>
-                    <Ionicons name="construct-outline" size={18} color={colors.actionText} />
+                  <RNView style={[styles.menuIconCircle, { backgroundColor: colors.surface2 }]}>
+                    <Ionicons name="construct-outline" size={18} color={colors.text} />
                   </RNView>
                   <Text style={[styles.menuLabel, { color: colors.text }]}>
                     {showDeveloper ? 'Hide Developer Tools' : 'Show Developer Tools'}
@@ -642,21 +644,21 @@ export default function SettingsScreen() {
               </TouchableOpacity>
               {showDeveloper && (
                 <>
-                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.hairline }]} />
                   <MenuItem
                     icon="library-outline"
                     label="API Documentation"
                     onPress={handleOpenAPI}
                     colors={colors}
                   />
-                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.hairline }]} />
                   <MenuItem
                     icon="link-outline"
                     label="API URL"
                     value={API_BASE_URL.replace('http://', '').replace('https://', '')}
                     colors={colors}
                   />
-                  <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+                  <RNView style={[styles.menuDivider, { backgroundColor: colors.hairline }]} />
                   <MenuItem
                     icon="bug-outline"
                     label="Test Sentry Error Reporting"
@@ -720,21 +722,21 @@ export default function SettingsScreen() {
         {/* Legal Section */}
         <RNView style={styles.section}>
           <SectionHeader title="Legal" />
-          <RNView style={styles.menuGroup}>
+          <RNView style={[styles.menuGroup, groupSheet]}>
             <MenuItem
               icon="document-text-outline"
               label="Privacy Policy"
               onPress={() => Linking.openURL(PRIVACY_URL)}
               colors={colors}
             />
-            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.hairline }]} />
             <MenuItem
               icon="chatbubble-ellipses-outline"
               label="Support"
               onPress={() => Linking.openURL(SUPPORT_URL)}
               colors={colors}
             />
-            <RNView style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.menuDivider, { backgroundColor: colors.hairline }]} />
             <MenuItem
               icon="globe-outline"
               label="Website"
@@ -760,7 +762,7 @@ export default function SettingsScreen() {
         {isSignedIn && (
           <RNView style={styles.section}>
             <SectionHeader title="Account actions" />
-            <RNView style={[styles.accountActionsCard, { backgroundColor: colors.backgroundElevated }]}>
+            <RNView style={[styles.accountActionsCard, groupSheet]}>
               <TouchableOpacity
                 style={styles.accountActionRow}
                 onPress={handleSignOut}
@@ -773,7 +775,7 @@ export default function SettingsScreen() {
                 <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
               </TouchableOpacity>
 
-              <RNView style={[styles.accountDivider, { backgroundColor: colors.border }]} />
+              <RNView style={[styles.accountDivider, { backgroundColor: colors.hairline }]} />
 
               <TouchableOpacity
                 style={styles.accountActionRow}
@@ -907,7 +909,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
+    padding: layout.margin,
   },
   section: {
     marginBottom: spacing.xl,
@@ -921,7 +923,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   menuGroup: {
-    borderRadius: 12,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
   menuItem: {
@@ -929,8 +932,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: spacing.md,
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
+    minHeight: 56,
   },
   menuItemLeft: {
     flex: 1,
@@ -968,8 +970,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   menuDivider: {
-    height: 1,
-    marginHorizontal: spacing.md,
+    height: StyleSheet.hairlineWidth,
+    marginLeft: spacing.md + 34 + spacing.md,
   },
   aboutHeader: {
     flexDirection: 'row',
@@ -992,8 +994,6 @@ const styles = StyleSheet.create({
   techLabel: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
     marginBottom: spacing.sm,
   },
   techList: {
@@ -1003,7 +1003,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   accountActionsCard: {
-    borderRadius: 12,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
   accountActionRow: {
@@ -1022,7 +1023,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   accountDivider: {
-    height: 1,
+    height: StyleSheet.hairlineWidth,
     marginLeft: spacing.md + 20 + spacing.sm, // Align with text after icon
   },
   shareAppButton: {
@@ -1031,6 +1032,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     padding: spacing.md,
+    minHeight: 50,
     borderRadius: radius.md,
   },
   shareAppText: {
@@ -1080,8 +1082,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
     marginBottom: spacing.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   textInput: {
     fontSize: fontSize.md,
@@ -1096,7 +1096,8 @@ const styles = StyleSheet.create({
   },
   // Compact card styles for combined sections
   compactCard: {
-    borderRadius: 12,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
     overflow: 'hidden',
   },
@@ -1111,7 +1112,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   compactDivider: {
-    height: 1,
+    height: StyleSheet.hairlineWidth,
     marginVertical: spacing.xs,
   },
   // Segmented control styles

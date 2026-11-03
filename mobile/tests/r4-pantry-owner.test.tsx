@@ -42,7 +42,7 @@ vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleC
   background: '#fff', backgroundSecondary: '#eee', border: '#ccc', card: '#fff', cardBorder: '#ddd',
   text: '#111', textSecondary: '#444', textMuted: '#666', tint: '#165', warning: '#a61', success: '#080',
 }) }));
-vi.mock('@/constants/Colors', () => ({ fontFamily: { display: 'Fraunces_600SemiBold' },
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 }, fontFamily: { display: 'Fraunces_600SemiBold' },
   fontSize: { sm: 12, md: 14, lg: 18, xxl: 24 },
   fontWeight: { semibold: '600', bold: '700' },
   radius: { md: 8, lg: 12 },

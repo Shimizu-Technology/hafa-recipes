@@ -289,7 +289,7 @@ export default function SignInScreen() {
           {/* OAuth Buttons */}
           <RNView style={styles.oauthContainer}>
             <TouchableOpacity
-              style={[styles.oauthButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              style={[styles.oauthButton, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}
               onPress={handleAppleSignIn}
               disabled={isLoading}
               activeOpacity={0.7}
@@ -303,7 +303,7 @@ export default function SignInScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.oauthButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              style={[styles.oauthButton, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}
               onPress={handleGoogleSignIn}
               disabled={isLoading}
               activeOpacity={0.7}
@@ -319,9 +319,9 @@ export default function SignInScreen() {
 
           {/* Divider */}
           <RNView style={styles.dividerContainer}>
-            <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.dividerLine, { backgroundColor: colors.hairline }]} />
             <Text style={[styles.dividerText, { color: colors.textMuted }]}>or</Text>
-            <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.dividerLine, { backgroundColor: colors.hairline }]} />
           </RNView>
 
           </>}
@@ -349,9 +349,9 @@ export default function SignInScreen() {
                       : 'Enter one of your unused backup codes.'}
               </Text>
               <TextInput
-                style={{ backgroundColor: colors.backgroundElevated, borderRadius: radius.lg,
+                style={{ backgroundColor: colors.backgroundElevated, borderRadius: radius.md,
                   padding: spacing.md, fontSize: fontSize.md, color: colors.text,
-                  fontFamily: fontFamily.medium, fontWeight: '500', borderWidth: 0, borderColor: colors.border }}
+                  fontFamily: fontFamily.regular, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }}
                 placeholderTextColor={colors.textMuted}
                 accessibilityLabel="Verification code"
                 value={verificationCode}
@@ -456,7 +456,7 @@ export default function SignInScreen() {
                 style={StyleSheet.flatten([
                   styles.recoveryButton,
                   {
-                    backgroundColor: colors.backgroundSecondary,
+                    backgroundColor: colors.backgroundElevated,
                     borderColor: colors.border,
                   },
                 ])}
@@ -553,8 +553,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     paddingVertical: spacing.md,
-    borderRadius: radius.full,
-    borderWidth: 0,
+    borderRadius: radius.md,
+    minHeight: 50,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   oauthButtonText: {
     fontSize: fontSize.md,

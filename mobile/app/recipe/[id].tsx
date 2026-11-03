@@ -1372,7 +1372,7 @@ const styles = StyleSheet.create({
   optionsBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   optionsSheet: {
     borderTopLeftRadius: radius.xl,
@@ -1386,7 +1386,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(148, 163, 184, 0.55)',
+    backgroundColor: 'rgba(128, 128, 128, 0.4)',
     marginBottom: spacing.md,
   },
   optionsTitle: {

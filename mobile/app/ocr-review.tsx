@@ -494,7 +494,6 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.medium,
-    textTransform: 'uppercase',
     marginBottom: spacing.xs,
   },
   sectionTitle: {
