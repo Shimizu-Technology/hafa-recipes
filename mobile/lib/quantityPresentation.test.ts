@@ -14,6 +14,13 @@ describe('display-only cooking quantities', () => {
     expect(formatQuantity('125', unit)).toBe('125');
     expect(formatQuantity('1/4', unit)).toBe('0.25');
   });
+  it('shows a scaled amount that rounds to a half as a fraction', () => {
+    expect(formatQuantity(String(2.5 * 7 / 12), 'tbsp')).toBe('1½');
+    expect(formatQuantity('0.46', 'cup')).toBe('½');
+    expect(formatQuantity('1.42', 'cup')).toBe('1.4');
+    expect(formatQuantity('10.5', 'cup')).toBe('10½');
+    expect(formatQuantity(String(2.5 * 7 / 12), 'g')).toBe('1.458');
+  });
   it('preserves absence and gives naturally separated VoiceOver fractions', () => {
     expect(formatQuantity(null)).toBeNull();
     expect(formatIngredientAmount('1.5', 'tsp')).toBe('1½ tsp');
