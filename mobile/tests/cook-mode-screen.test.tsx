@@ -178,6 +178,7 @@ vi.mock('@/contexts/TimerContext', () => {
 });
 vi.mock('@/components/CookIngredientsList', () => ({ CookIngredientsList: () => null }));
 
+import { TextScaleContext } from '@/components/Themed';
 import CookModeScreen from '../app/cook-mode/[id]';
 
 const RECIPE = {
@@ -229,10 +230,10 @@ async function flush() {
   });
 }
 
-async function renderScreen(): Promise<ReactTestRenderer> {
+async function renderScreen(textScale = 1): Promise<ReactTestRenderer> {
   let renderer: ReactTestRenderer;
   await act(async () => {
-    renderer = create(<CookModeScreen />);
+    renderer = create(textScale === 1 ? <CookModeScreen /> : <TextScaleContext.Provider value={textScale}><CookModeScreen /></TextScaleContext.Provider>);
   });
   await flush();
   return renderer!;
@@ -526,12 +527,13 @@ describe('CookModeScreen', () => {
     });
   });
 
-it('keeps AX navigation compact and hides adjacent instruction previews', async () => {
+it.each([[2, 1], [1, 1.5]])('keeps scaled navigation compact and shows the current instruction (%s × %s)', async (fontScale, textScale) => {
   mocks.recipeQuery.data = RECIPE;
-  mocks.fontScale = 2;
-  const r = await renderScreen();
+  mocks.fontScale = fontScale;
+  const r = await renderScreen(textScale);
   try {
     const scroll = r.root.findAllByType('ScrollView' as any)[0];
+    expect(textOf(scroll)).toContain(RECIPE.extracted.components[0].steps[0]);
     expect(textOf(scroll)).not.toContain(RECIPE.extracted.components[0].steps[1]);
     const next = buttonByLabel(r, 'Next step');
     expect(JSON.stringify(next.props.style)).not.toContain('100%');
