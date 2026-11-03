@@ -25,6 +25,8 @@ export function usePressScale(disabled = false) {
         opacity.setValue(toValue === 1 ? 1 : 0.8);
         return;
       }
+      // A preference may resolve between press-in (opacity) and press-out (scale).
+      opacity.setValue(1);
       Animated.timing(scale, {
         toValue,
         duration,
