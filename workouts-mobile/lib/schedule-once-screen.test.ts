@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { scheduleOnceCommand } from "./schedule-once";
+import { isExpiredCoverError, scheduleOnceCommand } from "./schedule-once";
 import type { Workout } from "./models";
 const f = vi.hoisted(() => ({ map: new Map<string, string>(), uuid: 0, save: vi.fn(), replace: vi.fn() }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => ({ workout_id: "source" }), router: { push() {}, replace: f.replace } }));
@@ -11,7 +11,8 @@ vi.mock("@/components/ui", () => ({ Button: "Button", Copy: "Copy", Field: "Fiel
   Screen: ({ children, footer }: { children: never; footer: never }) => createElement("Screen", null, children, footer) }));
 vi.mock("@/components/calendar-date", () => ({ CalendarDate: "Date" }));
 const workout: Workout = { id: "source", revision: 2, generation: 1, title: "Saved workout", kind: "session", provenance: "source",
-  blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [{ name: "Squat" }] }] };
+  blocks: [{ id: "main", label: "Main", grouping: "sequential", exercises: [{ name: "Squat" }] }],
+  source_thumbnail_url: "https://media.example/cover.jpg", cover_origin: "user" };
 vi.mock("@/lib/context", () => {
   const storage = { isCurrent: () => true, getItem: async (key: string) => f.map.get(key) ?? null,
     setItem: async (key: string, value: string) => { f.map.set(key, value); }, removeItem: async (key: string) => { f.map.delete(key); } };
@@ -53,4 +54,52 @@ it("rejects an invalid time and leaves unknown prescription fields untouched", (
   expect(() => scheduleOnceCommand(workout, "2026-11-04", "25:30", "id")).toThrow("Use a time");
   const command = scheduleOnceCommand(workout, "2026-11-04", "", "id");
   expect(command.proposal.sessions[0].workout.blocks[0].exercises[0].sets).toBeUndefined();
+});
+
+const expired = () => Object.assign(Error("Source cover expired; save the workout without its cover"), { status: 422 });
+it("explains an expired cover first, drops the offline notice and Retry, and schedules without the cover", async () => {
+  await mount();
+  await act(async () => nodes("Date")[0].props.onChange("2026-11-04"));
+  f.save.mockRejectedValueOnce(expired());
+  await act(async () => button("Save session").props.onPress()); await settle();
+  const notices = nodes("Notice").map(n => String(n.props.children));
+  expect(notices[0]).toMatch(/cover photo has expired/);
+  expect(nodes("Notice")[0].props.error).toBe(true);
+  expect(notices.some(text => text.includes("Saved on this device"))).toBe(false);
+  expect(notices.filter(text => text.includes("Source cover expired"))).toHaveLength(0);
+  expect(nodes("Button").some(n => n.props.title === "Retry schedule")).toBe(false);
+  expect(button("Schedule without cover")).toBeDefined();
+  await act(async () => button("Schedule without cover").props.onPress()); await settle();
+  expect(f.save).toHaveBeenCalledTimes(2);
+  const [first, second] = f.save.mock.calls.map(call => call[0]);
+  expect(first.proposal.sessions[0].workout.source_thumbnail_url).toBe("https://media.example/cover.jpg");
+  expect(second.proposal.sessions[0].workout).not.toHaveProperty("source_thumbnail_url");
+  expect(second.proposal.sessions[0].workout).not.toHaveProperty("cover_origin");
+  expect(second.proposal.sessions[0].workout.blocks).toEqual(first.proposal.sessions[0].workout.blocks);
+  expect(second.request_id).not.toBe(first.request_id);
+  expect(second.proposal.sessions[0]).toMatchObject({ date: "2026-11-04", purpose: "Saved workout" });
+  expect(nodes("Notice").some(n => n.props.children === "Session scheduled.")).toBe(true);
+});
+it("keeps ordinary failures as the offline notice with Retry", async () => {
+  await mount();
+  f.save.mockRejectedValueOnce(Error("Offline"));
+  await act(async () => button("Save session").props.onPress()); await settle();
+  expect(nodes("Notice").some(n => String(n.props.children).includes("Saved on this device"))).toBe(true);
+  expect(button("Retry schedule")).toBeDefined();
+  expect(nodes("Button").some(n => n.props.title === "Schedule without cover")).toBe(false);
+});
+it("builds the without-cover command from the same prescription", () => {
+  const withCover = { ...workout, source_thumbnail_url: "https://media.example/cover.jpg", cover_origin: "user" as const };
+  const plain = scheduleOnceCommand(withCover, "2026-11-04", "", "a");
+  const bare = scheduleOnceCommand(withCover, "2026-11-04", "", "b", { withoutCover: true });
+  expect(plain.proposal.sessions[0].workout.source_thumbnail_url).toBe("https://media.example/cover.jpg");
+  expect(bare.proposal.sessions[0].workout).not.toHaveProperty("source_thumbnail_url");
+  expect(bare.proposal.sessions[0].workout).not.toHaveProperty("cover_origin");
+  expect(bare.proposal.sessions[0].workout.title).toBe(plain.proposal.sessions[0].workout.title);
+});
+it("recognises an expired-cover rejection by its message or server detail", () => {
+  expect(isExpiredCoverError(expired())).toBe(true);
+  expect(isExpiredCoverError(Object.assign(Error("Some details could not be saved."), { detail: "Source cover expired; save the workout without its cover" }))).toBe(true);
+  expect(isExpiredCoverError(Error("Offline"))).toBe(false);
+  expect(isExpiredCoverError(undefined)).toBe(false);
 });
