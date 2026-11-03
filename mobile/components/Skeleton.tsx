@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import { View, Animated, StyleSheet, ViewStyle, useWindowDimensions } from 'react-native';
 import { useColors } from '@/components/Themed';
-import { spacing, radius } from '@/constants/Colors';
+import { layout, spacing, radius } from '@/constants/Colors';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 // Every skeleton on screen reads one value so placeholders pulse together.
@@ -145,12 +145,12 @@ export function SkeletonCollectionCard() {
 export function SkeletonRecipeGridCard() {
   const colors = useColors();
   const { width, fontScale } = useWindowDimensions();
-  const cardWidth = (width - spacing.lg * 2 - GRID_GAP) / 2;
+  const cardWidth = (Math.min(width, 720) - layout.margin * 2 - GRID_GAP) / 2;
   const titleSlotHeight = Math.ceil(36 * fontScale);
   const footerHeight = Math.ceil(16 * fontScale);
 
   return (
-    <View style={[styles.gridCard, { width: cardWidth, backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+    <View style={[styles.gridCard, { width: cardWidth, backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
       <Skeleton width={cardWidth} height={cardWidth} borderRadius={0} />
       <View style={[styles.gridCardContent, { minHeight: spacing.sm * 2 + titleSlotHeight + footerHeight + 12 }]}>
         <View style={{ height: titleSlotHeight, gap: spacing.xs }}>
@@ -304,7 +304,7 @@ export function SkeletonSimilarRecipes({ count = 3 }: { count?: number }) {
 }
 
 // Mirrors RECIPE_GRID_GAP in RecipeGridCardFrame (kept local to avoid importing the pressable frame).
-const GRID_GAP = spacing.sm;
+const GRID_GAP = layout.gridGap;
 
 const styles = StyleSheet.create({
   gridRow: {
@@ -313,10 +313,10 @@ const styles = StyleSheet.create({
     gap: GRID_GAP,
   },
   gridCard: {
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
+    borderRadius: radius.lg,
+    marginBottom: GRID_GAP,
     overflow: 'hidden',
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   gridCardContent: {
     padding: spacing.sm,
@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   list: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: layout.margin,
   },
   collectionCard: {
     width: 120,

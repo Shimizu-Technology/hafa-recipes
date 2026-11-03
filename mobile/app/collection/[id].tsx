@@ -25,19 +25,19 @@ import { HeaderIconButton, headerRightOptions } from '@/components/chrome/Header
 import { useCollectionRecipes, useCollections, useRemoveFromCollection } from '@/hooks/useCollections';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { CollectionRecipe, Collection } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { layout, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { haptics } from '@/utils/haptics';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { AnimatedListItem, ScalePressable } from '@/components/Animated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
 
-const GRID_GAP = 12;
+const GRID_GAP = layout.gridGap;
 
 /** Collection photo grid: 2 columns (1 at large text), like the Library grid, with time and servings. */
 function useCardWidth() {
   const { width, fontScale } = useWindowDimensions();
-  const content = Math.min(width, 720) - 32;
+  const content = Math.min(width, 720) - layout.margin * 2;
   return fontScale >= 1.3 ? content : (content - GRID_GAP) / 2;
 }
 
@@ -63,6 +63,7 @@ export function RecipeCard({
   return (
     <RNView style={[styles.card, { width }]}>
       <ScalePressable
+        style={[styles.sheet, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={recipeCardAccessibilityLabel({
@@ -83,6 +84,7 @@ export function RecipeCard({
           style={[styles.thumbnail, { backgroundColor: colors.surface2 }]}
           accessibilityLabel={`${recipe.title} photo`}
         />
+        <RNView style={styles.cardBody}>
         <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
           {recipe.title}
         </Text>
@@ -94,6 +96,7 @@ export function RecipeCard({
             </RNView>
           )) : <Text style={[styles.metaText, { color: colors.textSecondary }]}>{sourceLabel}</Text>}
         </RNView>
+        </RNView>
       </ScalePressable>
       {/* A solid circle stays readable on any photo; Remove still asks first. */}
       <TouchableOpacity
@@ -103,8 +106,8 @@ export function RecipeCard({
         accessibilityRole="button"
         accessibilityLabel={`Remove ${recipe.title} from collection`}
       >
-        <RNView style={styles.removeCircle}>
-          <Ionicons name="close" size={16} color="#1C1C1E" />
+        <RNView style={[styles.removeCircle, { backgroundColor: colors.photoButton }]}>
+          <Ionicons name="close" size={16} color={colors.text} />
         </RNView>
       </TouchableOpacity>
     </RNView>
@@ -302,32 +305,40 @@ const styles = StyleSheet.create({
   },
   collectionTitle: {
     fontFamily: fontFamily.display,
-    fontSize: 32,
-    lineHeight: 40,
+    fontSize: 34,
+    lineHeight: 41,
   },
   countText: {
     fontSize: fontSize.sm,
   },
   listContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.margin,
     paddingBottom: spacing.xxl,
   },
   gridRow: {
     gap: GRID_GAP,
   },
   card: {
-    marginBottom: 20,
+    marginBottom: GRID_GAP,
+  },
+  sheet: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   thumbnail: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 16,
+  },
+  cardBody: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
   cardTitle: {
-    marginTop: 8,
-    fontSize: 16,
-    fontFamily: fontFamily.displaySemibold,
-    lineHeight: 21,
+    fontSize: 15,
+    fontFamily: fontFamily.semibold,
+    lineHeight: 20,
   },
   metaRow: {
     flexDirection: 'row',
@@ -355,7 +366,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.18,

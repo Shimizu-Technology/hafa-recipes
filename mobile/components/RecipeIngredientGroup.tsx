@@ -60,7 +60,7 @@ export function RecipeIngredientGroup({ title, ingredients, scaleFactor, isScale
           {showCosts && typeof ingredient.estimatedCost === 'number' && <Text style={[styles.cost, { color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight }]}>
             ${(ingredient.estimatedCost * scaleFactor).toFixed(2)}
           </Text>}
-          {index < ingredients.length - 1 && <View pointerEvents="none" style={[styles.separator, { left: onToggle ? 60 : 16, backgroundColor: colors.border }]} />}
+          {index < ingredients.length - 1 && <View pointerEvents="none" style={[styles.separator, { left: onToggle ? 60 : 16, backgroundColor: colors.hairline }]} />}
         </View>;
       })}
     </Card>

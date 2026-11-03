@@ -18,7 +18,8 @@ vi.mock('@/components/Animated', () => ({ ScalePressable: 'ScalePressable' }));
 vi.mock('@/components/RecipeThumbnail', () => ({ RecipeThumbnail: 'RecipeThumbnail' }));
 vi.mock('@/components/Themed', () => ({ Text: 'Text', useColors: () => colors }));
 vi.mock('@/constants/Colors', () => ({
-  fontFamily: { displaySemibold: 'Fraunces' },
+  fontFamily: { semibold: 'Figtree_600SemiBold' },
+  layout: { margin: 20, gridGap: 16 },
   fontSize: { sm: 14 },
   radius: { md: 12 },
   shadows: { card: {} },
@@ -54,14 +55,14 @@ describe('recipe grid card alignment', () => {
           (node) => node.type === 'Text' && node.props.numberOfLines === 2,
         )[0];
         const contentNode = renderer.container.queryAll(
-          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 70,
+          (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 82,
         )[0];
         const footerNode = renderer.container.queryAll(
           (node) => node.type === 'View' && node.props.style?.[1]?.minHeight === 18,
         )[0];
 
-        expect(titleNode.props.style[0]).toMatchObject({ lineHeight: 21, fontSize: 16, fontFamily: 'Fraunces' });
-        expect(titleNode.props.style[1]).toMatchObject({ minHeight: 42 });
+        expect(titleNode.props.style[0]).toMatchObject({ lineHeight: 20, fontSize: 15, fontFamily: 'Figtree_600SemiBold' });
+        expect(titleNode.props.style[1]).toMatchObject({ minHeight: 40 });
         expect(contentNode.props.style[0]).toMatchObject({ justifyContent: 'space-between' });
         expect(footerNode).toBeDefined();
       } finally {
@@ -103,10 +104,10 @@ it('gives large accessibility text the full content width and expands the title 
   metrics.fontScale = 2;
   const renderer = await renderCard('Creamy Italian Sausage & Gnocchi Soup');
   try {
-    const card = renderer.container.queryAll(n => n.type === 'View' && n.props.style?.[1]?.width === 358)[0];
-    expect(card.props.style[1].width).toBe(358);
+    const card = renderer.container.queryAll(n => n.type === 'View' && n.props.style?.[1]?.width === 350)[0];
+    expect(card.props.style[1].width).toBe(350);
     const title = renderer.container.queryAll(n => n.type === 'Text' && n.props.numberOfLines === 2)[0];
-    expect(title.props.style[1].minHeight).toBe(84);
+    expect(title.props.style[1].minHeight).toBe(80);
     expect(card.props.style[0].borderWidth).toBeUndefined();
     expect(card.props.style[1].backgroundColor).toBeUndefined();
   } finally { await act(async () => renderer.unmount()); }
@@ -116,8 +117,8 @@ it('keeps wide web and tablet cards within the readable two-column content area'
   metrics.width = 2560;
   const renderer = await renderCard('No-Knead Sunday Bread');
   try {
-    const card = renderer.container.queryAll(n => n.type === 'View' && n.props.style?.[1]?.width === 338)[0];
-    expect(card.props.style[1].width).toBe(338);
+    const card = renderer.container.queryAll(n => n.type === 'View' && n.props.style?.[1]?.width === 332)[0];
+    expect(card.props.style[1].width).toBe(332);
   } finally { await act(async () => renderer.unmount()); }
 });
 

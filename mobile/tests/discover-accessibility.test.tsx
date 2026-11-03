@@ -66,7 +66,7 @@ vi.mock('@/components/Themed', async () => {
     }),
   };
 });
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   fontFamily: { displaySemibold: 'Fraunces', medium: 'DMSans', regular: 'DMSans' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 20, xxl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },

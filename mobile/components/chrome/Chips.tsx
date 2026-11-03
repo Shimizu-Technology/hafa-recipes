@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
 import { MIN_TOUCH, touchInset } from '@/components/chrome/touch';
 import { PressScale } from '@/components/chrome/motion';
+import { layout } from '@/constants/Colors';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -49,9 +50,9 @@ const styles = StyleSheet.create({
   target: { minHeight: MIN_TOUCH, justifyContent: 'center' },
   chip: { minHeight: CHIP_HEIGHT, borderRadius: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 15, lineHeight: 20, fontWeight: '500' },
-  rowWrap: { marginHorizontal: -16, marginTop: -touchInset(CHIP_HEIGHT), marginBottom: 12 - touchInset(CHIP_HEIGHT) },
+  rowWrap: { marginHorizontal: -layout.margin, marginTop: -touchInset(CHIP_HEIGHT), marginBottom: 12 - touchInset(CHIP_HEIGHT) },
   scroll: { flexGrow: 0 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: layout.margin },
   alertDot: { width: 8, height: 8, borderRadius: 4 },
   fade: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 24 },
 });
