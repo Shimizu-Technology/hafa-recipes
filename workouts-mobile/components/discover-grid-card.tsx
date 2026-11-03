@@ -1,8 +1,9 @@
+import { LookListItem, type EntranceBudget } from "./design/look-motion";
 import { workoutCardMeta } from "@/lib/library-view";
 import { LibraryCard } from "./library-card";
 import { discoverFormatLabel, platformInfo } from "@/lib/discover";
 import { workoutGridWidth } from "@/lib/readable-layout";
-import { Children, type PropsWithChildren } from "react";
+import { Children, useRef, type PropsWithChildren } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { Skeleton } from "@/components/ui";
 import { radii } from "@/constants/theme";
@@ -18,9 +19,12 @@ const gridStyle = { flexDirection: "row", flexWrap: "wrap", columnGap: GRID_GAP,
 
 export function DiscoverGrid({ children }: PropsWithChildren) {
   const cell = useGridCell();
+  const entrance = useRef<EntranceBudget>({ ids: null, seen: new Set() });
+  const items = Children.toArray(children);
+  if (!entrance.current.ids && items.length) entrance.current.ids = items.slice(0, 6).map((child, i) => String((child as { key?: string }).key ?? i));
   return (
     <View style={gridStyle}>
-      {Children.map(children, (child) => (child == null ? null : <View style={{ width: cell }}>{child}</View>))}
+      {items.map((child, i) => <View key={String((child as { key?: string }).key ?? i)} style={{ width: cell }}><LookListItem id={String((child as { key?: string }).key ?? i)} budget={entrance.current}>{child}</LookListItem></View>)}
     </View>
   );
 }

@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { AskCoachPill } from "@/components/ask-coach-pill";
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { durationLabel } from "@/lib/timed-execution";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -103,6 +105,7 @@ function WeekHeader({ label, summary, open, onPress }: { label: string; summary:
   );
 }
 export default function Plan() {
+  const look = useLook();
   const { api, owner, enrollment, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const cache = useQueryClient();
@@ -371,9 +374,10 @@ export default function Plan() {
     });
   }
   return (
+    <>
     <Screen
       title="Today"
-      reserveAskRoom={false}
+      reserveAskRoom={look.id !== "current"}
 
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
@@ -536,5 +540,7 @@ export default function Plan() {
         </>}
       </Sheet>
     </Screen>
+    {look.id !== "current" && <AskCoachPill bottom={12} />}
+    </>
   );
 }

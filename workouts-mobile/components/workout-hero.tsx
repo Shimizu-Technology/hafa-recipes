@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { WorkoutArt } from "./workout-art";
 import { useCallback, useEffect, useState } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -19,6 +21,7 @@ type Source = Pick<Workout, "title" | "source_title" | "source_creator" | "sourc
  */
 export function WorkoutHero({ source, format }: { source: Source; format?: string | null }) {
   const c = useColors();
+  const look = useLook();
   const [playing, setPlaying] = useState(false), [failed, setFailed] = useState<string | null>(null), [error, setError] = useState("");
   const press = usePressScale();
   const close = useCallback(() => setPlaying(false), []);
@@ -38,7 +41,7 @@ export function WorkoutHero({ source, format }: { source: Source; format?: strin
     setError("");
     if (url) void Linking.openURL(url.href).catch(() => setError("Could not open the original source. Check your connection and try again."));
   };
-  if (!image && !player && !credit && !url) return null;
+  if (look.id === "current" && !image && !player && !credit && !url) return null;
   const Pressable = animatedPressableComponent();
   return <View style={{ gap: 10 }}>
     {player ? <Pressable
@@ -53,7 +56,7 @@ export function WorkoutHero({ source, format }: { source: Source; format?: strin
       {image
         ? <Image source={{ uri: image }} accessibilityIgnoresInvertColors onError={() => setFailed(image)}
           style={{ width: "100%", aspectRatio: 4 / 3, maxHeight: 360, resizeMode: "cover" }} />
-        : <View style={{ width: "100%", aspectRatio: 16 / 9 }} />}
+        : <View style={{ width: "100%", aspectRatio: 16 / 9 }}>{look.id !== "current" && <WorkoutArt title={source.title} meta={format ?? ""} />}</View>}
       <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" }}>
         <View style={{ width: 44, height: 44, borderRadius: radii.full, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
           <Ionicons name="play" size={20} color={c.onImage} style={{ marginLeft: 4 }} />
@@ -61,7 +64,7 @@ export function WorkoutHero({ source, format }: { source: Source; format?: strin
       </View>
     </Pressable> : image ? <View style={{ borderRadius: 20, overflow: "hidden" }}>
       <SourceImage uri={image} cover label={label} fallback={null} onFailed={() => setFailed(image)} />
-    </View> : null}
+    </View> : look.id !== "current" ? <View style={{ height: look.id === "pro" ? 150 : 240, borderRadius: look.radii.lg, overflow: "hidden" }}><WorkoutArt title={source.title} meta={format ?? ""} /></View> : null}
     {(!!credit || !!url) && <Row gap={8}>
       {!!credit && <Copy kind="small" tone="muted" numberOfLines={2} style={{ flex: 1 }}>{credit}</Copy>}
       {!!url && <IconButton label="Open original source" icon="open-outline" variant="plain" onPress={openOriginal} />}

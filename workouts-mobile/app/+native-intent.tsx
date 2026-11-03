@@ -1,5 +1,5 @@
 import { configuration } from "@/lib/config";
-import { previewEnabled } from "@/lib/looks";
+import { previewEnabled } from "@/constants/looks";
 import { incomingNativePath } from "@/lib/native-intent";
 export function redirectSystemPath({ path }: { path: string; initial: boolean }) {
   return incomingNativePath(path, {

@@ -29,7 +29,7 @@ function palette(id: LookId, night: boolean): ColorTokens {
     text, muted, secondaryLabel: muted, tertiaryLabel: muted, border: night ? "#454247" : "#D7D0C9", borderStrong: night ? "#A39BA0" : "#81767C",
     // Neutral structural actions leave coral to Start / Resume and PR markers.
     action: text, onAction: page, actionSoft: raised, onActionSoft: text,
-    accent, accentText: accent, onAccent, accentSoft: soft, accentTint: soft,
+    accent, accentText: coach ? accent : text, onAccent, accentSoft: soft, accentTint: soft,
     hero: surface, onHero: text, heroMuted: muted, heroAccent: accent, onHeroSoft: raised,
     tint: raised, tabBar: night ? surface : page, tabBarBorder: night ? "#39363B" : "#DED7CF", segment: surface,
     success: night ? "#83D7A3" : "#22673B", dataSuccess: night ? "#83D7A3" : "#22673B",

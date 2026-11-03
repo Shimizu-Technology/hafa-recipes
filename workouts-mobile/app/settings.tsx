@@ -1,5 +1,5 @@
 import { useLook } from "@/lib/look-context";
-import { lookIds, lookLabels } from "@/lib/looks";
+import { lookIds, lookLabels } from "@/constants/looks";
 import { useRef, useState } from "react";
 import { Alert, Linking, Text, View } from "react-native";
 import Constants from "expo-constants";

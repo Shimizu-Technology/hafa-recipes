@@ -126,7 +126,8 @@ export function Copy({
   const lookType = look.id === "current" ? {} : { fontFamily: face, fontWeight: "400" as const, ...(look.id === "athletic" && display ? { textTransform: "uppercase" as const, letterSpacing: 0.25 } : {}) };
   const surface = useSurface();
   const { fontScale } = useWindowDimensions();
-  const textStyle = StyleSheet.flatten([typography[kind], lookType, { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
+  const textStyle: TextStyle = StyleSheet.flatten<TextStyle>([typography[kind], lookType, { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
+  if (look.id !== "current") textStyle.fontWeight = "400";
   const scale = allowFontScaling === false ? 1 : Math.min(fontScale, maxScale ?? Infinity);
   // Explicit sizes keep Fabric layout and glyph metrics together on a live Dynamic Type change.
   const scaled = { ...textStyle, fontSize: (textStyle.fontSize ?? typography[kind].fontSize) * scale,

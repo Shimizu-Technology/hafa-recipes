@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { animatedPressableComponent, usePressScale } from "./design/press";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, type Href } from "expo-router";
@@ -16,22 +18,29 @@ export function AskCoachPill({ bottom, href = "/coach", label = "Ask Coach", hin
   bottom: number; href?: Href; label?: string; hint?: string;
 }) {
   const c = useColors();
+  const look = useLook();
+  const press = usePressScale();
+  const Target = look.id === "current" ? Pressable : animatedPressableComponent();
+  const bg = look.id === "current" ? c.action : c.text;
+  const fg = look.id === "current" ? c.onAction : c.background;
   const { collapsed, hidden } = useAskPill();
   const keyboard = useKeyboardShown();
   const { fontScale } = useWindowDimensions();
   const compact = collapsed || fontScale >= 1.5;
   if (hidden || keyboard) return null;
   return <View pointerEvents="box-none" style={{ position: "absolute", right: 16, bottom }}>
-    <Pressable testID="ask-coach" accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint}
+    <Target testID="ask-coach" accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint}
+      onPressIn={look.id === "current" ? undefined : press.onPressIn}
+      onPressOut={look.id === "current" ? undefined : press.onPressOut}
       onPress={() => { haptics.light(); router.push(href); }}
-      style={({ pressed }) => ({
+      style={look.id === "current" ? ({ pressed }: { pressed: boolean }) => ({
         height: ASK_PILL_HEIGHT, minWidth: ASK_PILL_HEIGHT, borderRadius: ASK_PILL_HEIGHT / 2, paddingHorizontal: compact ? 0 : 18,
         flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: c.action,
         shadowColor: c.shadow, shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 4 }, elevation: 6,
         opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.96 : 1 }],
-      })}>
-      <Ionicons name="sparkles" size={20} color={c.onAction} />
-      {!compact && <Text allowFontScaling={false} numberOfLines={1} style={{ flexShrink: 0, fontSize: 16, lineHeight: 21, fontWeight: "600", color: c.onAction }}>{label}</Text>}
-    </Pressable>
+      }) : { height: ASK_PILL_HEIGHT, minWidth: ASK_PILL_HEIGHT, paddingHorizontal: compact ? 0 : 18, borderRadius: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: bg, shadowColor: c.shadow, shadowOpacity: 0.14, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 6, opacity: press.opacity, transform: [{ scale: press.scale }] }}>
+      <Ionicons name="sparkles" size={20} color={fg} />
+      {!compact && <Text allowFontScaling={false} numberOfLines={1} style={{ flexShrink: 0, fontSize: 16, lineHeight: 21, fontWeight: "600", color: fg, fontFamily: look.fonts.semibold }}>{label}</Text>}
+    </Target>
   </View>;
 }

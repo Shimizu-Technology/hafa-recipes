@@ -1,3 +1,4 @@
+import { useLook } from "@/lib/look-context";
 import { HeaderMenu, type HeaderMenuItem } from "./header-menu";
 import { createContext, useContext, type ReactElement } from "react";
 import { Stack, router } from "expo-router";
@@ -34,11 +35,12 @@ export function headerBack(element: ReactElement | undefined) {
 /** Each tab owns a native stack so iOS can collapse its large title on scroll. The header is always opaque. */
 export function NativeTabStack({ title }: { title: string }) {
   const c = useColors();
+  const look = useLook();
   return <NativeHeader.Provider value>
     <Stack screenOptions={{ title, headerLargeTitleEnabled: true, headerShadowVisible: false, headerBackTitle: "Back",
       headerTransparent: false, headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: c.background },
       scrollEdgeEffects: { top: "hidden" }, headerTintColor: c.accent,
-      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },
+      headerTitleStyle: { color: c.text, fontFamily: look.fonts.semibold }, headerLargeTitleStyle: { color: c.text, fontFamily: look.fonts.display },
       contentStyle: { backgroundColor: c.background },
       ...headerActions(<BrowseHeader />),
     }} />

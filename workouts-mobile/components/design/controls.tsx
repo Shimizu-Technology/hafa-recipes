@@ -1,3 +1,4 @@
+import { useLook } from "@/lib/look-context";
 import { useState, type PropsWithChildren, type Ref } from "react";
 import { Text, ActivityIndicator, InputAccessoryView, Keyboard, Platform, Pressable, ScrollView, TextInput, useWindowDimensions, View, type TextInputProps } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -74,9 +75,11 @@ export function Button({
   disabledReason?: string;
 }) {
   const c = useColors();
+  const look = useLook();
   const surface = useSurface();
   const kind = variant ?? (secondary ? "secondary" : "primary");
-  const colors = buttonColors(c, kind, surface);
+  const start = /^(Start|Resume)(\b|$)/.test(title);
+  const colors = look.id !== "current" && start && kind === "primary" ? { bg: c.accent, fg: c.onAccent, border: undefined } : buttonColors(c, kind, surface);
   const { bg, fg, border } = disabled || busy
     ? { bg: c.sunken, fg: c.text, border: c.border } : colors;
   const inactive = disabled || busy;
@@ -102,12 +105,14 @@ export function Button({
         minHeight: heights[size],
         paddingVertical: textLink ? 0 : size === "sm" ? 8 : 12,
         paddingHorizontal: textLink ? 0 : size === "sm" ? 16 : 22,
-        borderRadius: radii.full,
+        borderRadius: look.id === "current" ? radii.full : look.radii.md,
         backgroundColor: bg,
+        borderBottomWidth: look.id === "coach" && kind === "primary" && !inactive ? 3 : undefined,
+        borderBottomColor: look.id === "coach" ? c.shadow : undefined,
         borderWidth: border ? 1 : 0,
         borderColor: border,
         opacity: press.opacity,
-        transform: [{ scale: press.scale }],
+        transform: look.id === "coach" ? [{ scale: press.scale }, { translateY: press.scale.interpolate({ inputRange: [look.motion.pressScale, 1], outputRange: [2, 0] }) }] : [{ scale: press.scale }],
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
@@ -277,9 +282,10 @@ export function Chip({
   const c = useColors();
   const surface = useSurface();
   const press = usePressScale(disabled);
+  const look = useLook();
   const onHero = surface === "hero";
-  const bg = selected ? (onHero ? c.onHero : c.accent) : tone === "accent" ? c.accentTint : c.sunken;
-  const fg = selected ? (onHero ? c.hero : c.onAccent) : tone === "accent" ? c.accentText : c.text;
+  const bg = selected ? (onHero ? c.onHero : look.id === "current" ? c.accent : c.text) : tone === "accent" ? c.accentTint : c.sunken;
+  const fg = selected ? (onHero ? c.hero : look.id === "current" ? c.onAccent : c.background) : tone === "accent" ? c.accentText : c.text;
   const body = (
     <>
       {selected && onPress && role !== "button" ? (
@@ -417,7 +423,8 @@ export function Segmented<T extends string>({
   const [trackWidth, setTrackWidth] = useState(0);
   const [natural, setNatural] = useState<Record<string, number>>({});
   // Re-measure when the labels or the system text size change; stale widths would pick the wrong size.
-  const measureKey = `${fontScale}:${options.map(option => option.label).join("|")}`;
+  const look = useLook();
+  const measureKey = `${look.id}:${fontScale}:${options.map(option => option.label).join("|")}`;
   const [measuredFor, setMeasuredFor] = useState(measureKey);
   if (measuredFor !== measureKey) { setMeasuredFor(measureKey); setNatural({}); }
   // Every label shares one size: the largest at which the longest label fits its segment.
@@ -438,7 +445,7 @@ export function Segmented<T extends string>({
           style={{ position: "absolute", left: 0, top: 0, width: 1500, flexDirection: "row", opacity: 0 }}>
           {options.map(option => <Text key={`${option.value}:${fontScale}`} numberOfLines={1} allowFontScaling={false}
             onLayout={event => { const width = Math.ceil(event.nativeEvent.layout.width); setNatural(known => known[option.value] === width ? known : { ...known, [option.value]: width }); }}
-            style={{ fontFamily: typography.cardTitle.fontFamily, fontWeight: typography.cardTitle.fontWeight,
+            style={{ fontFamily: look.fonts.semibold, fontWeight: look.id === "current" ? typography.cardTitle.fontWeight : "400",
               fontSize: typography.cardTitle.fontSize * fontScale, lineHeight: typography.cardTitle.lineHeight * fontScale }}>{option.label}</Text>)}
         </View>
       </View>
@@ -469,6 +476,7 @@ export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
 }) {
   const c = useColors();
   const { fontScale } = useWindowDimensions();
+  const look = useLook();
   const height = Math.max(40, Math.ceil(22 * fontScale) + 14);
   return (
     // Keyed by the text size: two quick Dynamic Type changes must not reuse a stale native layout of the field.
@@ -477,7 +485,7 @@ export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
       <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
         accessibilityLabel={label} accessibilityRole="search" returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         clearButtonMode="never" onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
-        style={{ flex: 1, minHeight: height, fontSize: 17, color: c.text, paddingVertical: 0 }} />
+        style={{ flex: 1, minHeight: height, fontFamily: look.fonts.regular, fontSize: 17, lineHeight: look.id === "current" ? undefined : 22, color: c.text, paddingVertical: 0 }} />
       {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8} onPress={() => onChange("")}
         style={{ width: 36, height: height, alignItems: "center", justifyContent: "center" }}>
         <Ionicons name="close-circle" size={18} color={c.muted} />

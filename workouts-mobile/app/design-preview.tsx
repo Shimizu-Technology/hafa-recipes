@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useLook } from "@/lib/look-context";
-import { linkLook } from "@/lib/looks";
+import { linkLook } from "@/constants/looks";
 import { Copy, Screen } from "@/components/ui";
 export default function DesignPreview() {
   const { look } = useLocalSearchParams<{ look?: string }>();

@@ -1,3 +1,4 @@
+import { useLook } from "@/lib/look-context";
 import { largeText } from "@/lib/readable-layout";
 import { Children, createContext, Fragment, isValidElement, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren, type ReactElement, type ReactNode, type Ref } from "react";
 import {
@@ -231,13 +232,15 @@ export function Card({
   style?: StyleProp<ViewStyle>;
 }>) {
   const c = useColors();
+  const look = useLook();
   const press = usePressScale();
   const grouped = useGroupedPage();
   const bg = { plain: grouped ? c.elevated : c.surface, hero: c.hero, sunken: c.sunken, accent: c.accentSoft }[tone];
   const base: ViewStyle = {
     padding: compact ? spacing.md : spacing.lg - 4,
     gap: compact ? spacing.sm : spacing.md - 2,
-    borderRadius: tone === "hero" ? radii.lg : radii.md,
+    borderRadius: look.id === "current" ? tone === "hero" ? radii.lg : radii.md : look.radii.lg,
+    ...look.shadows,
     backgroundColor: bg,
     borderWidth: 0,
     borderColor: c.border,

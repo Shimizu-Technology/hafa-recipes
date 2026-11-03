@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { LookGreeting, LookTodayHero } from "./look-today";
 import { useFocusRefresh } from "@/lib/use-focus-refresh";
 import { durationLabel } from "@/lib/timed-execution";
 import { Pressable, View } from "react-native";
@@ -27,6 +29,7 @@ export function TrainToday() {
   const { api, owner, enrollment, enrollmentQuery, isCurrentAccount, storage } = useTraining();
   const offline = useOfflineTraining();
   const c = useColors();
+  const look = useLook();
   const [failedCover, setFailedCover] = useState<string | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjust, setAdjust] = useState<{ program: Program; session?: ScheduledSession } | null>(null);
@@ -125,7 +128,7 @@ export function TrainToday() {
     <Button title="Build a plan" icon="add" size="lg" onPress={() =>
       router.push(pathname === "/profile" ? { pathname, params: { return_to: "build-plan" } } : pathname)} />
   );
-  const askCoach = <Button title="Ask Coach" size="sm" secondary accessibilityHint="Opens a chat with your AI coach" onPress={() => router.push("/coach")} />;
+  const askCoach = look.id !== "current" ? null : <Button title="Ask Coach" size="sm" secondary accessibilityHint="Opens a chat with your AI coach" onPress={() => router.push("/coach")} />;
   let hero: { title: string; detail: string; cover?: string | null; meta?: string[]; action?: ReactNode; extra?: ReactNode };
   if (active) {
     hero = { title: active.workout.title, cover: active.workout.source_thumbnail_url, detail: `${recorded} ${recorded === 1 ? "set" : "sets"} recorded so far · saved on this device`,
@@ -142,8 +145,8 @@ export function TrainToday() {
           else void start(planned.program, planned.session);
         }} />
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <View style={{ flex: 1 }}><Button title="Adjust today" size="sm" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} /></View>
-          <View style={{ flex: 1 }}>{askCoach}</View>
+          <View style={{ flex: 1 }}><Button title="Adjust today" size="sm" secondary textLink={look.id !== "current"} onPress={() => { setAdjust(planned); setAdjustOpen(true); }} /></View>
+          {look.id === "current" && <View style={{ flex: 1 }}>{askCoach}</View>}
         </View>
       </> };
   } else if (!profile.data) {
@@ -161,7 +164,7 @@ export function TrainToday() {
   } else {
     hero = { title: "No plan yet", detail: "Build a plan around your goal, equipment and free days.", action: buildPlan("/build-plan") };
   }
-  const heroCard = (
+  const heroCard = look.id !== "current" ? <LookTodayHero {...hero} /> : (
     <View style={{ gap: 12 }}>
       {!!hero.cover && hero.cover !== failedCover && <Image source={{ uri: hero.cover }} onError={() => setFailedCover(hero.cover ?? null)} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
       <Copy kind="heading">{hero.title}</Copy>
@@ -191,6 +194,7 @@ export function TrainToday() {
   return (
     <>
       {!!offline.error && <Notice error>{offline.error}</Notice>}
+      <LookGreeting />
       <WeekStrip days={week} />
       {/* Saved device training stays resumable even when the service can't be reached. */}
       {active && heroCard}
@@ -202,11 +206,11 @@ export function TrainToday() {
       >
         {!active && heroCard}
         <View style={{ gap: 12 }}>
-          {!!missed.length && <Copy kind="small" tone="warning">
+          {look.id === "current" && !!missed.length && <Copy kind="small" tone="warning">
             {missed.length} earlier {missed.length === 1 ? "session needs" : "sessions need"} a new date. Tap one below to move it or
             train it now; nothing moves on its own.
           </Copy>}
-          {!!missedPlan && !active && <Button title="Missed sessions" secondary onPress={() => { setAdjust({ program: missedPlan }); setAdjustOpen(true); }} />}
+          {!!missedPlan && !active && <Button title={look.id === "current" ? "Missed sessions" : `${missed.length} earlier sessions · Review dates`} secondary textLink={look.id !== "current"} onPress={() => { setAdjust({ program: missedPlan }); setAdjustOpen(true); }} />}
           {!ancestryReady && <>
             <Copy kind="small" tone="muted">Done-day checkmarks are paused while we check your corrected results. Your saved results are in Progress.</Copy>
             {!ancestry.isPending && <Button title="Check again" variant="secondary" size="sm" inline onPress={() => { void ancestry.refetch(); }} />}
@@ -227,11 +231,11 @@ export function TrainToday() {
             <Ionicons name="chevron-forward" size={16} color={c.accentText} />
           </View>
         </View>
-        {summary ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 24 }}>
+        {summary && (look.id === "current" || summary.sessions > 0 || summary.minutes > 0 || summary.streak > 0) ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 24 }}>
           {([[summary.sessions, "Sessions"], [summary.minutes, "Minutes"], [summary.streak, "Day streak"]] as const).map(([value, label]) => <View key={label} style={{ minWidth: 76, gap: 2 }}>
             <Copy kind="numericSmall" style={{ fontSize: 28, lineHeight: 34 }}>{value}</Copy><Copy kind="small" tone="muted">{label}</Copy>
           </View>)}
-        </View> : <Copy kind="small" tone="muted">Your totals appear once your history loads.</Copy>}
+        </View> : <Copy kind="small" tone="muted">{summary ? "No sessions yet this week. Your next one starts here." : "Your totals appear once your history loads."}</Copy>}
       </Pressable>
       <ListGroup>
         <ListRow icon="add-circle-outline" title="Log an activity you did" detail="A run, a class or anything outside Håfa" onPress={() => router.push("/activity")} />

@@ -1,6 +1,6 @@
+import { useLook } from "@/lib/look-context";
 import { useCallback, useRef } from "react";
 import { Animated, Easing, Platform, Pressable } from "react-native";
-import { motion } from "@/constants/theme";
 import { useReducedMotion } from "./foundation";
 
 let animatedPressable: Animated.AnimatedComponent<typeof Pressable> | null = null;
@@ -16,6 +16,7 @@ export function animatedPressableComponent() {
  */
 export function usePressScale(disabled = false) {
   const reduced = useReducedMotion();
+  const profile = useLook().motion;
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
   const animate = useCallback(
@@ -35,8 +36,8 @@ export function usePressScale(disabled = false) {
     [reduced, scale, opacity]
   );
   const onPressIn = useCallback(() => {
-    if (!disabled) animate(motion.pressScale, motion.fast);
-  }, [animate, disabled]);
-  const onPressOut = useCallback(() => animate(1, motion.pressOut), [animate]);
+    if (!disabled) animate(profile.pressScale, profile.fast);
+  }, [animate, disabled, profile.pressScale, profile.fast]);
+  const onPressOut = useCallback(() => animate(1, profile.pressOut), [animate, profile.pressOut]);
   return { onPressIn, onPressOut, scale, opacity };
 }

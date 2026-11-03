@@ -1,23 +1,14 @@
+import { lookFonts } from "./look-fonts";
 import { useEffect, useRef, useState, type PropsWithChildren } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts } from "expo-font";
 import { configuration } from "@/lib/config";
-import { getLook, LOOK_STORAGE_KEY, previewEnabled, restoredLook, type LookId } from "@/lib/looks";
+import { getLook, LOOK_STORAGE_KEY, previewEnabled, restoredLook, type LookId } from "@/constants/looks";
 import { LookContext } from "@/lib/look-context";
 
 // Assets are bundled but only the selected preview's named weights are loaded.
 function FontLoad({ id, ready, failed }: { id: LookId; ready(): void; failed(): void }) {
-  const files = id === "current" ? {} : id === "coach" ? {
-    BricolageGrotesque_700Bold: require("@expo-google-fonts/bricolage-grotesque/700Bold/BricolageGrotesque_700Bold.ttf"),
-    Nunito_600SemiBold: require("@expo-google-fonts/nunito/600SemiBold/Nunito_600SemiBold.ttf"),
-    Nunito_700Bold: require("@expo-google-fonts/nunito/700Bold/Nunito_700Bold.ttf"),
-    Nunito_800ExtraBold: require("@expo-google-fonts/nunito/800ExtraBold/Nunito_800ExtraBold.ttf"),
-  } : {
-    Inter_400Regular: require("@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf"),
-    Inter_600SemiBold: require("@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf"),
-    Inter_700Bold: require("@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf"),
-    ...(id === "athletic" ? { BarlowCondensed_700Bold: require("@expo-google-fonts/barlow-condensed/700Bold/BarlowCondensed_700Bold.ttf") } : {}),
-  };
+  const files = lookFonts(id);
   const [loaded, error] = useFonts(files);
   useEffect(() => { if (loaded) ready(); else if (error) failed(); }, [loaded, error, ready, failed]);
   return null;
@@ -36,6 +27,7 @@ export function LookProvider({ children }: PropsWithChildren) {
   function setLook(next: LookId) {
     if (!enabled) return;
     touched.current = true; setError(""); request(restoredLook(next, true));
+    if (next === id) saveChain.current = saveChain.current.then(() => AsyncStorage.setItem(LOOK_STORAGE_KEY, next)).catch(() => setError("Preview applied, but it could not be saved. Choose it again to retry."));
   }
   function ready() {
     if (id === requested) return;

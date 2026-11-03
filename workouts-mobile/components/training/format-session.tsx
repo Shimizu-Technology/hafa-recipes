@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { LookClock } from "./look-clock";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -35,6 +37,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   finish(status: "completed" | "partial", before?: ActualSet[]): void; discard(): void;
 }) {
   const c = useColors();
+  const look = useLook();
   const { fontScale, width } = useWindowDimensions();
   const [more, setMore] = useState(false);
   const [instructions, setInstructions] = useState(false);
@@ -193,7 +196,10 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
         </View>}
     </>
   );
-  const clockCard = (
+  const clockCard = look.id !== "current" ? <LookClock text={clockText} caption={caption} phase={phaseWord} progress={position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : 60) : 1} trigger={d.actuals.length} compact={grid}>
+    {!!nowLine && <Copy kind="label" align="center">{nowLine}</Copy>}
+    {hasNext && <Copy kind="small" tone="muted" align="center">Next · {moves(position!.index + 1)}</Copy>}
+  </LookClock> : (
     <Card tone="accent">
       <Copy kind="caption" tone="accent">{caption}</Copy>
       {!!phaseWord && <Copy kind="title" tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
