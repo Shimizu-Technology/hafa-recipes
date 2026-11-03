@@ -97,3 +97,11 @@ async def test_search_matches_reordered_words_across_fields_in_postgres():
         async with admin.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
         await admin.dispose()
+
+
+def test_search_tokens_caps_long_queries():
+    from app.routers.recipes import MAX_SEARCH_TOKENS, search_tokens
+    assert search_tokens("Filled cookies ORANGE") == ["filled", "cookies", "orange"]
+    assert search_tokens("   ") == []
+    words = " ".join(f"w{i}" for i in range(50))
+    assert search_tokens(words) == [f"w{i}" for i in range(MAX_SEARCH_TOKENS)]

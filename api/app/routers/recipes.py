@@ -372,6 +372,15 @@ async def create_recipe_version(
     return version
 
 
+# Each word adds a few LIKE clauses; a pasted paragraph shouldn't turn into hundreds of them.
+MAX_SEARCH_TOKENS = 8
+
+
+def search_tokens(q: str) -> list[str]:
+    """Lower-cased words of a search query, all of which must match (first MAX_SEARCH_TOKENS only)."""
+    return q.lower().split()[:MAX_SEARCH_TOKENS]
+
+
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
@@ -1437,7 +1446,7 @@ async def search_recipes(
         )
 
     # Every word must match, in any order and across the existing fields.
-    for token in q.lower().split():
+    for token in search_tokens(q):
         search_term = f"%{token}%"
         base_query = base_query.where(
             or_(
@@ -1719,7 +1728,7 @@ async def search_public_recipes(
         )
 
     # Every word must match, in any order and across the existing fields.
-    for token in q.lower().split():
+    for token in search_tokens(q):
         search_term = f"%{token}%"
         base_query = base_query.where(
             or_(
