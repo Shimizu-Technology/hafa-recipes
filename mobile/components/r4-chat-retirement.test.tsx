@@ -128,7 +128,7 @@ vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleC
     text: '#111',
     textMuted: '#666',
     textSecondary: '#444',
-    tint: '#5DD3B6',
+    tint: '#5DD3B6', actionText: '#8CCFBE', chromeIndicator: 'rgba(236,238,236,0.08)', hairline: '#2A2E2C',
     onTint: '#00261F', onError: '#00261F',
   }),
 }));
@@ -296,14 +296,14 @@ describe('RecipeChatModal conversation isolation', () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it('keeps the assistant mark and user message readable on the bright dark-mode tint', async () => {
+  it('marks the header with an accent sparkle, keeps Send legible on its fill and sets user messages in body ink', async () => {
     mocks.recipeMutate.mockResolvedValue({ response: 'Try a little less salt.' });
     const root = createRoot({ textComponentTypes: ['Text'] });
     try {
       await renderModal(root, 'recipe');
-      const mark = root.container.queryAll(node => node.type === 'Ionicons' && node.props.name === 'sparkles' && node.props.size === 18);
+      const mark = root.container.queryAll(node => node.type === 'Ionicons' && node.props.name === 'sparkles' && node.props.size === 20);
       expect(mark).toHaveLength(1);
-      expect(mark[0].props.color).toBe('#00261F');
+      expect(mark[0].props.color).toBe('#8CCFBE');
       const input = root.container.queryAll(n => n.type === 'TextInput')[0];
       await act(async () => input.props.onChangeText('How much salt?'));
       expect(root.container.queryAll(n => n.type === 'Ionicons' && n.props.name === 'arrow-up')[0].props.color).toBe('#00261F');
@@ -311,7 +311,7 @@ describe('RecipeChatModal conversation isolation', () => {
       const userText = root.container.queryAll(node => node.type === 'Text' && node.props.children === 'How much salt?');
       expect(userText).toHaveLength(1);
       const resolved = Object.assign({}, ...[userText[0].props.style].flat(Infinity));
-      expect(resolved.color).toBe('#00261F');
+      expect(resolved.color).toBe('#111');
     } finally { await act(async () => root.unmount()); }
   });
 

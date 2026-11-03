@@ -37,7 +37,7 @@ import { useImportPreferences } from '@/hooks/useImportPreferences';
 import { getImportStatusPresentation } from '@/lib/importStatusPresentation';
 import { useAsyncExtraction } from '@/contexts/ExtractionContext';
 import { ImportActivityCard, importSourceLabel, importSourceDetail } from '@/components/ImportActivityCard';
-import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, layout, radius, fontFamily } from '@/constants/Colors';
 import type { JobStatus } from '@/types/recipe';
 import { api, type RecipeImageUpload } from '@/lib/api';
 import { consumePendingShareCapture, stagePendingShareCapture } from '@/lib/shareCapture';
@@ -676,7 +676,7 @@ function ExtractScreenContent() {
     return (
       <RNView style={[styles.container, { backgroundColor: colors.background }]}>
         <RNView style={styles.ocrProgressContainer}>
-          <RNView style={[styles.ocrProgressCard, { backgroundColor: colors.backgroundSecondary }]}>
+          <RNView style={[styles.ocrProgressCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
             <Ionicons name="scan" size={48} color={colors.actionText} />
             <Text style={[styles.ocrProgressTitle, { color: colors.text }]}>
               Scanning Recipe
@@ -785,7 +785,7 @@ function ExtractScreenContent() {
           keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {!isSignedIn && <SignInBanner message="Sign in to extract recipes" onSignIn={signInToImport} />}
           <RNView onLayout={(event) => { composerTop.current = event.nativeEvent.layout.y; }}
-            style={[styles.linkComposer, { backgroundColor: colors.backgroundSecondary }]}>
+            style={styles.linkComposer}>
             <RNView style={[styles.composerLabelRow, fontScale >= 1.3 && { flexDirection: 'column', alignItems: 'flex-start' }] }>
               <Text style={[styles.composerLabel, { color: colors.text }]}>Recipe link</Text>
               <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} disabled={isLoading} accessibilityRole="button"
@@ -811,14 +811,13 @@ function ExtractScreenContent() {
                 linkFocused.current = true;
                 if (Keyboard.isVisible()) importScroll.current?.scrollTo({ y: composerTop.current, animated: true });
               }}
-              onBlur={() => { linkFocused.current = false; }}
-              style={{ backgroundColor: colors.background }} />
+              onBlur={() => { linkFocused.current = false; }} />
             <Text style={[styles.supportedSources, { color: colors.textMuted }]}>TikTok, Instagram, YouTube & recipe websites</Text>
             <TouchableOpacity style={[styles.textAction, fontScale >= 1.3 && { flexWrap: 'wrap' }]} onPress={() => { Keyboard.dismiss(); setPanel('settings'); }}
               disabled={!preferences.ready || isLoading || isCheckingDisclosure} accessibilityRole="button" accessibilityLabel="Import settings"
               accessibilityHint={`${isPublic ? 'Public in Discover. Anyone can find this recipe.' : 'Private. Only you can open this recipe.'} Cost estimates for ${selectedLocation}.${notes.trim() ? ' Personal notes added.' : ''}`}>
-              <Text style={{ color: colors.textSecondary }}>Cost estimates: {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
-              <Ionicons name="options-outline" size={20} color={colors.textMuted} />
+              <Ionicons name="options-outline" size={16} color={colors.textSecondary} />
+              <Text style={[styles.smallActionText, { color: colors.textSecondary }]}>Cost estimates: {selectedLocation}{notes.trim() ? ' · Notes added' : ''}</Text>
             </TouchableOpacity>
             <RecipeVisibilitySelector compact value={isPublic ? 'public' : 'private'}
               onChange={(value) => { const next = value === 'public'; setIsPublic(next); rememberImportSettings({ isPublic: next }); }}
@@ -836,8 +835,8 @@ function ExtractScreenContent() {
 
 
           {Platform.OS === 'web' && (entry === 'photos' || entry === 'scan') && <Button title={entry === 'photos' ? 'Choose photos' : 'Take photo'} onPress={() => { void pickImage(entry === 'scan' ? 'camera' : 'library'); }} disabled={!scanDraft.ready || !recoveryDraft.ready || !!scanDraft.available || !!recoveryDraft.available} />}
-          <Text style={[styles.otherWaysLabel, { color: colors.textMuted }]}>Other ways to add</Text>
-          <RNView style={[styles.alternateMethods, { backgroundColor: colors.backgroundSecondary }]}>
+          <Text style={[styles.otherWaysLabel, { color: colors.text }]}>Other ways to add</Text>
+          <RNView style={[styles.alternateMethods, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
             {([
               { title: 'Paste recipe text', icon: 'clipboard-outline', onPress: () => router.push({ pathname: '/paste-recipe', params: { location: selectedLocation, isPublic: isPublic ? 'true' : 'false' } }) },
               { title: 'Scan photos or screenshots', icon: 'camera-outline', onPress: handleScanRecipe },
@@ -845,8 +844,8 @@ function ExtractScreenContent() {
             ] as const).map((method, index) => (
               <TouchableOpacity key={method.title} accessibilityRole="button" accessibilityLabel={method.title}
                 onPress={method.onPress} disabled={!isSignedIn || !preferences.ready || isLoading} activeOpacity={0.7}
-                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
-                <Ionicons name={method.icon} size={21} color={colors.actionText} />
+                style={[styles.alternateRow, index > 0 && { borderTopColor: colors.hairline, borderTopWidth: StyleSheet.hairlineWidth }]}>
+                <Ionicons name={method.icon} size={21} color={colors.text} />
                 <Text style={[styles.alternateTitle, { color: colors.text }]}>{method.title}</Text>
                 <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
               </TouchableOpacity>
@@ -886,7 +885,7 @@ function ExtractScreenContent() {
               id: extraction.jobId || 'active',
               createdAt: Date.parse(recentImports.data?.find((job) => job.id === extraction.jobId)?.created_at || '') || 0,
               content: (extraction.isExtracting || extraction.isComplete || extraction.isFailed) && (
-            <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundSecondary, borderColor: colors.border }]}>
+            <RNView style={[styles.compactProgress, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
               <RNView style={styles.pendingShareCopy}>
                 {extraction.isExtracting ? <ActivityIndicator color={colors.actionText} /> : <Ionicons
                   name={extraction.isFailed ? 'alert-circle-outline' : 'checkmark-circle-outline'} size={22} color={extraction.isFailed ? colors.error : colors.actionText} />}
@@ -903,7 +902,7 @@ function ExtractScreenContent() {
                   <Ionicons name={showProgressDetails ? 'chevron-up' : 'chevron-down'} size={20} color={colors.actionText} />
                 </TouchableOpacity>
               </RNView>
-              {extraction.isExtracting && <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
+              {extraction.isExtracting && <RNView style={[styles.progressTrack, { backgroundColor: colors.hairline }]}
                 accessibilityRole="progressbar" accessibilityLabel="Recipe import progress"
                 accessibilityValue={{ min: 0, max: 100, now: importStatus.progress }}>
                 <RNView style={{ width: `${importStatus.progress}%`, height: 3, backgroundColor: colors.tint }} />
@@ -1007,25 +1006,26 @@ function ExtractScreenContent() {
 }
 
 const styles = StyleSheet.create({
-  linkComposer: { padding: spacing.md, borderRadius: 16, marginBottom: spacing.lg, gap: spacing.xs },
+  // A flat form on the page (no card around the field): label row, field, sources, settings, visibility, Import.
+  linkComposer: { marginBottom: spacing.xl, gap: spacing.sm },
   detailsAction: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   progressTrack: { height: 3, borderRadius: 2, overflow: 'hidden' },
   statusActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
   openRecipeAction: { flexGrow: 1 },
   composerLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
-  composerLabel: { fontSize: fontSize.md, fontFamily: fontFamily.semibold, fontWeight: '600' },
+  composerLabel: { fontSize: 20, lineHeight: 25, fontFamily: fontFamily.bold },
   textAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.xs },
   smallActionText: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },
   supportedSources: { fontSize: fontSize.xs, lineHeight: 18 },
   settingsSummary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, minHeight: 56 },
   settingsCopy: { flex: 1 },
   settingsTitle: { fontSize: fontSize.sm, fontFamily: fontFamily.medium, fontWeight: '500' },
-  otherWaysLabel: { fontSize: fontSize.sm, fontFamily: fontFamily.semibold, fontWeight: '600', marginBottom: spacing.sm },
-  alternateMethods: { borderRadius: 16, overflow: 'hidden', marginBottom: spacing.md },
+  otherWaysLabel: { fontSize: 15, lineHeight: 20, fontFamily: fontFamily.semibold, marginBottom: spacing.sm },
+  alternateMethods: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', marginBottom: spacing.lg },
   alternateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, minHeight: 56 },
   alternateTitle: { flex: 1, fontSize: fontSize.md },
   helpActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.sm },
-  compactProgress: { padding: spacing.md, borderWidth: 1, borderRadius: radius.md, marginBottom: spacing.md, gap: spacing.sm },
+  compactProgress: { padding: spacing.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, marginBottom: spacing.md, gap: spacing.sm },
   inboxRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12 },
   pendingShareNotice: {
     borderWidth: 1,
@@ -1049,7 +1049,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 680,
     alignSelf: 'center',
-    padding: spacing.lg,
+    paddingHorizontal: layout.margin,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },
   importHeading: {
@@ -1086,7 +1087,8 @@ const styles = StyleSheet.create({
   ocrProgressCard: {
     width: '100%',
     padding: spacing.xl,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
   },
   ocrProgressTitle: {

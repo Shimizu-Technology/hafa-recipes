@@ -25,11 +25,11 @@ export function ChatScopeChips({ scope, canFocusRecipe, onChange }: { scope: Cha
   return <View style={styles.row} accessibilityRole={canFocusRecipe ? 'radiogroup' : undefined} accessibilityLabel="What Håfa looks at">
     {chips.map(chip => {
       const selected = chip.value === scope;
-      const tone = selected ? colors.actionText : colors.textSecondary;
+      const tone = selected ? colors.onInk : colors.textSecondary;
       return <Pressable key={chip.value} disabled={!canFocusRecipe || selected} onPress={() => onChange(chip.value)}
         accessibilityRole={canFocusRecipe ? 'radio' : 'text'} accessibilityState={canFocusRecipe ? { selected } : undefined} accessibilityLabel={chip.label}
         style={styles.target}>
-        <View style={[styles.chip, { backgroundColor: selected ? colors.chromeIndicator : colors.surface2 }]}>
+        <View style={[styles.chip, selected ? { backgroundColor: colors.ink } : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }]}>
           <Ionicons name={chip.icon} size={14} color={tone} />
           <Text style={[styles.label, { color: tone }]}>{chip.label}</Text>
         </View>
@@ -41,6 +41,6 @@ export function ChatScopeChips({ scope, canFocusRecipe, onChange }: { scope: Cha
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, marginVertical: -OVERHANG },
   target: { minHeight: MIN_TOUCH, justifyContent: 'center' },
-  chip: { minHeight: CHIP_HEIGHT, borderRadius: 14, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  chip: { minHeight: CHIP_HEIGHT, borderRadius: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
 });

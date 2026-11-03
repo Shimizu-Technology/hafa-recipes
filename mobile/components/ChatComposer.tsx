@@ -105,11 +105,7 @@ export default function ChatComposer({
         accessibilityHint="Enter a cooking question or instruction"
         style={[
           styles.input,
-          {
-            backgroundColor: colors.backgroundSecondary,
-            borderColor: isListening ? colors.tint : colors.border,
-            color: colors.text,
-          },
+          { color: colors.text },
         ]}
         returnKeyType="send"
         blurOnSubmit={false}
@@ -132,7 +128,7 @@ export default function ChatComposer({
         styles.composer,
         {
           backgroundColor: colors.background,
-          borderTopColor: colors.border,
+          borderTopColor: colors.hairline,
           paddingBottom: insets.bottom + spacing.sm,
         },
       ]}
@@ -142,7 +138,7 @@ export default function ChatComposer({
         <RNView
           style={[
             styles.attachedImageContainer,
-            { backgroundColor: colors.backgroundSecondary, borderColor: colors.border },
+            { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline },
           ]}
         >
           <RNView>
@@ -172,7 +168,7 @@ export default function ChatComposer({
 
       {attachmentsOpen && (
         <RNView
-          style={[styles.attachmentTray, { backgroundColor: colors.card, borderColor: colors.border }]}
+          style={[styles.attachmentTray, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}
           accessibilityRole="toolbar"
           accessibilityLabel="Attachment options"
         >
@@ -213,9 +209,11 @@ export default function ChatComposer({
         </RNView>
       )}
 
-      {largeText && <RNView style={[styles.inputRow, styles.largeTextInputRow]}>{messageInput}</RNView>}
-
+      {/* One field holds +, the message, paste and the mic; Send sits beside it as the only accent. */}
       <RNView style={styles.inputRow}>
+      <RNView style={[styles.field, { backgroundColor: colors.backgroundElevated, borderColor: isListening ? colors.tint : colors.border }]}>
+      {largeText && <RNView style={[styles.inputRow, styles.largeTextInputRow]}>{messageInput}</RNView>}
+      <RNView style={styles.fieldRow}>
         <TouchableOpacity
           onPress={() => {
             if (!areAttachmentsDisabled) setAttachmentsOpen((open) => !open);
@@ -228,16 +226,13 @@ export default function ChatComposer({
           style={[
             styles.roundButton,
             controlFrame,
-            {
-              backgroundColor: attachmentsOpen ? colors.tint : colors.backgroundSecondary,
-              borderColor: attachmentsOpen ? colors.tint : colors.border,
-            },
+            { backgroundColor: attachmentsOpen ? colors.surface2 : 'transparent' },
           ]}
         >
           <Ionicons
             name={attachmentsOpen ? 'close' : 'add'}
             size={24}
-            color={attachmentsOpen ? colors.onTint : colors.textSecondary}
+            color={attachmentsOpen ? colors.text : colors.textSecondary}
           />
         </TouchableOpacity>
 
@@ -255,7 +250,7 @@ export default function ChatComposer({
               imageOptions={{ format: 'jpeg', jpegQuality: 0.75 }}
               displayMode="iconOnly"
               cornerStyle="capsule"
-              backgroundColor={colors.backgroundSecondary}
+              backgroundColor={colors.backgroundElevated}
               foregroundColor={colors.textSecondary}
               onPress={(payload) => {
                 if (!areAttachmentsDisabled) onNativePaste(payload);
@@ -277,10 +272,7 @@ export default function ChatComposer({
           style={[
             styles.roundButton,
             controlFrame,
-            {
-              backgroundColor: isListening ? colors.tint : colors.backgroundSecondary,
-              borderColor: isListening ? colors.tint : colors.border,
-            },
+            { backgroundColor: isListening ? colors.tint : 'transparent' },
           ]}
         >
           <Ionicons
@@ -289,6 +281,8 @@ export default function ChatComposer({
             color={isListening ? colors.onTint : colors.textSecondary}
           />
         </TouchableOpacity>
+      </RNView>
+      </RNView>
 
         <TouchableOpacity
           onPress={isSending ? onCancel : onSend}
@@ -305,7 +299,7 @@ export default function ChatComposer({
                 ? colors.error
                 : canSend
                   ? colors.tint
-                  : colors.border,
+                  : colors.surface2,
             },
           ]}
         >
@@ -352,8 +346,8 @@ function AttachmentAction({
       accessibilityState={{ disabled }}
       style={[styles.attachmentAction, { opacity: disabled ? 0.45 : 1 }]}
     >
-      <RNView style={[styles.attachmentActionIcon, { backgroundColor: colors.backgroundSecondary }]}>
-        <Ionicons name={icon} size={22} color={colors.actionText} />
+      <RNView style={[styles.attachmentActionIcon, { backgroundColor: colors.surface2 }]}>
+        <Ionicons name={icon} size={22} color={colors.text} />
       </RNView>
       <Text style={[styles.attachmentActionLabel, { color: colors.textSecondary }]}>{label}</Text>
     </TouchableOpacity>
@@ -362,7 +356,7 @@ function AttachmentAction({
 
 const styles = StyleSheet.create({
   composer: {
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
     gap: spacing.sm,
@@ -377,7 +371,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.sm,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
     gap: spacing.md,
   },
@@ -410,7 +404,7 @@ const styles = StyleSheet.create({
   },
   attachmentTray: {
     flexDirection: 'row',
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
     padding: spacing.sm,
     gap: spacing.lg,
@@ -460,14 +454,24 @@ const styles = StyleSheet.create({
   inputColumn: {
     flex: 1,
   },
+  field: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
   input: {
     minHeight: 44,
     maxHeight: 120,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.xs,
     paddingTop: 11,
     paddingBottom: 10,
-    borderRadius: radius.lg,
-    borderWidth: 1,
     fontSize: fontSize.md,
     lineHeight: 21,
     textAlignVertical: 'center',
@@ -481,11 +485,9 @@ const styles = StyleSheet.create({
   roundButton: {
     width: 44,
     height: 44,
-    marginBottom: 2,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
   },
   largeTextInputRow: {
     marginBottom: spacing.sm,
@@ -505,6 +507,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     marginBottom: 2,
+    marginLeft: spacing.xs,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',

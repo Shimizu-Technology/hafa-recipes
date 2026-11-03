@@ -1045,11 +1045,9 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
         keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
       >
         {/* Header */}
-        <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
+        <RNView style={[styles.header, { borderBottomColor: colors.hairline }]}>
           <RNView style={styles.headerContent}>
-            <RNView style={[styles.assistantMark, { backgroundColor: colors.tint }]}>
-              <Ionicons name="sparkles" size={18} color={colors.onTint} />
-            </RNView>
+            <Ionicons name="sparkles" size={20} color={colors.actionText} />
             <RNView style={styles.headerTextContainer}>
               <Text style={[styles.headerTitle, { color: colors.text }]}>
                 Ask Håfa
@@ -1068,7 +1066,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                 </TouchableOpacity>
               )}
               {isGeneralMode && (
-                <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+                <Text numberOfLines={1} style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
                   Cooking help, whenever you need it
                 </Text>
               )}
@@ -1096,7 +1094,9 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
               accessibilityRole="button"
               accessibilityLabel="Close chat"
             >
-              <Ionicons name="close" size={28} color={colors.text} />
+              <RNView style={[styles.closeCircle, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+                <Ionicons name="close" size={20} color={colors.text} />
+              </RNView>
             </TouchableOpacity>
           </RNView>
         </RNView>
@@ -1129,13 +1129,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
 
           {/* Welcome message */}
           {!isLoadingHistory && !historyError && messages.length === 0 && (
-            <RNView style={[styles.welcomeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <RNView style={[styles.welcomeIcon, { backgroundColor: colors.backgroundSecondary }]}>
-                <Ionicons name="sparkles" size={28} color={colors.actionText} />
-              </RNView>
-              <Text style={[styles.welcomeEyebrow, { color: colors.actionText }]}>
-                Håfa cooking assistant
-              </Text>
+            <RNView style={[styles.welcomeCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
               <Text style={[styles.welcomeTitle, { color: colors.text }]}>
                 {isGeneralMode 
                   ? "What are you cooking?"
@@ -1155,7 +1149,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
           {/* Quick suggestions */}
           {!isLoadingHistory && !historyError && messages.length === 0 && (
             <RNView style={styles.suggestionsContainer}>
-              <Text style={[styles.suggestionsTitle, { color: colors.textMuted }]}>
+              <Text style={[styles.suggestionsTitle, { color: colors.text }]}>
                 A few ways to start
               </Text>
               <RNView style={styles.suggestionsWrap}>
@@ -1167,7 +1161,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                     accessibilityRole="button"
                     accessibilityLabel={suggestion}
                   >
-                    <Text style={[styles.suggestionText, { color: colors.actionText }]}>
+                    <Text style={[styles.suggestionText, { color: colors.text }]}>
                       {suggestion}
                     </Text>
                   </TouchableOpacity>
@@ -1197,7 +1191,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
             >
               {msg.role === 'assistant' && (
                 <RNView style={styles.assistantIdentity}>
-                  <RNView style={[styles.assistantIdentityIcon, { backgroundColor: colors.backgroundSecondary }]}>
+                  <RNView style={styles.assistantIdentityIcon}>
                     <Ionicons name="sparkles" size={12} color={colors.actionText} />
                   </RNView>
                   <Text style={[styles.assistantIdentityText, { color: colors.textMuted }]}>Håfa</Text>
@@ -1209,8 +1203,8 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                   styles.messageBubble,
                   msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
                   {
-                    backgroundColor: msg.role === 'user' ? colors.tint : colors.card,
-                    borderColor: msg.role === 'user' ? colors.tint : colors.border,
+                    backgroundColor: msg.role === 'user' ? colors.chromeIndicator : colors.backgroundElevated,
+                    borderColor: msg.role === 'user' ? 'transparent' : colors.hairline,
                   },
                 ]}
               >
@@ -1230,7 +1224,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                         />
                       </RNView>
                     )}
-                    <Text style={[styles.messageText, { color: colors.onTint }]}>
+                    <Text style={[styles.messageText, { color: colors.text }]}>
                       {msg.content}
                     </Text>
                   </>
@@ -1392,17 +1386,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    minHeight: 76,
+    paddingLeft: 20,
+    paddingRight: 12,
+    minHeight: 64,
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  assistantMark: {
+  closeCircle: {
     alignItems: 'center',
-    borderRadius: radius.md,
-    height: 40,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
     justifyContent: 'center',
-    width: 40,
+    width: 36,
   },
   headerContent: {
     flexDirection: 'row',
@@ -1415,7 +1411,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: fontSize.lg,
-    fontFamily: fontFamily.displaySemibold,
+    lineHeight: 22,
+    fontFamily: fontFamily.bold,
   },
   headerSubtitle: {
     fontFamily: fontFamily.regular,
@@ -1490,27 +1487,14 @@ const styles = StyleSheet.create({
   },
   welcomeCard: {
     alignItems: 'flex-start',
-    borderRadius: radius.xl,
-    borderWidth: 1,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.lg,
   },
-  welcomeIcon: {
-    alignItems: 'center',
-    borderRadius: radius.lg,
-    height: 52,
-    justifyContent: 'center',
-    width: 52,
-  },
-  welcomeEyebrow: {
-    fontFamily: fontFamily.bold, fontWeight: '700',
-    fontSize: fontSize.sm,
-    marginTop: spacing.md,
-  },
   welcomeTitle: {
-    fontSize: fontSize.xl,
+    fontSize: 22,
     fontFamily: fontFamily.display,
-    lineHeight: 27,
-    marginTop: spacing.xs,
+    lineHeight: 28,
   },
   welcomeSubtitle: {
     fontFamily: fontFamily.regular,
@@ -1528,8 +1512,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   suggestionsTitle: {
-    fontFamily: fontFamily.semibold, fontWeight: '600',
-    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    fontSize: 15,
+    lineHeight: 20,
     marginBottom: spacing.sm,
   },
   suggestionsWrap: {
@@ -1539,13 +1524,16 @@ const styles = StyleSheet.create({
   },
   suggestionChip: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-    borderWidth: 1,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   suggestionText: {
-    fontFamily: fontFamily.medium, fontWeight: '500',
-    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    fontSize: 15,
+    lineHeight: 20,
   },
   messageWrapper: {
     marginBottom: spacing.md,
@@ -1578,7 +1566,7 @@ const styles = StyleSheet.create({
   messageBubble: {
     padding: spacing.md,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   userBubble: {
     borderBottomRightRadius: radius.xs,
