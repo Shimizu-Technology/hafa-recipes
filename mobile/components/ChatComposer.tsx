@@ -1,5 +1,5 @@
 import { TextInput } from '@/components/Themed';
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Platform,
@@ -12,7 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Text, TextScaleContext, useColors } from '@/components/Themed';
+import { Text, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 import { CHAT_MESSAGE_MAX_CHARS } from '../lib/chatComposer';
 
@@ -63,7 +63,6 @@ export default function ChatComposer({
   // At larger text the field gets its own row so the placeholder stays readable.
   const largeText = fontScale >= 1.3;
   // The placeholder follows the text actually drawn (system × in-app size); the layout gate stays system-only.
-  const largeTextPlaceholder = fontScale * useContext(TextScaleContext) >= 1.3;
   // UIPasteControl hides its icon when its frame is smaller than the scaled glyph,
   // which left a blank tinted square at larger text; size it, and the buttons
   // beside it, to the font scale.
@@ -95,7 +94,8 @@ export default function ChatComposer({
           : isListening
             ? 'Listening…'
             : isGeneralMode
-              ? largeTextPlaceholder ? 'Ask about cooking…' : 'Ask anything about cooking…'
+              // Short enough to stay on one line beside +, paste and the mic at every text size.
+              ? 'Ask about cooking…'
               : 'Ask about this recipe…'}
         placeholderTextColor={isListening ? colors.actionText : colors.textMuted}
         multiline
