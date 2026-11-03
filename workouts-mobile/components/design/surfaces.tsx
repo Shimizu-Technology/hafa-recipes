@@ -44,6 +44,7 @@ export function Screen({
   back = false,
   action,
   footer,
+  pinned,
   refreshing,
   onRefresh,
   onEndReached,
@@ -75,6 +76,8 @@ export function Screen({
   headerHairline?: boolean;
   action?: ReactNode;
   footer?: ReactNode;
+  /** Content held between the header and the scrolling body, so a live readout (a clock) never scrolls out of view. */
+  pinned?: ReactNode;
   /** Pull to refresh. */
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -163,6 +166,7 @@ export function Screen({
           </View>
         </View>
       </View>}
+      {!!pinned && !list && <View style={{ paddingHorizontal: spacing.md, paddingTop: spacing.md, width: "100%", maxWidth: contentWidth, alignSelf: "center" }}>{pinned}</View>}
       {tabRoot && !list && <TabScrollToTop target={scroller} rest={scrollRest.rest} />}
       {list ? <>{list({ header: heading, contentContainerStyle, refreshControl })}{children}</> : <ScrollView
         contentInsetAdjustmentBehavior={root ? "automatic" : "never"}

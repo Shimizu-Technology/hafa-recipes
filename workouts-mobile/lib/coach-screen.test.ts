@@ -129,6 +129,25 @@ it("reads chronologically with a pinned composer and copies the original reply w
   await clickReply("Copy reply");
   expect(f.copy).toHaveBeenCalledWith("Reply older"); expect(copiedFeedback()).toBe(true);
 });
+it("shows a workout-scoped coach only that workout's exchanges, never the earlier Today thread", async () => {
+  const withFocus = (id: string, focus: CoachMessage["focus"]) => ({ ...reply(id), focus });
+  f.history = [withFocus("leg", { context_workout_id: "workout-1", context_revision: 1 }), withFocus("other", { context_workout_id: "workout-2" }), reply("today")];
+  f.params = { workout_id: "workout-1", revision: "1" };
+  await mount();
+  expect(nodes("Markdown").map(node => node.props.children)).toEqual(["Reply leg"]);
+  await unmount(); f.params = { workout_id: "workout-3", revision: "1" }; await mount();
+  expect(nodes("Markdown")).toHaveLength(0); // a fresh conversation
+  await unmount(); f.params = {}; await mount();
+  expect(nodes("Markdown")).toHaveLength(3); // the general coach is unchanged
+});
+it("does not offer older general history to a scope that has no exchanges yet", async () => {
+  f.pageSize = 2; f.history = [reply("c"), reply("b"), reply("a")]; f.params = { workout_id: "workout-1", revision: "1" };
+  await mount();
+  expect(nodes("Markdown")).toHaveLength(0);
+  expect(nodes("Button").some(node => node.props.title === "Load earlier messages")).toBe(false);
+  await unmount(); f.params = {}; await mount();
+  expect(nodes("Button").some(node => node.props.title === "Load earlier messages")).toBe(true);
+});
 it("preserves unsent text through remount", async () => { await mount(); await type("Keep this draft"); await unmount(); await mount(); expect(nodes("Field")[0].props.value).toBe("Keep this draft"); });
 it("retries the exact durable request after a lost acknowledgement and remount", async () => {
   f.send.mockRejectedValueOnce(Error("Connection interrupted")); await mount(); await type("Use the saved focus"); await click("Send message");
