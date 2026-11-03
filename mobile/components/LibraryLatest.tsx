@@ -28,16 +28,17 @@ export function LibraryLatest({ recipe, onPress }: { recipe: RecipeListItem; onP
     <RecipeThumbnail uri={recipe.thumbnail_url} style={styles.photo} accessible={false} placeholderIconSize={22} priority="high" />
     <View style={styles.copy}>
       <Text style={[styles.label, { color: colors.textSecondary }]}>Latest</Text>
-      <Text numberOfLines={large ? 5 : 2} style={[styles.title, { color: colors.text }]}>{recipe.title}</Text>
+      <Text numberOfLines={large ? 4 : 2} style={[styles.title, { color: colors.text }]}>{recipe.title}</Text>
       {meta ? <Text numberOfLines={large ? 3 : 1} style={[styles.label, { color: colors.textSecondary }]}>{meta}</Text> : null}
     </View>
-    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+    {!large && <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />}
   </PressScale>;
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 12, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, marginBottom: 24 },
-  rowLarge: { alignItems: 'flex-start' },
+  // Large text: the photo sits above so the title gets the full width instead of one word per line.
+  rowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 12 },
   photo: { width: 64, height: 64, borderRadius: 12 },
   copy: { flex: 1, gap: 2 },
   label: { fontSize: 13, lineHeight: 18 },
