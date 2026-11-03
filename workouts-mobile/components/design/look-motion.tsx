@@ -24,7 +24,7 @@ export function LookPop({ children, trigger, kind = "set" }: PropsWithChildren<{
   const scale = useRef(new Animated.Value(1)).current, opacity = useRef(new Animated.Value(1)).current;
   const previous = useRef(trigger);
   useEffect(() => {
-    if (previous.current === trigger) return;
+    if (previous.current === trigger) { scale.setValue(1); opacity.setValue(1); return; }
     previous.current = trigger;
     if (look.id === "current" || kind === "pr" && look.id !== "pro") return;
     scale.stopAnimation(); opacity.stopAnimation();

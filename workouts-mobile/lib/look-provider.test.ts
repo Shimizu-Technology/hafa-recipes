@@ -28,7 +28,7 @@ it("keeps the previous look until fonts load and surfaces a font failure", async
   await mount(); f.loaded = false;
   await act(async () => look.setLook("athletic")); expect(look.id).toBe("current"); expect(look.pending).toBe(true);
   f.fontError = new Error("font missing"); await act(async () => view.update(createElement(LookProvider, null, createElement(Child))));
-  expect(look.id).toBe("current"); expect(look.error).toContain("font could not load"); expect(f.set).not.toHaveBeenCalled();
+  expect(look.id).toBe("current"); expect(look.error).toContain("font could not load"); expect(f.set).toHaveBeenLastCalledWith(LOOK_STORAGE_KEY, "current");
 });
 it("does not let late hydration overwrite an explicit choice", async () => {
   let resolve!: (value: string) => void; f.get.mockReturnValue(new Promise<string>(r => { resolve = r; })); await mount();
@@ -54,4 +54,13 @@ it("ignores an obsolete write failure while persisting the newer choice", async 
   await act(async () => reject(new Error("old save")));
   expect(look.id).toBe("coach"); expect(look.error).toBe("");
   expect(f.set).toHaveBeenLastCalledWith(LOOK_STORAGE_KEY, "coach");
+});
+
+it("persists the visible fallback after a newer look fails to load", async () => {
+  await mount(); await act(async () => look.setLook("athletic"));
+  f.loaded = false; await act(async () => look.setLook("coach"));
+  f.fontError = new Error("coach font");
+  await act(async () => view.update(createElement(LookProvider, null, createElement(Child))));
+  expect(look.id).toBe("athletic");
+  expect(f.set).toHaveBeenLastCalledWith(LOOK_STORAGE_KEY, "athletic");
 });

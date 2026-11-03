@@ -259,3 +259,14 @@ it("keeps the real preview clock readable and scales the ring to each work/rest 
   expect(text()).toContain("0:09");
   expect(renderer!.root.findByType("ProgressRing" as never).props.progress).toBe(0.9);
 });
+
+it.each([null, 60])("preview uses a real for-time cap ring, or no ring without a cap (%s)", async cap => {
+  fixture.look = "coach";
+  const d = await draft(workout({ grouping: "circuit", rounds: 1, execution: { mode: "for_time", time_cap_seconds: cap }, exercises: [{ name: "Burpees", reps_min: 100 }] }));
+  await render(d, 15_000);
+  const clock = renderer!.root.findAllByType("Copy" as never).find(n => n.children.includes("0:15"));
+  expect(clock?.props.accessibilityLabel).toBe("0:15 elapsed");
+  const rings = renderer!.root.findAllByType("ProgressRing" as never);
+  expect(rings).toHaveLength(cap ? 1 : 0);
+  if (cap) expect(rings[0].props.progress).toBe(0.75);
+});

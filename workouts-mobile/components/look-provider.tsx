@@ -43,6 +43,6 @@ export function LookProvider({ children }: PropsWithChildren) {
   }
   return <LookContext.Provider value={{ ...getLook(enabled ? id : "current"), enabled, pending: id !== requested, error, setLook }}>
     {children}
-    {enabled && <FontLoad key={requested} id={requested} ready={ready} failed={() => { setError("The preview font could not load. Your previous look is still active."); request(id); }} />}
+    {enabled && <FontLoad key={requested} id={requested} ready={ready} failed={() => { setError("The preview font could not load. Your previous look is still active."); request(id); if (touched.current && requested !== id) persist(id); }} />}
   </LookContext.Provider>;
 }
