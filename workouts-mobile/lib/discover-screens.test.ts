@@ -1,3 +1,5 @@
+vi.mock("@/components/design/athletic-motion", () => ({ EntranceItem: ({ children }: { children: unknown }) => children }));
+vi.mock("@/components/workout-art", () => ({ WorkoutArt: "WorkoutArt" }));
 import WorkoutDetail from "../app/workout/[id]";
 import { WorkoutSource } from "../components/workout-source";
 import { createElement, Fragment, isValidElement, type ComponentType, type PropsWithChildren, type ReactNode } from "react";

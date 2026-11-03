@@ -1,3 +1,6 @@
+vi.mock("@/components/design/foundation", () => ({ Copy: "Copy", useColors: () => ({ text: "ink" }) }));
+vi.mock("@/components/design/training", () => ({ ProgressRing: "ProgressRing" }));
+vi.mock("@/components/design/athletic-motion", () => ({ SetPop: "SetPop" }));
 import { createElement, isValidElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -43,7 +46,15 @@ function elements(node: unknown): Array<{ type: unknown; props: Record<string, a
   return [{ type: node.type, props }, ...elements(props.children)];
 }
 // The clock card is pinned (a prop of the mocked Screen) at large text and in the scrolling body otherwise.
-const copies = () => [...renderer!.root.findAllByType("Copy" as never), ...elements(renderer!.root.findByType("Screen" as never).props.pinned).filter((n) => n.type === "Copy")];
+const copies = () => {
+  const pinned = renderer!.root.findByType("Screen" as never).props.pinned;
+  if (!pinned) return renderer!.root.findAllByType("Copy" as never);
+  let tree!: ReactTestRenderer;
+  act(() => { tree = create(pinned); });
+  const result = tree.root.findAllByType("Copy" as never).map(n => ({ props: n.props }));
+  act(() => tree.unmount());
+  return [...renderer!.root.findAllByType("Copy" as never), ...result];
+};
 const button = (title: string) => [...renderer!.root.findAll((n) => (n.type as unknown) === "Button"),
   ...elements(renderer!.root.findByType("Screen" as never).props.footer)].find((n) => n.type === "Button" && n.props.title === title)!;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); fixture.announce.mockReset();
@@ -59,7 +70,7 @@ it("shows the minute, this minute's move from the rotation and a countdown, and 
   expect(text()).toContain("Minute 3 of 20");
   expect(text()).toContain("This minute: 10 Burpees");
   expect(text()).toContain("0:55");
-  expect(text()).toContain("Next · Minute 4: 15 Air squats");
+  expect(text()).toContain("Next · 15 Air squats");
   // Two minutes passed unmarked: the oldest is offered first, and nothing was recorded on its own.
   expect(text()).toContain("Not marked yet");
   expect(log).not.toHaveBeenCalled();
@@ -169,11 +180,11 @@ it("caps the clock's growth at the largest text size so it stays on one line ins
   expect(clock.props.children).toBe("59:59");
   expect(clock.props.numberOfLines).toBe(1);
   expect(clock.props.allowFontScaling).toBe(false);
-  expect(clock.props.style.fontSize * 5 * 0.62).toBeLessThanOrEqual(390 - 96);
-  expect(clock.props.style.fontSize).toBeLessThanOrEqual(56 * 1.6);
+  expect(clock.props.style.fontSize * 5 * 0.44).toBeLessThanOrEqual(390 - 64);
+  expect(clock.props.style.fontSize).toBeLessThanOrEqual(52 * 1.6);
   fixture.fontScale = 1;
   await render(d, 65_000);
-  expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(56);
+  expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(92);
 });
 
 it("exposes for-time moves as checkboxes", async () => {
@@ -219,9 +230,8 @@ it("pins the clock card above the scrolling body at large text so it never scrol
   fixture.fontScale = 3.1;
   await render(d, 5_000);
   const screen = renderer!.root.findByType("Screen" as never);
-  const pinned = elements(screen.props.pinned);
-  expect(pinned[0].type).toBe("Card");
-  const clock = pinned.find((n) => n.type === "Copy" && n.props.kind === "numeric")!;
+  expect(screen.props.pinned.props.compact).toBe(true);
+  const clock = copies().find(n => n.props.kind === "numeric")!;
   expect(clock.props.children).toBe("1:55");
   // The clock is not duplicated in the scrolling body.
   expect(renderer!.root.findAll((n) => (n.type as unknown) === "Card" && n.props.tone === "accent")).toHaveLength(0);
@@ -239,7 +249,45 @@ it("allows phase labels to scale while capping the clock", async () => {
   const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Squats" }] }));
   fixture.fontScale = 3.1;
   await render(d, 5_000);
-  expect(copies().find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBeUndefined();
-  expect(copies().find((n) => n.props.kind === "caption")!.props.maxScale).toBeUndefined();
-  expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(56 * 1.6);
+  expect(copies().find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBe(1.5);
+  expect(copies().find((n) => n.props.children === "Interval 1 of 8")!.props.maxScale).toBe(1.5);
+  expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(52 * 1.6);
+});
+
+it("keeps the real Athletic clock readable and scales the ring to each work/rest phase", async () => {
+  const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Squats" }] }));
+  await render(d, 5_000);
+  expect(text()).toContain("0:15");
+  expect(renderer!.root.findAllByType("Copy" as never).find(n => n.children.includes("0:15"))?.props.accessibilityLabel).toBe("0:15 left");
+  expect(renderer!.root.findByType("ProgressRing" as never).props.progress).toBe(0.75);
+  await render(d, 21_000);
+  expect(text()).toContain("0:09");
+  expect(renderer!.root.findByType("ProgressRing" as never).props.progress).toBe(0.9);
+});
+
+it("keeps long instructions in the scrolling body at largest text", async () => {
+  fixture.fontScale = 3.1;
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 60, intervals: 10, rotation: "together" }, exercises: [{ name: "A deliberately long exercise instruction", reps_min: 5 }] }));
+  await render(d, 5_000);
+  const screen = renderer!.root.findByType("Screen" as never);
+  expect(screen.props.pinned.props.compact).toBe(true);
+  let pinnedTree!: ReactTestRenderer;
+  await act(async () => { pinnedTree = create(screen.props.pinned); });
+  const pinned = pinnedTree.root.findAllByType("Copy" as never);
+  expect(pinned.some(n => String(n.props.children).includes("This minute"))).toBe(false);
+  expect(pinned.find(n => n.props.children === "Minute 1 of 10")?.props.maxScale).toBe(1.5);
+  await act(async () => pinnedTree.unmount());
+  expect(text()).toContain("This minute: 5 A deliberately long exercise instruction");
+  expect(button("Pause")).toBeDefined();
+  expect(button("Finish")).toBeDefined();
+});
+
+it.each([null, 60])("Athletic uses a real for-time cap ring, or no ring without a cap (%s)", async cap => {
+  const d = await draft(workout({ grouping: "circuit", rounds: 1, execution: { mode: "for_time", time_cap_seconds: cap }, exercises: [{ name: "Burpees", reps_min: 100 }] }));
+  await render(d, 15_000);
+  const clock = renderer!.root.findAllByType("Copy" as never).find(n => n.children.includes("0:15"));
+  expect(clock?.props.accessibilityLabel).toBe("0:15 elapsed");
+  const rings = renderer!.root.findAllByType("ProgressRing" as never);
+  expect(rings).toHaveLength(cap ? 1 : 0);
+  if (cap) expect(rings[0].props.progress).toBe(0.75);
 });

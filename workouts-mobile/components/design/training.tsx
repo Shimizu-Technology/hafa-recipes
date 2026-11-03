@@ -182,8 +182,8 @@ export function SetRow({
   const c = useColors();
   const done = state === "done";
   const current = state === "current";
-  const badgeBg = done ? c.action : current ? c.accent : state === "skipped" ? c.sunken : c.surface;
-  const badgeFg = done ? c.onAction : current ? c.onAccent : c.muted;
+  const badgeBg = done ? c.action : current ? c.text : state === "skipped" ? c.sunken : c.surface;
+  const badgeFg = done ? c.onAction : current ? c.background : c.muted;
   const label = `Set ${number}, ${summary}, ${{ done: "done", skipped: "skipped", current: "current set", upcoming: "upcoming" }[state]}`;
   return (
     <Pressable
@@ -242,15 +242,16 @@ export function SetRow({
 
 export type DayMark = { today?: boolean; label: string; state: "done" | "planned" | "today" | "rest"; accessibilityLabel: string };
 /** This week at a glance: done, planned and today. No streak pressure. */
-export function WeekStrip({ days }: { days: DayMark[] }) {
+export function WeekStrip({ days, onPress }: { days: DayMark[]; onPress?(): void }) {
   const c = useColors();
+  const Target = onPress ? Pressable : View;
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 4 }}>
       {days.map((day, i) => {
         const done = day.state === "done";
         const today = day.today || day.state === "today";
         return (
-          <View key={i} accessible accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
+          <Target key={i} accessible accessibilityRole={onPress ? "button" : undefined} accessibilityHint={onPress ? "Opens your training progress" : undefined} onPress={onPress} accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", gap: 6, flex: 1 }}>
             <Copy kind="caption" tone={today ? "accent" : "muted"}>
               {day.label}
             </Copy>
@@ -261,16 +262,16 @@ export function WeekStrip({ days }: { days: DayMark[] }) {
                 borderRadius: radii.full,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: done ? c.action : "transparent",
+                backgroundColor: done ? c.action : c.sunken,
                 borderWidth: today || day.state === "planned" ? 2 : 0,
                 borderColor: today ? c.accent : c.muted,
               }}
             >
               {done ? (
                 <Ionicons name="checkmark" size={18} color={c.onAction} />
-              ) : null}
+              ) : <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: c.muted }} />}
             </View>
-          </View>
+          </Target>
         );
       })}
     </View>

@@ -1,3 +1,4 @@
+vi.mock("@/components/workout-art", () => ({ WorkoutArt: "WorkoutArt" }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -33,7 +34,7 @@ it.each([undefined, null, { execution: { mode: "emom" as const, interval_seconds
       contributor: { contributor_id: "c", display_name: "Kai" }, is_owner: false, saved_workout_id: null };
     const expected = format ? "EMOM 20" : "35 min";
     act(() => { view = create(createElement(DiscoverGridCard, { card, onPress() {} })); });
-    expect(view!.root.findAllByType("Copy" as never).map(node => node.props.children)).toContain(expected);
+    expect(view!.root.findByType("WorkoutArt" as never).props.meta).toBe(expected);
     expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain(expected);
     act(() => { view!.update(createElement(DiscoverCardView, { card, onPress() {} })); });
     const media = view!.root.findByType("MediaCard" as never);

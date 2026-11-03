@@ -1,3 +1,7 @@
+vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
+vi.mock("@/components/design/foundation", () => ({ Copy: "Copy", useColors: () => ({}) }));
+vi.mock("@/components/design/athletic-motion", () => ({ Entrance: ({ children }: { children: unknown }) => children }));
+vi.mock("@/components/brand-mark", () => ({ BrandMark: "BrandMark" }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -41,7 +45,7 @@ vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontS
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 }, spacing: { xs: 8, sm: 12 } }));
-vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
+vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn(), navigate: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
 vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
 vi.mock("@/components/workout-start-sheet", () => ({ WorkoutStartSheet: "WorkoutStartSheet" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
@@ -179,8 +183,7 @@ it("missed sessions remain visible with explicit recovery and no silent date cha
     purpose: "Saved plan", workout: { title: "Missed strength" } }] } as Program;
   fixture.programs.mockResolvedValue([program]);
   await mount();
-  expect(text()).toContain("1 earlier session needs a new date");
-  expect(text()).toContain("nothing moves on its own");
+  expect(buttons("1 earlier session · Review dates")).toHaveLength(1);
   expect(program.sessions[0].date).toBe("2020-01-01");
   expect(fixture.start).not.toHaveBeenCalled();
 });
@@ -251,6 +254,14 @@ it("Today marks only effective recorded work and agrees with corrections, reject
   fixture.history.unshift({ generation: 1, state: "queued", request: { ...request, client_session_id: "new", status: "partial" }, workout });
   await act(async () => { renderer!.update(tree()); });
   expect(strip().filter((day) => day.state === "done")).toHaveLength(1);
+});
+
+it("opens the Progress tab (not a pushed copy) when a weekday is tapped", async () => {
+  await mount();
+  const { router } = await import("expo-router");
+  await act(async () => { renderer!.root.findByType("WeekStrip" as never).props.onPress(); });
+  expect(router.navigate).toHaveBeenLastCalledWith("/(tabs)/history");
+  expect(router.push).not.toHaveBeenCalledWith("/history-progress");
 });
 
 it.each(["populated", "zero and absent"] as const)("saved-result correction exposes %s feedback and preserves imperial distance and immutable source", async feedback => {
@@ -753,7 +764,7 @@ it("keeps the existing Coach entry reachable from Today", async () => {
   fixture.available = true;
   fixture.coachMessages = [{ state: "completed", assistant_message: "Try a recovery day", created_at: "2026-11-03" }];
   await mount();
-  expect(buttons("Ask Coach")).toHaveLength(1);
+  expect(buttons("Ask Coach")).toHaveLength(0);
   expect(renderer!.root.findAll(node => String(node.type) === "ListRow" && node.props.title === "Ask your coach")).toHaveLength(0);
   const coach = renderer!.root.findAll(node => String(node.type) === "Pressable").find(node => node.findAll(child => String(child.type) === "Copy" && child.props.children === "Try a recovery day").length > 0)!;
   await act(async () => coach.props.onPress());
@@ -797,12 +808,7 @@ it("the Today hero gives each state one clear next step", async () => {
   await remount();
   expect(text()).toContain("Today strength");
   expect(buttons("Adjust today")).toHaveLength(1);
-  expect(buttons("Ask Coach")).toHaveLength(1);
-  const adjustParent = buttons("Adjust today")[0].parent!;
-  const coachParent = buttons("Ask Coach")[0].parent!;
-  expect(adjustParent.parent).toBe(coachParent.parent);
-  expect(adjustParent.props.style.flex).toBe(1);
-  expect(coachParent.props.style.flex).toBe(1);
+  expect(buttons("Ask Coach")).toHaveLength(0);
   await act(async () => buttons("Start")[0].props.onPress()); await settle();
   expect(fixture.start).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenLastCalledWith("/training");
@@ -848,7 +854,7 @@ it("keeps a saved missed-session receipt reachable after all missed sessions hav
   const p = { id: "shifted", title: "Shifted plan", revision: 2, generation: 1, sessions: [], status: "ready" } as unknown as Program;
   await dayAdjustments({ isCurrent: () => true, getItem: async key => fixture.drafts.get(key) ?? null, setItem: async (key, value) => { fixture.drafts.set(key, value); }, removeItem: async key => { fixture.drafts.delete(key); } }, fixture.owner, 1).save({ owner: fixture.owner, generation: 1, program: p, proposal: { id: "shift-receipt", proposal: { state: "accepted", status: "ready", session_ids: [], questions: [], before: { proposal: { sessions: [] } }, program: { proposal: { sessions: [] } } } }, state: "accepted", pending: null });
   fixture.available = true; await mount();
-  expect(buttons("Missed sessions")).toHaveLength(0);
+  expect(buttons("1 earlier session · Review dates")).toHaveLength(0);
   expect(buttons("Review saved adjustment · Shifted plan")).toHaveLength(1);
 });
 
@@ -871,7 +877,7 @@ it("Train retains cached plan rows after a refetch error and recovers on retry",
 const weeklyRow = () => renderer!.root.findAllByType("Pressable" as never).find(node => node.props.accessibilityLabel?.startsWith("This week"))!;
 const weeklyLabel = () => weeklyRow().props.accessibilityLabel;
 const weeklyValues = () => weeklyRow().findAllByType("Copy" as never).filter(node => node.props.kind === "numericSmall").map(node => node.props.children);
-it("shows unavailable weekly totals while the first history read is delayed, then real zeroes", async () => {
+it("shows unavailable weekly totals while the first history read is delayed, then a quiet empty-week message", async () => {
   fixture.available = true;
   let release!: (value: TrainingSession[]) => void;
   fixture.sessions.mockImplementation(() => new Promise(resolve => { release = resolve; }));
@@ -879,7 +885,8 @@ it("shows unavailable weekly totals while the first history read is delayed, the
   expect(weeklyValues()).toEqual([]);
   expect(weeklyLabel()).toBe("This week. See progress");
   await act(async () => release([])); await settle();
-  expect(weeklyValues()).toEqual([0, 0, 0]);
+  expect(weeklyValues()).toEqual([]);
+  expect(text()).toContain("No sessions yet this week");
   expect(weeklyLabel()).toBe("This week: 0 sessions, 0 minutes, 0 day streak. See progress");
 });
 it("shows dashes and no announced zeroes on a cold offline history read", async () => {
@@ -907,15 +914,31 @@ it("keeps cached weekly totals when a history refresh fails", async () => {
 });
 
 
-it("offers Coach in the Today hero only for enrolled members", async () => {
+it("keeps the coach suggestion tappable in the Athletic hero with no duplicate inline Ask", async () => {
   fixture.available = true;
+  fixture.coachMessages = [{ state: "completed", assistant_message: "Keep each rep controlled.", created_at: "2026-11-03T00:00:00Z" }];
   await mount();
-  expect(buttons("Ask Coach")).toHaveLength(1);
-  expect(buttons("Ask Coach")[0].props.accessibilityHint).toBe("Opens a chat with your AI coach");
+  expect(buttons("Ask Coach")).toHaveLength(0);
+  expect(text()).toContain("Keep each rep controlled.");
+  const suggestion = renderer!.root.findAllByType("Pressable" as never).find(n => n.props.accessibilityHint === "Opens a chat with your AI coach")!;
+  await act(async () => suggestion.props.onPress());
   const { router } = await import("expo-router");
-  await act(async () => buttons("Ask Coach")[0].props.onPress());
   expect(router.push).toHaveBeenCalledWith("/coach");
-  fixture.enrolled = false;
+});
+
+it("retries a failed Today cover after it disappears and returns", async () => {
+  fixture.active = { workout: { title: "Training", source_thumbnail_url: "https://example.test/a.jpg" }, actuals: [] };
+  await mount();
+  await act(async () => renderer!.root.findByType("Image" as never).props.onError());
+  fixture.active = { workout: { title: "Training" }, actuals: [] };
   await act(async () => renderer!.update(tree()));
+  fixture.active = { workout: { title: "Training", source_thumbnail_url: "https://example.test/a.jpg" }, actuals: [] };
+  await act(async () => renderer!.update(tree()));
+  expect(renderer!.root.findAllByType("Image" as never)).toHaveLength(1);
+});
+it("Today route exposes exactly one floating Coach entry", async () => {
+  await act(async () => { renderer = create(createElement(QueryClientProvider, { client: cache }, createElement(Plan))); });
+  await settle();
+  expect(renderer!.root.findAllByType("AskCoachPill" as never)).toHaveLength(1);
   expect(buttons("Ask Coach")).toHaveLength(0);
 });

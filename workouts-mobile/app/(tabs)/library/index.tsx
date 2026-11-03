@@ -1,3 +1,4 @@
+import { EntranceItem, type EntranceBudget } from "@/components/design/athletic-motion";
 import { BrowseHeader, headerActions } from "@/components/native-tab-stack";
 import { workoutGridColumns } from "@/lib/readable-layout";
 import { workoutOrigin } from "@/lib/labels";
@@ -55,6 +56,7 @@ export default function Library() {
   const [collection, setCollection] = useState<string>();
   const [maxMinutes, setMaxMinutes] = useState<number>();
   const [needsInfo, setNeedsInfo] = useState(false);
+  const entrance = useRef<EntranceBudget>({ ids: null, seen: new Set() });
   const list = useRef<FlatList<Workout> | null>(null);
   const listRest = useScrollRest();
   const [showCollections, setShowCollections] = useState(false);
@@ -168,6 +170,7 @@ export default function Library() {
   const visible = [
     ...new Map([...(q.data?.pages.flatMap((page) => page.items) ?? []), ...localMatches].map((workout) => [workout.id, workout])).values(),
   ];
+  if (!entrance.current.ids && visible.length) entrance.current.ids = visible.slice(0, 6).map(w => w.id);
   const narrowed = !!filterCount || !!settledSearch;
   const caps = useQuery({ queryKey: [owner, "capabilities", enrollment?.generation], queryFn: api.capabilities });
   const allSelected = !!visible.length && visible.every((w) => selectedIds.includes(w.id));
@@ -312,6 +315,7 @@ export default function Library() {
           onScroll={event => reportAskScroll(event.nativeEvent.contentOffset.y)}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (
+            <EntranceItem id={w.id} budget={entrance.current}>
             <LibraryCard
               view={view}
               title={w.title}
@@ -325,6 +329,7 @@ export default function Library() {
               onPress={() => selecting ? select(w.id) : router.push({ pathname: "/workout/[id]", params: { id: w.id } })}
               onLongPress={selecting ? undefined : () => startSelecting(w.id)}
             />
+            </EntranceItem>
           )}
         />
       )}

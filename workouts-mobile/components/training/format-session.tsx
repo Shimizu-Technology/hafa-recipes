@@ -1,3 +1,4 @@
+import { SessionClock } from "./session-clock";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -122,10 +123,6 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
 
   // Whole seconds elapsed, the same way the saved finish time counts them.
   const clockText = format.mode === "for_time" ? formatClock(Math.floor(elapsed / 1000)) : formatClock(position!.remaining);
-  // The clock grows with text size up to 1.6×, and never past the card's width: tabular digits are about
-  // 0.62 em. A computed size, not adjustsFontSizeToFit, which clips on the new architecture. With the capped
-  // caption and phase word it stays above the footer at the largest text size.
-  const clockSize = Math.min(56 * Math.min(fontScale, 1.6), (width - 96) / (clockText.length * 0.62));
   const caption = format.mode === "for_time"
     ? [format.time_cap_seconds != null ? `Cap ${formatClock(format.time_cap_seconds)}` : "No time cap", `Round ${Math.min(target ?? lastRound, block.rounds ?? 1)} of ${block.rounds ?? 1}`].join(" · ")
     : `${unit} ${position!.index}${interval!.intervals != null ? ` of ${interval!.intervals}` : ""}`;
@@ -145,7 +142,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const cell = footerCellWidth(width);
   const action = (title: string, props: Omit<ComponentProps<typeof Button>, "title" | "size" | "maxScale">, alone = false) => (
     <View key={title} style={{ width: alone ? "100%" : cell }}>
-      <Button title={title} size="lg" {...props} icon={undefined} maxScale={footerLabelScale(title, alone ? cell * 2 : cell, fontScale)} />
+      <Button title={title} size="lg" {...props} icon={undefined} maxScale={footerLabelScale(title, (alone ? cell * 2 : cell) - 12, fontScale)} />
     </View>
   );
   const cells = (...items: ReactNode[]) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>{items}</View>;
@@ -193,26 +190,25 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
         </View>}
     </>
   );
-  const clockCard = (
-    <Card tone="accent">
-      <Copy kind="caption" tone="accent">{caption}</Copy>
-      {!!phaseWord && <Copy kind="title" tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
-      <Copy kind="numeric" allowFontScaling={false} numberOfLines={1} style={{ fontSize: clockSize, lineHeight: Math.ceil(clockSize * 8 / 7) }} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`}>{clockText}</Copy>
-      {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small">{formatClock(remaining)} left</Copy>}
-      {!!nowLine && <Copy kind="label">{nowLine}</Copy>}
-      {hasNext && <Copy kind="small" tone="muted">Next · {unit} {position!.index + 1}: {moves(position!.index + 1)}</Copy>}
-      {format.mode === "for_time" && allMarked && <Copy kind="label">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
-    </Card>
-  );
+  const clockContext = <>
+    {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small" align="center">{formatClock(remaining)} left</Copy>}
+    {!!nowLine && <Copy kind="label" align="center">{nowLine}</Copy>}
+    {format.mode === "for_time" && allMarked && <Copy kind="label" align="center">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
+    {hasNext && moves(position!.index + 1) !== moves(position!.index) && <Copy kind="small" tone="muted" align="center">Next · {moves(position!.index + 1)}</Copy>}
+  </>;
+  const clockCard = <SessionClock text={clockText} caption={caption} phase={phaseWord} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`} progress={format.mode === "for_time" ? remaining != null && format.time_cap_seconds ? remaining / format.time_cap_seconds : null : position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : position.phase === "work" ? format.work_seconds : format.rest_seconds) : null} trigger={d.actuals.length} compact={grid}>
+    {!grid && clockContext}
+  </SessionClock>;
 
   return (
-    <Screen native back title={formatLabel(block)?.split(" · ")[0] ?? d.workout.title} subtitle={d.workout.title}
+    <Screen native back title={formatLabel(block)?.split(" · ")[0] ?? d.workout.title} subtitle={d.workout.title.startsWith(`${formatLabel(block)?.split(" · ")[0]} · `) ? d.workout.title.split(" · ").slice(1).join(" · ") : d.workout.title}
       action={<IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />}
       footer={footer}
       // The clock stays put above the footer at large text; the logged work scrolls beneath it.
       pinned={grid ? clockCard : undefined}
     >
       {!grid && clockCard}
+      {grid && clockContext}
       {d.paused && !finished && <Notice tone="warning">Paused. The clock is stopped and time away isn’t counted.</Notice>}
       {format.mode === "for_time" && step && (
         <>
