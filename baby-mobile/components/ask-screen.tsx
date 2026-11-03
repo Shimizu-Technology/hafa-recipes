@@ -6,7 +6,7 @@ import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
@@ -49,7 +49,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             maxFontSizeMultiplier={0}
             scrollEnabled
             style={{ flex: 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
-              minHeight: composerMinimum, borderRadius: 22,
+              minHeight: composerMinimum, borderRadius: 24,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
               fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
           />
@@ -143,7 +143,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             key={m.id ?? index}
             accessible
             accessibilityLabel={`You asked: ${m.content}`}
-            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: 20,
+            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: radii.bubble,
               borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
           >
             <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}>

@@ -10,7 +10,7 @@ import { careSummary, duration, friendlyTime, timeAgo } from "@/lib/care-format"
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
-import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, typeScale, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -43,14 +43,14 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
         minWidth: 0,
         paddingVertical: 16,
         paddingHorizontal: 8,
-        borderRadius: 20,
-        backgroundColor: primary ? c.action : c.soft,
+        borderRadius: radii.tile,
+        backgroundColor: primary ? c.action : c.surface,
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
       })}
     >
-      <Icon name={icon} size={22} color={primary ? c.onAction : c.action} />
+      <Icon name={icon} size={22} color={primary ? c.onAction : c.accentText} />
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: primary ? c.onAction : c.text, textAlign: "center" }}>{label}</Text>
     </PressTarget>
   );

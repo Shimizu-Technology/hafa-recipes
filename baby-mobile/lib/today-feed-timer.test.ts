@@ -39,7 +39,7 @@ vi.mock("@/lib/today-care", () => ({
 }));
 const ui = vi.hoisted(() => ({
   PressTarget: "Pressable", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Icon: "Icon", Loading: "Loading", Notice: "Notice",
-  typeScale: { headline: {} }, Grouped: "Grouped", Screen: "Screen", Row: "Row", Section: "Section", useColors: () => ({ text: "#000", hero: "#fff" }), useToast: () => scope.toast,
+  typeScale: { headline: {} }, radii: { tile: 22 }, Grouped: "Grouped", Screen: "Screen", Row: "Row", Section: "Section", useColors: () => ({ text: "#000", hero: "#fff" }), useToast: () => scope.toast,
   fonts: { regular: "r", semibold: "s", bold: "b" },
 }));
 vi.mock("@/components/ui", () => ui);

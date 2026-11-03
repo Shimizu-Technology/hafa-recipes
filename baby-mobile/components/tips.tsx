@@ -9,7 +9,7 @@ import { dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing"
 import { Card, Copy, Grouped, Icon, PressTarget, Section, fonts, typeScale, useColors } from "./ui";
 import { SavedPostRow } from "./saved-post-row";
 
-const dayStyle = { fontFamily: fonts.rounded, fontWeight: "400" as const, fontSize: 20, lineHeight: 25 };
+const dayStyle = { fontFamily: fonts.displayItalic, fontSize: 22, lineHeight: 28 };
 /** "Week 34 · Day 3" in SF Rounded with the due date beneath. */
 export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
   const c = useColors(), { fontScale, width } = useWindowDimensions(),
@@ -21,7 +21,7 @@ export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
   const stacked = stackedFor === layout;
   return <Card tone="hero" style={{ gap: 4 }}>
     <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}`} style={{ gap: 4 }}>
-      <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontWeight: "600", color: c.accentText }}>Your pregnancy</Text>
+      <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Your pregnancy</Text>
       {/* The 44pt display numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
       {stacked ? <View style={{ gap: 2 }}>
         <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}>Week {progress.week}</Text>
@@ -40,7 +40,7 @@ function SeeAll({ view, title }: { view: string; title: string }) {
   return <PressTarget accessibilityRole="link" accessibilityLabel={`See all, ${title}`} hitSlop={8}
     onPress={() => router.navigate({ pathname: "/library", params: { view, at: String(Date.now()) } })}
     style={{ minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "flex-end" }}>
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText }}>See all</Text>
+    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.accentText }}>See all</Text>
   </PressTarget>;
 }
 
@@ -73,7 +73,7 @@ export function SuggestionLine({ record, busy, isNew, onAccept, onDismiss }: {
         disabled={busy} onPress={onAccept}
         style={{ minHeight: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.soft, justifyContent: "center", opacity: busy ? 0.5 : 1 }}
         hitSlop={4}>
-        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontWeight: "600", color: c.action }}>Add</Text>
+        <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.action }}>Add</Text>
       </PressTarget>
       <PressTarget accessibilityRole="button" accessibilityLabel={`Not ${suggestion.name} for “${title}”`} accessibilityHint="Keeps this post in Uncategorized without a suggestion"
         disabled={busy} onPress={onDismiss} hitSlop={4}

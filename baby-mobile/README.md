@@ -242,7 +242,7 @@ lock change. Regression tests cover the new IDs, provenance drift, expiry,
 unknown IDs, and removal of the old Forge acceptance. Existing unrelated
 exceptions retain their prior limitations; no runtime-risk acceptance is added.
 
-Reviewed baby-mobile lock SHA-256: `a37f770d41a5c7a0820729e988d1ba721884bc1494de69cb6030978579e6803f`.
+Reviewed baby-mobile lock SHA-256: `33eb77111f1508fc13636afc4e4b4f07620cf7cc1c6c6b4c30e170c32c291619`.
 
 | Package/path | Version | Integrity |
 |---|---|---|
@@ -258,3 +258,11 @@ Declaring dependencies (all are `dependencies`, no optional/peer/dev declaration
 
 - `glob`: `node_modules/@expo/config` → `^13.0.0`, `node_modules/@expo/config-plugins` → `^13.0.0`, `node_modules/@expo/fingerprint` → `^13.0.0`, `node_modules/@expo/metro-config` → `^13.0.0`, `node_modules/expo/node_modules/@expo/cli` → `^13.0.0`.
 - `minimatch`: `node_modules/@expo/fingerprint` → `^10.2.2`, `node_modules/glob` → `^10.2.2`.
+
+## Soft font review — 2026-11-03
+
+Soft adds one font-only package, `@expo-google-fonts/newsreader` 0.4.1 (MIT + OFL-1.1, no
+dependencies, TTF assets only, no native code), next to the existing `@expo-google-fonts/dm-sans`.
+The app imports only the six faces it uses (`lib/fonts.ts`). The reviewed lock hash above is renewed
+for this one addition. Fresh `npm audit --omit=dev`: 21 inherited findings, zero critical, and the
+same six reviewed advisory IDs; nothing new. The existing 2026-11-17 expiry is unchanged.

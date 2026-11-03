@@ -26,10 +26,9 @@ export function TabStack({ title }: { title: string }) {
       // iOS 26 draws no large title over a coloured large-title background; the page is the same colour anyway.
       headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: liquidGlass ? "transparent" : c.background },
       headerShadowVisible: true, headerLargeTitleShadowVisible: false,
-      headerTitleStyle: { color: c.text },
-      // UIKit's rounded-system alias; ui-rounded is resolved only by RN text.
-      headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".AppleSystemUIFontRounded-Bold" : fonts.regular,
-        fontSize: 34, fontWeight: "700" },
+      // Newsreader for every tab's large title, DM Sans once it collapses into the bar.
+      headerTitleStyle: { color: c.text, fontFamily: fonts.semibold },
+      headerLargeTitleStyle: { color: c.text, fontFamily: fonts.display, fontSize: 36 },
       contentStyle: { backgroundColor: c.background },
       ...headerActions(<TabActions />),
     }} />
@@ -52,7 +51,7 @@ export function HeaderPill({ title, onPress, disabled = false }: { title: string
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
     <View style={{ minHeight: 36, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
-      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontWeight: "600", color: c.text }}>{title}</Text>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.text }}>{title}</Text>
     </View>
   </PressTarget>;
 }
@@ -69,7 +68,7 @@ export function AccountButton() {
   return <PressTarget accessibilityRole="button" accessibilityLabel="Settings and profiles" onPress={() => router.push("/settings")}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
     <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 16, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
-      {text ? <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.rounded, fontSize: 13, fontWeight: "700", color: c.text }}>{text}</Text>
+      {text ? <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 13, color: c.text }}>{text}</Text>
         : <Icon name="person" size={17} color={c.text} />}
     </View>
   </PressTarget>;
