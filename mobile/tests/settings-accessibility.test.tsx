@@ -121,7 +121,7 @@ vi.mock('@/hooks/useTextSize', () => ({
   TEXT_SIZE_LABELS: { small: 'Small', medium: 'Medium', large: 'Large', 'extra-large': 'Extra Large' },
   useTextSize: () => ({ textSize: 'large', setTextSize: mocks.setTextSize, scale: 1.15 }),
 }));
-vi.mock('@/constants/Colors', () => ({ fontFamily: { display: 'Fraunces_600SemiBold' },
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 }, fontFamily: { display: 'Fraunces_600SemiBold' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 20, xxl: 24, xxxl: 30 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },
   radius: { sm: 4, md: 14, lg: 20, xl: 28, full: 9999 },

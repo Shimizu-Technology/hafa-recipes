@@ -54,7 +54,7 @@ export function SettingsProfileCard({
       accessibilityHint={!isLoaded ? undefined : isSignedIn ? 'Opens profile editing' : 'Opens sign in'}
       accessibilityState={{ disabled: !isLoaded, busy: !isLoaded }}
     >
-      <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 12, padding: 16 }}>
+      <RNView style={{ backgroundColor: colors.backgroundElevated, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.hairline, padding: 16 }}>
         <RNView style={styles.userCard}>
           {isLoaded && isSignedIn && hasProfilePhoto(user) ? (
             <Image source={{ uri: user.imageUrl }} style={styles.userAvatar} />

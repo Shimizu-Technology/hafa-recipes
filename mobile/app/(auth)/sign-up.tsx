@@ -367,7 +367,7 @@ export default function SignUpScreen() {
           {/* OAuth Buttons */}
           <RNView style={styles.oauthContainer}>
             <TouchableOpacity
-              style={[styles.oauthButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              style={[styles.oauthButton, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}
               onPress={handleAppleSignUp}
               disabled={isLoading}
               activeOpacity={0.7}
@@ -379,7 +379,7 @@ export default function SignUpScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.oauthButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              style={[styles.oauthButton, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}
               onPress={handleGoogleSignUp}
               disabled={isLoading}
               activeOpacity={0.7}
@@ -393,9 +393,9 @@ export default function SignUpScreen() {
 
           {/* Divider */}
           <RNView style={styles.dividerContainer}>
-            <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.dividerLine, { backgroundColor: colors.hairline }]} />
             <Text style={[styles.dividerText, { color: colors.textMuted }]}>or</Text>
-            <RNView style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <RNView style={[styles.dividerLine, { backgroundColor: colors.hairline }]} />
           </RNView>
 
           {/* Error Banner */}
@@ -564,8 +564,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     paddingVertical: spacing.md,
-    borderRadius: radius.full,
-    borderWidth: 0,
+    borderRadius: radius.md,
+    minHeight: 50,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   oauthButtonText: {
     fontSize: fontSize.md,

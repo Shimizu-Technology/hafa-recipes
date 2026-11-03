@@ -368,8 +368,8 @@ export default function RecoverAccountScreen() {
           </RNView>
 
           <RNView style={[styles.note, {
-            backgroundColor: colors.backgroundSecondary,
-            borderColor: colors.border,
+            backgroundColor: colors.backgroundElevated,
+            borderColor: colors.hairline,
           }]}>
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
             <Text style={[styles.noteText, { color: colors.textSecondary }]}>
