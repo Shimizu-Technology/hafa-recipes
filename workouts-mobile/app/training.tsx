@@ -1,3 +1,4 @@
+import { useLook } from "@/lib/look-context";
 import { largeText } from "@/lib/readable-layout";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { useReminders } from "@/components/reminders-provider";
@@ -57,6 +58,7 @@ function ActivityPicker({ value, onChange }: { value: string; onChange(type: str
 // Survives remounts, so returning to the screen within the "Rest done" window does not alert twice.
 let alertedRest = "";
 export default function Training() {
+  const look = useLook();
   const { fontScale } = useWindowDimensions();
   const { api, units, owner, enrollment, storage, isCurrentAccount } = useTraining();
   const { store, state, ready, error: restoreError, retry } = useOfflineTraining();
@@ -447,9 +449,9 @@ export default function Training() {
           )}
         </>
       )}
-      {timed && <Card compact tone="accent">
+      {timed && <Card compact tone="accent" style={look.id === "current" ? undefined : { backgroundColor: "transparent", paddingHorizontal: 0, alignItems: "center" }}>
         <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} time cap</Copy>
-        <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
+        <Copy kind="numeric" fit={look.id !== "current"} maxScale={look.id === "current" ? undefined : 1.6} style={look.id === "current" ? undefined : { fontSize: 64, lineHeight: 72 }}>{formatClock(capRemaining ?? 0)}</Copy>
         <Copy kind="small">Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
         {capReached && <Notice>Time’s up. Log any final exercise, then save your session.</Notice>}
         {timed.limit_reached && <Notice tone="warning">This session reached its tracking limit. Save the recorded work as a partial session.</Notice>}
@@ -461,7 +463,7 @@ export default function Training() {
         <Notice tone="warning">Paused. Time away isn’t counted as training.</Notice>
       )}
       {phase === "resting" && (
-        <Card>
+        <Card style={look.id === "current" ? undefined : { backgroundColor: "transparent", paddingHorizontal: 0 }}>
           <RestTimer
             remaining={rest}
             onAdd={() => {
