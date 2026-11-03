@@ -48,11 +48,14 @@ export function formatIngredientAmount(quantity: string | null | undefined, unit
 
 /** Pairs an already formatted amount (e.g. from scaleQuantity) with its unit, singular up to one. */
 export function joinAmountAndUnit(amount: string | null | undefined, unit?: string | null): string {
+  return [amount, inflectUnit(amount, unit)].filter(Boolean).join(' ');
+}
+
+/** The unit to show beside a formatted amount: known cooking units are singular up to one. */
+export function inflectUnit(amount: string | null | undefined, unit?: string | null): string | null | undefined {
   const value = amount == null ? null : parseQuantity(amount);
   const knownUnit = unit?.trim().match(/^(cup|teaspoon|tablespoon|ounce|pound|pint|quart|gallon|clove|slice|piece)s?$/i);
-  const displayUnit = knownUnit && value !== null
-    ? `${knownUnit[1]}${value <= 1 ? '' : 's'}` : unit;
-  return [amount, displayUnit].filter(Boolean).join(' ');
+  return knownUnit && value !== null ? `${knownUnit[1]}${value <= 1 ? '' : 's'}` : unit;
 }
 
 export function formatGroceryReviewAmount(quantity: string | null | undefined, unit: string | null | undefined, name: string): string {

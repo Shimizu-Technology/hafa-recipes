@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatGroceryReviewAmount, formatIngredientAmount, formatQuantity, joinAmountAndUnit, spokenQuantity } from './quantityPresentation';
+import { formatGroceryReviewAmount, formatIngredientAmount, formatQuantity, inflectUnit, joinAmountAndUnit, spokenQuantity } from './quantityPresentation';
 import { scaleQuantity } from '@/hooks/useScaledServings';
 
 describe('display-only cooking quantities', () => {
@@ -50,4 +50,11 @@ it('adds the unit to an already scaled amount without formatting it twice', () =
   expect(joinAmountAndUnit(scaled, 'cup')).toBe('1.4 cups');
   expect(formatGroceryReviewAmount('1.42', 'cup', 'milk')).toBe('1.4 cups milk');
   expect(joinAmountAndUnit('½', 'cups')).toBe('½ cup');
+});
+
+it('inflects the unit beside a separately styled amount', () => {
+  expect(inflectUnit('½', 'cups')).toBe('cup');
+  expect(inflectUnit('2', 'cup')).toBe('cups');
+  expect(inflectUnit('a pinch', 'cups')).toBe('cups');
+  expect(inflectUnit('1', 'g')).toBe('g');
 });
