@@ -68,7 +68,7 @@ function MenuItem({ icon, label, value, onPress, colors }: MenuItemProps) {
           {value}
         </Text>
       ) : onPress ? (
-        <Text style={[styles.menuArrow, { color: colors.textMuted }]}>›</Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
       ) : null}
     </RNView>
   );
@@ -371,22 +371,26 @@ export default function SettingsScreen() {
         {/* Data Section */}
         <RNView style={styles.section}>
           <SectionHeader title="Data" />
-          <MenuItem
-            icon="trash-outline"
-            label="Clear Cache"
-            onPress={handleClearCache}
-            colors={colors}
-          />
+          <RNView style={[styles.menuGroup, groupSheet]}>
+            <MenuItem
+              icon="trash-outline"
+              label="Clear Cache"
+              onPress={handleClearCache}
+              colors={colors}
+            />
+          </RNView>
         </RNView>
 
         <RNView style={styles.section}>
           <SectionHeader title="Safety" />
-          <MenuItem
-            icon="shield-checkmark-outline"
-            label="Safety Center"
-            onPress={() => router.push('/safety' as any)}
-            colors={colors}
-          />
+          <RNView style={[styles.menuGroup, groupSheet]}>
+            <MenuItem
+              icon="shield-checkmark-outline"
+              label="Safety Center"
+              onPress={() => router.push('/safety' as any)}
+              colors={colors}
+            />
+          </RNView>
         </RNView>
 
         {/* Appearance Section - Combined Theme + Text Size */}
