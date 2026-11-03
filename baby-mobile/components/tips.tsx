@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import type { BabyRecord, Child } from "@/lib/models";
@@ -8,17 +9,27 @@ import { dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing"
 import { Card, Copy, Grouped, Icon, PressTarget, Section, fonts, typeScale, useColors } from "./ui";
 import { SavedPostRow } from "./saved-post-row";
 
+const dayStyle = { fontFamily: fonts.rounded, fontWeight: "400" as const, fontSize: 20, lineHeight: 25 };
 /** "Week 34 · Day 3" in SF Rounded with the due date beneath. */
 export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(),
+  const c = useColors(), { fontScale, width } = useWindowDimensions(),
     progress = pregnancyProgress(child.due_date!, now)!, due = dueLine(child.due_date!, now);
+  // "Week 34 · Day 5" stays on one line when it fits. When the numeral grows too wide, "Day 5" moves to its own
+  // line and the dot goes with it, instead of leaving a line that starts with "·". Decided per text size and width.
+  const layout = `${fontScale}:${width}`;
+  const [stackedFor, setStackedFor] = useState<string | null>(null);
+  const stacked = stackedFor === layout;
   return <Card tone="hero" style={{ gap: 4 }}>
     <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}`} style={{ gap: 4 }}>
       <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontWeight: "600", color: c.accentText }}>Your pregnancy</Text>
       {/* The 44pt display numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
-      <Text key={`value:${fontScale}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}>
-        Week {progress.week}<Text style={{ fontFamily: fonts.rounded, fontWeight: "400", fontSize: 20, lineHeight: 25, color: c.muted }}>{" ·\u00a0Day\u00a0"}{progress.day}</Text>
-      </Text>
+      {stacked ? <View style={{ gap: 2 }}>
+        <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}>Week {progress.week}</Text>
+        <Text key={`day:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...dayStyle, color: c.muted }}>Day {progress.day}</Text>
+      </View> : <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}
+        onTextLayout={(event) => { if (event.nativeEvent.lines.length > 1) setStackedFor(layout); }}>
+        Week {progress.week}<Text style={{ ...dayStyle, color: c.muted }}>{" ·\u00a0Day\u00a0"}{progress.day}</Text>
+      </Text>}
       <Copy numeric kind="small" tone="muted">{due}</Copy>
     </View>
   </Card>;
