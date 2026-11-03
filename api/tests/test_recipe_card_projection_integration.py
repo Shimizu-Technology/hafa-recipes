@@ -222,9 +222,13 @@ async def test_scoped_search_finds_unloaded_saved_recipes_without_bypassing_visi
         second = (await client.get("/api/recipes/search?ownership=saved&q=rice&limit=20&offset=20")).json()
         assert second["total"] == 25 and not second["has_more"] and len(second["items"]) == 5
         target = await client.get("/api/recipes/search?ownership=saved&q=Saved%20rice%200&tags=dinner&time_filter=quick")
-        assert target.status_code == 200 and target.json()["total"] == 1
-        assert target.json()["items"][0]["id"] not in {item["id"] for item in first["items"]}
-        assert target.json()["items"][0]["title"] == "Saved rice 0"
+        # Token AND retains substring matching: 0 also matches rice 10 and 20.
+        assert target.status_code == 200 and target.json()["total"] == 3
+        assert {item["title"] for item in target.json()["items"]} == {
+            "Saved rice 0", "Saved rice 10", "Saved rice 20",
+        }
+        exact = next(item for item in target.json()["items"] if item["title"] == "Saved rice 0")
+        assert exact["id"] not in {item["id"] for item in first["items"]}
         assert (await client.get("/api/recipes/search?ownership=saved&q=missing")).json()["items"] == []
         legacy = (await client.get("/api/recipes/search?q=rice")).json()
         assert legacy["total"] == 1 and legacy["items"][0]["title"] == "My rice"
