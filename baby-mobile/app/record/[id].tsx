@@ -15,6 +15,7 @@ import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
 import { ensureAiConsent } from "../../lib/ai-consent";
+import { useLook } from "../../lib/look-context";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
     b = useBaby(),
@@ -23,7 +24,7 @@ export default function RecordDetail() {
     [busy, setBusy] = useState(false),
     [missing, setMissing] = useState(false),
     [editingTiming, setEditingTiming] = useState(false),
-    record = b.records.find((r) => r.id === id),
+    record = b.records.find((r) => r.id === id), Hero = useLook().parts.DetailHero,
     pending = b.state.outbox.some((m) => m.type !== "import" && m.record.id === id);
   useEffect(() => {
     if (record && !record.cache_partial) return;
@@ -90,7 +91,8 @@ export default function RecordDetail() {
       numericSubtitle
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
-      {title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
+      {Hero && record.kind === "source" ? <Hero record={record} title={title} />
+        : title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>

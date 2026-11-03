@@ -6,6 +6,7 @@ import { router } from "expo-router";
 import type { BabyRecord } from "@/lib/models";
 import { timingLabel } from "@/lib/timing";
 import { Copy, Icon, PressTarget, useColors, type IconName } from "./ui";
+import { useLook } from "../lib/look-context";
 
 const labels: Record<string, string> = {
   saved: "Original saved", queued: "Waiting to process", processing: "Processing…",
@@ -19,7 +20,7 @@ const updates: Record<string, string> = {
 };
 /** `meta` replaces the default "timing · creator · platform" line, for example with a topic on Today. */
 export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pending: boolean; meta?: string }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), title = sourceTitle(record),
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look, parts } = useLook(), title = sourceTitle(record),
     // At accessibility sizes the thumbnail sits above the text so long words keep the full width.
     stacked = fontScale >= 2,
     status = pending ? "Saved on this device" : labels[record.data.status ?? ""] ?? "Saved",
@@ -43,16 +44,23 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
     if (url.protocol === "https:" && !url.username && !url.password) thumbnail = url.toString();
   } catch { /* A thumbnail is optional; the saved post stays readable. */ }
   const [failed, setBroken] = useState<string>(), broken = !!thumbnail && failed === thumbnail;
+  const { Placeholder, Tape } = parts, framed = look.variants.list === "clippings";
+  const mark = <Icon name={marks[platform] ?? "bookmark-outline"} size={23} />;
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, record.data.creator, identity, status].filter(Boolean).join(". ")}
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={({ pressed }) => ({ minHeight: 80, flexDirection: stacked ? "column" : "row", gap: 12, alignItems: "flex-start",
-      paddingVertical: 12, paddingHorizontal: 16, backgroundColor: c.surface })}>
-    <View style={{ width: 56, height: 56, borderRadius: 10, overflow: "hidden", backgroundColor: c.tile,
+      paddingVertical: 12, paddingHorizontal: 16, backgroundColor: c.surface, ...(look.fonts.system ? {} : { borderRadius: look.radii.row }),
+      ...(framed ? { paddingTop: 16 } : {}) })}>
+    {framed && Tape && <Tape topic={meta ?? record.data.topics?.[0] ?? title} index={title.length} />}
+    {/* Scrapbook frames the photo like a print: a white border inside a paper hairline. */}
+    <View style={framed ? { padding: 3, backgroundColor: "#FFFFFF", borderRadius: look.radii.thumb + 1, borderWidth: 1, borderColor: c.cardBorder } : undefined}>
+    <View style={{ width: 56, height: 56, borderRadius: look.fonts.system ? 10 : look.radii.thumb, overflow: "hidden", backgroundColor: look.fonts.system ? c.tile : c.placeholder,
       alignItems: "center", justifyContent: "center" }}>
       {/* The platform mark stays underneath, so a loading or broken thumbnail never leaves an empty tile. */}
-      <Icon name={marks[platform] ?? "bookmark-outline"} size={23} />
+      {Placeholder ? <Placeholder record={record} size={56} mark={mark} /> : mark}
       {thumbnail && !broken && <Image source={{ uri: thumbnail }} style={{ position: "absolute", width: 56, height: 56 }}
         cachePolicy="memory" contentFit="cover" transition={150} onError={() => setBroken(thumbnail)} />}
+    </View>
     </View>
     <View style={{ flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined, gap: 4 }}>
       <Copy kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>

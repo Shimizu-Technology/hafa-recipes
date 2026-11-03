@@ -6,7 +6,8 @@ import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal, Scope } from "@/lib/models";
-import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Copy, Empty, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, useColors, useFace } from "@/components/ui";
+import { useLook } from "../lib/look-context";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
 export default function AskScreen({ back = false }: { back?: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
@@ -24,7 +25,7 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
   }
   const available = b.state.bootstrap!.ai_available && b.state.bootstrap!.profile.ai_consent,
     canSend = available && !busy && !chat.resolving && !!question.trim(),
-    c = useColors();
+    c = useColors(), { look } = useLook(), face = useFace();
   return (
     <Screen
       key={showHistory ? "history" : "conversation"}
@@ -49,9 +50,10 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             maxFontSizeMultiplier={0}
             scrollEnabled
             style={{ flex: 1, maxHeight: Math.max(composerMinimum, Math.min(height * 0.3, 132 * Math.max(1, fontScale))),
-              minHeight: composerMinimum, borderRadius: 22,
+              minHeight: composerMinimum, borderRadius: look.radii.composer,
               backgroundColor: c.surface, color: c.text, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
-              fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}
+              ...face("regular", { fontFamily: fonts.regular }), fontSize: 17, lineHeight: 22,
+              ...(look.fonts.system || c.cardBorder === "transparent" ? {} : { borderWidth: 1, borderColor: c.cardBorder }) }}
           />
           <PressTarget
             accessibilityRole="button"
@@ -143,10 +145,10 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
             key={m.id ?? index}
             accessible
             accessibilityLabel={`You asked: ${m.content}`}
-            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: 20,
+            style={{ alignSelf: "flex-end", maxWidth: "86%", backgroundColor: c.action, borderRadius: look.radii.bubble,
               borderBottomRightRadius: 6, paddingVertical: 12, paddingHorizontal: 16 }}
           >
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={face("regular", { color: c.onAction, fontFamily: fonts.regular, fontSize: 17, lineHeight: 22 })}>
               {m.content}
             </Text>
           </View>

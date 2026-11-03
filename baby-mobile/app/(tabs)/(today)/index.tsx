@@ -19,6 +19,8 @@ import { FeedTimerCard } from "@/components/feed-timer";
 import { PregnancyHero, TipSection } from "@/components/tips";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
+import { useLook } from "../../../lib/look-context";
+import { uiFace } from "../../../lib/looks";
 
 const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] = [
   { label: "Wet", type: "wet" },
@@ -28,7 +30,8 @@ const diaperChoices: { label: string; type: NonNullable<RecordData["type"]> }[] 
 ];
 
 function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: string; hint: string; onPress: () => void; primary?: boolean }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(),
+    face = (weight: "semibold", base: object) => look.fonts.system ? base : { ...base, fontWeight: undefined, ...uiFace(look, weight) };
   return (
     <PressTarget
       accessibilityRole="button"
@@ -43,15 +46,16 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
         minWidth: 0,
         paddingVertical: 16,
         paddingHorizontal: 8,
-        borderRadius: 20,
-        backgroundColor: primary ? c.action : c.soft,
+        borderRadius: look.radii.tile,
+        backgroundColor: primary ? c.action : look.fonts.system ? c.soft : c.surface,
+        ...(look.fonts.system || c.cardBorder === "transparent" ? {} : { borderWidth: 1, borderColor: c.cardBorder }),
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
       })}
     >
-      <Icon name={icon} size={22} color={primary ? c.onAction : c.action} />
-      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: primary ? c.onAction : c.text, textAlign: "center" }}>{label}</Text>
+      <Icon name={icon} size={22} color={primary ? c.onAction : look.fonts.system ? c.action : c.accentText} />
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={face("semibold", { ...typeScale.headline, color: primary ? c.onAction : c.text, textAlign: "center" })}>{label}</Text>
     </PressTarget>
   );
 }
@@ -75,7 +79,7 @@ export default function Today() {
     showCare = !!child && !expecting,
     tipsNow = useTimingTips(child, "now", 5, today),
     tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
-    timer = activeTimer(b.state),
+    timer = activeTimer(b.state), { parts } = useLook(), Moment = parts.TodayMoment,
     timerChild = timer && children.find((c) => c.id === timer.child_id),
     writing = useRef(false);
   async function quick(action: () => Promise<() => Promise<void>>, message: string) {
@@ -193,9 +197,11 @@ export default function Today() {
       {children.length > 1 && <ChildFilter />}
       {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
       {pregnant ? <>
-        <PregnancyHero child={child} now={today} />
-        <TipSection title="For now" view="now" rows={tipsNow.rows}
-          empty="Tips you save for this point in your pregnancy show up here." />
+        {Moment ? <Moment child={child} today={today} now={now} tips={tipsNow.rows} /> : <>
+          <PregnancyHero child={child} now={today} />
+          <TipSection title="For now" view="now" rows={tipsNow.rows}
+            empty="Tips you save for this point in your pregnancy show up here." />
+        </>}
         <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
       </> : <Card tone="hero" style={{ gap: 12 }}>
         <Copy kind="label">Add the birth date</Copy>

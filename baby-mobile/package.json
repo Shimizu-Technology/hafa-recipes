@@ -20,7 +20,12 @@
   },
   "dependencies": {
     "@clerk/expo": "4.5.2",
+    "@expo-google-fonts/caveat": "0.4.2",
     "@expo-google-fonts/dm-sans": "0.4.2",
+    "@expo-google-fonts/fraunces": "0.4.1",
+    "@expo-google-fonts/newsreader": "0.4.1",
+    "@expo-google-fonts/plus-jakarta-sans": "0.4.2",
+    "@expo-google-fonts/young-serif": "0.4.0",
     "@expo/ui": "~57.0.26",
     "@expo/vector-icons": "15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",

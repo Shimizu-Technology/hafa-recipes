@@ -258,3 +258,12 @@ Declaring dependencies (all are `dependencies`, no optional/peer/dev declaration
 
 - `glob`: `node_modules/@expo/config` → `^13.0.0`, `node_modules/@expo/config-plugins` → `^13.0.0`, `node_modules/@expo/fingerprint` → `^13.0.0`, `node_modules/@expo/metro-config` → `^13.0.0`, `node_modules/expo/node_modules/@expo/cli` → `^13.0.0`.
 - `minimatch`: `node_modules/@expo/fingerprint` → `^10.2.2`, `node_modules/glob` → `^10.2.2`.
+
+## Design-preview font review — 2026-11-03 (preview branch `claude/looks-baby`, not for merge)
+
+Adds five font-only packages for the look previews: `@expo-google-fonts/newsreader` 0.4.1,
+`young-serif` 0.4.0, `caveat` 0.4.2, `fraunces` 0.4.1 and `plus-jakarta-sans` 0.4.2
+(MIT + OFL-1.1, no dependencies, TTF assets only, no native code). The lock hash is
+renewed for this tree only. Fresh `npm audit --omit=dev`: 21 inherited findings, zero
+critical, and the same six reviewed advisory IDs; nothing new. The existing
+2026-11-17 expiry is unchanged.

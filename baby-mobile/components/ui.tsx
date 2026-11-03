@@ -14,7 +14,6 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
   useWindowDimensions,
   type PressableProps,
   type TextInputProps,
@@ -30,32 +29,12 @@ import { NavigationContext } from "expo-router/react-navigation";
 import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, useTabBarHeight } from "../lib/bottom-overlay";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
+import { useLook, useLookColors } from "../lib/look-context";
+import { displayFace, uiFace, type Look, type TextRole } from "../lib/looks";
 
-/** Baby's warm light palette and neutral, true-black dark palette. */
-const light = {
-  background: "#FFFFFF", groupedBackground: "#F2F2F7", surface: "#FAF7F4",
-  soft: "#F1E8E1", tile: "#F6EFE9", hero: "#F6EFE9",
-  text: "#2D2420", muted: "#6E625B", action: "#5A4740", onAction: "#F8F3EE",
-  border: "rgba(60,60,67,0.29)", outline: "rgba(60,60,67,0.29)",
-  accent: "#C9907E", accentText: "#8C5443", error: "#B3261E", errorBg: "#FBE3DE",
-  // Tonal fill behind a selected text link; accentText on it stays ≥4.5:1.
-  accentTint: "rgba(201,144,126,0.2)",
-  scrim: "rgba(45,36,32,0.42)",
-  // JS-drawn chrome: the same solid bar and tonal header buttons on iOS 18, iOS 26 and Android.
-  tabBar: "#FFFFFF", tabBarBorder: "rgba(60,60,67,0.18)", headerFill: "rgba(118,118,128,0.12)",
-};
-const dark: typeof light = {
-  background: "#000000", groupedBackground: "#000000", surface: "#1C1C1E",
-  soft: "#2C2522", tile: "#2A2320", hero: "#2A2320",
-  text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", action: "#E3C9B8", onAction: "#2D2420",
-  border: "rgba(84,84,88,0.65)", outline: "rgba(84,84,88,0.65)",
-  accent: "#E3C9B8", accentText: "#E3C9B8", error: "#FF5148", errorBg: "#3A1F1C",
-  accentTint: "rgba(227,201,184,0.2)",
-  scrim: "rgba(0,0,0,0.6)",
-  tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", headerFill: "rgba(118,118,128,0.24)",
-};
+/** The active look's palette (main's warm light / true-black dark palette under `current`). */
 export function useColors() {
-  return useColorScheme() === "dark" ? dark : light;
+  return useLookColors();
 }
 export const fonts = { regular: "System", rounded: Platform.OS === "ios" ? "ui-rounded" : "System" } as const;
 export const typeScale = {
@@ -76,6 +55,18 @@ const type = {
   title: typeScale.largeTitle, heading: typeScale.title3, body: typeScale.body,
   label: typeScale.headline, small: typeScale.footnote,
 };
+/** A look's Copy style; `current` never calls this and keeps main's typeScale. */
+export function lookCopy(look: Look, role: TextRole, numeric = false): TextStyle {
+  const spec = look.text[role];
+  return { fontSize: spec.size, lineHeight: spec.line,
+    ...(spec.face === "display" && !numeric ? displayFace(look) : uiFace(look, spec.face === "display" ? "semibold" : spec.face)) };
+}
+/** A UI label in the look's face: main's system style under `current`. */
+export function useFace() {
+  const { look } = useLook();
+  return (weight: "regular" | "medium" | "semibold" | "bold", base: TextStyle): TextStyle =>
+    look.fonts.system ? base : { ...base, fontWeight: undefined, ...uiFace(look, weight) };
+}
 /** Tab roots supply their title and controls through a native stack. */
 export const NativeHeaderContext = createContext(false);
 /** Tab roots end at the top of the JS tab bar, so the home indicator inset is the bar's, not theirs. */
@@ -95,6 +86,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export const PressTarget = forwardRef<View, PressableProps>(function PressTarget(
   { style, disabled, onPressIn, onPressOut, onHoverIn, onHoverOut, ...props }, ref
 ) {
+  const { motion } = useLook().look;
   const scale = useRef(new Animated.Value(1)).current,
     opacity = useRef(new Animated.Value(1)).current,
     [reduced, setReduced] = useState(true),
@@ -113,10 +105,10 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
   }, [reduced, disabled, scale, opacity]);
   function respond(down: boolean) {
     Animated.parallel([
-      Animated.timing(scale, { toValue: down && !reduced ? 0.97 : 1,
-        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
-      Animated.timing(opacity, { toValue: disabled ? 0.5 : down ? 0.82 : 1,
-        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(scale, { toValue: down && !reduced ? motion.pressScale : 1,
+        duration: down ? motion.pressInMs : motion.pressOutMs, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(opacity, { toValue: disabled ? 0.5 : down ? motion.pressOpacity : 1,
+        duration: down ? motion.pressInMs : motion.pressOutMs, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
     ]).start();
   }
   return <AnimatedPressable {...props} ref={ref} disabled={disabled}
@@ -169,8 +161,8 @@ export function Copy({
   lines?: number;
   numeric?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(),
-    style = type[kind];
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(),
+    style = look.fonts.system ? { ...type[kind], fontFamily: numeric ? fonts.rounded : fonts.regular } : lookCopy(look, kind, numeric);
   return (
     <Text
       key={`${kind}:${fontScale}`}
@@ -179,7 +171,6 @@ export function Copy({
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
-        fontFamily: numeric ? fonts.rounded : fonts.regular,
         // Never undefined: when `numeric` turns off on a mounted Text, React Native diffs a removed
         // fontVariant to null and processFontVariant(null) throws a render error.
         fontVariant: numeric ? ["tabular-nums"] : [],
@@ -194,7 +185,7 @@ export function Copy({
 }
 /** Fixed bar above scrolling content so Back and Close never scroll away. */
 function TopBar({ back, close }: { back: boolean; close: boolean }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(),
+  const c = useColors(), { fontScale } = useWindowDimensions(), face = useFace(),
     leave = () => (router.canGoBack() ? router.back() : router.replace("/(tabs)/(today)"));
   if (!back && !close) return null;
   return (
@@ -226,13 +217,13 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
         })}
       >
         {close ? (
-          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={face("semibold", { fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action })}>
             Close
           </Text>
         ) : (
           <>
             <Icon name="chevron-back" size={24} />
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontSize: 17, lineHeight: 22, color: c.action }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={face("regular", { fontFamily: fonts.regular, fontSize: 17, lineHeight: 22, color: c.action })}>
               Back
             </Text>
           </>
@@ -310,7 +301,7 @@ export function Screen({
     inTabBar = useContext(TabScreenContext) && nativeHeader,
     insets = inTabBar ? { ...safeArea, bottom: 0 } : safeArea,
     { fontScale } = useWindowDimensions();
-  const c = useColors(),
+  const c = useColors(), { density } = useLook().look,
     scroller = useRef<ScrollView>(null), restingTop = useRef<number | null>(null),
     [footerHeight, setFooterHeight] = useState(0),
     [keyboardVisible, setKeyboardVisible] = useState(false),
@@ -342,10 +333,10 @@ export function Screen({
   const content = (
     <View
       style={{
-        paddingHorizontal: 16,
+        paddingHorizontal: density.screen,
         paddingTop: back || close ? 2 : 14,
         paddingBottom: footer || nativeHeader ? 24 : Math.max(24, insets.bottom),
-        gap: 20,
+        gap: density.section,
         width: "100%",
         maxWidth: 720,
         alignSelf: "center",
@@ -407,7 +398,7 @@ export function Screen({
             style={{
               position: "absolute", bottom: 0,
               backgroundColor: c.background,
-              paddingHorizontal: 16,
+              paddingHorizontal: density.screen,
               paddingTop: 10,
               paddingBottom: keyboardVisible ? 10 : Math.max(10, insets.bottom),
               width: "100%",
@@ -432,16 +423,16 @@ export function Card({
   tone?: "normal" | "hero" | "soft";
   style?: ViewStyle;
 }) {
-  const c = useColors();
+  const c = useColors(), { look } = useLook(), elevated = tone === "normal" && !look.fonts.system;
   return (
     <View
       style={[
         {
-          padding: 20,
+          padding: look.density.card,
           gap: 12,
-          borderRadius: tone === "hero" ? 20 : 14,
+          borderRadius: tone === "hero" ? look.radii.hero : look.radii.card,
           backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.tile : c.surface,
-
+          ...(elevated ? cardEdge(c.cardBorder, look) : {}),
         },
         style,
       ]}
@@ -450,6 +441,15 @@ export function Card({
     </View>
   );
 }
+/** A look's card edge: a hairline and/or a soft cocoa shadow (none under `current`). */
+export function cardEdge(border: string, look: Look): ViewStyle {
+  return {
+    ...(border !== "transparent" ? { borderWidth: StyleSheetHairline, borderColor: border } : {}),
+    ...(look.shadow ? { shadowColor: look.shadow.color, shadowOpacity: look.shadow.opacity, shadowRadius: look.shadow.radius,
+      shadowOffset: { width: 0, height: look.shadow.y }, elevation: 2 } : {}),
+  };
+}
+const StyleSheetHairline = 1;
 export function Button({
   title,
   accessibilityLabel,
@@ -474,7 +474,7 @@ export function Button({
   size?: "lg";
   numeric?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(),
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(), face = useFace(),
     plain = variant === "ghost" || variant === "destructive",
     quiet = secondary || plain,
     ink = variant === "destructive" ? c.error : plain ? c.action : quiet ? c.text : c.onAction;
@@ -489,7 +489,7 @@ export function Button({
         minHeight: size === "lg" ? 56 : 50,
         paddingHorizontal: 20,
         paddingVertical: 13,
-        borderRadius: 999,
+        borderRadius: look.radii.button,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
@@ -503,7 +503,7 @@ export function Button({
       <Text
         key={fontScale}
         maxFontSizeMultiplier={0}
-        style={{ fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : [], fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
+        style={face("semibold", { fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : [], fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 })}
       >
         {title}
       </Text>
@@ -512,17 +512,17 @@ export function Button({
 }
 /** A scalable text action for a screen header. */
 export function HeaderAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors(), { fontScale } = useWindowDimensions(), face = useFace();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }}
     disabled={disabled} onPress={onPress}
     style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center" }}>
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
+    <Text key={fontScale} maxFontSizeMultiplier={0} style={face("semibold", { ...typeScale.headline, color: c.action })}>{title}</Text>
   </PressTarget>;
 }
 let accessoryCount = 0;
 /** Number pads have no return key on iOS; a Done bar keeps Save reachable. */
 function KeyboardDone({ id }: { id: string }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors(), { fontScale } = useWindowDimensions(), face = useFace();
   if (Platform.OS !== "ios") return null;
   return (
     <InputAccessoryView nativeID={id}>
@@ -542,7 +542,7 @@ function KeyboardDone({ id }: { id: string }) {
           onPress={() => Keyboard.dismiss()}
           style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
         >
-          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={face("semibold", { fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action })}>Done</Text>
         </PressTarget>
       </View>
     </InputAccessoryView>
@@ -579,7 +579,7 @@ export function Field({
   maxLength?: number;
   autoFocus?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(),
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(), face = useFace(),
     traits = inputTraits(purpose, Platform.OS, numeric),
     pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
@@ -609,13 +609,14 @@ export function Field({
         style={{
           backgroundColor: c.surface,
           color: c.text,
-          borderRadius: 10,
+          borderRadius: look.radii.field,
           padding: 16,
-          fontFamily: numeric ? fonts.rounded : fonts.regular,
+          ...face("regular", { fontFamily: numeric ? fonts.rounded : fonts.regular }),
           fontVariant: numeric ? ["tabular-nums"] : [],
           fontSize: 17,
           lineHeight: 22,
           minHeight: multiline ? 150 : 52,
+          ...(look.fonts.system ? {} : cardEdge(c.cardBorder, { ...look, shadow: null }) as TextStyle),
         }}
       />
       {(pad || multiline) && <KeyboardDone id={accessory} />}
@@ -623,11 +624,11 @@ export function Field({
   );
 }
 export function Notice({ children, error }: { children: React.ReactNode; error?: boolean }) {
-  const c = useColors();
+  const c = useColors(), { radii } = useLook().look;
   return (
     <View
       accessibilityRole={error ? "alert" : undefined}
-      style={{ padding: 15, borderRadius: 16, backgroundColor: error ? c.errorBg : c.tile }}
+      style={{ padding: 15, borderRadius: radii.notice, backgroundColor: error ? c.errorBg : c.tile }}
     >
       <Copy tone={error ? "error" : "muted"}>{children}</Copy>
     </View>
@@ -693,7 +694,7 @@ export function Chips({
   /** Single-row filters scroll; form choices keep their wrapping layout. */
   scroll?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(), face = useFace();
   const choices = (
     <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: scroll ? "nowrap" : "wrap", gap: 8 }}>
       {options.map((o) => {
@@ -714,17 +715,18 @@ export function Chips({
               maxWidth: scroll ? undefined : "100%",
               paddingHorizontal: 16,
               paddingVertical: 10,
-              borderRadius: 999,
+              borderRadius: look.fonts.system ? 999 : look.radii.chip + 4,
               justifyContent: "center",
               alignItems: "center",
               backgroundColor: on ? c.action : c.soft,
-
+              ...(look.fonts.system ? {} : chipLook(look, on, c, true)),
             })}
           >
             <Text
               key={fontScale}
               maxFontSizeMultiplier={0}
-              style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.onAction : c.action }}
+              style={face("semibold", { fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1,
+                color: look.fonts.system ? on ? c.onAction : c.action : chipLook(look, on, c, true).ink })}
             >
               {o.label}
             </Text>
@@ -736,42 +738,55 @@ export function Chips({
   return scroll ? <ScrollView horizontal showsHorizontalScrollIndicator={false}
     contentContainerStyle={{ paddingBottom: 2 }} keyboardShouldPersistTaps="handled">{choices}</ScrollView> : choices;
 }
+/** A look's chip: fill, hairline and ink for selected and unselected states. */
+export function chipLook(look: Look, on: boolean, c: ReturnType<typeof useColors>, form = false): ViewStyle & { ink: string } {
+  switch (look.variants.chip) {
+    case "soft": return on ? { backgroundColor: c.action, ink: c.onAction } : { backgroundColor: form ? c.soft : c.surface, ink: c.text };
+    case "tag": return on ? { backgroundColor: c.accentTint, borderWidth: 1, borderColor: c.outline, ink: c.text }
+      : { backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline, ink: c.text };
+    case "ink": return on ? { backgroundColor: c.text, ink: c.background }
+      : { backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline, ink: c.text };
+    default: return on ? { backgroundColor: c.action, ink: c.onAction } : { backgroundColor: c.soft, ink: form ? c.action : c.text };
+  }
+}
 export interface FilterChip { label: string; value: string; icon?: IconName }
 /**
  * The sub-navigation chip row at the top of a list: 34pt pills that scroll edge to edge and fade
  * at the trailing edge instead of clipping a word. Selected is filled cocoa; the rest are sand.
  */
 export function FilterChips({ options, value, onChange, label }: { options: FilterChip[]; value: string; onChange: (value: string) => void; label: string }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), scroller = useRef<ScrollView>(null),
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(), face = useFace(), inset = look.density.screen,
+    scroller = useRef<ScrollView>(null),
     frames = useRef<Record<string, { x: number; width: number }>>({}), view = useRef({ x: 0, width: 0 });
   // Bring a chip chosen elsewhere (Today's "See all", a category row) into view; leave visible ones still.
   useEffect(() => {
     const frame = frames.current[value], { x, width } = view.current;
     if (!frame || !width) return;
     // Chip x is inside the 16pt content padding; keep 48pt of context on the side it comes from.
-    const left = frame.x + 16, right = left + frame.width;
+    const left = frame.x + inset, right = left + frame.width;
     if (left < x) scroller.current?.scrollTo({ x: Math.max(0, left - 48), animated: true });
     else if (right > x + width - 32) scroller.current?.scrollTo({ x: right - width + 48, animated: true });
   }, [value]);
-  return <View style={{ marginHorizontal: -16 }}>
+  return <View style={{ marginHorizontal: -inset }}>
     <ScrollView ref={scroller} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
       onLayout={(event) => { view.current.width = event.nativeEvent.layout.width; }} scrollEventThrottle={64}
       onScroll={(event) => { view.current.x = event.nativeEvent.contentOffset.x; }}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 40 }}>
+      contentContainerStyle={{ paddingHorizontal: inset, paddingRight: 40 }}>
       <View accessibilityRole="radiogroup" accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         {options.map((option) => {
-          const on = value === option.value, ink = on ? c.onAction : c.text;
+          const on = value === option.value, chip = look.fonts.system ? null : chipLook(look, on, c),
+            ink = chip ? chip.ink : on ? c.onAction : c.text;
           return <PressTarget key={option.value} accessibilityRole="radio" accessibilityLabel={option.label}
             accessibilityState={{ selected: on, checked: on }}
             onLayout={(event) => { const { x, width } = event.nativeEvent.layout; frames.current[option.value] = { x, width }; }}
             onPress={() => { if (!on) tap(); onChange(option.value); }}
             // A 44×44 minimum target around the 34pt pill, so even a one-word chip is easy to hit.
             style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}>
-            <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
-              backgroundColor: on ? c.action : c.soft }}>
+            <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: look.radii.chip, flexDirection: "row", alignItems: "center", gap: 6,
+              backgroundColor: on ? c.action : c.soft, ...(chip ? { ...chip, ink: undefined } : {}) }}>
               {option.icon && <Icon name={option.icon} size={16} color={ink} />}
               <Text key={fontScale} maxFontSizeMultiplier={0}
-                style={{ ...typeScale.subhead, fontWeight: "500", color: ink }}>{option.label}</Text>
+                style={face(on ? "semibold" : "medium", { ...typeScale.subhead, fontWeight: "500", color: ink })}>{option.label}</Text>
             </View>
           </PressTarget>;
         })}
@@ -814,9 +829,10 @@ export function Section({
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const c = useColors(), grouped = useContext(GroupedPageContext);
+  const c = useColors(), grouped = useContext(GroupedPageContext), { look } = useLook();
   return (
-    <View style={{ gap: 12, ...(grouped ? { padding: 16, borderRadius: 12, backgroundColor: c.surface } : {}) }}>
+    <View style={{ gap: 12, ...(grouped ? { padding: 16, borderRadius: look.radii.grouped, backgroundColor: c.surface,
+      ...(look.fonts.system ? {} : cardEdge(c.cardBorder, { ...look, shadow: null })) } : {}) }}>
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <View style={{ flex: 1 }}>
           <Copy kind="heading">{title}</Copy>
@@ -829,11 +845,19 @@ export function Section({
 }
 /** Inset grouped cells share one quiet surface and text-inset separators. */
 export function Grouped({ children, separatorInset = 72 }: PropsWithChildren<{ separatorInset?: number }>) {
-  const c = useColors(), rows = Children.toArray(children);
-  return <View style={{ borderRadius: 12, overflow: "hidden", backgroundColor: c.surface }}>
+  const c = useColors(), rows = Children.toArray(children), { look, parts } = useLook(), Enter = parts.Entrance,
+    born = useRef(Date.now()).current;
+  const enter = (index: number, row: React.ReactNode) => Enter ? <Enter index={index} born={born}>{row}</Enter> : row;
+  // Scrapbook: each row is its own paper clipping with a hairline and a soft shadow, never a shared inset sheet.
+  if (look.variants.list === "clippings") return <View style={{ gap: 12 }}>
+    {rows.map((row, index) => <View key={(row as { key?: string }).key ?? index}>{enter(index,
+      <View style={{ borderRadius: look.radii.card, backgroundColor: c.surface, ...cardEdge(c.cardBorder, look) }}>{row}</View>)}</View>)}
+  </View>;
+  return <View style={{ borderRadius: look.radii.grouped, overflow: "hidden", backgroundColor: c.surface,
+    ...(look.fonts.system ? {} : cardEdge(c.cardBorder, { ...look, shadow: null })) }}>
     {rows.map((row, index) => <View key={index}>
       {index > 0 && <View style={{ marginLeft: separatorInset, height: 0.5, backgroundColor: c.border }} />}
-      {row}
+      {enter(index, row)}
     </View>)}
   </View>;
 }
@@ -846,19 +870,22 @@ export function Row({
   hint,
   numericTitle = false,
   numericDetail = false,
+  leading,
 }: {
   title: string;
   detail?: string;
   icon?: IconName;
+  /** Replaces the icon slot (a look's date block). */
+  leading?: React.ReactNode;
   onPress: () => void;
   trailing?: React.ReactNode;
   hint?: string;
   numericTitle?: boolean;
   numericDetail?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
-  const firstLineHeight = typeScale.headline.lineHeight * fontScale;
-  const firstLineTop = icon ? Math.max(0, (44 - firstLineHeight) / 2) : 0;
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(), tile = look.variants.rowIcon === "tile";
+  const firstLineHeight = (look.fonts.system ? typeScale.headline.lineHeight : look.text.label.line) * fontScale;
+  const firstLineTop = icon || leading ? Math.max(0, (44 - firstLineHeight) / 2) : 0;
   return (
     <PressTarget
       accessibilityRole="button"
@@ -871,7 +898,7 @@ export function Row({
 
         paddingVertical: 14,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: look.radii.row,
         flexDirection: "row",
         flexWrap: "wrap",
         alignItems: "flex-start",
@@ -879,7 +906,12 @@ export function Row({
 
       })}
     >
-      {icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
+      {leading ? <View style={{ marginTop: Math.max(0, (firstLineHeight - 44) / 2) }}>{leading}</View>
+        : icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}>
+        {tile ? <View style={{ width: 40, height: 40, borderRadius: Math.min(14, look.radii.thumb + 2), backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
+          <Icon name={icon} size={20} color={c.placeholderInk} />
+        </View> : <Icon name={icon} />}
+      </View>}
       <View style={{ flex: 1, minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
         <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
@@ -911,7 +943,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
   // Above the tab bar in tabs (Undo after a quick log) and any docked footer such as the Ask composer.
   const bottom = overlayBottom({ inTabs, tabInset, windowInset: insets.bottom, clearance: 88, footer });
   const [toast, setToast] = useState<{ message: string; action?: ToastAction; key: number } | null>(null),
-    c = useColors(),
+    c = useColors(), { look } = useLook(), face = useFace(),
     enter = useRef(new Animated.Value(0)).current,
     [still, setStill] = useState(false),
     show = useRef<ShowToast>((message, action) => setToast(message ? { message, action, key: Date.now() } : null));
@@ -930,7 +962,8 @@ export function ToastProvider({ children }: PropsWithChildren) {
         Animated.timing(enter, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
         timer = setTimeout(
           () =>
-            Animated.timing(enter, { toValue: 0, duration: 150, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(
+            Animated.timing(enter, { toValue: 0, duration: 150,
+              easing: look.motion.toastExitEaseOut ? Easing.bezier(0.23, 1, 0.32, 1) : Easing.in(Easing.quad), useNativeDriver: true }).start(
               () => setToast((current) => (current?.key === toast.key ? null : current))
             ),
           // Leave time to reach Undo; plain confirmations clear sooner.
@@ -959,7 +992,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
             paddingVertical: 8,
             paddingLeft: 17,
             paddingRight: 8,
-            borderRadius: 18,
+            borderRadius: look.radii.toast,
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
@@ -974,7 +1007,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           }}
         >
           <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={0} style={face("regular", { color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 })}>
               {toast.message}
             </Text>
           </PressTarget>
@@ -997,7 +1030,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontWeight: "700", fontSize: 15, lineHeight: 20 }}>
+              <Text key={fontScale} maxFontSizeMultiplier={0} style={face("bold", { color: c.background, fontFamily: fonts.regular, fontWeight: "700", fontSize: 15, lineHeight: 20 })}>
                 {toast.action.label}
               </Text>
             </PressTarget>

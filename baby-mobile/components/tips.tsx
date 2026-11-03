@@ -6,7 +6,7 @@ import { useBaby } from "@/lib/context";
 import { pendingSuggestion } from "@/lib/suggestions";
 import { sourceTitle } from "@/lib/source-title";
 import { dueLine, pregnancyProgress, timingLabel, tipTopic } from "@/lib/timing";
-import { Card, Copy, Grouped, Icon, PressTarget, Section, fonts, typeScale, useColors } from "./ui";
+import { Card, Copy, Grouped, Icon, PressTarget, Section, fonts, typeScale, useColors, useFace } from "./ui";
 import { SavedPostRow } from "./saved-post-row";
 
 const dayStyle = { fontFamily: fonts.rounded, fontWeight: "400" as const, fontSize: 20, lineHeight: 25 };
@@ -36,11 +36,11 @@ export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
 }
 
 function SeeAll({ view, title }: { view: string; title: string }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors(), { fontScale } = useWindowDimensions(), face = useFace();
   return <PressTarget accessibilityRole="link" accessibilityLabel={`See all, ${title}`} hitSlop={8}
     onPress={() => router.navigate({ pathname: "/library", params: { view, at: String(Date.now()) } })}
     style={{ minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "flex-end" }}>
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, color: c.accentText }}>See all</Text>
+    <Text key={fontScale} maxFontSizeMultiplier={0} style={face("semibold", { ...typeScale.subhead, color: c.accentText })}>See all</Text>
   </PressTarget>;
 }
 

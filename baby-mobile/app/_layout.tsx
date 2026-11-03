@@ -14,9 +14,12 @@ import { ShareSessionGuard } from "@/lib/use-share-session";
 import { StockShareBoundary } from "@/components/stock-share-boundary";
 import { ShareCapture } from "@/components/share-capture";
 import { Copy, Loading, Notice, Screen, ToastProvider, NativeHeaderContext, fonts, useColors } from "@/components/ui";
+import { LookProvider } from "@/components/look-provider";
+import { useLook } from "@/lib/look-context";
+import { uiFace } from "@/lib/looks";
 function Routes() {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth(),
-    c = useColors();
+    c = useColors(), { look } = useLook(), custom = !look.fonts.system;
   if (!isLoaded)
     return (
       <Screen brand title="Håfa Baby">
@@ -25,10 +28,13 @@ function Routes() {
     );
   const stack = (
     // Native push and sheet transitions, as the system draws them.
-    <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back", headerBackButtonDisplayMode: "minimal", headerShadowVisible: false, headerTintColor: c.action,
+    // Keyed on the look: choosing another design remounts the navigator so every screen picks it up at once.
+    <Stack key={look.id} screenOptions={{ headerShown: false, headerBackTitle: "Back", headerBackButtonDisplayMode: "minimal", headerShadowVisible: false, headerTintColor: c.action,
       headerStyle: Platform.OS === "ios" ? undefined : { backgroundColor: c.background },
       headerBlurEffect: "systemChromeMaterial", headerLargeStyle: { backgroundColor: "transparent" },
-      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text, fontFamily: fonts.regular, fontSize: 34, fontWeight: "700" },
+      headerTitleStyle: { color: c.text, ...(custom ? { fontFamily: uiFace(look, "semibold").fontFamily } : {}) },
+      headerLargeTitleStyle: custom ? { color: c.text, fontFamily: look.fonts.largeTitle.fontFamily, fontSize: look.fonts.largeTitle.fontSize }
+        : { color: c.text, fontFamily: fonts.regular, fontSize: 34, fontWeight: "700" },
       contentStyle: { backgroundColor: c.background } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="privacy" />
@@ -66,14 +72,19 @@ function Routes() {
   );
 }
 export default function Root() {
-  const scheme = useColorScheme();
+  return <LookProvider><ThemedRoot /></LookProvider>;
+}
+function ThemedRoot() {
+  const scheme = useColorScheme(), { look } = useLook(), c = useColors(), base = scheme === "dark" ? DarkTheme : DefaultTheme;
+  // Looks paint their sand / warm-dark ground behind navigation too; `current` keeps the stock themes.
+  const theme = look.fonts.system ? base : { ...base, colors: { ...base.colors, background: c.background, card: c.background, text: c.text, border: c.tabBarBorder, primary: c.action } };
   const error = checkAuthConfiguration(
     configuration.clerkKey,
     configuration.clerkEnvironment,
     configuration.environment
   );
   return (
-    <ThemeProvider value={scheme === "dark" ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={theme}>
     <SafeAreaProvider>
       <ToastProvider>
         <StatusBar style="auto" />

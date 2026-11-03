@@ -3,6 +3,14 @@ import { Icon, NativeHeaderContext, PressTarget, TabScreenContext, fonts, typeSc
 import { Platform, Text, View, useWindowDimensions, type ViewProps } from "react-native";
 import type { NativeStackNavigationOptions } from "expo-router/native-stack";
 import { useBaby } from "@/lib/context";
+import { useLook } from "../lib/look-context";
+import { uiFace, type Look } from "../lib/looks";
+
+/** Header buttons in a look: its fill, radius and (Scrapbook) a paper hairline. */
+function headerShape(look: Look, fill: string, border: string, radius: number) {
+  return look.fonts.system ? { backgroundColor: fill, borderRadius: radius }
+    : { backgroundColor: fill, borderRadius: Math.min(radius, look.radii.header), ...(border !== "transparent" ? { borderWidth: 1, borderColor: border } : {}) };
+}
 
 /**
  * Header actions as one custom item. On iOS 26 this hides the shared Liquid Glass capsule, so
@@ -17,7 +25,7 @@ export function headerActions(actions: React.ReactElement): NativeStackNavigatio
 const liquidGlass = Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
 
 export function TabStack({ title }: { title: string }) {
-  const c = useColors();
+  const c = useColors(), { look } = useLook(), custom = !look.fonts.system;
   return <NativeHeaderContext.Provider value={true}><TabScreenContext.Provider value={true}>
     <Stack screenOptions={{
       title, headerLargeTitle: true, headerBackTitle: "Back", headerTintColor: c.action,
@@ -26,9 +34,10 @@ export function TabStack({ title }: { title: string }) {
       // iOS 26 draws no large title over a coloured large-title background; the page is the same colour anyway.
       headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: liquidGlass ? "transparent" : c.background },
       headerShadowVisible: true, headerLargeTitleShadowVisible: false,
-      headerTitleStyle: { color: c.text },
-      // UIKit's rounded-system alias; ui-rounded is resolved only by RN text.
-      headerLargeTitleStyle: { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".AppleSystemUIFontRounded-Bold" : fonts.regular,
+      headerTitleStyle: { color: c.text, ...(custom ? { fontFamily: uiFace(look, "semibold").fontFamily } : {}) },
+      // UIKit's rounded-system alias; ui-rounded is resolved only by RN text. Looks use one display face on every tab.
+      headerLargeTitleStyle: custom ? { color: c.text, fontFamily: look.fonts.largeTitle.fontFamily, fontSize: look.fonts.largeTitle.fontSize }
+        : { color: c.text, fontFamily: title === "Today" && Platform.OS === "ios" ? ".AppleSystemUIFontRounded-Bold" : fonts.regular,
         fontSize: 34, fontWeight: "700" },
       contentStyle: { backgroundColor: c.background },
       ...headerActions(<TabActions />),
@@ -38,9 +47,9 @@ export function TabStack({ title }: { title: string }) {
 
 /** The one header button shape: a 36pt tonal circle inside a 44pt target (every header control keeps 44×44). */
 export function HeaderIconButton({ icon, label, onPress, disabled = false }: { icon: IconName; label: string; onPress: () => void; disabled?: boolean }) {
-  const c = useColors();
+  const c = useColors(), { look } = useLook();
   return <PressTarget accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ width: 36, height: 36, ...headerShape(look, c.headerFill, c.cardBorder, 18), alignItems: "center", justifyContent: "center" }}>
       <Icon name={icon} size={20} color={c.text} />
     </View>
   </PressTarget>;
@@ -48,11 +57,11 @@ export function HeaderIconButton({ icon, label, onPress, disabled = false }: { i
 
 /** A text action (Select, History) in the same tonal fill, so it never reads as bare text. */
 export function HeaderPill({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
-  const c = useColors(), { fontScale } = useWindowDimensions();
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-    <View style={{ minHeight: 36, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
-      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontWeight: "600", color: c.text }}>{title}</Text>
+    <View style={{ minHeight: 36, paddingVertical: 6, paddingHorizontal: 14, ...headerShape(look, c.headerFill, c.cardBorder, 18), justifyContent: "center" }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontWeight: "600", ...(look.fonts.system ? {} : { fontWeight: undefined, ...uiFace(look, "semibold") }), color: c.text }}>{title}</Text>
     </View>
   </PressTarget>;
 }
@@ -65,11 +74,13 @@ export function initials(name: string | undefined) {
 
 /** Settings and profiles as a 32pt initials circle, like Recipes and Workouts. */
 export function AccountButton() {
-  const c = useColors(), { fontScale } = useWindowDimensions(), text = initials(useBaby().state.bootstrap?.profile.display_name);
+  const c = useColors(), { fontScale } = useWindowDimensions(), { look } = useLook(), text = initials(useBaby().state.bootstrap?.profile.display_name);
   return <PressTarget accessibilityRole="button" accessibilityLabel="Settings and profiles" onPress={() => router.push("/settings")}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-    <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 16, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
-      {text ? <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.rounded, fontSize: 13, fontWeight: "700", color: c.text }}>{text}</Text>
+    <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 16, backgroundColor: c.headerFill,
+      ...(look.fonts.system || c.cardBorder === "transparent" ? {} : { borderWidth: 1, borderColor: c.cardBorder }), alignItems: "center", justifyContent: "center" }}>
+      {text ? <Text key={fontScale} maxFontSizeMultiplier={0} style={look.fonts.system ? { fontFamily: fonts.rounded, fontSize: 13, fontWeight: "700", color: c.text }
+        : { ...uiFace(look, "bold"), fontSize: 13, color: c.text }}>{text}</Text>
         : <Icon name="person" size={17} color={c.text} />}
     </View>
   </PressTarget>;

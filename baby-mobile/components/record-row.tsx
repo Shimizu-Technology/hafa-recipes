@@ -4,6 +4,7 @@ import { kindName } from "@/lib/models";
 import { careSummary, friendlyTime, isCare } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
 import { Row, type IconName } from "./ui";
+import { useLook } from "../lib/look-context";
 import { SavedPostRow } from "./saved-post-row";
 export const kindIcon: Record<Kind, IconName> = {
   source: "bookmark-outline",
@@ -17,6 +18,7 @@ export const kindIcon: Record<Kind, IconName> = {
 };
 /** `now` lets a screen share one clock between rows and its summary so durations agree. */
 export function RecordRow({ record, pending = false, now }: { record: BabyRecord; pending?: boolean; now?: Date }) {
+  const { look, parts } = useLook(), DateBlock = look.variants.journalRow === "date" ? parts.DateBlock : undefined;
   const children = useBaby().state.bootstrap?.children ?? [],
     care = isCare(record.kind),
     label = record.title && record.title !== kindName[record.kind] ? record.title : "",
@@ -37,6 +39,7 @@ export function RecordRow({ record, pending = false, now }: { record: BabyRecord
       numericTitle={care}
       numericDetail
       icon={kindIcon[record.kind]}
+      leading={DateBlock && (record.kind === "journal" || record.kind === "question") ? <DateBlock iso={record.occurred_at} /> : undefined}
       onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     />
   );

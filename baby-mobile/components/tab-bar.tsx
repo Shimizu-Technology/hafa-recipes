@@ -6,6 +6,7 @@ import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday } from "@/lib/timing";
 import { reportTabBarHeight } from "@/lib/bottom-overlay";
 import { Icon, PressTarget, tap, useColors, type IconName } from "./ui";
+import { useLook } from "../lib/look-context";
 
 /** Bar content height above the home indicator; the same in all three Håfa apps. */
 export const TAB_BAR_HEIGHT = 56;
@@ -20,7 +21,7 @@ export const tabs: TabSpec[] = [
 ];
 
 /** iOS covers the bar with the keyboard and Android pushes it up; hide it on both while typing. */
-function useKeyboardShown() {
+export function useKeyboardShown() {
   const [shown, setShown] = useState(false);
   useEffect(() => {
     const ios = Platform.OS === "ios";
@@ -35,7 +36,11 @@ function useKeyboardShown() {
  * A solid, JS-drawn tab bar, so iOS 18, iOS 26 and Android show the same calm bar.
  * The selected tab sits in a soft pill; the centre Add is the same pill filled with cocoa.
  */
-export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
+export function BabyTabBar(props: BottomTabBarProps) {
+  const { parts } = useLook(), LookTabBar = parts.TabBar;
+  return LookTabBar ? <LookTabBar {...props} /> : <CurrentTabBar {...props} />;
+}
+function CurrentTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const c = useColors(), keyboard = useKeyboardShown(), bootstrap = useBaby().state.bootstrap,
     // Before birth the Add sheet has no feed, sleep or diaper logs, so don't promise them.
     care = !bootstrap || careLogsStarted(bootstrap.children, profileToday(new Date(), bootstrap.profile.timezone)),

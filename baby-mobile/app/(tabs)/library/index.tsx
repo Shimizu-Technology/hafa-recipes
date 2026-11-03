@@ -14,6 +14,7 @@ import { ChildFilter } from "@/components/child-filter";
 import { CategoryPicker } from "@/components/category-picker";
 import { ImportUpdates } from "@/components/import-updates";
 import { HeaderSearch } from "@/components/header-search";
+import { useLook } from "../../../lib/look-context";
 import { HeaderPill, TabActions, headerActions } from "@/components/tab-stack";
 import { Disclosure } from "@/components/disclosure";
 import { SuggestionLine } from "@/components/tips";
@@ -28,6 +29,7 @@ export default function Library() {
   const [organizing, setOrganizing] = useState(false), [error, setError] = useState("");
   const [lastChange, setLastChange] = useState<{ record: BabyRecord; added: string[] } | null>(null);
   const [undoing, setUndoing] = useState(false), undoBusy = useRef(false);
+  const Saved = useLook().parts.SavedMoment;
   const toast = useToast(), [deciding, setDeciding] = useState(""), decidingRef = useRef(false),
     [chooseFor, setChooseFor] = useState<string[]>([]), params = useLocalSearchParams<{ view?: string; at?: string }>();
   const today = profileToday(new Date(), b.state.bootstrap?.profile.timezone), tipsChild = timingChild(b.state, today),
@@ -112,14 +114,16 @@ export default function Library() {
     });
   }
   const listingCategories = view === "categories" && !collection;
+  // A look's signature moment plays once when a tip is filed under a topic.
+  const withSaved = (card: React.ReactElement) => Saved ? <Saved key={lastChange?.record.id}>{card}</Saved> : card;
   return <Screen title="Saved"
     onRefresh={() => { history.refresh(); categories.refresh(); }}
     footer={selecting ? <Button title={`Choose category · ${selected.length} selected`} disabled={!selected.length}
-      onPress={() => setOrganizing(true)} /> : lastChange ? <Card tone="soft">
+      onPress={() => setOrganizing(true)} /> : lastChange ? withSaved(<Card tone="soft">
       <Copy lines={2}>Saved to {lastChange.record.title}.</Copy>
       {lastChange.added.length > 0 && <Button secondary title="Undo category change" busy={undoing} onPress={() => void undoCategory()} />}
       <Button variant="ghost" title="Dismiss confirmation" disabled={undoing} onPress={() => setLastChange(null)} />
-    </Card> : undefined}>
+    </Card>) : undefined}>
     <Stack.Screen options={headerActions(<TabActions action={<HeaderPill title={selecting ? "Cancel" : "Select"}
       disabled={listingCategories || !history.rows.length} onPress={() => { setSelecting(!selecting); setSelected([]); }} />} />)} />
     <HeaderSearch value={q} onChange={setQ} placeholder="Search saved posts" />

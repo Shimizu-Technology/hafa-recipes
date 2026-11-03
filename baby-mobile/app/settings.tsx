@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Alert, Linking } from "react-native";
+import { Alert, Linking, View } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
 import { revokeShareSession } from "@/lib/share-session-state";
@@ -7,7 +7,32 @@ import { useBaby } from "@/lib/context";
 import { messageFor, pendingChanges } from "@/lib/models";
 import { confirmAccountDeletion } from "@/lib/account-deletion";
 import { exportFile } from "@/lib/files";
-import { Button, Card, Choice, Copy, Field, Grouped, Notice, Row, Screen, Section, useToast } from "@/components/ui";
+import { Button, Card, Choice, Copy, Field, Grouped, Icon, Notice, PressTarget, Row, Screen, Section, useColors, useToast } from "@/components/ui";
+import { useLook } from "@/lib/look-context";
+import { LOOKS, LOOK_IDS } from "@/lib/looks";
+
+/** Non-production only: switch between the candidate designs. The app reopens on Today in the chosen look. */
+function DesignPreview() {
+  const { look, setLook, enabled } = useLook(), c = useColors();
+  if (!enabled) return null;
+  return <Section title="Design preview">
+    <Copy kind="small" tone="muted">Compare candidate designs on this phone. Not shown in App Store builds.</Copy>
+    <Grouped separatorInset={56}>{LOOK_IDS.map((id) => {
+      const option = LOOKS[id], selected = look.id === id;
+      return <PressTarget key={id} testID={`look-${id}`} accessibilityRole="radio" accessibilityState={{ selected, checked: selected }}
+        accessibilityLabel={`${option.label}. ${option.description}`} onPress={() => setLook(id)}
+        style={{ minHeight: 64, paddingVertical: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.surface }}>
+        <View style={{ width: 28, alignItems: "center" }}>
+          <Icon name={selected ? "radio-button-on" : "radio-button-off"} color={selected ? c.action : c.muted} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Copy kind="label">{option.label}</Copy>
+          <Copy kind="small" tone="muted">{option.description}</Copy>
+        </View>
+      </PressTarget>;
+    })}</Grouped>
+  </Section>;
+}
 import { friendlyDate } from "@/lib/care-format";
 export default function Settings() {
   const b = useBaby(),
@@ -128,6 +153,7 @@ export default function Settings() {
               [{ text: "Keep off", style: "cancel" }, { text: "Allow processing", onPress: save }]);
           }} />
       </Card>
+      <DesignPreview />
       <Section title="Your device">
         <Row
           title="Saved changes & recovery"
