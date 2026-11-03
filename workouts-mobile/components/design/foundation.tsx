@@ -12,15 +12,15 @@ import {
   type ViewStyle,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { dark, light, typography, type ColorTokens, type TypeKind } from "@/constants/theme";
+import { dark, light, typography, fonts, type ColorTokens, type TypeKind } from "@/constants/theme";
 
 export function useColors(): ColorTokens {
   return useColorScheme() === "dark" ? dark : light;
 }
 
-/** True when the user asked the OS to reduce motion. Animations must settle instantly then. */
-export function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
+/** Conservative until the OS preference resolves; transforms must not start early. */
+export function useReducedMotion(initial = true) {
+  const [reduced, setReduced] = useState(initial);
   useEffect(() => {
     let live = true;
     void AccessibilityInfo.isReduceMotionEnabled?.()
@@ -118,7 +118,13 @@ export function Copy({
   const c = useColors();
   const surface = useSurface();
   const { fontScale } = useWindowDimensions();
-  const textStyle = StyleSheet.flatten([typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
+  const textStyle: TextStyle = StyleSheet.flatten([typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
+  // Named font files carry their weight. Honor a caller's merged UI weight.
+  const display = ["display", "title", "heading", "cardTitle", "numeric", "numericSmall"].includes(kind);
+  const weight = Number(textStyle.fontWeight ?? 400);
+  if (!style || !StyleSheet.flatten(style)?.fontFamily) textStyle.fontFamily = display ? fonts.display : weight >= 700 ? fonts.bold : weight >= 600 ? fonts.semibold : textStyle.fontFamily;
+  textStyle.fontWeight = "400";
+  if (["display", "title", "heading", "cardTitle"].includes(kind)) { textStyle.textTransform = "uppercase"; textStyle.letterSpacing = 0.25; }
   const scale = allowFontScaling === false ? 1 : Math.min(fontScale, maxScale ?? Infinity);
   // Explicit sizes keep Fabric layout and glyph metrics together on a live Dynamic Type change.
   const scaled = { ...textStyle, fontSize: (textStyle.fontSize ?? typography[kind].fontSize) * scale,

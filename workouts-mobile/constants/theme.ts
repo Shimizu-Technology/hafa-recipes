@@ -1,4 +1,4 @@
-/** Workouts UI: system type, neutral surfaces, coral actions. */
+/** Athletic: condensed training type, cream light ground and tonal dark surfaces. */
 import type { TextStyle, ViewStyle } from "react-native";
 
 /** Legacy artwork palette. App UI uses the neutral surfaces and coral actions below. */
@@ -85,64 +85,56 @@ export type ColorTokens = {
   segment: string;
 };
 
-// Small text uses contrast-strengthened variants where system colours fall below 4.5:1.
-// Semantic UI colours are independent of the retained app-icon artwork palette.
+// Structural actions stay neutral; coral is reserved for Start and Add.
 export const light: ColorTokens = {
   onImage: "#FFFFFF", imageOverlay: "rgba(0,0,0,0.6)",
-  groupedBackground: "#F2F2F7", surface2: "rgba(118,118,128,0.12)",
-  secondaryLabel: "rgba(60,60,67,0.60)", tertiaryLabel: "rgba(60,60,67,0.30)",
-  destructive: "#FF3B30", dataSuccess: "#248A3D",
-  background: "#FFFFFF", surface: "#F2F2F7", elevated: "#FFFFFF", sunken: "rgba(118,118,128,0.12)",
-  text: "#000000", muted: "rgba(60,60,67,0.74)", border: "rgba(60,60,67,0.29)", borderStrong: "#767680",
-  action: "#C8471C", onAction: "#FFFFFF", actionSoft: "rgba(118,118,128,0.12)", onActionSoft: "#B53F17",
-  accent: "#C8471C", accentText: "#B53F17", onAccent: "#FFFFFF", accentSoft: "rgba(118,118,128,0.12)",
-  accentTint: "rgba(200,71,28,0.14)",
-  hero: "#F2F2F7", onHero: "#000000", heroMuted: "rgba(60,60,67,0.74)", heroAccent: "#B53F17",
-  onHeroSoft: "rgba(118,118,128,0.12)", success: "#207A36", warning: "#765300",
-  error: "#BC231A", errorSoft: "#FFF0EF", focus: "#C8471C", overlay: "rgba(0,0,0,0.42)",
-  skeleton: "#E5E5EA", shadow: "#000000", tint: "rgba(118,118,128,0.12)",
-  tabBar: "#FFFFFF", tabBarBorder: "rgba(60,60,67,0.18)", segment: "#FFFFFF",
+  background: "#FFF7EC", groupedBackground: "#FFF7EC", surface: "#FFFFFF", elevated: "#FFFFFF",
+  surface2: "#F0EFED", sunken: "#F0EFED", text: "#17120F", muted: "#626166",
+  secondaryLabel: "#626166", tertiaryLabel: "#626166", border: "#D7D0C9", borderStrong: "#81767C",
+  action: "#17120F", onAction: "#FFF7EC", actionSoft: "#F0EFED", onActionSoft: "#17120F",
+  accent: "#B63E18", accentText: "#17120F", onAccent: "#FFFFFF", accentSoft: "#F5E5DC", accentTint: "#F5E5DC",
+  hero: "#FFFFFF", onHero: "#17120F", heroMuted: "#626166", heroAccent: "#B63E18", onHeroSoft: "#F0EFED",
+  success: "#22673B", dataSuccess: "#22673B", warning: "#735019", error: "#A52222", destructive: "#A52222", errorSoft: "#FCE9E6",
+  focus: "#B63E18", overlay: "rgba(0,0,0,0.42)", skeleton: "#F0EFED", shadow: "#000000", tint: "#F0EFED",
+  tabBar: "#FFF7EC", tabBarBorder: "#DED7CF", segment: "#FFFFFF",
 };
 export const dark: ColorTokens = {
   onImage: "#FFFFFF", imageOverlay: "rgba(0,0,0,0.6)",
-  groupedBackground: "#000000", surface2: "rgba(118,118,128,0.24)",
-  secondaryLabel: "rgba(235,235,245,0.60)", tertiaryLabel: "rgba(235,235,245,0.30)",
-  destructive: "#FF453A", dataSuccess: "#30D158",
-  background: "#000000", surface: "#1C1C1E", elevated: "#1C1C1E", sunken: "rgba(118,118,128,0.24)",
-  text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", border: "rgba(84,84,88,0.65)", borderStrong: "#8E8E93",
-  action: "#FF7A50", onAction: "#2A0D00", actionSoft: "rgba(118,118,128,0.24)", onActionSoft: "#FF7A50",
-  accent: "#FF7A50", accentText: "#FF7A50", onAccent: "#2A0D00", accentSoft: "rgba(118,118,128,0.24)",
-  accentTint: "rgba(255,122,80,0.2)",
-  hero: "#1C1C1E", onHero: "#FFFFFF", heroMuted: "rgba(235,235,245,0.60)", heroAccent: "#FF7A50",
-  onHeroSoft: "rgba(118,118,128,0.24)", success: "#30D158", warning: "#FFD60A",
-  error: "#FF453A", errorSoft: "#301412", focus: "#FF7A50", overlay: "rgba(0,0,0,0.6)",
-  skeleton: "#2C2C2E", shadow: "#000000", tint: "rgba(118,118,128,0.24)",
-  tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", segment: "#636366",
+  background: "#0B0B0C", groupedBackground: "#0B0B0C", surface: "#161618", elevated: "#161618",
+  surface2: "#222225", sunken: "#222225", text: "#F5F5F2", muted: "#B1B1B8",
+  secondaryLabel: "#B1B1B8", tertiaryLabel: "#B1B1B8", border: "#454247", borderStrong: "#A39BA0",
+  action: "#F5F5F2", onAction: "#0B0B0C", actionSoft: "#222225", onActionSoft: "#F5F5F2",
+  accent: "#FF7A50", accentText: "#F5F5F2", onAccent: "#17120F", accentSoft: "#30241F", accentTint: "#30241F",
+  hero: "#161618", onHero: "#F5F5F2", heroMuted: "#B1B1B8", heroAccent: "#FF7A50", onHeroSoft: "#222225",
+  success: "#83D7A3", dataSuccess: "#83D7A3", warning: "#EDC784", error: "#FFB2A7", destructive: "#FFB2A7", errorSoft: "#3C2024",
+  focus: "#FF7A50", overlay: "rgba(0,0,0,0.6)", skeleton: "#222225", shadow: "#000000", tint: "#222225",
+  tabBar: "#161618", tabBarBorder: "#39363B", segment: "#161618",
 };
 
 export const spacing = { xxs: 4, xs: 8, sm: 12, md: 16, lg: 24, xl: 32, xxl: 40 } as const;
-export const radii = { sm: 10, md: 14, lg: 20, xl: 24, full: 999 } as const;
+export const radii = { sm: 8, md: 12, lg: 20, xl: 24, full: 999 } as const;
 export const touch = { min: 44, comfortable: 50 } as const;
 export const contentWidth = 660;
-// Leaving fontFamily unset selects SF Pro on iOS and the system face elsewhere.
-const system = undefined;
-export const fonts = { regular: system, semibold: system, bold: system, display: system, displaySemibold: system } as const;
+export const fonts = {
+  regular: "Inter_400Regular", semibold: "Inter_600SemiBold", bold: "Inter_700Bold",
+  display: "BarlowCondensed_700Bold", displaySemibold: "BarlowCondensed_700Bold",
+} as const;
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 export const typography = {
-  display: { fontFamily: system, fontWeight: "700", fontSize: 34, lineHeight: 41 },
-  title: { fontFamily: system, fontWeight: "700", fontSize: 28, lineHeight: 34 },
-  navTitle: { fontFamily: system, fontWeight: "600", fontSize: 17, lineHeight: 22 },
-  heading: { fontFamily: system, fontWeight: "700", fontSize: 22, lineHeight: 28 },
-  subheading: { fontFamily: system, fontWeight: "600", fontSize: 20, lineHeight: 25 },
-  body: { fontFamily: system, fontWeight: "400", fontSize: 17, lineHeight: 22 },
-  label: { fontFamily: system, fontWeight: "600", fontSize: 17, lineHeight: 22 },
-  small: { fontFamily: system, fontWeight: "400", fontSize: 15, lineHeight: 20 },
-  caption: { fontFamily: system, fontWeight: "400", fontSize: 13, lineHeight: 18 },
-  caption2: { fontFamily: system, fontWeight: "600", fontSize: 11, lineHeight: 13 },
-  callout: { fontFamily: system, fontWeight: "400", fontSize: 16, lineHeight: 21 },
-  cardTitle: { fontFamily: system, fontWeight: "600", fontSize: 15, lineHeight: 20 },
-  numeric: { fontFamily: system, fontWeight: "700", fontSize: 34, lineHeight: 41, fontVariant: tabular },
-  numericSmall: { fontFamily: system, fontWeight: "600", fontSize: 20, lineHeight: 25, fontVariant: tabular },
+  display: { fontFamily: fonts.display, fontWeight: "400", fontSize: 34, lineHeight: 41 },
+  title: { fontFamily: fonts.display, fontWeight: "400", fontSize: 28, lineHeight: 34 },
+  navTitle: { fontFamily: fonts.semibold, fontWeight: "400", fontSize: 17, lineHeight: 22 },
+  heading: { fontFamily: fonts.display, fontWeight: "400", fontSize: 22, lineHeight: 28 },
+  subheading: { fontFamily: fonts.display, fontWeight: "400", fontSize: 20, lineHeight: 25 },
+  body: { fontFamily: fonts.regular, fontWeight: "400", fontSize: 17, lineHeight: 22 },
+  label: { fontFamily: fonts.semibold, fontWeight: "400", fontSize: 17, lineHeight: 22 },
+  small: { fontFamily: fonts.regular, fontWeight: "400", fontSize: 15, lineHeight: 20 },
+  caption: { fontFamily: fonts.regular, fontWeight: "400", fontSize: 13, lineHeight: 18 },
+  caption2: { fontFamily: fonts.semibold, fontWeight: "400", fontSize: 11, lineHeight: 13 },
+  callout: { fontFamily: fonts.regular, fontWeight: "400", fontSize: 16, lineHeight: 21 },
+  cardTitle: { fontFamily: fonts.display, fontWeight: "400", fontSize: 15, lineHeight: 20 },
+  numeric: { fontFamily: fonts.display, fontWeight: "400", fontSize: 34, lineHeight: 41, fontVariant: tabular },
+  numericSmall: { fontFamily: fonts.display, fontWeight: "400", fontSize: 20, lineHeight: 25, fontVariant: tabular },
 } satisfies Record<string, TextStyle>;
 export type TypeKind = keyof typeof typography;
 export const elevation = {

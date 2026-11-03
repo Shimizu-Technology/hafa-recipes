@@ -111,15 +111,6 @@ describe("raw colours", () => {
 });
 
 describe("one Håfa family", () => {
-  it("shares neutral pages with Recipes while each app keeps its own accent", () => {
-    const source = readFileSync(join(repo, "mobile/constants/Colors.ts"), "utf8");
-    const pages = [...source.matchAll(/\bbackground:\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, value]) => value);
-    const accents = [...source.matchAll(/\btint:\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, value]) => value);
-    expect(pages).toEqual([light.background, dark.background]);
-    expect(accents).toEqual(["#1E7F6E", "#5DD3B6"]);
-    expect(accents).not.toEqual([light.action, dark.action]);
-  });
-
   it("app config backgrounds match the theme", () => {
     const config = readFileSync(join(root, "app.config.ts"), "utf8");
     expect(config).toContain(`const cream = "${light.background}"`);
@@ -136,17 +127,17 @@ describe("one Håfa family", () => {
     expect(markShapes).toEqual(geometryShapes(concepts.A));
   });
 
-  it("uses neutral pages and coral actions independently of the website artwork", () => {
-    expect([light.background, dark.background]).toEqual(["#FFFFFF", "#000000"]);
-    expect([light.action, dark.action]).toEqual(["#C8471C", "#FF7A50"]);
+  it("uses Athletic grounds and neutral structural actions", () => {
+    expect([light.background, dark.background]).toEqual(["#FFF7EC", "#0B0B0C"]);
+    expect([light.action, dark.action]).toEqual([light.text, dark.text]);
     expect([light.hero, dark.hero]).toEqual([light.surface, dark.surface]);
   });
-  it("uses system UI type with explicit line heights and weights", () => {
+  it("uses named Athletic fonts with explicit line heights", () => {
     for (const style of Object.values(typography)) {
-      expect(style.fontFamily).toBeUndefined();
+      expect(style.fontFamily).toMatch(/Inter_|BarlowCondensed_/);
       expect(style.lineHeight).toBeGreaterThan(style.fontSize);
       expect(style.fontWeight).toMatch(/400|600|700/);
     }
-    expect(typography.cardTitle).toMatchObject({ fontSize: 15, lineHeight: 20, fontWeight: "600" });
+    expect(typography.cardTitle).toMatchObject({ fontSize: 15, lineHeight: 20, fontWeight: "400" });
   });
 });

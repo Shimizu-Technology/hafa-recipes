@@ -29,3 +29,11 @@ it("grows with the text-size setting unless a control caps it", () => {
   f.fontScale = 1.2;
   expect(fontSize({ maxScale: 1.6 })).toBeCloseTo(base * 1.2);
 });
+
+it("selects the named face from a caller's merged UI weight and uses condensed uppercase headings", () => {
+  act(() => { renderer = create(createElement(Copy, { style: { fontWeight: "700" } }, "Save")); });
+  expect(renderer!.root.findByType("Text" as never).props.style).toMatchObject({ fontFamily: "Inter_700Bold", fontWeight: "400" });
+  act(() => renderer?.unmount());
+  act(() => { renderer = create(createElement(Copy, { kind: "heading" }, "Training")); });
+  expect(renderer!.root.findByType("Text" as never).props.style).toMatchObject({ fontFamily: "BarlowCondensed_700Bold", textTransform: "uppercase", letterSpacing: 0.25 });
+});

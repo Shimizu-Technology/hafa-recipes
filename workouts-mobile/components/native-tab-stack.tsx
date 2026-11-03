@@ -5,6 +5,8 @@ import { View } from "react-native";
 import { AccountButton, HeaderButton } from "./design/controls";
 import { useColors } from "./design/foundation";
 
+import { fonts } from "@/constants/theme";
+
 const NativeHeader = createContext(false);
 export const useNativeHeader = () => useContext(NativeHeader);
 
@@ -35,10 +37,10 @@ export function headerBack(element: ReactElement | undefined) {
 export function NativeTabStack({ title }: { title: string }) {
   const c = useColors();
   return <NativeHeader.Provider value>
-    <Stack screenOptions={{ title, headerLargeTitleEnabled: true, headerShadowVisible: false, headerBackTitle: "Back",
+    <Stack screenOptions={{ title: title.toUpperCase(), headerLargeTitleEnabled: true, headerShadowVisible: false, headerBackTitle: "Back",
       headerTransparent: false, headerStyle: { backgroundColor: c.background }, headerLargeStyle: { backgroundColor: c.background },
-      scrollEdgeEffects: { top: "hidden" }, headerTintColor: c.accent,
-      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text },
+      scrollEdgeEffects: { top: "hidden" }, headerTintColor: c.text,
+      headerTitleStyle: { color: c.text, fontFamily: fonts.semibold }, headerLargeTitleStyle: { color: c.text, fontFamily: fonts.display },
       contentStyle: { backgroundColor: c.background },
       ...headerActions(<BrowseHeader />),
     }} />

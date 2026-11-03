@@ -4,12 +4,14 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { dark, light } from "../constants/theme";
 const f = vi.hoisted(() => ({ push: vi.fn(), report: vi.fn(), scheme: "light", keyboard: {} as Record<string, () => void> }));
 vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable", Text: "Text", Platform: { OS: "ios" },
+  Animated: { Value: class { setValue() {} }, View: "AnimatedView" },
   StyleSheet: { hairlineWidth: 0.33, create: (styles: object) => styles },
   Keyboard: { addListener: (name: string, listener: () => void) => { f.keyboard[name] = listener; return { remove() {} }; } } }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
 vi.mock("expo-router", () => ({ router: { push: f.push } }));
 vi.mock("@/lib/bottom-overlay", () => ({ reportTabScreenBottomInset: f.report }));
-vi.mock("../components/design/foundation", () => ({ useColors: () => f.scheme === "dark" ? dark : light, haptics: { tick() {}, light() {} } }));
+vi.mock("../components/design/foundation", () => ({ useReducedMotion: () => true, useColors: () => f.scheme === "dark" ? dark : light, haptics: { tick() {}, light() {} } }));
+vi.mock("../components/design/press", () => ({ animatedPressableComponent: () => "Pressable", usePressScale: () => ({ scale: 1, opacity: 1 }) }));
 import { AppTabBar } from "../components/design/tab-bar";
 
 let view: ReactTestRenderer | undefined;
@@ -26,16 +28,16 @@ it("shows Today, Library, Add, Discover and Progress on a solid bar, never the h
   const slots = view!.root.findAllByType("Pressable" as never);
   expect(slots.map(slot => slot.props.accessibilityLabel)).toEqual(["Today", "Library", "Add a workout", "Discover", "Progress"]);
   const bar = view!.root.findAllByType("View" as never)[0];
-  expect(bar.props.style).toMatchObject({ backgroundColor: "#FFFFFF", borderTopWidth: 0.33, paddingBottom: 34 });
+  expect(bar.props.style).toMatchObject({ backgroundColor: light.tabBar, borderTopWidth: 0, paddingBottom: 34 });
   f.scheme = "dark"; render();
-  expect(view!.root.findAllByType("View" as never)[0].props.style.backgroundColor).toBe("#0C0C0C");
+  expect(view!.root.findAllByType("View" as never)[0].props.style.backgroundColor).toBe(dark.tabBar);
 });
 
-it("marks the selected tab with the accent and a tonal pill, and navigates on press", () => {
+it("marks the selected tab in ink with a neutral backing, and navigates on press", () => {
   render(1);
   const library = view!.root.findAllByType("Pressable" as never)[1];
   expect(library.props.accessibilityState).toEqual({ selected: true });
-  expect(library.findAllByType("View" as never)[0].props.style[1]).toEqual({ backgroundColor: light.accentTint });
+  expect(library.findAllByType("View" as never)[0].props.style.backgroundColor).toBe("transparent");
   expect(library.findByType("Icon" as never).props).toMatchObject({ name: "albums", color: light.accentText });
   const today = view!.root.findAllByType("Pressable" as never)[0];
   expect(today.findByType("Icon" as never).props).toMatchObject({ name: "today-outline", color: light.muted });
@@ -59,4 +61,9 @@ it("hides while the keyboard is up", () => {
   expect(view!.toJSON()).toBeNull();
   act(() => f.keyboard.keyboardWillHide());
   expect(view!.toJSON()).not.toBeNull();
+});
+
+it("does not select Today when the hidden Search route is focused", () => {
+  render(4);
+  expect(view!.root.findAllByType("Pressable" as never).some(slot => slot.props.accessibilityState?.selected)).toBe(false);
 });

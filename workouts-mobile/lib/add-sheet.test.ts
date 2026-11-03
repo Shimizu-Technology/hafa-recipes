@@ -1,3 +1,5 @@
+vi.mock("expo-font", () => ({ useFonts: () => [true, null] }));
+vi.mock("expo-splash-screen", () => ({ preventAutoHideAsync: async () => {}, hideAsync: async () => {} }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
