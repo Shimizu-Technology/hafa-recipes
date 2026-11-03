@@ -197,7 +197,9 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     </>
   );
   const clockCard = look.id !== "current" ? <LookClock text={clockText} caption={caption} phase={phaseWord} progress={position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : 60) : 1} trigger={d.actuals.length} compact={grid}>
+    {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small" align="center">{formatClock(remaining)} left</Copy>}
     {!!nowLine && <Copy kind="label" align="center">{nowLine}</Copy>}
+    {format.mode === "for_time" && allMarked && <Copy kind="label" align="center">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
     {hasNext && <Copy kind="small" tone="muted" align="center">Next · {moves(position!.index + 1)}</Copy>}
   </LookClock> : (
     <Card tone="accent">
