@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ fontScale: 1, push: vi.fn() }));
 
 vi.mock('react-native', () => ({
-  StyleSheet: { create: (styles: unknown) => styles },
+  StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.5 },
   Text: 'Text',
   TouchableOpacity: 'TouchableOpacity',
   useWindowDimensions: () => ({ fontScale: mocks.fontScale }),
@@ -30,7 +30,7 @@ vi.mock('@/components/Themed', async () => ({ Text: 'Text', TextInput: 'TextInpu
   }),
 }));
 vi.mock('@/constants/Colors', () => ({
-  radius: { md: 14, full: 999 },
+  radius: { md: 12, lg: 16, full: 999 },
   spacing: { sm: 8, md: 16, lg: 24 },
   typography: { headline: { fontSize: 17, lineHeight: 22 }, subhead: { fontSize: 15, lineHeight: 20 } },
 }));
@@ -68,12 +68,12 @@ describe('SignInBanner', () => {
       const banner = renderer.container.queryAll(
         (instance) => instance.props.accessibilityRole === 'summary',
       )[0];
-      // Inline in the content flow: no absolute position, border or shadow that could sit under the tab bar.
+      // Inline in the content flow: no absolute position or shadow that could sit under the tab bar; a Calm hairline sheet.
       const card = Object.assign({}, ...[banner.props.style].flat(Infinity));
-      expect(card).toMatchObject({ marginBottom: 24, borderRadius: 14 });
+      expect(card).toMatchObject({ marginBottom: 24, borderRadius: 16 });
       expect(card).not.toHaveProperty('position');
       expect(card).not.toHaveProperty('bottom');
-      expect(card).not.toHaveProperty('borderWidth');
+      expect(card.borderWidth).toBe(0.5);
       expect(card).not.toHaveProperty('shadowOpacity');
 
       await act(async () => createAccount.props.onPress());
