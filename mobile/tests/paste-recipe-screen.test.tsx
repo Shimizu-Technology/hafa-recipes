@@ -41,6 +41,7 @@ vi.mock('react-native', async () => {
     TextInput: host('TextInput'),
     TouchableOpacity: host('TouchableOpacity'),
     View: host('NativeView'),
+    useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: 1 }),
   };
 });
 vi.mock('expo-clipboard', () => ({ getStringAsync: mocks.clipboard }));

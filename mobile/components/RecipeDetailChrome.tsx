@@ -110,7 +110,8 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown, onH
         <View style={{ width: sideWidth }}><HeaderCircle action={back} solid={solid} /></View>
         <Animated.View style={[styles.titleWrap, titleStyle]} pointerEvents="none"
           accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+          {/* The full title is in the page; the bar shows one line, like a native navigation title. */}
+          <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>{title}</Text>
         </Animated.View>
         <View style={[styles.actions, { width: sideWidth }]}>
           {actions.map((action) => <HeaderCircle key={action.accessibilityLabel} action={action} solid={solid} />)}

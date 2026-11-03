@@ -5,6 +5,7 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
+    TextScaleContext: ReactModule.createContext(1),
     Text: (props: Record<string, unknown>) =>
       ReactModule.createElement('Text', props, props.children as React.ReactNode),
     useColors: () => ({

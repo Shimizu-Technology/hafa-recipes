@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { Pressable, StyleSheet, TouchableOpacity, View, useWindowDimensions, type TouchableOpacityProps } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Text, useColors } from '@/components/Themed';
+import { Text, TextScaleContext, useColors } from '@/components/Themed';
 
 type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & {
   icon: keyof typeof Ionicons.glyphMap;
@@ -38,11 +38,12 @@ export function RecipeDetailAction({ icon, title, onPress, selected }: {
 }) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
+  const textScale = useContext(TextScaleContext);
   const tint = selected ? colors.actionText : colors.text;
   return (
     <Pressable key={fontScale} onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
       accessibilityState={selected === undefined ? undefined : { expanded: selected }}
-      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
       <Ionicons name={icon} size={18} color={tint} />
       <Text numberOfLines={1} style={[styles.actionTitle, { color: tint }]}>{title}</Text>
     </Pressable>
