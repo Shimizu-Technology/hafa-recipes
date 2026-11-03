@@ -866,10 +866,13 @@ export function Row({
   hint,
   numericTitle = false,
   numericDetail = false,
+  leading,
 }: {
   title: string;
   detail?: string;
   icon?: IconName;
+  /** Replaces the icon tile, for example a journal entry's date block. */
+  leading?: React.ReactNode;
   onPress: () => void;
   trailing?: React.ReactNode;
   hint?: string;
@@ -878,7 +881,7 @@ export function Row({
 }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   const firstLineHeight = typeScale.headline.lineHeight * fontScale;
-  const firstLineTop = icon ? Math.max(0, (44 - firstLineHeight) / 2) : 0;
+  const firstLineTop = icon || leading ? Math.max(0, (44 - firstLineHeight) / 2) : 0;
   return (
     <PressTarget
       accessibilityRole="button"
@@ -900,7 +903,8 @@ export function Row({
       })}
     >
       {/* A blush tile around the glyph, the same family as the monogram tiles on saved posts. */}
-      {icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}>
+      {leading ? <View style={{ marginTop: Math.max(0, (firstLineHeight - 44) / 2) }}>{leading}</View>
+        : icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}>
         <View style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
           <Icon name={icon} size={20} color={c.placeholderInk} />
         </View>

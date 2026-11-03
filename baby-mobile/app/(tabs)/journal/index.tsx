@@ -7,7 +7,7 @@ import { replaceRecord } from "@/lib/outbox";
 import { createHistoryPager, historyRows } from "@/lib/history";
 import { exportVisit } from "@/lib/files";
 import { visitSummary } from "@/lib/visit-summary";
-import { Button, HeaderAction, Card, FilterChips, Grouped, Choice, Copy, Empty, Field, Loading, Notice, Row, Screen } from "@/components/ui";
+import { Button, HeaderAction, Card, FilterChips, Grouped, Choice, Copy, Empty, Loading, Notice, Row, Screen } from "@/components/ui";
 import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -131,7 +131,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
         ]}
         onChange={setFilter}
       />}
-      {searching && <Field label="Search" value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Notes and questions"} />}
+      {searching && <HeaderSearch value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Search notes and questions"} />}
       {filter === "question" && (preparing ? (
         <Card tone="soft">
           <Copy kind="label">Choose what to bring to the visit</Copy>

@@ -298,20 +298,20 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
   expect(mock.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: "feed" } });
 });
 
-it("uses native header search and clears its query from app actions without resetting typed text", async () => {
-  const onChange = vi.fn(), setText = vi.fn();
+it("draws its own Soft search field instead of UIKit's grey one, and clears it from the field", async () => {
+  const onChange = vi.fn();
   await mount(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>);
-  expect(renderer!.root.findAllByType("TextInput" as React.ElementType)).toHaveLength(0);
-  const search = mock.options.at(-1).headerSearchBarOptions;
-  expect(search.hideWhenScrolling).toBe(false);
-  search.ref.current = { setText };
-  await act(async () => search.onChangeText({ nativeEvent: { text: "hospital bag" } }));
+  expect(mock.options.some(options => options?.headerSearchBarOptions)).toBe(false);
+  const input = () => renderer!.root.findByType("TextInput" as React.ElementType);
+  expect(input().props).toMatchObject({ accessibilityLabel: "Search saved posts", returnKeyType: "search", maxFontSizeMultiplier: 0 });
+  expect(input().props.style).toMatchObject({ fontFamily: "DMSans_400Regular", color: "#5A4740" });
+  const field = renderer!.root.findAllByType("View" as React.ElementType)[0].props.style;
+  expect(field).toMatchObject({ minHeight: 48, backgroundColor: "#FFFFFF", borderRadius: 16 });
+  expect(renderer!.root.findAll(n => n.props.accessibilityLabel === "Clear search")).toHaveLength(0);
+  await act(async () => input().props.onChangeText("hospital bag"));
   expect(onChange).toHaveBeenLastCalledWith("hospital bag");
   await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="hospital bag" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
-  expect(setText).not.toHaveBeenCalled();
-  await act(async () => renderer!.update(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>));
-  expect(setText).toHaveBeenLastCalledWith("");
-  await act(async () => search.onCancelButtonPress());
+  await act(async () => renderer!.root.findByProps({ accessibilityLabel: "Clear search" }).props.onPress());
   expect(onChange).toHaveBeenLastCalledWith("");
 });
 

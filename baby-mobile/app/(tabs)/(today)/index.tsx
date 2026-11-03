@@ -193,9 +193,7 @@ export default function Today() {
       {children.length > 1 && <ChildFilter />}
       {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
       {pregnant ? <>
-        <PregnancyHero child={child} now={today} />
-        <TipSection title="For now" view="now" rows={tipsNow.rows}
-          empty="Tips you save for this point in your pregnancy show up here." />
+        <PregnancyHero child={child} now={today} tips={tipsNow.rows} />
         <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
       </> : <Card tone="hero" style={{ gap: 12 }}>
         <Copy kind="label">Add the birth date</Copy>

@@ -11,6 +11,8 @@ import { inheritedFiles, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
 import { Button, Card, Chips, Choice, Copy, Grouped, Loading, Notice, Row, Screen, Section, useToast } from "@/components/ui";
 import { RecordRow } from "@/components/record-row";
+import { SourceHero } from "@/components/saved-post-row";
+import { tipTopic } from "@/lib/timing";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
@@ -90,7 +92,8 @@ export default function RecordDetail() {
       numericSubtitle
       subtitle={friendlyTime(record.occurred_at) + (child ? " · " + child.name : "")}
     >
-      {title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
+      {record.kind === "source" ? <SourceHero record={record} title={title} topic={tipTopic(record, b.records.filter((row) => row.kind === "collection"))} />
+        : title !== kindName[record.kind] && <Copy kind="heading">{title}</Copy>}
       {!!error && <Notice error>{error}</Notice>}
       {record.data.provenance === "clinician_instruction" && (
         <Notice>Clinician instruction · labeled by you. Keep the original context and date with this note.</Notice>
