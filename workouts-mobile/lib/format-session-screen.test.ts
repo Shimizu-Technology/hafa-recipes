@@ -42,6 +42,8 @@ function elements(node: unknown): Array<{ type: unknown; props: Record<string, a
   const props = node.props as Record<string, any>;
   return [{ type: node.type, props }, ...elements(props.children)];
 }
+// The clock card is pinned (a prop of the mocked Screen) at large text and in the scrolling body otherwise.
+const copies = () => [...renderer!.root.findAllByType("Copy" as never), ...elements(renderer!.root.findByType("Screen" as never).props.pinned).filter((n) => n.type === "Copy")];
 const button = (title: string) => [...renderer!.root.findAll((n) => (n.type as unknown) === "Button"),
   ...elements(renderer!.root.findByType("Screen" as never).props.footer)].find((n) => n.type === "Button" && n.props.title === title)!;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); fixture.announce.mockReset();
@@ -163,7 +165,7 @@ it("caps the clock's growth at the largest text size so it stays on one line ins
   const d = await draft(workout({ grouping: "circuit", rounds: 1, execution: { mode: "for_time", time_cap_seconds: null }, exercises: [{ name: "Burpees", reps_min: 100 }] }));
   fixture.fontScale = 3.1;
   await render(d, 3_599_000);
-  const clock = renderer!.root.findAllByType("Copy" as never).find((n) => n.props.kind === "numeric")!;
+  const clock = copies().find((n) => n.props.kind === "numeric")!;
   expect(clock.props.children).toBe("59:59");
   expect(clock.props.numberOfLines).toBe(1);
   expect(clock.props.allowFontScaling).toBe(false);
@@ -171,7 +173,7 @@ it("caps the clock's growth at the largest text size so it stays on one line ins
   expect(clock.props.style.fontSize).toBeLessThanOrEqual(56 * 1.6);
   fixture.fontScale = 1;
   await render(d, 65_000);
-  expect(renderer!.root.findAllByType("Copy" as never).find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(56);
+  expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(56);
 });
 
 it("exposes for-time moves as checkboxes", async () => {
@@ -183,21 +185,61 @@ it("exposes for-time moves as checkboxes", async () => {
     .toEqual([["checkbox", "10 Burpees", true], ["checkbox", "20 Air squats", false]]);
 });
 
-it("allows footer labels to scale at the largest text sizes", async () => {
+it("lays the footer actions out as a two-column grid at the largest text sizes and keeps labels whole", async () => {
   const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ name: "Power clean", reps_min: 5 }] }));
   fixture.fontScale = 3.1;
   await render(d, 5_000);
-  const footer = elements(renderer!.root.findByType("Screen" as never).props.footer).filter((n) => n.type === "Button");
-  expect(footer.map((n) => n.props.title)).toEqual(["Done · interval 1", "Missed", "Pause", "Finish"]);
-  expect(footer.every((n) => n.props.maxScale === undefined)).toBe(true);
+  const footer = renderer!.root.findByType("Screen" as never).props.footer;
+  const buttons = elements(footer).filter((n) => n.type === "Button");
+  expect(buttons.map((n) => n.props.title)).toEqual(["Done · interval 1", "Missed", "Pause", "Finish"]);
+  // Two cells per row (four actions in two rows), wrapped inside the row; buttons keep their 44pt-plus size and drop icons.
+  const rows = elements(footer).filter((n) => n.type === "View" && n.props.style?.flexWrap === "wrap");
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => elements(row.props.children).filter((n) => n.type === "Button").length)).toEqual([2, 2]);
+  expect(buttons.every((n) => n.props.size === "lg" && n.props.icon === undefined)).toBe(true);
+  // A label may still grow with the setting, but never past the size where its longest word fits its cell.
+  const done = buttons[0].props.maxScale, missed = buttons[1].props.maxScale;
+  expect(done).toBeGreaterThanOrEqual(1);
+  expect(done).toBeLessThan(3.1);
+  expect(missed).toBeGreaterThanOrEqual(done);
+  expect(done * 17 * 0.6 * "interval".length).toBeLessThanOrEqual((390 - 32 - 12) / 2 - 44 + 0.01);
+});
+
+it("keeps the footer a stacked row layout at default text size", async () => {
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ name: "Power clean", reps_min: 5 }] }));
+  await render(d, 5_000);
+  const footer = renderer!.root.findByType("Screen" as never).props.footer;
+  expect(elements(footer).filter((n) => n.type === "View" && n.props.style?.flexWrap === "wrap")).toHaveLength(0);
+  expect(elements(footer).filter((n) => n.type === "Button").map((n) => n.props.icon)).toEqual(["checkmark", undefined, "pause", "flag-outline"]);
+  expect(renderer!.root.findByType("Screen" as never).props.pinned).toBeUndefined();
+});
+
+it("pins the clock card above the scrolling body at large text so it never scrolls away", async () => {
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 120, intervals: 6, rotation: null }, exercises: [{ name: "Power clean", reps_min: 5 }] }));
+  fixture.fontScale = 3.1;
+  await render(d, 5_000);
+  const screen = renderer!.root.findByType("Screen" as never);
+  const pinned = elements(screen.props.pinned);
+  expect(pinned[0].type).toBe("Card");
+  const clock = pinned.find((n) => n.type === "Copy" && n.props.kind === "numeric")!;
+  expect(clock.props.children).toBe("1:55");
+  // The clock is not duplicated in the scrolling body.
+  expect(renderer!.root.findAll((n) => (n.type as unknown) === "Card" && n.props.tone === "accent")).toHaveLength(0);
+});
+
+it("lets Finish span the grid when the work is over and Pause is gone", async () => {
+  const d = await draft(workout({ grouping: "circuit", rounds: 1, execution: { mode: "for_time", time_cap_seconds: 60 }, exercises: [{ name: "Burpees", reps_min: 100 }] }));
+  fixture.fontScale = 3.1;
+  await render(d, 61_000);
+  const footer = renderer!.root.findByType("Screen" as never).props.footer;
+  expect(elements(footer).filter((n) => n.type === "Button").map((n) => n.props.title)).toEqual(["Save capped result", "Finish"]);
 });
 
 it("allows phase labels to scale while capping the clock", async () => {
   const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Squats" }] }));
   fixture.fontScale = 3.1;
   await render(d, 5_000);
-  const copies = renderer!.root.findAllByType("Copy" as never);
-  expect(copies.find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBeUndefined();
-  expect(copies.find((n) => n.props.kind === "caption")!.props.maxScale).toBeUndefined();
-  expect(copies.find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(56 * 1.6);
+  expect(copies().find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBeUndefined();
+  expect(copies().find((n) => n.props.kind === "caption")!.props.maxScale).toBeUndefined();
+  expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(56 * 1.6);
 });

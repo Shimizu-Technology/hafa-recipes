@@ -15,3 +15,18 @@ describe("workout grids", () => {
     expect(workoutGridColumns(660, 1.29, true)).toBe(3);
   });
 });
+
+import { footerCellWidth, footerLabelScale } from "./readable-layout";
+describe("two-column footer", () => {
+  it("splits the width between the footer's side padding and the gap", () => {
+    expect(footerCellWidth(390)).toBe((390 - 32 - 12) / 2);
+    expect(footerCellWidth(1200)).toBe((660 - 32 - 12) / 2);
+  });
+  it("lets short words grow with the text size and shrinks only the label whose longest word would not fit", () => {
+    const cell = footerCellWidth(390);
+    expect(footerLabelScale("Pause", cell, 1.5)).toBe(1.5);
+    expect(footerLabelScale("Done · interval 1", cell, 3.1)).toBeLessThan(footerLabelScale("Missed", cell, 3.1));
+    expect(footerLabelScale("Done · interval 1", cell, 3.1)).toBeGreaterThan(1);
+    expect(footerLabelScale("Done · interval 1", 100, 3.1)).toBe(1);
+  });
+});
