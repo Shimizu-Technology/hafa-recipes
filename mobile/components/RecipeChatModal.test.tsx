@@ -1377,3 +1377,17 @@ it('shortens the general cooking prompt on every large-text change', async () =>
     }
   } finally { mocks.fontScale = 1; await act(async () => renderer.unmount()); }
 });
+
+it('shortens the general cooking prompt when the in-app text size makes it large', async () => {
+  const { TextScaleContext } = await import('@/components/Themed');
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  try {
+    for (const [fontScale, textScale] of [[1, 1], [1, 1.3], [1.15, 1.15]]) {
+      mocks.fontScale = fontScale;
+      await act(async () => renderer.render(React.createElement(TextScaleContext.Provider, { value: textScale },
+        React.createElement(RecipeChatModal, { isVisible: true, onClose: vi.fn() }))));
+      expect(renderer.container.queryAll(node => node.type === 'TextInput')[0].props.placeholder)
+        .toBe(fontScale * textScale >= 1.3 ? 'Ask about cooking…' : 'Ask anything about cooking…');
+    }
+  } finally { mocks.fontScale = 1; await act(async () => renderer.unmount()); }
+});

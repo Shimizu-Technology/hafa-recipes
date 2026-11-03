@@ -527,7 +527,7 @@ describe('CookModeScreen', () => {
     });
   });
 
-it.each([[2, 1], [1, 1.5]])('keeps scaled navigation compact and shows the current instruction (%s × %s)', async (fontScale, textScale) => {
+it.each([[2, 1], [1, 1.3], [1.15, 1.15]])('keeps scaled navigation compact and shows the current instruction (%s × %s)', async (fontScale, textScale) => {
   mocks.recipeQuery.data = RECIPE;
   mocks.fontScale = fontScale;
   const r = await renderScreen(textScale);

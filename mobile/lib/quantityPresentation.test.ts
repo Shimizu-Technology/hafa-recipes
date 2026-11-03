@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { formatGroceryReviewAmount, formatIngredientAmount, formatQuantity, spokenQuantity } from './quantityPresentation';
+import { formatGroceryReviewAmount, formatIngredientAmount, formatQuantity, joinAmountAndUnit, spokenQuantity } from './quantityPresentation';
+import { scaleQuantity } from '@/hooks/useScaledServings';
 
 describe('display-only cooking quantities', () => {
   it.each([
@@ -37,4 +38,16 @@ it('snaps volume approximations and inflects known cooking units', () => {
   expect(formatIngredientAmount('0.146', 'custom')).toBe('0.1 custom');
   expect(formatGroceryReviewAmount(null, '', ' filling of choice ')).toBe('Amount varies · filling of choice');
   expect(formatGroceryReviewAmount('1', 'cups', ' flour ')).toBe('1 cup flour');
+});
+
+it('keeps small amounts honest when a fraction would be far off', () => {
+  expect(formatIngredientAmount('0.1', 'cup')).toBe('0.1 cup');
+  expect(formatIngredientAmount('0.146', 'cup')).toBe('⅛ cup');
+});
+
+it('adds the unit to an already scaled amount without formatting it twice', () => {
+  const scaled = scaleQuantity('1.42', 1, 'cup');
+  expect(joinAmountAndUnit(scaled, 'cup')).toBe('1.4 cups');
+  expect(formatGroceryReviewAmount('1.42', 'cup', 'milk')).toBe('1.4 cups milk');
+  expect(joinAmountAndUnit('½', 'cups')).toBe('½ cup');
 });
