@@ -29,7 +29,7 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
     : <View style={style}>{content}</View>;
 }
 
-/** Tonal secondary action under Start cooking (Plan, Groceries, Scale); shares the row evenly. */
+/** Secondary action under Start cooking (Plan, Groceries, Scale): a white sheet with a hairline; shares the row evenly. */
 export function RecipeDetailAction({ icon, title, onPress, selected }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -43,15 +43,16 @@ export function RecipeDetailAction({ icon, title, onPress, selected }: {
   return (
     <Pressable key={fontScale} onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
       accessibilityState={selected === undefined ? undefined : { expanded: selected }}
-      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
-      <Ionicons name={icon} size={18} color={tint} />
+      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.backgroundElevated, borderColor: selected ? 'transparent' : colors.border }, pressed && styles.pressed]}>
+      <Ionicons name={icon} size={16} color={tint} />
       <Text numberOfLines={1} style={[styles.actionTitle, { color: tint }]}>{title}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  action: { flexGrow: 1, flexShrink: 1, maxWidth: '100%', flexBasis: 96, minHeight: 44, borderRadius: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  // Figtree runs wider than SF; 8pt insets keep "Groceries" whole on a 402pt phone.
+  action: { flexGrow: 1, flexShrink: 1, maxWidth: '100%', flexBasis: 96, minHeight: 44, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
   actionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
   pressed: { opacity: 0.7 },
   row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },

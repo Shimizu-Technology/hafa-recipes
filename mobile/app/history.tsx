@@ -17,7 +17,7 @@ import { RECIPE_GRID_GAP, RecipeGridCardFrame, } from '@/components/RecipeGridCa
 import { SignInBanner } from '@/components/SignInBanner';
 import { SkeletonRecipeList } from '@/components/Skeleton';
 import { Text, useColors, View } from '@/components/Themed';
-import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
+import { fontFamily, fontSize, fontWeight, layout, radius, spacing } from '@/constants/Colors';
 import { filterRecipesLocally, SearchFilters, usePopularTags, useRecipes, useSavedRecipes, useSearchRecipes, } from '@/hooks/useRecipes';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 import { RecipeListItem } from '@/types/recipe';
@@ -31,6 +31,7 @@ import { useAuth } from '@clerk/expo';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
+import { LibraryLatest, pickLatestRecipe } from '@/components/LibraryLatest';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
 
@@ -536,6 +537,10 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
+  // The newest recipe sits above the grid as one quiet "Latest" row, only in the unfiltered Library.
+  const latestRecipe = !isSelectionMode && !hasActiveFilters && ownershipFilter === 'all' && !needsCheckOnly ? pickLatestRecipe(displayRecipes) : null;
+  const gridRecipes = latestRecipe ? displayRecipes!.filter(recipe => recipe.id !== latestRecipe.id) : displayRecipes;
+
   const librarySwitch = isSignedIn && !isSelectionMode ? <RNView style={{ marginBottom: 12 }}>
     <SegmentedControl accessibilityLabel="Library view" value={segment} onChange={setSegment}
       options={[{ value: 'recipes', label: 'Recipes' }, { value: 'collections', label: 'Collections' }]} />
@@ -592,7 +597,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           {...tabScroll}
           contentInsetAdjustmentBehavior="automatic"
           key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
-          data={displayRecipes}
+          data={gridRecipes}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           numColumns={isGrid && !largeText ? 2 : 1}
@@ -604,6 +609,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               <FilterButton count={activeFilterCount} onPress={() => setShowFilterModal(true)} />
             </SearchRow>}
             <ListHeaderTitle />
+            {latestRecipe && <LibraryLatest recipe={latestRecipe} onPress={() => { haptics.light(); router.push(`/recipe/${latestRecipe.id}`); }} />}
             {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
             {/* Selection Action Bar */}
             {isSelectionMode && (
@@ -673,7 +679,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 720,
     alignSelf: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.margin,
     paddingBottom: spacing.xxl,
   },
   titleRow: {

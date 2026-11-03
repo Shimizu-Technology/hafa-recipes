@@ -27,6 +27,7 @@ vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ t
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: host('Icon') }));
 vi.mock('@/components/OfflineRecipeControl', () => ({ OfflineRecipeControl: () => null }));
 vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Button: host('Button'), Text: host('Text'), View: host('View'), Card: host('Card'), Chip: host('Chip'), Divider: host('Divider'), useColors: () => Colors[m.theme] }));
+vi.mock('@/components/AllTickedNote', () => ({ AllTickedNote: () => null }));
 vi.mock('@/components/NutritionPanel', () => ({ NutritionPanel: host('NutritionPanel') }));
 vi.mock('@/components/RecipeDetailsReview', () => ({ RecipeDetailsReview: () => null }));
 vi.mock('@/components/AddIngredientsModal', () => ({ default: () => null }));

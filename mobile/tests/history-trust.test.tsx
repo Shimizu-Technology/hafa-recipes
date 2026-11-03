@@ -101,7 +101,8 @@ vi.mock('@/hooks/useViewPreference', () => ({
 }));
 vi.mock('@/hooks/usePullToRefresh', () => ({ usePullToRefresh: (refresh: () => Promise<unknown>) => ({ isPullRefreshing: false, onPullRefresh: refresh }) }));
 vi.mock('@/hooks/useDebouncedSearchQuery', () => ({ useDebouncedSearchQuery: (value: string) => value }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/components/chrome/motion', () => ({ PressScale: 'Pressable', useIndicatorX: () => 0 }));
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   default: { light: {}, dark: {} },
   fontFamily: { semibold: 'System' },
   fontSize: { xs: 12, sm: 14, md: 16, lg: 18, xl: 24 },

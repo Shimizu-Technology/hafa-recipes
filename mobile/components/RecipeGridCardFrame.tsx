@@ -4,9 +4,9 @@ import { type PressableProps, StyleSheet, useWindowDimensions, View as RNView } 
 import { ScalePressable } from '@/components/Animated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Text, useColors } from '@/components/Themed';
-import { fontFamily } from '@/constants/Colors';
+import { fontFamily, layout } from '@/constants/Colors';
 
-export const RECIPE_GRID_GAP = 12;
+export const RECIPE_GRID_GAP = layout.gridGap;
 
 type RecipeGridCardFrameProps = {
   title: string;
@@ -25,7 +25,7 @@ type RecipeGridCardFrameProps = {
   onAccessibilityAction?: PressableProps['onAccessibilityAction'];
 };
 
-/** Keep the image, two-line title slot, and footer aligned across recipe grids. */
+/** A white sheet with a hairline: photo on top, then a two-line title slot and footer aligned across the grid. */
 export function RecipeGridCardFrame({
   title,
   thumbnailUrl,
@@ -38,14 +38,15 @@ export function RecipeGridCardFrame({
   selected, fullWidth = false, accessibilityActions, onAccessibilityAction,
 }: RecipeGridCardFrameProps) {
   const { width, fontScale } = useWindowDimensions();
-  const titleSlotHeight = Math.ceil(42 * fontScale);
+  const titleSlotHeight = Math.ceil(40 * fontScale);
   const footerHeight = Math.ceil(18 * fontScale);
-  const contentWidth = Math.min(width, 720);
-  const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth - 32 : (contentWidth - 32 - RECIPE_GRID_GAP) / 2;
+  const contentWidth = Math.min(width, 720) - layout.margin * 2;
+  const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth : (contentWidth - RECIPE_GRID_GAP) / 2;
 
   return (
     <RNView style={[styles.card, { width: cardWidth }]}>
     <ScalePressable
+      style={[styles.sheet, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}
       accessibilityActions={accessibilityActions}
       onAccessibilityAction={onAccessibilityAction}
       onPress={onPress}
@@ -62,7 +63,7 @@ export function RecipeGridCardFrame({
           priority={imagePriority}
         />
       </RNView>
-      <RNView style={[styles.content, { minHeight: 8 + titleSlotHeight + 2 + footerHeight }]}>
+      <RNView style={[styles.content, { minHeight: 22 + titleSlotHeight + 2 + footerHeight }]}>
         <Text
           style={[styles.title, { color: colors.text, minHeight: titleSlotHeight }]}
           numberOfLines={2}
@@ -80,13 +81,17 @@ export function RecipeGridCardFrame({
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: 20,
+    marginBottom: RECIPE_GRID_GAP,
+  },
+  sheet: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   imageContainer: {
     width: '100%',
     aspectRatio: 1,
     position: 'relative',
-    borderRadius: 14,
     overflow: 'hidden',
   },
   image: {
@@ -94,14 +99,16 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   content: {
-    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     gap: 2,
     justifyContent: 'space-between',
   },
   title: {
-    fontSize: 16,
-    fontFamily: fontFamily.displaySemibold, fontWeight: '600',
-    lineHeight: 21,
+    fontSize: 15,
+    fontFamily: fontFamily.semibold,
+    lineHeight: 20,
   },
   footer: {
     justifyContent: 'flex-end',

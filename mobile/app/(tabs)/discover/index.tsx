@@ -15,7 +15,7 @@ import AllContributorsModal from '@/components/AllContributorsModal';
 import FilterBottomSheet, { FilterState, MealTypeFilter, SourceFilter, TimeFilter } from '@/components/FilterBottomSheet';
 import { SignInBanner } from '@/components/SignInBanner';
 import { Text, useColors, View } from '@/components/Themed';
-import { fontFamily, fontSize, fontWeight, radius, shadows, spacing } from '@/constants/Colors';
+import { fontFamily, fontSize, fontWeight, layout, radius, shadows, spacing } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 720,
     alignSelf: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.margin,
     paddingBottom: spacing.xxl,
   },
   // Grid view styles

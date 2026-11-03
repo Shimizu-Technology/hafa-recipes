@@ -73,7 +73,8 @@ import {
   getRecipeReviewLabel,
   isRecipeOwner,
 } from '@/lib/recipeReviewPresentation';
-import { spacing, fontSize, fontWeight, radius, shadows, fontFamily } from '@/constants/Colors';
+import { spacing, fontSize, fontWeight, layout, radius, shadows, fontFamily } from '@/constants/Colors';
+import { AllTickedNote } from '@/components/AllTickedNote';
 import { useAuth, useUser } from '@clerk/expo';
 import { Ingredient } from '@/types/recipe';
 import { useScaledServings, scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
@@ -854,7 +855,7 @@ function RecipeDetailScreenContent() {
 
                 <>
                   <Text accessibilityRole="header" style={styles.sectionTitle}>Ingredients</Text>
-                  {extracted.equipment && extracted.equipment.length > 0 && <RNView style={[styles.preparation, { borderColor: colors.border }]}>
+                  {extracted.equipment && extracted.equipment.length > 0 && <RNView style={[styles.preparation, { borderColor: colors.hairline }]}>
                     <Text accessibilityRole="header" style={[styles.notesTitle, { color: colors.text }]}>Equipment</Text>
                     <Text style={[styles.notesText, { color: colors.textSecondary, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(23) }]}>
                       {extracted.equipment.join(' · ')}
@@ -874,6 +875,7 @@ function RecipeDetailScreenContent() {
                         haptics.selection();
                       }} />
                   ))}
+                  <AllTickedNote total={allIngredients.length} ticked={checkedIngredients.size} />
                   
                 </>
               )}
@@ -890,7 +892,7 @@ function RecipeDetailScreenContent() {
                           {component.name}
                         </Text>
                       )}
-                      <Card noPadding style={{ borderRadius: 12, overflow: 'hidden' }}>
+                      <Card noPadding style={{ overflow: 'hidden' }}>
                       {component.steps.map((step, stepIndex) => (
                         <RNView key={stepIndex} style={styles.stepRow}>
                           <RNView style={styles.stepNumber}>
@@ -899,7 +901,7 @@ function RecipeDetailScreenContent() {
                           <Text style={[styles.stepText, { color: colors.text, fontSize: scaleFontSize(17), lineHeight: scaleFontSize(24) }]}>
                             {step}
                           </Text>
-                          {stepIndex < component.steps.length - 1 && <RNView style={[styles.stepSeparator, { backgroundColor: colors.border }]} />}
+                          {stepIndex < component.steps.length - 1 && <RNView style={[styles.stepSeparator, { backgroundColor: colors.hairline }]} />}
                         </RNView>
                       ))}
                       </Card>
@@ -1038,7 +1040,7 @@ function RecipeDetailScreenContent() {
                             return (
                               <RNView 
                                 key={ingIndex} 
-                                style={[styles.costItem, { borderBottomColor: colors.border }]}
+                                style={[styles.costItem, { borderBottomColor: colors.hairline }]}
                               >
                                 <RNView style={styles.costItemLeft}>
                                   <Text style={[styles.costItemName, { color: colors.text }]}>
@@ -1340,12 +1342,12 @@ const styles = StyleSheet.create({
   reviewBannerText: { fontSize: 13, lineHeight: 18 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   tag: { fontSize: 13, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, overflow: 'hidden' },
-  body: { paddingHorizontal: 16 },
+  body: { paddingHorizontal: layout.margin },
   container: {
     flex: 1,
   },
   refreshNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, marginBottom: spacing.md },
-  supportingContent: { paddingHorizontal: 16 },
+  supportingContent: { paddingHorizontal: layout.margin },
   errorMessage: { textAlign: 'center', marginBottom: spacing.md },
   retryButton: { minHeight: 44, minWidth: 88, alignItems: 'center', justifyContent: 'center' },
   preparation: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
@@ -1435,7 +1437,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   content: {
-    padding: 16,
+    paddingHorizontal: layout.margin,
+    paddingVertical: 16,
   },
   title: {
     fontSize: fontSize.xxl,

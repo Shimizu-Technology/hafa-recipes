@@ -10,7 +10,7 @@ import { SignInBanner } from '@/components/SignInBanner';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { useRecipeCount, useSearchRecipes, useSearchPublicRecipes, useSavedRecipes } from '@/hooks/useRecipes';
 import { useDebouncedSearchQuery } from '@/hooks/useDebouncedSearchQuery';
-import { typography } from '@/constants/Colors';
+import { layout, typography } from '@/constants/Colors';
 import type { RecipeListItem } from '@/types/recipe';
 import { getRecipeSourcePresentation } from '@/lib/recipeSource';
 
@@ -58,7 +58,7 @@ function LibrarySearch() {
     {Platform.OS !== 'web' && <Stack.SearchBar ref={bar} autoFocus placement="stacked" placeholder={placeholder} hideWhenScrolling={false} onChangeText={event => setQuery(event.nativeEvent.text)} onSearchButtonPress={remember} onCancelButtonPress={() => setQuery('')} />}
     <FlatList<SearchRow>
       contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled"
-      style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center', padding: 16, gap: 12, paddingBottom: 32 }}
+      style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center', padding: layout.margin, gap: 12, paddingBottom: 32 }}
       data={rows} keyExtractor={item => item.id}
       ListHeaderComponent={<View style={{ gap: 16 }}>
         {Platform.OS === 'web' && <Input value={query} onChangeText={setQuery} onSubmitEditing={remember} accessibilityLabel="Search library recipes" placeholder={placeholder} autoFocus returnKeyType="search" />}

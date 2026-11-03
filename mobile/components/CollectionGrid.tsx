@@ -2,11 +2,11 @@ import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Text, useColors } from '@/components/Themed';
-import { fontFamily } from '@/constants/Colors';
+import { fontFamily, layout } from '@/constants/Colors';
 import type { Collection } from '@/types/recipe';
 
-const GAP = 12;
-const SIDE = 16;
+const GAP = layout.gridGap;
+const SIDE = layout.margin;
 
 function useTileWidth() {
   const { width, fontScale } = useWindowDimensions();
@@ -20,8 +20,8 @@ const recipeCount = (count: number) => `${count} ${count === 1 ? 'recipe' : 'rec
 function Mosaic({ thumbnails }: { thumbnails: string[] }) {
   const colors = useColors();
   if (!thumbnails.length) {
-    return <View style={[styles.cover, styles.empty, { backgroundColor: colors.chromeIndicator }]}>
-      <Ionicons name="folder-open-outline" size={32} color={colors.actionText} />
+    return <View style={[styles.cover, styles.empty, { backgroundColor: colors.placeholder }]}>
+      <Ionicons name="folder-open-outline" size={28} color={colors.placeholderInk} />
     </View>;
   }
   const photo = (uri: string, style: object) => <RecipeThumbnail uri={uri} accessible={false} placeholderIconSize={20} style={[style, { backgroundColor: colors.surface2 }]} />;
@@ -54,7 +54,7 @@ export function NewCollectionTile({ onPress }: { onPress: () => void }) {
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="New collection" testID="new-collection"
     style={({ pressed }) => [{ width, opacity: pressed ? 0.75 : 1 }]}>
     <View style={[styles.cover, styles.empty, styles.dashed, { borderColor: colors.border }]}>
-      <View style={[styles.plus, { backgroundColor: colors.surface2 }]}><Ionicons name="add" size={26} color={colors.text} /></View>
+      <View style={[styles.plus, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}><Ionicons name="add" size={26} color={colors.text} /></View>
     </View>
     <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>New collection</Text>
   </Pressable>;
@@ -69,16 +69,16 @@ export function CollectionGrid({ collections, onOpen, onCreate }: { collections:
 }
 
 const styles = StyleSheet.create({
-  grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: GAP, rowGap: 20 },
-  cover: { width: '100%', aspectRatio: 1, borderRadius: 16, overflow: 'hidden' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: GAP, rowGap: 24 },
+  cover: { width: '100%', aspectRatio: 1, borderRadius: 12, overflow: 'hidden' },
   stack: { gap: 2 },
   fill: { width: '100%', height: '100%' },
   top: { width: '100%', flex: 1.2 },
   bottomRow: { flex: 1, flexDirection: 'row', gap: 2 },
   half: { flex: 1 },
   empty: { alignItems: 'center', justifyContent: 'center' },
-  dashed: { borderWidth: 1.5, borderStyle: 'dashed' },
-  plus: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  title: { marginTop: 8, fontSize: 16, lineHeight: 21, fontFamily: fontFamily.displaySemibold },
+  dashed: { borderWidth: 1, borderStyle: 'dashed' },
+  plus: { width: 48, height: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  title: { marginTop: 10, fontSize: 15, lineHeight: 20, fontFamily: fontFamily.semibold },
   count: { fontSize: 13, lineHeight: 18 },
 });
