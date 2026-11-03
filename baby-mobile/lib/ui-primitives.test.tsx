@@ -288,8 +288,8 @@ it.each([1, 3.1])("keeps the feed number on one line at scale %s while preservin
     feed = optimisticRecord({ id: "feed", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: "2026-10-31T00:50:00Z", data: { method: "breast", side: "left", duration_minutes: 15 } });
   await mount(<CareGlance child={{ id: "baby", name: "Isla", revision: 1 }} rows={[feed]} now={now} />);
   const texts = renderer!.root.findAllByType("Text" as React.ElementType), number = texts.find(t => t.props.maxFontSizeMultiplier === 1.4)!;
-  expect(number.props.children).toBe("5h 10m");
-  expect(texts.find(t => t.props.children === "ago")!.props.maxFontSizeMultiplier).toBe(0);
+  expect(number.findAllByType("Text" as React.ElementType).find(t => t.props.children === "ago")).toBeDefined();
+  expect(number.props.adjustsFontSizeToFit).toBe(true);
   expect(number.props.numberOfLines).toBe(1);
   expect(number.props.style.fontSize).toBe(44);
   const detail = texts.find(t => t.props.children === "Left side · 15 min · Next: right")!;
@@ -303,7 +303,7 @@ it("draws its own Soft search field instead of UIKit's grey one, and clears it f
   await mount(<NativeHeaderContext.Provider value={true}><HeaderSearch value="" onChange={onChange} placeholder="Search saved posts" /></NativeHeaderContext.Provider>);
   expect(mock.options.some(options => options?.headerSearchBarOptions)).toBe(false);
   const input = () => renderer!.root.findByType("TextInput" as React.ElementType);
-  expect(input().props).toMatchObject({ accessibilityLabel: "Search saved posts", returnKeyType: "search", maxFontSizeMultiplier: 0 });
+  expect(input().props).toMatchObject({ accessibilityLabel: "Search saved posts", returnKeyType: "search", allowFontScaling: false });
   expect(input().props.style).toMatchObject({ fontFamily: "DMSans_400Regular", color: "#5A4740" });
   const field = renderer!.root.findAllByType("View" as React.ElementType)[1].props.style;
   expect(field).toMatchObject({ minHeight: 48, backgroundColor: "#FFFFFF", borderRadius: 16 });
@@ -387,14 +387,14 @@ it("keeps fontVariant an array when a mounted number turns back into text", asyn
 });
 
 
-it("remeasures an uncapped header pill after a live text size change", async () => {
+it("remeasures a proportionate header pill after a live text size change", async () => {
   await mount(<HeaderPill title="History" onPress={() => {}} />);
   const original = renderer!.root.findByType("Text" as React.ElementType);
   mock.fontScale = 3.1;
   await act(async () => renderer!.update(<HeaderPill title="History" onPress={() => {}} />));
   const large = renderer!.root.findByType("Text" as React.ElementType);
   expect(large).not.toBe(original);
-  expect(large.props.maxFontSizeMultiplier).toBe(0);
+  expect(large.props.maxFontSizeMultiplier).toBe(1.4);
   expect(large.parent!.props.style.minHeight).toBe(36);
 });
 
@@ -411,4 +411,38 @@ it.each(["light", "dark"])("keeps fields and nested cards visible inside a card 
   const cards = renderer!.root.findAll(n => String(n.type) === "View" && Array.isArray(n.props.style) && n.props.style[0]?.padding === 22)
     .map(card => card.props.style[0].backgroundColor);
   expect(cards).toEqual([surface, ground]);
+});
+
+it("centres the scaled Saved search line with its magnifier at AX3", async () => {
+  mock.fontScale = 3.1;
+  await mount(<HeaderSearch value="" onChange={() => {}} placeholder="Search saved posts" />);
+  const input = renderer!.root.findByType("TextInput" as React.ElementType);
+  expect(input.props.style).toMatchObject({ fontSize: 17 * 3.1, lineHeight: 22 * 3.1, textAlignVertical: "center" });
+  expect(input.props.allowFontScaling).toBe(false);
+  expect(input.parent!.props.style.alignItems).toBe("center");
+});
+it.each([0, 15, 2457, 4320])("keeps the ago suffix inside the elapsed-time line (%d minutes)", async minutes => {
+  const now = new Date("2026-10-31T06:00:00Z");
+  const feed = optimisticRecord({ id: "f", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: new Date(now.getTime() - minutes * 60000).toISOString(), data: { method: "bottle", amount: 90, unit: "ml" } });
+  await mount(<CareGlance child={{ id: "baby", name: "Isla", revision: 1 }} rows={[feed]} now={now} />);
+  const line = renderer!.root.findAllByType("Text" as React.ElementType).find(t => t.props.maxFontSizeMultiplier === 1.4)!;
+  expect(line.props.numberOfLines).toBe(1);
+  expect(line.findAllByType("Text" as React.ElementType).find(t => t.props.children === "ago")).toBeDefined();
+});
+
+it("offers a useful feed glance when there is no feed or its time is unavailable", async () => {
+  const child = { id: "baby", name: "Isla", revision: 1 }, now = new Date();
+  await mount(<CareGlance child={child} rows={[]} now={now} />);
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === "No recent feed")).toBe(true);
+  const bad = optimisticRecord({ id: "bad", kind: "feeding", child_id: "baby", title: "Feed", body: "", occurred_at: "invalid", data: { method: "bottle" } });
+  await act(async () => renderer!.update(<CareGlance child={child} rows={[bad]} now={now} />));
+  expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === "Time not recorded")).toBe(true);
+});
+it("connects section navigation to the Screen's real scroll container and content-ready event", async () => {
+  const scrollRef = React.createRef<any>(), ready = vi.fn();
+  await mount(<Screen title="Settings" scrollRef={scrollRef} onContentReady={ready}><View /></Screen>);
+  const scroll = renderer!.root.findByType("ScrollView" as React.ElementType);
+  expect(scroll.props.ref).toBe(scrollRef);
+  act(() => scroll.props.onContentSizeChange(390, 1600));
+  expect(ready).toHaveBeenCalledOnce();
 });

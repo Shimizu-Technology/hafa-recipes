@@ -31,7 +31,7 @@ it("says AI is off in one line, keeps other apps' data out, and links to the per
   expect(copy()).toEqual(["AI is off. Ask uses your Baby entries only, never Recipes or Workouts."]);
   expect(review()).toHaveLength(1);
   await act(async () => review()[0].props.onPress());
-  expect(scope.push).toHaveBeenCalledWith("/settings");
+  expect(scope.push).toHaveBeenCalledWith({ pathname: "/settings", params: { section: "ai" } });
 });
 it("explains an unavailable service without sending her to Settings when consent is already given", async () => {
   await act(async () => { renderer = create(<AiNotice service={false} consent />); });

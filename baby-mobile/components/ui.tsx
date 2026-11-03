@@ -304,7 +304,11 @@ export function Screen({
   footer,
   followEnd = false,
   onRefresh,
+  scrollRef,
+  onContentReady,
 }: {
+  scrollRef?: RefObject<ScrollView | null>;
+  onContentReady?: () => void;
   children: React.ReactNode;
   title: string;
   titleKind?: "title" | "heading";
@@ -333,7 +337,7 @@ export function Screen({
     insets = inTabBar ? { ...safeArea, bottom: 0 } : safeArea,
     { fontScale } = useWindowDimensions();
   const c = useColors(),
-    scroller = useRef<ScrollView>(null), restingTop = useRef<number | null>(null),
+    localScroller = useRef<ScrollView>(null), scroller = scrollRef ?? localScroller, restingTop = useRef<number | null>(null),
     [footerHeight, setFooterHeight] = useState(0),
     [keyboardVisible, setKeyboardVisible] = useState(false),
     [refreshing, setRefreshing] = useState(false);
@@ -411,7 +415,7 @@ export function Screen({
             refreshControl={
               onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void pull()} tintColor={c.muted} /> : undefined
             }
-            onContentSizeChange={followEnd ? () => scroller.current?.scrollToEnd({ animated: true }) : undefined}
+            onContentSizeChange={() => { if (followEnd) scroller.current?.scrollToEnd({ animated: true }); onContentReady?.(); }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentInsetAdjustmentBehavior="automatic"
