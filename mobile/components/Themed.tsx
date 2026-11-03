@@ -20,6 +20,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Colors, { spacing, radius, fontSize, fontFamily, shadows, typography, lineHeightForSize } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
 import { ScalePressable } from './Animated';
+import { useLook } from '@/contexts/LookContext';
+import { lookTextFont, type LookPalette } from '@/constants/looks';
 
 
 
@@ -37,19 +39,20 @@ export function useThemeColor(
   colorName: keyof typeof Colors.light & keyof typeof Colors.dark
 ) {
   const theme = useColorScheme() ?? 'light';
+  const palette = useLook().palette[theme];
   const colorFromProps = props[theme];
 
   if (colorFromProps) {
     return colorFromProps;
   } else {
-    return Colors[theme][colorName];
+    return palette[colorName];
   }
 }
 
-// Hook to get all theme colors
-export function useColors() {
+// Hook to get all theme colors (the active design-preview look's palette; `current` is `Colors`).
+export function useColors(): LookPalette {
   const theme = useColorScheme() ?? 'light';
-  return Colors[theme];
+  return useLook().palette[theme];
 }
 
 export const TextScaleContext = createContext(1);
@@ -75,6 +78,9 @@ export function Text(props: TextProps) {
   const inherited = useContext(TextMetricsContext);
   const scale = useContext(TextScaleContext);
   const resolved = StyleSheet.flatten(style);
+  // Nested spans inherit their parent's face; only a span that names its own family or weight is remapped.
+  const fonts = useLook().fonts;
+  const face = !inherited || resolved?.fontFamily || resolved?.fontWeight ? lookTextFont(fonts, resolved ?? {}) : null;
   const size = resolved?.fontSize !== undefined
     ? Math.round(resolved.fontSize * scale)
     : inherited?.fontSize ?? Math.round(typography.body.fontSize * scale);
@@ -86,7 +92,7 @@ export function Text(props: TextProps) {
     : { color, fontFamily: fontFamily.regular, ...typography.body, fontSize: size, lineHeight: leading };
   return (
     <TextMetricsContext.Provider value={{ fontSize: size, lineHeight: leading }}>
-      <MeasuredText style={[defaults, style, { fontSize: size, lineHeight: leading }]} {...otherProps} />
+      <MeasuredText style={[defaults, style, { fontSize: size, lineHeight: leading }, face]} {...otherProps} />
     </TextMetricsContext.Provider>
   );
 }
@@ -96,6 +102,7 @@ export type TextInput = DefaultTextInput;
 export const TextInput = forwardRef<DefaultTextInput, DefaultTextInput['props']>(function TextInput({ style, ...props }, ref) {
   const scale = useContext(TextScaleContext);
   const resolved = StyleSheet.flatten(style);
+  const face = lookTextFont(useLook().fonts, resolved ?? {});
   const { fontScale } = useWindowDimensions();
   const points = (value: unknown) => typeof value === 'number' ? value : 0;
   const size = Math.round((resolved?.fontSize ?? typography.body.fontSize) * scale);
@@ -103,7 +110,7 @@ export const TextInput = forwardRef<DefaultTextInput, DefaultTextInput['props']>
     + points(resolved?.paddingBottom ?? resolved?.paddingVertical ?? resolved?.padding);
   const minHeight = Math.max(points(resolved?.minHeight), points(resolved?.height),
     Math.ceil((resolved?.lineHeight ? resolved.lineHeight * scale : lineHeightForSize(size)) * fontScale + padding));
-  return <DefaultTextInput ref={ref} {...props} style={[style, { fontSize: size, minHeight,
+  return <DefaultTextInput ref={ref} {...props} style={[style, face, { fontSize: size, minHeight,
     ...(typeof resolved?.height === 'number' ? { height: undefined } : {}),
     ...(resolved?.lineHeight !== undefined ? { lineHeight: Math.round(resolved.lineHeight * scale) } : {}),
   }]} />;
@@ -126,14 +133,16 @@ interface CardProps extends ViewProps {
 
 export function Card({ children, style, noPadding, elevated, ...props }: CardProps) {
   const colors = useColors();
-  const shadowStyle = elevated ? shadows.medium : {};
+  const look = useLook();
+  const shadowStyle = elevated ? shadows.medium : look.shadows.card ?? {};
   
   return (
     <DefaultView
       style={[
         {
           backgroundColor: colors.card,
-          borderRadius: radius.md,
+          borderRadius: look.id === 'current' ? radius.md : look.radii.card,
+          ...(look.variants.card === 'sheet' ? { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.hairline } : null),
           padding: noPadding ? 0 : spacing.lg,
           shadowColor: colors.shadowColor,
           ...shadowStyle,
@@ -271,6 +280,7 @@ export function Button({
   style,
 }: ButtonProps) {
   const colors = useColors();
+  const look = useLook();
 
   const getBackgroundColor = () => {
     if (disabled) return colors.border;
@@ -325,7 +335,9 @@ export function Button({
           minHeight: size === 'sm' ? 44 : 50,
           minWidth: 44,
           backgroundColor: getBackgroundColor(),
-          borderRadius: radius.full,
+          borderRadius: look.id === 'current' ? radius.full : look.radii.button,
+          ...(look.variants.chip === 'outline' && (variant === 'secondary' || variant === 'outline') && !disabled
+            ? { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border } : null),
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'row',

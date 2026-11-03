@@ -17,9 +17,14 @@ import { ShareIntentProvider } from 'expo-share-intent';
 
 import { AccountHeaderButton } from '@/components/TabChrome';
 import { headerRightOptions } from '@/components/chrome/HeaderButton';
-import Colors, { fontFamily } from '@/constants/Colors';
+import { fontFamily } from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { LookProvider, useLook } from '@/contexts/LookContext';
+import { SHOW_DEVELOPER_TOOLS } from '@/lib/apiConfig';
+import { loadLookFonts } from '@/lib/lookFonts';
+import { uiFontFor } from '@/constants/looks';
+import { useColors } from '@/components/Themed';
 import { TimerProvider } from '@/contexts/TimerContext';
 import { ExtractionProvider } from '@/contexts/ExtractionContext';
 import { shouldClearPrivateQueryCache } from '@/lib/authCache';
@@ -84,8 +89,16 @@ function RootLayout() {
     );
   }
 
+  const loadingScreen = (
+    <View style={{ flex: 1, backgroundColor: '#101411' }}>
+      <AppLoadingSkeleton />
+    </View>
+  );
+
   return (
     <ThemeProvider>
+      {/* Design preview: production passes enabled=false, so it always renders Current and loads no extra fonts. */}
+      <LookProvider enabled={SHOW_DEVELOPER_TOOLS} loadFonts={loadLookFonts} fallback={loadingScreen}>
       <ShareIntentProvider options={{ resetOnBackground: false }}>
         <ClerkProvider 
           publishableKey={CLERK_PUBLISHABLE_KEY} 
@@ -98,6 +111,7 @@ function RootLayout() {
           </ClerkLoaded>
         </ClerkProvider>
       </ShareIntentProvider>
+      </LookProvider>
     </ThemeProvider>
   );
 }
@@ -263,7 +277,8 @@ function ShareIntentHandler({ children }: { children: React.ReactNode }) {
 function RootLayoutNav() {
   const { scale } = useTextSize();
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
+  const colors = useColors();
+  const look = useLook();
   // Screens without their own background show the navigation theme's, which is
   // iOS grey by default. Use the Håfa surfaces so every screen sits on cream.
   const navigationTheme = useMemo(() => {
@@ -301,7 +316,7 @@ function RootLayoutNav() {
                     screenOptions={{
                       headerStyle: { backgroundColor: colors.background },
                       headerTintColor: colors.tint,
-                      headerTitleStyle: { fontSize: Math.round(17 * scale), color: colors.text, fontWeight: '600', fontFamily: fontFamily.semibold },
+                      headerTitleStyle: { fontSize: Math.round(17 * scale), color: colors.text, ...(look.fonts ? { fontFamily: uiFontFor(look.fonts, '600') } : { fontWeight: '600', fontFamily: fontFamily.semibold }) },
                       headerShadowVisible: false,
                       headerBackTitle: 'Back',
                     }}
@@ -310,6 +325,7 @@ function RootLayoutNav() {
                     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="index" options={{ title: 'Import', ...headerRightOptions(() => <AccountHeaderButton />) }} />
                     <Stack.Screen name="history" options={{ headerShown: false }} />
+                    <Stack.Screen name="design-preview" options={{ headerShown: false }} />
                     <Stack.Screen name="search" options={{ title: 'Search' }} />
                     <Stack.Screen name="pantry" options={{ headerTitle: 'My Pantry' }} />
                     <Stack.Screen

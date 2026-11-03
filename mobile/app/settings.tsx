@@ -14,6 +14,8 @@ import Constants from 'expo-constants';
 import { View, Text, Card, Divider, useColors, TextScaleContext } from '@/components/Themed';
 import { BrandMark } from '@/components/BrandMark';
 import { SettingsProfileCard } from '@/components/SettingsProfileCard';
+import { DesignPreviewSection } from '@/components/DesignPreviewSection';
+import { useLook } from '@/contexts/LookContext';
 import { useRecipeCount } from '@/hooks/useRecipes';
 import { API_BASE_URL, SHOW_DEVELOPER_TOOLS } from '@/lib/api';
 import { captureMessage, captureError } from '@/lib/sentry';
@@ -101,6 +103,9 @@ export default function SettingsScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const { api } = require('@/lib/api');
   const { themePreference, setThemePreference } = useTheme();
+  // Preview looks' dark grounds aren't pure black, so their selected segment uses the look's segment fill.
+  const previewLook = useLook().id !== 'current';
+  const lookSegment = previewLook && colors.dark ? { backgroundColor: colors.chromeSegment } : null;
   const { soundPreference, setTimerSound } = useTimerSoundPreference();
   const { voice: ttsVoice, setVoice: setTTSVoice } = useTTSVoice();
   const { textSize, setTextSize, scale } = useTextSize();
@@ -413,6 +418,7 @@ export default function SettingsScreen() {
                     style={[
                       styles.segmentedOption,
                       themePreference === theme.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
+                      themePreference === theme.key && lookSegment,
                       index === 0 && styles.segmentedFirst,
                       index === 2 && styles.segmentedLast,
                     ]}
@@ -449,6 +455,7 @@ export default function SettingsScreen() {
                     style={[
                       styles.segmentedOption,
                       textSize === size.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
+                      textSize === size.key && lookSegment,
                       index === 0 && styles.segmentedFirst,
                       index === 3 && styles.segmentedLast,
                     ]}
@@ -465,6 +472,8 @@ export default function SettingsScreen() {
             </RNView>
           </RNView>
         </RNView>
+
+        <DesignPreviewSection />
 
         {/* Sound & Voice Section - Compact Pickers */}
         <RNView style={styles.section}>

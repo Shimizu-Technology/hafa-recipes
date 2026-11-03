@@ -17,6 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { listEntranceDelay, MAX_LIST_ENTRANCE_ITEMS } from '@/lib/listAnimation';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useLook } from '@/contexts/LookContext';
 
 export { useInitialListEntrance } from '@/lib/listAnimation';
 
@@ -50,19 +51,26 @@ export function AnimatedListItem({
   style,
   enter = true,
 }: AnimatedListItemProps) {
-  const [shouldEnter] = useState(() => enter && index < MAX_LIST_ENTRANCE_ITEMS);
+  const look = useLook();
+  // Each design-preview look sets its own entrance; Current keeps the shipped 200ms/8pt/first-8 values.
+  const entrance = look.id === 'current'
+    ? { duration: LIST_ENTRANCE_MS, stagger: delay, offset: LIST_ENTRANCE_OFFSET, max: MAX_LIST_ENTRANCE_ITEMS }
+    : look.motion.entrance;
+  const [shouldEnter] = useState(() => enter && index < entrance.max);
   if (!shouldEnter) return <View style={style}>{children}</View>;
-  return <EnteringListItem index={index} delay={delay} style={style}>{children}</EnteringListItem>;
+  return <EnteringListItem index={index} delay={entrance.stagger} duration={entrance.duration} offset={entrance.offset}
+    lookPreview={look.id !== 'current'} style={style}>{children}</EnteringListItem>;
 }
 
-function EnteringListItem({ children, index, delay, style }: Required<Pick<AnimatedListItemProps, 'index' | 'delay'>> & Pick<AnimatedListItemProps, 'children' | 'style'>) {
+function EnteringListItem({ children, index, delay, duration = LIST_ENTRANCE_MS, offset = LIST_ENTRANCE_OFFSET, lookPreview = false, style }: Required<Pick<AnimatedListItemProps, 'index' | 'delay'>> & Pick<AnimatedListItemProps, 'children' | 'style'> & { duration?: number; offset?: number; lookPreview?: boolean }) {
   const reduceMotion = useReduceMotion();
   const progress = useSharedValue(0);
 
   useEffect(() => {
     progress.value = withDelay(
-      listEntranceDelay(index, delay),
-      withTiming(1, { duration: LIST_ENTRANCE_MS, easing: EASE_OUT }),
+      // Preview looks: Reduce Motion keeps a plain fade with no stagger or slide.
+      lookPreview ? (reduceMotion ? 0 : listEntranceDelay(index, delay, delay * 6)) : listEntranceDelay(index, delay),
+      withTiming(1, { duration: lookPreview && reduceMotion ? Math.min(duration, 180) : duration, easing: EASE_OUT }),
     );
     // Play once per mounted row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,7 +78,7 @@ function EnteringListItem({ children, index, delay, style }: Required<Pick<Anima
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ translateY: reduceMotion ? 0 : (1 - progress.value) * LIST_ENTRANCE_OFFSET }],
+    transform: [{ translateY: reduceMotion ? 0 : (1 - progress.value) * offset }],
   }), [reduceMotion]);
 
   return <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>;
@@ -100,12 +108,13 @@ export function ScalePressable({
   ...props
 }: ScalePressableProps) {
   const reduceMotion = useReduceMotion();
+  const press = useLook().motion.press;
   const progress = useRef(new NativeAnimated.Value(0)).current;
   const animate = (pressed: boolean) => {
     progress.stopAnimation();
     NativeAnimated.timing(progress, {
       toValue: pressed ? 1 : 0,
-      duration: pressed ? 120 : 160,
+      duration: pressed ? press.inMs : press.outMs,
       easing: NativeEasing.bezier(0.23, 1, 0.32, 1),
       useNativeDriver: Platform.OS !== 'web',
     }).start();
@@ -119,8 +128,8 @@ export function ScalePressable({
       style={[
         style,
         {
-          opacity: props.disabled ? 0.5 : progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.85] }),
-          transform: [{ scale: reduceMotion ? 1 : progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0.97] }) }],
+          opacity: props.disabled ? 0.5 : progress.interpolate({ inputRange: [0, 1], outputRange: [1, press.opacity] }),
+          transform: [{ scale: reduceMotion ? 1 : progress.interpolate({ inputRange: [0, 1], outputRange: [1, press.scale] }) }],
         },
       ]}
       onPressIn={(e) => { if (!props.disabled) animate(true); onPressIn?.(e); }}
