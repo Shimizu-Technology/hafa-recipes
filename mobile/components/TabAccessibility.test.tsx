@@ -5,8 +5,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ push: vi.fn(), keyboard: false, inset: 0, listeners: {} as Record<string, () => void> }));
 vi.mock('react-native', () => ({
   Keyboard: { isVisible: () => state.keyboard, addListener: (name: string, fn: () => void) => { state.listeners[name] = fn; return { remove: vi.fn() }; } },
-  Platform: { OS: 'ios' }, Pressable: 'Pressable', Text: 'Text', View: 'View', StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
+  Platform: { OS: 'ios' }, Pressable: 'Pressable', Text: 'Text', View: 'View', Animated: { View: 'AnimatedView' }, StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
 }));
+vi.mock('@/components/chrome/motion', () => ({ PressScale: 'Pressable', useIndicatorX: () => 0 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 34 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }) }));

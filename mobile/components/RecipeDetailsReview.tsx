@@ -11,6 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { spokenQuantity } from '@/lib/quantityPresentation';
 
 import { Button, Text, useColors } from '@/components/Themed';
+import { fontFamily } from '@/constants/Colors';
 import { api } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/apiErrorMessage';
 import { buildRecipeIssueEdit, getIssueIngredient, getRecipeReviewIssues } from '@/lib/recipeReviewIssues';
@@ -182,7 +183,7 @@ export function RecipeDetailsReview({ recipe, onClose, onOpenSource, onEdit }: {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 12, borderBottomWidth: 1 },
-  title: { fontFamily: 'Fraunces_600SemiBold', fontSize: 26 },
+  title: { fontFamily: fontFamily.recipeTitle, fontSize: 26, lineHeight: 32 },
   close: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 24, gap: 20 },
   intro: { fontSize: 16, lineHeight: 24 },

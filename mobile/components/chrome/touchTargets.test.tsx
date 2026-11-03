@@ -3,9 +3,10 @@ import { createRoot } from 'test-renderer';
 import { expect, it, vi } from 'vitest';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock('react-native', () => ({
-  Pressable: 'Pressable', ScrollView: 'ScrollView', TextInput: 'TextInput', View: 'View',
+  Pressable: 'Pressable', ScrollView: 'ScrollView', TextInput: 'TextInput', View: 'View', Animated: { View: 'AnimatedView' },
   StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
 }));
+vi.mock('./motion', () => ({ PressScale: 'Pressable', useIndicatorX: () => 0 }));
 vi.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));

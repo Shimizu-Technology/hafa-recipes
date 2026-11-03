@@ -1439,7 +1439,8 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: fontSize.xxl,
-    fontFamily: fontFamily.display,
+    // The one Fraunces moment on the screen.
+    fontFamily: fontFamily.recipeTitle,
     lineHeight: 34,
     marginBottom: 6,
   },

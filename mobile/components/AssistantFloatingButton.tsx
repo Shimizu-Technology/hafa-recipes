@@ -12,9 +12,10 @@ export { ASK_PILL_HEIGHT };
 const LABEL_MAX_WIDTH = 200;
 
 /**
- * The floating chat entry: an accent pill with a sparkle and a label ("Ask Håfa", or
+ * The floating chat entry: a white pill with a hairline, a reef sparkle and a label ("Ask Håfa", or
  * "Ask about this" on a recipe). It folds to a 48pt circle while the list scrolls down.
- * The recipe screen mounts this too, so both entries look and behave the same.
+ * The recipe screen mounts this too, so both entries look and behave the same. It stays neutral so
+ * the reef Import and the screen's primary action remain the only accent fills.
  */
 export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, accessibilityHint = 'Opens the cooking assistant chat' }: {
   label?: string;
@@ -47,10 +48,10 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
       testID="ask-hafa-pill"
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}
     >
-      <Animated.View style={[styles.pill, { backgroundColor: colors.tint }, pillStyle]}>
-        <Ionicons name="sparkles" size={22} color={colors.onTint} />
+      <Animated.View style={[styles.pill, { backgroundColor: colors.backgroundElevated, borderColor: colors.border, shadowColor: colors.dark ? '#000000' : colors.shadowColor }, pillStyle]}>
+        <Ionicons name="sparkles" size={22} color={colors.actionText} />
         <Animated.View style={[styles.labelClip, labelStyle]}>
-          <Text numberOfLines={1} style={[styles.label, { color: colors.onTint }]}>{label}</Text>
+          <Text numberOfLines={1} style={[styles.label, { color: colors.text }]}>{label}</Text>
         </Animated.View>
       </Animated.View>
     </Pressable>
@@ -65,11 +66,11 @@ const styles = StyleSheet.create({
     paddingLeft: 13,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
   labelClip: { overflow: 'hidden' },
   label: { fontSize: 16, lineHeight: 21, fontWeight: '600' },

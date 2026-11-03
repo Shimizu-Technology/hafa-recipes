@@ -10,10 +10,10 @@ const OVERHANG = touchInset(FIELD_HEIGHT);
 /** 40pt controls per the spec; the row is padded so this slop stays inside it and works on Android too. */
 const FIELD_HIT_SLOP = { top: OVERHANG, bottom: OVERHANG, left: OVERHANG * 2 };
 
-/** A 40pt tonal search field for filtering the list it sits above. */
+/** A 40pt white search field with a hairline, for filtering the list it sits above. */
 export function SearchField({ value, onChangeText, placeholder, accessibilityLabel }: { value: string; onChangeText: (text: string) => void; placeholder: string; accessibilityLabel?: string }) {
   const colors = useColors();
-  return <View style={[styles.field, { backgroundColor: colors.surface2 }]}>
+  return <View style={[styles.field, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
     <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textMuted}
       accessibilityLabel={accessibilityLabel ?? placeholder} returnKeyType="search" autoCorrect={false} clearButtonMode="never"
@@ -29,7 +29,7 @@ export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder
   const colors = useColors();
   const router = useRouter();
   return <Pressable onPress={() => router.push('/search')} accessibilityRole="search" accessibilityLabel={placeholder} accessibilityHint="Opens search"
-    testID="search-launcher" hitSlop={FIELD_HIT_SLOP} style={({ pressed }) => [styles.field, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
+    testID="search-launcher" hitSlop={FIELD_HIT_SLOP} style={({ pressed }) => [styles.field, { backgroundColor: colors.backgroundElevated, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
     <Text style={[styles.placeholder, { color: colors.textMuted }]}>{placeholder}</Text>
   </Pressable>;
@@ -39,7 +39,7 @@ export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder
 export function FilterButton({ count, onPress }: { count: number; onPress: () => void }) {
   const colors = useColors();
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={count ? `Filter, ${count} on` : 'Filter'} testID="filter-button" hitSlop={FIELD_HIT_SLOP}
-    style={({ pressed }) => [styles.filter, { backgroundColor: count ? colors.chromeIndicator : colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
+    style={({ pressed }) => [styles.filter, { backgroundColor: count ? colors.accentTint : colors.backgroundElevated, borderColor: count ? 'transparent' : colors.border, opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="options-outline" size={20} color={count ? colors.actionText : colors.text} />
     {count > 0 && <View style={[styles.badge, { backgroundColor: colors.tint }]}>
       <Text style={[styles.badgeText, { color: colors.onTint }]}>{count}</Text>
@@ -54,10 +54,10 @@ export function SearchRow({ children }: { children: React.ReactNode }) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: OVERHANG, marginTop: -OVERHANG, marginBottom: 12 - OVERHANG },
-  field: { flex: 1, minHeight: FIELD_HEIGHT, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
+  field: { flex: 1, minHeight: FIELD_HEIGHT, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
   input: { flex: 1, fontSize: 17, paddingVertical: 8 },
   placeholder: { flex: 1, fontSize: 17, lineHeight: 22 },
-  filter: { width: FIELD_HEIGHT, height: FIELD_HEIGHT, borderRadius: FIELD_HEIGHT / 2, alignItems: 'center', justifyContent: 'center' },
+  filter: { width: FIELD_HEIGHT, height: FIELD_HEIGHT, borderRadius: FIELD_HEIGHT / 2, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   badge: { position: 'absolute', top: -2, right: -2, minWidth: 18, minHeight: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
   badgeText: { fontSize: 11, lineHeight: 13, fontWeight: '700' },
 });

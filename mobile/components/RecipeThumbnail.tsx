@@ -52,17 +52,22 @@ export function RecipeThumbnail({
 
   return (
     <RNView
-      style={[styles.container, { backgroundColor: `${colors.tint}15` }, style]}
+      style={[styles.container, { backgroundColor: colors.placeholder }, style]}
       accessible={accessible}
       accessibilityRole={accessible ? 'image' : undefined}
       accessibilityLabel={accessible ? (origin.scope === scope ? accessibilityLabel : 'Recipe photo') : undefined}
     >
-      <Ionicons
-        name={placeholderIconName}
-        size={placeholderIconSize}
-        color={colors.actionText}
-        importantForAccessibility="no-hide-descendants"
-      />
+      {/* No photo: a quiet glyph in a hairline ring on a neutral tile, never a tinted slab. */}
+      {placeholderIconSize >= 28
+        ? <RNView style={[styles.ring, { borderColor: colors.border }]} importantForAccessibility="no-hide-descendants">
+          <Ionicons name={placeholderIconName} size={22} color={colors.placeholderInk} />
+        </RNView>
+        : <Ionicons
+          name={placeholderIconName}
+          size={placeholderIconSize}
+          color={colors.placeholderInk}
+          importantForAccessibility="no-hide-descendants"
+        />}
       {shouldLoad && (
         <>
           <Image
@@ -95,4 +100,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  ring: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
 });

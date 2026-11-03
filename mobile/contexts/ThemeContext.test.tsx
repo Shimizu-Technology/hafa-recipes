@@ -37,15 +37,15 @@ describe('live native and JS appearance', () => {
     const r = createRoot();
     await act(async () => r.render(<ThemeProvider><MountedScreen /></ThemeProvider>));
     for (const [preference, native, scheme, text] of [
-      ['light', 'light', 'light', '#000000'], ['dark', 'dark', 'dark', '#FFFFFF'],
-      ['system', 'unspecified', 'light', '#000000'],
+      ['light', 'light', 'light', '#222222'], ['dark', 'dark', 'dark', '#ECEEEC'],
+      ['system', 'unspecified', 'light', '#222222'],
     ] as const) {
       await act(async () => theme.setThemePreference(preference));
       expect(state.native).toHaveBeenLastCalledWith(native);
       expect(r.container.queryAll(n => n.type === 'paint')[0].props).toMatchObject({ scheme, text });
     }
     await act(async () => systemChange('dark'));
-    expect(r.container.queryAll(n => n.type === 'paint')[0].props).toMatchObject({ scheme: 'dark', text: '#FFFFFF' });
+    expect(r.container.queryAll(n => n.type === 'paint')[0].props).toMatchObject({ scheme: 'dark', text: '#ECEEEC' });
     await act(async () => systemChange('light'));
     expect(theme.colorScheme).toBe('light');
     await act(async () => theme.setThemePreference('dark'));

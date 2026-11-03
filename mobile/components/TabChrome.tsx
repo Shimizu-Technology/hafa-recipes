@@ -28,8 +28,8 @@ export function AccountHeaderButton() {
       {isSignedIn && hasProfilePhoto(user) ? (
         <Image source={{ uri: user.imageUrl }} style={styles.accountImage} accessibilityIgnoresInvertColors />
       ) : (
-        // Same tonal circle as the other header buttons, so the header reads as one group.
-        <RNView style={[styles.accountInitial, { backgroundColor: colors.surface2 }]}>
+        // Same circle as the other header buttons, so the header reads as one group.
+        <RNView style={[styles.accountInitial, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
           {isSignedIn && initial
             ? <Text style={[styles.accountInitialText, { color: colors.text }]}>{initial}</Text>
             : <Ionicons name={isSignedIn ? 'person' : 'person-outline'} size={18} color={colors.text} />}
@@ -57,12 +57,13 @@ const styles = StyleSheet.create({
   accountInitial: {
     minWidth: 32,
     minHeight: 32,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.full,
   },
   accountInitialText: {
-    fontFamily: fontFamily.semibold, fontWeight: '600',
+    fontFamily: fontFamily.semibold,
     fontSize: fontSize.md,
   },
 });

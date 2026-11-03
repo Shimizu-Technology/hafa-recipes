@@ -8,7 +8,7 @@ export const HEADER_BUTTON_SIZE = 36;
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
-/** The one header action shape: a 36pt tonal circle with a label-colour glyph, inside a 44pt target. */
+/** The one header action shape: a 36pt white circle with a hairline and a label-colour glyph, inside a 44pt target. */
 export function HeaderIconButton({ icon, accessibilityLabel, onPress, primary = false, testID }: {
   icon: IconName;
   accessibilityLabel: string;
@@ -20,7 +20,7 @@ export function HeaderIconButton({ icon, accessibilityLabel, onPress, primary = 
   const colors = useColors();
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel} testID={testID} hitSlop={4}
     style={({ pressed }) => [styles.target, pressed && { opacity: 0.6 }]}>
-    <View style={[styles.circle, { backgroundColor: colors.surface2 }]}>
+    <View style={[styles.circle, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
       <Ionicons name={icon} size={20} color={primary ? colors.actionText : colors.text} />
     </View>
   </Pressable>;
@@ -76,7 +76,7 @@ export function headerRightOptions(render: () => React.ReactElement) {
 
 const styles = StyleSheet.create({
   target: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  circle: { width: HEADER_BUTTON_SIZE, height: HEADER_BUTTON_SIZE, borderRadius: HEADER_BUTTON_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
+  circle: { width: HEADER_BUTTON_SIZE, height: HEADER_BUTTON_SIZE, borderRadius: HEADER_BUTTON_SIZE / 2, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center' },
   scrim: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.32)' },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8 },

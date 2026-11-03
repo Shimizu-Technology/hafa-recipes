@@ -17,6 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Text, useColors } from '@/components/Themed';
+import { layout, type ThemeColors } from '@/constants/Colors';
 import { useKeyboardVisible } from '@/components/chrome/HafaTabBar';
 
 export type RecipeHeaderAction = {
@@ -41,18 +42,14 @@ export function recipeHeaderRanges(heroHeight: number, headerHeight: number) {
   };
 }
 
-function headerFills(dark: boolean) {
-  return {
-    solid: dark ? 'rgba(28,28,30,0.92)' : 'rgba(255,255,255,0.92)',
-    tonal: dark ? 'rgba(118,118,128,0.24)' : 'rgba(118,118,128,0.12)',
-    hairline: dark ? 'rgba(84,84,88,0.5)' : 'rgba(60,60,67,0.18)',
-  };
+function headerFills(colors: ThemeColors) {
+  return { solid: colors.photoButton, tonal: colors.backgroundElevated, hairline: colors.chromeHairline };
 }
 
-/** A 36pt circle in a 44pt target: solid over the photo, tonal once the bar is opaque. */
+/** A 36pt circle in a 44pt target: solid over the photo, a white sheet with a hairline once the bar is opaque. */
 function HeaderCircle({ action, solid }: { action: RecipeHeaderAction; solid: DerivedValue<number> }) {
   const colors = useColors();
-  const fills = headerFills(colors.background === '#000000');
+  const fills = headerFills(colors);
   const solidStyle = useAnimatedStyle(() => ({ opacity: 1 - solid.value }));
   const tonalStyle = useAnimatedStyle(() => ({ opacity: solid.value }));
   return (
@@ -64,7 +61,7 @@ function HeaderCircle({ action, solid }: { action: RecipeHeaderAction; solid: De
       style={({ pressed }) => [styles.circleTarget, pressed && styles.pressed]}
     >
       <Animated.View style={[styles.circle, styles.circleShadow, { backgroundColor: fills.solid }, solidStyle]} />
-      <Animated.View style={[styles.circle, { backgroundColor: fills.tonal }, tonalStyle]} />
+      <Animated.View style={[styles.circle, { backgroundColor: fills.tonal, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, tonalStyle]} />
       {/* Android draws by elevation, so the glyph needs more than the shadowed fill to stay on top. */}
       <View style={styles.circleGlyph}><Ionicons name={action.icon} size={20} color={colors.text} /></View>
     </Pressable>
@@ -86,7 +83,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown, onH
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const dark = colors.background === '#000000';
+  const dark = colors.dark;
   const [overPhoto, setOverPhoto] = useState(false);
   useAnimatedReaction(() => solid.value < 0.5, (next, previous) => {
     if (next !== previous) runOnJS(setOverPhoto)(next);
@@ -105,7 +102,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown, onH
     <View pointerEvents="box-none" onLayout={event => onHeightChange?.(Math.ceil(event.nativeEvent.layout.height))} style={[styles.header, { paddingTop: insets.top, minHeight: insets.top + RECIPE_HEADER_BAR }]}>
       {isFocused && <StatusBar barStyle={overPhoto || dark ? 'light-content' : 'dark-content'} animated />}
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }, barStyle]} />
-      <Animated.View pointerEvents="none" style={[styles.hairline, { backgroundColor: headerFills(dark).hairline }, titleStyle]} />
+      <Animated.View pointerEvents="none" style={[styles.hairline, { backgroundColor: headerFills(colors).hairline }, titleStyle]} />
       <View pointerEvents="box-none" style={styles.row}>
         <View style={{ width: sideWidth }}><HeaderCircle action={back} solid={solid} /></View>
         <Animated.View style={[styles.titleWrap, titleStyle]} pointerEvents="none"
@@ -207,7 +204,7 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   header: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1, elevation: 3 },
-  floating: { position: 'absolute', right: 16, zIndex: 1 },
+  floating: { position: 'absolute', right: layout.margin, zIndex: 1 },
   hairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
   row: { minHeight: RECIPE_HEADER_BAR, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 4 },
   titleWrap: { flex: 1, paddingHorizontal: 8 },

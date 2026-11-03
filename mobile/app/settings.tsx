@@ -332,7 +332,7 @@ export default function SettingsScreen() {
 
   return (
     <TextScaleContext.Provider value={scale}>
-    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Settings', headerTitle: 'Settings' }} />
+    <View style={[styles.container, { backgroundColor: colors.groupedBackground }]}><Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 34 }, title: 'Settings', headerTitle: 'Settings' }} />
       <ScrollView contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
@@ -412,7 +412,7 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: themePreference === theme.key }}
                     style={[
                       styles.segmentedOption,
-                      themePreference === theme.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
+                      themePreference === theme.key && { backgroundColor: colors.chromeSegment },
                       index === 0 && styles.segmentedFirst,
                       index === 2 && styles.segmentedLast,
                     ]}
@@ -448,7 +448,7 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: textSize === size.key }}
                     style={[
                       styles.segmentedOption,
-                      textSize === size.key && { backgroundColor: colors.text === '#FFFFFF' ? '#636366' : '#FFFFFF' },
+                      textSize === size.key && { backgroundColor: colors.chromeSegment },
                       index === 0 && styles.segmentedFirst,
                       index === 3 && styles.segmentedLast,
                     ]}

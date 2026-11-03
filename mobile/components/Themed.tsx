@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import Colors, { spacing, radius, fontSize, fontFamily, shadows, typography, lineHeightForSize } from '@/constants/Colors';
+import Colors, { spacing, radius, fontSize, fontFamily, shadows, typography, lineHeightForSize, resolveFont, type ColorToken } from '@/constants/Colors';
 import { useColorScheme } from './useColorScheme';
 import { ScalePressable } from './Animated';
 
@@ -34,7 +34,7 @@ export type ViewProps = ThemeProps & DefaultView['props'];
 // Hook to get theme colors
 export function useThemeColor(
   props: { light?: string; dark?: string },
-  colorName: keyof typeof Colors.light & keyof typeof Colors.dark
+  colorName: ColorToken
 ) {
   const theme = useColorScheme() ?? 'light';
   const colorFromProps = props[theme];
@@ -75,6 +75,8 @@ export function Text(props: TextProps) {
   const inherited = useContext(TextMetricsContext);
   const scale = useContext(TextScaleContext);
   const resolved = StyleSheet.flatten(style);
+  // Nested spans inherit their parent's face; only a span that names its own family or weight is resolved.
+  const face = !inherited || resolved?.fontFamily || resolved?.fontWeight ? resolveFont(resolved ?? {}) : null;
   const size = resolved?.fontSize !== undefined
     ? Math.round(resolved.fontSize * scale)
     : inherited?.fontSize ?? Math.round(typography.body.fontSize * scale);
@@ -86,7 +88,7 @@ export function Text(props: TextProps) {
     : { color, fontFamily: fontFamily.regular, ...typography.body, fontSize: size, lineHeight: leading };
   return (
     <TextMetricsContext.Provider value={{ fontSize: size, lineHeight: leading }}>
-      <MeasuredText style={[defaults, style, { fontSize: size, lineHeight: leading }]} {...otherProps} />
+      <MeasuredText style={[defaults, style, { fontSize: size, lineHeight: leading }, face]} {...otherProps} />
     </TextMetricsContext.Provider>
   );
 }
@@ -96,6 +98,7 @@ export type TextInput = DefaultTextInput;
 export const TextInput = forwardRef<DefaultTextInput, DefaultTextInput['props']>(function TextInput({ style, ...props }, ref) {
   const scale = useContext(TextScaleContext);
   const resolved = StyleSheet.flatten(style);
+  const face = resolveFont(resolved ?? {});
   const { fontScale } = useWindowDimensions();
   const points = (value: unknown) => typeof value === 'number' ? value : 0;
   const size = Math.round((resolved?.fontSize ?? typography.body.fontSize) * scale);
@@ -103,7 +106,7 @@ export const TextInput = forwardRef<DefaultTextInput, DefaultTextInput['props']>
     + points(resolved?.paddingBottom ?? resolved?.paddingVertical ?? resolved?.padding);
   const minHeight = Math.max(points(resolved?.minHeight), points(resolved?.height),
     Math.ceil((resolved?.lineHeight ? resolved.lineHeight * scale : lineHeightForSize(size)) * fontScale + padding));
-  return <DefaultTextInput ref={ref} {...props} style={[style, { fontSize: size, minHeight,
+  return <DefaultTextInput ref={ref} {...props} style={[style, face, { fontSize: size, minHeight,
     ...(typeof resolved?.height === 'number' ? { height: undefined } : {}),
     ...(resolved?.lineHeight !== undefined ? { lineHeight: Math.round(resolved.lineHeight * scale) } : {}),
   }]} />;
@@ -133,7 +136,9 @@ export function Card({ children, style, noPadding, elevated, ...props }: CardPro
       style={[
         {
           backgroundColor: colors.card,
-          borderRadius: radius.md,
+          borderRadius: radius.lg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.hairline,
           padding: noPadding ? 0 : spacing.lg,
           shadowColor: colors.shadowColor,
           ...shadowStyle,
@@ -224,13 +229,15 @@ export function Input({
         returnKeyType={returnKeyType}
         style={[
           {
-            backgroundColor: colors.surface2,
-            borderRadius: radius.sm,
+            backgroundColor: colors.backgroundElevated,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+            borderRadius: radius.md,
             padding: spacing.md,
             paddingRight: showClear ? 56 : spacing.md,
             ...typography.body,
             color: colors.text,
-            fontFamily: fontFamily.medium,
+            fontFamily: fontFamily.regular,
             minHeight: multiline ? 100 : 44,
             textAlignVertical: multiline ? 'top' : 'center',
           },
@@ -279,7 +286,7 @@ export function Button({
         return colors.tint;
       case 'secondary':
       case 'outline':
-        return colors.surface2;
+        return colors.backgroundElevated;
       case 'ghost':
         return 'transparent';
       default:
@@ -325,7 +332,9 @@ export function Button({
           minHeight: size === 'sm' ? 44 : 50,
           minWidth: 44,
           backgroundColor: getBackgroundColor(),
-          borderRadius: radius.full,
+          // Calm buttons are rounded rectangles; secondary ones are white sheets with a hairline.
+          borderRadius: radius.md,
+          ...((variant === 'secondary' || variant === 'outline') && !disabled ? { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border } : null),
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'row',
@@ -369,7 +378,9 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
     <DefaultView
       style={[
         {
-          backgroundColor: selected ? colors.text : colors.surface2,
+          backgroundColor: selected ? colors.ink : 'transparent',
+          borderWidth: selected ? 0 : 1,
+          borderColor: colors.border,
           minHeight: onPress ? 44 : undefined,
           minWidth: onPress ? 44 : undefined,
           flexDirection: 'row',
@@ -377,17 +388,17 @@ export function Chip({ label, selected, onPress, size = 'md', accessibilityLabel
           alignItems: 'center',
           justifyContent: 'center',
           gap: spacing.xs,
-          borderRadius: radius.full,
+          borderRadius: radius.sm + 2,
           paddingVertical: size === 'sm' ? spacing.xs : spacing.sm,
           paddingHorizontal: size === 'sm' ? spacing.sm : spacing.md,
         },
       ]}
     >
-      {icon && <Ionicons name={icon} size={16} color={selected ? colors.background : colors.textMuted} />}
+      {icon && <Ionicons name={icon} size={16} color={selected ? colors.onInk : colors.textMuted} />}
       <Text
         style={{
           flexShrink: 1,
-          color: selected ? colors.background : colors.text,
+          color: selected ? colors.onInk : colors.text,
           fontSize: size === 'sm' ? fontSize.xs : fontSize.sm,
           fontWeight: selected ? '600' : '500',
           lineHeight: size === 'sm' ? 13 : 18,
@@ -457,8 +468,8 @@ export function SectionHeader({ title, subtitle }: SectionHeaderProps) {
         style={{
           fontSize: 20,
           lineHeight: 25,
-          fontFamily: fontFamily.displaySemibold,
-          color: colors.textSecondary,
+          fontFamily: fontFamily.bold,
+          color: colors.text,
           marginBottom: subtitle ? spacing.xs : 0,
         }}
       >
@@ -485,8 +496,8 @@ export function Divider() {
   return (
     <DefaultView
       style={{
-        height: 1,
-        backgroundColor: colors.border,
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.hairline,
         marginVertical: spacing.md,
       }}
     />
