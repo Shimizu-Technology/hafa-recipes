@@ -885,16 +885,22 @@ function PlannerScreenContent() {
         </View>
       </Modal>
       <Modal visible={reviewVisible} onRequestClose={() => { if (!reviewAdding) setReviewVisible(false); }} animationType="slide" presentationStyle="pageSheet">
-        <View style={{ flex: 1, padding: spacing.lg, gap: spacing.md }}>
-          <Text>Review this week’s groceries</Text>
+        <View style={[styles.review, { backgroundColor: colors.background }]}>
+          <Text accessibilityRole="header" style={[styles.reviewTitle, { color: colors.text }]}>Review this week’s groceries</Text>
           {review.isLoading && <ActivityIndicator accessibilityLabel="Loading grocery review" />}
           {review.isError && <Button title="Retry grocery review" onPress={() => review.refetch()} />}
           {reviewData && <>
-            <Text>{reviewData.items_added} ingredient lines · {reviewData.items_missing_amount} missing amounts · {reviewData.items_unscaled} amounts need checking</Text>
-            <ScrollView>
-              {reviewData.totals.map((total, index) => <Text key={`total:${index}`} accessibilityLabel={spokenQuantity([formatGroceryReviewAmount(total.quantity, total.unit, total.name), total.missing ? `${total.missing} missing amounts` : '', total.uncombined ? 'source amounts kept separate' : ''].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatGroceryReviewAmount(total.quantity, total.unit, total.name)}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
-              <Text>By recipe</Text>
-              {reviewData.items.map((item, index) => <Text key={index} accessibilityLabel={spokenQuantity([formatGroceryReviewAmount(item.quantity, item.unit, item.name), item.recipe_title].filter(Boolean).join(' '))} style={{ paddingVertical: spacing.sm }}>{formatGroceryReviewAmount(item.quantity, item.unit, item.name)} · {item.recipe_title}</Text>)}</ScrollView>
+            <Text style={[styles.reviewSummary, { color: colors.textSecondary }]}>{reviewData.items_added} ingredient lines · {reviewData.items_missing_amount} missing amounts · {reviewData.items_unscaled} amounts need checking</Text>
+            {/* Totals, then the same lines by recipe, each as one white sheet ruled with hairlines. */}
+            <ScrollView contentContainerStyle={styles.reviewScroll}>
+              <View style={[styles.reviewSheet, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
+              {reviewData.totals.map((total, index) => <Text key={`total:${index}`} accessibilityLabel={spokenQuantity([formatGroceryReviewAmount(total.quantity, total.unit, total.name), total.missing ? `${total.missing} missing amounts` : '', total.uncombined ? 'source amounts kept separate' : ''].filter(Boolean).join(' '))} style={[styles.reviewRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.hairline }]}>{formatGroceryReviewAmount(total.quantity, total.unit, total.name)}{total.missing ? ` · ${total.missing} missing amounts` : ''}{total.uncombined ? ' · source amounts kept separate' : ''}</Text>)}
+              </View>
+              <Text accessibilityRole="header" style={[styles.reviewSection, { color: colors.textSecondary }]}>By recipe</Text>
+              <View style={[styles.reviewSheet, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
+              {reviewData.items.map((item, index) => <Text key={index} accessibilityLabel={spokenQuantity([formatGroceryReviewAmount(item.quantity, item.unit, item.name), item.recipe_title].filter(Boolean).join(' '))} style={[styles.reviewRow, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.hairline }]}>{formatGroceryReviewAmount(item.quantity, item.unit, item.name)} · {item.recipe_title}</Text>)}
+              </View>
+            </ScrollView>
             <Button title={reviewAdding ? 'Adding…' : 'Add reviewed groceries'} disabled={reviewAdding || (!pendingReview.current && (review.isFetching || review.isError)) || !reviewData.items_added} onPress={confirmGroceries} />
           </>}
           <Button title="Close review" variant="secondary" disabled={reviewAdding} onPress={() => setReviewVisible(false)} />
@@ -1226,6 +1232,13 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.semibold,
   },
+  review: { flex: 1, paddingHorizontal: layout.margin, paddingTop: spacing.lg, paddingBottom: spacing.lg, gap: spacing.sm },
+  reviewTitle: { fontSize: 22, lineHeight: 28, fontWeight: fontWeight.bold },
+  reviewSummary: { fontSize: 15, lineHeight: 20, marginBottom: spacing.sm },
+  reviewScroll: { paddingBottom: spacing.md },
+  reviewSheet: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  reviewRow: { fontSize: 17, lineHeight: 22, paddingHorizontal: spacing.md, paddingVertical: 12 },
+  reviewSection: { fontSize: 15, lineHeight: 20, fontWeight: fontWeight.semibold, marginTop: spacing.lg, marginBottom: spacing.sm, marginLeft: 4 },
   groceryButton: {
     flexDirection: 'row',
     alignItems: 'center',

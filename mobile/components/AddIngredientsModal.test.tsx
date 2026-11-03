@@ -30,7 +30,7 @@ vi.mock('./Themed', () => ({
     warning: '#8a5a00',
   }),
 }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   fontSize: { xs: 12, sm: 14, md: 16, lg: 18 },
   fontWeight: { medium: '500', semibold: '600' },
   radius: { md: 12 },
