@@ -5,6 +5,7 @@ vi.mock('@expo/vector-icons/Ionicons', () => ({ default: () => null }));
 vi.mock('@/components/Themed', async () => {
   const ReactModule = await import('react');
   return {
+    TextScaleContext: ReactModule.createContext(1),
     Text: (props: Record<string, unknown>) =>
       ReactModule.createElement('Text', props, props.children as React.ReactNode),
     useColors: () => ({
@@ -93,5 +94,20 @@ describe('RecipeVisibilitySelector', () => {
 
     expect(screen.getByLabelText('Private').props.disabled).toBe(true);
     expect(screen.getByLabelText('Public in Discover').props.disabled).toBe(true);
+  });
+
+  it('stacks the compact choices at large text so neither title breaks mid-word', async () => {
+    const { TextScaleContext } = await import('@/components/Themed');
+    const flex = (screen: Awaited<ReturnType<typeof render>>) =>
+      [screen.getByLabelText('Private'), screen.getByLabelText('Public in Discover')]
+        .map(choice => choice.props.style.flat().filter(Boolean).some((style: Record<string, unknown>) => style.flex === 1));
+    const normal = await render(<RecipeVisibilitySelector value="private" onChange={vi.fn()} compact />);
+    expect(flex(normal)).toEqual([true, true]);
+    const large = await render(
+      <TextScaleContext.Provider value={1.5}>
+        <RecipeVisibilitySelector value="private" onChange={vi.fn()} compact />
+      </TextScaleContext.Provider>,
+    );
+    expect(flex(large)).toEqual([false, false]);
   });
 });

@@ -16,3 +16,5 @@ export const StyleSheet = {
   create: <T,>(styles: T) => styles,
   flatten: (style: unknown) => style,
 };
+
+export const useWindowDimensions = () => ({ width: 390, height: 844, scale: 3, fontScale: 1 });
