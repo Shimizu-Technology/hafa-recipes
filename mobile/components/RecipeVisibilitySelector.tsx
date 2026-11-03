@@ -1,11 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useContext } from 'react';
 import {
   StyleSheet,
   TouchableOpacity,
   View as RNView,
+  useWindowDimensions,
 } from 'react-native';
 
-import { Text, useColors } from '@/components/Themed';
+import { Text, TextScaleContext, useColors } from '@/components/Themed';
 import { fontFamily, fontSize, fontWeight, radius, spacing } from '@/constants/Colors';
 
 export type RecipeVisibility = 'private' | 'public';
@@ -45,6 +47,10 @@ export function RecipeVisibilitySelector({
   compact = false,
 }: RecipeVisibilitySelectorProps) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
+  const textScale = useContext(TextScaleContext);
+  // At large text the two choices stack so neither title breaks mid-word.
+  const sideBySide = compact && fontScale * textScale < 1.3;
 
   return (
     <RNView style={styles.container}>
@@ -58,7 +64,7 @@ export function RecipeVisibilitySelector({
         </RNView>
       </RNView>}
 
-      <RNView style={[styles.options, compact && { flexDirection: 'row', gap: spacing.sm }]} accessibilityRole="radiogroup">
+      <RNView style={[styles.options, sideBySide && { flexDirection: 'row', gap: spacing.sm }]} accessibilityRole="radiogroup">
         {options.map((option) => {
           const selected = value === option.value;
           const selectedColor = colors.textSecondary;
@@ -68,7 +74,8 @@ export function RecipeVisibilitySelector({
               key={option.value}
               style={[
                 styles.option,
-                compact && { flex: 1, padding: spacing.sm, minHeight: 48, gap: spacing.sm },
+                compact && { padding: spacing.sm, minHeight: 48, gap: spacing.sm },
+                sideBySide && { flex: 1 },
                 {
                   backgroundColor: selected
                     ? colors.surface2

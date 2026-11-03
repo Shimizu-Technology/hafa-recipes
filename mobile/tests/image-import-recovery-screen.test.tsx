@@ -158,6 +158,7 @@ vi.mock('@/components/Themed', async () => {
     Input: host('Input'),
     IconButton: host('IconButton'),
     Text: host('ThemedText'),
+    TextScaleContext: ReactModule.createContext(1),
     View: host('ThemedView'),
     useColors: () => ({ onTint: '#00261F',
       accent: '#b94722', accentSoft: '#fbe8de', background: '#fff',
