@@ -109,6 +109,17 @@ it("keeps disabled button text readable and explains a material blocker", () => 
   expect(view!.root.findAllByType("Copy" as never)[0].props.color).toBe(light.text);
 });
 
+it("keeps coral for workout starts (play icon) and ink for setup calls to action", () => {
+  const bg = (props: object) => {
+    act(() => { view = create(createElement(Button, { onPress() {}, ...props } as never)); });
+    const style = view!.root.findByType("Pressable" as never).props.style;
+    return (Array.isArray(style) ? Object.assign({}, ...style.flat()) : style).backgroundColor;
+  };
+  expect(bg({ title: "Start workout", icon: "play" })).toBe(light.accent);
+  expect(bg({ title: "Resume", icon: "play" })).toBe(light.accent);
+  expect(bg({ title: "Start saving workouts" })).not.toBe(light.accent);
+});
+
 it("compact search keeps its accessible name without a duplicate visible label", async () => {
   await act(async () => { view = create(createElement(Field, { label: "Search Discover", hideLabel: true, value: "", onChange() {}, placeholder: "Search workouts or creators" })); });
   expect(view!.root.findByType("Input" as never).props.accessibilityLabel).toBe("Search Discover");

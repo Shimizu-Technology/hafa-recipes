@@ -67,7 +67,7 @@ function TabSlot({ label, selected, icon, add, testID, onLongPress, onPress }: {
   const Target = animatedPressableComponent();
   const fill = c.accent;
   const fg = c.onAccent;
-  return <Target testID={testID} onLongPress={onLongPress} accessibilityRole={add ? "button" : "tab"} accessibilityLabel={add ? "Add a workout" : label} accessibilityState={add ? undefined : { selected }} accessibilityShowsLargeContentViewer accessibilityLargeContentTitle={label} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} style={[styles.slot, { opacity: press.opacity, transform: [{ scale: press.scale }] }]}>
+  return <Target testID={testID} onLongPress={onLongPress} accessibilityRole={add ? "button" : "tab"} accessibilityLabel={add ? "Add a workout" : label} accessibilityHint={add ? "Import from a link, video or photo, or build one" : undefined} accessibilityState={add ? undefined : { selected }} accessibilityShowsLargeContentViewer accessibilityLargeContentTitle={label} onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut} style={[styles.slot, { opacity: press.opacity, transform: [{ scale: press.scale }] }]}>
     <View style={{ width: 50, height: 30, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: add ? fill : "transparent" }}><Ionicons name={icon} size={add ? 25 : 23} color={add ? fg : selected ? c.text : c.muted} /></View>
     <Text allowFontScaling={false} style={[styles.label, { color: selected ? c.text : c.muted, fontFamily: fonts.semibold }]}>{label}</Text>
   </Target>;

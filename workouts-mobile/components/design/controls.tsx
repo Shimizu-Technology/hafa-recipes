@@ -76,7 +76,9 @@ export function Button({
   const c = useColors();
   const surface = useSurface();
   const kind = variant ?? (secondary ? "secondary" : "primary");
-  const start = /^(Start|Resume)(\b|$)/.test(title);
+  // Coral is reserved for starting or resuming a workout; those buttons carry the play icon. A setup call to
+  // action such as "Start saving workouts" stays ink.
+  const start = icon === "play";
   const colors = start && kind === "primary" ? { bg: c.accent, fg: c.onAccent, border: undefined } : buttonColors(c, kind, surface);
   const { bg, fg, border } = disabled || busy
     ? { bg: c.sunken, fg: c.text, border: c.border } : colors;

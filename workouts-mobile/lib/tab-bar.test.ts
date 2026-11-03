@@ -27,6 +27,7 @@ it("shows Today, Library, Add, Discover and Progress on a solid bar, never the h
   render();
   const slots = view!.root.findAllByType("Pressable" as never);
   expect(slots.map(slot => slot.props.accessibilityLabel)).toEqual(["Today", "Library", "Add a workout", "Discover", "Progress"]);
+  expect(slots[2].props.accessibilityHint).toBe("Import from a link, video or photo, or build one");
   const bar = view!.root.findAllByType("View" as never)[0];
   expect(bar.props.style).toMatchObject({ backgroundColor: light.tabBar, borderTopWidth: 0, paddingBottom: 34 });
   f.scheme = "dark"; render();
