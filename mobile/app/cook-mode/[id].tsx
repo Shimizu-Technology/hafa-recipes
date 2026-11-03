@@ -147,7 +147,9 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   }>();
   const router = useRouter();
   const { fontScale } = useWindowDimensions();
-  const largeText = fontScale * useContext(TextScaleContext) >= 1.3;
+  // The in-app text size scales the header title like the root stack does (17 → 22 at Extra Large).
+  const appTextScale = useContext(TextScaleContext);
+  const largeText = fontScale * appTextScale >= 1.3;
   const colors = useColors();
   const cook = colors;
   const appearance = colors.dark ? 'dark' : 'light';
@@ -728,7 +730,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
-        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: 17, color: cook.text },
+        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: Math.round(17 * appTextScale), color: cook.text },
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
         <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
         <RNView style={styles.loadingContainer}>
@@ -743,7 +745,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
-        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: 17, color: cook.text },
+        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: Math.round(17 * appTextScale), color: cook.text },
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
         <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
         <RNView style={styles.errorContainer}>
@@ -764,7 +766,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
-        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: 17, color: cook.text },
+        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: Math.round(17 * appTextScale), color: cook.text },
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
       <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
 

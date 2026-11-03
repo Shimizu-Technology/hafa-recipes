@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   fontScale: 1,
+  headerTitleStyle: undefined as any,
   params: { id: 'recipe-1' } as Record<string, string>,
   session: null as any,
   startSession: vi.fn(),
@@ -111,7 +112,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 vi.mock('expo-router', () => {
   const Stack = () => null;
-  Stack.Screen = (props: any) => props.options?.headerLeft?.() ?? null;
+  Stack.Screen = (props: any) => { mocks.headerTitleStyle = props.options?.headerTitleStyle; return props.options?.headerLeft?.() ?? null; };
   return {
     Stack,
     useLocalSearchParams: () => mocks.params,
@@ -537,4 +538,11 @@ it.each([[2, 1], [1, 1.3], [1.15, 1.15]])('keeps scaled navigation compact and s
   } finally { mocks.fontScale = 1; await act(async () => r.unmount()); }
 });
 
+});
+
+it.each([[1, 17], [1.3, 22]])('scales the header title with the in-app text size (%s → %spt)', async (textScale, size) => {
+  mocks.recipeQuery.data = RECIPE;
+  const r = await renderScreen(textScale);
+  try { expect(mocks.headerTitleStyle?.fontSize).toBe(size); }
+  finally { await act(async () => r.unmount()); }
 });
