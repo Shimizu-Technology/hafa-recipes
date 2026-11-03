@@ -497,7 +497,7 @@ describe('GroceryScreen shopping views', () => {
       expect(row.props.accessibilityState).toEqual({ checked: false });
       expect(row.props.accessibilityLabel).toBe('Rice, Added by Ana, Amount not stated, Jasmine');
       expect(rows.find((candidate) => candidate.props.accessibilityLabel.startsWith('2'))!.props.accessibilityLabel)
-        .toBe('2 piece Lime');
+        .toBe('2 pieces Lime');
       const edit = renderer.container.queryAll(instance => instance.props.accessibilityLabel === 'Edit Rice' && instance.props.accessibilityRole === 'button')[0];
       expect(edit).toBeDefined();
       expect(edit.props.accessibilityActions).toEqual([{ name: 'remove', label: 'Remove Rice' }]);

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as typeof globalThis & { __DEV__: boolean }).__DEV__ = false;
 
 const mocks = vi.hoisted(() => ({
+  fontScale: 1,
   params: { id: 'recipe-1' } as Record<string, string>,
   session: null as any,
   startSession: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock('react-native', async () => {
     },
     Linking: { openSettings: mocks.openSettings },
     Dimensions: { get: () => ({ width: 400, height: 800 }) },
-    useWindowDimensions: () => ({ width: 400, height: 800, fontScale: 1 }),
+    useWindowDimensions: () => ({ width: 400, height: 800, fontScale: mocks.fontScale }),
     KeyboardAvoidingView: host('KeyboardAvoidingView'),
     Modal: host('Modal'),
     Platform: { OS: 'ios' },
@@ -524,4 +525,18 @@ describe('CookModeScreen', () => {
       expect(stepCounter(renderer)).toBe('Step 2 of 4');
     });
   });
+
+it('keeps AX navigation compact and hides adjacent instruction previews', async () => {
+  mocks.recipeQuery.data = RECIPE;
+  mocks.fontScale = 2;
+  const r = await renderScreen();
+  try {
+    const scroll = r.root.findAllByType('ScrollView' as any)[0];
+    expect(textOf(scroll)).not.toContain(RECIPE.extracted.components[0].steps[1]);
+    const next = buttonByLabel(r, 'Next step');
+    expect(JSON.stringify(next.props.style)).not.toContain('100%');
+    expect(JSON.stringify(next.props.style)).toContain('paddingVertical":8');
+  } finally { mocks.fontScale = 1; await act(async () => r.unmount()); }
+});
+
 });

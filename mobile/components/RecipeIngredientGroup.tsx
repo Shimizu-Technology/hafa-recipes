@@ -2,7 +2,7 @@ import { useContext } from 'react';
 import { TextScaleContext } from '@/components/Themed';
 import { Alert, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { spokenQuantity } from '@/lib/quantityPresentation';
+import { formatIngredientAmount, spokenQuantity } from '@/lib/quantityPresentation';
 import { Card, Text, useColors } from '@/components/Themed';
 import { scaleQuantity } from '@/hooks/useScaledServings';
 import { getCookingNotes, getIngredientAmount } from '@/lib/recipeTrust';
@@ -33,7 +33,7 @@ export function RecipeIngredientGroup({ title, ingredients, scaleFactor, isScale
       {ingredients.map((ingredient, index) => {
         const amount = getIngredientAmount(ingredient);
         const quantity = scaleQuantity(amount.quantity, scaleFactor, amount.unit);
-        const prefix = quantity ? `${quantity}${amount.unit ? ` ${amount.unit}` : ''} ` : '';
+        const prefix = quantity ? `${formatIngredientAmount(quantity, amount.unit)} ` : '';
         const notes = getCookingNotes(ingredient.notes);
         const uncertainty = getMissingQuantityLabel(null, ingredient);
         const isChecked = checked?.(index) ?? false;

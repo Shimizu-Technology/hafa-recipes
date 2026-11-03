@@ -768,7 +768,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       </Text>}
       <SegmentedControl values={['Steps', 'Ingredients']} selectedIndex={showIngredients ? 1 : 0}
         onChange={event => setShowIngredients(event.nativeEvent.selectedSegmentIndex === 1)}
-        appearance={appearance} style={{ marginHorizontal: 16, marginVertical: 12, minHeight: 44 }} />
+        appearance={appearance} style={{ marginHorizontal: 16, marginVertical: fontScale >= 1.3 ? 4 : 12, minHeight: 44 }} />
       {showIngredients ? <>
         {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
           {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
@@ -776,8 +776,8 @@ function CookModeScreenContent({ generation }: { generation: string }) {
         <CookIngredientsList ingredients={allIngredients} components={recipe.extracted.components} scaleFactor={scaleFactor} isScaled={isScaled}
         warningColor={colors.warning} scaleFontSize={scaleFontSize} /></> : <>
       {/* Step Counter & Progress */}
-      <RNView style={styles.progressSection}>
-        <Text style={styles.stepCounter}>
+      <RNView style={[styles.progressSection, fontScale >= 1.3 && { paddingBottom: 4 }]}>
+        <Text style={[styles.stepCounter, fontScale >= 1.3 && { marginBottom: 4 }]}>
           Step {currentStepIndex + 1} <Text style={styles.stepCounterMuted}>of {steps.length}</Text>
         </Text>
         <RNView style={styles.progressContainer}>
@@ -807,15 +807,15 @@ function CookModeScreenContent({ generation }: { generation: string }) {
         {/* Step Text */}
         <ScrollView key={currentStepIndex}
           style={styles.stepScrollView}
-          contentContainerStyle={styles.stepScrollContent}
+          contentContainerStyle={[styles.stepScrollContent, fontScale >= 1.3 && { paddingVertical: 4 }]}
           showsVerticalScrollIndicator={false}
         >
-          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
+          {fontScale < 1.3 && steps[currentStepIndex - 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
           <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }]}>
             {currentStep?.step}
           </Text>
 
-          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+          {fontScale < 1.3 && steps[currentStepIndex + 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
         {/* Timer toolbar */}
           <RNView style={styles.timerSection}>
             {currentTimer ? (
@@ -919,10 +919,10 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       </Animated.View>
 
       {/* Navigation */}
-      <RNView style={[styles.navigation, fontScale >= 1.3 && { flexWrap: 'wrap', gap: 8 }, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <RNView style={[styles.navigation, fontScale >= 1.3 && { gap: 8, paddingTop: 4 }, { paddingBottom: insets.bottom + spacing.sm }]}>
         <TouchableOpacity
           onPress={goToPrevStep}
-          style={[styles.navButton, fontScale >= 1.3 && { flexBasis: '100%' }, currentStepIndex === 0 && styles.navButtonDisabled]}
+          style={[styles.navButton, fontScale >= 1.3 && { paddingVertical: 8, paddingHorizontal: 8 }, currentStepIndex === 0 && styles.navButtonDisabled]}
           disabled={currentStepIndex === 0}
           accessibilityRole="button"
           accessibilityLabel="Previous step"
@@ -952,7 +952,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
 
         <TouchableOpacity
           onPress={goToNextStep}
-          style={[styles.navButton, styles.navButtonNext, fontScale >= 1.3 && { flexBasis: '100%' }]}
+          style={[styles.navButton, styles.navButtonNext, fontScale >= 1.3 && { paddingVertical: 8, paddingHorizontal: 8 }]}
           accessibilityRole="button"
           accessibilityLabel={isLastStep ? 'Finish recipe' : 'Next step'}
         >

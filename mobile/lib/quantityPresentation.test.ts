@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatIngredientAmount, formatQuantity, spokenQuantity } from './quantityPresentation';
+import { formatGroceryReviewAmount, formatIngredientAmount, formatQuantity, spokenQuantity } from './quantityPresentation';
 
 describe('display-only cooking quantities', () => {
   it.each([
@@ -26,4 +26,15 @@ describe('display-only cooking quantities', () => {
     expect(formatIngredientAmount('1.5', 'tsp')).toBe('1½ tsp');
     expect(spokenQuantity('1½ tsp salt, ¼ cup oil')).toBe('1 and 1/2 tsp salt, 1/4 cup oil');
   });
+});
+
+it('snaps volume approximations and inflects known cooking units', () => {
+  expect(formatIngredientAmount('0.146', 'cups')).toBe('⅛ cup');
+  expect(formatIngredientAmount('0.875', 'cups')).toBe('⅞ cup');
+  expect(formatIngredientAmount('1', 'cups')).toBe('1 cup');
+  expect(formatIngredientAmount('1.5', 'cup')).toBe('1½ cups');
+  expect(formatIngredientAmount('0.146', 'g')).toBe('0.146 g');
+  expect(formatIngredientAmount('0.146', 'custom')).toBe('0.1 custom');
+  expect(formatGroceryReviewAmount(null, '', ' filling of choice ')).toBe('Amount varies · filling of choice');
+  expect(formatGroceryReviewAmount('1', 'cups', ' flour ')).toBe('1 cup flour');
 });

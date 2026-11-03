@@ -93,7 +93,7 @@ export default function ChatComposer({
           : isListening
             ? 'Listening…'
             : isGeneralMode
-              ? 'Ask anything about cooking…'
+              ? largeText ? 'Ask about cooking…' : 'Ask anything about cooking…'
               : 'Ask about this recipe…'}
         placeholderTextColor={isListening ? colors.tint : colors.textMuted}
         multiline

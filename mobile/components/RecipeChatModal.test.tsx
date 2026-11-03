@@ -1365,3 +1365,15 @@ function flattenStyle(style: unknown): Record<string, unknown> {
   if (!Array.isArray(style)) return (style ?? {}) as Record<string, unknown>;
   return Object.assign({}, ...style.map(flattenStyle));
 }
+
+it('shortens the general cooking prompt on every large-text change', async () => {
+  const renderer = createRoot({ textComponentTypes: ['Text'] });
+  try {
+    for (const fontScale of [1, 1.4, 2]) {
+      mocks.fontScale = fontScale;
+      await act(async () => renderer.render(React.createElement(RecipeChatModal, { isVisible: true, onClose: vi.fn() })));
+      expect(renderer.container.queryAll(node => node.type === 'TextInput')[0].props.placeholder)
+        .toBe(fontScale >= 1.3 ? 'Ask about cooking…' : 'Ask anything about cooking…');
+    }
+  } finally { mocks.fontScale = 1; await act(async () => renderer.unmount()); }
+});
