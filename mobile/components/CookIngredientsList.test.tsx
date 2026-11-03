@@ -13,7 +13,7 @@ vi.mock('react-native', () => ({
   View: 'View',
 }));
 vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: 'Text', Card: 'Card', useColors: () => ({ text: '#000', actionText: '#166456', border: '#ccc' }) }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   brand: { reefHighlight: '#4dc7b8' },
   fontSize: { sm: 12, md: 16 },
   fontWeight: { medium: '500' },

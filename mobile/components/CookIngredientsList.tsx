@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet } from 'react-native';
+import { layout } from '@/constants/Colors';
 import { Text, useColors } from '@/components/Themed';
 import { RecipeIngredientGroup } from '@/components/RecipeIngredientGroup';
 import type { Ingredient, RecipeComponent } from '@/types/recipe';
@@ -23,4 +24,4 @@ export function CookIngredientsList({ ingredients, components, scaleFactor, isSc
       scaleFactor={scaleFactor} isScaled={isScaled} scaleFontSize={scaleFontSize} />)}
   </ScrollView>;
 }
-const styles = StyleSheet.create({ list: { flex: 1 }, content: { padding: 16, paddingBottom: 32 } });
+const styles = StyleSheet.create({ list: { flex: 1 }, content: { paddingHorizontal: layout.margin, paddingVertical: 16, paddingBottom: 32 } });

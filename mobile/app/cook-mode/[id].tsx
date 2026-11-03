@@ -777,7 +777,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           options={[{ value: 'steps', label: 'Steps' }, { value: 'ingredients', label: 'Ingredients' }]} />
       </RNView>
       {showIngredients ? <>
-        {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
+        {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: layout.margin, paddingTop: 12 }}>
           {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
         </Text>}
         <CookIngredientsList ingredients={allIngredients} components={recipe.extracted.components} scaleFactor={scaleFactor} isScaled={isScaled}
