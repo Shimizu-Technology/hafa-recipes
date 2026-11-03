@@ -27,7 +27,10 @@ export function formatQuantity(quantity: string | null | undefined, unit?: strin
   const whole = Math.floor(value);
   const fraction = [...fractions].sort((a, b) => Math.abs(value - whole - a[0]) - Math.abs(value - whole - b[0]))[0];
   if (Math.abs(value - whole - fraction[0]) <= 0.02 + 1e-9) return `${whole || ''}${fraction[1]}`;
-  return String(Number(value > 0 && value < 0.1 ? value.toPrecision(2) : value.toFixed(value >= 10 ? 0 : 1)));
+  const decimal = Number(value > 0 && value < 0.1 ? value.toPrecision(2) : value.toFixed(value >= 10 ? 0 : 1));
+  // A scaled 1.458 rounds to 1.5; show it as ½ so it matches an unscaled 1.5.
+  if (decimal < 10 && Math.abs(decimal % 1 - 0.5) < 1e-9) return `${Math.floor(decimal) || ''}½`;
+  return String(decimal);
 }
 
 /** Also handles fractions inside ingredient names/notes without losing surrounding text. */
