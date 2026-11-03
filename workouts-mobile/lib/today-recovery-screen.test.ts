@@ -45,7 +45,7 @@ vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontS
 vi.mock("expo-image", () => ({ Image: "Image" }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Ionicons" }));
 vi.mock("@/constants/theme", () => ({ radii: { md: 12 }, spacing: { xs: 8, sm: 12 } }));
-vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
+vi.mock("expo-router", () => ({ Redirect: "Redirect", router: { push: vi.fn(), replace: vi.fn(), navigate: vi.fn() }, useLocalSearchParams: () => ({ id: "saved-session" }), useFocusEffect: () => undefined }));
 vi.mock("@/components/health-export", () => ({ HealthExport: "HealthExport" }));
 vi.mock("@/components/workout-start-sheet", () => ({ WorkoutStartSheet: "WorkoutStartSheet" }));
 vi.mock("expo-crypto", () => ({ randomUUID: vi.fn(() => "synthetic-session") }));
@@ -254,6 +254,14 @@ it("Today marks only effective recorded work and agrees with corrections, reject
   fixture.history.unshift({ generation: 1, state: "queued", request: { ...request, client_session_id: "new", status: "partial" }, workout });
   await act(async () => { renderer!.update(tree()); });
   expect(strip().filter((day) => day.state === "done")).toHaveLength(1);
+});
+
+it("opens the Progress tab (not a pushed copy) when a weekday is tapped", async () => {
+  await mount();
+  const { router } = await import("expo-router");
+  await act(async () => { renderer!.root.findByType("WeekStrip" as never).props.onPress(); });
+  expect(router.navigate).toHaveBeenLastCalledWith("/(tabs)/history");
+  expect(router.push).not.toHaveBeenCalledWith("/history-progress");
 });
 
 it.each(["populated", "zero and absent"] as const)("saved-result correction exposes %s feedback and preserves imperial distance and immutable source", async feedback => {

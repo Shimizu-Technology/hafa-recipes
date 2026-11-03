@@ -2,12 +2,13 @@ import { View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop, Path } from "react-native-svg";
 import { Copy, useColors } from "./design/foundation";
 import { BrandMark } from "./brand-mark";
+import { formatNumeral } from "@/lib/format-numeral";
 /** Coverless imports are designed content, not an image loading state. */
 export function WorkoutArt({ title, meta = "", compact = false }: { title: string; meta?: string; compact?: boolean }) {
   const c = useColors();
   const format = meta.replace(/\s*·.*/, "").toUpperCase();
-  const number = format.match(/\d+/)?.[0];
-  const label = format.replace(/\d+/, "").trim() || "TRAIN";
+  const { numeral: number, caption } = formatNumeral(format);
+  const label = caption || "TRAIN";
   return <View style={{ flex: 1, backgroundColor: c.sunken, padding: compact ? 8 : 18, justifyContent: "space-between", gap: 12 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
     <View style={{ position: "absolute", inset: 0 }}><Svg width="100%" height="100%" viewBox="0 0 200 250" preserveAspectRatio="none">
       <Defs><LinearGradient id="cover" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={c.surface} /><Stop offset="1" stopColor={c.background} /></LinearGradient></Defs>

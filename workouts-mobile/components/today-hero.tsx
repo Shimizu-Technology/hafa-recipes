@@ -5,6 +5,7 @@ import { radii } from "@/constants/theme";
 import { Copy, useColors } from "./design/foundation";
 import { Entrance } from "./design/athletic-motion";
 import { BrandMark } from "./brand-mark";
+import { formatNumeral } from "@/lib/format-numeral";
 
 export function TodayHero({ title, detail, meta, cover, action, extra }: {
   title: string; detail: string; meta?: string[]; cover?: string | null; action?: ReactNode; extra?: ReactNode;
@@ -17,8 +18,8 @@ export function TodayHero({ title, detail, meta, cover, action, extra }: {
       {cover && cover !== failed ? <Image source={{ uri: cover }} onError={() => setFailed(cover)} contentFit="cover" accessibilityLabel={`${title} cover`} style={{ position: "absolute", inset: 0 }} /> :
         <View style={{ paddingHorizontal: 24, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <View style={{ flexDirection: "row", gap: 8, alignItems: "baseline" }}>
-            <Copy kind="numeric" style={{ fontSize: 68, lineHeight: 74 }} maxScale={1.2}>{meta?.[0]?.match(/\d+/)?.[0] ?? "GO"}</Copy>
-            <Copy kind="caption" tone="muted">{meta?.[0]?.replace(/\d+/, "").trim()}</Copy>
+            <Copy kind="numeric" style={{ fontSize: 68, lineHeight: 74 }} maxScale={1.2}>{formatNumeral(meta?.[0]).numeral ?? "GO"}</Copy>
+            <Copy kind="caption" tone="muted">{formatNumeral(meta?.[0]).caption}</Copy>
           </View><BrandMark height={27} mono={c.text} />
         </View>}
     </View>

@@ -179,7 +179,7 @@ export function TrainToday() {
   return (
     <>
       {!!offline.error && <Notice error>{offline.error}</Notice>}
-      <WeekStrip days={week} onPress={() => router.push("/history-progress")} />
+      <WeekStrip days={week} onPress={() => router.navigate("/(tabs)/history")} />
       {/* Saved device training stays resumable even when the service can't be reached. */}
       {active && heroCard}
       <QueryState
