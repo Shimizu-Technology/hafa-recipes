@@ -171,7 +171,7 @@ vi.mock('@/components/Themed', async () => {
 vi.mock('@/components/ExtractionProgress', () => ({ default: () => null }));
 vi.mock('@/components/SignInBanner', () => ({ SignInBanner: (props: object) => React.createElement('SignInBanner', props) }));
 vi.mock('@/components/BrandMark', () => ({ BrandMark: () => null }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   fontFamily: { bold: 'DMSans', display: 'Fraunces', medium: 'DMSans', semibold: 'DMSans' },
   fontSize: { xs: 11, sm: 13, md: 15, lg: 18, xl: 22, xxl: 30, xxxl: 38 },
   fontWeight: { medium: '500', semibold: '600' },

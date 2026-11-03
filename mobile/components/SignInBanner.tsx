@@ -29,7 +29,7 @@ export function SignInBanner({ message = 'Sign in to use this feature', onSignIn
   const usesLargeTextLayout = fontScale >= 1.5;
   return (
     <View
-      style={[styles.container, { backgroundColor: colors.card }, style]}
+      style={[styles.container, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }, style]}
       accessibilityRole="summary"
     >
       <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
@@ -59,7 +59,8 @@ export function SignInBanner({ message = 'Sign in to use this feature', onSignIn
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
     gap: 12,
     marginBottom: spacing.lg,
@@ -81,7 +82,7 @@ const styles = StyleSheet.create({
   signInButton: {
     minHeight: 44,
     paddingHorizontal: spacing.lg,
-    borderRadius: radius.full,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },

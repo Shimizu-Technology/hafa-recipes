@@ -146,7 +146,7 @@ export function ImportActivityCard({
             <Text numberOfLines={2} style={[styles.status, { color: colors.textSecondary }]}>{detail}</Text>
             <Text style={[styles.status, { color: statusColor }]}>{presentation.label}</Text>
             {ACTIVE_STATUSES.includes(job.status) && (
-              <RNView style={[styles.progressTrack, { backgroundColor: colors.border }]}
+              <RNView style={[styles.progressTrack, { backgroundColor: colors.hairline }]}
                 accessibilityRole="progressbar" accessibilityLabel={`${importSourceLabel(job.url)} import progress`}
                 accessibilityValue={{ min: 0, max: 100, now: job.progress }}>
                 <RNView style={[styles.progressFill, { backgroundColor: colors.tint, width: `${Math.max(2, Math.min(100, job.progress))}%` }]} />
@@ -169,7 +169,7 @@ export function ImportActivityCard({
     <Text accessibilityRole="header" style={[styles.title, { color: colors.text }]}>Imports</Text>
     <Card noPadding style={styles.card}>
     {rows.map((row, index) => <RNView key={row.id}>
-      {index > 0 && <RNView style={[styles.separator, { backgroundColor: colors.border }]} />}
+      {index > 0 && <RNView style={[styles.separator, { backgroundColor: colors.hairline }]} />}
       {'job' in row ? renderJob(row.job) : row.content}
     </RNView>)}
     </Card>
@@ -179,10 +179,10 @@ export function ImportActivityCard({
 
 const styles = StyleSheet.create({
   container: { marginBottom: spacing.md },
-  card: { borderRadius: 12, overflow: 'hidden' },
+  card: { overflow: 'hidden' },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: 48, marginRight: 16 },
   unfinished: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
-  title: { fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.md, marginBottom: spacing.sm },
+  title: { fontFamily: fontFamily.semibold, fontSize: 15, lineHeight: 20, marginBottom: spacing.sm },
   historyToggle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
   historyTitle: { flex: 1, fontFamily: fontFamily.semibold, fontWeight: '600', fontSize: fontSize.sm },
   jobRow: { minHeight: 64, flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },

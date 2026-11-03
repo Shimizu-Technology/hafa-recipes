@@ -64,23 +64,25 @@ export function RecipeVisibilitySelector({
         </RNView>
       </RNView>}
 
-      <RNView style={[styles.options, sideBySide && { flexDirection: 'row', gap: spacing.sm }]} accessibilityRole="radiogroup">
+      {/* Compact: a segmented pair on a tonal track, the chosen side a white sheet. Full: two hairline rows, the chosen one in ink. */}
+      <RNView style={[styles.options, compact && [styles.track, { backgroundColor: colors.surface2 }], sideBySide && { flexDirection: 'row' }]} accessibilityRole="radiogroup">
         {options.map((option) => {
           const selected = value === option.value;
-          const selectedColor = colors.textSecondary;
+          const selectedColor = colors.text;
 
           return (
             <TouchableOpacity
               key={option.value}
               style={[
                 styles.option,
-                compact && { padding: spacing.sm, minHeight: 48, gap: spacing.sm },
                 sideBySide && { flex: 1 },
-                {
-                  backgroundColor: selected
-                    ? colors.surface2
-                    : colors.backgroundElevated,
+                compact ? [styles.segment, {
+                  backgroundColor: selected ? colors.backgroundElevated : 'rgba(0,0,0,0)',
+                  borderColor: selected ? colors.border : 'rgba(0,0,0,0)',
+                }] : {
+                  backgroundColor: colors.backgroundElevated,
                   borderColor: selected ? selectedColor : colors.border,
+                  borderWidth: selected ? 1.5 : StyleSheet.hairlineWidth,
                 },
               ]}
               onPress={() => onChange(option.value)}
@@ -91,10 +93,11 @@ export function RecipeVisibilitySelector({
               accessibilityHint={option.description}
               accessibilityState={{ checked: selected, disabled }}
             >
+              {compact && <Ionicons name={option.icon} size={16} color={selected ? colors.text : colors.textSecondary} />}
               {!compact && <RNView
                 style={[
                   styles.optionIcon,
-                  { backgroundColor: selected ? colors.surface2 : colors.backgroundSecondary },
+                  { backgroundColor: colors.surface2 },
                 ]}
               >
                 <Ionicons
@@ -103,11 +106,11 @@ export function RecipeVisibilitySelector({
                   color={selected ? selectedColor : colors.textMuted}
                 />
               </RNView>}
-              <RNView style={styles.optionCopy}>
+              <RNView style={compact ? styles.segmentCopy : styles.optionCopy}>
                 <Text
                   style={[
                     styles.optionTitle,
-                    { color: colors.text },
+                    { color: compact && !selected ? colors.textSecondary : colors.text },
                   ]}
                 >
                   {option.title}
@@ -116,11 +119,11 @@ export function RecipeVisibilitySelector({
                   {option.description}
                 </Text>}
               </RNView>
-              <Ionicons
+              {!compact && <Ionicons
                 name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                 size={24}
                 color={selected ? selectedColor : colors.textMuted}
-              />
+              />}
             </TouchableOpacity>
           );
         })}
@@ -154,7 +157,7 @@ const styles = StyleSheet.create({
   },
   heading: {
     fontSize: fontSize.lg,
-    fontFamily: fontFamily.displaySemibold,
+    fontFamily: fontFamily.semibold,
   },
   subheading: {
     fontSize: fontSize.xs,
@@ -171,8 +174,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.md,
     borderRadius: radius.lg,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
+  track: { borderRadius: 10, padding: 2, gap: 2 },
+  segment: { minHeight: 44, borderRadius: 8, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, gap: 6, justifyContent: 'center' },
+  segmentCopy: { flexShrink: 1 },
   optionIcon: {
     width: 40,
     height: 40,
