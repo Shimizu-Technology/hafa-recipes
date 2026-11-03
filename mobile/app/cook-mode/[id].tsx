@@ -1,5 +1,7 @@
 import { TextInput } from '@/components/Themed';
 import SegmentedControl from '@expo/ui/community/segmented-control';
+import { SegmentedControl as LookSegmentedControl } from '@/components/chrome/SegmentedControl';
+import { useLook } from '@/contexts/LookContext';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
@@ -147,8 +149,12 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   const router = useRouter();
   const { fontScale } = useWindowDimensions();
   const colors = useColors();
+  const look = useLook();
+  const preview = look.id !== 'current';
+  // Calm: steps crossfade in place (160ms, no slide) with neighbours held at 0.3 opacity.
+  const crossfade = look.variants.cookFocus === 'dimmed';
   const cook = colors;
-  const appearance = colors.background === '#000000' ? 'dark' : 'light';
+  const appearance = colors.dark ? 'dark' : 'light';
   const styles = useMemo(() => createStyles(cook), [cook]);
   const insets = useSafeAreaInsets();
   
@@ -472,7 +478,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     fadeAnim.stopAnimation();
     callback();
     slideAnim.setValue(
-      reduceMotionRef.current ? 0 : direction === 'next' ? STEP_TRANSITION_OFFSET : -STEP_TRANSITION_OFFSET,
+      reduceMotionRef.current || crossfade ? 0 : direction === 'next' ? STEP_TRANSITION_OFFSET : -STEP_TRANSITION_OFFSET,
     );
     fadeAnim.setValue(0);
     Animated.parallel([
@@ -484,7 +490,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       }),
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: STEP_TRANSITION_DURATION,
+        duration: crossfade ? 160 : STEP_TRANSITION_DURATION,
         easing: STEP_TRANSITION_EASING,
         useNativeDriver: true,
       }),
@@ -756,19 +762,27 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   }
 
   const progress = ((currentStepIndex + 1) / steps.length) * 100;
+  const navShape = { borderRadius: look.radii.button };
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        ...(look.fonts ? { headerTitleStyle: { fontFamily: look.fonts.detailTitle, fontSize: 17, color: cook.text } } : null),
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
       <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
 
       {(usingOffline || error) && <Text accessibilityRole="alert" style={{ color: cook.text, padding: 12 }}>
         Offline copy{offlineSavedAt ? ` · Updated ${new Date(offlineSavedAt).toLocaleDateString()}` : ''}. Changes may be missing.
       </Text>}
-      <SegmentedControl values={['Steps', 'Ingredients']} selectedIndex={showIngredients ? 1 : 0}
-        onChange={event => setShowIngredients(event.nativeEvent.selectedSegmentIndex === 1)}
-        appearance={appearance} style={{ marginHorizontal: 16, marginVertical: 12, minHeight: 44 }} />
+      {preview
+        ? <RNView style={{ marginHorizontal: look.density.margin, marginVertical: 12 }}>
+          <LookSegmentedControl accessibilityLabel="Cook mode view" value={showIngredients ? 'ingredients' : 'steps'}
+            onChange={value => setShowIngredients(value === 'ingredients')}
+            options={[{ value: 'steps', label: 'Steps' }, { value: 'ingredients', label: 'Ingredients' }]} />
+        </RNView>
+        : <SegmentedControl values={['Steps', 'Ingredients']} selectedIndex={showIngredients ? 1 : 0}
+          onChange={event => setShowIngredients(event.nativeEvent.selectedSegmentIndex === 1)}
+          appearance={appearance} style={{ marginHorizontal: 16, marginVertical: 12, minHeight: 44 }} />}
       {showIngredients ? <>
         {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
           {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
@@ -776,10 +790,16 @@ function CookModeScreenContent({ generation }: { generation: string }) {
         <CookIngredientsList ingredients={allIngredients} components={recipe.extracted.components} scaleFactor={scaleFactor} isScaled={isScaled}
         warningColor={colors.warning} scaleFontSize={scaleFontSize} /></> : <>
       {/* Step Counter & Progress */}
-      <RNView style={styles.progressSection}>
-        <Text style={styles.stepCounter}>
-          Step {currentStepIndex + 1} <Text style={styles.stepCounterMuted}>of {steps.length}</Text>
-        </Text>
+      <RNView style={[styles.progressSection, preview && { paddingHorizontal: look.density.margin }]}>
+        {preview && look.variants.cookFocus === 'numeral'
+          // Cookbook and Island: the step as a big numeral in the display face, left-aligned with the text.
+          ? <RNView style={styles.numeralRow} accessible accessibilityLabel={`Step ${currentStepIndex + 1} of ${steps.length}`}>
+            <Text style={[styles.numeral, { fontFamily: look.fonts?.numeral }]}>{currentStepIndex + 1}</Text>
+            <Text style={styles.numeralOf}>of {steps.length}</Text>
+          </RNView>
+          : <Text style={[styles.stepCounter, preview && styles.stepCounterQuiet]}>
+            Step {currentStepIndex + 1} <Text style={styles.stepCounterMuted}>of {steps.length}</Text>
+          </Text>}
         <RNView style={styles.progressContainer}>
           <RNView style={[styles.progressBar, { width: `${progress}%` }]} />
         </RNView>
@@ -789,6 +809,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       <Animated.View
         style={[
           styles.stepContainer,
+          preview && { paddingHorizontal: look.density.margin },
           {
             transform: [{ translateX: slideAnim }],
             opacity: fadeAnim,
@@ -799,8 +820,8 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       >
         {/* Component Name Badge */}
         {currentStep?.componentName && (
-          <RNView style={styles.componentBadge}>
-            <Text style={styles.componentName}>{currentStep.componentName}</Text>
+          <RNView style={[styles.componentBadge, preview && styles.componentBadgeQuiet]}>
+            <Text style={[styles.componentName, preview && styles.componentNameQuiet]}>{currentStep.componentName}</Text>
           </RNView>
         )}
 
@@ -810,12 +831,18 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           contentContainerStyle={styles.stepScrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {steps[currentStepIndex - 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
-          <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }]}>
+          {steps[currentStepIndex - 1] && (!preview || crossfade) && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }, crossfade && { color: colors.text, opacity: 0.3 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
+          <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }, preview && { fontSize: scaleFontSize(26), lineHeight: scaleFontSize(34) }]}>
             {currentStep?.step}
           </Text>
 
-          {steps[currentStepIndex + 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+          {steps[currentStepIndex + 1] && (preview && !crossfade
+            // Cookbook and Island: what comes next as a labelled card instead of a faded paragraph.
+            ? <RNView style={[styles.nextCard, { borderRadius: look.radii.card, borderColor: colors.hairline, backgroundColor: look.variants.card === 'flat' ? 'transparent' : colors.backgroundElevated }, look.variants.card === 'raised' && look.shadows.card]}>
+              <Text style={styles.nextLabel}>Next</Text>
+              <Text style={styles.nextText} numberOfLines={3}>{steps[currentStepIndex + 1].step}</Text>
+            </RNView>
+            : <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }, crossfade && { color: colors.text, opacity: 0.3 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>)}
         {/* Timer toolbar */}
           <RNView style={styles.timerSection}>
             {currentTimer ? (
@@ -922,7 +949,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
       <RNView style={[styles.navigation, fontScale >= 1.3 && { flexWrap: 'wrap', gap: 8 }, { paddingBottom: insets.bottom + spacing.sm }]}>
         <TouchableOpacity
           onPress={goToPrevStep}
-          style={[styles.navButton, fontScale >= 1.3 && { flexBasis: '100%' }, currentStepIndex === 0 && styles.navButtonDisabled]}
+          style={[styles.navButton, preview && navShape, preview && look.variants.card === 'flat' && { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }, fontScale >= 1.3 && { flexBasis: '100%' }, currentStepIndex === 0 && styles.navButtonDisabled]}
           disabled={currentStepIndex === 0}
           accessibilityRole="button"
           accessibilityLabel="Previous step"
@@ -952,7 +979,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
 
         <TouchableOpacity
           onPress={goToNextStep}
-          style={[styles.navButton, styles.navButtonNext, fontScale >= 1.3 && { flexBasis: '100%' }]}
+          style={[styles.navButton, styles.navButtonNext, preview && navShape, fontScale >= 1.3 && { flexBasis: '100%' }]}
           accessibilityRole="button"
           accessibilityLabel={isLastStep ? 'Finish recipe' : 'Next step'}
         >
@@ -1298,6 +1325,15 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     marginBottom: spacing.sm,
     textAlign: 'center',
   },
+  stepCounterQuiet: { color: cook.text, fontSize: 15, lineHeight: 20, fontWeight: fontWeight.semibold, textAlign: 'left' },
+  numeralRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: spacing.sm },
+  numeral: { color: cook.text, fontSize: 56, lineHeight: 60 },
+  numeralOf: { color: cook.textSecondary, fontSize: 17, lineHeight: 22 },
+  componentBadgeQuiet: { alignSelf: 'flex-start', paddingHorizontal: 0, marginBottom: 4 },
+  componentNameQuiet: { color: cook.textSecondary, fontSize: 15, lineHeight: 20, textTransform: 'none', letterSpacing: 0 },
+  nextCard: { marginTop: 32, padding: 16, gap: 4, borderWidth: StyleSheet.hairlineWidth },
+  nextLabel: { color: cook.textSecondary, fontSize: 13, lineHeight: 18, fontWeight: fontWeight.semibold },
+  nextText: { color: cook.text, fontSize: 17, lineHeight: 24 },
   stepCounterMuted: {
     color: cook.textMuted,
     fontWeight: fontWeight.normal,

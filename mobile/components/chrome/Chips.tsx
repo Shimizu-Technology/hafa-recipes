@@ -3,6 +3,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, useColors } from '@/components/Themed';
 import { MIN_TOUCH, touchInset } from '@/components/chrome/touch';
+import { LookPressable } from '@/components/lookMotion';
+import { useLook } from '@/contexts/LookContext';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -20,6 +22,23 @@ export function Chip({ label, onPress, selected, icon, tone = 'default', accessi
   testID?: string;
 }) {
   const colors = useColors();
+  const look = useLook();
+  if (look.variants.chip !== 'current') {
+    // Preview looks: selection is ink (the accent stays on primary actions); an alert is a neutral chip with a red dot.
+    const outline = look.variants.chip === 'outline';
+    const ink = selected ? colors.onInk : colors.text;
+    return <LookPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} testID={testID}
+      accessibilityState={selected === undefined ? undefined : { selected }} style={styles.target}>
+      <View style={[styles.chip, { borderRadius: look.radii.chip },
+        selected ? { backgroundColor: colors.ink }
+          : outline ? { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }
+            : [{ backgroundColor: colors.backgroundElevated }, look.shadows.card]]}>
+        {tone === 'alert' && !selected && <View style={[styles.alertDot, { backgroundColor: colors.error }]} />}
+        {icon && tone !== 'alert' && <Ionicons name={icon} size={16} color={selected ? ink : colors.textSecondary} />}
+        <Text style={[styles.label, { color: ink }]}>{label}</Text>
+      </View>
+    </LookPressable>;
+  }
   const color = selected ? colors.onTint : tone === 'alert' ? colors.error : colors.text;
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} testID={testID}
     accessibilityState={selected === undefined ? undefined : { selected }}
@@ -47,5 +66,6 @@ const styles = StyleSheet.create({
   rowWrap: { marginHorizontal: -16, marginTop: -touchInset(CHIP_HEIGHT), marginBottom: 12 - touchInset(CHIP_HEIGHT) },
   scroll: { flexGrow: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 },
+  alertDot: { width: 8, height: 8, borderRadius: 4 },
   fade: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 24 },
 });

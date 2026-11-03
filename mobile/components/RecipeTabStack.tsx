@@ -4,6 +4,7 @@ import { AccountHeaderButton } from '@/components/TabChrome';
 import { headerRightOptions } from '@/components/chrome/HeaderButton';
 import { useColors } from '@/components/Themed';
 import { fontFamily } from '@/constants/Colors';
+import { useLook } from '@/contexts/LookContext';
 
 /** iOS 26 draws no large title over a coloured large-title background. */
 export const liquidGlassHeader = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 26;
@@ -14,10 +15,13 @@ export const liquidGlassHeader = Platform.OS === 'ios' && Number.parseInt(String
  */
 export function RecipeTabStack({ title }: { title: string }) {
   const colors = useColors();
+  const look = useLook();
+  // Preview looks set the large title in their display voice (Calm: Figtree 700 at 34).
+  const display = look.fonts?.display ?? fontFamily.displaySemibold;
   return <Stack screenOptions={{
     headerLargeTitleEnabled: true,
-    headerLargeTitleStyle: { fontFamily: fontFamily.displaySemibold, fontSize: 32, color: colors.text },
-    headerTitleStyle: { fontFamily: fontFamily.displaySemibold, color: colors.text },
+    headerLargeTitleStyle: { fontFamily: display, fontSize: look.id === 'calm' ? 34 : 32, color: colors.text },
+    headerTitleStyle: { fontFamily: display, color: colors.text },
     // A solid colour, not glass or blur. Leave headerTransparent unset: false makes the iOS bar
     // non-translucent, which hides the large title beside a header search bar (Grocery).
     headerStyle: { backgroundColor: colors.background },

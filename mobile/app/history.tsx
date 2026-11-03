@@ -31,6 +31,8 @@ import { useAuth } from '@clerk/expo';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
+import { LibraryToday } from '@/components/LibraryToday';
+import { useLook } from '@/contexts/LookContext';
 
 const SOURCE_LABELS: Record<Exclude<SourceFilter, 'all'>, string> = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', website: 'Website', manual: 'Manual' };
 
@@ -95,6 +97,7 @@ export function GridRecipeCard({
 export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   const router = useRouter();
   const colors = useColors();
+  const look = useLook();
   const largeText = useWindowDimensions().fontScale >= 1.3;
   const endPadding = useTabScrollEndPadding(spacing.xl, { askPill: true });
   const onAskPillScroll = useAskPillScroll();
@@ -536,6 +539,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
+  // Design-preview looks lift the latest recipe out of the grid into the Library's "today" moment.
+  const todayRecipe = look.variants.home !== 'none' && !isSelectionMode && !searchQuery && activeFilterCount === 0 && !needsCheckOnly
+    && (displayRecipes?.length ?? 0) >= 3 ? displayRecipes![0] : null;
+  const listData = todayRecipe ? displayRecipes!.slice(1) : displayRecipes;
+
   const librarySwitch = isSignedIn && !isSelectionMode ? <RNView style={{ marginBottom: 12 }}>
     <SegmentedControl accessibilityLabel="Library view" value={segment} onChange={setSegment}
       options={[{ value: 'recipes', label: 'Recipes' }, { value: 'collections', label: 'Collections' }]} />
@@ -569,7 +577,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
         { title: 'Select recipes', onPress: enterSelectionMode },
       ]} />
       {segment === 'collections' ? (
-        <ScrollView ref={collectionsRef} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.listContent, { paddingBottom: endPadding }]}
+        <ScrollView ref={collectionsRef} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={[styles.listContent, { paddingBottom: endPadding }, look.id !== 'current' && { paddingHorizontal: look.density.margin }]}
           {...tabScroll}
           onScroll={onAskPillScroll} scrollEventThrottle={32}
           refreshControl={<RefreshControl refreshing={collections.isRefetching} onRefresh={() => { void collections.refetch(); }} tintColor={colors.tint} />}>
@@ -592,7 +600,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
           {...tabScroll}
           contentInsetAdjustmentBehavior="automatic"
           key={isGrid && !largeText ? 'grid' : 'list'} // Force re-render when changing layout
-          data={displayRecipes}
+          data={listData}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           numColumns={isGrid && !largeText ? 2 : 1}
@@ -604,6 +612,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
               <FilterButton count={activeFilterCount} onPress={() => setShowFilterModal(true)} />
             </SearchRow>}
             <ListHeaderTitle />
+            {todayRecipe && <LibraryToday recipe={todayRecipe} onPress={() => { haptics.light(); router.push(`/recipe/${todayRecipe.id}`); }} />}
             {!isSignedIn && <SignInBanner message="Sign in to save your recipes" />}
             {/* Selection Action Bar */}
             {isSelectionMode && (
@@ -644,6 +653,7 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
             {
               paddingBottom: endPadding,
             },
+            look.id !== 'current' && { paddingHorizontal: look.density.margin },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"

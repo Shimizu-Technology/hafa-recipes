@@ -4,6 +4,17 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { Text, useColors } from '@/components/Themed';
 import { touchInset } from '@/components/chrome/touch';
+import { useLook } from '@/contexts/LookContext';
+import type { LookPalette, Look } from '@/constants/looks';
+
+/** Field fill per look: Current tonal, Cookbook a hairline outline on paper, Island a white raised field, Calm a white field with a hairline. */
+function fieldSurface(look: Look, colors: LookPalette, round = false) {
+  if (look.id === 'current') return { backgroundColor: colors.surface2 };
+  const radius = round ? 20 : look.radii.field;
+  if (look.variants.chip === 'outline' && look.variants.card === 'flat') return { borderRadius: radius, borderWidth: 1, borderColor: colors.border, backgroundColor: 'transparent' };
+  if (look.variants.card === 'raised') return { borderRadius: radius, backgroundColor: colors.backgroundElevated, ...look.shadows.card };
+  return { borderRadius: radius, backgroundColor: colors.backgroundElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border };
+}
 
 const FIELD_HEIGHT = 40;
 const OVERHANG = touchInset(FIELD_HEIGHT);
@@ -13,7 +24,8 @@ const FIELD_HIT_SLOP = { top: OVERHANG, bottom: OVERHANG, left: OVERHANG * 2 };
 /** A 40pt tonal search field for filtering the list it sits above. */
 export function SearchField({ value, onChangeText, placeholder, accessibilityLabel }: { value: string; onChangeText: (text: string) => void; placeholder: string; accessibilityLabel?: string }) {
   const colors = useColors();
-  return <View style={[styles.field, { backgroundColor: colors.surface2 }]}>
+  const look = useLook();
+  return <View style={[styles.field, fieldSurface(look, colors)]}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
     <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textMuted}
       accessibilityLabel={accessibilityLabel ?? placeholder} returnKeyType="search" autoCorrect={false} clearButtonMode="never"
@@ -27,9 +39,10 @@ export function SearchField({ value, onChangeText, placeholder, accessibilityLab
 /** The same field look, opening the Search screen (My recipes and Discover together). */
 export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder?: string }) {
   const colors = useColors();
+  const look = useLook();
   const router = useRouter();
   return <Pressable onPress={() => router.push('/search')} accessibilityRole="search" accessibilityLabel={placeholder} accessibilityHint="Opens search"
-    testID="search-launcher" hitSlop={FIELD_HIT_SLOP} style={({ pressed }) => [styles.field, { backgroundColor: colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
+    testID="search-launcher" hitSlop={FIELD_HIT_SLOP} style={({ pressed }) => [styles.field, fieldSurface(look, colors), { opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="search" size={18} color={colors.textMuted} />
     <Text style={[styles.placeholder, { color: colors.textMuted }]}>{placeholder}</Text>
   </Pressable>;
@@ -38,8 +51,9 @@ export function SearchLauncher({ placeholder = 'Search recipes' }: { placeholder
 /** A 40pt round filter button beside the search field, with an accent count when filters are on. */
 export function FilterButton({ count, onPress }: { count: number; onPress: () => void }) {
   const colors = useColors();
+  const look = useLook();
   return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={count ? `Filter, ${count} on` : 'Filter'} testID="filter-button" hitSlop={FIELD_HIT_SLOP}
-    style={({ pressed }) => [styles.filter, { backgroundColor: count ? colors.chromeIndicator : colors.surface2, opacity: pressed ? 0.7 : 1 }]}>
+    style={({ pressed }) => [styles.filter, fieldSurface(look, colors, true), count ? { backgroundColor: colors.chromeIndicator } : null, { opacity: pressed ? 0.7 : 1 }]}>
     <Ionicons name="options-outline" size={20} color={count ? colors.actionText : colors.text} />
     {count > 0 && <View style={[styles.badge, { backgroundColor: colors.tint }]}>
       <Text style={[styles.badgeText, { color: colors.onTint }]}>{count}</Text>

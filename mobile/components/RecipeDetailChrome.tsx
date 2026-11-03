@@ -18,6 +18,7 @@ import Animated, {
 
 import { Text, useColors } from '@/components/Themed';
 import { useKeyboardVisible } from '@/components/chrome/HafaTabBar';
+import type { LookPalette } from '@/constants/looks';
 
 export type RecipeHeaderAction = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -41,18 +42,15 @@ export function recipeHeaderRanges(heroHeight: number, headerHeight: number) {
   };
 }
 
-function headerFills(dark: boolean) {
-  return {
-    solid: dark ? 'rgba(28,28,30,0.92)' : 'rgba(255,255,255,0.92)',
-    tonal: dark ? 'rgba(118,118,128,0.24)' : 'rgba(118,118,128,0.12)',
-    hairline: dark ? 'rgba(84,84,88,0.5)' : 'rgba(60,60,67,0.18)',
-  };
+/** Circle and bar fills from the active look (Current: the shipped iOS values). */
+function headerFills(colors: LookPalette) {
+  return { solid: colors.photoButton, tonal: colors.surface2, hairline: colors.chromeHairline === 'transparent' ? colors.hairline : colors.chromeHairline };
 }
 
 /** A 36pt circle in a 44pt target: solid over the photo, tonal once the bar is opaque. */
 function HeaderCircle({ action, solid }: { action: RecipeHeaderAction; solid: DerivedValue<number> }) {
   const colors = useColors();
-  const fills = headerFills(colors.background === '#000000');
+  const fills = headerFills(colors);
   const solidStyle = useAnimatedStyle(() => ({ opacity: 1 - solid.value }));
   const tonalStyle = useAnimatedStyle(() => ({ opacity: solid.value }));
   return (
@@ -86,7 +84,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown, onH
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const dark = colors.background === '#000000';
+  const dark = colors.dark;
   const [overPhoto, setOverPhoto] = useState(false);
   useAnimatedReaction(() => solid.value < 0.5, (next, previous) => {
     if (next !== previous) runOnJS(setOverPhoto)(next);
@@ -105,7 +103,7 @@ export function RecipeDetailHeader({ title, actions = [], solid, titleShown, onH
     <View pointerEvents="box-none" onLayout={event => onHeightChange?.(Math.ceil(event.nativeEvent.layout.height))} style={[styles.header, { paddingTop: insets.top, minHeight: insets.top + RECIPE_HEADER_BAR }]}>
       {isFocused && <StatusBar barStyle={overPhoto || dark ? 'light-content' : 'dark-content'} animated />}
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }, barStyle]} />
-      <Animated.View pointerEvents="none" style={[styles.hairline, { backgroundColor: headerFills(dark).hairline }, titleStyle]} />
+      <Animated.View pointerEvents="none" style={[styles.hairline, { backgroundColor: headerFills(colors).hairline }, titleStyle]} />
       <View pointerEvents="box-none" style={styles.row}>
         <View style={{ width: sideWidth }}><HeaderCircle action={back} solid={solid} /></View>
         <Animated.View style={[styles.titleWrap, titleStyle]} pointerEvents="none"

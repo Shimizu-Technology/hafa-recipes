@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSegments } from 'expo-router';
 import { useAuth } from '@clerk/expo';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AskHafaPill } from '@/components/AssistantFloatingButton';
 import RecipeChatModal from '@/components/RecipeChatModal';
-import { TAB_BAR_HEIGHT, useKeyboardVisible } from '@/components/chrome/HafaTabBar';
+import { useKeyboardVisible, useTabBarHeight } from '@/components/chrome/HafaTabBar';
+import { useLook } from '@/contexts/LookContext';
 import { useCookTimerRunning } from '@/contexts/CookTimerRunning';
 import { DOCKED_TIMER_HEIGHT, OVERLAY_GAP } from '@/lib/bottomOverlay';
 import { setAskPillCollapsed, showsAskPill, useAskPillCollapsed } from '@/lib/askPill';
@@ -17,7 +17,8 @@ import { setAskPillCollapsed, showsAskPill, useAskPillCollapsed } from '@/lib/as
 export function AskHafaFloating() {
   const { isSignedIn } = useAuth();
   const segments = useSegments();
-  const { bottom } = useSafeAreaInsets();
+  const barHeight = useTabBarHeight();
+  const { density } = useLook();
   const keyboardVisible = useKeyboardVisible();
   const collapsed = useAskPillCollapsed();
   const timerRunning = useCookTimerRunning();
@@ -31,9 +32,9 @@ export function AskHafaFloating() {
   useEffect(() => { if (!isSignedIn) { setShowChat(false); setHasOpenedChat(false); } }, [isSignedIn]);
   const visible = showsAskPill(segments, Boolean(isSignedIn)) && !keyboardVisible;
   // The docked cook timer takes the row just above the bar; the pill sits over it.
-  const lift = TAB_BAR_HEIGHT + bottom + OVERLAY_GAP + (timerRunning ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0);
+  const lift = barHeight + OVERLAY_GAP + (timerRunning ? DOCKED_TIMER_HEIGHT + OVERLAY_GAP : 0);
   return <>
-    {visible && <View pointerEvents="box-none" style={[styles.anchor, { bottom: lift }]}>
+    {visible && <View pointerEvents="box-none" style={[styles.anchor, { bottom: lift, right: density.margin }]}>
       <AskHafaPill collapsed={collapsed} onPress={() => { setHasOpenedChat(true); setShowChat(true); }} />
     </View>}
     {isSignedIn && hasOpenedChat && <RecipeChatModal isVisible={showChat} onClose={() => setShowChat(false)} />}

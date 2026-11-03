@@ -7,6 +7,7 @@ import { Text, TextScaleContext, useColors } from '@/components/Themed';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { ASK_PILL_HEIGHT } from '@/lib/bottomOverlay';
 import { haptics } from '@/utils/haptics';
+import { useLook } from '@/contexts/LookContext';
 
 export { ASK_PILL_HEIGHT };
 const LABEL_MAX_WIDTH = 200;
@@ -23,6 +24,7 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
   accessibilityHint?: string;
 }) {
   const colors = useColors();
+  const look = useLook();
   const { fontScale } = useWindowDimensions();
   const scale = useContext(TextScaleContext);
   const compact = collapsed || fontScale * scale >= 1.5;
@@ -37,6 +39,13 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
     opacity: open.value,
   }));
   const pillStyle = useAnimatedStyle(() => ({ paddingRight: 13 + open.value * 5 }));
+  // One accent object per region: Cookbook's pill is ink, Island's and Calm's are surface pills with an accent glyph.
+  const variant = look.variants.askPill;
+  const fill = variant === 'ink' ? colors.ink : variant === 'surface' ? colors.backgroundElevated : colors.tint;
+  const labelColor = variant === 'ink' ? colors.onInk : variant === 'surface' ? colors.text : colors.onTint;
+  const glyph = variant === 'ink' ? colors.onInkAccent : variant === 'surface' ? colors.actionText : colors.onTint;
+  const surface = variant === 'accent' ? null : [look.shadows.float, variant === 'surface' && {
+    borderWidth: look.variants.card === 'sheet' || colors.dark ? StyleSheet.hairlineWidth : 0, borderColor: colors.border }];
 
   return (
     <Pressable
@@ -47,10 +56,10 @@ export function AskHafaPill({ label = 'Ask Håfa', onPress, collapsed = false, a
       testID="ask-hafa-pill"
       style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}
     >
-      <Animated.View style={[styles.pill, { backgroundColor: colors.tint }, pillStyle]}>
-        <Ionicons name="sparkles" size={22} color={colors.onTint} />
+      <Animated.View style={[styles.pill, { backgroundColor: fill }, pillStyle, surface]}>
+        <Ionicons name="sparkles" size={22} color={glyph} />
         <Animated.View style={[styles.labelClip, labelStyle]}>
-          <Text numberOfLines={1} style={[styles.label, { color: colors.onTint }]}>{label}</Text>
+          <Text numberOfLines={1} style={[styles.label, { color: labelColor }]}>{label}</Text>
         </Animated.View>
       </Animated.View>
     </Pressable>

@@ -5,6 +5,7 @@ import { ScalePressable } from '@/components/Animated';
 import { RecipeThumbnail } from '@/components/RecipeThumbnail';
 import { Text, useColors } from '@/components/Themed';
 import { fontFamily } from '@/constants/Colors';
+import { useLook } from '@/contexts/LookContext';
 
 export const RECIPE_GRID_GAP = 12;
 
@@ -38,14 +39,30 @@ export function RecipeGridCardFrame({
   selected, fullWidth = false, accessibilityActions, onAccessibilityAction,
 }: RecipeGridCardFrameProps) {
   const { width, fontScale } = useWindowDimensions();
-  const titleSlotHeight = Math.ceil(42 * fontScale);
+  const look = useLook();
+  const preview = look.id !== 'current';
+  const variant = look.variants.card;
+  const enclosed = variant === 'raised' || variant === 'sheet';
+  const titleLine = preview && variant === 'flat' ? 22 : preview ? 20 : 21;
+  const titleSlotHeight = Math.ceil(titleLine * 2 * fontScale);
   const footerHeight = Math.ceil(18 * fontScale);
   const contentWidth = Math.min(width, 720);
-  const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth - 32 : (contentWidth - 32 - RECIPE_GRID_GAP) / 2;
+  const margin = look.density.margin * 2;
+  const gap = preview ? look.density.gridGap : RECIPE_GRID_GAP;
+  const cardWidth = fullWidth || fontScale >= 1.3 ? contentWidth - margin : (contentWidth - margin - gap) / 2;
+  // Cookbook: flat portrait photos at radius 8 with a Fraunces title below. Island: a white card at radius 24
+  // with a soft shadow. Calm: a white sheet with a hairline. Current is unchanged.
+  const titleStyle = preview ? {
+    fontFamily: look.fonts?.cardTitle, fontWeight: 'normal' as const,
+    fontSize: variant === 'flat' ? 17 : 15, lineHeight: titleLine,
+  } : null;
+  const shell = enclosed ? [{ backgroundColor: colors.backgroundElevated, borderRadius: look.radii.card },
+    variant === 'raised' ? look.shadows.card : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.hairline }] : null;
 
   return (
-    <RNView style={[styles.card, { width: cardWidth }]}>
+    <RNView style={[styles.card, { width: cardWidth }, preview && { marginBottom: variant === 'flat' ? 24 : gap + 4 }]}>
     <ScalePressable
+      style={shell}
       accessibilityActions={accessibilityActions}
       onAccessibilityAction={onAccessibilityAction}
       onPress={onPress}
@@ -53,18 +70,25 @@ export function RecipeGridCardFrame({
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={selected === undefined ? undefined : { selected }}
     >
-      <RNView style={styles.imageContainer}>
+      <RNView style={[styles.imageContainer, preview && {
+        borderRadius: enclosed ? 0 : look.radii.photo,
+        borderTopLeftRadius: look.radii.card, borderTopRightRadius: look.radii.card,
+        ...(enclosed ? null : { borderBottomLeftRadius: look.radii.photo, borderBottomRightRadius: look.radii.photo }),
+        aspectRatio: variant === 'flat' && !fullWidth && fontScale < 1.3 ? 4 / 5 : 1,
+      }]}>
         <RecipeThumbnail
           uri={thumbnailUrl}
           style={styles.image}
           accessibilityLabel={`${title} photo`}
           placeholderIconSize={40}
           priority={imagePriority}
+          placeholderTitle={title}
         />
       </RNView>
-      <RNView style={[styles.content, { minHeight: 8 + titleSlotHeight + 2 + footerHeight }]}>
+      <RNView style={[styles.content, { minHeight: 8 + titleSlotHeight + 2 + footerHeight },
+        preview && (enclosed ? { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12, minHeight: 22 + titleSlotHeight + 2 + footerHeight } : { paddingTop: 10 })]}>
         <Text
-          style={[styles.title, { color: colors.text, minHeight: titleSlotHeight }]}
+          style={[styles.title, { color: colors.text, minHeight: titleSlotHeight }, titleStyle]}
           numberOfLines={2}
         >
           {title}

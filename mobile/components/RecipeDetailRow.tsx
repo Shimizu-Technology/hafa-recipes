@@ -2,6 +2,7 @@ import { useContext, type ReactNode } from 'react';
 import { Pressable, StyleSheet, TouchableOpacity, View, useWindowDimensions, type TouchableOpacityProps } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text, TextScaleContext, useColors } from '@/components/Themed';
+import { useLook } from '@/contexts/LookContext';
 
 type RecipeDetailRowProps = Omit<TouchableOpacityProps, 'children' | 'style'> & {
   icon: keyof typeof Ionicons.glyphMap;
@@ -30,20 +31,28 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
 }
 
 /** Tonal secondary action under Start cooking (Plan, Groceries, Scale); shares the row evenly. */
-export function RecipeDetailAction({ icon, title, onPress, selected }: {
+export function RecipeDetailAction({ icon, title, onPress, selected, onBand = false }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   onPress: () => void;
   selected?: boolean;
+  /** Sits on Island's deep-reef band: translucent white fill and white text. */
+  onBand?: boolean;
 }) {
   const colors = useColors();
+  const look = useLook();
   const { fontScale } = useWindowDimensions();
   const textScale = useContext(TextScaleContext);
-  const tint = selected ? colors.actionText : colors.text;
+  const tint = onBand ? colors.onPhoto : selected ? colors.actionText : colors.text;
+  // Cookbook: hairline outline on paper. Calm: white sheet with a hairline. Island on the band: white at 14%.
+  const surface = look.id === 'current' ? null
+    : onBand ? { backgroundColor: selected ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.14)', borderRadius: look.radii.button }
+      : look.variants.card === 'flat' ? { backgroundColor: selected ? colors.accentTint : 'transparent', borderWidth: 1, borderColor: colors.border, borderRadius: look.radii.button }
+        : { backgroundColor: selected ? colors.accentTint : colors.backgroundElevated, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, borderRadius: look.radii.button };
   return (
     <Pressable key={fontScale} onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
       accessibilityState={selected === undefined ? undefined : { expanded: selected }}
-      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, surface, pressed && styles.pressed]}>
       <Ionicons name={icon} size={18} color={tint} />
       <Text numberOfLines={1} style={[styles.actionTitle, { color: tint }]}>{title}</Text>
     </Pressable>

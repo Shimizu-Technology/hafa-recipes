@@ -38,6 +38,9 @@ import { RecipeOrganizer } from '@/components/RecipeOrganizer';
 import { RecipeHero } from '@/components/RecipeHero';
 import { RecipeDetailFrame, RecipeDetailScroll } from '@/components/RecipeDetailChrome';
 import { AskHafaPill } from '@/components/AssistantFloatingButton';
+import { FadeUp } from '@/components/lookMotion';
+import { AllTickedNote } from '@/components/AllTickedNote';
+import { useLook } from '@/contexts/LookContext';
 import { ASK_PILL_HEIGHT, OVERLAY_GAP } from '@/lib/bottomOverlay';
 import { RecipeDetailPreview } from '@/components/RecipeDetailPreview';
 import VersionHistoryModal from '@/components/VersionHistoryModal';
@@ -148,6 +151,7 @@ function RecipeDetailScreenContent() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const colors = useColors();
+  const look = useLook();
   const insets = useSafeAreaInsets();
   const scaleFontSize = (size: number) => size; // Shared Text applies the app preference.
   const [activeTab, selectTab] = useState<TabType>('ingredients');
@@ -745,6 +749,10 @@ function RecipeDetailScreenContent() {
   // Recipe scaling logic - now using the shared scaleQuantity utility from useScaledServings
   // scaleFactor, currentServings, isScaled are provided by useScaledServings hook above
 
+  // Preview looks: the detail title in the look's detail face; Cookbook fades the header blocks up once.
+  const titleFace = look.fonts ? { fontFamily: look.fonts.detailTitle, fontSize: look.id === 'calm' ? 28 : 30, lineHeight: look.id === 'calm' ? 34 : 36 } : null;
+  const fadeDetail = look.motion.signature === 'detail-fade-strike';
+
   return (
     <>
       <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -771,7 +779,10 @@ function RecipeDetailScreenContent() {
           />}
         >
           {/* Content */}
-          <RNView style={styles.content}>
+          <RNView style={[styles.content, look.id !== 'current' && { paddingHorizontal: look.density.margin },
+            // Island: the content rises over the photo as a rounded sand sheet.
+            look.variants.hero === 'sheet' && Boolean(recipe.thumbnail_url?.trim()) && [styles.contentSheet, { backgroundColor: colors.background, borderTopLeftRadius: look.radii.sheet, borderTopRightRadius: look.radii.sheet }],
+            look.variants.card === 'flat' && { paddingTop: 20 }]}>
             {error && <RNView style={[styles.refreshNotice, { borderColor: colors.border }]}>
               <Text style={{ flex: 1, color: colors.textSecondary }}>Couldn’t refresh. Showing the saved recipe.</Text>
               <TouchableOpacity style={styles.retryButton} disabled={isFetching} accessibilityRole="button"
@@ -780,9 +791,11 @@ function RecipeDetailScreenContent() {
               </TouchableOpacity>
             </RNView>}
             {/* Title */}
-            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }]}>
+            <FadeUp index={0} enabled={fadeDetail}>
+            <Text accessibilityRole="header" style={[styles.title, { color: colors.text, fontSize: scaleFontSize(28), lineHeight: scaleFontSize(34) }, titleFace]}>
               {extracted.title}
             </Text>
+            </FadeUp>
 
             {isOwner && recipe.moderation_status === 'hidden' && (
               <RNView style={[styles.moderationNotice, { backgroundColor: `${colors.warning}20`, borderColor: colors.warning }]}>
@@ -799,10 +812,11 @@ function RecipeDetailScreenContent() {
               </RNView>
             )}
 
+            <FadeUp index={1} enabled={fadeDetail}>
             <Text style={[styles.source, { color: colors.textSecondary }]}>
               {[sourceLabel, recipe.extractor_display_name].filter(Boolean).join(' · ')}
             </Text>
-            {facts.length > 0 && <RNView style={styles.facts}>
+            {facts.length > 0 && <RNView style={[styles.facts, look.variants.card === 'flat' && [styles.factsRuled, { borderColor: colors.hairline }]]}>
               {facts.map((fact) => (
                 <RNView key={fact.label} style={styles.fact} accessible accessibilityLabel={`${fact.value} ${fact.label}`}>
                   <Ionicons name={fact.icon} size={18} color={colors.textSecondary} />
@@ -812,13 +826,23 @@ function RecipeDetailScreenContent() {
                 </RNView>
               ))}
             </RNView>}
-            {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) && <Button title={cookPresentation.canCook ? 'Start cooking' : 'Add instructions'}
-              style={styles.startCooking} onPress={handleCook} />}
+            </FadeUp>
+            <FadeUp index={2} enabled={fadeDetail} style={look.variants.startBand && [styles.startBand, { backgroundColor: colors.dark ? '#173F38' : colors.tint, borderRadius: look.radii.card }]}>
+            {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) && (look.variants.startBand
+              // Island: a sand button on the deep-reef band; the band is this screen's one accent object.
+              ? <Pressable onPress={handleCook} accessibilityRole="button" accessibilityLabel={cookPresentation.canCook ? 'Start cooking' : 'Add instructions'}
+                style={({ pressed }) => [styles.bandButton, { backgroundColor: colors.dark ? '#F4EEE6' : '#FBF5EC', borderRadius: look.radii.button, opacity: pressed ? 0.88 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }]}>
+                <Ionicons name="flame-outline" size={20} color={colors.dark ? '#173F38' : '#0F5F57'} />
+                <Text style={[styles.bandButtonText, { color: colors.dark ? '#173F38' : '#0F5F57' }]}>{cookPresentation.canCook ? 'Start cooking' : 'Add instructions'}</Text>
+              </Pressable>
+              : <Button title={cookPresentation.canCook ? 'Start cooking' : 'Add instructions'}
+                style={styles.startCooking} onPress={handleCook} />)}
             <RNView style={styles.recipeActions}>
-              <RecipeDetailAction icon="calendar-outline" title="Plan" onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))} />
-              <RecipeDetailAction icon="cart-outline" title="Groceries" onPress={handleAddToGrocery} />
-              {hasKnownServings && <RecipeDetailAction icon="people-outline" title="Scale" selected={showScale} onPress={() => setShowScale(value => !value)} />}
+              <RecipeDetailAction onBand={look.variants.startBand} icon="calendar-outline" title="Plan" onPress={() => requireRecipeAccount('plan', () => router.push(appRoutes.plannerRecipe(id, hasKnownServings ? currentServings : undefined)))} />
+              <RecipeDetailAction onBand={look.variants.startBand} icon="cart-outline" title="Groceries" onPress={handleAddToGrocery} />
+              {hasKnownServings && <RecipeDetailAction onBand={look.variants.startBand} icon="people-outline" title="Scale" selected={showScale} onPress={() => setShowScale(value => !value)} />}
             </RNView>
+            </FadeUp>
             {showScale && hasKnownServings && <RNView style={[styles.servingsStepper, { backgroundColor: colors.backgroundSecondary }]}>
               <TouchableOpacity style={styles.scaleButton} onPress={() => setScaledServings(Math.max(1, currentServings - 1))}
                 disabled={currentServings <= 1} accessibilityRole="button" accessibilityLabel="Decrease servings" accessibilityState={{ disabled: currentServings <= 1 }}>
@@ -848,7 +872,7 @@ function RecipeDetailScreenContent() {
             )}
 
           </RNView>
-            <RNView style={styles.body}>
+            <RNView style={[styles.body, look.id !== 'current' && { paddingHorizontal: look.density.margin }]}>
             <RNView>
               {(
 
@@ -871,9 +895,10 @@ function RecipeDetailScreenContent() {
                           const next = new Set(previous); const key = `${compIndex}:${index}`;
                           next.has(key) ? next.delete(key) : next.add(key); return next;
                         });
-                        haptics.selection();
+                        if (look.motion.signature === 'detail-fade-strike') haptics.light(); else haptics.selection();
                       }} />
                   ))}
+                  {look.motion.signature === 'cook-crossfade-all-ticked' && <AllTickedNote total={allIngredients.length} ticked={checkedIngredients.size} />}
                   
                 </>
               )}
@@ -1341,6 +1366,11 @@ const styles = StyleSheet.create({
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   tag: { fontSize: 13, lineHeight: 18, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, overflow: 'hidden' },
   body: { paddingHorizontal: 16 },
+  contentSheet: { marginTop: -24, paddingTop: 24 },
+  factsRuled: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 12 },
+  startBand: { padding: 16, gap: 12, marginBottom: 4 },
+  bandButton: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  bandButtonText: { fontSize: 17, lineHeight: 22, fontWeight: '700' },
   container: {
     flex: 1,
   },

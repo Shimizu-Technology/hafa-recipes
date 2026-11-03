@@ -32,6 +32,7 @@ import { SkeletonRecipeList } from '@/components/Skeleton';
 
 import { RECIPE_GRID_GAP, RecipeGridCardFrame, } from '@/components/RecipeGridCardFrame';
 import { recipeCardAccessibilityLabel } from '@/lib/recipeCardLabel';
+import { useLook } from '@/contexts/LookContext';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -452,6 +453,8 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
     );
   };
 
+  const look = useLook();
+  const lookMargin = look.id !== 'current' ? { paddingHorizontal: look.density.margin } : null;
   // Search, filter and tools stay usable while the first page loads.
   const discoverTools = <>
     <SearchRow>
@@ -584,7 +587,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
       {isRandomLoading && <ActivityIndicator accessibilityLabel="Finding a recipe" color={colors.tint} style={{ marginVertical: 12 }} />}
       {(isLoading || (hasServerFilters && isDiscoverSearchFetching)) && !displayRecipes?.length ? (
         <View style={{ flex: 1 }}>
-          <RNView style={[styles.listContent, { paddingTop: 8, paddingBottom: 0 }]}>{discoverTools}</RNView>
+          <RNView style={[styles.listContent, { paddingTop: 8, paddingBottom: 0 }, lookMargin]}>{discoverTools}</RNView>
           <SkeletonRecipeList count={6} layout="grid" />
         </View>
       ) : (
@@ -606,7 +609,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             </TouchableOpacity>}
             {!hasVisibleFilters && discoverSections(displayRecipes ?? []).map(section => <RNView key={section.title} style={{ marginBottom: 8 }}>
               <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>{section.title}</Text>
-              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} currentUserId={identity.data?.id} />)}</RNView>
+              <RNView style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: look.id !== 'current' ? look.density.gridGap : RECIPE_GRID_GAP }}>{section.recipes.map(recipe => <GridRecipeCard key={recipe.id} recipe={recipe} active={active} colors={colors} onPress={() => router.push(`/recipe/${recipe.id}`)} currentUserId={identity.data?.id} />)}</RNView>
             </RNView>)}
             {Boolean(displayRecipes?.length) && <Text style={{ fontFamily: fontFamily.displaySemibold, fontWeight: '600', fontSize: 20, lineHeight: 25, marginBottom: 12 }}>All recipes</Text>}
           </>}
@@ -617,6 +620,7 @@ export function DiscoverScreen({ active = true }: { active?: boolean } = {}) {
             {
               paddingBottom: endPadding,
             },
+            lookMargin,
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
