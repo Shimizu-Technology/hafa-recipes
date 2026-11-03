@@ -1436,9 +1436,9 @@ async def search_recipes(
             Recipe.extracted["mealTypes"].contains([meal_type])
         )
 
-    # Full-text search across multiple fields
-    if q and q.strip():
-        search_term = f"%{q.lower()}%"
+    # Every word must match, in any order and across the existing fields.
+    for token in q.lower().split():
+        search_term = f"%{token}%"
         base_query = base_query.where(
             or_(
                 # Search in title
@@ -1718,9 +1718,9 @@ async def search_public_recipes(
             Recipe.extracted["mealTypes"].contains([meal_type])
         )
 
-    # Full-text search across multiple fields
-    if q and q.strip():
-        search_term = f"%{q.lower()}%"
+    # Every word must match, in any order and across the existing fields.
+    for token in q.lower().split():
+        search_term = f"%{token}%"
         base_query = base_query.where(
             or_(
                 # Search in title
