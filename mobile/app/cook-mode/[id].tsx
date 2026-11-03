@@ -928,7 +928,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           accessibilityLabel="Previous step"
           accessibilityState={{ disabled: currentStepIndex === 0 }}
         >
-          <Ionicons name="chevron-back" size={28} color={currentStepIndex === 0 ? cook.textMuted : cook.text} />
+          {fontScale < 1.3 && <Ionicons name="chevron-back" size={28} color={currentStepIndex === 0 ? cook.textMuted : cook.text} />}
           <Text style={[styles.navButtonText, currentStepIndex === 0 && styles.navButtonTextDisabled]}>
             Back
           </Text>
@@ -959,11 +959,11 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           <Text style={[styles.navButtonText, { color: cook.onTint }]}>
             {isLastStep ? 'Finish' : 'Next'}
           </Text>
-          <Ionicons 
+          {fontScale < 1.3 && <Ionicons 
             name={isLastStep ? "checkmark" : "chevron-forward"} 
             size={28} 
             color={cook.onTint} 
-          />
+          />}
         </TouchableOpacity>
       </RNView>
 
@@ -1470,6 +1470,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     opacity: 0.45,
   },
   navButtonText: {
+    flexShrink: 1,
     color: cook.text,
     fontSize: 17, lineHeight: 22,
     fontWeight: fontWeight.semibold,
