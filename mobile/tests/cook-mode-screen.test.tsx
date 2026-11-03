@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   fontScale: 1,
+  headerTitleStyle: undefined as any,
   params: { id: 'recipe-1' } as Record<string, string>,
   session: null as any,
   startSession: vi.fn(),
@@ -89,7 +90,7 @@ vi.mock('react-native', async () => {
     View: host('NativeView'),
   };
 });
-vi.mock('@expo/ui/community/segmented-control', () => ({ default: 'SegmentedControl' }));
+vi.mock('@/components/chrome/SegmentedControl', () => ({ SegmentedControl: 'SegmentedControl' }));
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'Light', Medium: 'Medium', Heavy: 'Heavy' },
   NotificationFeedbackType: { Success: 'Success', Warning: 'Warning', Error: 'Error' },
@@ -111,7 +112,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 vi.mock('expo-router', () => {
   const Stack = () => null;
-  Stack.Screen = (props: any) => props.options?.headerLeft?.() ?? null;
+  Stack.Screen = (props: any) => { mocks.headerTitleStyle = props.options?.headerTitleStyle; return props.options?.headerLeft?.() ?? null; };
   return {
     Stack,
     useLocalSearchParams: () => mocks.params,
@@ -126,7 +127,7 @@ vi.mock('@/components/Themed', async () => {
     ReactModule.createElement(name, props, props.children as React.ReactNode);
   return { TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: host('ThemedText'), View: host('ThemedView'), useColors: () => ({ warning: '#f90' }) };
 });
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 }, fontFamily: { recipeTitle: 'Fraunces_500Medium' },
   default: {
     dark: {
       text: '#F8F0E7',
@@ -295,7 +296,7 @@ describe('CookModeScreen', () => {
     expect(textOf(r.root)).toContain('Clock running · No alert scheduled');
     await advance(1000);
     expect(textOf(r.root)).toContain('0:59');
-    await act(async () => r.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    await act(async () => r.root.findByType('SegmentedControl' as any).props.onChange('ingredients'));
     expect(textOf(r.root)).toContain('Alerts are off outside the app');
     if (reason === 'denied') {
       await act(async () => buttonByLabel(r, 'Open notification settings').props.onPress());
@@ -310,7 +311,7 @@ describe('CookModeScreen', () => {
   it('keeps the scaled serving context when returning from the floating timer session', async () => {
     mocks.params = { id: 'recipe-1', scaleFactor: '2', servings: '8' };
     let renderer = await renderScreen();
-    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange('ingredients'));
     expect(textOf(renderer.root)).toContain('8 servings (scaled)');
     const session = mocks.startSession.mock.calls.at(-1)![0];
     expect(session).toMatchObject({ recipeId: 'recipe-1', scaleFactor: 2, servings: 8 });
@@ -319,7 +320,7 @@ describe('CookModeScreen', () => {
     mocks.session = session;
     mocks.params = { id: session.recipeId, scaleFactor: String(session.scaleFactor), servings: String(session.servings) };
     renderer = await renderScreen();
-    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+    await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange('ingredients'));
     expect(textOf(renderer.root)).toContain('8 servings (scaled)');
     await act(async () => renderer.unmount());
   });
@@ -342,7 +343,7 @@ describe('CookModeScreen', () => {
 
       // Further ticks and re-renders must not replay the alert.
       await advance(10_000);
-      await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
+      await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange('ingredients'));
       await flush();
       expect(completionHaptics()).toBe(1);
       expect(mocks.vibrate).toHaveBeenCalledOnce();
@@ -396,20 +397,16 @@ describe('CookModeScreen', () => {
     // Both Animated values record setValue: the slide offset first, then opacity 0.
     const lastOffset = () => mocks.slideValues[mocks.slideValues.length - 2];
 
-    it('slides in from a short offset, and fades only when Reduce Motion is on', async () => {
+    it('crossfades each step in place, with no slide in either direction or under Reduce Motion', async () => {
       const renderer = await renderScreen();
       await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
-      expect(lastOffset()).toBe(24);
+      expect(Math.abs(lastOffset())).toBe(0);
       await act(async () => buttonByLabel(renderer, 'Previous step').props.onPress());
-      expect(lastOffset()).toBe(-24);
+      expect(Math.abs(lastOffset())).toBe(0);
 
       await act(async () => mocks.reduceMotionListeners.forEach((listener) => listener(true)));
       await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
-      expect(lastOffset()).toBe(0);
-
-      await act(async () => mocks.reduceMotionListeners.forEach((listener) => listener(false)));
-      await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
-      expect(lastOffset()).toBe(24);
+      expect(Math.abs(lastOffset())).toBe(0);
     });
 
     it('keeps a Reduce Motion change that arrives before the initial lookup resolves', async () => {
@@ -518,11 +515,11 @@ describe('CookModeScreen', () => {
       const renderer = await renderScreen();
       await act(async () => buttonByLabel(renderer, 'Next step').props.onPress());
       const segment = () => renderer.root.findByType('SegmentedControl' as any);
-      expect(segment().props.values).toEqual(['Steps', 'Ingredients']);
-      await act(async () => segment().props.onChange({ nativeEvent: { selectedSegmentIndex: 1 } }));
-      expect(segment().props.selectedIndex).toBe(1);
+      expect(segment().props.options.map((option: { label: string }) => option.label)).toEqual(['Steps', 'Ingredients']);
+      await act(async () => segment().props.onChange('ingredients'));
+      expect(segment().props.value).toBe('ingredients');
       expect(buttonByLabel(renderer, 'Next step')).toBeUndefined();
-      await act(async () => segment().props.onChange({ nativeEvent: { selectedSegmentIndex: 0 } }));
+      await act(async () => segment().props.onChange('steps'));
       expect(stepCounter(renderer)).toBe('Step 2 of 4');
     });
   });
@@ -541,4 +538,11 @@ it.each([[2, 1], [1, 1.3], [1.15, 1.15]])('keeps scaled navigation compact and s
   } finally { mocks.fontScale = 1; await act(async () => r.unmount()); }
 });
 
+});
+
+it.each([[1, 17], [1.3, 22]])('scales the header title with the in-app text size (%s → %spt)', async (textScale, size) => {
+  mocks.recipeQuery.data = RECIPE;
+  const r = await renderScreen(textScale);
+  try { expect(mocks.headerTitleStyle?.fontSize).toBe(size); }
+  finally { await act(async () => r.unmount()); }
 });

@@ -1,5 +1,5 @@
 import { TextInput } from '@/components/Themed';
-import SegmentedControl from '@expo/ui/community/segmented-control';
+import { SegmentedControl as ViewSwitch } from '@/components/chrome/SegmentedControl';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { useRecipeOwnerGeneration } from '@/hooks/useOfflineLease';
 import { canRetainRecipeOnError } from '@/lib/recipeDetailPresentation';
@@ -38,7 +38,7 @@ import { useBackgroundTimer } from '@/hooks/useBackgroundTimer';
 import { useTimerContext } from '@/contexts/TimerContext';
 import { CookIngredientsList } from '@/components/CookIngredientsList';
 import { lightHaptic, mediumHaptic, successHaptic, heavyHaptic } from '@/utils/haptics';
-import Colors, { brand, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import Colors, { brand, fontFamily, layout, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { RecipeComponent } from '@/types/recipe';
 import { COOK_MODE_STEP_KEY, useCookModeStepPersistence } from '@/hooks/useCookModeStepPersistence';
 import {
@@ -52,8 +52,9 @@ import {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.2;
-const STEP_TRANSITION_OFFSET = 24;
-const STEP_TRANSITION_DURATION = 180;
+// Calm: the step crossfades in place (no slide) while its neighbours stay dimmed at 0.3.
+const STEP_TRANSITION_OFFSET = 0;
+const STEP_TRANSITION_DURATION = 160;
 const STEP_TRANSITION_EASING = Easing.bezier(0.23, 1, 0.32, 1);
 
 async function replayAudio(player: AudioPlayer | null): Promise<void> {
@@ -146,7 +147,9 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   }>();
   const router = useRouter();
   const { fontScale } = useWindowDimensions();
-  const largeText = fontScale * useContext(TextScaleContext) >= 1.3;
+  // The in-app text size scales the header title like the root stack does (17 → 22 at Extra Large).
+  const appTextScale = useContext(TextScaleContext);
+  const largeText = fontScale * appTextScale >= 1.3;
   const colors = useColors();
   const cook = colors;
   const appearance = colors.dark ? 'dark' : 'light';
@@ -727,6 +730,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: Math.round(17 * appTextScale), color: cook.text },
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
         <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
         <RNView style={styles.loadingContainer}>
@@ -741,6 +745,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: Math.round(17 * appTextScale), color: cook.text },
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
         <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
         <RNView style={styles.errorContainer}>
@@ -761,17 +766,20 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: true, title: recipe?.extracted.title || 'Cook', headerShadowVisible: false,
+        headerTitleStyle: { fontFamily: fontFamily.recipeTitle, fontSize: Math.round(17 * appTextScale), color: cook.text },
         headerLeft: () => <TouchableOpacity onPress={handleClose} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Exit cook mode"><Ionicons name="close" size={24} color={cook.text} /></TouchableOpacity> }} />
       <StatusBar barStyle={appearance === 'dark' ? 'light-content' : 'dark-content'} />
 
       {(usingOffline || error) && <Text accessibilityRole="alert" style={{ color: cook.text, padding: 12 }}>
         Offline copy{offlineSavedAt ? ` · Updated ${new Date(offlineSavedAt).toLocaleDateString()}` : ''}. Changes may be missing.
       </Text>}
-      <SegmentedControl values={['Steps', 'Ingredients']} selectedIndex={showIngredients ? 1 : 0}
-        onChange={event => setShowIngredients(event.nativeEvent.selectedSegmentIndex === 1)}
-        appearance={appearance} style={{ marginHorizontal: 16, marginVertical: largeText ? 4 : 12, minHeight: 44 }} />
+      <RNView style={{ marginHorizontal: layout.margin, marginVertical: largeText ? 4 : 12 }}>
+        <ViewSwitch accessibilityLabel="Cook mode view" value={showIngredients ? 'ingredients' : 'steps'}
+          onChange={value => setShowIngredients(value === 'ingredients')}
+          options={[{ value: 'steps', label: 'Steps' }, { value: 'ingredients', label: 'Ingredients' }]} />
+      </RNView>
       {showIngredients ? <>
-        {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: 16, paddingTop: 12 }}>
+        {displayedServings != null && <Text style={{ color: colors.textSecondary, fontSize: scaleFontSize(15), lineHeight: scaleFontSize(20), paddingHorizontal: layout.margin, paddingTop: 12 }}>
           {`${displayedServings} ${displayedServings === 1 ? 'serving' : 'servings'}${isScaled ? ' (scaled)' : ''}`}
         </Text>}
         <CookIngredientsList ingredients={allIngredients} components={recipe.extracted.components} scaleFactor={scaleFactor} isScaled={isScaled}
@@ -811,12 +819,12 @@ function CookModeScreenContent({ generation }: { generation: string }) {
           contentContainerStyle={[styles.stepScrollContent, largeText && { paddingVertical: 4 }]}
           showsVerticalScrollIndicator={false}
         >
-          {!largeText && steps[currentStepIndex - 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
+          {!largeText && steps[currentStepIndex - 1] && <Text style={[styles.stepText, styles.neighbourStep, { marginBottom: 32 }]} numberOfLines={2}>{currentStepIndex}. {steps[currentStepIndex - 1].step}</Text>}
           <Text style={[styles.stepText, { fontSize: scaleFontSize(24), lineHeight: scaleFontSize(32) }]}>
             {currentStep?.step}
           </Text>
 
-          {!largeText && steps[currentStepIndex + 1] && <Text style={[styles.stepText, { color: colors.textSecondary, marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
+          {!largeText && steps[currentStepIndex + 1] && <Text style={[styles.stepText, styles.neighbourStep, { marginTop: 32 }]} numberOfLines={2}>{currentStepIndex + 2}. {steps[currentStepIndex + 1].step}</Text>}
         {/* Timer toolbar */}
           <RNView style={styles.timerSection}>
             {currentTimer ? (
@@ -1289,15 +1297,16 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   progressSection: {
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.margin,
     paddingBottom: spacing.md,
   },
   stepCounter: {
-    color: cook.actionText,
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.bold,
+    color: cook.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: fontWeight.semibold,
     marginBottom: spacing.sm,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   stepCounterMuted: {
     color: cook.textMuted,
@@ -1305,7 +1314,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
   },
   progressContainer: {
     height: 4,
-    backgroundColor: cook.border,
+    backgroundColor: cook.hairline,
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -1316,22 +1325,17 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
   },
   stepContainer: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.margin,
   },
   componentBadge: {
-    alignSelf: 'center',
-
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    marginBottom: spacing.md,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
   },
   componentName: {
-    color: cook.actionText,
-    fontSize: fontSize.xs,
+    color: cook.textSecondary,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
   },
   stepScrollView: {
     flex: 1,
@@ -1346,6 +1350,10 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     lineHeight: 32,
     fontWeight: fontWeight.normal,
     textAlign: 'left',
+  },
+  // The previous and next steps stay in place, dimmed, so the current step reads as the focus.
+  neighbourStep: {
+    opacity: 0.3,
   },
   timerSection: {
     paddingVertical: spacing.md,
@@ -1452,7 +1460,7 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
     backgroundColor: cook.background,
   },
   navButton: {
-    backgroundColor: cook.surface2, borderRadius: radius.full,
+    backgroundColor: cook.backgroundElevated, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: cook.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
@@ -1464,8 +1472,9 @@ const createStyles = (cook: ReturnType<typeof useColors>) => StyleSheet.create({
   },
   navButtonNext: {
     backgroundColor: cook.tint,
+    borderColor: cook.tint,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.full,
+    borderRadius: radius.md,
   },
   navButtonDisabled: {
     opacity: 0.45,
