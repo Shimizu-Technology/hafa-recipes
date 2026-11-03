@@ -548,7 +548,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.full,
+    borderRadius: radius.sm + 2,
     borderWidth: 1,
   },
   chipText: {
@@ -586,7 +586,7 @@ const styles = StyleSheet.create({
   clearButton: {
     flex: 1,
     paddingVertical: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     alignItems: 'center',
   },
@@ -597,7 +597,7 @@ const styles = StyleSheet.create({
   applyButton: {
     flex: 2,
     paddingVertical: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     alignItems: 'center',
   },
   applyButtonText: {
