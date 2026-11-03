@@ -384,7 +384,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(128,128,128,0.2)',
-    backgroundColor: '#111',
+    backgroundColor: 'rgba(128,128,128,0.06)',
   },
   similarCard: {
     width: 160,
