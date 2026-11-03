@@ -102,6 +102,8 @@ export const NativeHeaderContext = createContext(false);
 /** Tab roots end at the top of the JS tab bar, so the home indicator inset is the bar's, not theirs. */
 export const TabScreenContext = createContext(false);
 const GroupedPageContext = createContext(false);
+/** Inside a white (warm-dark at night) card or grouped section, fields take the page ground so they stay visible. */
+const OnSurfaceContext = createContext(false);
 
 /** Gentle confirmation on deliberate choices; skipped where the platform has no haptics. */
 export function tap(kind: "select" | "success" = "select") {
@@ -452,7 +454,8 @@ export function Card({
   tone?: "normal" | "hero" | "soft";
   style?: ViewStyle;
 }) {
-  const c = useColors();
+  // A card inside another card or grouped section takes the page ground, so it never melts into its parent.
+  const c = useColors(), nested = useContext(OnSurfaceContext);
   return (
     <View
       style={[
@@ -460,13 +463,12 @@ export function Card({
           padding: 22,
           gap: 12,
           borderRadius: tone === "hero" ? radii.hero : radii.card,
-          backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.tile : c.surface,
-
+          backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.tile : nested ? c.background : c.surface,
         },
         style,
       ]}
     >
-      {children}
+      <OnSurfaceContext.Provider value={tone === "normal"}>{children}</OnSurfaceContext.Provider>
     </View>
   );
 }
@@ -599,7 +601,7 @@ export function Field({
   maxLength?: number;
   autoFocus?: boolean;
 }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(),
+  const c = useColors(), { fontScale } = useWindowDimensions(), onSurface = useContext(OnSurfaceContext),
     traits = inputTraits(purpose, Platform.OS, numeric),
     pad = traits.keyboardType === "number-pad" || traits.keyboardType === "decimal-pad" || traits.keyboardType === "numeric",
     [accessory] = useState(() => `field-done-${++accessoryCount}`);
@@ -627,7 +629,8 @@ export function Field({
         textAlignVertical={multiline ? "top" : "center"}
         maxFontSizeMultiplier={0}
         style={{
-          backgroundColor: c.surface,
+          backgroundColor: onSurface ? c.background : c.surface,
+          ...(onSurface ? { borderWidth: 1, borderColor: c.border } : {}),
           color: c.text,
           borderRadius: radii.field,
           padding: 16,
@@ -843,7 +846,7 @@ export function Section({
         </View>
         {action}
       </View>
-      {children}
+      <OnSurfaceContext.Provider value={grouped}>{children}</OnSurfaceContext.Provider>
     </View>
   );
 }

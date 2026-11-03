@@ -1,0 +1,45 @@
+import React from "react";
+import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+const scope = vi.hoisted(() => ({ push: vi.fn(), fontScale: 1 }));
+vi.mock("react-native", () => ({
+  ActivityIndicator: "ActivityIndicator", Text: "Text", TextInput: "TextInput", View: "View",
+  useWindowDimensions: () => ({ fontScale: scope.fontScale, height: 800 }),
+}));
+vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { push: scope.push }, useFocusEffect: () => undefined, useLocalSearchParams: () => ({}) }));
+vi.mock("@/lib/context", () => ({ useBaby: () => ({}) }));
+vi.mock("@/lib/chat-citations", () => ({ citationExcerpt: () => "", readableCitations: (text: string) => text }));
+vi.mock("@/components/record-row", () => ({ kindIcon: {} }));
+vi.mock("@/lib/use-ask-session", () => ({ useAskSession: () => ({}) }));
+vi.mock("../components/tab-stack", () => ({ HeaderIconButton: "HeaderIconButton", HeaderPill: "HeaderPill", TabActions: "TabActions", headerActions: () => ({}) }));
+vi.mock("@/components/ui", () => ({
+  Button: "Button", HeaderAction: "HeaderAction", Card: "Card", FilterChips: "FilterChips", Copy: "Copy", Grouped: "Grouped",
+  Icon: "Icon", Loading: "Loading", Notice: "Notice", PressTarget: "PressTarget", Row: "Row", Screen: "Screen", Section: "Section",
+  fonts: { semibold: "semibold" }, radii: { notice: 20 }, useColors: () => ({ tile: "tile", accentText: "clay", muted: "muted" }),
+}));
+import { AiNotice } from "../components/ask-screen";
+
+let renderer: ReactTestRenderer | undefined;
+const copy = () => renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
+const review = () => renderer!.root.findAll((n) => n.props.accessibilityLabel === "Review AI permission");
+beforeEach(() => { vi.stubGlobal("React", React); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); scope.push.mockClear(); scope.fontScale = 1; });
+afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+
+it("says AI is off in one line, keeps other apps' data out, and links to the permission", async () => {
+  await act(async () => { renderer = create(<AiNotice service consent={false} />); });
+  expect(copy()).toEqual(["AI is off. Ask uses your Baby entries only, never Recipes or Workouts."]);
+  expect(review()).toHaveLength(1);
+  await act(async () => review()[0].props.onPress());
+  expect(scope.push).toHaveBeenCalledWith("/settings");
+});
+it("explains an unavailable service without sending her to Settings when consent is already given", async () => {
+  await act(async () => { renderer = create(<AiNotice service={false} consent />); });
+  expect(copy()).toEqual(["AI isn’t available on this service yet. Saved, Journal and care logs still work."]);
+  expect(review()).toHaveLength(0);
+});
+it("stacks the link under the line at large text sizes", async () => {
+  scope.fontScale = 2;
+  await act(async () => { renderer = create(<AiNotice service consent={false} />); });
+  expect(renderer!.root.findAll((n) => (n.type as unknown) === "View")[0].props.style).toMatchObject({ flexDirection: "column" });
+});
