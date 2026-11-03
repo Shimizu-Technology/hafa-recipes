@@ -7,6 +7,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { useAccountIdentity } from "../account-identity";
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { radii, touch, typography, type ColorTokens } from "@/constants/theme";
+import { segmentLabelScale } from "@/lib/segment-scale";
 import { Copy, haptics, useGroupedPage, useColors, useSurface, type Surface } from "./foundation";
 import { animatedPressableComponent, usePressScale } from "./press";
 
@@ -286,7 +287,8 @@ export function Chip({
       ) : icon ? (
         <Ionicons name={icon} size={16} color={fg} />
       ) : null}
-      <Text style={{ fontSize: 15, lineHeight: 20, fontWeight: "500", color: fg, textAlign: "center" }}>{label}</Text>
+      {/* Copy sizes and remounts on every text-size change; a bare Text kept its first native multiplier and clipped on the second. */}
+      <Copy kind="cardTitle" color={fg} align="center" style={{ fontWeight: "500" }}>{label}</Copy>
       {!!trailingIcon && <Ionicons name={trailingIcon} size={15} color={fg} />}
     </>
   );
@@ -335,6 +337,8 @@ export function Chip({
  */
 export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithChildren<{ wrap?: boolean; label?: string; fadeColor?: string }>) {
   const c = useColors();
+  // Remounted on every text-size change so chips and the scroller re-measure instead of clipping.
+  const { fontScale } = useWindowDimensions();
   // The fade only says "more to the right": it shows while chips overflow past the right edge and
   // disappears at the end, so the last chip is never left under it.
   const [extent, setExtent] = useState({ width: 0, content: 0, x: 0 });
@@ -342,13 +346,13 @@ export function ChipRow({ children, wrap = false, label, fadeColor }: PropsWithC
   if (wrap)
     return (
       // Padding (cancelled by the margin) keeps the first and last rows' 44pt reach inside the row.
-      <View accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: CHIP_REACH, marginVertical: -CHIP_REACH }}>
+      <View key={fontScale} accessibilityLabel={label} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingVertical: CHIP_REACH, marginVertical: -CHIP_REACH }}>
         {children}
       </View>
     );
   const fade = fadeColor ?? c.background;
   return (
-    <View style={{ marginHorizontal: -16 }}>
+    <View key={fontScale} style={{ marginHorizontal: -16 }}>
       <ScrollView
         horizontal
         accessibilityLabel={label}
@@ -409,22 +413,40 @@ export function Segmented<T extends string>({
   label: string;
 }) {
   const c = useColors();
+  const { fontScale } = useWindowDimensions();
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [natural, setNatural] = useState<Record<string, number>>({});
+  // Re-measure when the labels or the system text size change; stale widths would pick the wrong size.
+  const measureKey = `${fontScale}:${options.map(option => option.label).join("|")}`;
+  const [measuredFor, setMeasuredFor] = useState(measureKey);
+  if (measuredFor !== measureKey) { setMeasuredFor(measureKey); setNatural({}); }
+  // Every label shares one size: the largest at which the longest label fits its segment.
+  const labelScale = segmentLabelScale(trackWidth, options.map(option => natural[option.value]));
   return (
     // The outer padding (cancelled by the margin) holds each segment's 44pt reach inside a parent.
     <View style={{ paddingVertical: SEGMENT_REACH - 2, marginVertical: -(SEGMENT_REACH - 2) }}>
       <View
         accessibilityRole="radiogroup"
         accessibilityLabel={label}
+        onLayout={event => setTrackWidth(event.nativeEvent.layout.width)}
         style={{ flexDirection: "row", backgroundColor: c.sunken, borderRadius: 10, padding: 2, gap: 2 }}
       >
-        {options.map((option) => <SegmentOption key={option.value} label={option.label} selected={option.value === value}
+        {options.map((option) => <SegmentOption key={option.value} label={option.label} selected={option.value === value} labelScale={labelScale}
           onPress={() => { if (option.value !== value) haptics.tick(); onChange(option.value); }} />)}
+        {/* Invisible, unconstrained copies of the labels at full size: their widths decide the shared scale. */}
+        <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+          style={{ position: "absolute", left: 0, top: 0, width: 4000, flexDirection: "row", opacity: 0 }}>
+          {options.map(option => <Text key={`${option.value}:${fontScale}`} numberOfLines={1} allowFontScaling={false}
+            onLayout={event => { const width = Math.ceil(event.nativeEvent.layout.width); setNatural(known => known[option.value] === width ? known : { ...known, [option.value]: width }); }}
+            style={{ fontFamily: typography.cardTitle.fontFamily, fontWeight: typography.cardTitle.fontWeight,
+              fontSize: typography.cardTitle.fontSize * fontScale, lineHeight: typography.cardTitle.lineHeight * fontScale }}>{option.label}</Text>)}
+        </View>
       </View>
     </View>
   );
 }
 
-function SegmentOption({ label, selected, onPress }: { label: string; selected: boolean; onPress(): void }) {
+function SegmentOption({ label, selected, labelScale, onPress }: { label: string; selected: boolean; labelScale: number; onPress(): void }) {
   const c = useColors();
   const press = usePressScale();
   const AnimatedPressable = animatedPressableComponent();
@@ -434,8 +456,10 @@ function SegmentOption({ label, selected, onPress }: { label: string; selected: 
       backgroundColor: selected ? c.segment : "transparent",
       shadowColor: c.shadow, shadowOpacity: selected ? 0.12 : 0, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: selected ? 1 : 0,
       opacity: press.opacity, transform: [{ scale: press.scale }] }}>
-    {/* One line at every text size: segments never break a word across lines. */}
-    <Copy kind="cardTitle" color={c.text} align="center" fit>{label}</Copy>
+    {/* One line at every text size, and one size for the whole control, so a selected "All" never outgrows "Programs".
+        `fit` stays as a safety net for a first frame before the labels are measured. */}
+    <Copy kind="cardTitle" color={c.text} align="center" fit
+      style={labelScale < 1 ? { fontSize: typography.cardTitle.fontSize * labelScale, lineHeight: typography.cardTitle.lineHeight * labelScale } : undefined}>{label}</Copy>
   </AnimatedPressable>;
 }
 
@@ -447,9 +471,10 @@ export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
   const { fontScale } = useWindowDimensions();
   const height = Math.max(40, Math.ceil(22 * fontScale) + 14);
   return (
-    <View style={{ flex: 1, minHeight: height, borderRadius: 12, backgroundColor: c.sunken, flexDirection: "row", alignItems: "center", paddingLeft: 10, gap: 6 }}>
+    // Keyed by the text size: two quick Dynamic Type changes must not reuse a stale native layout of the field.
+    <View key={fontScale} style={{ flex: 1, minHeight: height, borderRadius: 12, backgroundColor: c.sunken, flexDirection: "row", alignItems: "center", paddingLeft: 10, gap: 6 }}>
       <Ionicons name="search" size={18} color={c.muted} />
-      <TextInput key={fontScale} value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
+      <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
         accessibilityLabel={label} accessibilityRole="search" returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         clearButtonMode="never" onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
         style={{ flex: 1, minHeight: height, fontSize: 17, color: c.text, paddingVertical: 0 }} />

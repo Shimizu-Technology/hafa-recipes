@@ -67,6 +67,38 @@ it("keeps each segment label on one line, shrinking it instead of breaking a wor
   expect(labels).toHaveLength(1);
   expect(labels[0].props.fit).toBe(true);
 });
+it("sizes every segment label to the widest one so the selected segment never outgrows its neighbours", () => {
+  act(() => { view = create(createElement(Segmented, { label: "Show", value: "all", options: [
+    { value: "all", label: "All" }, { value: "programs", label: "Programs" }, { value: "collections", label: "Collections" }], onChange() {} })); });
+  const sizes = () => view!.root.findAllByType("Copy" as never).map(item => item.props.style?.fontSize);
+  expect(sizes()).toEqual([undefined, undefined, undefined]); // unmeasured: full size, `fit` as the fallback
+  const track = view!.root.findByProps({ accessibilityRole: "radiogroup" });
+  act(() => track.props.onLayout({ nativeEvent: { layout: { width: 300 } } }));
+  const measurers = view!.root.findAllByType("Text" as never);
+  expect(measurers).toHaveLength(3);
+  const natural = [24, 70, 150];
+  act(() => measurers.forEach((node, i) => node.props.onLayout({ nativeEvent: { layout: { width: natural[i] } } })));
+  const [all, programs, collections] = sizes();
+  expect(all).toBe(programs);
+  expect(programs).toBe(collections);
+  expect(collections).toBeLessThan(15);
+  expect(collections).toBeGreaterThan(7.5);
+});
+it("keeps full-size labels when the widest one fits, and re-measures when the text size changes", () => {
+  const options = [{ value: "all", label: "All" }, { value: "programs", label: "Programs" }];
+  act(() => { view = create(createElement(Segmented, { label: "Show", value: "all", options, onChange() {} })); });
+  act(() => view!.root.findByProps({ accessibilityRole: "radiogroup" }).props.onLayout({ nativeEvent: { layout: { width: 300 } } }));
+  act(() => view!.root.findAllByType("Text" as never).forEach((node, i) => node.props.onLayout({ nativeEvent: { layout: { width: [24, 70][i] } } })));
+  expect(view!.root.findAllByType("Copy" as never).map(item => item.props.style?.fontSize)).toEqual([undefined, undefined]);
+  f.fontScale = 3;
+  act(() => view!.update(createElement(Segmented, { label: "Show", value: "all", options, onChange() {} })));
+  // Old widths are discarded until the labels are measured at the new size.
+  expect(view!.root.findAllByType("Copy" as never).map(item => item.props.style?.fontSize)).toEqual([undefined, undefined]);
+  act(() => view!.root.findAllByType("Text" as never).forEach((node, i) => node.props.onLayout({ nativeEvent: { layout: { width: [72, 210][i] } } })));
+  const sizes = view!.root.findAllByType("Copy" as never).map(item => item.props.style?.fontSize);
+  expect(sizes[0]).toBe(sizes[1]);
+  expect(sizes[0]).toBeLessThan(15);
+});
 it("keeps disabled button text readable and explains a material blocker", () => {
   act(() => { view = create(createElement(Button, { title: "Log set", disabled: true, disabledReason: "Resume to log this set.", onPress() {} })); });
   const press = view!.root.findByType("Pressable" as never);
@@ -210,4 +242,22 @@ it("remounts a search input when the system text size changes", () => {
   act(() => view!.update(createElement(SearchField, props)));
   expect(view!.root.findByType("Input" as never)).not.toBe(original);
   expect(view!.root.findByType("Input" as never).props.value).toBe("squat");
+});
+
+it("re-measures the search field, filter chips and their scroller on every text-size change", () => {
+  const props = { label: "Filters" };
+  const chips = () => createElement(ChipRow, props, createElement(Chip, { label: "Needs info", onPress() {} }));
+  f.fontScale = 1.3;
+  act(() => { view = create(createElement("View" as never, null, createElement(SearchField, { value: "", onChange() {}, placeholder: "Search", label: "Search" }), chips())); });
+  const scroller = () => view!.root.findByType("ScrollView" as never);
+  const field = () => view!.root.findByType("Input" as never);
+  const [firstScroller, firstField] = [scroller(), field()];
+  // Two changes in a row, as when Dynamic Type is dragged through several steps.
+  for (const scale of [1.6, 3.1]) {
+    f.fontScale = scale;
+    act(() => view!.update(createElement("View" as never, null, createElement(SearchField, { value: "", onChange() {}, placeholder: "Search", label: "Search" }), chips())));
+    expect(scroller()).not.toBe(firstScroller);
+    expect(field()).not.toBe(firstField);
+  }
+  expect(field().props.style.minHeight).toBe(Math.ceil(22 * 3.1) + 14);
 });
