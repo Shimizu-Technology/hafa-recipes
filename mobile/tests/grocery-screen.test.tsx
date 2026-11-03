@@ -150,7 +150,7 @@ vi.mock('@/utils/haptics', () => ({
     warning: vi.fn(),
   },
 }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   fontFamily: { display: 'Fraunces' },
   fontSize: { xs: 10, sm: 12, md: 14, xl: 20, xxl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },

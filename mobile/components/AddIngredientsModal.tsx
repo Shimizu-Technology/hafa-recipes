@@ -16,7 +16,7 @@ import { inflectUnit, joinAmountAndUnit, spokenQuantity } from '@/lib/quantityPr
 
 import { Text, View, useColors } from './Themed';
 import { Ingredient } from '@/types/recipe';
-import { spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
+import { layout, spacing, fontSize, fontWeight, radius } from '@/constants/Colors';
 import { scaleQuantity, scaleIngredient } from '@/hooks/useScaledServings';
 import {
   getIngredientAmount,
@@ -121,7 +121,7 @@ export default function AddIngredientsModal({
     >
       <View style={[styles.container, { paddingTop: insets.top }]}>
         {/* Header */}
-        <RNView style={[styles.header, { borderBottomColor: colors.border }]}>
+        <RNView style={[styles.header, { borderBottomColor: colors.hairline }]}>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
             <Text style={[styles.headerButtonText, { color: colors.actionText }]}>Cancel</Text>
           </TouchableOpacity>
@@ -146,7 +146,7 @@ export default function AddIngredientsModal({
         </RNView>
 
         {/* Select All / Deselect All */}
-        <RNView style={[styles.selectAllRow, { borderBottomColor: colors.border }]}>
+        <RNView style={[styles.selectAllRow, { borderBottomColor: colors.hairline }]}>
           <TouchableOpacity onPress={allSelected ? deselectAll : selectAll}>
             <Text style={[styles.selectAllText, { color: colors.actionText }]}>
               {allSelected ? 'Deselect All' : 'Select All'}
@@ -162,6 +162,8 @@ export default function AddIngredientsModal({
           style={styles.list}
           contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + spacing.xl }]}
         >
+          {/* One grouped list with leading checks, not a stack of outlined boxes. */}
+          <RNView style={[styles.sheet, { backgroundColor: colors.backgroundElevated, borderColor: colors.hairline }]}>
           {ingredients.map((ingredient, index) => {
             const isSelected = selected.has(index);
             const amount = getIngredientAmount(ingredient);
@@ -173,16 +175,13 @@ export default function AddIngredientsModal({
                 key={index}
                 style={[
                   styles.ingredientRow,
-                  { 
-                    backgroundColor: colors.card,
-                    borderColor: isSelected ? colors.tint : colors.cardBorder,
-                  },
+                  index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.hairline },
                 ]}
                 onPress={() => toggleItem(index)}
                 activeOpacity={0.7}
               >
                 <Ionicons
-                  name={isSelected ? 'checkbox' : 'square-outline'}
+                  name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
                   size={24}
                   color={isSelected ? colors.actionText : colors.textMuted}
                 />
@@ -215,6 +214,7 @@ export default function AddIngredientsModal({
               </TouchableOpacity>
             );
           })}
+          </RNView>
         </ScrollView>
       </View>
     </Modal>
@@ -271,15 +271,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    padding: spacing.lg,
+    padding: layout.margin,
+  },
+  sheet: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   ingredientRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    marginBottom: spacing.sm,
+    minHeight: 52,
     gap: spacing.md,
   },
   ingredientContent: {

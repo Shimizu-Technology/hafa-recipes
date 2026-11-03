@@ -41,7 +41,7 @@ export function PlannerRecipeHandoffCard({
     <RNView
       style={[
         styles.container,
-        { backgroundColor: colors.backgroundSecondary, borderColor: colors.tint },
+        { backgroundColor: colors.backgroundElevated, borderColor: colors.border },
       ]}
     >
       {isLoading ? (
