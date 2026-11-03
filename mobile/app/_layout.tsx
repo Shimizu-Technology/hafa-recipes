@@ -12,6 +12,7 @@ import { Figtree_400Regular } from '@expo-google-fonts/figtree/400Regular';
 import { Figtree_500Medium } from '@expo-google-fonts/figtree/500Medium';
 import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold';
 import { Figtree_700Bold } from '@expo-google-fonts/figtree/700Bold';
+import { Figtree_400Regular_Italic } from '@expo-google-fonts/figtree/400Regular_Italic';
 import { Fraunces_500Medium } from '@expo-google-fonts/fraunces/500Medium';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -66,7 +67,7 @@ function RootLayout() {
   const systemScheme = useSystemColorScheme();
   const [loaded, error] = useFonts({
     // Calm: Figtree for the UI, Fraunces 500 for recipe titles only.
-    Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold, Figtree_700Bold, Fraunces_500Medium,
+    Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold, Figtree_700Bold, Figtree_400Regular_Italic, Fraunces_500Medium,
   });
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.

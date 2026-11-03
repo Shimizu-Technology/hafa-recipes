@@ -1242,7 +1242,7 @@ function RecipeChatModalContent({ isVisible, onClose, recipe, context }: RecipeC
                       body: { color: colors.text, fontFamily: fontFamily.regular, fontSize: Math.round(fontSize.md * textScale), lineHeight: Math.round(24 * textScale), flexShrink: 1 },
                       paragraph: { marginVertical: 4, flexShrink: 1 },
                       strong: { fontFamily: fontFamily.bold, fontWeight: '700', color: colors.text },
-                      em: { fontStyle: 'italic' },
+                      em: { fontStyle: 'italic', fontFamily: fontFamily.italic },
                       bullet_list: { marginVertical: 4 },
                       ordered_list: { marginVertical: 4 },
                       list_item: { marginVertical: 2, flexShrink: 1, flexWrap: 'wrap' },

@@ -107,6 +107,8 @@ export const fontWeight = {
 export const fontFamily = {
   regular: 'Figtree_400Regular', medium: 'Figtree_500Medium', semibold: 'Figtree_600SemiBold', bold: 'Figtree_700Bold',
   display: 'Figtree_700Bold', displaySemibold: 'Figtree_700Bold',
+  /** Emphasis in notes and chat answers; one italic weight keeps the bundle small. */
+  italic: 'Figtree_400Regular_Italic',
   recipeTitle: 'Fraunces_500Medium',
 };
 
@@ -116,8 +118,12 @@ const FIGTREE_BY_WEIGHT = { 400: fontFamily.regular, 500: fontFamily.medium, 600
  * The Figtree face for a style's family and weight. Custom faces carry one weight each, so the weight
  * moves into the family name and `fontWeight` resets. Other families (Fraunces, monospace) pass through.
  */
-export function resolveFont(style: { fontFamily?: string; fontWeight?: unknown } | undefined): { fontFamily: string; fontWeight: 'normal' } | null {
+export function resolveFont(style: { fontFamily?: string; fontWeight?: unknown; fontStyle?: unknown } | undefined): { fontFamily: string; fontWeight: 'normal'; fontStyle?: 'normal' } | null {
   const family = style?.fontFamily;
+  // Custom faces have no synthesized italic on iOS, so italic Figtree text uses the italic face.
+  if (style?.fontStyle === 'italic' && (!family || family === 'System' || family.startsWith('Figtree_'))) {
+    return { fontFamily: fontFamily.italic, fontWeight: 'normal', fontStyle: 'normal' };
+  }
   if (family && family !== 'System' && !family.startsWith('Figtree_')) {
     return family.startsWith('Fraunces_') && style?.fontWeight !== undefined ? { fontFamily: family, fontWeight: 'normal' } : null;
   }

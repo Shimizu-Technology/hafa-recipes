@@ -87,6 +87,12 @@ describe('resolveFont', () => {
     expect(resolveFont({ fontFamily: family, fontWeight: weight })).toEqual({ fontFamily: face, fontWeight: 'normal' });
   });
 
+  it('sets italic Figtree text in the italic face', () => {
+    expect(resolveFont({ fontStyle: 'italic' })).toEqual({ fontFamily: fontFamily.italic, fontWeight: 'normal', fontStyle: 'normal' });
+    expect(resolveFont({ fontFamily: fontFamily.medium, fontStyle: 'italic' })?.fontFamily).toBe('Figtree_400Regular_Italic');
+    expect(resolveFont({ fontFamily: 'Menlo', fontStyle: 'italic' })).toBeNull();
+  });
+
   it('keeps a named Figtree face without a weight, and passes other families through', () => {
     expect(resolveFont({ fontFamily: fontFamily.semibold })).toBeNull();
     expect(resolveFont({ fontFamily: 'Menlo', fontWeight: '600' })).toBeNull();
