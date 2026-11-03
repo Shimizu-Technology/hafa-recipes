@@ -5,8 +5,8 @@ import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
 import { messageFor, type FeedTimer, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
-import { babyAge, careGlance, nextFeed } from "@/lib/care-glance";
-import { careSummary, duration, friendlyTime, timeAgo } from "@/lib/care-format";
+import { sleepGlanceDetail, babyAge, careGlance, nextFeed } from "@/lib/care-glance";
+import { careSummary, friendlyTime } from "@/lib/care-format";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { careWrite, logCare, updateCare } from "@/lib/quick-care";
 import { activeTimer, changeTimer, feedRecordData, sideChoices, startTimer, type FeedSide } from "@/lib/feed-timer";
@@ -57,7 +57,7 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
 }
 
 export default function Today() {
-  const b = useBaby(),
+  const b = useBaby(), c = useColors(),
     toast = useToast(),
     now = useMinuteClock(),
     { fontScale } = useWindowDimensions(),
@@ -118,6 +118,7 @@ export default function Today() {
           title: `Feed ${child.name}`,
           options: [...labels, "Log a bottle or past feed…", "Cancel"],
           cancelButtonIndex: 3,
+          tintColor: c.action,
         },
         (index) => (index < 2 ? start(choices[index].side) : index === 2 && details())
       );
@@ -163,6 +164,7 @@ export default function Today() {
           title: `Diaper for ${child.name}`,
           options: [...diaperChoices.map((choice) => choice.label), "Add time or note…", "Cancel"],
           cancelButtonIndex: diaperChoices.length + 1,
+          tintColor: c.action,
         },
         (index) => (index < diaperChoices.length ? save(diaperChoices[index].type) : index === diaperChoices.length && details())
       );
@@ -178,9 +180,7 @@ export default function Today() {
   }
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
     sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
-    sleepDetail = glance.openSleep ? careSummary("sleep", glance.openSleep.data, glance.openSleep.occurred_at, now).replace("Sleeping now · ", "")
-      : glance.lastSleep ? `Woke ${timeAgo(glance.lastSleep.data.end_at!, now)} · Last sleep ${duration((new Date(glance.lastSleep.data.end_at!).getTime() - new Date(glance.lastSleep.occurred_at).getTime()) / 60_000)}`
-      : "Log sleep or review your care history.",
+    sleepDetail = sleepGlanceDetail(glance, now),
     routine = routines[0],
     questions = records.filter((r) => r.kind === "question").length;
   const titleText = child?.name.trim() || "Today";

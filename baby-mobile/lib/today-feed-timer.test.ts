@@ -6,7 +6,8 @@ import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type M
 const scope = vi.hoisted(() => ({
   account: null as unknown,
   care: [] as unknown[],
-  sheets: [] as { options: string[]; pick: (index: number) => void }[],
+  tint: "#59453B",
+  sheets: [] as { tintColor?: string; options: string[]; pick: (index: number) => void }[],
   alerts: [] as { title: string; buttons: { text: string; onPress?: () => void }[] }[],
   toast: vi.fn(),
   push: vi.fn(),
@@ -16,8 +17,8 @@ const scope = vi.hoisted(() => ({
 vi.mock("react-native", () => ({
   useWindowDimensions: () => ({ fontScale: scope.fontScale }), Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text",
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
-  ActionSheetIOS: { showActionSheetWithOptions: (config: { options: string[] }, pick: (index: number) => void) =>
-    scope.sheets.push({ options: config.options, pick }) },
+  ActionSheetIOS: { showActionSheetWithOptions: (config: { options: string[]; tintColor?: string }, pick: (index: number) => void) =>
+    scope.sheets.push({ ...config, pick }) },
   Alert: { alert: (title: string, _message: string, buttons = []) => scope.alerts.push({ title, buttons }) },
 }));
 vi.mock("expo-router", async () => {
@@ -39,7 +40,7 @@ vi.mock("@/lib/today-care", () => ({
 }));
 const ui = vi.hoisted(() => ({
   PressTarget: "Pressable", Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Icon: "Icon", Loading: "Loading", Notice: "Notice",
-  typeScale: { headline: {} }, radii: { tile: 22 }, Grouped: "Grouped", Screen: "Screen", Row: "Row", Section: "Section", useColors: () => ({ text: "#000", hero: "#fff" }), useToast: () => scope.toast,
+  typeScale: { headline: {} }, radii: { tile: 22 }, Grouped: "Grouped", Screen: "Screen", Row: "Row", Section: "Section", useColors: () => ({ text: "#000", hero: "#fff", action: scope.tint }), useToast: () => scope.toast,
   fonts: { regular: "r", semibold: "s", bold: "b" },
 }));
 vi.mock("@/components/ui", () => ui);
@@ -293,4 +294,13 @@ it("keeps the pregnancy layout with a sibling's running feed timer on top", asyn
   expect(find("PregnancyHero", () => true)).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0); // the timer replaces the care hero
   expect(find("Pressable", p => p.accessibilityLabel === "Feeding…")).toHaveLength(1);
+});
+
+it.each(["#59453B", "#EBD8C9"])("tints both iOS care action sheets with the current Soft action colour (%s)", async tint => {
+  setup(); scope.tint = tint;
+  await render();
+  for (const label of ["Feed", "Diaper"]) {
+    await act(async () => find("Pressable", p => p.accessibilityLabel === label)[0].props.onPress());
+    expect(scope.sheets.at(-1)?.tintColor).toBe(tint);
+  }
 });

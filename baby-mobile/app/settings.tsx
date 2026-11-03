@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
-import { Alert, Linking } from "react-native";
-import { router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Linking, ScrollView, View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import Constants from "expo-constants";
 import { revokeShareSession } from "@/lib/share-session-state";
 import { useBaby } from "@/lib/context";
@@ -17,6 +17,13 @@ export default function Settings() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     working = useRef(false);
+  const { section } = useLocalSearchParams<{ section?: string }>();
+  const scroller = useRef<ScrollView>(null);
+  const [aiOffset, setAiOffset] = useState<number | null>(null);
+  const [contentReady, setContentReady] = useState(false);
+  useEffect(() => {
+    if (section === "ai" && contentReady && aiOffset != null) scroller.current?.scrollTo({ y: aiOffset, animated: false });
+  }, [section, contentReady, aiOffset]);
   async function run(action: () => Promise<void>) {
     if (working.current) return;
     working.current = true;
@@ -40,7 +47,7 @@ export default function Settings() {
     });
   }
   return (
-    <Screen title="Settings" subtitle="A private space, with choices you control." back>
+    <Screen scrollRef={scroller} onContentReady={() => setContentReady(true)} title="Settings" subtitle="A private space, with choices you control." back>
       {!!error && <Notice error>{error}</Notice>}
       <Section title="Your details">
         <Field label="Your name" value={name} onChange={setName} />
@@ -82,6 +89,7 @@ export default function Settings() {
         ))}</Grouped>
         <Button variant="ghost" title="Add a baby profile" icon="add" onPress={() => router.push("/child")} />
       </Section>
+      <View onLayout={event => setAiOffset(event.nativeEvent.layout.y)}>
       <Card tone="soft">
         <Copy kind="heading">Optional AI processing</Copy>
         <Copy>
@@ -128,6 +136,7 @@ export default function Settings() {
               [{ text: "Keep off", style: "cancel" }, { text: "Allow processing", onPress: save }]);
           }} />
       </Card>
+      </View>
       <Section title="Your device">
         <Row
           title="Saved changes & recovery"

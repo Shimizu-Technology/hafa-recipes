@@ -28,9 +28,9 @@ export function HeaderSearch({ value, onChange, placeholder }: { value: string; 
       autoCorrect={false}
       returnKeyType="search"
       maxLength={200}
-      maxFontSizeMultiplier={0}
+      allowFontScaling={false}
       selectionColor={c.accentText}
-      style={{ flex: 1, minHeight: 48, paddingVertical: 12, fontFamily: fonts.regular, fontSize: 17, lineHeight: 22, color: c.text }}
+      style={{ flex: 1, minHeight: 48, paddingVertical: 12, fontFamily: fonts.regular, fontSize: 17 * fontScale, lineHeight: 22 * fontScale, textAlignVertical: "center", color: c.text }}
     />
     {!!value && <PressTarget accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={4}
       onPress={() => { onChange(""); input.current?.focus(); }}

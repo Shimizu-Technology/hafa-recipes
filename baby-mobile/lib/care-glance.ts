@@ -1,5 +1,7 @@
 import type { BabyRecord, Child, DeviceState, RecordData } from "./models";
 
+import { careSummary, duration, timeAgo } from "./care-format";
+
 const day = 24 * 60 * 60_000;
 
 function localDay(value: string) {
@@ -80,4 +82,14 @@ export function nextFeed(last?: Pick<BabyRecord, "data">): RecordData {
   if (method !== "breast") return { method, side: undefined, ...(last?.data.unit ? { unit: last.data.unit } : {}) };
   const side = last?.data.side === "left" ? "right" : last?.data.side === "right" ? "left" : "both";
   return { method, side };
+}
+
+/** Missing or malformed sleep times never produce empty labelled fragments. */
+export function sleepGlanceDetail(glance: Pick<CareGlance, "openSleep" | "lastSleep">, now: Date) {
+  if (glance.openSleep) return careSummary("sleep", glance.openSleep.data, glance.openSleep.occurred_at, now).replace("Sleeping now · ", "");
+  if (!glance.lastSleep) return "Log sleep or review your care history.";
+  const sleep = glance.lastSleep;
+  const woke = sleep.data.end_at ? timeAgo(sleep.data.end_at, now) : "";
+  const slept = sleep.data.end_at ? duration((new Date(sleep.data.end_at).getTime() - new Date(sleep.occurred_at).getTime()) / 60_000) : "";
+  return [woke ? `Woke ${woke}` : "", slept ? `Last sleep ${slept}` : ""].filter(Boolean).join(" · ") || "Sleep recorded";
 }

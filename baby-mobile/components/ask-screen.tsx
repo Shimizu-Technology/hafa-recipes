@@ -29,7 +29,7 @@ export function AiNotice({ service, consent }: { service: boolean; consent: bool
         ? "AI is off. Ask uses your Baby entries only, never Recipes or Workouts."
         : "AI isn’t available on this service yet. Saved, Journal and care logs still work."}</Copy>
     </View>
-    {!consent && <PressTarget accessibilityRole="button" accessibilityLabel="Review AI permission" onPress={() => router.push("/settings")}
+    {!consent && <PressTarget accessibilityRole="button" accessibilityLabel="Review AI permission" onPress={() => router.push({ pathname: "/settings", params: { section: "ai" } })}
       style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.accentText }}>Review</Text>
     </PressTarget>}

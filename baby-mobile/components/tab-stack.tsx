@@ -51,7 +51,7 @@ export function HeaderPill({ title, onPress, disabled = false }: { title: string
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
     <View style={{ minHeight: 36, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 18, backgroundColor: c.headerFill, justifyContent: "center" }}>
-      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.text }}>{title}</Text>
+      <Text key={fontScale} maxFontSizeMultiplier={1.4} style={{ ...typeScale.subhead, fontFamily: fonts.semibold, color: c.text }}>{title}</Text>
     </View>
   </PressTarget>;
 }
@@ -68,7 +68,7 @@ export function AccountButton() {
   return <PressTarget accessibilityRole="button" accessibilityLabel="Settings and profiles" onPress={() => router.push("/settings")}
     style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
     <View style={{ minWidth: 32, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, borderRadius: 16, backgroundColor: c.headerFill, alignItems: "center", justifyContent: "center" }}>
-      {text ? <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 13, color: c.text }}>{text}</Text>
+      {text ? <Text key={fontScale} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.bold, fontSize: 13, color: c.text }}>{text}</Text>
         : <Icon name="person" size={17} color={c.text} />}
     </View>
   </PressTarget>;

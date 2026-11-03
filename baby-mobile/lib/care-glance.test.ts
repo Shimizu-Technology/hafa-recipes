@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { babyAge, careGlance, glanceChild, nextFeed } from "./care-glance";
+import { babyAge, sleepGlanceDetail, careGlance, glanceChild, nextFeed } from "./care-glance";
 import type { BabyRecord } from "./models";
 
 const now = new Date(2026, 9, 20, 18, 30);
@@ -63,4 +63,13 @@ it("suggests the other side after a one-sided breastfeed and keeps bottle detail
   expect(nextFeed({ data: { method: "breast", side: "both" } })).toEqual({ method: "breast", side: "both" });
   expect(nextFeed({ data: { method: "bottle", unit: "oz", amount: 4 } })).toEqual({ method: "bottle", side: undefined, unit: "oz" });
   expect(nextFeed()).toEqual({ method: "breast", side: "both" });
+});
+
+it("omits missing or invalid awake facts without dangling separators", () => {
+  expect(sleepGlanceDetail({ lastSleep: row("sleep", at(20, 13), { end_at: "invalid" }) }, now)).toBe("Sleep recorded");
+  expect(sleepGlanceDetail({ lastSleep: row("sleep", "invalid", { end_at: at(20, 15) }) }, now)).toBe("Woke 3 h 30 min ago");
+  expect(sleepGlanceDetail({ lastSleep: row("sleep", at(20, 13)) }, now)).toBe("Sleep recorded");
+  expect(sleepGlanceDetail({ lastSleep: row("sleep", at(20, 13), { end_at: at(20, 15) }) }, now)).toBe("Woke 3 h 30 min ago · Last sleep 2 h");
+  expect(sleepGlanceDetail({ openSleep: row("sleep", at(20, 17)) }, now)).toBe("1 h 30 min");
+  expect(sleepGlanceDetail({}, now)).toBe("Log sleep or review your care history.");
 });

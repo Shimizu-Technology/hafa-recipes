@@ -33,11 +33,10 @@ export function CareGlance({ child, rows, now }: { child: Child; rows: BabyRecor
     ].filter(Boolean).join(" · ") : "Start a timer or add a past feed below.";
   const content = <Card tone="hero" style={{ gap: 4 }}>
     <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Last fed</Text>
-    {feed ? <Text key={`value:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={1.4}
+    {feed ? <Text key={`value:${fontScale}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.4}
       style={{ ...typeScale.number, color: c.text }}>
-      {value}
+      {Number.isFinite(elapsed) ? <>{value} <Text style={{ fontSize: typeScale.footnote.fontSize, color: c.muted }}>ago</Text></> : "Time not recorded"}
     </Text> : <Copy kind="heading">No recent feed</Copy>}
-    {feed && <Copy kind="small" tone="muted">ago</Copy>}
     <Copy numeric kind="small" tone="muted">{detail}</Copy>
   </Card>;
   return feed ? <PressTarget accessibilityRole="button"
