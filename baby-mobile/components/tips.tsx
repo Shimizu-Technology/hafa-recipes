@@ -22,11 +22,11 @@ export function PregnancyHero({ child, now }: { child: Child; now: Date }) {
   return <Card tone="hero" style={{ gap: 4 }}>
     <View accessible accessibilityLabel={`Week ${progress.week}, day ${progress.day}. ${due}`} style={{ gap: 4 }}>
       <Text key={`label:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Your pregnancy</Text>
-      {/* The 44pt display numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
+      {/* The 44pt Newsreader numeral grows with text size but stops at 1.5× so "Week 34" stays on screen. */}
       {stacked ? <View style={{ gap: 2 }}>
-        <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}>Week {progress.week}</Text>
+        <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, fontFamily: fonts.display, color: c.text }}>Week {progress.week}</Text>
         <Text key={`day:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...dayStyle, color: c.muted }}>Day {progress.day}</Text>
-      </View> : <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, color: c.text }}
+      </View> : <Text key={`value:${layout}`} maxFontSizeMultiplier={1.5} style={{ ...typeScale.number, fontFamily: fonts.display, color: c.text }}
         onTextLayout={(event) => { if (event.nativeEvent.lines.length > 1) setStackedFor(layout); }}>
         Week {progress.week}<Text style={{ ...dayStyle, color: c.muted }}>{" ·\u00a0Day\u00a0"}{progress.day}</Text>
       </Text>}
