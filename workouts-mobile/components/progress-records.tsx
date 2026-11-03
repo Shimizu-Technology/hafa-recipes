@@ -1,3 +1,4 @@
+import type { UnitSystem } from "@/lib/training";
 import { PRMarker } from "./pr-marker";
 import { useLook } from "@/lib/look-context";
 import { useState } from "react";
@@ -31,7 +32,7 @@ function trendWords(values: number[]) {
 }
 
 /** Personal bests per exercise with a small trend, newest first. Shows five until expanded. */
-export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
+export function ProgressRecords({ records, units }: { records: ExerciseRecord[]; units?: UnitSystem }) {
   const look = useLook();
   const [all, setAll] = useState(false);
   const { fontScale } = useWindowDimensions();
@@ -49,7 +50,7 @@ export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
               <Copy kind="small" tone="muted">{r.detail}</Copy>
             </View>
             {!largeText(fontScale) && <Sparkline values={r.trend} />}
-            {look.id === "pro" ? <PRMarker value={r.best} /> : <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>}
+            {look.id === "pro" ? <PRMarker key={units} value={r.best} /> : <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>}
           </View>
         ))}
       </ListGroup>

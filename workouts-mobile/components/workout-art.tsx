@@ -10,6 +10,11 @@ export function WorkoutArt({ title, meta = "", compact = false }: { title: strin
   const format = meta.replace(/\s*·.*/, "").toUpperCase();
   const number = format.match(/\d+/)?.[0];
   const label = format.replace(/\d+/, "").trim() || "TRAIN";
+  if (look.id === "pro" && !compact) return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+    style={{ flex: 1, backgroundColor: c.sunken, padding: 16, gap: 8, justifyContent: "center" }}>
+    <Copy kind="numeric" maxScale={1.5} style={{ fontSize: 32, lineHeight: 36 }}>{number ?? "GO"}</Copy>
+    <Copy kind="caption2" maxScale={1.5} numberOfLines={2} style={{ fontSize: 13, lineHeight: 18 }}>{label}</Copy>
+  </View>;
   return <View style={{ flex: 1, backgroundColor: c.sunken, padding: compact ? 8 : 18, justifyContent: "space-between", gap: 12 }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
     <Svg width="100%" height="100%" viewBox="0 0 200 250" preserveAspectRatio="none" style={{ position: "absolute", inset: 0 }}>
       <Defs><LinearGradient id="cover" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={athletic ? c.surface : c.sunken} /><Stop offset="1" stopColor={c.background} /></LinearGradient></Defs>

@@ -22,8 +22,8 @@ export function useColors(): ColorTokens {
 }
 
 /** True when the user asked the OS to reduce motion. Animations must settle instantly then. */
-export function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
+export function useReducedMotion(whileLoading = false) {
+  const [reduced, setReduced] = useState(whileLoading);
   useEffect(() => {
     let live = true;
     void AccessibilityInfo.isReduceMotionEnabled?.()
@@ -121,7 +121,7 @@ export function Copy({
   const c = useColors();
   const look = useLook();
   const display = ["display", "title", "heading", "numeric"].includes(kind) || kind === "cardTitle" && look.id === "athletic";
-  const weight = typography[kind].fontWeight;
+  const weight = StyleSheet.flatten([typography[kind], style]).fontWeight;
   const face = display ? look.fonts.display : weight === "700" ? look.fonts.bold : weight === "600" ? look.fonts.semibold : look.fonts.regular;
   const lookType = look.id === "current" ? {} : { fontFamily: face, fontWeight: "400" as const, ...(look.id === "athletic" && display ? { textTransform: "uppercase" as const, letterSpacing: 0.25 } : {}) };
   const surface = useSurface();

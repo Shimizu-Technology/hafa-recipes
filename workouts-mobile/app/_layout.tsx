@@ -1,3 +1,4 @@
+import { useLook } from "@/lib/look-context";
 import { LookProvider } from "@/components/look-provider";
 import { RemindersProvider } from "@/components/reminders-provider";
 import { router } from "expo-router";
@@ -16,7 +17,7 @@ import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View, Platform } from "react-native";
 import { configuration, checkAuthConfiguration } from "@/lib/config";
 import { TrainingProvider } from "@/lib/context";
-import { Screen, Copy, Notice, Button, IconButton, ToastProvider, useColors } from "@/components/ui";
+import { Screen, Copy, Notice, Button, IconButton, ToastProvider, useToast, useColors } from "@/components/ui";
 import { LogoutRecoveryBoundary } from "@/components/logout-recovery-boundary";
 import { SignupGate } from "@/components/signup-gate";
 import { AccountIdentityProvider } from "@/components/account-identity";
@@ -141,6 +142,12 @@ function Routes() {
     stack
   );
 }
+function LookErrorFeedback() {
+  const { error } = useLook();
+  const toast = useToast();
+  useEffect(() => { if (error) toast(error, "error"); }, [error, toast]);
+  return null;
+}
 function RootContent() {
   const c = useColors();
   const [cleanupReady, setCleanupReady] = useState(false);
@@ -171,6 +178,7 @@ function RootContent() {
   return (
     <SafeAreaProvider>
       <ToastProvider>
+      <LookErrorFeedback />
       <StatusBar style="auto" />
       {!cleanupReady ? (
         <Screen title="Restoring this device">

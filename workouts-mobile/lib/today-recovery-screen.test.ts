@@ -1,6 +1,6 @@
 vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
 vi.mock("@/components/look-today", () => ({ LookGreeting: () => null, LookTodayHero: "LookTodayHero" }));
-vi.mock("@/lib/look-context", () => ({ useLook: () => ({ id: "current" }) }));
+vi.mock("@/lib/look-context", () => ({ useLook: () => ({ id: fixture.look }) }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import type { Enrollment, Program, TrainingProfile, Workout, TrainingSession } f
 import type { SavedLocalSession } from "./training";
 
 const fixture = vi.hoisted(() => ({
-  owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false, deviceReady: true,
+  look: "current", owner: "owner-A", generation: 1, enrolled: true, current: true, epoch: 0, available: false, deviceReady: true,
   enrollment: vi.fn(), profile: vi.fn(), programs: vi.fn(), sessions: vi.fn(), start: vi.fn(), updateProgram: vi.fn(), archiveProgram: vi.fn(), setReadiness: vi.fn(),
   active: null as null | { workout: { title: string; source_thumbnail_url?: string }; actuals: { completed: boolean }[]; source?: { program_id: string; program_session_id: string } },
   drafts: new Map<string, string>(), history: [] as SavedLocalSession[], units: "metric" as "metric" | "imperial",
@@ -88,7 +88,7 @@ async function showPlans(label: string) {
 async function retry() { await act(async () => { buttons("Try again")[0].props.onPress(); }); await settle(); }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
+  fixture.look = "current"; fixture.owner = "owner-A"; fixture.generation = 1; fixture.enrolled = true; fixture.current = true;
   fixture.epoch = 0; fixture.available = false; fixture.deviceReady = true; fixture.active = null; fixture.drafts.clear(); fixture.history = []; fixture.units = "metric";
   for (const mock of [fixture.enrollment, fixture.profile, fixture.programs, fixture.sessions, fixture.start, fixture.updateProgram, fixture.session, fixture.correct, fixture.sync, fixture.archiveProgram, fixture.setReadiness]) mock.mockReset();
   const available = () => { if (!fixture.available) throw Error("The training service is unavailable. Your draft is safe."); };
@@ -921,4 +921,16 @@ it("offers Coach in the Today hero only for enrolled members", async () => {
   fixture.enrolled = false;
   await act(async () => renderer!.update(tree()));
   expect(buttons("Ask Coach")).toHaveLength(0);
+});
+
+it.each([false, true])("preview keeps missed-session recovery explicit; active=%s", async active => {
+  fixture.look = "coach"; fixture.available = true;
+  const program = { id: "plan", generation: 1, revision: 1, status: "ready", sessions: [{ id: "missed", date: "2020-01-01",
+    purpose: "Saved plan", workout: { title: "Missed strength" } }] } as Program;
+  fixture.programs.mockResolvedValue([program]);
+  if (active) fixture.active = { workout: { title: "In progress" }, actuals: [] };
+  await mount();
+  expect(buttons("1 earlier session · Review dates")).toHaveLength(active ? 0 : 1);
+  expect(program.sessions[0].date).toBe("2020-01-01");
+  expect(fixture.start).not.toHaveBeenCalled();
 });

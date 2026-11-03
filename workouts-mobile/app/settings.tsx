@@ -109,7 +109,7 @@ export default function Settings() {
         <Copy kind="small" tone="muted">Compare three directions. Preview builds only.</Copy>
         {look.pending && <Copy kind="small">Loading the preview fonts…</Copy>}
         {!!look.error && <Notice error>{look.error}</Notice>}
-        <ListGroup>{lookIds.map(id => <ListRow key={id} title={lookLabels[id].label} detail={lookLabels[id].description} icon={look.id === id ? "checkmark-circle" : "ellipse-outline"} trailing="none" onPress={() => look.setLook(id)} />)}</ListGroup>
+        <ListGroup>{lookIds.map(id => <ListRow key={id} selected={look.id === id} title={lookLabels[id].label} detail={lookLabels[id].description} icon={look.id === id ? "checkmark-circle" : "ellipse-outline"} trailing="none" onPress={() => look.setLook(id)} />)}</ListGroup>
       </>}
       <SectionHeader title="Training" />
       <ListGroup>

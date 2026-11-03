@@ -10,6 +10,8 @@ vi.mock("react-native", () => ({
   useColorScheme: () => "light", useWindowDimensions: () => ({ width: 390, height: 844, fontScale: f.fontScale }),
 }));
 vi.mock("expo-haptics", () => ({}));
+import { LookContext } from "./look-context";
+import { getLook } from "@/constants/looks";
 import { Copy } from "../components/design/foundation";
 
 let renderer: ReactTestRenderer | undefined;
@@ -28,4 +30,13 @@ it("grows with the text-size setting unless a control caps it", () => {
   act(() => renderer?.unmount());
   f.fontScale = 1.2;
   expect(fontSize({ maxScale: 1.6 })).toBeCloseTo(base * 1.2);
+});
+
+it.each(["athletic", "coach", "pro"] as const)("preserves caller emphasis with named %s font weights", id => {
+  const look = getLook(id);
+  act(() => { renderer = create(createElement(LookContext.Provider, { value: { ...look, enabled: true, pending: false, error: "", setLook() {} } },
+    createElement(Copy, { style: { fontWeight: "700" } }, "Record"))); });
+  const style = renderer!.root.findByType("Text" as never).props.style;
+  expect(style.fontFamily).toBe(look.fonts.bold);
+  expect(style.fontWeight).toBe("400");
 });

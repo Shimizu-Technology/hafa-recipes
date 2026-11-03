@@ -1,11 +1,14 @@
-vi.mock("@/components/training/look-clock", () => ({ LookClock: "LookClock" }));
+vi.mock("@/components/design/foundation", () => ({ Copy: "Copy", useColors: () => ({ text: "black" }) }));
+vi.mock("@/components/design/training", () => ({ ProgressRing: "ProgressRing" }));
+vi.mock("@/components/design/look-motion", () => ({ LookPop: "LookPop" }));
+vi.mock("@/lib/look-context", () => ({ useLook: () => ({ id: fixture.look }) }));
 import { createElement, isValidElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createTrainingStore, type SessionDraft } from "./training";
 import type { ActualSet, Workout } from "./models";
 
-const fixture = vi.hoisted(() => ({ speak: vi.fn(), warning: vi.fn(), announce: vi.fn(), fontScale: 1,
+const fixture = vi.hoisted(() => ({ speak: vi.fn(), warning: vi.fn(), announce: vi.fn(), fontScale: 1, look: "current",
   awake: vi.fn(async (_tag?: string) => {}), asleep: vi.fn(async (_tag?: string) => {}) }));
 vi.mock("react-native", () => ({ useWindowDimensions: () => ({ width: 390, fontScale: fixture.fontScale }), View: "View", Pressable: "Pressable" }));
 vi.mock("expo-keep-awake", () => ({ activateKeepAwakeAsync: fixture.awake, deactivateKeepAwake: fixture.asleep }));
@@ -48,7 +51,7 @@ const copies = () => [...renderer!.root.findAllByType("Copy" as never), ...eleme
 const button = (title: string) => [...renderer!.root.findAll((n) => (n.type as unknown) === "Button"),
   ...elements(renderer!.root.findByType("Screen" as never).props.footer)].find((n) => n.type === "Button" && n.props.title === title)!;
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true; log.mockReset(); finish.mockReset(); fixture.warning.mockReset(); fixture.announce.mockReset();
-  fixture.fontScale = 1; fixture.awake.mockClear(); fixture.asleep.mockClear(); });
+  fixture.fontScale = 1; fixture.look = "current"; fixture.awake.mockClear(); fixture.asleep.mockClear(); });
 const field = (label: string) => renderer!.root.findAll((n) => (n.type as unknown) === "Field").find((n) => n.props.label === label);
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
 
@@ -172,7 +175,7 @@ it("caps the clock's growth at the largest text size so it stays on one line ins
   expect(clock.props.allowFontScaling).toBe(false);
   expect(clock.props.style.fontSize * 5 * 0.62).toBeLessThanOrEqual(390 - 96);
   expect(clock.props.style.fontSize).toBeLessThanOrEqual(56 * 1.6);
-  fixture.fontScale = 1;
+  fixture.fontScale = 1; fixture.look = "current";
   await render(d, 65_000);
   expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBe(56);
 });
@@ -243,4 +246,16 @@ it("allows phase labels to scale while capping the clock", async () => {
   expect(copies().find((n) => n.props.accessibilityLabel === "Work phase")!.props.maxScale).toBeUndefined();
   expect(copies().find((n) => n.props.kind === "caption")!.props.maxScale).toBeUndefined();
   expect(copies().find((n) => n.props.kind === "numeric")!.props.style.fontSize).toBeCloseTo(56 * 1.6);
+});
+
+it("keeps the real preview clock readable and scales the ring to each work/rest phase", async () => {
+  fixture.look = "athletic";
+  const d = await draft(workout({ execution: { mode: "work_rest", work_seconds: 20, rest_seconds: 10, intervals: 8 }, exercises: [{ name: "Squats" }] }));
+  await render(d, 5_000);
+  expect(text()).toContain("0:15");
+  expect(renderer!.root.findAllByType("Copy" as never).find(n => n.children.includes("0:15"))?.props.accessibilityLabel).toBe("0:15 left");
+  expect(renderer!.root.findByType("ProgressRing" as never).props.progress).toBe(0.75);
+  await render(d, 21_000);
+  expect(text()).toContain("0:09");
+  expect(renderer!.root.findByType("ProgressRing" as never).props.progress).toBe(0.9);
 });

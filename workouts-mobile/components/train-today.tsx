@@ -164,7 +164,7 @@ export function TrainToday() {
   } else {
     hero = { title: "No plan yet", detail: "Build a plan around your goal, equipment and free days.", action: buildPlan("/build-plan") };
   }
-  const heroCard = look.id !== "current" ? <LookTodayHero {...hero} /> : (
+  const heroCard = look.id !== "current" ? <LookTodayHero {...hero} extra={<>{hero.extra}{enabled && !!suggestion && <Pressable accessibilityRole="button" accessibilityHint="Opens a chat with your AI coach" onPress={() => router.push("/coach")}><Copy kind="small" tone="muted">{suggestion}</Copy></Pressable>}</>} /> : (
     <View style={{ gap: 12 }}>
       {!!hero.cover && hero.cover !== failedCover && <Image source={{ uri: hero.cover }} onError={() => setFailedCover(hero.cover ?? null)} contentFit="cover" accessibilityLabel={`${hero.title} cover`} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 20, backgroundColor: c.surface }} />}
       <Copy kind="heading">{hero.title}</Copy>
@@ -210,7 +210,7 @@ export function TrainToday() {
             {missed.length} earlier {missed.length === 1 ? "session needs" : "sessions need"} a new date. Tap one below to move it or
             train it now; nothing moves on its own.
           </Copy>}
-          {!!missedPlan && !active && <Button title={look.id === "current" ? "Missed sessions" : `${missed.length} earlier sessions · Review dates`} secondary textLink={look.id !== "current"} onPress={() => { setAdjust({ program: missedPlan }); setAdjustOpen(true); }} />}
+          {!!missedPlan && !active && <Button title={look.id === "current" ? "Missed sessions" : `${missed.length} earlier ${missed.length === 1 ? "session" : "sessions"} · Review dates`} secondary textLink={look.id !== "current"} onPress={() => { setAdjust({ program: missedPlan }); setAdjustOpen(true); }} />}
           {!ancestryReady && <>
             <Copy kind="small" tone="muted">Done-day checkmarks are paused while we check your corrected results. Your saved results are in Progress.</Copy>
             {!ancestry.isPending && <Button title="Check again" variant="secondary" size="sm" inline onPress={() => { void ancestry.refetch(); }} />}

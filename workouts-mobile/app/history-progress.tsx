@@ -133,7 +133,7 @@ export default function Progress() {
         <ListRow icon="add-circle-outline" title="Log a completed activity" detail="A run, walk, game or class" onPress={() => router.push("/activity")} />
         <ListRow icon="walk-outline" title="Runs, walks & other activity" onPress={() => router.push("/activity-log")} />
       </ListGroup>
-      <ProgressRecords records={records} />
+      <ProgressRecords units={units} records={records} />
       {!!offline.error && <>
         <Notice error>{offline.error}</Notice>
         <Button title="Retry restoring saved sessions" secondary onPress={offline.retry} />

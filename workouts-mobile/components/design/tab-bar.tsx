@@ -98,7 +98,7 @@ function PreviewTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const keyboard = useKeyboardShown();
   const [width, setWidth] = useState(0);
   const selected = tabs.findIndex(t => t.route === state.routes[state.index]?.name);
-  const slotIndex = selected > 1 ? selected + 1 : Math.max(0, selected);
+  const slotIndex = selected > 1 ? selected + 1 : selected;
   const x = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const toValue = slotIndex * width / 5;
@@ -109,7 +109,7 @@ function PreviewTabBar({ state, navigation, insets }: BottomTabBarProps) {
   if (keyboard) return null;
   return <View onLayout={e => reportTabScreenBottomInset(e.nativeEvent.layout.height)} style={{ backgroundColor: c.tabBar, borderTopWidth: look.id === "athletic" ? 0 : StyleSheet.hairlineWidth, borderTopColor: c.tabBarBorder, paddingBottom: insets.bottom, paddingHorizontal: Math.max(insets.left, insets.right) }}>
     <View onLayout={e => setWidth(e.nativeEvent.layout.width)} style={styles.row}>
-      {!!width && <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, top: look.id === "athletic" ? 0 : 6, width: width / 5, alignItems: "center", transform: [{ translateX: x }] }}>
+      {!!width && selected >= 0 && <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, top: look.id === "athletic" ? 0 : 6, width: width / 5, alignItems: "center", transform: [{ translateX: x }] }}>
         <View style={{ width: look.id === "pro" ? 4 : look.id === "athletic" ? 28 : 50, height: look.id === "pro" ? 4 : look.id === "athletic" ? 3 : 30, borderRadius: look.id === "coach" ? 15 : 2, backgroundColor: look.id === "coach" ? c.sunken : c.accent }} />
       </Animated.View>}
       {[tabs[0], tabs[1], null, tabs[2], tabs[3]].map((tab, i) => <PreviewSlot key={tab?.route ?? "add"} label={tab?.label ?? "Add"} selected={i === slotIndex} icon={tab ? i === slotIndex ? tab.selectedIcon : tab.icon : "add"} add={!tab} onPress={() => {

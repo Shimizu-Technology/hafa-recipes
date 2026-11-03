@@ -9,7 +9,7 @@ export const PRESS = { scale: 0.97, inMs: 100, outMs: 160 };
 const native = Platform.OS !== "web";
 /** A screen owns one budget; filtering or mounting later rows cannot replay the entrance. */
 export function LookEntrance({ children, index = 0, weekDot = false }: PropsWithChildren<{ index?: number; weekDot?: boolean }>) {
-  const look = useLook(), reduced = useReducedMotion();
+  const look = useLook(), reduced = useReducedMotion(true);
   const value = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const animation = Animated.timing(value, { toValue: 1, duration: reduced ? 180 : look.motion.entrance, delay: reduced ? 0 : weekDot ? index * 60 : Math.min(index, 5) * look.motion.stagger, easing: EASE.out, useNativeDriver: native });
@@ -20,7 +20,7 @@ export function LookEntrance({ children, index = 0, weekDot = false }: PropsWith
 }
 /** Deliberate saved-state feedback. Never plays on the initial value or before persistence. */
 export function LookPop({ children, trigger, kind = "set" }: PropsWithChildren<{ trigger: unknown; kind?: "set" | "pr" | "completion" }>) {
-  const look = useLook(), reduced = useReducedMotion();
+  const look = useLook(), reduced = useReducedMotion(true);
   const scale = useRef(new Animated.Value(1)).current, opacity = useRef(new Animated.Value(1)).current;
   const previous = useRef(trigger);
   useEffect(() => {

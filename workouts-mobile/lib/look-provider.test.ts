@@ -38,3 +38,20 @@ it("reports failed persistence and retries even when the same look is chosen", a
   await mount(); f.set.mockRejectedValueOnce(new Error("disk")); await act(async () => look.setLook("pro")); expect(look.error).toContain("could not be saved");
   await act(async () => look.setLook("pro")); expect(look.error).toBe(""); expect(f.set).toHaveBeenCalledTimes(2);
 });
+
+it("ignores an initial read failure after an explicit selection", async () => {
+  let reject!: (error: Error) => void;
+  f.get.mockReturnValue(new Promise((_, r) => { reject = r; })); await mount();
+  await act(async () => look.setLook("pro"));
+  await act(async () => reject(new Error("late read")));
+  expect(look.id).toBe("pro"); expect(look.error).toBe("");
+});
+it("ignores an obsolete write failure while persisting the newer choice", async () => {
+  let reject!: (error: Error) => void;
+  await mount(); f.set.mockReturnValueOnce(new Promise((_, r) => { reject = r; }));
+  await act(async () => look.setLook("athletic"));
+  await act(async () => look.setLook("coach"));
+  await act(async () => reject(new Error("old save")));
+  expect(look.id).toBe("coach"); expect(look.error).toBe("");
+  expect(f.set).toHaveBeenLastCalledWith(LOOK_STORAGE_KEY, "coach");
+});

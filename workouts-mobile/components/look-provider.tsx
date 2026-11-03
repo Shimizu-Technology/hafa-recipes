@@ -17,22 +17,29 @@ export function LookProvider({ children }: PropsWithChildren) {
   const enabled = previewEnabled(configuration.environment);
   const [id, apply] = useState<LookId>("current"), [requested, request] = useState<LookId>("current");
   const [error, setError] = useState("");
+  const version = useRef(0);
   const touched = useRef(false), saveChain = useRef(Promise.resolve());
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    void AsyncStorage.getItem(LOOK_STORAGE_KEY).then(value => { if (live && !touched.current) request(restoredLook(value, enabled)); }).catch(() => setError("Could not restore the preview. Choose a look to try again."));
+    void AsyncStorage.getItem(LOOK_STORAGE_KEY).then(value => { if (live && !touched.current) request(restoredLook(value, enabled)); }).catch(() => { if (live && !touched.current) setError("Could not restore the preview. Choose a look to try again."); });
     return () => { live = false; };
   }, [enabled]);
+  function persist(next: LookId) {
+    const savingVersion = version.current;
+    saveChain.current = saveChain.current.then(() => AsyncStorage.setItem(LOOK_STORAGE_KEY, next)).catch(() => {
+      if (savingVersion === version.current) setError("Preview applied, but it could not be saved. Choose it again to retry.");
+    });
+  }
   function setLook(next: LookId) {
     if (!enabled) return;
-    touched.current = true; setError(""); request(restoredLook(next, true));
-    if (next === id) saveChain.current = saveChain.current.then(() => AsyncStorage.setItem(LOOK_STORAGE_KEY, next)).catch(() => setError("Preview applied, but it could not be saved. Choose it again to retry."));
+    touched.current = true; version.current += 1; setError(""); request(restoredLook(next, true));
+    if (next === id) persist(next);
   }
   function ready() {
     if (id === requested) return;
     apply(requested);
-    if (touched.current) saveChain.current = saveChain.current.then(() => AsyncStorage.setItem(LOOK_STORAGE_KEY, requested)).catch(() => setError("Preview applied, but it could not be saved. Choose it again to retry."));
+    if (touched.current) persist(requested);
   }
   return <LookContext.Provider value={{ ...getLook(enabled ? id : "current"), enabled, pending: id !== requested, error, setLook }}>
     {children}

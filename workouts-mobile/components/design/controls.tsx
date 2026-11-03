@@ -445,7 +445,8 @@ export function Segmented<T extends string>({
           style={{ position: "absolute", left: 0, top: 0, width: 1500, flexDirection: "row", opacity: 0 }}>
           {options.map(option => <Text key={`${option.value}:${fontScale}`} numberOfLines={1} allowFontScaling={false}
             onLayout={event => { const width = Math.ceil(event.nativeEvent.layout.width); setNatural(known => known[option.value] === width ? known : { ...known, [option.value]: width }); }}
-            style={{ fontFamily: look.fonts.semibold, fontWeight: look.id === "current" ? typography.cardTitle.fontWeight : "400",
+            style={{ fontFamily: look.id === "athletic" ? look.fonts.display : look.fonts.semibold, fontWeight: look.id === "current" ? typography.cardTitle.fontWeight : "400",
+              textTransform: look.id === "athletic" ? "uppercase" : undefined, letterSpacing: look.id === "athletic" ? 0.25 : undefined,
               fontSize: typography.cardTitle.fontSize * fontScale, lineHeight: typography.cardTitle.lineHeight * fontScale }}>{option.label}</Text>)}
         </View>
       </View>

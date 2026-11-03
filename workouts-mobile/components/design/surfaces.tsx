@@ -376,6 +376,7 @@ export function ListRow({
   destructive = false,
   trailing = "chevron",
   disabled = false,
+  selected,
 }: {
   title: string;
   detail?: string;
@@ -387,6 +388,7 @@ export function ListRow({
   destructive?: boolean;
   trailing?: "chevron" | "external" | "none";
   disabled?: boolean;
+  selected?: boolean;
 }) {
   const c = useColors();
   const { fontScale } = useWindowDimensions();
@@ -428,7 +430,7 @@ export function ListRow({
     <Pressable
       accessibilityRole={trailing === "external" ? "link" : "button"}
       accessibilityLabel={detail ? `${title}. ${detail}` : title}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [style, { opacity: disabled ? 0.5 : pressed ? 0.7 : 1 }]}
