@@ -62,6 +62,7 @@ export function safeIncomingEncoding(value: string) {
 export interface NativeIntentOptions {
   websiteOrigin?: string;
   development?: boolean;
+  designPreview?: boolean;
 }
 export function incomingNativePath(path: string, options: NativeIntentOptions = {}): string {
   const fallback = "/invalid-link";
@@ -105,6 +106,7 @@ export function incomingNativePath(path: string, options: NativeIntentOptions = 
     route = route.length > 1 ? route.replace(/\/$/, "") : route;
     const aliases: Record<string, string> = { "/(tabs)": "/(tabs)/train", "/index": "/legacy-today", "/(tabs)/extract": "/extract", "/(tabs)/index": "/legacy-today", "/(tabs)/plan": "/plan", "/(tabs)/progress": "/progress" };
     route = aliases[route] ?? route;
+    if (route === "/design-preview") return options.designPreview ? route + search : "/";
     if (
       !fixedRoutes.has(route) &&
       !/^\/(workout|discover|edit-workout|organize|session|import|coach-action)\/[A-Za-z0-9_-]{1,100}$/.test(route) &&

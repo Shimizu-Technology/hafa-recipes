@@ -1,3 +1,4 @@
+import { LookProvider } from "@/components/look-provider";
 import { RemindersProvider } from "@/components/reminders-provider";
 import { router } from "expo-router";
 import { pendingShare } from "@/lib/sharing";
@@ -71,6 +72,7 @@ function Routes() {
       screenOptions={{ headerShown: false, headerBackTitle: "Back", contentStyle: { backgroundColor: c.background } }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="design-preview" />
       <Stack.Screen name="shared/[token]" />
       <Stack.Screen name="health-rationale" />
       <Stack.Screen name="privacy" />
@@ -139,7 +141,7 @@ function Routes() {
     stack
   );
 }
-export default function Root() {
+function RootContent() {
   const c = useColors();
   const [cleanupReady, setCleanupReady] = useState(false);
   const [cleanupError, setCleanupError] = useState("");
@@ -207,3 +209,5 @@ export default function Root() {
     </SafeAreaProvider>
   );
 }
+
+export default function Root() { return <LookProvider><RootContent /></LookProvider>; }

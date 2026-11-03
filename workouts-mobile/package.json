@@ -21,8 +21,12 @@
   "dependencies": {
     "@believer/react-native-markdown-display": "8.4.1",
     "@clerk/expo": "4.5.2",
+    "@expo-google-fonts/barlow-condensed": "0.4.1",
+    "@expo-google-fonts/bricolage-grotesque": "0.4.1",
     "@expo-google-fonts/dm-sans": "0.4.2",
     "@expo-google-fonts/fraunces": "0.4.1",
+    "@expo-google-fonts/inter": "0.4.2",
+    "@expo-google-fonts/nunito": "0.4.2",
     "@expo/ui": "~57.0.26",
     "@expo/vector-icons": "15.0.3",
     "@kingstinct/react-native-healthkit": "16.1.0",

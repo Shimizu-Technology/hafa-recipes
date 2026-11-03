@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { lookIds, lookLabels } from "@/lib/looks";
 import { useRef, useState } from "react";
 import { Alert, Linking, Text, View } from "react-native";
 import Constants from "expo-constants";
@@ -49,6 +51,7 @@ function IdentityCard() {
 }
 
 export default function Settings() {
+  const look = useLook();
   const clerk = useClerk();
   const { sessionId, userId } = useAuth();
   const { owner } = useTraining();
@@ -101,6 +104,13 @@ export default function Settings() {
   return (
     <Screen native grouped back title="Settings">
       <IdentityCard />
+      {look.enabled && <>
+        <SectionHeader title="Design preview" />
+        <Copy kind="small" tone="muted">Compare three directions. Preview builds only.</Copy>
+        {look.pending && <Copy kind="small">Loading the preview fonts…</Copy>}
+        {!!look.error && <Notice error>{look.error}</Notice>}
+        <ListGroup>{lookIds.map(id => <ListRow key={id} title={lookLabels[id].label} detail={lookLabels[id].description} icon={look.id === id ? "checkmark-circle" : "ellipse-outline"} trailing="none" onPress={() => look.setLook(id)} />)}</ListGroup>
+      </>}
       <SectionHeader title="Training" />
       <ListGroup>
         <ListRow title="Training profile" icon="person-outline" onPress={() => router.push("/profile")} />

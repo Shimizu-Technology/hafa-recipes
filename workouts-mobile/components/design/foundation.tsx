@@ -12,10 +12,13 @@ import {
   type ViewStyle,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { dark, light, typography, type ColorTokens, type TypeKind } from "@/constants/theme";
+import { typography, type ColorTokens, type TypeKind } from "@/constants/theme";
+
+import { useLook } from "@/lib/look-context";
 
 export function useColors(): ColorTokens {
-  return useColorScheme() === "dark" ? dark : light;
+  const look = useLook();
+  return look.palette[useColorScheme() === "dark" ? "dark" : "light"];
 }
 
 /** True when the user asked the OS to reduce motion. Animations must settle instantly then. */
@@ -116,9 +119,14 @@ export function Copy({
   fit?: boolean;
 }>) {
   const c = useColors();
+  const look = useLook();
+  const display = ["display", "title", "heading", "numeric"].includes(kind) || kind === "cardTitle" && look.id === "athletic";
+  const weight = typography[kind].fontWeight;
+  const face = display ? look.fonts.display : weight === "700" ? look.fonts.bold : weight === "600" ? look.fonts.semibold : look.fonts.regular;
+  const lookType = look.id === "current" ? {} : { fontFamily: face, fontWeight: "400" as const, ...(look.id === "athletic" && display ? { textTransform: "uppercase" as const, letterSpacing: 0.25 } : {}) };
   const surface = useSurface();
   const { fontScale } = useWindowDimensions();
-  const textStyle = StyleSheet.flatten([typography[kind], { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
+  const textStyle = StyleSheet.flatten([typography[kind], lookType, { color: color ?? toneColor(c, tone, surface) }, align ? { textAlign: align } : null, style]);
   const scale = allowFontScaling === false ? 1 : Math.min(fontScale, maxScale ?? Infinity);
   // Explicit sizes keep Fabric layout and glyph metrics together on a live Dynamic Type change.
   const scaled = { ...textStyle, fontSize: (textStyle.fontSize ?? typography[kind].fontSize) * scale,
