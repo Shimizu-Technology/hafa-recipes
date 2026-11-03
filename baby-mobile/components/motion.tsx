@@ -37,20 +37,25 @@ export function FadeUp({ children, style }: { children: ReactNode; style?: ViewS
  * confirmation swells to 1.03 and settles with a success haptic. Under Reduce Motion only the haptic plays.
  */
 export function Swell({ children }: { children: ReactNode }) {
-  const reduced = useReducedMotion(), value = useRef(new Animated.Value(0)).current;
+  const reduced = useReducedMotion(), value = useRef(new Animated.Value(0)).current, played = useRef(false);
   useEffect(() => {
     if (reduced === null) return;
+    // Turning Reduce Motion on mid-swell settles it at rest at once; the haptic never plays twice.
+    if (played.current) { if (reduced) { value.stopAnimation(); value.setValue(1); } return; }
+    let swell: Animated.CompositeAnimation | null = null;
     const timer = setTimeout(() => {
+      played.current = true;
       tap("success");
       if (reduced) return;
-      Animated.sequence([
+      swell = Animated.sequence([
         Animated.timing(value, { toValue: 0.5, duration: 180, easing: easeOut, useNativeDriver: native }),
         Animated.timing(value, { toValue: 1, duration: 280, easing: easeOut, useNativeDriver: native }),
-      ]).start();
+      ]);
+      swell.start();
     }, 380);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); swell?.stop(); };
   }, [reduced, value]);
-  return <Animated.View style={{ transform: [{ scale: value.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.03, 1] }) }] }}>
+  return <Animated.View style={reduced === false ? { transform: [{ scale: value.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.03, 1] }) }] } : undefined}>
     {children}
   </Animated.View>;
 }
