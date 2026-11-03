@@ -6,6 +6,7 @@ import { Image } from "expo-image";
 import { useColors } from "@/components/ui";
 import { dayAdjustments } from "@/lib/day-adjustments";
 import { AdjustTraining } from "./adjust-training";
+import { WorkoutStartSheet } from "./workout-start-sheet";
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
@@ -15,7 +16,7 @@ import { Button, Copy, Empty, ListGroup, ListRow, Notice, WeekStrip } from "@/co
 import { QueryState } from "@/components/query-state";
 import { useTraining, useOfflineTraining } from "@/lib/context";
 import { sessionsQuery, sessionReadStartedAt } from "@/lib/session-query";
-import { dateInTimezone } from "@/lib/training";
+import { dateInTimezone, trackingPrescriptionWarning, type StartChoice } from "@/lib/training";
 import { missingProgressParents, loadProgressAncestry, selectProgressSessions } from "@/lib/progress-selection";
 import { weekSummary, weekDays } from "@/lib/week-strip";
 import { formatPlanDate, nextPlannedSession } from "@/lib/plan-presentation";
@@ -31,6 +32,8 @@ export function TrainToday() {
   const [adjust, setAdjust] = useState<{ program: Program; session?: ScheduledSession } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // A session the timer can't run as written asks how to track it, as the workout page does.
+  const [choosing, setChoosing] = useState<{ program: Program; session: ScheduledSession } | null>(null);
   const [retryBusy, setRetryBusy] = useState(false);
   const retrying = useRef(false);
   const starting = useRef(false);
@@ -93,7 +96,7 @@ export function TrainToday() {
       setRetryBusy(false);
     }
   }
-  async function start(program: Program, session: ScheduledSession) {
+  async function start(program: Program, session: ScheduledSession, choice?: StartChoice) {
     if (starting.current || !offline.store || !offline.ready || program.schedule_state?.status === "paused") return;
     starting.current = true;
     setBusy(true);
@@ -102,8 +105,11 @@ export function TrainToday() {
       await offline.store.start(
         { ...session.workout, id: session.workout.id ?? session.id, generation: program.generation, revision: session.workout.version ?? 1 },
         { program_id: program.id, program_revision: program.revision, program_session_id: session.id },
-        Crypto.randomUUID()
+        Crypto.randomUUID(),
+        undefined,
+        choice
       );
+      setChoosing(null);
       router.push("/training");
     } catch (e) {
       setError((e as Error).message);
@@ -131,7 +137,10 @@ export function TrainToday() {
         .filter((x): x is string => !!x),
       action: <>
         {!offline.ready && <Copy kind="small" tone="muted">Getting this device ready to record your session…</Copy>}
-        <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => { void start(planned.program, planned.session); }} />
+        <Button title="Start" icon="play" size="lg" disabled={!offline.ready} busy={busy} onPress={() => {
+          if (planned.session.workout.blocks?.length && trackingPrescriptionWarning(planned.session.workout)) setChoosing({ program: planned.program, session: planned.session });
+          else void start(planned.program, planned.session);
+        }} />
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}><Button title="Adjust today" size="sm" secondary onPress={() => { setAdjust(planned); setAdjustOpen(true); }} /></View>
           <View style={{ flex: 1 }}>{askCoach}</View>
@@ -228,6 +237,18 @@ export function TrainToday() {
         <ListRow icon="add-circle-outline" title="Log an activity you did" detail="A run, a class or anything outside Håfa" onPress={() => router.push("/activity")} />
       </ListGroup>
       {adjust && <AdjustTraining key={`${adjust.program.id}:${adjust.session?.id ?? "missed"}`} visible={adjustOpen} onClose={() => setAdjustOpen(false)} program={programs.data?.find(p => p.id === adjust.program.id) ?? adjust.program} session={adjust.session} />}
+      {choosing && <WorkoutStartSheet
+        visible
+        busy={busy}
+        timedMessage={choosing.session.workout.blocks?.some((block) => block.execution) ? trackingPrescriptionWarning(choosing.session.workout) : null}
+        onClose={() => { if (!busy) setChoosing(null); }}
+        onStart={(choice) => void start(choosing.program, choosing.session, choice)}
+        onEdit={() => {
+          const id = choosing.session.workout.id;
+          setChoosing(null);
+          if (id) router.push({ pathname: "/edit-workout/[id]", params: { id } });
+        }}
+      />}
       {!!error && <Notice error>{error}</Notice>}
     </>
   );
