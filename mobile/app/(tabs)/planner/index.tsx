@@ -57,7 +57,7 @@ import {
 } from '@/hooks/useMealPlan';
 import { MealPlanEntry, MealType, RecipeListItem } from '@/types/recipe';
 import { useRecipe } from '@/hooks/useRecipes';
-import { spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
+import { layout, spacing, fontSize, fontWeight, radius, fontFamily } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useAskPillScroll } from '@/lib/askPill';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
@@ -919,7 +919,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   signedOutContent: {
-    padding: 16,
+    padding: layout.margin,
     gap: spacing.lg,
   },
   signedOutHero: {
@@ -964,8 +964,6 @@ const styles = StyleSheet.create({
   previewPlannerKicker: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
-    letterSpacing: 1.1,
-    textTransform: 'uppercase',
     marginBottom: 3,
   },
   previewPlannerTitle: {
@@ -1027,8 +1025,6 @@ const styles = StyleSheet.create({
   previewMealLabel: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
     marginBottom: 2,
   },
   previewMealTitle: {
@@ -1124,7 +1120,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: 16,
+    paddingHorizontal: layout.margin,
+    paddingVertical: 16,
     paddingBottom: spacing.xl,
   },
   dayTitle: {
@@ -1197,7 +1194,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   mealCardTitle: {
-    fontSize: 16, lineHeight: 21, fontFamily: fontFamily.display,
+    fontSize: 16, lineHeight: 21, fontFamily: fontFamily.semibold,
   },
   mealCardNotes: {
     fontSize: 15,
@@ -1234,7 +1231,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.md,
-    borderRadius: radius.full,
+    borderRadius: radius.md,
     minHeight: 50,
     marginTop: spacing.lg,
     gap: spacing.sm,

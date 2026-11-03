@@ -83,7 +83,7 @@ vi.mock('@/hooks/useMealPlan', () => ({
   useMealPlanWeek: vi.fn(),
 }));
 vi.mock('@/hooks/useRecipes', () => ({ useRecipe: vi.fn() }));
-vi.mock('@/constants/Colors', () => ({
+vi.mock('@/constants/Colors', () => ({ layout: { margin: 20, gridGap: 16, section: 32 },
   fontFamily: { semibold: 'System' },
   fontSize: { xs: 12, sm: 14, md: 16, lg: 18, xl: 24 },
   fontWeight: { medium: '500', semibold: '600', bold: '700' },

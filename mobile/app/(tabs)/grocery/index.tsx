@@ -55,7 +55,7 @@ import {
   useUpdateGroceryItem,
 } from '@/hooks/useGrocery';
 import { GroceryItem } from '@/types/recipe';
-import { spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
+import { layout, spacing, fontSize, fontFamily, fontWeight, radius } from '@/constants/Colors';
 import { useTabScrollEndPadding } from '@/lib/bottomOverlay';
 import { useTabScrollToTop } from '@/lib/tabScrollToTop';
 import { Chip } from '@/components/chrome/Chips';
@@ -135,7 +135,7 @@ function GroceryItemRow({
     <RNView style={[styles.itemRow, { flex: 1, backgroundColor: colors.backgroundElevated }]}>
       <TouchableOpacity onPress={onToggle} activeOpacity={1} style={[styles.itemCheck, { top: 12 + (firstLineHeight - 44) / 2 }]}
         accessibilityRole="checkbox" accessibilityState={{ checked: item.checked }} accessibilityLabel={spokenQuantity(itemLabel)}>
-        <Ionicons name={item.checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={item.checked ? colors.tint : colors.textSecondary} />
+        <Ionicons name={item.checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={item.checked ? colors.actionText : colors.textSecondary} />
       </TouchableOpacity>
       <TouchableOpacity onPress={onEdit} onLongPress={openMenu} style={{ flex: 1, minHeight: 44, justifyContent: 'flex-start' }}
         accessibilityRole="button" accessibilityLabel={`Edit ${item.name}`}
@@ -572,7 +572,8 @@ function GroceryScreenContent() {
     }
 
     return (
-      <RNView style={{ overflow: 'hidden', borderTopLeftRadius: index === 0 ? 12 : 0, borderTopRightRadius: index === 0 ? 12 : 0, borderBottomLeftRadius: index === section.data.length - 1 ? 12 : 0, borderBottomRightRadius: index === section.data.length - 1 ? 12 : 0 }}>
+      // Every section shares one sheet; only the list's very last row rounds the bottom.
+      <RNView style={{ overflow: 'hidden', ...(index === section.data.length - 1 && section === sections[sections.length - 1] ? { borderBottomLeftRadius: 16, borderBottomRightRadius: 16 } : null) }}>
       <GroceryItemRow
         item={item}
         colors={colors}
@@ -583,7 +584,7 @@ function GroceryScreenContent() {
         isSharedList={listInfo?.is_shared ?? false}
         scaleFontSize={scaleFontSize}
       />
-      {index < section.data.length - 1 && <RNView style={{ height: StyleSheet.hairlineWidth, marginLeft: 60, marginRight: 16, backgroundColor: colors.border }} />}
+      {index < section.data.length - 1 && <RNView style={{ height: StyleSheet.hairlineWidth, marginLeft: 60, backgroundColor: colors.hairline }} />}
       </RNView>
     );
   };
@@ -596,6 +597,8 @@ function GroceryScreenContent() {
       isCollapsed={isSectionCollapsed(section)}
       isCollapsible={!isSearching}
       onToggle={() => toggleSection(section)}
+      first={section === sections[0]}
+      last={section === sections[sections.length - 1]}
       onOpenRecipe={(recipeId) => router.push(appRoutes.recipe(recipeId))}
       onClearSection={section.recipeId ? () => handleClearRecipeSection(fullSection) : undefined}
     />;
@@ -785,7 +788,7 @@ function GroceryScreenContent() {
         {/* Editing controls appear only when there is an authenticated list. */}
         {isAuthenticated && (
           <>
-        <RNView style={styles.addItemRow}>
+        <RNView style={[styles.addItemRow, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
           <Ionicons name="add-circle-outline" size={24} color={colors.actionText} />
           <TextInput ref={addItemInputRef} style={[styles.addItemInput, { color: colors.text, lineHeight: 22 }]}
             placeholder="Add an item" placeholderTextColor={colors.textSecondary} value={newItemName} onChangeText={setNewItemName}
@@ -895,12 +898,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: layout.margin,
     paddingBottom: spacing.xxl,
   },
   header: {
     paddingTop: 4,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
     paddingHorizontal: 0,
   },
   viewRow: {
@@ -940,7 +943,8 @@ const styles = StyleSheet.create({
   addItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 0,
+    paddingLeft: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
     marginBottom: spacing.md,
     overflow: 'hidden',
