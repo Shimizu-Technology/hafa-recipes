@@ -319,7 +319,7 @@ export default function Library() {
             <LibraryCard
               view={view}
               title={w.title}
-              meta={workoutCardMeta(w)}
+              meta={workoutCardMeta(w)} blocks={w.kind === "program" ? undefined : w.blocks}
               creator={w.source_creator} origin={workoutOrigin(w)}
               image={w.source_thumbnail_url}
               icon={kindIcons[w.kind]}

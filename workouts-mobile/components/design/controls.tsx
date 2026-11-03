@@ -50,6 +50,7 @@ export function Button({
   inline = false,
   haptic,
   accessibilityHint,
+  accessibilityLabel,
   disabledReason,
   textLink = false,
   maxScale,
@@ -70,6 +71,7 @@ export function Button({
   inline?: boolean;
   haptic?: "tick" | "success";
   accessibilityHint?: string;
+  accessibilityLabel?: string;
   /** Explain a material blocked action, visibly and to assistive technology. */
   disabledReason?: string;
 }) {
@@ -89,7 +91,7 @@ export function Button({
     <>
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityHint={disabled && disabledReason ? disabledReason : accessibilityHint}
       accessibilityState={{ disabled: inactive, busy }}
       aria-disabled={inactive}
@@ -480,7 +482,8 @@ export function SearchField({ value, onChange, placeholder, label, onSubmit }: {
       <TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={c.muted}
         accessibilityLabel={label} accessibilityRole="search" returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         clearButtonMode="never" onSubmitEditing={onSubmit ? () => onSubmit() : undefined}
-        style={{ flex: 1, minHeight: height, fontFamily: fonts.regular, lineHeight: 22, fontSize: 17, color: c.text, paddingVertical: 0 }} />
+        allowFontScaling={false}
+        style={{ flex: 1, minHeight: height, fontFamily: fonts.regular, lineHeight: 22 * fontScale, fontSize: 17 * fontScale, color: c.text, paddingVertical: 0, textAlignVertical: "center" }} />
       {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8} onPress={() => onChange("")}
         style={{ width: 36, height: height, alignItems: "center", justifyContent: "center" }}>
         <Ionicons name="close-circle" size={18} color={c.muted} />

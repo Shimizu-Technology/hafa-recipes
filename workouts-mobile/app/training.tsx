@@ -176,8 +176,8 @@ export default function Training() {
       >
         {!!summary.score && <Copy kind="heading">{summary.score}</Copy>}
         <Copy tone="muted">Saved to your history. If you’re offline, it uploads when you reconnect.</Copy>
-        <Row gap={12} wrap>
-          <StatTile value={summary.sets} label={summary.sets === 1 ? "Set logged" : "Sets logged"} icon="checkmark-done" />
+        <Row gap={12} wrap align="stretch">
+          <StatTile value={summary.sets} label={summary.sets === 1 ? "Set" : "Sets"} icon="checkmark-done" />
           <StatTile value={summary.exercises} label={summary.exercises === 1 ? "Exercise" : "Exercises"} icon="barbell-outline" />
           <StatTile value={summary.active.value} unit={summary.active.unit} label="Active time" icon="time-outline" />
         </Row>

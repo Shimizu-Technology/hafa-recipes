@@ -11,7 +11,7 @@ import type { Workout } from "@/lib/models";
 import { radii } from "@/constants/theme";
 import { SourcePlayerModal } from "./source-player";
 
-type Source = Pick<Workout, "title" | "source_title" | "source_creator" | "source_thumbnail_url" | "source_url" | "cover_origin">;
+type Source = Partial<Pick<Workout, "blocks" | "kind">> & Pick<Workout, "title" | "source_title" | "source_creator" | "source_thumbnail_url" | "source_url" | "cover_origin">;
 
 /**
  * The workout's photo or video, first and full width. When the source is a video,
@@ -53,7 +53,7 @@ export function WorkoutHero({ source, format, headline }: { source: Source; form
       {image
         ? <Image source={{ uri: image }} accessibilityIgnoresInvertColors onError={() => setFailed(image)}
           style={{ width: "100%", aspectRatio: 4 / 3, maxHeight: 360, resizeMode: "cover" }} />
-        : <View style={{ width: "100%", aspectRatio: 16 / 9 }}><WorkoutArt title={source.title} meta={format ?? ""} /></View>}
+        : <View style={{ width: "100%", aspectRatio: 16 / 9 }}><WorkoutArt title={source.title} meta={format ?? ""} blocks={source.kind === "program" ? undefined : source.blocks} /></View>}
       <View pointerEvents="none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" }}>
         <View style={{ width: 44, height: 44, borderRadius: radii.full, backgroundColor: c.imageOverlay, alignItems: "center", justifyContent: "center" }}>
           <Ionicons name="play" size={20} color={c.onImage} style={{ marginLeft: 4 }} />
@@ -61,7 +61,7 @@ export function WorkoutHero({ source, format, headline }: { source: Source; form
       </View>
     </Pressable> : image ? <View style={{ borderRadius: 20, overflow: "hidden" }}>
       <SourceImage uri={image} cover label={label} fallback={null} onFailed={() => setFailed(image)} />
-    </View> : <View style={{ height: 240, borderRadius: radii.lg, overflow: "hidden" }}><WorkoutArt title={source.title} meta={format ?? ""} /></View>}
+    </View> : <View style={{ height: 240, borderRadius: radii.lg, overflow: "hidden" }}><WorkoutArt title={source.title} meta={format ?? ""} blocks={source.kind === "program" ? undefined : source.blocks} /></View>}
     {headline}
     {(!!credit || !!url) && <Row gap={8}>
       {!!credit && <Copy kind="small" tone="muted" numberOfLines={2} style={{ flex: 1 }}>{credit}</Copy>}

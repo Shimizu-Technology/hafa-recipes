@@ -195,8 +195,8 @@ export default function DiscoverWorkout() {
   ) : item && workout ? (
     <View style={{ borderRadius: radii.xl - 4, overflow: "hidden" }}>
       {item.thumbnail_url ? <SourceImage uri={item.thumbnail_url} label={item.title} cover
-        fallback={<SourceArtwork platform={item.source_platform} height={220} title={item.title} meta={durationLabel(workout) ?? (item.estimated_minutes ? `${item.estimated_minutes} min` : "")} />} />
-        : <SourceArtwork platform={item.source_platform} height={220} title={item.title} meta={durationLabel(workout) ?? (item.estimated_minutes ? `${item.estimated_minutes} min` : "")} />}
+        fallback={<SourceArtwork platform={item.source_platform} height={220} title={item.title} blocks={workout.kind === "program" ? undefined : workout.blocks} meta={durationLabel(workout) ?? (item.estimated_minutes ? `${item.estimated_minutes} min` : "")} />} />
+        : <SourceArtwork platform={item.source_platform} height={220} title={item.title} blocks={workout.kind === "program" ? undefined : workout.blocks} meta={durationLabel(workout) ?? (item.estimated_minutes ? `${item.estimated_minutes} min` : "")} />}
     </View>
   ) : undefined;
   const title = item?.title ?? (q.isPending ? "Loading workout…" : "Discover");

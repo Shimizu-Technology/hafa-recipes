@@ -35,6 +35,7 @@ it.each([undefined, null, { execution: { mode: "emom" as const, interval_seconds
     const expected = format ? "EMOM 20" : "35 min";
     act(() => { view = create(createElement(DiscoverGridCard, { card, onPress() {} })); });
     expect(view!.root.findByType("WorkoutArt" as never).props.meta).toBe(expected);
+    expect(view!.root.findByType("WorkoutArt" as never).props.blocks).toEqual(format ? [format] : undefined);
     expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toContain(expected);
     act(() => { view!.update(createElement(DiscoverCardView, { card, onPress() {} })); });
     const media = view!.root.findByType("MediaCard" as never);
@@ -273,4 +274,26 @@ it("re-measures the search field, filter chips and their scroller on every text-
     expect(field()).not.toBe(firstField);
   }
   expect(field().props.style.minHeight).toBe(Math.ceil(22 * 3.1) + 14);
+});
+
+it("reserves the format cover corner whenever a save or selection badge is shown", () => {
+  const props = { view: "grid" as const, title: "Test", meta: "", icon: "barbell-outline" as const, favorite: false, onPress() {} };
+  for (const extra of [{}, { selected: false }, { save: { saved: true, busy: false, onPress() {} } }]) {
+    act(() => { view = create(createElement(LibraryCard, { ...props, ...extra })); });
+    expect(view!.root.findByType("WorkoutArt" as never).props.cornerBadge).toBe(!!("selected" in extra || "save" in extra));
+    act(() => view!.unmount());
+  }
+});
+it("centres a manually scaled search text line beside the magnifier at AX3", () => {
+  f.fontScale = 3.1;
+  act(() => { view = create(createElement(SearchField, { value: "", onChange() {}, placeholder: "Search", label: "Search" })); });
+  const input = view!.root.findByType("Input" as never);
+  expect(input.props.allowFontScaling).toBe(false);
+  expect(input.props.style).toMatchObject({ fontSize: 17 * 3.1, lineHeight: 22 * 3.1, textAlignVertical: "center" });
+  expect(input.parent!.props.style.alignItems).toBe("center");
+});
+
+it("keeps the full accessible label on a visually shortened footer button", () => {
+  act(() => { view = create(createElement(Button, { title: "Done", accessibilityLabel: "Done · minute 1", onPress() {} })); });
+  expect(view!.root.findByType("Pressable" as never).props.accessibilityLabel).toBe("Done · minute 1");
 });

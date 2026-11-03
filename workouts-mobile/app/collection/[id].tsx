@@ -132,7 +132,7 @@ export default function CollectionDetail() {
           onEndReachedThreshold={0.6}
           onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetchNextPageError) void q.fetchNextPage(); }}
           renderItem={({ item: w }) => (
-            <LibraryCard view={view} title={w.title} meta={workoutCardMeta(w)} creator={w.source_creator} origin={workoutOrigin(w)}
+            <LibraryCard view={view} title={w.title} meta={workoutCardMeta(w)} blocks={w.kind === "program" ? undefined : w.blocks} creator={w.source_creator} origin={workoutOrigin(w)}
               image={w.source_thumbnail_url} icon={kindIcons[w.kind]} favorite={!!w.organization?.favorite} badge={workoutCardBadge(w)}
               onPress={() => router.push({ pathname: "/workout/[id]", params: { id: w.id } })} />
           )}
