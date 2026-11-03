@@ -7,7 +7,8 @@ vi.mock('react-native', () => ({
   Keyboard: { isVisible: () => state.keyboard, addListener: (name: string, fn: () => void) => { state.listeners[name] = fn; return { remove: vi.fn() }; } },
   Platform: { OS: 'ios' }, Pressable: 'Pressable', Text: 'Text', View: 'View', Animated: { View: 'AnimatedView' }, StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
 }));
-vi.mock('@/components/chrome/motion', () => ({ PressScale: 'Pressable', useIndicatorX: () => 0 }));
+const marker = vi.hoisted(() => ({ calls: [] as number[] }));
+vi.mock('@/components/chrome/motion', () => ({ PressScale: 'Pressable', useIndicatorX: (x: number) => { marker.calls.push(x); return 0; } }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 34 }) }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }) }));
@@ -87,5 +88,16 @@ it('scrolls the selected tab to the top when it is tapped again, and only then',
     navigation.emit.mockReturnValueOnce({ defaultPrevented: true });
     await act(async () => slot('Grocery').props.onPress());
     expect(scroll.toTop).not.toHaveBeenCalled();
+  } finally { await act(async () => r.unmount()); }
+});
+
+it('centres the top marker over a tab after the Import slot', async () => {
+  const r = createRoot();
+  try {
+    await act(async () => r.render(<HafaTabBar {...props(3)} />));
+    const row = r.container.queryAll(n => n.type === 'View' && typeof n.props.onLayout === 'function')[0];
+    await act(async () => row.props.onLayout({ nativeEvent: { layout: { width: 500 } } }));
+    // Five slots of 100pt; Grocery (route 3) sits in slot 4 because Import takes slot 2.
+    expect(marker.calls.at(-1)).toBe(4 * 100 + (100 - 24) / 2);
   } finally { await act(async () => r.unmount()); }
 });

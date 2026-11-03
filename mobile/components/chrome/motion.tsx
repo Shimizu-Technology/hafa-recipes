@@ -35,18 +35,25 @@ export function PressScale({ children, style, onPressIn, onPressOut, ...props }:
     }]}>{children}</Target>;
 }
 
-/** A selection marker's x: springs to each new position; placed without motion on first layout and under Reduce Motion. */
-export function useIndicatorX(x: number) {
+/**
+ * A selection marker's x. It springs only when `selection` changes; a new measured width (rotation,
+ * text size) just moves it. Placed without motion on first layout and under Reduce Motion.
+ */
+export function useIndicatorX(x: number, selection: number) {
   const reduceMotion = useReduceMotion();
   const value = useRef(new Animated.Value(x)).current;
   const placed = useRef(false);
+  const lastSelection = useRef(selection);
   useEffect(() => {
-    if (!placed.current || reduceMotion) {
+    const selectionChanged = lastSelection.current !== selection;
+    lastSelection.current = selection;
+    if (!placed.current || reduceMotion || !selectionChanged) {
+      value.stopAnimation();
       value.setValue(x);
       if (x > 0) placed.current = true;
       return;
     }
     Animated.spring(value, { toValue: x, useNativeDriver: true, ...INDICATOR }).start();
-  }, [x, reduceMotion, value]);
+  }, [x, selection, reduceMotion, value]);
   return value;
 }

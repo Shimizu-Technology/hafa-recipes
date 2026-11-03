@@ -51,7 +51,7 @@ export function HafaTabBar({ state, descriptors, navigation }: BottomTabBarProps
   useEffect(() => { reportTabScreenBottomInset(height); }, [height]);
   const slotWidth = rowWidth / (state.routes.length + 1);
   const selectedSlot = state.index < IMPORT_SLOT ? state.index : state.index + 1;
-  const markerX = useIndicatorX(rowWidth ? selectedSlot * slotWidth + (slotWidth - MARKER_WIDTH) / 2 : 0);
+  const markerX = useIndicatorX(rowWidth ? selectedSlot * slotWidth + (slotWidth - MARKER_WIDTH) / 2 : 0, selectedSlot);
   if (keyboardVisible) return null;
 
   const tabs = state.routes.map((route, index) => {

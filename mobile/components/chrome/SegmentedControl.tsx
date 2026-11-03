@@ -23,7 +23,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, a
   const [width, setWidth] = useState(0);
   const segmentWidth = (width - 4) / options.length;
   const index = Math.max(0, options.findIndex(option => option.value === value));
-  const x = useIndicatorX(width ? 2 + index * segmentWidth : 0);
+  const x = useIndicatorX(width ? 2 + index * segmentWidth : 0, index);
   return <View accessibilityRole="tablist" accessibilityLabel={accessibilityLabel} style={styles.control}
     onLayout={event => setWidth(event.nativeEvent.layout.width)}>
     <View pointerEvents="none" style={[styles.track, { backgroundColor: colors.surface2 }]} />
