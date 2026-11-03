@@ -1,3 +1,5 @@
+import { useLook } from "@/lib/look-context";
+import { LookEntrance } from "./look-motion";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
@@ -244,6 +246,11 @@ export type DayMark = { today?: boolean; label: string; state: "done" | "planned
 /** This week at a glance: done, planned and today. No streak pressure. */
 export function WeekStrip({ days }: { days: DayMark[] }) {
   const c = useColors();
+  const look = useLook();
+  if (look.id === "coach") return <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 4 }}>{days.map((day, i) => <View key={day.accessibilityLabel} accessible accessibilityLabel={day.accessibilityLabel} style={{ alignItems: "center", flex: 1, gap: 8 }}>
+    <Copy kind="caption" tone="muted">{day.label}</Copy>
+    <LookEntrance index={i} weekDot><View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: day.state === "done" ? c.text : c.sunken, borderWidth: day.today || day.state === "today" ? 2 : 0, borderColor: c.text, alignItems: "center", justifyContent: "center" }}>{day.state === "done" ? <Ionicons name="checkmark" size={18} color={c.background} /> : <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: c.muted }} />}</View></LookEntrance>
+  </View>)}</View>;
   return (
     <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 4 }}>
       {days.map((day, i) => {
