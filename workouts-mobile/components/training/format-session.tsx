@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Pressable, View, useWindowDimensions } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Speech from "expo-speech";
@@ -7,7 +7,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Button, Card, Copy, Field, IconButton, ListRow, Notice, Row, Screen, SectionHeader, SetRow, Sheet, formatClock, haptics, useColors } from "@/components/ui";
 import { WorkoutInstructions } from "@/components/workout-instructions";
 import { announce } from "@/components/training/session-parts";
-import { largeText } from "@/lib/readable-layout";
+import { footerCellWidth, footerLabelScale, largeText } from "@/lib/readable-layout";
 import type { ActualSet } from "@/lib/models";
 import { actualIdentity, capRemainingSeconds, sessionElapsedMilliseconds, summaryOf, type SessionDraft, type TrainingStep } from "@/lib/training";
 import { parseEntry } from "@/lib/training-view";
@@ -138,7 +138,20 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
     : `This ${unit.toLowerCase()}: ${moves(position.index)}`;
   const hasNext = !!position && !allMarked && position.phase !== "ended" && (interval!.intervals == null || position.index < interval!.intervals);
 
-  // At the largest text sizes four stacked footer buttons would cover the clock; their labels stop growing at 1.6×.
+  // At large text the four footer actions sit in a two-column grid (Done | Missed, Pause | Finish) instead of
+  // stacking, so they leave room for the clock, which is pinned above the scrolling body. Labels wrap between
+  // words; a word that would not fit its cell gets a smaller size rather than breaking, and the icons make way.
+  const grid = largeText(fontScale);
+  const cell = footerCellWidth(width);
+  const action = (title: string, props: Omit<ComponentProps<typeof Button>, "title" | "size" | "maxScale">, alone = false) => (
+    <View key={title} style={{ width: alone ? "100%" : cell }}>
+      <Button title={title} size="lg" {...props} icon={undefined} maxScale={footerLabelScale(title, alone ? cell * 2 : cell, fontScale)} />
+    </View>
+  );
+  const cells = (...items: ReactNode[]) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>{items}</View>;
+  const doneTitle = format.mode === "work_rest" ? `Log interval ${target}` : `Done · ${unit.toLowerCase()} ${target}`;
+  const missTitle = format.mode === "work_rest" ? "Skip" : "Missed";
+  const doneDisabled = !typedValid || doseless.some((i) => countFor(i) == null);
   const primary = canComplete ? (
     <Button title="Save session" icon="checkmark-done" size="lg" busy={busy} onPress={() => finish("completed")} />
   ) : format.mode === "for_time" ? (
@@ -146,45 +159,60 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
       title={(block.rounds ?? 1) === 1 ? "Done · stop the clock" : target === (block.rounds ?? 1) ? `Round ${target} done · stop the clock` : `Round ${target} done`}
       onPress={() => log(targetSteps.map((s) => actualFor(s, true, null, null)))} />
       : <Button title="Save capped result" icon="checkmark-done" size="lg" busy={busy} disabled={!typedValid} onPress={stopEarly} />
-  ) : step && started ? (
-    <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
-      <View style={{ flex: largeText(fontScale) ? undefined : 2 }}>
-        <Button size="lg" icon="checkmark" busy={busy} disabled={!typedValid || doseless.some((i) => countFor(i) == null)}
-          title={format.mode === "work_rest" ? `Log interval ${target}` : `Done · ${unit.toLowerCase()} ${target}`} onPress={() => mark(true)} />
+  ) : step && started ? (grid ? null : (
+    <View style={{ flexDirection: "row", gap: 12 }}>
+      <View style={{ flex: 2 }}>
+        <Button size="lg" icon="checkmark" busy={busy} disabled={doneDisabled} title={doneTitle} onPress={() => mark(true)} />
       </View>
-      <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
-        <Button size="lg" variant="secondary" disabled={busy || !typedValid} title={format.mode === "work_rest" ? "Skip" : "Missed"} onPress={() => mark(false)} />
+      <View style={{ flex: 1 }}>
+        <Button size="lg" variant="secondary" disabled={busy || !typedValid} title={missTitle} onPress={() => mark(false)} />
       </View>
     </View>
-  ) : null;
+  )) : null;
+  const marking = !canComplete && format.mode !== "for_time" && !!step && started;
+  const finishPress = () => (canComplete ? finish("completed") : setStopping(true));
+  const footer = (
+    <>
+      {!!error && <Notice error>{error}</Notice>}
+      {grid && marking
+        ? cells(
+          action(doneTitle, { busy, disabled: doneDisabled, accessibilityHint: `Marks ${unit.toLowerCase()} ${target} done`, onPress: () => mark(true) }),
+          action(missTitle, { variant: "secondary", disabled: busy || !typedValid, onPress: () => mark(false) }))
+        : primary}
+      {grid
+        ? cells(
+          !finished && action(d.paused ? "Resume" : "Pause", { variant: "secondary", disabled: busy, onPress: () => pause(!d.paused) }),
+          action("Finish", { variant: "secondary", disabled: busy, onPress: finishPress }, finished))
+        : <View style={{ flexDirection: "row", gap: 12 }}>
+          {!finished && <View style={{ flex: 1 }}>
+            <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"} variant="secondary" disabled={busy} onPress={() => pause(!d.paused)} />
+          </View>}
+          <View style={{ flex: 1 }}>
+            <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy} onPress={finishPress} />
+          </View>
+        </View>}
+    </>
+  );
+  const clockCard = (
+    <Card tone="accent">
+      <Copy kind="caption" tone="accent">{caption}</Copy>
+      {!!phaseWord && <Copy kind="title" tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
+      <Copy kind="numeric" allowFontScaling={false} numberOfLines={1} style={{ fontSize: clockSize, lineHeight: Math.ceil(clockSize * 8 / 7) }} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`}>{clockText}</Copy>
+      {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small">{formatClock(remaining)} left</Copy>}
+      {!!nowLine && <Copy kind="label">{nowLine}</Copy>}
+      {hasNext && <Copy kind="small" tone="muted">Next · {unit} {position!.index + 1}: {moves(position!.index + 1)}</Copy>}
+      {format.mode === "for_time" && allMarked && <Copy kind="label">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
+    </Card>
+  );
 
   return (
     <Screen native back title={formatLabel(block)?.split(" · ")[0] ?? d.workout.title} subtitle={d.workout.title}
       action={<IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />}
-      footer={<>
-        {!!error && <Notice error>{error}</Notice>}
-        {primary}
-        <View style={{ flexDirection: largeText(fontScale) ? "column" : "row", gap: 12 }}>
-          {!finished && <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
-            <Button title={d.paused ? "Resume" : "Pause"} icon={d.paused ? "play" : "pause"} variant="secondary"
-              disabled={busy} onPress={() => pause(!d.paused)} />
-          </View>}
-          <View style={{ flex: largeText(fontScale) ? undefined : 1 }}>
-            <Button title="Finish" icon="flag-outline" variant="secondary" disabled={busy}
-              onPress={() => (canComplete ? finish("completed") : setStopping(true))} />
-          </View>
-        </View>
-      </>}
+      footer={footer}
+      // The clock stays put above the footer at large text; the logged work scrolls beneath it.
+      pinned={grid ? clockCard : undefined}
     >
-      <Card tone="accent">
-        <Copy kind="caption" tone="accent">{caption}</Copy>
-        {!!phaseWord && <Copy kind="title" tone={phaseWord === "Work" ? "accent" : "muted"} accessibilityLabel={`${phaseWord} phase`}>{phaseWord}</Copy>}
-        <Copy kind="numeric" allowFontScaling={false} numberOfLines={1} style={{ fontSize: clockSize, lineHeight: Math.ceil(clockSize * 8 / 7) }} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`}>{clockText}</Copy>
-        {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small">{formatClock(remaining)} left</Copy>}
-        {!!nowLine && <Copy kind="label">{nowLine}</Copy>}
-        {hasNext && <Copy kind="small" tone="muted">Next · {unit} {position!.index + 1}: {moves(position!.index + 1)}</Copy>}
-        {format.mode === "for_time" && allMarked && <Copy kind="label">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
-      </Card>
+      {!grid && clockCard}
       {d.paused && !finished && <Notice tone="warning">Paused. The clock is stopped and time away isn’t counted.</Notice>}
       {format.mode === "for_time" && step && (
         <>
