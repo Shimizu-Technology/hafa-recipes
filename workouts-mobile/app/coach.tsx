@@ -15,7 +15,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@
 import { Bubble, Button, Card, Chip, ChipRow, Copy, IconButton, ListGroup, ListRow, Notice, Sheet } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useTraining } from "@/lib/context";
-import { coachFocusErrors, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
+import { coachFocusErrors, messageInFocus, type CoachFocus, type CoachHistory, type CoachMessage, type PendingCoachMessage } from "@/lib/coach";
 const HISTORY_POSITION_ERROR = "Could not keep your reading position. Try loading earlier messages again.";
 const COPY_ERROR = "Could not copy this reply. Try again or select the text to copy it.";
 const messageOrder = (a: CoachMessage, b: CoachMessage) =>
@@ -223,7 +223,7 @@ export default function Coach() {
     }
   }, [pending?.request_id, epoch]);
   const history = [
-    ...new Map(q.data?.pages.flatMap((page) => page.messages).map((item) => [item.id, item]) ?? []).values(),
+    ...new Map(q.data?.pages.flatMap((page) => page.messages).filter((item) => messageInFocus(item, focus)).map((item) => [item.id, item]) ?? []).values(),
   ].sort(messageOrder);
   const scroll = useRef<ScrollView | null>(null);
   const reading = useRef({ offset: 0, latest: true, viewport: 0 });
@@ -741,7 +741,8 @@ export default function Coach() {
             disabled={sendDisabled || busy || !!message.trim()} onPress={() => { void send(prompt); }} />)}
         </View>
       </View>}
-      {q.hasNextPage && (
+      {/* A scope with no exchanges yet is a fresh conversation: older general history would not appear in it. */}
+      {q.hasNextPage && (focusKey === "general" || !!history.length) && (
         <Button
           title="Load earlier messages"
           variant="ghost"

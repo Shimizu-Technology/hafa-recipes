@@ -1,6 +1,6 @@
 vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
 import { it, expect, vi } from "vitest";
-import { canApplyCoach, coachFocusErrors, needsReturnConfirmation, type CoachAction } from "./coach";
+import { canApplyCoach, coachFocusErrors, messageInFocus, needsReturnConfirmation, type CoachAction } from "./coach";
 import { createWorkoutsApi } from "./api";
 const action = {
   id: "proposal",
@@ -197,4 +197,15 @@ it.each([
   { attachment_id: "7098abe8-bd72-43cc-bcaf-9f5963fe32cb", attachment_expires_at: "invalid" },
 ])("rejects malformed or partial photo metadata while preserving same-request recovery", async metadata => {
   await expect(runStream(streamingTransport([new TextEncoder().encode(frame({ type: "receipt", receipt: { ...wireReceipt, ...metadata } }))]))).rejects.toThrow("Could not confirm");
+});
+
+it("keeps a scoped coach to its own exchanges and shows everything in the general one", () => {
+  const today = { focus: {} }, leg = { focus: { context_workout_id: "leg", context_revision: 2 } };
+  const plan = { focus: { context_program_id: "plan" } }, session = { focus: { context_session_id: "s1" } };
+  expect([today, leg, plan, session].map(message => messageInFocus(message, {}))).toEqual([true, true, true, true]);
+  expect([today, leg, plan, session].map(message => messageInFocus(message, { context_workout_id: "leg", context_revision: 3 }))).toEqual([false, true, false, false]);
+  expect([today, leg, plan, session].map(message => messageInFocus(message, { context_workout_id: "other" }))).toEqual([false, false, false, false]);
+  expect([today, leg, plan, session].map(message => messageInFocus(message, { context_program_id: "plan" }))).toEqual([false, false, true, false]);
+  expect([today, leg, plan, session].map(message => messageInFocus(message, { context_session_id: "s1" }))).toEqual([false, false, false, true]);
+  expect(messageInFocus({ focus: undefined as never }, { context_workout_id: "leg" })).toBe(false);
 });
