@@ -26,7 +26,7 @@ export function weekDays(today: string, done: ReadonlySet<string>, planned: Read
     const at = new Date(`${date}T12:00:00Z`);
     const state: WeekDayState = done.has(date) ? "done" : date === today ? "today" : planned.has(date) ? "planned" : "rest";
     const detail = done.has(date)
-      ? "training recorded"
+      ? date === today ? "today, training recorded" : "training recorded"
       : planned.has(date)
         ? date === today
           ? "today, session planned"

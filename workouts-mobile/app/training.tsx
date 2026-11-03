@@ -447,9 +447,9 @@ export default function Training() {
           )}
         </>
       )}
-      {timed && <Card compact tone="accent">
+      {timed && <Card compact tone="accent" style={{ backgroundColor: "transparent", paddingHorizontal: 0, alignItems: "center" }}>
         <Copy kind="caption" tone="accent">{formatClock(timed.time_cap_seconds)} time cap</Copy>
-        <Copy kind="numeric">{formatClock(capRemaining ?? 0)}</Copy>
+        <Copy kind="numeric" fit maxScale={1.6} style={{ fontSize: 64, lineHeight: 72 }}>{formatClock(capRemaining ?? 0)}</Copy>
         <Copy kind="small">Round {step?.round_index ?? Math.ceil(d.steps.length / timed.round_size)} · {completedCircuitRounds(d.actuals, timed.round_size)} complete rounds logged</Copy>
         {capReached && <Notice>Time’s up. Log any final exercise, then save your session.</Notice>}
         {timed.limit_reached && <Notice tone="warning">This session reached its tracking limit. Save the recorded work as a partial session.</Notice>}
@@ -461,7 +461,7 @@ export default function Training() {
         <Notice tone="warning">Paused. Time away isn’t counted as training.</Notice>
       )}
       {phase === "resting" && (
-        <Card>
+        <Card style={{ backgroundColor: "transparent", paddingHorizontal: 0 }}>
           <RestTimer
             remaining={rest}
             onAdd={() => {

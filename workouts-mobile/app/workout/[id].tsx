@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { workoutCardMeta } from "@/lib/library-view";
 import { AccessibilityInfo, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -194,6 +195,13 @@ export default function WorkoutDetail() {
       : exercises === 0 ? "No exercises yet."
         : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
+  const headline = <Stack gap={6}>
+    <Copy kind="heading">{workout?.title ?? "Your workout."}</Copy>
+    {(!!formatChip || !!meta) && <Row gap={8} wrap>
+      {!!formatChip && <Chip label={formatChip} tone="accent" icon="timer-outline" />}
+      {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
+    </Row>}
+  </Stack>;
   return (
     <>
     <Screen native
@@ -210,14 +218,8 @@ export default function WorkoutDetail() {
       </Row> : undefined}
 
     >
-      {workout && <WorkoutHero source={workout} format={formatChip} />}
-      <Stack gap={6}>
-        <Copy kind="heading">{workout?.title ?? "Your workout."}</Copy>
-        {(!!formatChip || !!meta) && <Row gap={8} wrap>
-          {!!formatChip && <Chip label={formatChip} tone="accent" icon="timer-outline" />}
-          {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
-        </Row>}
-      </Stack>
+      {workout && <WorkoutHero source={workout} format={formatChip ?? workoutCardMeta(workout)} headline={headline} />}
+      {!workout && headline}
       {primary}
       {!!hint && <Copy kind="small" tone="muted">{hint}</Copy>}
       {!!error && <Notice error>{error}</Notice>}

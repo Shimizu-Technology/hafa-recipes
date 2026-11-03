@@ -1,3 +1,4 @@
+import { WorkoutArt } from "./workout-art";
 import { largeText, workoutGridWidth } from "@/lib/readable-layout";
 import { useState } from "react";
 import { Animated, Pressable, View, useWindowDimensions } from "react-native";
@@ -16,17 +17,14 @@ export function useLibraryGridWidth() {
   return workoutGridWidth(width, fontScale);
 }
 
-function Cover({ uri, icon, size }: { uri?: string | null; icon: IconName; size: number }) {
+function Cover({ uri, icon, size, title = "Your collection", meta = "" }: { uri?: string | null; icon: IconName; size: number; title?: string; meta?: string }) {
   const c = useColors();
   const reduced = useReducedMotion();
   const [failed, setFailed] = useState<string | null>(null);
   if (uri && uri !== failed)
     return <Image source={{ uri }} onError={() => setFailed(uri)} contentFit="cover" transition={reduced ? 0 : motion.base}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} accessibilityIgnoresInvertColors />;
-  // A quiet tonal tile, not a coral slab: the title below carries the card.
-  return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}>
-    <Ionicons name={icon} size={size} color={c.tertiaryLabel} />
-  </View>;
+  return <WorkoutArt title={title} meta={meta} compact={size < 28} />;
 }
 
 /** Small round mark over a cover: the favorite heart or the selection checkbox. */
@@ -96,9 +94,9 @@ export function LibraryCard({
         transform: [{ scale: press.scale }],
       }}
     >
-      <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: 14, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
-        <Cover uri={image} icon={icon} size={grid ? 28 : 24} />
-        {grid && !!meta && <View style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
+      <View style={grid ? { width: "100%", aspectRatio: 4 / 5, borderRadius: radii.lg, overflow: "hidden" } : { width: 72, height: 72, borderRadius: radii.md - 4, overflow: "hidden" }}>
+        <Cover uri={image} icon={icon} size={grid ? 28 : 24} title={title} meta={meta} />
+        {grid && !!meta && !!image && <View style={{ position: "absolute", left: 8, bottom: 8, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: c.imageOverlay }}>
           <Copy kind="caption2" color={c.onImage}>{meta}</Copy>
         </View>}
 

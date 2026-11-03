@@ -19,13 +19,13 @@ export function useColors(): ColorTokens {
 }
 
 /** Conservative until the OS preference resolves; transforms must not start early. */
-export function useReducedMotion(initial = true) {
-  const [reduced, setReduced] = useState(initial);
+export function useMotionPreference() {
+  const [reduced, setReduced] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
-    void AccessibilityInfo.isReduceMotionEnabled?.()
+    void Promise.resolve(AccessibilityInfo.isReduceMotionEnabled?.() ?? true)
       .then((value) => live && setReduced(value))
-      .catch(() => undefined);
+      .catch(() => { if (live) setReduced(true); });
     const sub = AccessibilityInfo.addEventListener?.("reduceMotionChanged", setReduced);
     return () => {
       live = false;
@@ -34,6 +34,8 @@ export function useReducedMotion(initial = true) {
   }, []);
   return reduced;
 }
+
+export function useReducedMotion() { return useMotionPreference() ?? true; }
 
 /**
  * Haptic feedback. Fire-and-forget: never blocks or throws, and is silent on web.

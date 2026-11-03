@@ -1,0 +1,27 @@
+import { createElement } from "react";
+import { act, create } from "react-test-renderer";
+import { expect, it, vi } from "vitest";
+import { light } from "../constants/theme";
+import { weekDays } from "./week-strip";
+vi.mock("react-native", () => ({ View: "View", Pressable: "Pressable" }));
+vi.mock("react-native-svg", () => ({ default: "Svg", Circle: "Circle" }));
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "Icon" }));
+vi.mock("../components/design/foundation", () => ({ Copy: "Copy", useColors: () => light }));
+vi.mock("../components/design/controls", () => ({ Button: "Button" }));
+import { WeekStrip } from "../components/design/training";
+it("gives all seven days markers, distinct accessible states and a Progress action", () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const days = weekDays("2026-11-03", new Set(["2026-11-02"]), new Set(["2026-11-04"]), "en-US");
+  const onPress = vi.fn(); let tree!: ReturnType<typeof create>;
+  act(() => { tree = create(createElement(WeekStrip, { days, onPress })); });
+  const marks = tree.root.findAllByType("Pressable" as never);
+  expect(marks).toHaveLength(7);
+  const marker = (i: number) => marks[i].findAllByType("View" as never).find(n => n.props.style.width === 34)!;
+  expect(marker(0).props.style.backgroundColor).toBe(light.action);
+  expect(marker(1).props.style).toMatchObject({ borderWidth: 2, borderColor: light.accent });
+  expect(marker(2).props.style).toMatchObject({ borderWidth: 2, borderColor: light.muted });
+  expect(marker(3).findAllByType("View" as never).find(n => n.props.style.width === 5)!.props.style).toMatchObject({ width: 5, backgroundColor: light.muted });
+  expect(new Set(marks.slice(0, 4).map(n => n.props.accessibilityLabel)).size).toBe(4);
+  act(() => marks[3].props.onPress()); expect(onPress).toHaveBeenCalledOnce();
+  act(() => tree.unmount());
+});

@@ -1,3 +1,4 @@
+import { AskCoachPill } from "@/components/ask-coach-pill";
 import { programSessionStates, programSessionKey } from "@/lib/program-session-identity";
 import { durationLabel } from "@/lib/timed-execution";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -371,9 +372,10 @@ export default function Plan() {
     });
   }
   return (
+    <>
     <Screen
       title="Today"
-      reserveAskRoom={false}
+      reserveAskRoom
 
       refreshing={freshness.refreshing}
       onRefresh={enrollment?.enrolled ? freshness.onRefresh : undefined}
@@ -536,5 +538,7 @@ export default function Plan() {
         </>}
       </Sheet>
     </Screen>
+    <AskCoachPill bottom={12} />
+    </>
   );
 }
