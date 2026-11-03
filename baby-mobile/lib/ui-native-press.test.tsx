@@ -88,14 +88,14 @@ it.each([false, true])("renders numeric native transforms through real RN Animat
   expect(host().props.accessibilityState).toEqual({ selected: true });
   expect(ref.current.host).toBe("NativePressable");
   await act(async () => host().props.onPressIn({}));
-  expect(host().props.style.transform).toEqual([{ scale: 0.97 }]);
+  expect(host().props.style.transform).toEqual([{ scale: 0.98 }]);
   expect(host().props.style.backgroundColor).toBe("pressed");
   await act(async () => host().props.onPressOut({}));
   expect(host().props.style.transform).toEqual([{ scale: 1 }]);
   await act(async () => state.listener!(true));
   await act(async () => host().props.onPressIn({}));
   expect(host().props.style.transform).toEqual([{ scale: 1 }]);
-  expect(host().props.style.opacity).toBe(0.82);
+  expect(host().props.style.opacity).toBe(0.88);
   await act(async () => renderer!.update(<PressTarget ref={ref} disabled accessibilityLabel="Feed"
     style={({ pressed }) => ({ minHeight: 44, backgroundColor: pressed ? "pressed" : "resting" })} />));
   expect(host().props.disabled).toBe(true);

@@ -31,47 +31,68 @@ import { isTabRoute, overlayBottom, reportDockedFooter, useDockedFooterHeight, u
 import { inputTraits, type InputPurpose } from "@/lib/input-purpose";
 import { BrandMark } from "./brand-mark";
 
-/** Baby's warm light palette and neutral, true-black dark palette. */
+/**
+ * Soft, Kami's Sand & Cocoa: sand behind the whole app (the light splash), the warm near-black splash ground at night,
+ * cocoa for actions, clay only in fills, and deep clay for clay-coloured text and the Add circle.
+ */
 const light = {
-  background: "#FFFFFF", groupedBackground: "#F2F2F7", surface: "#FAF7F4",
-  soft: "#F1E8E1", tile: "#F6EFE9", hero: "#F6EFE9",
-  text: "#2D2420", muted: "#6E625B", action: "#5A4740", onAction: "#F8F3EE",
-  border: "rgba(60,60,67,0.29)", outline: "rgba(60,60,67,0.29)",
-  accent: "#C9907E", accentText: "#8C5443", error: "#B3261E", errorBg: "#FBE3DE",
+  background: "#F8F3EE", groupedBackground: "#F8F3EE", surface: "#FFFFFF",
+  soft: "#EFE5DC", tile: "#F3E9E1", hero: "#F1DDD3",
+  text: "#5A4740", muted: "#725F56", action: "#5A4740", onAction: "#F8F3EE",
+  border: "rgba(90,71,64,0.14)", outline: "rgba(90,71,64,0.24)",
+  accent: "#C9907E", accentText: "#8E4F3D", error: "#B3261E", errorBg: "#FBE3DE",
   // Tonal fill behind a selected text link; accentText on it stays ≥4.5:1.
-  accentTint: "rgba(201,144,126,0.2)",
+  accentTint: "#F1DDD3",
   scrim: "rgba(45,36,32,0.42)",
   // JS-drawn chrome: the same solid bar and tonal header buttons on iOS 18, iOS 26 and Android.
-  tabBar: "#FFFFFF", tabBarBorder: "rgba(60,60,67,0.18)", headerFill: "rgba(118,118,128,0.12)",
+  tabBar: "#FFFDFB", tabBarBorder: "#EADFD2", headerFill: "#EFE5DC",
+  // The selected tab's blush pill, and the deep-clay Add: the one filled object in the bar.
+  tabIndicator: "#F1DDD3", tabInk: "#5A4740", addFill: "#9A5744", onAdd: "#FFFFFF",
+  // The 34-of-40 pregnancy bar, and the blush monogram tile for sources without a photo.
+  progressTrack: "rgba(154,87,68,0.16)", progressFill: "#9A5744", placeholder: "#F1DDD3", placeholderInk: "#8E4F3D",
 };
 const dark: typeof light = {
-  background: "#000000", groupedBackground: "#000000", surface: "#1C1C1E",
-  soft: "#2C2522", tile: "#2A2320", hero: "#2A2320",
-  text: "#FFFFFF", muted: "rgba(235,235,245,0.60)", action: "#E3C9B8", onAction: "#2D2420",
-  border: "rgba(84,84,88,0.65)", outline: "rgba(84,84,88,0.65)",
-  accent: "#E3C9B8", accentText: "#E3C9B8", error: "#FF5148", errorBg: "#3A1F1C",
-  accentTint: "rgba(227,201,184,0.2)",
+  background: "#14110F", groupedBackground: "#14110F", surface: "#221B18",
+  soft: "#2E2522", tile: "#2A221F", hero: "#33251F",
+  text: "#F3E9E2", muted: "#B5A39A", action: "#EBD7CA", onAction: "#2D2420",
+  border: "rgba(243,233,226,0.12)", outline: "rgba(243,233,226,0.22)",
+  accent: "#E0A894", accentText: "#E0A894", error: "#FF6B61", errorBg: "#3A1F1C",
+  accentTint: "#3A2A23",
   scrim: "rgba(0,0,0,0.6)",
-  tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", headerFill: "rgba(118,118,128,0.24)",
+  tabBar: "#1C1714", tabBarBorder: "#2E2622", headerFill: "#2A221F",
+  tabIndicator: "#3A2A23", tabInk: "#F3E9E2", addFill: "#E0A894", onAdd: "#2A1B16",
+  progressTrack: "rgba(224,168,148,0.2)", progressFill: "#E0A894", placeholder: "#33251F", placeholderInk: "#E0A894",
 };
+export const palettes = { light, dark };
 export function useColors() {
   return useColorScheme() === "dark" ? dark : light;
 }
-export const fonts = { regular: "System", rounded: Platform.OS === "ios" ? "ui-rounded" : "System" } as const;
+/**
+ * Newsreader for titles and the week numeral, DM Sans for everything else. Each weight is its own family
+ * (loaded in app/_layout.tsx), so styles name a family and never set fontWeight.
+ */
+export const fonts = {
+  regular: "DMSans_400Regular", medium: "DMSans_500Medium", semibold: "DMSans_600SemiBold", bold: "DMSans_700Bold",
+  display: "Newsreader_500Medium", displayItalic: "Newsreader_500Medium_Italic",
+} as const;
 export const typeScale = {
-  largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: "700" },
-  title1: { fontSize: 28, lineHeight: 34, fontWeight: "700" },
-  title2: { fontSize: 22, lineHeight: 28, fontWeight: "700" },
-  title3: { fontSize: 20, lineHeight: 25, fontWeight: "600" },
-  headline: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
-  body: { fontSize: 17, lineHeight: 22 },
-  callout: { fontSize: 16, lineHeight: 21 },
-  subhead: { fontSize: 15, lineHeight: 20 },
-  footnote: { fontSize: 13, lineHeight: 18 },
-  caption: { fontSize: 12, lineHeight: 16 },
-  caption2: { fontSize: 11, lineHeight: 13 },
-  number: { fontSize: 44, lineHeight: 50, fontWeight: "700", fontFamily: fonts.rounded, fontVariant: ["tabular-nums"] },
+  largeTitle: { fontSize: 32, lineHeight: 38, fontFamily: fonts.display },
+  title1: { fontSize: 28, lineHeight: 34, fontFamily: fonts.display },
+  title2: { fontSize: 22, lineHeight: 28, fontFamily: fonts.display },
+  title3: { fontSize: 24, lineHeight: 30, fontFamily: fonts.display },
+  headline: { fontSize: 17, lineHeight: 23, fontFamily: fonts.semibold },
+  body: { fontSize: 17, lineHeight: 24, fontFamily: fonts.regular },
+  callout: { fontSize: 16, lineHeight: 21, fontFamily: fonts.regular },
+  subhead: { fontSize: 15, lineHeight: 20, fontFamily: fonts.regular },
+  footnote: { fontSize: 14, lineHeight: 19, fontFamily: fonts.regular },
+  caption: { fontSize: 12, lineHeight: 16, fontFamily: fonts.regular },
+  caption2: { fontSize: 11, lineHeight: 13, fontFamily: fonts.regular },
+  number: { fontSize: 44, lineHeight: 50, fontFamily: fonts.semibold, fontVariant: ["tabular-nums"] },
 } satisfies Record<string, TextStyle>;
+/** One radius scale: pills for buttons and chips, 22–28 for surfaces. */
+export const radii = { hero: 28, card: 24, grouped: 22, field: 16, notice: 20, thumb: 14, tile: 22, toast: 24, bubble: 22 } as const;
+/** Strong ease-out for every UI transition; never ease-in. */
+export const easeOut = Easing.bezier(0.23, 1, 0.32, 1);
 const type = {
   title: typeScale.largeTitle, heading: typeScale.title3, body: typeScale.body,
   label: typeScale.headline, small: typeScale.footnote,
@@ -113,10 +134,10 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
   }, [reduced, disabled, scale, opacity]);
   function respond(down: boolean) {
     Animated.parallel([
-      Animated.timing(scale, { toValue: down && !reduced ? 0.97 : 1,
-        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
-      Animated.timing(opacity, { toValue: disabled ? 0.5 : down ? 0.82 : 1,
-        duration: down ? 120 : 160, easing: Easing.bezier(0.23, 1, 0.32, 1), useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(scale, { toValue: down && !reduced ? 0.98 : 1,
+        duration: down ? 120 : 180, easing: easeOut, useNativeDriver: Platform.OS !== "web" }),
+      Animated.timing(opacity, { toValue: disabled ? 0.5 : down ? 0.88 : 1,
+        duration: down ? 120 : 180, easing: easeOut, useNativeDriver: Platform.OS !== "web" }),
     ]).start();
   }
   return <AnimatedPressable {...props} ref={ref} disabled={disabled}
@@ -179,7 +200,6 @@ export function Copy({
       accessibilityRole={kind === "title" || kind === "heading" ? "header" : undefined}
       style={{
         ...style,
-        fontFamily: numeric ? fonts.rounded : fonts.regular,
         // Never undefined: when `numeric` turns off on a mounted Text, React Native diffs a removed
         // fontVariant to null and processFontVariant(null) throws a render error.
         fontVariant: numeric ? ["tabular-nums"] : [],
@@ -226,7 +246,7 @@ function TopBar({ back, close }: { back: boolean; close: boolean }) {
         })}
       >
         {close ? (
-          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22, color: c.action }}>
             Close
           </Text>
         ) : (
@@ -345,7 +365,7 @@ export function Screen({
         paddingHorizontal: 16,
         paddingTop: back || close ? 2 : 14,
         paddingBottom: footer || nativeHeader ? 24 : Math.max(24, insets.bottom),
-        gap: 20,
+        gap: 26,
         width: "100%",
         maxWidth: 720,
         alignSelf: "center",
@@ -437,9 +457,9 @@ export function Card({
     <View
       style={[
         {
-          padding: 20,
+          padding: 22,
           gap: 12,
-          borderRadius: tone === "hero" ? 20 : 14,
+          borderRadius: tone === "hero" ? radii.hero : radii.card,
           backgroundColor: tone === "hero" ? c.hero : tone === "soft" ? c.tile : c.surface,
 
         },
@@ -503,7 +523,7 @@ export function Button({
       <Text
         key={fontScale}
         maxFontSizeMultiplier={0}
-        style={{ fontFamily: numeric ? fonts.rounded : fonts.regular, fontVariant: numeric ? ["tabular-nums"] : [], fontWeight: "600", fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
+        style={{ fontFamily: fonts.semibold, fontVariant: numeric ? ["tabular-nums"] : [], fontSize: 17, lineHeight: 22, color: ink, textAlign: "center", flexShrink: 1 }}
       >
         {title}
       </Text>
@@ -542,7 +562,7 @@ function KeyboardDone({ id }: { id: string }) {
           onPress={() => Keyboard.dismiss()}
           style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}
         >
-          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
+          <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 17, lineHeight: 22, color: c.action }}>Done</Text>
         </PressTarget>
       </View>
     </InputAccessoryView>
@@ -609,9 +629,9 @@ export function Field({
         style={{
           backgroundColor: c.surface,
           color: c.text,
-          borderRadius: 10,
+          borderRadius: radii.field,
           padding: 16,
-          fontFamily: numeric ? fonts.rounded : fonts.regular,
+          fontFamily: fonts.regular,
           fontVariant: numeric ? ["tabular-nums"] : [],
           fontSize: 17,
           lineHeight: 22,
@@ -627,7 +647,7 @@ export function Notice({ children, error }: { children: React.ReactNode; error?:
   return (
     <View
       accessibilityRole={error ? "alert" : undefined}
-      style={{ padding: 15, borderRadius: 16, backgroundColor: error ? c.errorBg : c.tile }}
+      style={{ padding: 16, borderRadius: radii.notice, backgroundColor: error ? c.errorBg : c.tile }}
     >
       <Copy tone={error ? "error" : "muted"}>{children}</Copy>
     </View>
@@ -724,7 +744,7 @@ export function Chips({
             <Text
               key={fontScale}
               maxFontSizeMultiplier={0}
-              style={{ fontFamily: fonts.regular, fontWeight: "600", fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.onAction : c.action }}
+              style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, textAlign: "center", flexShrink: 1, color: on ? c.onAction : c.text }}
             >
               {o.label}
             </Text>
@@ -768,10 +788,10 @@ export function FilterChips({ options, value, onChange, label }: { options: Filt
             // A 44×44 minimum target around the 34pt pill, so even a one-word chip is easy to hit.
             style={{ minWidth: 44, minHeight: 44, justifyContent: "center" }}>
             <View style={{ minHeight: 34, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6,
-              backgroundColor: on ? c.action : c.soft }}>
+              backgroundColor: on ? c.action : c.surface }}>
               {option.icon && <Icon name={option.icon} size={16} color={ink} />}
               <Text key={fontScale} maxFontSizeMultiplier={0}
-                style={{ ...typeScale.subhead, fontWeight: "500", color: ink }}>{option.label}</Text>
+                style={{ ...typeScale.subhead, fontFamily: on ? fonts.semibold : fonts.medium, color: ink }}>{option.label}</Text>
             </View>
           </PressTarget>;
         })}
@@ -816,7 +836,7 @@ export function Section({
 }) {
   const c = useColors(), grouped = useContext(GroupedPageContext);
   return (
-    <View style={{ gap: 12, ...(grouped ? { padding: 16, borderRadius: 12, backgroundColor: c.surface } : {}) }}>
+    <View style={{ gap: 12, ...(grouped ? { padding: 16, borderRadius: radii.grouped, backgroundColor: c.surface } : {}) }}>
       <View style={{ flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
         <View style={{ flex: 1 }}>
           <Copy kind="heading">{title}</Copy>
@@ -830,7 +850,7 @@ export function Section({
 /** Inset grouped cells share one quiet surface and text-inset separators. */
 export function Grouped({ children, separatorInset = 72 }: PropsWithChildren<{ separatorInset?: number }>) {
   const c = useColors(), rows = Children.toArray(children);
-  return <View style={{ borderRadius: 12, overflow: "hidden", backgroundColor: c.surface }}>
+  return <View style={{ borderRadius: radii.grouped, overflow: "hidden", backgroundColor: c.surface }}>
     {rows.map((row, index) => <View key={index}>
       {index > 0 && <View style={{ marginLeft: separatorInset, height: 0.5, backgroundColor: c.border }} />}
       {row}
@@ -871,7 +891,7 @@ export function Row({
 
         paddingVertical: 14,
         paddingHorizontal: 16,
-        borderRadius: 12,
+        borderRadius: radii.grouped,
         flexDirection: "row",
         flexWrap: "wrap",
         alignItems: "flex-start",
@@ -879,7 +899,12 @@ export function Row({
 
       })}
     >
-      {icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}><Icon name={icon} /></View>}
+      {/* A blush tile around the glyph, the same family as the monogram tiles on saved posts. */}
+      {icon && <View style={{ width: 44, minHeight: 44, marginTop: Math.max(0, (firstLineHeight - 44) / 2), alignItems: "center", justifyContent: "center" }}>
+        <View style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
+          <Icon name={icon} size={20} color={c.placeholderInk} />
+        </View>
+      </View>}
       <View style={{ flex: 1, minWidth: 0, gap: 2, paddingTop: firstLineTop }}>
         <Copy numeric={numericTitle} kind="label" lines={fontScale >= 1.3 ? undefined : 2}>{title}</Copy>
         {detail && (
@@ -930,7 +955,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
         Animated.timing(enter, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
         timer = setTimeout(
           () =>
-            Animated.timing(enter, { toValue: 0, duration: 150, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(
+            Animated.timing(enter, { toValue: 0, duration: 150, easing: easeOut, useNativeDriver: true }).start(
               () => setToast((current) => (current?.key === toast.key ? null : current))
             ),
           // Leave time to reach Undo; plain confirmations clear sooner.
@@ -959,7 +984,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
             paddingVertical: 8,
             paddingLeft: 17,
             paddingRight: 8,
-            borderRadius: 18,
+            borderRadius: radii.toast,
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
@@ -997,7 +1022,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontWeight: "700", fontSize: 15, lineHeight: 20 }}>
+              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
                 {toast.action.label}
               </Text>
             </PressTarget>
@@ -1008,9 +1033,10 @@ export function ToastProvider({ children }: PropsWithChildren) {
   );
 }
 export function Loading({ label = "Opening your private space…" }: { label?: string }) {
+  const c = useColors();
   return (
     <View style={{ padding: 30, gap: 20 }}>
-      <ActivityIndicator accessibilityLabel={label} />
+      <ActivityIndicator accessibilityLabel={label} color={c.muted} />
       <Copy align="center" tone="muted">
         {label}
       </Copy>

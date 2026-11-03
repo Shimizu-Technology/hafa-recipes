@@ -61,24 +61,24 @@ it("uses short native press feedback and honours a live Reduce Motion change", a
   await mount(<PressTarget accessibilityLabel="Feed" />);
   const control = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
   await act(async () => control.props.onPressIn({}));
-  expect(mock.timings).toContainEqual(expect.objectContaining({ toValue: 0.97, duration: 120, useNativeDriver: true }));
+  expect(mock.timings).toContainEqual(expect.objectContaining({ toValue: 0.98, duration: 120, useNativeDriver: true }));
   mock.timings = [];
   await act(async () => control.props.onPressOut({}));
-  expect(mock.timings.every(t => t.duration === 160)).toBe(true);
+  expect(mock.timings.every(t => t.duration === 180)).toBe(true);
   await act(async () => mock.listener!(true));
   mock.timings = [];
   await act(async () => control.props.onPressIn({}));
-  expect(mock.timings.map(t => t.toValue)).toEqual([1, 0.82]);
+  expect(mock.timings.map(t => t.toValue)).toEqual([1, 0.88]);
 });
 it("remeasures visible text after a live scale change without clipping line heights or capping content", async () => {
   await mount(<Copy kind="title">A longer entry heading</Copy>);
   const original = renderer!.root.findByType("Text" as React.ElementType);
-  expect(original.props.style.lineHeight).toBe(41);
+  expect(original.props.style).toMatchObject({ lineHeight: 38, fontFamily: "Newsreader_500Medium" });
   mock.fontScale = 3.1;
   await act(async () => renderer!.update(<Copy kind="title">A longer entry heading</Copy>));
   const large = renderer!.root.findByType("Text" as React.ElementType);
   expect(large).not.toBe(original);
-  expect(large.props.style.lineHeight).toBe(41);
+  expect(large.props.style.lineHeight).toBe(38);
   expect(large.props.maxFontSizeMultiplier).toBe(0);
 });
 it("keeps full row labels and wrapping choices reachable at large text", async () => {
@@ -105,7 +105,7 @@ it.each([1, 3.1])("keeps long row text and first-line alignment at font scale %s
   const views = pressable.findAllByType("View" as React.ElementType);
   const textContainer = views.find(v => v.props.style?.gap === 2 && v.props.style?.minWidth === 0)!;
   const iconContainer = views.find(v => v.props.style?.width === 44)!;
-  expect(textContainer.props.style.paddingTop + 11 * fontScale).toBeCloseTo(iconContainer.props.style.marginTop + 22);
+  expect(textContainer.props.style.paddingTop + 11.5 * fontScale).toBeCloseTo(iconContainer.props.style.marginTop + 22);
 });
 it("keeps normal sync quiet but expands rejected changes for action", async () => {
   mock.baby.state.outbox = [{ id: "queued" }]; mock.baby.syncing = true;
@@ -126,7 +126,7 @@ it.each(["light", "dark"])("uses a clearly selected cocoa chip with readable con
   const chip = renderer!.root.findByType("AnimatedPressable" as React.ElementType);
   const style = Object.assign({}, ...chip.props.style);
   const text = renderer!.root.findByType("Text" as React.ElementType).props.style;
-  expect(style.backgroundColor).toBe(scheme === "light" ? "#5A4740" : "#E3C9B8");
+  expect(style.backgroundColor).toBe(scheme === "light" ? "#5A4740" : "#EBD7CA");
   expect(chip.props.accessibilityState).toEqual({ checked: true, selected: true });
   function luminance(hex: string) {
     const rgb = hex.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)
@@ -346,12 +346,12 @@ it.each([1, 3.1])("switches filter chips and exposes the radio selection at scal
   expect(choices().map(choice => choice.props.accessibilityState)).toEqual([
     { selected: false, checked: false }, { selected: true, checked: true },
   ]);
-  // Every chip is a 34pt pill in a 44pt target: sand at rest, filled cocoa when selected.
+  // Every chip is a 34pt pill in a 44pt target: white on sand at rest, filled cocoa when selected.
   for (const choice of choices()) expect(choice.props.style[0]).toMatchObject({ minWidth: 44, minHeight: 44 });
   const pills = choices().map(choice => choice.findAllByType("View" as React.ElementType)[0].props.style);
-  expect(pills.map(style => [style.minHeight, style.borderRadius, style.backgroundColor])).toEqual([[34, 17, "#F1E8E1"], [34, 17, "#5A4740"]]);
+  expect(pills.map(style => [style.minHeight, style.borderRadius, style.backgroundColor])).toEqual([[34, 17, "#FFFFFF"], [34, 17, "#5A4740"]]);
   const labels = choices().map(choice => choice.findAllByType("Text" as React.ElementType)[0].props.style.color);
-  expect(labels).toEqual(["#2D2420", "#F8F3EE"]);
+  expect(labels).toEqual(["#5A4740", "#F8F3EE"]);
   expect(choices()[1].findAllByType("Icon" as React.ElementType)[0].props.name).toBe("help-circle-outline");
   const group = renderer!.root.findAllByType("View" as React.ElementType)
     .find(view => view.props.accessibilityRole === "radiogroup")!;
