@@ -1,3 +1,5 @@
+import { PRMarker } from "./pr-marker";
+import { useLook } from "@/lib/look-context";
 import { useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Svg, { Circle, Polyline } from "react-native-svg";
@@ -30,6 +32,7 @@ function trendWords(values: number[]) {
 
 /** Personal bests per exercise with a small trend, newest first. Shows five until expanded. */
 export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
+  const look = useLook();
   const [all, setAll] = useState(false);
   const { fontScale } = useWindowDimensions();
   if (!records.length) return null;
@@ -46,7 +49,7 @@ export function ProgressRecords({ records }: { records: ExerciseRecord[] }) {
               <Copy kind="small" tone="muted">{r.detail}</Copy>
             </View>
             {!largeText(fontScale) && <Sparkline values={r.trend} />}
-            <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>
+            {look.id === "pro" ? <PRMarker value={r.best} /> : <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>}
           </View>
         ))}
       </ListGroup>
