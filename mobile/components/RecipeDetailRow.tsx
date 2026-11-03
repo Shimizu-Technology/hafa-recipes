@@ -15,7 +15,7 @@ export function RecipeDetailRow({ icon, title, value, accessory, onPress, ...pro
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
   const content = <>
-    <View style={styles.icon}><Ionicons name={icon} size={20} color={colors.actionText} /></View>
+    <View style={styles.icon}><Ionicons name={icon} size={20} color={colors.textSecondary} /></View>
     <View style={styles.copy}>
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
       {value ? <Text style={[styles.value, { color: colors.textSecondary }]}>{value}</Text> : null}

@@ -1350,7 +1350,7 @@ const styles = StyleSheet.create({
   supportingContent: { paddingHorizontal: layout.margin },
   errorMessage: { textAlign: 'center', marginBottom: spacing.md },
   retryButton: { minHeight: 44, minWidth: 88, alignItems: 'center', justifyContent: 'center' },
-  preparation: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
+  preparation: { paddingTop: 4, paddingBottom: spacing.md, marginBottom: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, gap: spacing.xs },
   prepLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   relatedDisclosure: { minHeight: 48, marginTop: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   scrollContent: {
