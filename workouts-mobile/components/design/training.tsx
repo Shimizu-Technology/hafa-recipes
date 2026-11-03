@@ -60,6 +60,7 @@ export function ProgressRing({
   size = 132,
   stroke = 12,
   color,
+  trackColor,
   children,
   accessibilityLabel,
 }: {
@@ -67,6 +68,7 @@ export function ProgressRing({
   size?: number;
   stroke?: number;
   color?: string;
+  trackColor?: string;
   children?: ReactNode;
   accessibilityLabel?: string;
 }) {
@@ -88,7 +90,7 @@ export function ProgressRing({
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke={surface === "hero" ? c.onHeroSoft : c.sunken}
+          stroke={trackColor ?? (surface === "hero" ? c.onHeroSoft : c.sunken)}
           strokeWidth={stroke}
           fill="none"
         />

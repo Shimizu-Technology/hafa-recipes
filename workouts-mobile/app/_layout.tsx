@@ -51,6 +51,7 @@ function AccountLogoutRecovery() {
 function Routes() {
   const { isLoaded, isSignedIn, userId, sessionId } = useAuth();
   const c = useColors();
+  const look = useLook();
   const previousOwner = useRef<string | null>(null);
   useEffect(() => {
     if (previousOwner.current && previousOwner.current !== userId) {
@@ -86,7 +87,7 @@ function Routes() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="settings" />
-        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text },
+        <Stack.Screen name="add" options={{ headerShown: true, title: "Add a workout", presentation: "formSheet", sheetAllowedDetents: [0.5, 1], sheetGrabberVisible: true, headerTintColor: c.accent, headerTitleStyle: { color: c.text, ...(look.id !== "current" ? { fontFamily: look.fonts.semibold } : {}) },
           // The centre tab opens this sheet; its header matches the grouped page in light and dark.
           headerStyle: { backgroundColor: c.groupedBackground }, headerShadowVisible: false, contentStyle: { backgroundColor: c.groupedBackground },
           headerRight: () => <IconButton icon="close" label="Close Add" variant="plain" onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)/train")} /> }} />

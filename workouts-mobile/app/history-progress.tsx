@@ -1,9 +1,9 @@
 import { ActivityWeek } from "@/components/activity-week";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { AccountButton, Button, Card, Copy, Empty, ListGroup, ListRow, Notice, Row, Screen, SectionHeader, Skeleton, useColors } from "@/components/ui";
 import { useNativeHeader } from "@/components/native-tab-stack";
 import { ProgressRecords } from "@/components/progress-records";
@@ -52,6 +52,8 @@ function SessionSummary({ title, when, request, workout, ranTimer, onOpen }: {
 const openSession = (id: string) => router.push({ pathname: "/session/[id]", params: { id } });
 export default function Progress() {
   const inTab = useNativeHeader();
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(useCallback(() => { setFocused(true); return () => setFocused(false); }, []));
   const { api, owner, enrollment, units } = useTraining();
   const cache = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
@@ -133,7 +135,7 @@ export default function Progress() {
         <ListRow icon="add-circle-outline" title="Log a completed activity" detail="A run, walk, game or class" onPress={() => router.push("/activity")} />
         <ListRow icon="walk-outline" title="Runs, walks & other activity" onPress={() => router.push("/activity-log")} />
       </ListGroup>
-      <ProgressRecords units={units} records={records} />
+      <ProgressRecords units={units} records={records} active={focused} />
       {!!offline.error && <>
         <Notice error>{offline.error}</Notice>
         <Button title="Retry restoring saved sessions" secondary onPress={offline.retry} />

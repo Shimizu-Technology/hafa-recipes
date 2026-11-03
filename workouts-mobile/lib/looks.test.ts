@@ -34,6 +34,7 @@ describe.each(["athletic", "coach", "pro"] as const)("%s tokens", id => {
     const c = getLook(id).palette[mode];
     for (const [fg, bg] of textPairs) expect(ratio(c[fg], c[bg]), `${id} ${mode}: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
     for (const bg of [c.background, c.surface, c.elevated]) expect(ratio(c.borderStrong, bg)).toBeGreaterThanOrEqual(3);
+    if (id === "coach") expect(ratio(c.borderStrong, c.sunken)).toBeGreaterThanOrEqual(3);
   });
   it("has named font weights, variants and a complete native motion profile", () => {
     const look = getLook(id); expect(look.fonts.regular).toBeTruthy(); expect(look.fonts.display).toBeTruthy();

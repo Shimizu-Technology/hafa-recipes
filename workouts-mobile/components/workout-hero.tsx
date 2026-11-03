@@ -1,6 +1,6 @@
 import { useLook } from "@/lib/look-context";
 import { WorkoutArt } from "./workout-art";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Image, Linking, Platform, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "expo-router";
@@ -19,7 +19,7 @@ type Source = Pick<Workout, "title" | "source_title" | "source_creator" | "sourc
  * the play button really plays it: the official player in the app, or the original
  * post when in-app playback isn't available. Other covers enlarge on tap.
  */
-export function WorkoutHero({ source, format }: { source: Source; format?: string | null }) {
+export function WorkoutHero({ source, format, headline }: { source: Source; format?: string | null; headline?: ReactNode }) {
   const c = useColors();
   const look = useLook();
   const [playing, setPlaying] = useState(false), [failed, setFailed] = useState<string | null>(null), [error, setError] = useState("");
@@ -65,6 +65,7 @@ export function WorkoutHero({ source, format }: { source: Source; format?: strin
     </Pressable> : image ? <View style={{ borderRadius: 20, overflow: "hidden" }}>
       <SourceImage uri={image} cover label={label} fallback={null} onFailed={() => setFailed(image)} />
     </View> : look.id !== "current" ? <View style={{ height: look.id === "pro" ? 150 : 240, borderRadius: look.radii.lg, overflow: "hidden" }}><WorkoutArt title={source.title} meta={format ?? ""} /></View> : null}
+    {headline}
     {(!!credit || !!url) && <Row gap={8}>
       {!!credit && <Copy kind="small" tone="muted" numberOfLines={2} style={{ flex: 1 }}>{credit}</Copy>}
       {!!url && <IconButton label="Open original source" icon="open-outline" variant="plain" onPress={openOriginal} />}

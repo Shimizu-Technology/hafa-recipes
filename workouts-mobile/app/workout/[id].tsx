@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLook } from "@/lib/look-context";
+import { workoutCardMeta } from "@/lib/library-view";
 import { AccessibilityInfo, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -43,6 +45,7 @@ import { AskCoachPill } from "@/components/ask-coach-pill";
 import { reportAskScroll, resetAskScroll } from "@/lib/ask-pill";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 export default function WorkoutDetail() {
+  const look = useLook();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { api, owner, enrollment, isCurrentAccount } = useTraining();
   const mounted = useRef(true);
@@ -194,6 +197,13 @@ export default function WorkoutDetail() {
       : exercises === 0 ? "No exercises yet."
         : timedParts ? timedStartHint(workout)
           : trackingWarning ? "No set counts yet — you’ll choose rounds or log as you go." : null;
+  const headline = <Stack gap={6}>
+    <Copy kind="heading">{workout?.title ?? "Your workout."}</Copy>
+    {(!!formatChip || !!meta) && <Row gap={8} wrap>
+      {!!formatChip && <Chip label={formatChip} tone="accent" icon="timer-outline" />}
+      {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
+    </Row>}
+  </Stack>;
   return (
     <>
     <Screen native
@@ -210,14 +220,8 @@ export default function WorkoutDetail() {
       </Row> : undefined}
 
     >
-      {workout && <WorkoutHero source={workout} format={formatChip} />}
-      <Stack gap={6}>
-        <Copy kind="heading">{workout?.title ?? "Your workout."}</Copy>
-        {(!!formatChip || !!meta) && <Row gap={8} wrap>
-          {!!formatChip && <Chip label={formatChip} tone="accent" icon="timer-outline" />}
-          {!!meta && <Copy kind="small" tone="muted">{meta}</Copy>}
-        </Row>}
-      </Stack>
+      {workout && <WorkoutHero source={workout} format={look.id === "current" ? formatChip : formatChip ?? workoutCardMeta(workout)} headline={look.id === "current" ? undefined : headline} />}
+      {(look.id === "current" || !workout) && headline}
       {primary}
       {!!hint && <Copy kind="small" tone="muted">{hint}</Copy>}
       {!!error && <Notice error>{error}</Notice>}

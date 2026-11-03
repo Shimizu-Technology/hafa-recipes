@@ -260,6 +260,24 @@ it("keeps the real preview clock readable and scales the ring to each work/rest 
   expect(renderer!.root.findByType("ProgressRing" as never).props.progress).toBe(0.9);
 });
 
+it.each(["athletic", "coach", "pro"])("keeps long instructions in the scrolling body at largest text in %s", async look => {
+  fixture.look = look;
+  fixture.fontScale = 3.1;
+  const d = await draft(workout({ execution: { mode: "emom", interval_seconds: 60, intervals: 10, rotation: "together" }, exercises: [{ name: "A deliberately long exercise instruction", reps_min: 5 }] }));
+  await render(d, 5_000);
+  const screen = renderer!.root.findByType("Screen" as never);
+  expect(screen.props.pinned.props.compact).toBe(true);
+  let pinnedTree!: ReactTestRenderer;
+  await act(async () => { pinnedTree = create(screen.props.pinned); });
+  const pinned = pinnedTree.root.findAllByType("Copy" as never);
+  expect(pinned.some(n => String(n.props.children).includes("This minute"))).toBe(false);
+  expect(pinned.find(n => n.props.children === "Minute 1 of 10")?.props.maxScale).toBe(1.5);
+  await act(async () => pinnedTree.unmount());
+  expect(text()).toContain("This minute: 5 A deliberately long exercise instruction");
+  expect(button("Pause")).toBeDefined();
+  expect(button("Finish")).toBeDefined();
+});
+
 it.each([null, 60])("preview uses a real for-time cap ring, or no ring without a cap (%s)", async cap => {
   fixture.look = "coach";
   const d = await draft(workout({ grouping: "circuit", rounds: 1, execution: { mode: "for_time", time_cap_seconds: cap }, exercises: [{ name: "Burpees", reps_min: 100 }] }));

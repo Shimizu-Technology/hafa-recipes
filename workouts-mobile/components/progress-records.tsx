@@ -32,7 +32,7 @@ function trendWords(values: number[]) {
 }
 
 /** Personal bests per exercise with a small trend, newest first. Shows five until expanded. */
-export function ProgressRecords({ records, units }: { records: ExerciseRecord[]; units?: UnitSystem }) {
+export function ProgressRecords({ records, units, active = true }: { records: ExerciseRecord[]; units?: UnitSystem; active?: boolean }) {
   const look = useLook();
   const [all, setAll] = useState(false);
   const { fontScale } = useWindowDimensions();
@@ -50,7 +50,7 @@ export function ProgressRecords({ records, units }: { records: ExerciseRecord[];
               <Copy kind="small" tone="muted">{r.detail}</Copy>
             </View>
             {!largeText(fontScale) && <Sparkline values={r.trend} />}
-            {look.id === "pro" ? <PRMarker key={units} value={r.best} /> : <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>}
+            {look.id === "pro" ? <PRMarker key={units} value={r.best} active={active} /> : <Copy kind="numericSmall" style={{ fontSize: 17 }}>{r.best}</Copy>}
           </View>
         ))}
       </ListGroup>

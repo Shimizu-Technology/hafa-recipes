@@ -99,6 +99,7 @@ export function Screen({
   list?: (body: { header: ReactNode; contentContainerStyle: ViewStyle; refreshControl?: ReactElement<RefreshControlProps> }) => ReactNode;
 }>) {
   const c = useColors();
+  const look = useLook();
   const { fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   back = back || dismiss;
@@ -137,11 +138,11 @@ export function Screen({
   ) : undefined;
   return (
     <GroupedPage.Provider value={grouped}>
-    {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : title, headerShown: true, headerTransparent: false, headerLargeTitleEnabled: !hideTitle,
+    {nativePage && <NativeStack.Screen options={{ title: hideTitle ? "" : look.id === "athletic" ? title.toUpperCase() : title, headerShown: true, headerTransparent: false, headerLargeTitleEnabled: !hideTitle,
       headerShadowVisible: headerHairline, headerBackButtonDisplayMode: "minimal", headerBackTitle: "Back", headerTintColor: c.accent, headerStyle: { backgroundColor: pageColor }, scrollEdgeEffects: { top: "hidden" },
       ...headerBack(back && !tabHeader ? <HeaderButton icon={dismiss ? "close" : "chevron-back"} label={dismiss ? "Close" : "Go back"}
         onPress={() => router.canGoBack?.() ? router.back() : router.replace("/(tabs)/library")} /> : undefined),
-      headerTitleStyle: { color: c.text }, headerLargeTitleStyle: { color: c.text }, ...headerActions(action ? <>{action}</> : undefined) }} />}
+      headerTitleStyle: { color: c.text, ...(look.id !== "current" ? { fontFamily: look.fonts.semibold } : {}) }, headerLargeTitleStyle: { color: c.text, ...(look.id !== "current" ? { fontFamily: look.fonts.display } : {}) }, ...headerActions(action ? <>{action}</> : undefined) }} />}
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: pageColor, paddingTop: root ? 0 : insets.top }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}

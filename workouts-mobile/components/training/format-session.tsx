@@ -148,7 +148,7 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   const cell = footerCellWidth(width);
   const action = (title: string, props: Omit<ComponentProps<typeof Button>, "title" | "size" | "maxScale">, alone = false) => (
     <View key={title} style={{ width: alone ? "100%" : cell }}>
-      <Button title={title} size="lg" {...props} icon={undefined} maxScale={footerLabelScale(title, alone ? cell * 2 : cell, fontScale)} />
+      <Button title={title} size="lg" {...props} icon={undefined} maxScale={footerLabelScale(title, (alone ? cell * 2 : cell) - (look.id === "current" ? 0 : 12), fontScale)} />
     </View>
   );
   const cells = (...items: ReactNode[]) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>{items}</View>;
@@ -196,11 +196,14 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
         </View>}
     </>
   );
-  const clockCard = look.id !== "current" ? <LookClock text={clockText} caption={caption} phase={phaseWord} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`} progress={format.mode === "for_time" ? remaining != null && format.time_cap_seconds ? remaining / format.time_cap_seconds : null : position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : position.phase === "work" ? format.work_seconds : format.rest_seconds) : null} trigger={d.actuals.length} compact={grid}>
+  const previewContext = <>
     {format.mode === "for_time" && remaining != null && !allMarked && <Copy kind="small" align="center">{formatClock(remaining)} left</Copy>}
     {!!nowLine && <Copy kind="label" align="center">{nowLine}</Copy>}
     {format.mode === "for_time" && allMarked && <Copy kind="label" align="center">Finished in {formatClock(Math.floor(elapsed / 1000))}</Copy>}
-    {hasNext && <Copy kind="small" tone="muted" align="center">Next · {moves(position!.index + 1)}</Copy>}
+    {hasNext && moves(position!.index + 1) !== moves(position!.index) && <Copy kind="small" tone="muted" align="center">Next · {moves(position!.index + 1)}</Copy>}
+  </>;
+  const clockCard = look.id !== "current" ? <LookClock text={clockText} caption={caption} phase={phaseWord} accessibilityLabel={`${clockText} ${format.mode === "for_time" ? "elapsed" : "left"}`} progress={format.mode === "for_time" ? remaining != null && format.time_cap_seconds ? remaining / format.time_cap_seconds : null : position ? position.remaining / Math.max(1, format.mode === "emom" ? format.interval_seconds : position.phase === "work" ? format.work_seconds : format.rest_seconds) : null} trigger={d.actuals.length} compact={grid}>
+    {!grid && previewContext}
   </LookClock> : (
     <Card tone="accent">
       <Copy kind="caption" tone="accent">{caption}</Copy>
@@ -214,13 +217,14 @@ export function FormatSession({ d, now, busy, error, activityPicker, log, pause,
   );
 
   return (
-    <Screen native back title={formatLabel(block)?.split(" · ")[0] ?? d.workout.title} subtitle={d.workout.title}
+    <Screen native back title={formatLabel(block)?.split(" · ")[0] ?? d.workout.title} subtitle={look.id !== "current" && d.workout.title.startsWith(`${formatLabel(block)?.split(" · ")[0]} · `) ? d.workout.title.split(" · ").slice(1).join(" · ") : d.workout.title}
       action={<IconButton icon="ellipsis-horizontal" label="More session actions" onPress={() => setMore(true)} />}
       footer={footer}
       // The clock stays put above the footer at large text; the logged work scrolls beneath it.
       pinned={grid ? clockCard : undefined}
     >
       {!grid && clockCard}
+      {grid && look.id !== "current" && previewContext}
       {d.paused && !finished && <Notice tone="warning">Paused. The clock is stopped and time away isn’t counted.</Notice>}
       {format.mode === "for_time" && step && (
         <>
