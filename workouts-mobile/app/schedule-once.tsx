@@ -7,7 +7,7 @@ import { CalendarDate } from "@/components/calendar-date";
 import { useTraining } from "@/lib/context";
 import { createPrivateForm } from "@/lib/private-form";
 import { dateInTimezone } from "@/lib/training";
-import { scheduleOnceCommand, type ScheduleOnceCommand } from "@/lib/schedule-once";
+import { isExpiredCoverError, scheduleOnceCommand, type ScheduleOnceCommand } from "@/lib/schedule-once";
 interface Input { date: string; time: string }
 export default function ScheduleOnce() {
   const { workout_id = "" } = useLocalSearchParams<{ workout_id: string }>();
@@ -23,13 +23,15 @@ export default function ScheduleOnce() {
   const [input, setInput] = useState<Input | null>(null);
   const [command, setCommand] = useState<ScheduleOnceCommand | null>(null);
   const [saved, setSaved] = useState(false);
+  // The server refused the workout's expired cover: not a connection problem, so no Retry; the way forward is scheduling without it.
+  const [coverExpired, setCoverExpired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const lock = useRef(false);
   function guard() { if (!mounted.current || live.current !== scope || !storage.isCurrent() || !isCurrentAccount()) throw Error("Your account changed. Reopen this workout to schedule it."); }
   useEffect(() => {
     let active = true;
-    setInput(null); setCommand(null); setSaved(false);
+    setInput(null); setCommand(null); setSaved(false); setCoverExpired(false);
     void form.load().then(box => {
       if (!active) return;
       setSaved(box.terminal); setCommand(box.command);
@@ -42,17 +44,21 @@ export default function ScheduleOnce() {
     const next = { ...input, ...patch }; setInput(next);
     void form.save(next).catch(() => setError("Could not keep this date on your device. Stay here and retry."));
   }
-  async function save() {
+  async function save(withoutCover = false) {
     if (!input || !workout.data || lock.current || saved) return;
     lock.current = true; setBusy(true); setError("");
     try {
       guard();
-      const frozen = command ?? scheduleOnceCommand(workout.data, input.date, input.time, Crypto.randomUUID());
-      await form.begin(input, frozen); guard(); setCommand(frozen);
+      if (withoutCover) { await form.reset(); guard(); setCommand(null); }
+      const frozen = (withoutCover ? null : command) ?? scheduleOnceCommand(workout.data, input.date, input.time, Crypto.randomUUID(), { withoutCover });
+      await form.begin(input, frozen); guard(); setCommand(frozen); setCoverExpired(false);
       const result = await api.scheduleOnce(frozen, generation); guard();
       await form.complete(frozen, result.id); guard(); setSaved(true);
       await cache.invalidateQueries({ queryKey: [owner, "programs"] });
-    } catch (e) { if (mounted.current && live.current === scope) setError((e as Error).message); }
+    } catch (e) {
+      if (!mounted.current || live.current !== scope) return;
+      if (isExpiredCoverError(e)) setCoverExpired(true); else setError((e as Error).message);
+    }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   async function scheduleAnother() {
@@ -62,18 +68,21 @@ export default function ScheduleOnce() {
       guard();
       const next = { date: dateInTimezone(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone), time: "" };
       await form.reopen(next); guard();
-      setInput(next); setCommand(null); setSaved(false); setError("");
+      setInput(next); setCommand(null); setSaved(false); setCoverExpired(false); setError("");
     } catch (e) { if (mounted.current) setError((e as Error).message); }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   return <Screen dismiss title="Schedule" subtitle={workout.data?.title}
-    footer={!saved && input && workout.data ? <Button title={command ? "Retry schedule" : "Save session"} busy={busy} onPress={() => void save()} /> : undefined}>
+    footer={!saved && input && workout.data ? coverExpired
+      ? <Button title="Schedule without cover" busy={busy} onPress={() => void save(true)} />
+      : <Button title={command ? "Retry schedule" : "Save session"} busy={busy} onPress={() => void save()} /> : undefined}>
     {saved ? <><Notice>Session scheduled.</Notice><Button title="Open Train" onPress={() => router.replace("/plan")} /><Button title="Schedule another session" secondary busy={busy} onPress={() => void scheduleAnother()} /></> : <>
+      {coverExpired && <Notice error>This workout’s cover photo has expired, so it can’t be scheduled with it. Schedule it without the cover; the workout itself stays as it is.</Notice>}
       {input && <>
         <CalendarDate label="Workout date" value={input.date} disabled={busy || !!command} onChange={date => update({ date: date ?? "" })} />
         <Field label="Time · HH:MM" optional placeholder="18:30" value={input.time} disabled={busy || !!command} onChange={time => update({ time })} />
         <Copy kind="small" tone="muted">One session, using this saved workout. Time is a local calendar label; it does not create a reminder.</Copy>
-        {command && <Notice>Saved on this device. Retry sends the same session, so a lost connection won’t create another.</Notice>}
+        {command && !coverExpired && <Notice>Saved on this device. Retry sends the same session, so a lost connection won’t create another.</Notice>}
       </>}
       <Button title="Build a plan" secondary disabled={busy || !!command} onPress={() => router.push({ pathname: "/build-plan", params: { include: workout_id } })} />
     </>}
