@@ -1,3 +1,4 @@
+vi.mock("@/components/design/look-motion", () => ({ LookListItem: ({ children }: { children: unknown }) => children, EASE: {}, SPRING: {} }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

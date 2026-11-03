@@ -1,3 +1,4 @@
+vi.mock("@/components/training/look-clock", () => ({ LookClock: "LookClock" }));
 import { createElement, isValidElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

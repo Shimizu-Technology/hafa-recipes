@@ -1,3 +1,4 @@
+vi.mock("@/components/design/press", () => ({ usePressScale: () => ({}), animatedPressableComponent: () => "Pressable" }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

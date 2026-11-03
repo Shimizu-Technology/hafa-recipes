@@ -1,3 +1,4 @@
+vi.mock("@/components/design/look-motion", () => ({ LookListItem: ({ children }: { children: unknown }) => children, EASE: {}, SPRING: {} }));
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { expect, it, vi } from "vitest";

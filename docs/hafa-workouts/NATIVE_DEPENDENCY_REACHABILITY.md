@@ -694,3 +694,7 @@ Declaring dependencies (all are `dependencies`, no optional/peer/dev declaration
 ### Workouts photo glass declaration — 2026-10-31
 
 Workouts now directly declares `expo-glass-effect` 57.0.4 for the photo duration/save controls. It was already installed through Expo Router and compiled in the reusable Debug client. Compared with W2 `7084d9f8`, every installed lock node (version, integrity and declarations) is unchanged; the only lock difference is this root dependency entry. No advisory exception or expiry changes. Updated whole-lock SHA-256: `05ed88f3c94f625e8c68d5806e54ed144a6cf753a933decc1fb748a47f263b11`. The existing iOS/Android source-map gate must still pass before this PR is ready.
+
+### Workouts design preview fonts — 2026-11-03 (Codex)
+
+The preview branch adds only the approved Barlow Condensed 0.4.1, Bricolage Grotesque 0.4.1, Inter 0.4.2 and Nunito 0.4.2 Google Fonts packages. All four are leaf asset packages with no dependency declarations. Every pre-existing installed lock node is byte-for-byte unchanged; no native module was added. Fonts load only in non-production preview selections. Whole-lock SHA-256: `ea22f8a0e4bf7ec02976851af68ec5702b95c3b3a0d8039158064fffa0e577b5`. Advisory exceptions and the 2026-11-17 expiry are unchanged. The existing iOS/Android export and source-map checks still apply.

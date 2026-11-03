@@ -1,3 +1,6 @@
+vi.mock("@/components/ask-coach-pill", () => ({ AskCoachPill: "AskCoachPill" }));
+vi.mock("@/components/look-today", () => ({ LookGreeting: () => null, LookTodayHero: "LookTodayHero" }));
+vi.mock("@/lib/look-context", () => ({ useLook: () => ({ id: "current" }) }));
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
