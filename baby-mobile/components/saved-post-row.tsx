@@ -53,7 +53,7 @@ export function SavedPostRow({ record, pending, meta }: { record: BabyRecord; pe
       ...(framed ? { paddingTop: 16 } : {}) })}>
     {framed && Tape && <Tape topic={meta ?? record.data.topics?.[0] ?? title} index={title.length} />}
     {/* Scrapbook frames the photo like a print: a white border inside a paper hairline. */}
-    <View style={framed ? { padding: 3, backgroundColor: "#FFFFFF", borderRadius: look.radii.thumb + 1, borderWidth: 1, borderColor: c.cardBorder } : undefined}>
+    <View style={framed ? { padding: 3, backgroundColor: c.frame, borderRadius: look.radii.thumb + 1, borderWidth: 1, borderColor: c.cardBorder } : undefined}>
     <View style={{ width: 56, height: 56, borderRadius: look.fonts.system ? 10 : look.radii.thumb, overflow: "hidden", backgroundColor: look.fonts.system ? c.tile : c.placeholder,
       alignItems: "center", justifyContent: "center" }}>
       {/* The platform mark stays underneath, so a loading or broken thumbnail never leaves an empty tile. */}

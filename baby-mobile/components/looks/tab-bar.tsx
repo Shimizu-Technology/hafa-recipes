@@ -38,8 +38,8 @@ export function LookTabBar({ state, navigation, insets }: BottomTabBarProps) {
   }, [target, slot]);
   if (keyboard) return null;
   const indicator = variant === "tape"
-    ? { width: 48, height: 13, top: 38, borderRadius: 2, transform: [{ rotate: "-2deg" }] }
-    : variant === "tint" ? { width: 66, height: 50, top: 3, borderRadius: 16 } : { width: 56, height: 30, top: 6, borderRadius: 15 };
+    ? { width: 48, height: 13, top: 41, borderRadius: 2, transform: [{ rotate: "-2deg" }] }
+    : variant === "tint" ? { width: 66, height: 52, top: 2, borderRadius: 16 } : { width: 56, height: 30, top: 5, borderRadius: 15 };
   return <View onLayout={(event) => reportTabBarHeight(event.nativeEvent.layout.height)}
     style={{ backgroundColor: c.tabBar, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right,
       ...(variant === "tape" ? {} : { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.tabBarBorder }) }}>
@@ -57,8 +57,8 @@ export function LookTabBar({ state, navigation, insets }: BottomTabBarProps) {
         accessibilityHint={care ? "Save a source, write, or log care" : "Save a source, write in your journal, or keep a doctor question"}
         onPress={() => { tap(); router.push("/add"); }} style={styles.slot}>
         <View style={variant === "tape"
-          ? { width: 50, height: 32, borderRadius: 9, backgroundColor: c.addFill, alignItems: "center", justifyContent: "center", transform: [{ rotate: "-1deg" }] }
-          : { width: 38, height: 38, borderRadius: 19, backgroundColor: c.addFill, alignItems: "center", justifyContent: "center" }}>
+          ? { width: 50, height: 32, marginVertical: 2, borderRadius: 9, backgroundColor: c.addFill, alignItems: "center", justifyContent: "center", transform: [{ rotate: "-1deg" }] }
+          : { width: 36, height: 36, borderRadius: 18, backgroundColor: c.addFill, alignItems: "center", justifyContent: "center" }}>
           <Icon name="add" size={variant === "tape" ? 24 : 26} color={c.onAdd} />
         </View>
         <Text allowFontScaling={false} style={[styles.label, uiFace(look, "semibold"), { color: c.muted }]}>Add</Text>
@@ -80,7 +80,8 @@ function Item({ index, state, navigation }: { index: number } & Pick<BottomTabBa
     }}
     onLongPress={() => navigation.emit({ type: "tabLongPress", target: route.key })}
     style={styles.slot}>
-    <View style={{ width: 56, height: 30, alignItems: "center", justifyContent: "center" }}>
+    {/* 36pt icon box so labels line up with the 36pt Add. */}
+    <View style={{ width: 56, height: 36, alignItems: "center", justifyContent: "center" }}>
       <Icon name={selected ? tab.selectedIcon : tab.icon} size={24} color={color} />
     </View>
     <Text allowFontScaling={false} numberOfLines={1} style={[styles.label, uiFace(look, selected ? "bold" : "semibold"), { color }]}>{tab.label}</Text>

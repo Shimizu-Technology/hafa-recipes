@@ -53,7 +53,8 @@ function MiniTip({ row, look, c, topic }: { row: BabyRecord; look: Look; c: Pale
   return <PressTarget accessibilityRole="button" accessibilityLabel={[title, topic].filter(Boolean).join(". ")} onPress={() => open(row)}
     style={{ flexDirection: fontScale >= 2 ? "column" : "row", alignItems: fontScale >= 2 ? "flex-start" : "center", gap: 12, minHeight: 56, paddingVertical: 6 }}>
     <View style={{ width: 48, height: 48, borderRadius: look.radii.thumb, overflow: "hidden", backgroundColor: c.placeholder }}>
-      <Placeholder record={row} size={48} mark={null} />
+      {/* Inside the blush hero the stand-in tile sits on the card surface so it never melts into the hero. */}
+      <Placeholder record={row} size={48} mark={null} fill={look.variants.placeholder === "monogram" ? c.surface : undefined} />
       {thumb && !broken && <Image source={{ uri: thumb }} style={{ position: "absolute", width: 48, height: 48 }} contentFit="cover"
         cachePolicy="memory" transition={150} onError={() => setBroken(true)} />}
     </View>
@@ -107,7 +108,8 @@ function ScrapbookMoment({ progress, due, tips }: { progress: Progress; due: str
           {/* A tape measure: one tick per week, the filled part is how far along she is. */}
           <View onLayout={(e) => setRuler(e.nativeEvent.layout.width)} style={{ height: 30, marginTop: 4 }}>
             {ruler > 0 && <Svg width={ruler} height={30}>
-              <Line x1={0} y1={8} x2={ruler} y2={8} stroke={tape} strokeWidth={16} />
+              <Line x1={0} y1={8} x2={ruler} y2={8} stroke={c.soft} strokeWidth={16} />
+              <Line x1={0} y1={8} x2={2 + (progress.week / TOTAL_WEEKS) * (ruler - 4)} y2={8} stroke={tape} strokeWidth={16} />
               {Array.from({ length: TOTAL_WEEKS + 1 }, (_, week) => {
                 const x = 2 + (week / TOTAL_WEEKS) * (ruler - 4), long = week % 5 === 0, done = week <= progress.week;
                 return <Line key={week} x1={x} y1={0} x2={x} y2={long ? 14 : 8} stroke={done ? c.text : c.muted} strokeOpacity={done ? 0.9 : 0.45} strokeWidth={long ? 1.6 : 1} />;
@@ -164,11 +166,10 @@ function greeting(now: Date) {
 /** Two topic cards at most, so no more than two tints share the screen; icon and label always shown. */
 function TopicCard({ topic, count, index, look }: { topic: string; count: number; index: number; look: Look }) {
   const tint = useTopicTint(topic), c = useLookColors(), { fontScale } = useWindowDimensions();
-  return <Entrance index={index} born={Date.now()}>
+  return <Entrance index={index} born={Date.now()} style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "100%" : 0 }}>
     <PressTarget accessibilityRole="button" accessibilityLabel={`${topic}. ${count} saved for now`}
       onPress={() => router.navigate({ pathname: "/library", params: { view: "now", at: String(Date.now()) } })}
-      style={{ flex: 1, minHeight: 112, backgroundColor: tint.wash, borderRadius: look.radii.card, padding: 16, gap: 10, justifyContent: "space-between",
-        minWidth: fontScale >= 1.3 ? "100%" : undefined }}>
+      style={{ flexGrow: 1, minHeight: 112, backgroundColor: tint.wash, borderRadius: look.radii.card, padding: 16, gap: 10, justifyContent: "space-between" }}>
       <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: c.surface, alignItems: "center", justifyContent: "center" }}>
         <Icon name={topicIcon(topic)} size={18} color={tint.ink} />
       </View>

@@ -59,6 +59,8 @@ export interface Palette {
   placeholder: string; placeholderInk: string;
   /** Muted topic colours: `wash` behind dark ink, `fill` for tape, icons and decoration only. */
   topics: { wash: string; fill: string; ink: string }[];
+  /** Print frame around photos (Scrapbook): white by day, warm bone at night so it never glares. */
+  frame: string;
 }
 
 /** Baby's warm light palette and neutral, true-black dark palette (main, unchanged). */
@@ -75,7 +77,7 @@ const currentLight: Palette = {
   tabBar: "#FFFFFF", tabBarBorder: "rgba(60,60,67,0.18)", headerFill: "rgba(118,118,128,0.12)",
   tabIndicator: "rgba(201,144,126,0.2)", tabInk: "#5A4740", addFill: "#5A4740", onAdd: "#F8F3EE",
   cardBorder: "transparent", progressTrack: "#F1E8E1", progressFill: "#5A4740",
-  placeholder: "#F6EFE9", placeholderInk: "#5A4740", topics: [],
+  placeholder: "#F6EFE9", placeholderInk: "#5A4740", frame: "#FFFFFF", topics: [],
 };
 const currentDark: Palette = {
   background: "#000000", groupedBackground: "#000000", surface: "#1C1C1E",
@@ -88,7 +90,7 @@ const currentDark: Palette = {
   tabBar: "#0C0C0C", tabBarBorder: "rgba(84,84,88,0.5)", headerFill: "rgba(118,118,128,0.24)",
   tabIndicator: "rgba(227,201,184,0.2)", tabInk: "#E3C9B8", addFill: "#E3C9B8", onAdd: "#2D2420",
   cardBorder: "transparent", progressTrack: "#2C2522", progressFill: "#E3C9B8",
-  placeholder: "#2A2320", placeholderInk: "#E3C9B8", topics: [],
+  placeholder: "#2A2320", placeholderInk: "#E3C9B8", frame: "#FFFFFF", topics: [],
 };
 
 /** Kami's Sand & Cocoa. Every look keeps sand behind the whole app (it is also the splash) and cocoa for actions. */
@@ -118,7 +120,7 @@ const softLight: Palette = {
   scrim: "rgba(45,36,32,0.42)", tabBar: "#FFFDFB", tabBarBorder: "#EADFD2", headerFill: "#EFE5DC",
   tabIndicator: "#F1DDD3", tabInk: cocoa, addFill: deepClay, onAdd: "#FFFFFF",
   cardBorder: "transparent", progressTrack: "rgba(154,87,68,0.16)", progressFill: deepClay,
-  placeholder: "#F1DDD3", placeholderInk: "#8E4F3D", topics: topicsLight,
+  placeholder: "#F1DDD3", placeholderInk: "#8E4F3D", frame: "#FFFFFF", topics: topicsLight,
 };
 const softDark: Palette = {
   background: darkGround, groupedBackground: darkGround, surface: "#221B18", soft: "#2E2522", tile: "#2A221F", hero: "#33251F",
@@ -128,7 +130,7 @@ const softDark: Palette = {
   scrim: "rgba(0,0,0,0.6)", tabBar: "#1C1714", tabBarBorder: "#2E2622", headerFill: "#2A221F",
   tabIndicator: "#3A2A23", tabInk: "#F3E9E2", addFill: "#E0A894", onAdd: "#2A1B16",
   cardBorder: "transparent", progressTrack: "rgba(224,168,148,0.2)", progressFill: "#E0A894",
-  placeholder: "#33251F", placeholderInk: "#E0A894", topics: topicsDark,
+  placeholder: "#33251F", placeholderInk: "#E0A894", frame: "#D6CAC0", topics: topicsDark,
 };
 const scrapbookLight: Palette = {
   background: sand, groupedBackground: sand, surface: "#FFFDF9", soft: "#F1E9DF", tile: "#F3ECE3", hero: "#FFFDF9",
@@ -138,7 +140,7 @@ const scrapbookLight: Palette = {
   scrim: "rgba(45,36,32,0.42)", tabBar: sand, tabBarBorder: "#CDBBAA", headerFill: "#FFFDF9",
   tabIndicator: "#E2B9A6", tabInk: "#3F302A", addFill: cocoa, onAdd: "#FBF7F0",
   cardBorder: "#E6D9CC", progressTrack: "#F0D9A8", progressFill: "#3F302A",
-  placeholder: "#F3ECE3", placeholderInk: "#5A4740", topics: topicsLight,
+  placeholder: "#F3ECE3", placeholderInk: "#5A4740", frame: "#FFFFFF", topics: topicsLight,
 };
 const scrapbookDark: Palette = {
   background: darkGround, groupedBackground: darkGround, surface: "#231D1A", soft: "#2E2622", tile: "#2A231F", hero: "#231D1A",
@@ -148,7 +150,7 @@ const scrapbookDark: Palette = {
   scrim: "rgba(0,0,0,0.6)", tabBar: darkGround, tabBarBorder: "#4A3E37", headerFill: "#231D1A",
   tabIndicator: "#9C6B5C", tabInk: "#F3E9E2", addFill: "#EBD7CA", onAdd: "#2D2420",
   cardBorder: "#3A302B", progressTrack: "#5A4D35", progressFill: "#F3E9E2",
-  placeholder: "#2A231F", placeholderInk: "#E0A894", topics: topicsDark,
+  placeholder: "#2A231F", placeholderInk: "#E0A894", frame: "#D6CAC0", topics: topicsDark,
 };
 const warmLight: Palette = {
   background: sand, groupedBackground: sand, surface: "#FFFFFF", soft: "#F1E8E0", tile: "#F3EBE3", hero: "#FFFFFF",
@@ -158,7 +160,7 @@ const warmLight: Palette = {
   scrim: "rgba(45,36,32,0.42)", tabBar: "#FFFFFF", tabBarBorder: "#EADFD2", headerFill: "#FFFFFF",
   tabIndicator: "#F3E3DD", tabInk: "#2E2420", addFill: deepClay, onAdd: "#FFFFFF",
   cardBorder: "transparent", progressTrack: "#F1E4DC", progressFill: deepClay,
-  placeholder: "#F3EBE3", placeholderInk: "#8E4F3D", topics: topicsLight,
+  placeholder: "#F3EBE3", placeholderInk: "#8E4F3D", frame: "#FFFFFF", topics: topicsLight,
 };
 const warmDark: Palette = {
   background: darkGround, groupedBackground: darkGround, surface: "#221B18", soft: "#2E2522", tile: "#2A221F", hero: "#221B18",
@@ -168,7 +170,7 @@ const warmDark: Palette = {
   scrim: "rgba(0,0,0,0.6)", tabBar: "#1C1714", tabBarBorder: "#2E2622", headerFill: "#221B18",
   tabIndicator: "#3A2A23", tabInk: "#F3E9E2", addFill: "#E0A894", onAdd: "#2A1B16",
   cardBorder: "transparent", progressTrack: "#33281F", progressFill: "#E0A894",
-  placeholder: "#2A221F", placeholderInk: "#E0A894", topics: topicsDark,
+  placeholder: "#2A221F", placeholderInk: "#E0A894", frame: "#D6CAC0", topics: topicsDark,
 };
 
 export type LookWeight = "regular" | "medium" | "semibold" | "bold";
@@ -254,7 +256,7 @@ export const LOOKS: Record<LookId, Look> = {
     fonts: { system: false, display: "Newsreader_500Medium", displayItalic: "Newsreader_500Medium_Italic", ui: dmSans,
       largeTitle: { fontFamily: "Newsreader_500Medium", fontSize: 36 } },
     radii: { hero: 28, card: 24, grouped: 22, row: 22, field: 16, notice: 20, chip: 18, header: 18, button: 999, thumb: 14, tile: 22, toast: 24, composer: 24, bubble: 22 },
-    density: { screen: 20, card: 22, section: 26 }, shadow: null,
+    density: { screen: 16, card: 22, section: 26 }, shadow: null,
     motion: { pressScale: 0.98, pressOpacity: 0.88, pressInMs: 120, pressOutMs: 180, tabIndicator: crisp,
       entrance: { durationMs: 300, offset: 8, staggerMs: 40 }, toastExitEaseOut: true },
     variants: { tabBar: "pill", today: "soft", list: "grouped", placeholder: "monogram", rowIcon: "tile", journalRow: "date", detailHero: "soft", chip: "soft" },
@@ -266,7 +268,7 @@ export const LOOKS: Record<LookId, Look> = {
     fonts: { system: false, display: "YoungSerif_400Regular", ui: dmSans, hand: "Caveat_600SemiBold",
       largeTitle: { fontFamily: "YoungSerif_400Regular", fontSize: 32 } },
     radii: { hero: 12, card: 12, grouped: 12, row: 12, field: 10, notice: 10, chip: 8, header: 10, button: 12, thumb: 3, tile: 12, toast: 12, composer: 14, bubble: 14 },
-    density: { screen: 18, card: 20, section: 24 }, shadow: { color: "#5A4740", opacity: 0.08, radius: 8, y: 2 },
+    density: { screen: 16, card: 20, section: 24 }, shadow: { color: "#5A4740", opacity: 0.08, radius: 8, y: 2 },
     motion: { pressScale: 0.98, pressOpacity: 0.88, pressInMs: 120, pressOutMs: 180, tabIndicator: crisp,
       entrance: { durationMs: 340, offset: 6, staggerMs: 40 }, toastExitEaseOut: true },
     variants: { tabBar: "tape", today: "scrapbook", list: "clippings", placeholder: "stamp", rowIcon: "plain", journalRow: "date", detailHero: "frame", chip: "tag" },
@@ -279,7 +281,7 @@ export const LOOKS: Record<LookId, Look> = {
       semibold: "PlusJakartaSans_600SemiBold", bold: "PlusJakartaSans_700Bold" },
       largeTitle: { fontFamily: "Fraunces_600SemiBold", fontSize: 34 } },
     radii: { hero: 24, card: 20, grouped: 20, row: 20, field: 14, notice: 16, chip: 18, header: 18, button: 16, thumb: 12, tile: 20, toast: 20, composer: 22, bubble: 20 },
-    density: { screen: 20, card: 20, section: 24 }, shadow: { color: "#5A4740", opacity: 0.07, radius: 16, y: 6 },
+    density: { screen: 16, card: 20, section: 24 }, shadow: { color: "#5A4740", opacity: 0.07, radius: 16, y: 6 },
     motion: { pressScale: 0.97, pressOpacity: 0.85, pressInMs: 100, pressOutMs: 160, tabIndicator: snappy,
       entrance: { durationMs: 280, offset: 10, staggerMs: 50 }, toastExitEaseOut: true },
     variants: { tabBar: "tint", today: "warm", list: "grouped", placeholder: "topic", rowIcon: "tile", journalRow: "date", detailHero: "band", chip: "ink" },

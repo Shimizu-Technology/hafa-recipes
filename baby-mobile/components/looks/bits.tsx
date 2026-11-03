@@ -51,18 +51,19 @@ export function Tape({ topic, index = 0, width = 44 }: { topic: string; index?: 
 }
 
 /** What a source tile shows when it has no thumbnail (and under one while it loads). */
-export function Placeholder({ record, size, mark }: { record: BabyRecord; size: number; mark: ReactNode }) {
+export function Placeholder({ record, size, mark, fill }: { record: BabyRecord; size: number; mark: ReactNode; fill?: string }) {
   const { look } = useLook(), c = useLookColors(), topic = useTopic(record), tint = useTopicTint(topic);
   const title = record.title || record.data.creator || topic;
   switch (look.variants.placeholder) {
-    case "monogram": return <View style={{ position: "absolute", inset: 0, backgroundColor: c.placeholder, alignItems: "center", justifyContent: "center" }}>
+    case "monogram": return <View style={{ position: "absolute", inset: 0, backgroundColor: fill ?? c.placeholder, alignItems: "center", justifyContent: "center" }}>
       <Text allowFontScaling={false} style={{ ...displayFace(look, true), fontSize: size * 0.46, lineHeight: size * 0.56, color: c.placeholderInk }}>{initialOf(title)}</Text>
     </View>;
     case "stamp": return <View style={{ position: "absolute", inset: 0, backgroundColor: tint.wash, alignItems: "center", justifyContent: "center" }}>
       <Text allowFontScaling={false} style={{ ...displayFace(look), fontSize: size * 0.42, lineHeight: size * 0.52, color: tint.ink }}>{initialOf(title)}</Text>
     </View>;
-    case "topic": return <View style={{ position: "absolute", inset: 0, backgroundColor: tint.wash, alignItems: "center", justifyContent: "center" }}>
-      <Icon name={topicIcon(topic)} size={Math.round(size * 0.4)} color={tint.ink} />
+    // One neutral tile with the topic's icon: lists stay calm and the two-tint limit holds on every screen.
+    case "topic": return <View style={{ position: "absolute", inset: 0, backgroundColor: fill ?? c.placeholder, alignItems: "center", justifyContent: "center" }}>
+      <Icon name={topicIcon(topic)} size={Math.round(size * 0.4)} color={c.placeholderInk} />
     </View>;
     default: return <>{mark}</>;
   }
@@ -97,7 +98,7 @@ export function DetailHero({ record, title }: { record: BabyRecord; title: strin
     const frame = Math.min(260, width * 0.62);
     return <View style={{ gap: 14 }}>
       {photo && <View style={{ alignSelf: "center", marginTop: 10, transform: [{ rotate: "-1.5deg" }] }}>
-        <View style={{ backgroundColor: "#FFFFFF", padding: 8, paddingBottom: 30, borderRadius: 3, ...cardEdge(c.cardBorder, look) }}>
+        <View style={{ backgroundColor: c.frame, padding: 8, paddingBottom: 30, borderRadius: 3, ...cardEdge(c.cardBorder, look) }}>
           {image({ width: frame, height: frame * 1.1, borderRadius: 2 })}
         </View>
         <Tape topic={topic} width={64} />
