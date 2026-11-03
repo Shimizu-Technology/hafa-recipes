@@ -82,6 +82,18 @@ export interface PendingCoachMessage {
   // Device-only intent: retry cancellation, never resubmit this message.
   stop_requested?: true;
 }
+/**
+ * Whether a saved exchange belongs in the conversation opened with `focus`. A coach opened on a workout, plan or
+ * session shows only that scope's exchanges (or starts fresh), never the general Today thread; the general coach
+ * shows everything, as before. Revisions are ignored: the same workout after an edit is the same conversation.
+ */
+export function messageInFocus(message: Pick<CoachMessage, "focus">, focus: CoachFocus) {
+  const own = message.focus ?? {};
+  if (focus.context_workout_id) return own.context_workout_id === focus.context_workout_id;
+  if (focus.context_program_id) return own.context_program_id === focus.context_program_id;
+  if (focus.context_session_id) return own.context_session_id === focus.context_session_id;
+  return true;
+}
 export function coachFocusErrors(focus: CoachFocus) {
   const count = [focus.context_workout_id, focus.context_program_id, focus.context_session_id].filter(Boolean).length;
   return count > 1 ||
