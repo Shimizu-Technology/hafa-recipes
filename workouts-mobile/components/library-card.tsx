@@ -24,6 +24,12 @@ function Cover({ uri, icon, size, title = "Your collection", meta = "" }: { uri?
   if (uri && uri !== failed)
     return <Image source={{ uri }} onError={() => setFailed(uri)} contentFit="cover" transition={reduced ? 0 : motion.base}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} accessibilityIgnoresInvertColors />;
+  if (icon === "folder-open-outline") return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+    style={{ flex: 1, padding: 18, backgroundColor: c.sunken, justifyContent: "space-between" }}>
+    <Ionicons name="albums-outline" size={22} color={c.muted} />
+    <Copy kind="display" fit maxScale={1.3} style={{ fontSize: 56, lineHeight: 62 }}>{title.trim().split(/\s+/).slice(0, 2).map(word => Array.from(word)[0]).join("") || "HW"}</Copy>
+    <Copy kind="caption2" tone="muted">COLLECTION</Copy>
+  </View>;
   return <WorkoutArt title={title} meta={meta} compact={size < 28} />;
 }
 
@@ -118,7 +124,7 @@ export function LibraryCard({
 
 /**
  * Collection card (spec v2 §1.5): one wide cover over two half covers, 1pt gaps, radius 16.
- * One cover fills the card; none shows a tonal tile with a folder.
+ * One cover fills the card; none shows a typographic collection monogram.
  */
 export function CollectionCard({ title, count, covers, onPress, width }: {
   title: string; count: number; covers: string[]; onPress(): void; width: number;
@@ -140,7 +146,7 @@ export function CollectionCard({ title, count, covers, onPress, width }: {
             <View style={{ flex: 1 }}><Cover uri={covers[1]} icon="image-outline" size={18} /></View>
             <View style={{ flex: 1 }}><Cover uri={covers[2]} icon="image-outline" size={18} /></View>
           </View>
-        </> : <Cover uri={covers[0]} icon="folder-open-outline" size={30} />}
+        </> : <Cover uri={covers[0]} icon="folder-open-outline" size={30} title={title} />}
       </View>
       <View style={{ gap: 2 }}>
         <Copy numberOfLines={largeText(fontScale) ? undefined : 1} style={{ fontSize: 16, lineHeight: 21, fontWeight: "600" }}>{title}</Copy>

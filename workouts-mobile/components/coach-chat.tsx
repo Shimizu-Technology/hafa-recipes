@@ -94,7 +94,7 @@ export function CoachInput({ label, value, onChange, placeholder, disabled = fal
       placeholderTextColor={c.muted}
       style={[typography.body, {
         flex: 1, minHeight: 44, maxHeight: 132, color: c.text, backgroundColor: c.elevated,
-        borderWidth: 1, borderColor: focused ? c.focus : c.border, borderRadius: 22,
+        borderWidth: 1, borderColor: focused ? c.focus : c.borderStrong, borderRadius: radii.md,
         paddingHorizontal: spacing.md, paddingTop: 10, paddingBottom: 10, textAlignVertical: "center",
         opacity: disabled ? 0.6 : 1,
       }]}

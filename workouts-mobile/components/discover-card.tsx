@@ -1,67 +1,15 @@
+import { WorkoutArt } from "./workout-art";
 import { View, type DimensionValue } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { BrandMark, Copy, MediaCard, Row, Skeleton, useColors } from "@/components/ui";
+import { Copy, MediaCard, Row, Skeleton, useColors } from "@/components/ui";
 import { radii } from "@/constants/theme";
 import { cardMeta, creatorCredit, equipmentChips, platformInfo, type DiscoverCard } from "@/lib/discover";
 
-const PATTERN_ROWS = 4;
-const PATTERN_COLUMNS = 5;
-
-/**
- * Artwork for a workout without a thumbnail: the reef hero surface with a quiet
- * latte-stone pattern and the source platform's icon. Decorative only.
- */
-export function SourceArtwork({ platform, height = 168, compact = false }: { platform: string | null; height?: DimensionValue; compact?: boolean }) {
-  const c = useColors();
-  const info = platformInfo(platform);
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={{ width: "100%", height, backgroundColor: c.hero, overflow: "hidden", alignItems: "center", justifyContent: "center" }}
-    >
-      {!compact && (
-        <View style={{ position: "absolute", top: -10, left: -18, right: -18, bottom: -10, opacity: 0.12, gap: 14 }}>
-          {Array.from({ length: PATTERN_ROWS }, (_, row) => (
-            <View key={row} style={{ flexDirection: "row", gap: 26, marginLeft: row % 2 ? 34 : 0 }}>
-              {Array.from({ length: PATTERN_COLUMNS }, (_, column) => (
-                <BrandMark key={column} height={26} mono={c.onHero} />
-              ))}
-            </View>
-          ))}
-        </View>
-      )}
-      <View
-        style={{
-          width: compact ? 44 : 64,
-          height: compact ? 44 : 64,
-          borderRadius: radii.full,
-          backgroundColor: c.accent,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Ionicons name={info.icon} size={compact ? 22 : 32} color={c.onAccent} />
-      </View>
-      {!compact && (
-        <View
-          style={{
-            position: "absolute",
-            bottom: 10,
-            right: 10,
-            paddingHorizontal: 10,
-            paddingVertical: 4,
-            borderRadius: radii.full,
-            backgroundColor: c.onHeroSoft,
-          }}
-        >
-          <Copy kind="small" color={c.onHero} style={{ fontSize: 13, lineHeight: 18 }}>
-            {platform ? info.label : "Håfa"}
-          </Copy>
-        </View>
-      )}
-    </View>
-  );
+/** Athletic format cover shared with Library and saved workout detail. */
+export function SourceArtwork({ platform, height = 168, compact = false, title = "Workout", meta }: {
+  platform: string | null; height?: DimensionValue; compact?: boolean; title?: string; meta?: string;
+}) {
+  return <View style={{ width: "100%", height, overflow: "hidden" }}><WorkoutArt title={title} meta={meta ?? platformInfo(platform).label} compact={compact} /></View>;
 }
 
 export function DiscoverCardView({ card, onPress }: { card: DiscoverCard; onPress(): void }) {
@@ -73,7 +21,7 @@ export function DiscoverCardView({ card, onPress }: { card: DiscoverCard; onPres
       title={card.title}
       meta={cardMeta(card)}
       image={card.thumbnail_url}
-      placeholder={<SourceArtwork platform={card.source_platform} />}
+      placeholder={<SourceArtwork platform={card.source_platform} title={card.title} meta={cardMeta(card)} />}
       chips={equipmentChips(card)}
       badge={badge}
       footer={credit ? <CreditLine platform={card.source_platform} text={credit} /> : null}

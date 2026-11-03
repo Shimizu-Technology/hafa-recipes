@@ -3,7 +3,7 @@ import { View, useWindowDimensions } from "react-native";
 import { Copy, useColors } from "../design/foundation";
 import { ProgressRing } from "../design/training";
 import { SetPop } from "../design/athletic-motion";
-export function SessionClock({ text, caption, phase, progress, trigger, compact, children, accessibilityLabel }: { accessibilityLabel: string; text: string; caption: string; phase?: string | null; progress: number | null; trigger: unknown; compact: boolean; children: ReactNode }) {
+export function SessionClock({ text, caption, phase, progress, trigger, compact, children, accessibilityLabel }: { accessibilityLabel: string; text: string; caption: string; phase?: string | null; progress: number | null; trigger: number; compact: boolean; children: ReactNode }) {
   const c = useColors();
   const { width, fontScale } = useWindowDimensions();
   const ring = !compact && progress != null;

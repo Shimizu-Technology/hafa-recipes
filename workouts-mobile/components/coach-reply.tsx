@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Linking, Platform, Text, View } from "react-native";
 import { Markdown, MarkdownIt, type RenderRules } from "@believer/react-native-markdown-display";
 import { Button, Copy, Notice, Sheet, useColors } from "./ui";
-import { typography } from "@/constants/theme";
+import { typography, fonts } from "@/constants/theme";
 
 // Match Recipes: assistant markup never loads a remote image or raw HTML.
 const parser = new MarkdownIt({ html: false, linkify: false });
@@ -50,7 +50,7 @@ export function CoachReply({ text, scopeToken, isCurrent }: { text: string; scop
   return <View style={{ gap: 8, alignSelf: "stretch", minWidth: 0, flexShrink: 0 }}><Markdown markdownit={parser} rules={rules} onLinkPress={openLink} style={{
     body: { ...typography.body, color: c.text, flexShrink: 0 },
     paragraph: { marginVertical: 4, flexShrink: 0 },
-    strong: { fontFamily: typography.heading.fontFamily },
+    strong: { fontFamily: fonts.bold, fontWeight: "400" },
     em: { fontStyle: "italic" },
     bullet_list: { marginVertical: 4 }, ordered_list: { marginVertical: 4 },
     list_item: { marginVertical: 2, flexShrink: 0, flexWrap: "nowrap", alignItems: "flex-start" },

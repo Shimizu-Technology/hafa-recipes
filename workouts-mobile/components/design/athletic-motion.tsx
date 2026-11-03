@@ -23,14 +23,15 @@ export function Entrance({ children, index = 0 }: PropsWithChildren<{ index?: nu
 }
 
 /** Set-complete feedback, paired with the player's existing successful-log haptic. */
-export function SetPop({ children, trigger }: PropsWithChildren<{ trigger: unknown }>) {
+export function SetPop({ children, trigger }: PropsWithChildren<{ trigger: number }>) {
   const reduced = useReducedMotion();
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
   const previous = useRef(trigger);
   useEffect(() => {
-    if (previous.current === trigger) return;
+    const before = previous.current;
     previous.current = trigger;
+    if (trigger <= before) return;
     scale.stopAnimation(); opacity.stopAnimation();
     if (reduced) {
       scale.setValue(1); opacity.setValue(0.65);

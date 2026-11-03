@@ -94,6 +94,7 @@ export interface ExerciseRecord {
   name: string;
   /** Best result in words: "24 kg × 8", "15 reps", "1:30" or "5 km". */
   best: string;
+  measure: { metric: "kg" | "reps" | "seconds" | "meters"; value: number; reps?: number };
   /** Supporting line: most reps and how many sessions it appears in. */
   detail: string;
   /** Best result per session, oldest first (last 8), for a sparkline. */
@@ -142,6 +143,8 @@ export function exerciseRecords(sessions: readonly Effective[], units: UnitSyste
     const count = r.sessions.size;
     const detail = [r.heaviest && r.mostReps ? `Most reps ${r.mostReps.reps}` : null,
       `${count} ${count === 1 ? "session" : "sessions"}`].filter(Boolean).join(" · ");
-    return [{ key, name: r.name, best, detail, trend, lastDone: r.lastDone }];
+    return [{ key, name: r.name, best, detail, trend, lastDone: r.lastDone, measure: { metric,
+      value: r.heaviest ? kg(r.heaviest) : r.mostReps ? r.mostReps.reps! : r.longest ? r.longest.duration_seconds! : r.farthest!.distance_meters!,
+      ...(r.heaviest ? { reps: r.heaviest.reps ?? 0 } : {}) } }];
   }).sort((a, b) => b.lastDone.localeCompare(a.lastDone));
 }
