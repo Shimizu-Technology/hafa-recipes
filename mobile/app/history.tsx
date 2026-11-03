@@ -540,9 +540,11 @@ export function HistoryScreen({ active = true }: { active?: boolean } = {}) {
   };
 
   // Design-preview looks lift the latest recipe out of the grid into the Library's "today" moment.
+  // The newest recipe with a photo leads; without one, the newest recipe does.
   const todayRecipe = look.variants.home !== 'none' && !isSelectionMode && !searchQuery && activeFilterCount === 0 && !needsCheckOnly
-    && (displayRecipes?.length ?? 0) >= 3 ? displayRecipes![0] : null;
-  const listData = todayRecipe ? displayRecipes!.slice(1) : displayRecipes;
+    && (displayRecipes?.length ?? 0) >= 3
+    ? displayRecipes!.slice(0, 6).find(recipe => recipe.thumbnail_url?.trim()) ?? displayRecipes![0] : null;
+  const listData = todayRecipe ? displayRecipes!.filter(recipe => recipe.id !== todayRecipe.id) : displayRecipes;
 
   const librarySwitch = isSignedIn && !isSelectionMode ? <RNView style={{ marginBottom: 12 }}>
     <SegmentedControl accessibilityLabel="Library view" value={segment} onChange={setSegment}

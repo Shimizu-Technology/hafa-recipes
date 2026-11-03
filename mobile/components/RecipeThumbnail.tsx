@@ -100,8 +100,8 @@ export function RecipeThumbnail({
 
 /**
  * The no-photo tile, designed per look so a missing cover never reads as a grey slab.
- * Cookbook sets the dish name like a cookbook plate; Island shows a Fraunces initial with a sun dot;
- * Calm shows a quiet utensil glyph over the name.
+ * Cookbook sets the dish name top-left under a short rule, like a cookbook plate; Island shows a Fraunces initial with a sun dot;
+ * Calm shows a quiet utensil glyph in a hairline ring (the name sits below the tile).
  */
 function PlaceholderTile({ look, colors, title }: { look: Look; colors: LookPalette; title: string }) {
   const variant = look.variants.placeholder;
@@ -122,7 +122,6 @@ function PlaceholderTile({ look, colors, title }: { look: Look; colors: LookPale
     <RNView style={[styles.quietRing, { borderColor: colors.border }]}>
       <Ionicons name="restaurant-outline" size={22} color={colors.placeholderInk} />
     </RNView>
-    <Text numberOfLines={2} allowFontScaling={false} style={[styles.quietTitle, { color: colors.placeholderInk, fontFamily: look.fonts?.ui?.semibold }]}>{title}</Text>
   </RNView>;
 }
 
@@ -130,12 +129,11 @@ const styles = StyleSheet.create({
   tileFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   sun: { position: 'absolute', top: 16, right: 16, width: 10, height: 10, borderRadius: 5 },
   monogram: { fontSize: 64, lineHeight: 72 },
-  typeTile: { alignItems: 'flex-start', justifyContent: 'flex-end', padding: 14, gap: 10 },
+  typeTile: { alignItems: 'flex-start', justifyContent: 'flex-start', padding: 16, gap: 12 },
   rule: { width: 24, height: 1.5, opacity: 0.5 },
   typeTitle: { fontSize: 20, lineHeight: 25 },
-  quietTile: { gap: 10, paddingHorizontal: 16 },
+  quietTile: { paddingHorizontal: 16 },
   quietRing: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  quietTitle: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
   container: {
     alignItems: 'center',
     justifyContent: 'center',

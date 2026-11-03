@@ -35,7 +35,7 @@ export function LibraryToday({ recipe, onPress }: { recipe: RecipeListItem; onPr
               <View style={[styles.sunDot, { backgroundColor: colors.highlight }]} />
               <Text style={[styles.featureMeta, { color: colors.onPhoto }]}>Latest save{meta ? ` · ${meta}` : ''}</Text>
             </View>
-            <Text numberOfLines={large ? 4 : 2} style={[styles.featureTitle, { color: colors.onPhoto, fontFamily: look.fonts?.display }]}>{recipe.title}</Text>
+            <Text numberOfLines={large ? 5 : 3} style={[styles.featureTitle, { color: colors.onPhoto, fontFamily: look.fonts?.display }]}>{recipe.title}</Text>
           </View>
         </View>
       </LookPressable>
@@ -47,7 +47,7 @@ export function LibraryToday({ recipe, onPress }: { recipe: RecipeListItem; onPr
       <LookPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} testID="library-today">
         <RecipeThumbnail uri={recipe.thumbnail_url} style={[styles.leadPhoto, { borderRadius: look.radii.photo }]} accessible={false} placeholderTitle={recipe.title} priority="high" />
         <Text style={[styles.leadMeta, { color: colors.textSecondary }]}>Latest in your kitchen{meta ? ` · ${meta}` : ''}</Text>
-        <Text numberOfLines={large ? 5 : 3} style={[styles.leadTitle, { color: colors.text, fontFamily: look.fonts?.display }]}>{recipe.title}</Text>
+        <Text numberOfLines={large ? 4 : 2} style={[styles.leadTitle, { color: colors.text, fontFamily: look.fonts?.display }]}>{recipe.title}</Text>
       </LookPressable>
       <View style={[styles.rule, { backgroundColor: colors.hairline }]} />
     </FadeUp>;
@@ -77,11 +77,11 @@ const styles = StyleSheet.create({
   featureKicker: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sunDot: { width: 8, height: 8, borderRadius: 4 },
   featureMeta: { fontSize: 13, lineHeight: 18, fontWeight: '600', opacity: 0.9 },
-  featureTitle: { fontSize: 28, lineHeight: 33 },
-  leadPhoto: { width: '100%', aspectRatio: 3 / 2 },
+  featureTitle: { fontSize: 26, lineHeight: 31 },
+  leadPhoto: { width: '100%', aspectRatio: 16 / 9 },
   leadMeta: { fontSize: 13, lineHeight: 18, marginTop: 12 },
-  leadTitle: { fontSize: 28, lineHeight: 33, marginTop: 4 },
-  rule: { height: StyleSheet.hairlineWidth, marginTop: 24 },
+  leadTitle: { fontSize: 24, lineHeight: 29, marginTop: 4 },
+  rule: { height: StyleSheet.hairlineWidth, marginTop: 20 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 12, borderWidth: StyleSheet.hairlineWidth },
   rowPhoto: { width: 64, height: 64 },
   rowCopy: { flex: 1, gap: 2 },

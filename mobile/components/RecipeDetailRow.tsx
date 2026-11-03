@@ -52,8 +52,8 @@ export function RecipeDetailAction({ icon, title, onPress, selected, onBand = fa
   return (
     <Pressable key={fontScale} onPress={onPress} accessibilityRole="button" accessibilityLabel={title}
       accessibilityState={selected === undefined ? undefined : { expanded: selected }}
-      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, surface, pressed && styles.pressed]}>
-      <Ionicons name={icon} size={18} color={tint} />
+      style={({ pressed }) => [styles.action, { flexBasis: Math.ceil(110 * fontScale * textScale) }, { backgroundColor: selected ? colors.accentTint : colors.surface2 }, surface, surface && styles.lookAction, pressed && styles.pressed]}>
+      <Ionicons name={icon} size={surface ? 16 : 18} color={tint} />
       <Text numberOfLines={1} style={[styles.actionTitle, { color: tint }]}>{title}</Text>
     </Pressable>
   );
@@ -62,6 +62,8 @@ export function RecipeDetailAction({ icon, title, onPress, selected, onBand = fa
 const styles = StyleSheet.create({
   action: { flexGrow: 1, flexShrink: 1, maxWidth: '100%', flexBasis: 96, minHeight: 44, borderRadius: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   actionTitle: { fontSize: 15, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
+  // Preview faces run wider than SF; tighter insets keep "Groceries" whole on a 402pt phone.
+  lookAction: { paddingHorizontal: 8, gap: 5 },
   pressed: { opacity: 0.7 },
   row: { minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   separator: { position: 'absolute', left: 48, right: 16, bottom: 0, height: StyleSheet.hairlineWidth },

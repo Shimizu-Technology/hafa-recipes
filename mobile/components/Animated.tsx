@@ -18,6 +18,7 @@ import Animated, {
 import { listEntranceDelay, MAX_LIST_ENTRANCE_ITEMS } from '@/lib/listAnimation';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { useLook } from '@/contexts/LookContext';
+import { LookEnterItem } from '@/components/lookMotion';
 
 export { useInitialListEntrance } from '@/lib/listAnimation';
 
@@ -58,19 +59,20 @@ export function AnimatedListItem({
     : look.motion.entrance;
   const [shouldEnter] = useState(() => enter && index < entrance.max);
   if (!shouldEnter) return <View style={style}>{children}</View>;
-  return <EnteringListItem index={index} delay={entrance.stagger} duration={entrance.duration} offset={entrance.offset}
-    lookPreview={look.id !== 'current'} style={style}>{children}</EnteringListItem>;
+  if (look.id !== 'current') {
+    return <LookEnterItem index={index} stagger={entrance.stagger} duration={entrance.duration} offset={entrance.offset} style={style}>{children}</LookEnterItem>;
+  }
+  return <EnteringListItem index={index} delay={entrance.stagger} style={style}>{children}</EnteringListItem>;
 }
 
-function EnteringListItem({ children, index, delay, duration = LIST_ENTRANCE_MS, offset = LIST_ENTRANCE_OFFSET, lookPreview = false, style }: Required<Pick<AnimatedListItemProps, 'index' | 'delay'>> & Pick<AnimatedListItemProps, 'children' | 'style'> & { duration?: number; offset?: number; lookPreview?: boolean }) {
+function EnteringListItem({ children, index, delay, style }: Required<Pick<AnimatedListItemProps, 'index' | 'delay'>> & Pick<AnimatedListItemProps, 'children' | 'style'>) {
   const reduceMotion = useReduceMotion();
   const progress = useSharedValue(0);
 
   useEffect(() => {
     progress.value = withDelay(
-      // Preview looks: Reduce Motion keeps a plain fade with no stagger or slide.
-      lookPreview ? (reduceMotion ? 0 : listEntranceDelay(index, delay, delay * 6)) : listEntranceDelay(index, delay),
-      withTiming(1, { duration: lookPreview && reduceMotion ? Math.min(duration, 180) : duration, easing: EASE_OUT }),
+      listEntranceDelay(index, delay),
+      withTiming(1, { duration: LIST_ENTRANCE_MS, easing: EASE_OUT }),
     );
     // Play once per mounted row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,7 +80,7 @@ function EnteringListItem({ children, index, delay, duration = LIST_ENTRANCE_MS,
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ translateY: reduceMotion ? 0 : (1 - progress.value) * offset }],
+    transform: [{ translateY: reduceMotion ? 0 : (1 - progress.value) * LIST_ENTRANCE_OFFSET }],
   }), [reduceMotion]);
 
   return <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>;

@@ -77,3 +77,29 @@ function FadeUpPlaying({ index, children, style }: { index: number; children: Re
     transform: [{ translateY: reduceMotion ? 0 : progress.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
   }]}>{children}</Animated.View>;
 }
+
+/**
+ * A preview look's first-mount list entrance: opacity plus a short rise, staggered by row.
+ * Reduce Motion keeps a plain fade with no stagger or slide.
+ */
+export function LookEnterItem({ index, stagger, duration, offset, children, style }: {
+  index: number; stagger: number; duration: number; offset: number; children: ReactNode; style?: StyleProp<ViewStyle>;
+}) {
+  const reduceMotion = useReduceMotion();
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      delay: reduceMotion ? 0 : Math.min(index, 5) * stagger,
+      duration: reduceMotion ? Math.min(duration, 180) : duration,
+      easing: EASE_OUT,
+      useNativeDriver: true,
+    }).start();
+    // Plays once per mounted row.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <Animated.View style={[style, {
+    opacity: progress,
+    transform: [{ translateY: reduceMotion || !offset ? 0 : progress.interpolate({ inputRange: [0, 1], outputRange: [offset, 0] }) }],
+  }]}>{children}</Animated.View>;
+}

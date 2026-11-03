@@ -19,6 +19,7 @@ import Animated, {
 import { Text, useColors } from '@/components/Themed';
 import { useKeyboardVisible } from '@/components/chrome/HafaTabBar';
 import type { LookPalette } from '@/constants/looks';
+import { useLook } from '@/contexts/LookContext';
 
 export type RecipeHeaderAction = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -149,6 +150,7 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
   floating?: (collapsed: boolean) => ReactNode;
 }) {
   const colors = useColors();
+  const { density } = useLook();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const keyboardVisible = useKeyboardVisible();
@@ -195,7 +197,7 @@ export function RecipeDetailScroll({ title, hero, expectHero, actions, children,
         </Animated.View>
         {children}
       </Animated.ScrollView>
-      {floating && !keyboardVisible && <View pointerEvents="box-none" style={[styles.floating, { bottom: insets.bottom + 16 }]}>
+      {floating && !keyboardVisible && <View pointerEvents="box-none" style={[styles.floating, { bottom: insets.bottom + 16, right: density.margin }]}>
         {floating(collapsed)}
       </View>}
     </View>

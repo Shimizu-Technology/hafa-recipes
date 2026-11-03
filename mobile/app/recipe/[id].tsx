@@ -827,7 +827,7 @@ function RecipeDetailScreenContent() {
               ))}
             </RNView>}
             </FadeUp>
-            <FadeUp index={2} enabled={fadeDetail} style={look.variants.startBand && [styles.startBand, { backgroundColor: colors.dark ? '#173F38' : colors.tint, borderRadius: look.radii.card }]}>
+            <FadeUp index={2} enabled={fadeDetail} style={look.variants.startBand && [styles.startBand, { backgroundColor: colors.dark ? '#173F38' : colors.tint, marginHorizontal: -look.density.margin, paddingHorizontal: look.density.margin }]}>
             {canShowRecipePrimaryAction(isOwner, cookPresentation.canCook) && (look.variants.startBand
               // Island: a sand button on the deep-reef band; the band is this screen's one accent object.
               ? <Pressable onPress={handleCook} accessibilityRole="button" accessibilityLabel={cookPresentation.canCook ? 'Start cooking' : 'Add instructions'}
@@ -878,7 +878,7 @@ function RecipeDetailScreenContent() {
 
                 <>
                   <Text accessibilityRole="header" style={styles.sectionTitle}>Ingredients</Text>
-                  {extracted.equipment && extracted.equipment.length > 0 && <RNView style={[styles.preparation, { borderColor: colors.border }]}>
+                  {extracted.equipment && extracted.equipment.length > 0 && <RNView style={[styles.preparation, { borderColor: colors.border }, look.variants.card === 'flat' && { paddingHorizontal: 0, borderColor: colors.hairline }]}>
                     <Text accessibilityRole="header" style={[styles.notesTitle, { color: colors.text }]}>Equipment</Text>
                     <Text style={[styles.notesText, { color: colors.textSecondary, fontSize: scaleFontSize(fontSize.md), lineHeight: scaleFontSize(23) }]}>
                       {extracted.equipment.join(' · ')}
@@ -1368,7 +1368,7 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 16 },
   contentSheet: { marginTop: -24, paddingTop: 24 },
   factsRuled: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 12 },
-  startBand: { padding: 16, gap: 12, marginBottom: 4 },
+  startBand: { paddingVertical: 20, gap: 10, marginTop: 4, marginBottom: 4 },
   bandButton: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   bandButtonText: { fontSize: 17, lineHeight: 22, fontWeight: '700' },
   container: {

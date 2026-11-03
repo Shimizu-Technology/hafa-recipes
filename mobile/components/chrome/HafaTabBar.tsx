@@ -124,7 +124,7 @@ function LookTabBar({ state, descriptors, navigation, look }: BottomTabBarProps 
   const slotCount = state.routes.length + 1;
   const slotWidth = rowWidth / slotCount;
   const selectedSlot = state.index < IMPORT_SLOT ? state.index : state.index + 1;
-  const markerWidth = variant === 'dock' ? 60 : variant === 'calm' ? 24 : 4;
+  const markerWidth = variant === 'dock' ? 64 : variant === 'calm' ? 24 : 4;
   const x = useIndicatorX(rowWidth ? selectedSlot * slotWidth + (slotWidth - markerWidth) / 2 : 0);
   const markerStyle = { transform: [{ translateX: x }] };
   const labelFont = look.fonts ? { fontFamily: uiFontFor(look.fonts, '600') } : { fontWeight: '600' as const };
@@ -155,7 +155,7 @@ function LookTabBar({ state, descriptors, navigation, look }: BottomTabBarProps 
   });
 
   const importVisual = variant === 'calm'
-    ? <><View style={[styles.capsule, { backgroundColor: colors.tint }]}><Ionicons name="add" size={24} color={colors.onTint} /></View>
+    ? <><View style={styles.capsuleSlot}><View style={[styles.capsule, { backgroundColor: colors.tint }]}><Ionicons name="add" size={24} color={colors.onTint} /></View></View>
       <Text allowFontScaling={false} numberOfLines={1} style={[styles.label, labelFont, { color: colors.tabIconDefault }]}>Import</Text></>
     : <View style={[styles.circle, { width: dock ? 48 : 40, height: dock ? 48 : 40, borderRadius: dock ? 24 : 20, backgroundColor: colors.tint }]}>
       <Ionicons name="add" size={dock ? 28 : 26} color={colors.onTint} />
@@ -177,7 +177,7 @@ function LookTabBar({ state, descriptors, navigation, look }: BottomTabBarProps 
 
   if (dock) {
     return <View style={{ height, paddingTop: DOCK_TOP_GAP, paddingBottom: dockBottomGap(bottom), paddingHorizontal: 12, backgroundColor: colors.background }}>
-      <View style={[styles.dock, look.shadows.float, { backgroundColor: colors.chromeBar, borderColor: colors.dark ? 'rgba(244,238,230,0.08)' : 'transparent' }]}>{row}</View>
+      <View style={[styles.dock, look.shadows.float, styles.dockLift, { backgroundColor: colors.chromeBar, borderColor: colors.dark ? 'rgba(244,238,230,0.10)' : colors.border }]}>{row}</View>
     </View>;
   }
   return <View style={[styles.lookBar, { height, paddingBottom: bottom, backgroundColor: colors.chromeBar, borderTopColor: colors.chromeHairline }]}>{row}</View>;
@@ -187,12 +187,15 @@ const styles = StyleSheet.create({
   lookBar: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4 },
   lookRow: { flex: 1, flexDirection: 'row' },
   dock: { borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4 },
-  dockIcon: { height: 30, justifyContent: 'center' },
-  dockPill: { position: 'absolute', top: 7, width: 60, height: 32, borderRadius: 16 },
+  dockLift: { shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.16, shadowRadius: 20 },
+  dockIcon: { height: 28, justifyContent: 'center' },
+  dockPill: { position: 'absolute', top: 6, width: 64, height: 52, borderRadius: 18 },
   dot: { position: 'absolute', bottom: 5, width: 4, height: 4, borderRadius: 2 },
   dotSpace: { height: 4 },
   topMarker: { position: 'absolute', top: 0, width: 24, height: 2, borderRadius: 1 },
   circle: { alignItems: 'center', justifyContent: 'center' },
+  // The capsule overhangs a 24pt slot so the Import label sits on the same line as the tab labels.
+  capsuleSlot: { height: 24, alignItems: 'center', justifyContent: 'center' },
   capsule: { width: 44, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   bar: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4 },
   slot: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, minHeight: 44 },
