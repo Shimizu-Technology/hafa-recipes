@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform, View } from 'react-native';
 
 import { AppLoadingSkeleton } from '@/components/Skeleton';
+import { useColors } from '@/components/Themed';
 import {
   CLERK_ENVIRONMENT,
   clearMigrationGrant,
@@ -18,6 +19,7 @@ import {
 const JWT_TEMPLATE = 'recipe-extractor-public-metadata';
 
 export function ClerkMigrationBridge({ children }: { children: React.ReactNode }) {
+  const colors = useColors();
   const { getToken, isLoaded: isAuthLoaded, isSignedIn, sessionId } = useAuth();
   const {
     isLoaded: isSignInLoaded,
@@ -142,7 +144,7 @@ export function ClerkMigrationBridge({ children }: { children: React.ReactNode }
 
   if (!isResolved) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#101411' }}>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
         <AppLoadingSkeleton />
       </View>
     );

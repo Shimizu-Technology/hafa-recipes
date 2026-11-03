@@ -122,7 +122,8 @@ export function ImportActivityCard({
 
   const colorFor = (kind: ImportPresentation['colorKind']) => ({
     success: colors.success, warning: colors.warning, error: colors.error,
-    tint: colors.tint, muted: colors.textMuted,
+    // Status words are text, so they use the readable accent (actionText), not the fill colour.
+    tint: colors.actionText, muted: colors.textMuted,
   })[kind];
 
   const renderJob = (job: JobStatus) => {

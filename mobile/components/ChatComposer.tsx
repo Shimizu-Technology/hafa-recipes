@@ -97,7 +97,7 @@ export default function ChatComposer({
             : isGeneralMode
               ? largeTextPlaceholder ? 'Ask about cooking…' : 'Ask anything about cooking…'
               : 'Ask about this recipe…'}
-        placeholderTextColor={isListening ? colors.tint : colors.textMuted}
+        placeholderTextColor={isListening ? colors.actionText : colors.textMuted}
         multiline
         maxLength={CHAT_MESSAGE_MAX_CHARS}
         editable={!isUnavailable && !isListening}

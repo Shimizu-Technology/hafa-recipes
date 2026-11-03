@@ -149,7 +149,7 @@ function CookModeScreenContent({ generation }: { generation: string }) {
   const largeText = fontScale * useContext(TextScaleContext) >= 1.3;
   const colors = useColors();
   const cook = colors;
-  const appearance = colors.background === '#000000' ? 'dark' : 'light';
+  const appearance = colors.dark ? 'dark' : 'light';
   const styles = useMemo(() => createStyles(cook), [cook]);
   const insets = useSafeAreaInsets();
   

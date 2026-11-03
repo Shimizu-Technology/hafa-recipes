@@ -1,17 +1,23 @@
 import { TextScaleContext } from '@/components/Themed';
 import { useTextSize } from '@/hooks/useTextSize';
-import { Button, Text } from '@/components/Themed';
+import { Button, Text, useColors } from '@/components/Themed';
 import { offlineRecipes } from '@/lib/offlineRecipes';
 import { privateRecipeDrafts } from '@/lib/privateRecipeDrafts';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, ClerkLoaded, useAuth, useUser } from '@clerk/expo';
 import { useFonts } from 'expo-font';
-import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
+// One face per weight, imported by path so only these files are bundled.
+import { Figtree_400Regular } from '@expo-google-fonts/figtree/400Regular';
+import { Figtree_500Medium } from '@expo-google-fonts/figtree/500Medium';
+import { Figtree_600SemiBold } from '@expo-google-fonts/figtree/600SemiBold';
+import { Figtree_700Bold } from '@expo-google-fonts/figtree/700Bold';
+import { Figtree_400Regular_Italic } from '@expo-google-fonts/figtree/400Regular_Italic';
+import { Fraunces_500Medium } from '@expo-google-fonts/fraunces/500Medium';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { View, useColorScheme as useSystemColorScheme } from 'react-native';
 import 'react-native-reanimated';
 import { ShareIntentProvider } from 'expo-share-intent';
 
@@ -57,9 +63,11 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 function RootLayout() {
+  // The in-app theme loads after fonts; match the splash, which follows the system appearance.
+  const systemScheme = useSystemColorScheme();
   const [loaded, error] = useFonts({
-    // Håfa Recipes brand typography
-    Fraunces_600SemiBold,
+    // Calm: Figtree for the UI, Fraunces 500 for recipe titles only.
+    Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold, Figtree_700Bold, Figtree_400Regular_Italic, Fraunces_500Medium,
   });
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
@@ -78,7 +86,7 @@ function RootLayout() {
   // Show skeleton loading instead of blank/splash screen
   if (!loaded) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#101411' }}>
+      <View style={{ flex: 1, backgroundColor: Colors[systemScheme === 'dark' ? 'dark' : 'light'].background }}>
         <AppLoadingSkeleton />
       </View>
     );
@@ -114,6 +122,7 @@ export default withSentry(RootLayout);
  * stale data from a previous user showing to a new user.
  */
 function AuthTokenSync({ children }: { children: React.ReactNode }) {
+  const colors = useColors();
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
   
@@ -233,10 +242,10 @@ function AuthTokenSync({ children }: { children: React.ReactNode }) {
           justifyContent: 'center',
           gap: 16,
           padding: 32,
-          backgroundColor: '#101411',
+          backgroundColor: colors.background,
         }}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 17, textAlign: 'center' }}>
+        <Text style={{ color: colors.text, fontSize: 17, textAlign: 'center' }}>
           We couldn&apos;t prepare private on-device data for this account.
         </Text>
         <Button
@@ -300,8 +309,8 @@ function RootLayoutNav() {
                   <Stack
                     screenOptions={{
                       headerStyle: { backgroundColor: colors.background },
-                      headerTintColor: colors.tint,
-                      headerTitleStyle: { fontSize: Math.round(17 * scale), color: colors.text, fontWeight: '600', fontFamily: fontFamily.semibold },
+                      headerTintColor: colors.actionText,
+                      headerTitleStyle: { fontSize: Math.round(17 * scale), color: colors.text, fontFamily: fontFamily.semibold },
                       headerShadowVisible: false,
                       headerBackTitle: 'Back',
                     }}

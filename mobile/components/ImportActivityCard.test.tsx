@@ -15,7 +15,7 @@ vi.mock('@/components/Themed', async () => {
       ReactModule.createElement('Text', props, props.children as React.ReactNode),
     useColors: () => ({
       backgroundElevated: '#fff', border: '#ddd', borderLight: '#eee', error: '#c00',
-      success: '#070', text: '#111', textMuted: '#666', tint: '#066', warning: '#960',
+      success: '#070', text: '#111', textMuted: '#666', tint: '#066', actionText: '#0a5', warning: '#960',
     }),
   };
 });
@@ -184,5 +184,15 @@ it('places one separator between a job and capture inside one unpadded card', as
   expect(nodes.filter(node => node.type === 'NativeView' && Array.isArray(node.props.style) &&
     node.props.style.some((style: { marginLeft?: number } | undefined) => style?.marginLeft === 48))).toHaveLength(1);
   expect(screen.getByText('Waiting capture')).toBeTruthy();
+  screen.unmount();
+});
+
+it('draws active import status words in the readable accent, keeping the fill colour for the bar', async () => {
+  const screen = await render(<ImportActivityCard jobs={[job({ id: 'active', status: 'processing', progress: 30, recipe_id: null, completed_at: null }), job({ id: 'waiting', status: 'queued', recipe_id: null, completed_at: null })]}
+    onOpenRecipe={vi.fn()} onRestore={vi.fn()} />);
+  const json = JSON.stringify(screen.toJSON());
+  expect(json).toContain('"color":"#0a5"');
+  expect(json).not.toContain('"color":"#066"');
+  expect(json).toContain('"backgroundColor":"#066"');
   screen.unmount();
 });

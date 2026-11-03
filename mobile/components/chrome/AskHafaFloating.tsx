@@ -4,6 +4,7 @@ import { useSegments } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AskHafaPill } from '@/components/AssistantFloatingButton';
+import { layout } from '@/constants/Colors';
 import RecipeChatModal from '@/components/RecipeChatModal';
 import { TAB_BAR_HEIGHT, useKeyboardVisible } from '@/components/chrome/HafaTabBar';
 import { useCookTimerRunning } from '@/contexts/CookTimerRunning';
@@ -41,5 +42,5 @@ export function AskHafaFloating() {
 }
 
 const styles = StyleSheet.create({
-  anchor: { position: 'absolute', right: 16 },
+  anchor: { position: 'absolute', right: layout.margin },
 });

@@ -773,7 +773,7 @@ function GroceryScreenContent() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 32, color: colors.text }, headerTitleStyle: { color: colors.text }, headerSearchBarOptions: { placement: 'stacked', placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, ...headerRightOptions(() => <>{isAuthenticated && <HeaderIconButton icon="ellipsis-horizontal" accessibilityLabel="More grocery list actions" onPress={handleShowOverflowMenu} />}<AccountHeaderButton /></>) }} />
+      <Stack.Screen options={{ title: 'Grocery', headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 34, color: colors.text }, headerTitleStyle: { fontFamily: fontFamily.semibold, color: colors.text }, headerSearchBarOptions: { placement: 'stacked', placeholder: 'Search grocery list', onChangeText: event => setSearchQuery(event.nativeEvent.text), onCancelButtonPress: () => setSearchQuery('') }, ...headerRightOptions(() => <>{isAuthenticated && <HeaderIconButton icon="ellipsis-horizontal" accessibilityLabel="More grocery list actions" onPress={handleShowOverflowMenu} />}<AccountHeaderButton /></>) }} />
       <SectionList
         ref={listRef}
         {...tabScroll}

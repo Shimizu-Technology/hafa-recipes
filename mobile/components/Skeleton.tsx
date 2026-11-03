@@ -207,7 +207,7 @@ function SimpleShimmer({
           width: width as any,
           height,
           borderRadius: br,
-          backgroundColor: '#666',
+          backgroundColor: '#8A8F8C',
           opacity,
         },
         style,
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
   appLoadingContainer: {
     flex: 1,
     paddingTop: 60, // Account for status bar
-    backgroundColor: '#000', // Dark mode default for cleaner loading
+    // The root layout paints the page ground for the system appearance behind this.
   },
   appLoadingHeader: {
     paddingHorizontal: spacing.lg,
@@ -383,8 +383,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#222',
-    backgroundColor: '#111',
+    borderColor: 'rgba(128,128,128,0.2)',
+    backgroundColor: 'rgba(128,128,128,0.06)',
   },
   similarCard: {
     width: 160,

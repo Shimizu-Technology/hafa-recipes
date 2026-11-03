@@ -24,7 +24,7 @@ export default function OfflineRecipesScreen() {
   }, [userId, scope]);
   return <View style={{ flex: 1, backgroundColor: colors.groupedBackground }}>
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 16 }}>
-    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Available offline', headerTitle: 'Available offline', headerStyle: { backgroundColor: colors.groupedBackground } }} />
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 34 }, title: 'Available offline', headerTitle: 'Available offline', headerStyle: { backgroundColor: colors.groupedBackground } }} />
     <Text style={{ color: colors.textSecondary, fontSize: 15, lineHeight: 20 }}>Recently opened saved and own recipes stay on this device. Mark recipes to keep them; up to 100 kept recipes and 20 MB total. Remove copies below to free space; the latest 30 others are kept automatically. Offline copies may be out of date. Sign-out clears them.</Text>
     {error && <Text>Could not read offline recipes on this device. Reopen Håfa to try again.</Text>}
     {!error && !rows.length && <Text>Open a saved or own recipe while connected to keep an offline copy.</Text>}

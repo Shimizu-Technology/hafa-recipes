@@ -207,7 +207,7 @@ export default function CollectionDetailScreen() {
   if (!collection) {
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, headerTitle: 'Collection' }} />
+        <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 34 }, headerTitle: 'Collection' }} />
         <RNView style={styles.loadingContainer}>
           {id && collectionsQuery.isLoading ? <ActivityIndicator size="large" color={colors.actionText} /> : (
             <>

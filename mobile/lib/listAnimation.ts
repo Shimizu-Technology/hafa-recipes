@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 export const MAX_LIST_ENTRANCE_DELAY_MS = 200;
 /** Only the first screenful of rows plays an entrance. */
-export const MAX_LIST_ENTRANCE_ITEMS = 8;
+export const MAX_LIST_ENTRANCE_ITEMS = 6;
 
 /** Keep initial polish without hiding far-down cells during fast scrolling. */
 export function listEntranceDelay(

@@ -13,7 +13,7 @@ vi.mock('react-native-reanimated', () => ({
   withTiming: (value: number) => value,
 }));
 vi.mock('@expo/vector-icons/Ionicons', () => ({ default: 'Ionicons' }));
-vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: 'Text', useColors: () => ({ tint: '#1E7F6E', onTint: '#FFFFFF' }) }));
+vi.mock('@/components/Themed', async () => ({ TextInput: 'TextInput', TextScaleContext: (await import('react')).createContext(1),  Text: 'Text', useColors: () => ({ tint: '#17695B', onTint: '#FFFFFF', backgroundElevated: '#FFFFFF', border: '#DCDCD7', text: '#222222', actionText: '#145E52', shadowColor: '#222222', dark: false }) }));
 vi.mock('@/hooks/useReduceMotion', () => ({ useReduceMotion: () => true }));
 vi.mock('@/lib/bottomOverlay', () => ({ ASK_PILL_HEIGHT: 48 }));
 vi.mock('@/utils/haptics', () => ({ haptics: { medium: vi.fn() } }));
@@ -22,7 +22,7 @@ import { AskHafaPill } from './AssistantFloatingButton';
 import { askPillCollapseFor, showsAskPill } from '@/lib/askPill';
 
 describe('AskHafaPill', () => {
-  it('names itself by its label, fills with the accent and opens chat', async () => {
+  it('names itself by its label, sits on a white surface with a reef sparkle and opens chat', async () => {
     const r = createRoot();
     const onPress = vi.fn();
     try {
@@ -30,7 +30,8 @@ describe('AskHafaPill', () => {
       const button = r.container.queryAll(n => n.props.accessibilityLabel === 'Ask about this')[0];
       expect(button.props.accessibilityRole).toBe('button');
       expect(r.container.queryAll(n => n.type === 'Text')[0].props.children).toBe('Ask about this');
-      expect(r.container.queryAll(n => n.type === 'AnimatedView')[0].props.style[1].backgroundColor).toBe('#1E7F6E');
+      expect(r.container.queryAll(n => n.type === 'AnimatedView')[0].props.style[1].backgroundColor).toBe('#FFFFFF');
+      expect(r.container.queryAll(n => n.type === 'Ionicons')[0].props.color).toBe('#145E52');
       await act(async () => button.props.onPress());
       expect(onPress).toHaveBeenCalledOnce();
     } finally { await act(async () => r.unmount()); }

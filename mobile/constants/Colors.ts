@@ -1,37 +1,66 @@
-/** Neutral iOS surfaces with one reef accent. Semantic aliases keep existing screens compatible. */
+/**
+ * Calm: white sheets on a barely tinted page, 1pt hairlines, Figtree type and one deep-reef accent.
+ * Dark mode uses a tinted ground and a deep reef fill that carries white text (never neon mint).
+ */
 
 export const brand = {
-  cream: '#FFFFFF', bone: '#F2F2F7', parchment: '#F2F2F7', ink: '#000000', charcoal: '#1C1C1E',
-  clay: '#1E7F6E', clayLight: 'rgba(118,118,128,0.12)',
-  reef: '#1E7F6E', reefMid: '#1E7F6E', reefBright: '#1E7F6E', reefHighlight: '#5DD3B6',
-  reefLight: 'rgba(118,118,128,0.12)', herb: '#248A3D', banana: '#8A5A00',
-  border: 'rgba(60,60,67,0.29)',
+  cream: '#F7F7F5', bone: '#FFFFFF', parchment: '#F7F7F5', ink: '#222222', charcoal: '#1A1D1C',
+  clay: '#17695B', clayLight: 'rgba(34,34,34,0.05)',
+  reef: '#17695B', reefMid: '#17695B', reefBright: '#17695B', reefHighlight: '#8CCFBE',
+  reefLight: 'rgba(34,34,34,0.05)', herb: '#2F6B3A', banana: '#8A5A00',
+  border: '#DCDCD7',
 } as const;
 
-export default {
+const Colors = {
   light: {
-    text: '#000000', secondaryLabel: 'rgba(60,60,67,0.60)', textSecondary: '#68686D', textMuted: '#68686D',
-    tertiaryLabel: 'rgba(60,60,67,0.30)', background: '#FFFFFF', groupedBackground: '#F2F2F7',
-    backgroundSecondary: '#F2F2F7', backgroundElevated: '#FFFFFF', surface2: 'rgba(118,118,128,0.12)',
-    tint: '#1E7F6E', onTint: '#FFFFFF', actionText: '#166456', accent: '#176557',
-    accentSoft: 'rgba(118,118,128,0.12)', accentTint: 'rgba(30,127,110,0.14)', border: 'rgba(60,60,67,0.29)', borderLight: 'rgba(60,60,67,0.29)',
-    tabIconDefault: '#68686D', tabIconSelected: '#1E7F6E', tabLabelSelected: '#1E7F6E',
-    card: '#F2F2F7', cardBackground: '#F2F2F7', cardBorder: 'transparent',
-    success: '#1F7534', onSuccess: '#FFFFFF', warning: '#8A5A00', destructive: '#FF3B30', error: '#B42318', onError: '#FFFFFF', shadowColor: '#000000',
-    chromeBar: '#FFFFFF', chromeHairline: 'rgba(60,60,67,0.18)', chromeIndicator: 'rgba(30,127,110,0.14)', chromeSegment: '#FFFFFF',
+    dark: false,
+    text: '#222222', secondaryLabel: '#6A6A66', textSecondary: '#6A6A66', textMuted: '#6A6A66',
+    tertiaryLabel: 'rgba(34,34,34,0.30)', background: '#F7F7F5', groupedBackground: '#F7F7F5',
+    backgroundSecondary: '#FFFFFF', backgroundElevated: '#FFFFFF', surface2: 'rgba(34,34,34,0.05)',
+    tint: '#17695B', onTint: '#FFFFFF', actionText: '#145E52', accent: '#145E52',
+    accentSoft: 'rgba(23,105,91,0.08)', accentTint: 'rgba(23,105,91,0.10)', border: '#DCDCD7', borderLight: '#E7E7E3',
+    tabIconDefault: '#6A6A66', tabIconSelected: '#222222', tabLabelSelected: '#222222',
+    card: '#FFFFFF', cardBackground: '#FFFFFF', cardBorder: 'transparent',
+    success: '#2F6B3A', onSuccess: '#FFFFFF', warning: '#8A5A00', destructive: '#C4322A', error: '#B42318', onError: '#FFFFFF', shadowColor: '#222222',
+    chromeBar: '#FFFFFF', chromeHairline: '#E7E7E3', chromeIndicator: 'rgba(34,34,34,0.06)', chromeSegment: '#FFFFFF',
+    /** 1pt rules between rows and around sheets. */
+    hairline: '#E7E7E3',
+    /** A filled neutral object (selected chip, user chat bubble) and the text on it. */
+    ink: '#222222', onInk: '#FFFFFF',
+    /** Solid circle behind header buttons over a photo. */
+    photoButton: 'rgba(255,255,255,0.96)',
+    /** The no-photo tile and the glyph on it. */
+    placeholder: '#EFEFEC', placeholderInk: '#55554F',
+    /** Text over a darkened photo. */
+    onPhoto: '#FFFFFF',
   },
   dark: {
-    text: '#FFFFFF', secondaryLabel: 'rgba(235,235,245,0.60)', textSecondary: 'rgba(235,235,245,0.60)', textMuted: 'rgba(235,235,245,0.60)',
-    tertiaryLabel: 'rgba(235,235,245,0.30)', background: '#000000', groupedBackground: '#000000',
-    backgroundSecondary: '#1C1C1E', backgroundElevated: '#1C1C1E', surface2: 'rgba(118,118,128,0.24)',
-    tint: '#5DD3B6', onTint: '#00261F', actionText: '#5DD3B6', accent: '#5DD3B6',
-    accentSoft: 'rgba(118,118,128,0.24)', accentTint: 'rgba(93,211,182,0.2)', border: 'rgba(84,84,88,0.65)', borderLight: 'rgba(84,84,88,0.65)',
-    tabIconDefault: 'rgba(235,235,245,0.60)', tabIconSelected: '#5DD3B6', tabLabelSelected: '#5DD3B6',
-    card: '#1C1C1E', cardBackground: '#1C1C1E', cardBorder: 'transparent',
-    success: '#30D158', onSuccess: '#00261F', warning: '#FFD60A', destructive: '#FF453A', error: '#FF6961', onError: '#00261F', shadowColor: '#000000',
-    chromeBar: '#0C0C0C', chromeHairline: 'rgba(84,84,88,0.5)', chromeIndicator: 'rgba(93,211,182,0.22)', chromeSegment: '#2C2C2E',
+    dark: true,
+    text: '#ECEEEC', secondaryLabel: '#9BA19E', textSecondary: '#9BA19E', textMuted: '#9BA19E',
+    tertiaryLabel: 'rgba(236,238,236,0.30)', background: '#101211', groupedBackground: '#101211',
+    backgroundSecondary: '#1A1D1C', backgroundElevated: '#1A1D1C', surface2: 'rgba(236,238,236,0.07)',
+    tint: '#1B7466', onTint: '#FFFFFF', actionText: '#8CCFBE', accent: '#8CCFBE',
+    accentSoft: 'rgba(140,207,190,0.10)', accentTint: 'rgba(140,207,190,0.14)', border: '#353A38', borderLight: '#2A2E2C',
+    tabIconDefault: '#9BA19E', tabIconSelected: '#ECEEEC', tabLabelSelected: '#ECEEEC',
+    card: '#1A1D1C', cardBackground: '#1A1D1C', cardBorder: 'transparent',
+    success: '#6FCF8E', onSuccess: '#101211', warning: '#E8B04A', destructive: '#FF6B5E', error: '#FF7A6E', onError: '#101211', shadowColor: '#000000',
+    chromeBar: '#1A1D1C', chromeHairline: '#2A2E2C', chromeIndicator: 'rgba(236,238,236,0.08)', chromeSegment: '#2A2E2C',
+    hairline: '#2A2E2C',
+    ink: '#ECEEEC', onInk: '#101211',
+    photoButton: 'rgba(26,29,28,0.96)',
+    placeholder: '#1F2321', placeholderInk: '#B4BAB7',
+    onPhoto: '#FFFFFF',
   },
 };
+
+export default Colors;
+
+export type ThemeColors = typeof Colors.light;
+/** Colour tokens only (excludes the `dark` flag). */
+export type ColorToken = { [K in keyof ThemeColors]: ThemeColors[K] extends string ? K : never }[keyof ThemeColors];
+
+/** Page margin and grid gap on Calm's 8pt rhythm. */
+export const layout = { margin: 20, gridGap: 16, section: 32 } as const;
 
 // Spacing scale (for consistent spacing)
 export const spacing = {
@@ -45,12 +74,12 @@ export const spacing = {
 
 // Border radius scale
 export const radius = {
-  xs: 5,
-  sm: 10,
-  md: 14,
-  lg: 20,
-  xl: 28,
-  xxl: 36,
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 28,
   full: 9999,
 };
 
@@ -73,15 +102,42 @@ export const fontWeight = {
   bold: '700' as const,
 };
 
-// The OS supplies UI/body type; Fraunces is reserved for editorial titles.
-const systemFont = 'System';
+// Figtree for all UI. Fraunces 500 appears once per screen: the recipe title on detail and in Cook mode.
+// Each weight is its own family; the shared Text resolves `fontWeight` to the matching face.
 export const fontFamily = {
-  regular: systemFont, medium: systemFont, semibold: systemFont, bold: systemFont,
-  display: 'Fraunces_600SemiBold', displaySemibold: 'Fraunces_600SemiBold',
+  regular: 'Figtree_400Regular', medium: 'Figtree_500Medium', semibold: 'Figtree_600SemiBold', bold: 'Figtree_700Bold',
+  display: 'Figtree_700Bold', displaySemibold: 'Figtree_700Bold',
+  /** Emphasis in notes and chat answers; one italic weight keeps the bundle small. */
+  italic: 'Figtree_400Regular_Italic',
+  recipeTitle: 'Fraunces_500Medium',
 };
 
+const FIGTREE_BY_WEIGHT = { 400: fontFamily.regular, 500: fontFamily.medium, 600: fontFamily.semibold, 700: fontFamily.bold } as const;
+
+/**
+ * The Figtree face for a style's family and weight. Custom faces carry one weight each, so the weight
+ * moves into the family name and `fontWeight` resets. Other families (Fraunces, monospace) pass through.
+ */
+export function resolveFont(style: { fontFamily?: string; fontWeight?: unknown; fontStyle?: unknown } | undefined): { fontFamily: string; fontWeight: 'normal'; fontStyle?: 'normal' } | null {
+  const family = style?.fontFamily;
+  // Custom faces have no synthesized italic on iOS, so italic Figtree text uses the italic face.
+  if (style?.fontStyle === 'italic' && (!family || family === 'System' || family.startsWith('Figtree_'))) {
+    return { fontFamily: fontFamily.italic, fontWeight: 'normal', fontStyle: 'normal' };
+  }
+  if (family && family !== 'System' && !family.startsWith('Figtree_')) {
+    return family.startsWith('Fraunces_') && style?.fontWeight !== undefined ? { fontFamily: family, fontWeight: 'normal' } : null;
+  }
+  const raw = style?.fontWeight;
+  if (raw === undefined) return family?.startsWith('Figtree_') ? null : { fontFamily: fontFamily.regular, fontWeight: 'normal' };
+  // A named Figtree face is a floor: `display` with weight 600 stays bold, `regular` with 600 becomes semibold.
+  const named = (Object.entries(FIGTREE_BY_WEIGHT).find(([, face]) => face === family)?.[0]) ?? 400;
+  const weight = Math.max(Number(named), raw === 'bold' ? 700 : raw === 'normal' ? 400 : Number(raw) || 400);
+  const face = weight >= 700 ? FIGTREE_BY_WEIGHT[700] : weight >= 600 ? FIGTREE_BY_WEIGHT[600] : weight >= 500 ? FIGTREE_BY_WEIGHT[500] : FIGTREE_BY_WEIGHT[400];
+  return { fontFamily: face, fontWeight: 'normal' };
+}
+
 export const typography = {
-  largeTitle: { fontSize: 32, lineHeight: 38, fontFamily: fontFamily.display },
+  largeTitle: { fontSize: 34, lineHeight: 41, fontFamily: fontFamily.display },
   title1: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
   title2: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
   title3: { fontSize: 20, lineHeight: 25, fontWeight: '600' },
@@ -89,7 +145,7 @@ export const typography = {
   body: { fontSize: 17, lineHeight: 22 }, callout: { fontSize: 16, lineHeight: 21 },
   subhead: { fontSize: 15, lineHeight: 20 }, footnote: { fontSize: 13, lineHeight: 18 },
   caption: { fontSize: 12, lineHeight: 16 }, caption2: { fontSize: 11, lineHeight: 13 },
-  cardTitle: { fontSize: 16, lineHeight: 21, fontFamily: fontFamily.display },
+  cardTitle: { fontSize: 15, lineHeight: 20, fontFamily: fontFamily.semibold },
 } as const;
 
 /** Supply leading for older screens that only specify a point size. */

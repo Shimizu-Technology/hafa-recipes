@@ -26,8 +26,9 @@ const AnimatedPressable = NativeAnimated.createAnimatedComponent(Pressable);
 // Staggered List Animation
 // ============================================================
 
-const LIST_ENTRANCE_MS = 200;
-const LIST_ENTRANCE_OFFSET = 8;
+// Calm: a quick fade with no rise, staggered 30ms over the first six rows.
+const LIST_ENTRANCE_MS = 150;
+const LIST_ENTRANCE_OFFSET = 0;
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 
 interface AnimatedListItemProps {
@@ -46,7 +47,7 @@ interface AnimatedListItemProps {
 export function AnimatedListItem({
   children,
   index,
-  delay = 40,
+  delay = 30,
   style,
   enter = true,
 }: AnimatedListItemProps) {

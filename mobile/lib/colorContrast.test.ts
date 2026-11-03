@@ -75,7 +75,7 @@ describe('mobile color contrast', () => {
   }
 
   it('keeps light-mode action text distinct from the fill to stay readable on tonal surfaces', () => {
-    expect(Colors.light.tint).toBe('#1E7F6E');
+    expect(Colors.light.tint).toBe('#17695B');
     expect(contrastRatio(Colors.light.actionText, Colors.light.card)).toBeGreaterThanOrEqual(4.5);
   });
 });

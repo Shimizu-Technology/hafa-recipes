@@ -16,8 +16,9 @@ export function RecipeTabStack({ title }: { title: string }) {
   const colors = useColors();
   return <Stack screenOptions={{
     headerLargeTitleEnabled: true,
-    headerLargeTitleStyle: { fontFamily: fontFamily.displaySemibold, fontSize: 32, color: colors.text },
-    headerTitleStyle: { fontFamily: fontFamily.displaySemibold, color: colors.text },
+    // Calm's header type: Figtree 700 large titles, Figtree 600 inline titles.
+    headerLargeTitleStyle: { fontFamily: fontFamily.display, fontSize: 34, color: colors.text },
+    headerTitleStyle: { fontFamily: fontFamily.semibold, color: colors.text },
     // A solid colour, not glass or blur. Leave headerTransparent unset: false makes the iOS bar
     // non-translucent, which hides the large title beside a header search bar (Grocery).
     headerStyle: { backgroundColor: colors.background },

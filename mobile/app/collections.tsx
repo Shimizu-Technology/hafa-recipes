@@ -23,7 +23,7 @@ function CollectionsScreenContent() {
   const { data: collections, isLoading: isLoadingCollections, isError: isCollectionsError,
     isFetching: isFetchingCollections, refetch: refetchCollections } = useCollections(Boolean(isSignedIn));
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
-    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 32 }, title: 'Collections' }} />
+    <Stack.Screen options={{ headerLargeTitleEnabled: true, headerLargeTitleStyle: { fontFamily: fontFamily.display, color: colors.text, fontSize: 34 }, title: 'Collections' }} />
     {!isSignedIn ? <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16 }}><SignInBanner message="Sign in to open your collections" /></ScrollView> : <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
       {isLoadingCollections && <ActivityIndicator accessibilityLabel="Loading collections" />}
       {isCollectionsError && <View>
