@@ -282,7 +282,7 @@ export function createBabyApi(
       epoch++;
       return request<Bootstrap>("/enroll", "POST", {}, g);
     },
-    profile: (value: Profile, g: Fence) => {
+    profile: (value: Profile & { acknowledge_ai_consent_version?: number }, g: Fence) => {
       const { auto_process_epoch: _, ...patch } = value;
       return request<Profile>("/profile", "PATCH", patch, g);
     },

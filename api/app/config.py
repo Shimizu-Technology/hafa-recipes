@@ -267,6 +267,7 @@ class Settings(BaseSettings):
     baby_worker_enabled: bool = False
     baby_ai_enabled: bool = False
     baby_ai_model: str = ""
+    baby_ask_v2_enabled: bool = False
     baby_local_storage_dir: str | None = None
     baby_development_ai_api_key: SecretStr | None = None
     # Accept the record kinds that migration 055 allows. Set only after it is applied.

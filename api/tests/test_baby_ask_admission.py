@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.ai_governance import ai_request_context
 from app.config import get_settings
-from app.domains.baby import budget, provider
+from app.domains.baby import ask_gate, budget, provider
 from app.domains.baby.budget import (
     ASK_MAX_ATTEMPTS,
     GLOBAL_DAILY_CAP,
@@ -172,7 +172,9 @@ async def consented(baby_api, monkeypatch, owner="owner"):
     monkeypatch.setattr(budget, "AsyncSessionLocal", baby_api.sessions)
     headers = {**shared.GEN, "X-Test-Owner": owner}
     assert (await baby_api.client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": owner})).status_code == 200
-    assert (await baby_api.client.patch("/api/v1/baby/profile", headers=headers, json={"ai_consent": True})).status_code == 200
+    monkeypatch.setattr(ask_gate, "get_settings", lambda: type("S", (), {"baby_ask_v2_enabled": True})())
+    body = {"ai_consent": True, "acknowledge_ai_consent_version": ask_gate.ASK_CONSENT_VERSION}
+    assert (await baby_api.client.patch("/api/v1/baby/profile", headers=headers, json=body)).status_code == 200
 
 
 async def admissions(baby_api):

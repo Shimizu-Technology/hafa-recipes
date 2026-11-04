@@ -6,6 +6,8 @@ export interface Profile {
   ai_consent: boolean;
   auto_process_shares?: boolean;
   auto_process_epoch?: number;
+  /** Which AI disclosure this person acknowledged; the server only raises it on acknowledgment. */
+  ai_consent_version?: number;
 }
 /** Optional setup answers. Any of them may be missing, and an older API sends none. */
 export interface ChildDetails {
@@ -87,6 +89,8 @@ export interface Bootstrap {
   people?: Record<string, string>;
   /** Only with the API's push flag on. Until it says so this phone asks for nothing and offers nothing. */
   reminders?: { push?: boolean };
+  /** Set only while the new Ask is on: the disclosure version to show and acknowledge. */
+  ask_consent_version?: number | null;
 }
 export interface Attachment {
   id: string;

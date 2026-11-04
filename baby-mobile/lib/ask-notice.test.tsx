@@ -9,6 +9,7 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { push: scope.push }, useFocusEffect: () => undefined, useLocalSearchParams: () => ({}) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => ({}) }));
+vi.mock("@/lib/ai-consent", () => ({ ASK_UPDATE_TITLE: "Ask can now do more", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
 vi.mock("@/lib/chat-citations", () => ({ citationExcerpt: () => "", readableCitations: (text: string) => text }));
 vi.mock("@/components/record-row", () => ({ kindIcon: {} }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: () => ({}) }));
@@ -18,7 +19,7 @@ vi.mock("@/components/ui", () => ({
   Icon: "Icon", Loading: "Loading", Notice: "Notice", PressTarget: "PressTarget", Row: "Row", Screen: "Screen", Section: "Section",
   fonts: { semibold: "semibold" }, radii: { notice: 20 }, useColors: () => ({ tile: "tile", accentText: "clay", muted: "muted" }),
 }));
-import { AiNotice } from "../components/ask-screen";
+import { AiNotice, AskUpdateNotice } from "../components/ask-screen";
 
 let renderer: ReactTestRenderer | undefined;
 const copy = () => renderer!.root.findAll((n) => (n.type as unknown) === "Copy").map((n) => n.props.children);
@@ -42,4 +43,13 @@ it("stacks the link under the line at large text sizes", async () => {
   scope.fontScale = 2;
   await act(async () => { renderer = create(<AiNotice service consent={false} />); });
   expect(renderer!.root.findAll((n) => (n.type as unknown) === "View")[0].props.style).toMatchObject({ flexDirection: "column" });
+});
+
+it("offers the new Ask in one line, and only Review acts", async () => {
+  const onReview = vi.fn();
+  await act(async () => { renderer = create(<AskUpdateNotice onReview={onReview} />); });
+  expect(copy().join(" ")).toMatch(/search trusted sites online/);
+  expect(onReview).not.toHaveBeenCalled();
+  renderer!.root.findAll((n) => n.props.accessibilityLabel === "Review what Ask can do")[0].props.onPress();
+  expect(onReview).toHaveBeenCalledTimes(1);
 });

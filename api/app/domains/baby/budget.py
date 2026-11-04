@@ -10,6 +10,7 @@ from sqlalchemy import func, select, text
 from app.ai_governance import current_ai_context
 from app.config import get_settings
 from app.db.database import AsyncSessionLocal
+from app.domains.baby.ask_gate import ask_v2_allowed
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyAIAdmission
 from app.domains.workouts.budget import (
@@ -210,7 +211,7 @@ async def reserve_ask(capability, call, *, sessions=None):
     amount = ask_upper_bound(call)
     async with (sessions or AsyncSessionLocal)() as db:
         member = await membership_for(db, context.user_id, write=True)
-        if not member.profile.get("ai_consent"):
+        if not ask_v2_allowed(member.profile):
             raise BudgetError("workouts_ai_budget_unavailable")
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
         total, owner_total, owner_count = await spent(db, context.user_id, BabyAIAdmission.capability.in_(ASK_CAPABILITIES))

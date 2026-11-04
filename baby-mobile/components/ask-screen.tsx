@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBaby } from "@/lib/context";
+import { ASK_UPDATE_TITLE, acknowledgeAsk, needsAskAcknowledgment } from "@/lib/ai-consent";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
@@ -36,6 +37,21 @@ export function AiNotice({ service, consent }: { service: boolean; consent: bool
       style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.accentText }}>Review</Text>
     </PressTarget>}
+  </View>;
+}
+/** Ask keeps working as it did. This only offers the new one, and nothing changes until it is accepted. */
+export function AskUpdateNotice({ onReview }: { onReview: () => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <View accessibilityRole="summary" style={{ flexDirection: fontScale >= 1.5 ? "column" : "row", alignItems: fontScale >= 1.5 ? "flex-start" : "center",
+    gap: 10, paddingVertical: 10, paddingLeft: 14, paddingRight: 6, borderRadius: radii.notice, backgroundColor: c.tile }}>
+    <Icon name="sparkles-outline" size={18} color={c.accentText} />
+    <View style={{ flex: fontScale >= 1.5 ? undefined : 1 }}>
+      <Copy kind="small" tone="muted">{ASK_UPDATE_TITLE}: it can look through everything you can see, and search trusted sites online.</Copy>
+    </View>
+    <PressTarget accessibilityRole="button" accessibilityLabel="Review what Ask can do" onPress={onReview}
+      style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
+      <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.accentText }}>Review</Text>
+    </PressTarget>
   </View>;
 }
 /** Ask isn't part of helping as a caregiver, whichever link lands here. Her own chats stay stored, for when she leaves. */
@@ -92,6 +108,7 @@ function AskChat({ back }: { back: boolean }) {
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={<View style={{ gap: 10 }}>
         {!available && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
+        {available && needsAskAcknowledgment(b.state.bootstrap) && <AskUpdateNotice onReview={() => void acknowledgeAsk(b).catch(() => undefined)} />}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
           <TextInput
             key={fontScale}

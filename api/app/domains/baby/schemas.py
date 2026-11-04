@@ -58,6 +58,8 @@ class Profile(DomainModel):
     ai_consent: StrictBool = False
     auto_process_shares: StrictBool = False
     auto_process_epoch: Annotated[int, Field(strict=True, ge=0)] = 0
+    # Which disclosure this person acknowledged. Only the acknowledgment below raises it.
+    ai_consent_version: Annotated[int, Field(strict=True, ge=0)] = 0
 
     @field_validator("timezone")
     @classmethod
@@ -80,9 +82,9 @@ class ProfilePatch(DomainModel):
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
     auto_process_shares: StrictBool | None = None
-    # A later app may send these. This release has no use for them, and must not refuse its save.
-    ai_consent_version: object = None
-    acknowledge_ai_consent_version: object = None
+    # Apps send their whole cached profile back, so this field never changes anything.
+    ai_consent_version: Annotated[int, Field(strict=True, ge=0)] | None = None
+    acknowledge_ai_consent_version: Annotated[int, Field(strict=True, ge=1)] | None = None
 
 
 TrackerId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]

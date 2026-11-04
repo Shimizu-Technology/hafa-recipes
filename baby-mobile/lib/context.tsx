@@ -130,6 +130,10 @@ export function useBaby() {
   if (!context) throw Error("Baby account unavailable");
   return context;
 }
+/** For the few screens also reachable signed out, where no account exists. */
+export function useBabyIfSignedIn() {
+  return useContext(Context);
+}
 export function BabyProvider({ children }: PropsWithChildren) {
   const { getToken, userId } = useAuth(),
     clerk = useClerk(),
