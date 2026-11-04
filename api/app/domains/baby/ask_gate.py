@@ -8,7 +8,13 @@ ASK_CONSENT_VERSION = 1
 
 
 def ask_v2_on():
-    return getattr(get_settings(), "baby_ask_v2_enabled", False)
+    """Off until a doctor has approved its medical wording. In production, the flag alone isn't enough."""
+    settings = get_settings()
+    if not getattr(settings, "baby_ask_v2_enabled", False):
+        return False
+    return getattr(settings, "environment", "test") != "production" or bool(
+        (getattr(settings, "baby_ask_clinician_approval", "") or "").strip()
+    )
 
 
 def ask_v2_consented(profile):

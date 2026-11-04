@@ -268,6 +268,8 @@ class Settings(BaseSettings):
     baby_ai_enabled: bool = False
     baby_ai_model: str = ""
     baby_ask_v2_enabled: bool = False
+    # Who approved Ask's medical wording, and when. Production stays off without it.
+    baby_ask_clinician_approval: str = ""
     baby_local_storage_dir: str | None = None
     baby_development_ai_api_key: SecretStr | None = None
     # Accept the record kinds that migration 055 allows. Set only after it is applied.

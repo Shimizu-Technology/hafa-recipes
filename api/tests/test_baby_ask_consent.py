@@ -27,6 +27,21 @@ def flag(monkeypatch, on=True):
 
 
 @pytest.mark.parametrize(
+    ("environment", "approved", "expected"),
+    [
+        ("production", "", False),
+        ("production", "   ", False),
+        ("production", "2026-11-20 Dr. Example", True),
+        ("development", "", True),
+    ],
+)
+def test_production_needs_the_clinician_approval_recorded_as_well_as_the_flag(monkeypatch, environment, approved, expected):
+    settings = SimpleNamespace(baby_ask_v2_enabled=True, environment=environment, baby_ask_clinician_approval=approved)
+    monkeypatch.setattr(ask_gate, "get_settings", lambda: settings)
+    assert ask_gate.ask_v2_on() is expected
+
+
+@pytest.mark.parametrize(
     ("on", "profile", "expected"),
     [
         (False, {"ai_consent": True, "ai_consent_version": ASK_CONSENT_VERSION}, False),

@@ -12,7 +12,8 @@ export const AI_CONSENT_BODY =
 export const ASK_CONSENT_BODY =
   "When you process a post, OpenAI receives its text, images, audio or sampled video frames. " +
   "When you use Ask, OpenAI receives your question, the Baby records Ask looks up to answer it, and recent conversation. " +
-  "When Ask searches the web, OpenAI's web search receives a cleaned-up question with names removed and none of your records. " +
+  "When Ask searches the web, a search query made only from your question is sent to OpenAI's web search. " +
+  "Personal or sensitive details in your question may remain in that query, even after filtering. " +
   "If you share a family space, every parent's Ask can use what's shared there. Your private journal goes only to your own Ask. " +
   "Recipes and Workouts data are not included. You can turn this off at any time in Settings.";
 export const ASK_UPDATE_TITLE = "Ask can now do more";

@@ -69,7 +69,9 @@ const withAsk = (version: number | null, acknowledged?: number, consent = true) 
 
 it("names OpenAI, web search, family sharing and the private journal", () => {
   expect(ASK_CONSENT_BODY).toMatch(/OpenAI/);
-  expect(ASK_CONSENT_BODY).toMatch(/web search receives a cleaned-up question with names removed and none of your records/);
+  expect(ASK_CONSENT_BODY).toMatch(/a search query made only from your question is sent to OpenAI's web search/);
+  expect(ASK_CONSENT_BODY).toMatch(/Personal or sensitive details in your question may remain in that query, even after filtering/);
+  expect(ASK_CONSENT_BODY).not.toMatch(/names removed|none of your records/);
   expect(ASK_CONSENT_BODY).toMatch(/every parent's Ask can use what's shared/);
   expect(ASK_CONSENT_BODY).toMatch(/private journal goes only to your own Ask/);
 });
