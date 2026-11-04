@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
+import { dayKey } from "../lib/tracker";
 import { chartFromChild, chartUnit, growthNotes, measureWords, measuredOn, percentileWords, visibleGrowthNotes, type ChartSex, type Measure } from "../lib/growth-chart";
 import { trackerById } from "@/lib/trackers";
 import { profileToday, timingChild, todayStage } from "@/lib/timing";
@@ -31,7 +32,7 @@ export default function Growth() {
     sex = (picked?.childId === childId ? picked.sex : null) ?? (child ? chartFromChild(child) : null),
     flow = useLogFlow<string>(), scroller = useRef<ScrollView>(null), panelTop = useRef(0),
     tracker = trackerById("growth")!,
-    points = child ? measuredOn(care.all, child, sex, measure, timeZone) : [],
+    points = child ? measuredOn(care.all, child, sex, measure, timeZone, dayKey(today)) : [],
     unit = chartUnit(points, measure),
     latest = points[points.length - 1],
     { cdc } = growthNotes;

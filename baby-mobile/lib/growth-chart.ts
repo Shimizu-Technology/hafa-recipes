@@ -75,13 +75,16 @@ export function curve(sex: ChartSex, measure: Measure, line: (typeof percentileL
 
 export interface GrowthPoint { record: BabyRecord; day: string; months: number; metric: number; shown: number; unit: ChartUnit; text: string; onChart: boolean; percentile: number | null }
 
+// The units the API allows. A record with anything else is left off rather than read as metric.
+const unitsFor: Record<Measure, readonly ChartUnit[]> = { weight: ["kg", "lb"], length: ["cm", "in"], head: ["cm", "in"] };
+
 /** This baby's measurements of one kind, oldest first. The value stays in the unit she entered, and is compared in CDC's. */
-export function measuredOn(rows: readonly BabyRecord[], child: { id: string; birth_date?: string | null }, sex: ChartSex | null, measure: Measure, timeZone?: string | null) {
+export function measuredOn(rows: readonly BabyRecord[], child: { id: string; birth_date?: string | null }, sex: ChartSex | null, measure: Measure, timeZone?: string | null, today?: string) {
   const points: GrowthPoint[] = [];
   for (const record of rows) {
     const data = record.data as Record<string, unknown>, value = data[measure], unit = data[`${measure}_unit`] as ChartUnit | undefined;
-    if (record.kind !== "growth" || record.child_id !== child.id || typeof value !== "number" || !unit || !child.birth_date) continue;
-    const day = recordDay(record.occurred_at, timeZone), months = ageMonths(child.birth_date, day), metric = toMetric(value, unit), onChart = months >= 0 && months <= lastMonth;
+    if (record.kind !== "growth" || record.child_id !== child.id || typeof value !== "number" || !(value > 0) || !Number.isFinite(value) || !unitsFor[measure].includes(unit as ChartUnit) || !child.birth_date) continue;
+    const day = recordDay(record.occurred_at, timeZone), months = ageMonths(child.birth_date, day), metric = toMetric(value, unit), onChart = (!today || day <= today) && months >= 0 && months <= lastMonth;
     points.push({ record, day, months, metric, shown: value, unit, onChart, text: measure === "weight" ? weightText(value, unit) : `${value} ${unit}`,
       percentile: sex && onChart ? percentile(sex, measure, months, metric) : null });
   }

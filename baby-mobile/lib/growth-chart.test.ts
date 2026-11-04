@@ -115,6 +115,16 @@ describe("a baby's measurements", () => {
     const [plain] = measuredOn([row({ weight: 3.4, weight_unit: "kg" }, "2026-12-10T02:00:00.000Z")], child, null, "weight", "Pacific/Guam");
     expect(plain).toMatchObject({ percentile: null, onChart: true, text: "3.4 kg" });
   });
+  it("leaves off a stored value it can't read, rather than treating it as metric", () => {
+    const at = "2026-12-20T02:00:00.000Z", child = { id: "baby", birth_date: "2026-12-10" };
+    const rows = [row({ weight: 7.5, weight_unit: "g" }, at), row({ weight: 7.5, weight_unit: "oz" }, at), row({ weight: -1, weight_unit: "kg" }, at), row({ weight: Infinity, weight_unit: "kg" }, at)];
+    expect(measuredOn(rows, child, "girls", "weight", "Pacific/Guam")).toEqual([]);
+  });
+  it("gives no percentile to a measurement dated after today", () => {
+    const child = { id: "baby", birth_date: "2026-12-10" }, rows = [row({ weight: 3.4, weight_unit: "kg" }, "2027-01-20T02:00:00.000Z")];
+    expect(measuredOn(rows, child, "girls", "weight", "Pacific/Guam", "2027-01-01")[0]).toMatchObject({ onChart: false, percentile: null });
+    expect(measuredOn(rows, child, "girls", "weight", "Pacific/Guam", "2027-01-20")[0].percentile).not.toBeNull();
+  });
 });
 
 describe("which chart a baby's profile points to", () => {
