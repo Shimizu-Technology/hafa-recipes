@@ -7,8 +7,8 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine
-from app.domains.baby.models import BABY_TABLES
-from app.domains.baby.runtime import schema_complete
+from app.domains.baby.schema import ALLOWED_FORMS, schema_complete
+from migrations._baby_v1_schema import BABY_V1_TABLES
 
 
 async def run_migration(*, configured=None, migration_engine=None):
@@ -30,7 +30,7 @@ async def run_migration(*, configured=None, migration_engine=None):
             text("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=50)")
         )
         if recorded:
-            if not await schema_complete(connection):
+            if not await schema_complete(connection, tables=BABY_V1_TABLES, allowed_forms=ALLOWED_FORMS):
                 raise RuntimeError("Baby migration050 schema does not match the recorded migration")
             return
         restore = os.environ.get("MIGRATION_050_RESTORE_POINT", "").strip()
@@ -41,9 +41,9 @@ async def run_migration(*, configured=None, migration_engine=None):
         ):
             raise RuntimeError("MIGRATION_050_RESTORE_POINT must name a verified restore point")
         await connection.run_sync(
-            lambda sync: BABY_TABLES[0].metadata.create_all(sync, tables=list(BABY_TABLES))
+            lambda sync: BABY_V1_TABLES[0].metadata.create_all(sync, tables=list(BABY_V1_TABLES))
         )
-        if not await schema_complete(connection):
+        if not await schema_complete(connection, tables=BABY_V1_TABLES, allowed_forms=ALLOWED_FORMS):
             raise RuntimeError("Baby schema verification failed")
         await connection.execute(
             text(

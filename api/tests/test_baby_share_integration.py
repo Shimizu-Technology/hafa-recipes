@@ -1,7 +1,6 @@
 """Disposable PostgreSQL acceptance of restricted original capture and admission."""
 
 import asyncio
-import importlib
 from datetime import timedelta
 from uuid import uuid4
 
@@ -44,8 +43,6 @@ async def baby_api(shared_baby_api):
         )
 
     app.dependency_overrides[get_current_user] = identity
-    migration = importlib.import_module("migrations.051_add_baby_share")
-    await migration.run_migration(configured=fixture.settings, migration_engine=fixture.engine)
     yield fixture
 
 

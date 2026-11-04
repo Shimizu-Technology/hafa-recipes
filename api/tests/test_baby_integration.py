@@ -28,6 +28,7 @@ from app.domains.baby.router import router
 from app.domains.baby.runtime import BabyWorker, schema_complete
 from app.models.deletion import DeletionCleanupJob
 from app.models.identity import AppUser
+from migrations.run import BABY_MIGRATIONS
 from tests.database_safety import require_disposable_test_database
 
 DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -54,10 +55,10 @@ async def baby_api(monkeypatch):
         settings = SimpleNamespace(
             baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20
         )
-        await migration.run_migration(configured=settings, migration_engine=engine)
-        await importlib.import_module("migrations.052_allow_baby_media_cleanup").run_migration(
-            configured=settings, migration_engine=engine
-        )
+        for name in BABY_MIGRATIONS:
+            await importlib.import_module(name).run_migration(
+                configured=settings, migration_engine=engine
+            )
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         async with sessions() as db:
             db.add_all([AppUser(id="owner"), AppUser(id="other")])

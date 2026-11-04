@@ -7,7 +7,8 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine
-from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
+from app.domains.baby.schema import ALLOWED_FORMS, schema_complete
+from migrations._baby_v1_schema import BABY_SHARE_V1_TABLES
 
 
 async def run_migration(*, configured=None, migration_engine=None):
@@ -28,13 +29,17 @@ async def run_migration(*, configured=None, migration_engine=None):
             or any(ord(char) < 32 for char in restore)
         ):
             raise RuntimeError("MIGRATION_051_RESTORE_POINT must name a verified restore point")
-        for model in (BabyShareCredential, BabyShareCapture):
-            await connection.run_sync(lambda sync: model.__table__.create(sync, checkfirst=True))
+        for table in BABY_SHARE_V1_TABLES:
+            await connection.run_sync(lambda sync: table.create(sync, checkfirst=True))
         await connection.execute(
             text(
                 "ALTER TABLE baby_share_captures ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ"
             )
         )
+        if not await schema_complete(
+            connection, tables=BABY_SHARE_V1_TABLES, allowed_forms=ALLOWED_FORMS
+        ):
+            raise RuntimeError("Baby migration051 schema verification failed")
         await connection.execute(
             text(
                 "INSERT INTO schema_migrations(version,name) VALUES (51,'Baby native sharing') ON CONFLICT(version) DO NOTHING"
