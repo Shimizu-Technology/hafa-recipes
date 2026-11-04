@@ -23,6 +23,7 @@ from app.domains.baby.provider import (
 from app.domains.baby.queries import child_timing, records_query
 from app.domains.baby.schemas import ChatRequest, RecordCreate
 from app.domains.baby.security import BabyRoute
+from app.domains.baby.stats import care_stats, custom_days, last_feed
 
 router = APIRouter(tags=["baby"], route_class=BabyRoute)
 SCOPE_KINDS = {
@@ -404,6 +405,42 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=()):
     return context, displays, requested_range
 
 
+def today_totals(stats):
+    """S1's numbers for today, without its record IDs or averages today cannot have."""
+    return {
+        "feeding": {
+            key: stats["feeding"][key]
+            for key in (
+                "count", "left", "right", "both", "bottle_count",
+                "bottle_ml", "bottle_oz", "breast_minutes", "timed_breast_feeds",
+            )
+        },
+        "diapers": {key: stats["diapers"][key] for key in ("count", "pee", "poo", "dry")},
+        "sleep": {
+            **{key: stats["sleep"][key] for key in ("total_minutes", "longest_minutes", "sleeps")},
+            "in_progress_since": [item["started_at"] for item in stats["sleep"]["open"]],
+        },
+        "complete": stats["complete"],
+    }
+
+
+async def care_context(db, owner, generation, child_id, zone):
+    at = now()
+    today = at.astimezone(zone).date()
+    feed = await last_feed(db, owner, generation, child_id, zone, at)
+    totals = today_totals(
+        await care_stats(db, owner, generation, child_id, zone, custom_days(today, today, zone, at))
+    )
+    logged = (
+        feed
+        or totals["feeding"]["count"]
+        or totals["diapers"]["count"]
+        or totals["sleep"]["sleeps"]
+        or totals["sleep"]["in_progress_since"]
+    )
+    return {"last_feed": feed, "today_totals": totals}, bool(logged)
+
+
 async def context_pack(db, owner, generation, request, zone):
     """Facts computed by code, kept out of the citable records and free of record IDs."""
     today = now().astimezone(zone).date()
@@ -423,8 +460,17 @@ async def context_pack(db, owner, generation, request, zone):
         for key in ("due_date", "birth_date"):
             if getattr(child, key):
                 entry[key] = getattr(child, key).isoformat()
+        care, logged = await care_context(db, owner, generation, child.id, zone)
+        # A baby's empty day is news; an unborn child's is not.
+        if logged or entry["stage"] == "baby":
+            entry.update(care)
         children.append(entry)
-    return {"children": children, "today": today.isoformat()}
+    pack = {"children": children, "today": today.isoformat()}
+    if not request.child_id:
+        care, logged = await care_context(db, owner, generation, None, zone)
+        if logged:
+            pack["care_with_no_child"] = care
+    return pack
 
 
 def reviewed_proposal(raw):

@@ -10,11 +10,12 @@ import pytest
 
 from app.domains.baby import chat
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.chat import care_kinds, query_terms, retrieve
+from app.domains.baby.chat import care_kinds, context_pack, query_terms, retrieve
 from app.domains.baby.models import BabyRecord
 from app.domains.baby.provider import AnswerOutput, BabyProvider
 from app.domains.baby.queries import child_timing
 from app.domains.baby.schemas import ChatRequest
+from app.domains.baby.stats import care_stats, custom_days, next_side
 from tests import test_baby_integration as shared
 
 baby_api = shared.baby_api
@@ -22,6 +23,15 @@ GEN = shared.GEN
 GUAM = ZoneInfo("Pacific/Guam")
 # Wednesday, Nov 4 2026, 8:00 PM on Guam.
 NOW = datetime(2026, 11, 4, 20, 0, tzinfo=GUAM)
+EMPTY_DAY = {
+    "feeding": {
+        "count": 0, "left": 0, "right": 0, "both": 0, "bottle_count": 0,
+        "bottle_ml": 0, "bottle_oz": 0, "breast_minutes": 0, "timed_breast_feeds": 0,
+    },
+    "diapers": {"count": 0, "pee": 0, "poo": 0, "dry": 0},
+    "sleep": {"total_minutes": 0, "longest_minutes": 0, "sleeps": 0, "in_progress_since": []},
+    "complete": True,
+}
 needs_database = pytest.mark.skipif(
     not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required"
 )
@@ -114,6 +124,21 @@ def test_context_pack_uses_the_timing_rules():
     assert child_timing(stale, date(2026, 11, 4)) is None
 
 
+@pytest.mark.parametrize(
+    ("data", "side"),
+    [
+        ({"method": "breast", "side": "left"}, "right"),
+        ({"method": "breast", "side": "right"}, "left"),
+        ({"method": "breast", "side": "both"}, None),
+        ({"method": "breast"}, None),
+        ({"method": "bottle", "amount": 90, "unit": "ml"}, None),
+        ({"method": "bottle", "side": "left"}, None),
+    ],
+)
+def test_next_side_is_the_opposite_of_the_last_side(data, side):
+    assert next_side(data) == side
+
+
 async def test_prompt_keeps_safety_rules_and_separates_the_pack(monkeypatch):
     calls = []
 
@@ -147,6 +172,7 @@ async def test_prompt_keeps_safety_rules_and_separates_the_pack(monkeypatch):
         assert rule in rules
     assert "never put anything from it in citation_ids" in rules
     assert "Never state a total or an absence beyond that range" in rules
+    assert "offer it as that, not as advice" in rules
 
 
 @pytest.fixture
@@ -333,10 +359,21 @@ async def test_chat_sends_the_pack_and_range_but_cannot_cite_the_pack(baby_api, 
     assert calls[0]["context_pack"] == {
         "today": "2026-11-04",
         "children": [
-            {"name": "Kai", "stage": "baby", "baby_age_weeks": 4, "baby_age_days": 34, "birth_date": "2026-10-01"},
+            {
+                "name": "Kai", "stage": "baby", "baby_age_weeks": 4, "baby_age_days": 34,
+                "birth_date": "2026-10-01", "last_feed": None, "today_totals": EMPTY_DAY,
+            },
             {"name": "Lani", "stage": "unknown"},
             {"name": "Noa", "stage": "pregnancy", "pregnancy_week": 34, "pregnancy_day": 6, "due_date": "2026-12-10"},
         ],
+        # The diaper above was logged with no child.
+        "care_with_no_child": {
+            "last_feed": None,
+            "today_totals": {
+                **EMPTY_DAY,
+                "diapers": {"count": 1, "pee": 1, "poo": 0, "dry": 0},
+            },
+        },
     }
     assert "Noa" not in json.dumps(calls[0]["context"])
     assert expecting["id"] not in json.dumps(calls[0]["context_pack"])
@@ -364,3 +401,88 @@ async def test_chat_sends_the_pack_and_range_but_cannot_cite_the_pack(baby_api, 
     ).json()["timing"]
     expected = child_timing(SimpleNamespace(birth_date=None, due_date=date(2026, 12, 10)), today)
     assert {key: timing[key] for key in expected} == expected
+
+
+@needs_database
+async def test_pack_care_numbers_match_the_stats_service(baby_api, frozen):
+    c = baby_api.client
+    kai = (await c.post("/api/v1/baby/children", headers=GEN, json={"name": "Kai", "birth_date": "2026-10-01"})).json()["id"]
+    sibling = (await c.post("/api/v1/baby/children", headers=GEN, json={"name": "Lani", "birth_date": "2025-01-01"})).json()["id"]
+    await log(baby_api, "feeding", "Old", guam(3, 22), child=kai, data={"method": "breast", "side": "right"})
+    await log(baby_api, "feeding", "Feed", guam(4, 6), child=kai, data={"method": "bottle", "amount": 90, "unit": "ml"})
+    await log(baby_api, "feeding", "Feed", guam(4, 9), child=kai, data={"method": "breast", "side": "both", "duration_minutes": 25})
+    latest = await log(baby_api, "feeding", "Feed", guam(4, 17, 25), child=kai, data={"method": "breast", "side": "left", "duration_minutes": 15})
+    await log(baby_api, "feeding", "Future", guam(4, 23), child=kai, data={"method": "breast", "side": "right"})
+    removed = await log(baby_api, "feeding", "Removed", guam(4, 19), child=kai, data={"method": "breast", "side": "right"})
+    assert (await c.delete(f"/api/v1/baby/records/{removed}?revision=1", headers=GEN)).status_code < 300
+    await log(baby_api, "diaper", "Diaper", guam(4, 8), child=kai, data={"type": "both"})
+    await log(baby_api, "diaper", "Diaper", guam(4, 9), child=kai, data={"type": "wet"})
+    await log(baby_api, "sleep", "Sleep", guam(3, 23), child=kai, data={"end_at": guam(4, 7).isoformat()})
+    running = await log(baby_api, "sleep", "Sleep", guam(4, 19, 30), child=kai)
+    await log(baby_api, "feeding", "Feed", guam(4, 10), child=sibling, data={"method": "bottle"})
+
+    async with baby_api.sessions() as db:
+        pack = await context_pack(db, "owner", 1, ChatRequest(message="Hi"), GUAM)
+        expected = await care_stats(db, "owner", 1, kai, GUAM, custom_days(date(2026, 11, 4), date(2026, 11, 4), GUAM, chat.now()))
+    child = pack["children"][0]
+    assert child["name"] == "Kai"
+    # By hand: three feeds logged by now today, the 17:25 left side the latest.
+    assert child["last_feed"] == {
+        "at": "2026-11-04T17:25:00+10:00",
+        "method": "breast",
+        "side": "left",
+        "duration_minutes": 15,
+        "suggested_next_side": "right",
+    }
+    totals = child["today_totals"]
+    assert totals["feeding"]["count"] == 3 and totals["feeding"]["breast_minutes"] == 40
+    assert totals["feeding"]["bottle_ml"] == 90
+    assert totals["diapers"] == {"count": 2, "pee": 2, "poo": 1, "dry": 0}
+    assert totals["sleep"] == {
+        "total_minutes": 420,  # Only the part of last night's sleep after midnight.
+        "longest_minutes": 420,
+        "sleeps": 1,
+        "in_progress_since": ["2026-11-04T19:30:00+10:00"],
+    }
+    # Every number is S1's own.
+    for key, value in totals["feeding"].items():
+        assert value == expected["feeding"][key]
+    for key, value in totals["diapers"].items():
+        assert value == expected["diapers"][key]
+    for key in ("total_minutes", "longest_minutes", "sleeps"):
+        assert totals["sleep"][key] == expected["sleep"][key]
+    # Siblings keep their own numbers, and nothing in the pack can be cited.
+    assert pack["children"][1]["today_totals"]["feeding"]["count"] == 1
+    assert pack["children"][1]["last_feed"]["suggested_next_side"] is None
+    text = json.dumps(pack)
+    for identifier in (kai, sibling, latest, running):
+        assert identifier not in text
+
+
+@needs_database
+async def test_last_feed_before_today_still_suggests_and_a_both_feed_does_not(baby_api, frozen):
+    c = baby_api.client
+    kai = (await c.post("/api/v1/baby/children", headers=GEN, json={"name": "Kai", "birth_date": "2026-10-01"})).json()["id"]
+    await log(baby_api, "feeding", "Feed", guam(3, 22), child=kai, data={"method": "breast", "side": "right"})
+
+    async def child_pack():
+        async with baby_api.sessions() as db:
+            return (await context_pack(db, "owner", 1, ChatRequest(message="Hi", child_id=kai), GUAM))["children"][0]
+
+    pack = await child_pack()
+    assert pack["last_feed"]["suggested_next_side"] == "left"
+    assert pack["today_totals"]["feeding"]["count"] == 0
+    await log(baby_api, "feeding", "Feed", guam(4, 8), child=kai, data={"method": "breast", "side": "both"})
+    assert (await child_pack())["last_feed"]["suggested_next_side"] is None
+
+
+@needs_database
+async def test_care_logged_for_an_unborn_child_is_in_the_pack(baby_api, frozen):
+    c = baby_api.client
+    noa = (await c.post("/api/v1/baby/children", headers=GEN, json={"name": "Noa", "due_date": "2026-12-10"})).json()["id"]
+    # The diaper Kami logged while trying the app before the birth.
+    await log(baby_api, "diaper", "Diaper", guam(4, 19, 50), child=noa, data={"type": "wet"})
+    async with baby_api.sessions() as db:
+        pack = await context_pack(db, "owner", 1, ChatRequest(message="Hi"), GUAM)
+    assert pack["children"][0]["today_totals"]["diapers"]["count"] == 1
+    assert "care_with_no_child" not in pack
