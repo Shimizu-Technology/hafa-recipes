@@ -225,6 +225,11 @@ async def bootstrap_state(user, db, *, create):
         )
         db.add(member)
         await db.flush()
+    if create:
+        # GET stays read-only. Every creation site provisions through its write path.
+        from app.domains.baby.spaces import ensure_personal_space
+
+        await ensure_personal_space(db, member)
     from app.domains.baby.provider import BabyProvider
 
     children = (
@@ -258,6 +263,9 @@ async def enroll(user: User, db: Database, generation: Generation):
         member.status = "active"
         member.profile = Profile().model_dump()
         member.updated_at = now()
+    from app.domains.baby.spaces import ensure_personal_space
+
+    await ensure_personal_space(db, member)
     await db.commit()
     return {"generation": member.generation, "active": True}
 
@@ -368,7 +376,7 @@ async def children(user: User, db: Database):
 
 @router.post("/children")
 async def create_child(body: ChildCreate, user: User, db: Database, generation: Generation):
-    await membership_for(db, user.id, generation=generation, write=True)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     fingerprint = digest(body.model_dump(mode="json"))
     prior = await db.get(BabyChild, body.id)
     if prior:
@@ -395,6 +403,7 @@ async def create_child(body: ChildCreate, user: User, db: Database, generation: 
     row = BabyChild(
         **body.model_dump(),
         app_user_id=user.id,
+        space_id=member.personal_space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,
@@ -727,7 +736,7 @@ async def create_record(
     body: RecordCreate, user: User, db: Database, generation: Generation, client: Client = None
 ):
     can_create(body.kind, client)
-    await membership_for(db, user.id, generation=generation, write=True)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     if body.kind == "source" and body.data.get("relevance") is not None:
         body.data["relevance"] = user_timing(body.data["relevance"])
     fingerprint = digest(body.model_dump(mode="json"))
@@ -746,6 +755,7 @@ async def create_record(
     row = BabyRecord(
         **body.model_dump(),
         app_user_id=user.id,
+        space_id=member.personal_space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,

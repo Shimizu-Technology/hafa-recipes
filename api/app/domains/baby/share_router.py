@@ -115,7 +115,7 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
         if count >= 5:
             raise HTTPException(409, "Reconnect an existing sharing installation")
         row = BabyShareCredential(
-            id=uuid4(), app_user_id=user.id, generation=generation, installation_hash=installation
+            id=uuid4(), app_user_id=user.id, generation=generation, space_id=member.personal_space_id, installation_hash=installation
         )
         db.add(row)
     secret = secrets.token_urlsafe(32)
@@ -282,6 +282,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
                 BabyRecord(
                     **original.model_dump(),
                     app_user_id=credential.app_user_id,
+                    space_id=member.personal_space_id,
                     generation=credential.generation,
                     revision=1,
                     creation_hash=original_hash,
@@ -292,6 +293,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
         capture = BabyShareCapture(
             id=body.capture_id,
             app_user_id=credential.app_user_id,
+            space_id=member.personal_space_id,
             generation=credential.generation,
             record_id=body.capture_id,
             creation_hash=fingerprint,

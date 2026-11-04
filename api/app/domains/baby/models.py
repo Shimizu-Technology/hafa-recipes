@@ -1,8 +1,10 @@
-"""Additive Baby tables. Shared account IDs are the only ownership authority."""
+"""Baby tables. Owner-based access remains until F4; creator IDs are never rewritten."""
 
 import uuid
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -12,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base
@@ -29,6 +32,10 @@ def owner():
     return Column(String(64), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
 
 
+def space_column():
+    return Column(UUID(as_uuid=True), ForeignKey("baby_spaces.id", ondelete="CASCADE"))
+
+
 def identifier():
     return Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
@@ -37,6 +44,7 @@ class BabyMembership(Base):
     __tablename__ = "baby_memberships"
     app_user_id = owner()
     app_user_id.primary_key = True
+    personal_space_id = Column(UUID(as_uuid=True), ForeignKey("baby_spaces.id", ondelete="SET NULL"))
     generation = Column(Integer, nullable=False, default=1)
     status = Column(String(16), nullable=False, default="active")
     profile = Column(JSONB, nullable=False, default=dict)
@@ -52,6 +60,8 @@ class BabyChild(Base):
     __tablename__ = "baby_children"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
     generation = Column(Integer, nullable=False)
     revision = Column(Integer, nullable=False, default=1)
     deleted_at = Column(DateTime(timezone=True))
@@ -66,6 +76,8 @@ class BabyRecord(Base):
     __tablename__ = "baby_records"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
     generation = Column(Integer, nullable=False)
     deleted_at = Column(DateTime(timezone=True))
     kind = Column(String(16), nullable=False)
@@ -95,6 +107,8 @@ class BabyAttachment(Base):
     __tablename__ = "baby_attachments"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
     generation = Column(Integer, nullable=False)
     name = Column(String(180), nullable=False)
     mime_type = Column(String(100), nullable=False)
@@ -113,6 +127,8 @@ class BabyImport(Base):
     __tablename__ = "baby_imports"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
     generation = Column(Integer, nullable=False)
     consent_epoch = Column(Integer, nullable=False)
     creation_hash = Column(String(64), nullable=False)
@@ -139,6 +155,9 @@ class BabyConversation(Base):
     __tablename__ = "baby_conversations"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
+    context_space_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
     generation = Column(Integer, nullable=False)
     title = Column(String(240), nullable=False)
     scope = Column(String(16), nullable=False, default="all")
@@ -153,6 +172,9 @@ class BabyMessage(Base):
     __tablename__ = "baby_messages"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
+    context_space_ids = Column(JSONB, nullable=False, default=list, server_default="[]")
     generation = Column(Integer, nullable=False)
     conversation_id = Column(
         UUID(as_uuid=True), ForeignKey("baby_conversations.id", ondelete="CASCADE"), nullable=False
@@ -198,3 +220,125 @@ class BabyAIAdmission(Base):
 
 
 BABY_TABLES = (*BABY_TABLES, BabyAIAdmission.__table__)
+
+
+class BabySpace(Base):
+    __tablename__ = "baby_spaces"
+    id = identifier()
+    kind = Column(String(16), nullable=False)
+    created_by = Column(String(64), ForeignKey("app_users.id", ondelete="SET NULL"))
+    generation = Column(Integer, nullable=False)
+    change_seq = Column(BigInteger, nullable=False, default=0)
+    timezone = Column(String(80), nullable=False, default="Pacific/Guam")
+    status = Column(String(16), nullable=False, default="active")
+    __table_args__ = (
+        CheckConstraint("kind IN ('personal','family')", name="ck_baby_space_kind"),
+        CheckConstraint("status IN ('active','deleted')", name="ck_baby_space_status"),
+        Index("uq_baby_personal_space", "created_by", unique=True, postgresql_where=Column("kind") == "personal"),
+    )
+
+
+class BabySpaceMember(Base):
+    __tablename__ = "baby_space_members"
+    space_id = space_column()
+    space_id.primary_key, space_id.nullable = True, False
+    app_user_id = owner()
+    app_user_id.primary_key = True
+    role = Column(String(16), nullable=False)
+    status = Column(String(16), nullable=False, default="active")
+    access_version = Column(Integer, nullable=False, default=1)
+    __table_args__ = (
+        CheckConstraint("role IN ('parent','caregiver')", name="ck_baby_member_role"),
+        CheckConstraint("status IN ('active','left','removed')", name="ck_baby_member_status"),
+        Index("ix_baby_space_members_actor", "app_user_id", "status"),
+    )
+
+
+class BabySpaceInvite(Base):
+    __tablename__ = "baby_space_invites"
+    id = identifier()
+    space_id = space_column()
+    space_id.nullable = False
+    created_by = Column(String(64), ForeignKey("app_users.id", ondelete="SET NULL"))
+    token_hash = Column(String(64), nullable=False, unique=True)
+    role = Column(String(16), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True))
+    revoked_at = Column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("role IN ('parent','caregiver')", name="ck_baby_invite_role"),
+        Index("ix_baby_space_invites_space", "space_id"),
+    )
+
+
+class BabyMovedOut(Base):
+    __tablename__ = "baby_moved_out"
+    space_id = space_column()
+    space_id.primary_key, space_id.nullable = True, False
+    seq = Column(BigInteger, primary_key=True)
+    record_id = Column(UUID(as_uuid=True), primary_key=True)
+
+
+class BabyPushDevice(Base):
+    __tablename__ = "baby_push_devices"
+    id = identifier()
+    app_user_id = owner()
+    installation_id = Column(String(128), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    platform = Column(String(16), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("app_user_id", "installation_id"),
+        CheckConstraint("platform IN ('ios','android')", name="ck_baby_push_platform"),
+        Index("ix_baby_push_devices_actor", "app_user_id"),
+    )
+
+
+class BabyNotificationPref(Base):
+    __tablename__ = "baby_notification_prefs"
+    space_id = space_column()
+    space_id.primary_key, space_id.nullable = True, False
+    app_user_id = owner()
+    app_user_id.primary_key = True
+    kind = Column(String(64), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    settings = Column(JSONB, nullable=False, default=dict)
+
+
+class BabyNotification(Base):
+    __tablename__ = "baby_notifications"
+    id = identifier()
+    space_id = space_column()
+    space_id.nullable = False
+    app_user_id = owner()
+    device_id = Column(UUID(as_uuid=True), ForeignKey("baby_push_devices.id", ondelete="SET NULL"))
+    idempotency_key = Column(String(240), nullable=False, unique=True)
+    collapse_id = Column(String(64), nullable=False)
+    kind = Column(String(64), nullable=False)
+    payload = Column(JSONB, nullable=False, default=dict)
+    due_at = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(16), nullable=False, default="queued")
+    lease_token = Column(UUID(as_uuid=True))
+    lease_until = Column(DateTime(timezone=True))
+    attempts = Column(Integer, nullable=False, default=0)
+    unknown_retries = Column(Integer, nullable=False, default=0)
+    provider_ticket = Column(Text)
+    receipt_due_at = Column(DateTime(timezone=True))
+    last_error = Column(String(240))
+    dismissed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("status IN ('queued','sending','accepted','failed','unknown')", name="ck_baby_notification_status"),
+        CheckConstraint("attempts >= 0", name="ck_baby_notification_attempts"),
+        CheckConstraint("unknown_retries BETWEEN 0 AND 1", name="ck_baby_notification_unknown_retry"),
+        Index("ix_baby_notifications_due", "status", "due_at", "lease_until"),
+        Index("ix_baby_notifications_today", "space_id", "app_user_id", "due_at"),
+    )
+
+
+BABY_TABLES = (*BABY_TABLES, *(model.__table__ for model in (
+    BabySpace, BabySpaceMember, BabySpaceInvite, BabyMovedOut,
+    BabyPushDevice, BabyNotificationPref, BabyNotification,
+)))

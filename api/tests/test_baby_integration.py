@@ -88,6 +88,9 @@ async def baby_api(monkeypatch, request):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
+            if getattr(request, "param", 57) < 57:
+                yield SimpleNamespace(client=client, sessions=sessions, engine=engine, settings=settings)
+                return
             assert (await client.get("/api/v1/baby/bootstrap")).status_code == 409
             await client.post("/api/v1/baby/bootstrap")
             await client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "other"})
