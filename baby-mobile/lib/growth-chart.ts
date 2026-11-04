@@ -83,7 +83,7 @@ export function measuredOn(rows: readonly BabyRecord[], child: { id: string; bir
   const points: GrowthPoint[] = [];
   for (const record of rows) {
     const data = record.data as Record<string, unknown>, value = data[measure], unit = data[`${measure}_unit`] as ChartUnit | undefined;
-    if (record.kind !== "growth" || record.child_id !== child.id || typeof value !== "number" || !(value > 0) || !Number.isFinite(value) || !unitsFor[measure].includes(unit as ChartUnit) || !child.birth_date) continue;
+    if (record.kind !== "growth" || record.child_id !== child.id || typeof value !== "number" || !(value > 0) || !Number.isFinite(value) || !unit || !unitsFor[measure].includes(unit) || !child.birth_date) continue;
     const day = recordDay(record.occurred_at, timeZone), months = ageMonths(child.birth_date, day), metric = toMetric(value, unit), onChart = (!today || day <= today) && months >= 0 && months <= lastMonth;
     points.push({ record, day, months, metric, shown: value, unit, onChart, text: measure === "weight" ? weightText(value, unit) : `${value} ${unit}`,
       percentile: sex && onChart ? percentile(sex, measure, months, metric) : null });
