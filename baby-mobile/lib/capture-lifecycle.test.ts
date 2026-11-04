@@ -29,6 +29,7 @@ vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
 vi.mock("@/lib/events", () => import("./events"));
+vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/components/event-fields", () => ({ EventFields: "EventFields" }));

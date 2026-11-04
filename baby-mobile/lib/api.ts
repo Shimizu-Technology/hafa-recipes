@@ -51,6 +51,8 @@ export interface RecordFilters {
   /** Half-open, with an offset: from <= occurred_at < to. */
   occurred_from?: string;
   occurred_to?: string;
+  /** Questions and notes linked to this event. */
+  event_id?: string;
 }
 export class ApiError extends Error {
   constructor(

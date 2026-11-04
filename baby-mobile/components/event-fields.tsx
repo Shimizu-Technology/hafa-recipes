@@ -9,15 +9,15 @@ import { Chips, Choice, Copy, Field, Notice, useColors } from "./ui";
 const frequencies: EventRecurrence["frequency"][] = ["daily", "weekly", "monthly", "yearly"];
 
 /** The form for one event. Choosing a kind, a day and Save is enough. Everything else is there, and already set to something sensible. */
-export function EventFields({ draft, change, today }: { draft: EditorDraft; change: (value: Partial<EditorDraft>) => void; today: string }) {
+export function EventFields({ draft, change, today, quick = true }: { draft: EditorDraft; change: (value: Partial<EditorDraft>) => void; today: string; quick?: boolean }) {
   const b = useBaby(), c = useColors(), { data } = draft, zone = data.timezone, children = b.state.bootstrap!.children, scope = draft.event_edit?.scope, one = scope === "one",
     key = recordDay(draft.occurred_at, zone), rule = data.recurrence, set = (value: Partial<EditorDraft["data"]>) => change({ data: { ...data, ...value } }),
     // A repeat every two weeks stays as it is until she picks something else.
     repeats = frequencies.map((frequency) => ({ label: repeatName(rule?.frequency === frequency ? rule : { frequency }), value: frequency }));
   return <>
     {scope && <Notice>{one ? `This changes ${dayName(key, today)} only. The other dates stay as they are.` : `This changes ${dayName(key, today)} and every date after it. Earlier dates stay as they are.`}</Notice>}
-    {!draft.existing && <Copy kind="small">What’s it for?</Copy>}
-    {!draft.existing && <Chips label="What’s it for?" value={quickEvents.some((item) => item.title === draft.title) ? draft.title : ""}
+    {!draft.existing && quick && <Copy kind="small">What’s it for?</Copy>}
+    {!draft.existing && quick && <Chips label="What’s it for?" value={quickEvents.some((item) => item.title === draft.title) ? draft.title : ""}
       options={quickEvents.map(({ title }) => ({ label: title, value: title }))} onChange={(title) => change(quickEvent(draft, title))} />}
     <Field label="Name" value={draft.title} maxLength={240} onChange={(title) => change({ title })} placeholder="Baptism, doctor visit, family dinner…" />
     {data.all_day
