@@ -133,8 +133,12 @@ async def test_other_parent_prevents_family_deletion(family_case):
 
 
 @pytest.mark.parametrize("client", [None, "2", "3"])
-async def test_data_erasure_never_exits_family(family_case, client):
+@pytest.mark.parametrize("other_role", ["parent", "caregiver"])
+async def test_data_erasure_never_exits_family(family_case, client, other_role):
     api, case, personal, family, asset, path = family_case
+    async with api.sessions() as db:
+        (await db.get(BabySpaceMember, (family, "other"))).role = other_role
+        await db.commit()
     h = records.headers(personal, generation=1)
     h.pop("X-Baby-Client")
     if client:

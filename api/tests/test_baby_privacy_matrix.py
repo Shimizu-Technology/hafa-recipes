@@ -461,20 +461,13 @@ async def test_moved_journal_payload_redacts_unreadable_child(matrix):
     result = await api.client.post(API + "/records", headers=records.headers(own, "other", 1), json=journal)
     assert result.status_code == 200, result.text
     assert (await api.client.post(f"{API}/family/{family}/leave", headers=records.headers(family, "other", 1))).status_code == 200
-    # An old editor still addresses the family while the row is personal. Use a
-    # second accessible destination to elicit the moved payload after leaving.
-    async with api.sessions() as db:
-        row = await db.get(BabyRecord, journal["id"])
-        from app.domains.baby.access import access_for
-        access = await access_for(db, "other", client="3", space_id=own, write=True)
-        from dataclasses import replace
-
-        from fastapi import HTTPException
-        target = replace(access.target, space=type(access.target.space)(id=uuid4(), generation=1))
-        with pytest.raises(HTTPException) as caught:
-            await replace(access, target=target).row(db, BabyRecord, row.id, write=True)
-        assert caught.value.status_code == 409
-        assert caught.value.detail["record"]["child_id"] is None
+    # Join a new family, then retry an old editor against that destination.
+    new_family = await invites.create(api, own)
+    result = await api.client.patch(f"{API}/records/{journal['id']}",
+        headers=records.headers(new_family["space_id"], "other", 1),
+        json={"revision": 1, "body": "Queued edit"})
+    assert result.status_code == 409 and result.json()["code"] == "moved", result.text
+    assert result.json()["record"]["child_id"] is None
 
 
 async def test_account_deletion_revokes_historical_invite(matrix):
