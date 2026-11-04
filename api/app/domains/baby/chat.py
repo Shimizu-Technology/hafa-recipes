@@ -858,7 +858,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                 tools = AskTools(
                     user_id=user.id, client=client, personal_space_id=personal_space_id,
                     family=access.enabled, generation=generation, zone=zone, tracked=tracked,
-                    child_id=body.child_id, check=checked_access,
+                    child_id=body.child_id, check=checked_access, question=body.message, focus_id=body.record_id,
                 )
                 result = await answer_question(
                     provider, tools=tools, message=body.message, history=history,

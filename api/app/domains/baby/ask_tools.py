@@ -1,6 +1,7 @@
 """What Ask's model may read. Read-only, argument-checked, and scoped on the server for every round."""
 
 import json
+import re
 from datetime import date, timedelta
 from typing import NamedTuple
 from uuid import UUID
@@ -15,6 +16,7 @@ from app.domains.baby.queries import child_timing, records_query, row_scope
 from app.domains.baby.schemas import DomainModel
 from app.domains.baby.stats import care_stats, custom_days, day_start
 
+NOT_AVAILABLE = "not_available_for_this_question"
 MAX_CALLS_PER_ROUND = 8
 RESULT_CHARS = 30_000
 QUESTION_CHARS = 120_000  # Keeps every later request well inside its admission bound.
@@ -23,7 +25,25 @@ LIST_LIMIT, DAY_LIMIT = 12, 60
 SAVED_KINDS = ("source", "collection", "question", "routine", "milestone", "custom")
 # Saved posts and journal entries have their own tools; a day's log is what was recorded that day.
 NOT_IN_DAY_LOG = ("source", "collection", "journal")
+# Which private reads a question may use comes from her words alone, settled before anything is read.
+# A saved post, an import or a fetched page is only ever text, so none of them can add to this.
+# When these miss, Ask says it can't look there and she can ask again: it says less, not more.
+LOG_QUESTION = re.compile(
+    r"\b(feed\w*|fed|ate|eat\w*|nurs\w*|breast\w*|bottle\w*|formula|pump\w*|sleep\w*|slept|nap\w*|woke|awake|diaper\w*|"
+    r"poo\w*|pee\w*|wet|dirty|contraction\w*|kick\w*|medicine\w*|temperature|growth|weight|milestone\w*|log|logs|logged|"
+    r"stats?|totals?|count|how many|how much|how often|last time|when did|today|tonight|yesterday|morning|afternoon|"
+    r"evening|week|weeks|month|months|day|days|date|dates|calendar|appointment\w*|visit\w*|event\w*|schedule\w*|birthday\w*|"
+    r"baptism|due|next|upcoming|doctor|happen\w*|going on|doing|update\w*|recap|overview|everything|lately|recent\w*|"
+    r"how(?:'s| is| was| has| have))\b",
+    re.I,
+)
+JOURNAL_QUESTION = re.compile(
+    r"\b(journal\w*|diary|wrote|written|write|my notes?|i noted|i said|did i say|feeling\w*|felt|mood|emotion\w*)\b",
+    re.I,
+)
 TOOL_GUIDE = (
+    "Only the tools offered can be used for this question, and an entry that isn't available can't be read. If answering "
+    "needs something else, say so and suggest she ask about it directly. "
     "Look things up with your tools before answering; they read only what this parent can see. Saved text "
     "rarely uses the parent's exact words, so if a search finds little, try other words for the same thing "
     "(nursing for breastfeeding). Prefer the fewest tools that answer the question. A tool returning an error "
@@ -39,12 +59,14 @@ class Tool(NamedTuple):
 
 
 TOOLS = {}
+TOOL_PERMISSIONS = {}
 
 
-def tool(name, description, arguments, properties):
+def tool(name, description, arguments, properties, *, permission="saved"):
     """Register a read. Strict schemas need every property listed, so optional ones are nullable."""
 
     def register(read):
+        TOOL_PERMISSIONS[name] = permission
         TOOLS[name] = Tool(
             {
                 "description": description,
@@ -73,13 +95,31 @@ def unavailable(reason):
     return {"error": reason}
 
 
+def permissions_for(question):
+    """What this question may read. Saved posts are what Ask is for, so any question can reach those."""
+    text = (question or "").replace("\u2019", "'")
+    return {
+        "saved",
+        *(("logs",) if LOG_QUESTION.search(text) else ()),
+        *(("journal",) if JOURNAL_QUESTION.search(text) else ()),
+    }
+
+
+def permission_for_kind(kind):
+    if kind == "journal":
+        return "journal"
+    return "saved" if kind in SAVED_KINDS else "logs"
+
+
 class AskTools:
     """One question's reads. ``tracked`` and ``citable`` are what the final recheck and citations use."""
 
-    def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None, check=None):
+    def __init__(self, *, user_id, client, personal_space_id, family, generation, zone, tracked, child_id=None, check=None, question="", focus_id=None):
         self.user_id, self.client, self.personal_space_id = user_id, client, personal_space_id
         self.family, self.generation, self.zone, self.tracked = family, generation, zone, tracked
         self.child_id, self.check = child_id, check
+        self.question, self.focus_id = question, focus_id
+        self.permissions = permissions_for(question)
         self.citable, self.displays = {}, {}
         self.read_chars = 0
 
@@ -93,6 +133,7 @@ class AskTools:
             "tools": [
                 {"type": "function", "name": name, "strict": True, **tool.schema}
                 for name, tool in TOOLS.items()
+                if TOOL_PERMISSIONS.get(name, "saved") in self.permissions
             ],
             "tool_choice": "auto" if may_use_tools else "none",
         }
@@ -115,6 +156,8 @@ class AskTools:
         tool = TOOLS.get(call.get("name"))
         if tool is None:
             return unavailable("unknown_tool")
+        if TOOL_PERMISSIONS.get(call.get("name"), "saved") not in self.permissions:
+            return unavailable(NOT_AVAILABLE)
         try:
             arguments = tool.arguments.model_validate_json(call.get("arguments") or "{}")
         except ValueError:
@@ -267,6 +310,8 @@ class EntryArguments(DomainModel):
 )
 async def open_entry(tools, db, owner, arguments):
     row = await owned(db, BabyRecord, owner, tools.generation, arguments.record_id)
+    if row.id != tools.focus_id and permission_for_kind(row.kind) not in tools.permissions:
+        return unavailable(NOT_AVAILABLE)
     return (await entries(tools, db, owner, [row], limit=FULL_EXCERPT))[0]
 
 
@@ -299,6 +344,7 @@ def day_totals(stats):
     "Everything recorded on one calendar day, oldest first, with that day's totals counted by the app. Not the journal.",
     DayArguments,
     {"date": {"type": "string", "description": "YYYY-MM-DD, the parent's own calendar day."}, "child_id": CHILD_PROPERTY},
+    permission="logs",
 )
 async def day_log(tools, db, owner, arguments):
     at = now()
