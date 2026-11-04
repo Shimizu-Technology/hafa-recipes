@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.domains.baby.lifecycle import now
 from app.domains.baby.models import (
     BabyImport,
+    BabyRecord,
     BabySpaceMember,
 )
 from app.domains.baby.provider import AnswerOutput
@@ -220,6 +221,17 @@ async def test_hidden_words_ask_replay_followup_export_and_reminders(matrix, act
     assert (await c.get(f"{API}/conversations/{owner.conversation_id}", headers=read)).status_code == 404
     assert (await c.post(API + "/chat", headers=h, json={**request, "request_id": str(uuid4()), "conversation_id": owner.conversation_id})).status_code == 404
     assert (await c.get(f"{API}/records/{owner.entry['id']}", headers=read)).status_code == 404
+    for suffix in ("", "/metadata"):
+        assert (await c.get(f"{API}/attachments/{owner.asset_id}" + suffix, headers=read)).status_code == 404
+    from app.domains.baby.models import BabyMessage
+
+    async with api.sessions() as db:
+        private_request = await db.scalar(select(BabyMessage.id).where(
+            BabyMessage.conversation_id == UUID(owner.conversation_id), BabyMessage.role == "user"))
+    stolen_replay = await c.post(API + "/chat", headers=h,
+        json={**request, "request_id": str(private_request)})
+    assert stolen_replay.status_code == 404 and len(contexts) == 2
+
 
 
 @pytest.mark.parametrize("actor", ROLES)
@@ -306,3 +318,19 @@ async def test_deferred_capture_rechecks_role_and_stored_destination(matrix, act
         assert capture.space_id == space and capture.change_seq > 0
         job = await db.get(BabyImport, body["capture_id"])
         assert (job is not None) == allowed
+
+
+async def test_choosing_existing_personal_space_keeps_post_private_in_next_family(matrix):
+    api, owner, family, personal, seeded, png, at, invitation = matrix
+    own = await invites.personal(api, "stranger")
+    h = records.headers(own, "stranger", 1)
+    body = privacy.shared.payload("source")
+    created = await api.client.post(API + "/records", headers=h, json=body)
+    assert created.status_code == 200
+    result = await api.client.post(f"{API}/records/{body['id']}/move", headers=h,
+        json={"space_id": str(own), "revision": 1})
+    assert result.status_code == 200 and result.json()["data"]["just_me"] is True
+    invitation = await api.client.post(API + "/family/invites", headers=h, json={"publish_shared": True})
+    assert invitation.status_code == 201
+    async with api.sessions() as db:
+        assert (await db.get(BabyRecord, body["id"])).space_id == own

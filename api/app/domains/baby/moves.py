@@ -96,14 +96,22 @@ async def clean_links(db, access, row, source, batch_ids):
 
 async def move_record(db, access, row, destination, *, just_me=False, batch_ids=frozenset(), file_map=None):
     source = access.grant(row)
-    if source.id == destination.id:
-        return row
     if source.role != "parent" or destination.role != "parent":
         raise HTTPException(403, "Only parents can move shared entries")
     if row.kind == "journal" and row.app_user_id != access.actor:
         raise HTTPException(403, "Only the writer can share or un-share a journal entry")
     if destination.space.kind == "personal" and destination.id != access.personal_space_id:
         raise HTTPException(403, "Choose your own personal space")
+    if source.id == destination.id:
+        data = dict(row.data)
+        if just_me:
+            data["just_me"] = True
+        else:
+            data.pop("just_me", None)
+        if data != row.data:
+            row.data, row.revision, row.updated_at = data, row.revision + 1, now()
+            await touch(row, source)
+        return row
     file_map = file_map if file_map is not None else {}
     # Discover every relation before the first row mutation/autoflush.
     data = dict(row.data)
