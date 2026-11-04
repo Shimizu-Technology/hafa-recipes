@@ -360,3 +360,74 @@ it("shows an urgent reply that couldn't be saved, and the next question starts a
   expect(result.messages[1]).toMatchObject({ content: "Call 911", help: "baby_unwell" });
   expect(result.conversation).toBeUndefined();
 });
+function withNewAsk(account: ReturnType<typeof setup>, acknowledged: number | undefined) {
+  Object.assign(account.api, { renameConversation: vi.fn(async (_id: string, title: string) => ({ title })), deleteConversation: vi.fn(async () => undefined) });
+  account.state = { ...account.state, bootstrap: { ...account.state.bootstrap!, ask_consent_version: 1,
+    profile: { ...account.state.bootstrap!.profile, ai_consent_version: acknowledged } } };
+  return account.api as typeof account.api & { renameConversation: ReturnType<typeof vi.fn>; deleteConversation: ReturnType<typeof vi.fn> };
+}
+
+it.each([[1, true], [0, false], [undefined, false]])("asks for the new Ask when version %s is acknowledged: %s", async (acknowledged, expected) => {
+  const account = setup();
+  withNewAsk(account, acknowledged);
+  await mount();
+  await question();
+  await act(async () => { await result.send(); });
+  const body = account.api.chat.mock.calls[0][0];
+  expect("ask_v2" in body).toBe(expected);
+});
+
+it("keeps an answer's sources and help with its message", async () => {
+  const account = setup(), sources = [{ url: "https://www.cdc.gov/x", title: "CDC", domain: "www.cdc.gov", kind: "trusted" as const, ref: "S1" }];
+  account.api.chat.mockResolvedValueOnce({ conversation_id: "c", message: "Answer [S1]", citations: [], sources, help: "harm" } as never);
+  await mount();
+  await question();
+  await act(async () => { await result.send(); });
+  expect(result.messages[1]).toMatchObject({ sources, help: "harm" });
+});
+
+it("deleting the open conversation returns to a new chat, with its messages gone", async () => {
+  const account = setup(), api = withNewAsk(account, 1);
+  await mount();
+  await act(async () => result.load("history"));
+  expect(result.messages).toHaveLength(2);
+  await act(async () => { expect(await result.deleteConversation("history")).toBe(true); });
+  expect(api.deleteConversation).toHaveBeenCalledWith("history", 1);
+  expect(result.messages).toEqual([]);
+  expect(result.conversation).toBeUndefined();
+});
+
+it("deleting another conversation leaves this one open and takes it off the list", async () => {
+  const account = setup();
+  withNewAsk(account, 1);
+  await mount();
+  await act(async () => result.load("history"));
+  await act(async () => { await result.openHistory(); });
+  expect(result.history.map((item) => item.id)).toEqual(["history"]);
+  await act(async () => { await result.deleteConversation("history"); });
+  expect(result.history).toEqual([]);
+});
+
+it("treats an already-deleted conversation as deleted, and reports other failures", async () => {
+  const account = setup(), api = withNewAsk(account, 1);
+  const { ApiError } = await import("./api");
+  await mount();
+  api.deleteConversation.mockRejectedValueOnce(new ApiError("Item unavailable", 404));
+  await act(async () => { expect(await result.deleteConversation("gone")).toBe(true); });
+  expect(result.error).toBe("");
+  api.deleteConversation.mockRejectedValueOnce(new ApiError("Couldn't reach the service", 503));
+  await act(async () => { expect(await result.deleteConversation("x")).toBe(false); });
+  expect(result.error).not.toBe("");
+});
+
+it("renames in the list and reports a failure", async () => {
+  const account = setup(), api = withNewAsk(account, 1);
+  await mount();
+  await act(async () => { await result.openHistory(); });
+  await act(async () => { expect(await result.renameConversation("history", "Latch help")).toBe(true); });
+  expect(api.renameConversation).toHaveBeenCalledWith("history", "Latch help", 1);
+  expect(result.history[0].title).toBe("Latch help");
+  api.renameConversation.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => { expect(await result.renameConversation("history", "Other")).toBe(false); });
+  expect(result.history[0].title).toBe("Latch help");
+});

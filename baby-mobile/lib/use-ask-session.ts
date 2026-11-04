@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "./context";
+import { ApiError } from "./api";
+import { askV2Active } from "./ask-sources";
 import { messageFor, type ChatMessage, type Conversation, type EditorDraft, type Proposal, type Scope } from "./models";
 
 export interface AskContext { scope: Scope; record_id: string | null; child_id: string | null }
@@ -192,7 +194,7 @@ export function useAskSession(recordId?: string, active = true) {
       if (!operation.valid()) return;
       const result = await account.api.chat({ ...snapshot.context,
         record_id: snapshot.context.record_id ?? undefined, conversation_id: snapshot.conversation,
-        request_id: requestId, message: text }, account.state.bootstrap!.generation);
+        request_id: requestId, message: text, ...(askV2Active(account.state.bootstrap) ? { ask_v2: true } : {}) }, account.state.bootstrap!.generation);
       if (!operation.valid()) return;
       await account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), null, operation.valid);
       if (!operation.valid()) return;
@@ -234,6 +236,35 @@ export function useAskSession(recordId?: string, active = true) {
     catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
     return null;
   }
+  async function renameConversation(id: string, title: string) {
+    const operation = ticket(false);
+    try {
+      const saved = await operation.account.api.renameConversation(id, title, operation.account.state.bootstrap!.generation);
+      if (operation.valid()) setHistory((items) => items.map((item) => item.id === id ? { ...item, title: saved.title } : item));
+      return true;
+    } catch (failure) { if (operation.valid()) setError(messageFor(failure)); return false; }
+  }
+  async function deleteConversation(id: string) {
+    const operation = ticket(false);
+    try {
+      await operation.account.api.deleteConversation(id, operation.account.state.bootstrap!.generation);
+    } catch (failure) {
+      // Already gone from another phone is what was asked for.
+      if (!(failure instanceof ApiError && failure.status === 404)) {
+        if (operation.valid()) setError(messageFor(failure));
+        return false;
+      }
+    }
+    if (!operation.valid()) return true;
+    setHistory((items) => items.filter((item) => item.id !== id));
+    if (current.current.conversation === id) {
+      void operation.account.saveDraft(askDraftKey(current.current.context, id), null, operation.valid).catch(() => undefined);
+      const context = { scope: "all" as const, record_id: null, child_id: live.current.b.state.selectedChild };
+      activate(context);
+      setShowHistory(true);
+    }
+    return true;
+  }
   function startNew() {
     if (!live.current.active || working.current) return;
     stash();
@@ -247,7 +278,7 @@ export function useAskSession(recordId?: string, active = true) {
     update({ ...current.current, requestId: undefined });
     void save(current.current).catch(() => { if (operation.valid()) setError("Could not save this question draft. Try again."); });
   }
-  return { ...session, history, showHistory, busy, error, send, openHistory, load, review, startNew, selectScope,
+  return { ...session, history, showHistory, busy, error, send, openHistory, load, review, startNew, selectScope, renameConversation, deleteConversation,
     retryFocus: () => setAttempt((value) => value + 1),
     setQuestion: (question: string) => { if (live.current.active && owned.current?.entry.owner === token.current && !working.current && !current.current.resolving) update({ ...current.current, question, requestId: undefined }); } };
 }

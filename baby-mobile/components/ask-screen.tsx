@@ -4,6 +4,8 @@ import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router
 import { useBaby } from "@/lib/context";
 import { ASK_UPDATE_TITLE, acknowledgeAsk, needsAskAcknowledgment } from "@/lib/ai-consent";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
+import { AnswerText, WebSources } from "./ask-answer";
+import { AskHistory } from "./ask-history";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
 import type { Proposal } from "@/lib/models";
@@ -157,24 +159,8 @@ function AskChat({ back }: { back: boolean }) {
       {chat.resolving && !busy && (
         <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />
       )}
-      {showHistory && (
-        <Section title="Your conversations">
-          {history.length ? (
-            <Grouped>{history.map((h) => (
-              <Row
-                key={h.id}
-                title={h.title || "A previous conversation"}
-                numericDetail
-                detail={h.updated_at ? new Date(h.updated_at).toLocaleDateString() : undefined}
-                icon="chatbubbles-outline"
-                onPress={() => void load(h.id)}
-              />
-            ))}</Grouped>
-          ) : (
-            <Copy tone="muted">Your conversations will appear here.</Copy>
-          )}
-        </Section>
-      )}
+      {showHistory && <AskHistory items={history} manageable={!!b.state.bootstrap!.ask_consent_version} onOpen={(id) => void load(id)}
+        onRename={chat.renameConversation} onDelete={chat.deleteConversation} />}
       {!showHistory && !messages.length && (
         <View style={{ gap: 12 }}>
           <Copy kind="heading">{focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
@@ -210,11 +196,11 @@ function AskChat({ back }: { back: boolean }) {
         ) : (
           <View key={m.id ?? index} style={{ gap: 12 }}>
             {!!m.help && <Button title="Open Help" onPress={() => router.push("/help")} />}
-            <Copy>{readableCitations(m.content, m.citations)}</Copy>
+            <AnswerText text={readableCitations(m.content, m.citations)} sources={m.sources} />
             {!!m.citations?.length && (
               <View style={{ gap: 8 }}>
                 <Copy kind="small" tone="muted">
-                  From your saved entries
+                  From your entries
                 </Copy>
                 <Grouped>{m.citations.map((citation, sourceIndex) => (
                   <Row
@@ -228,6 +214,7 @@ function AskChat({ back }: { back: boolean }) {
                 ))}</Grouped>
               </View>
             )}
+            <WebSources sources={m.sources} />
             {m.proposal && (
               <Card tone="soft">
                 <Copy kind="heading">Proposed: {m.proposal.title}</Copy>

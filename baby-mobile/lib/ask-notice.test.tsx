@@ -9,6 +9,8 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { push: scope.push }, useFocusEffect: () => undefined, useLocalSearchParams: () => ({}) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => ({}) }));
+vi.mock("../components/ask-answer", () => ({ AnswerText: "AnswerText", WebSources: "WebSources" }));
+vi.mock("../components/ask-history", () => ({ AskHistory: "AskHistory" }));
 vi.mock("@/lib/ai-consent", () => ({ ASK_UPDATE_TITLE: "Ask can now do more", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
 vi.mock("@/lib/chat-citations", () => ({ citationExcerpt: () => "", readableCitations: (text: string) => text }));
 vi.mock("@/components/record-row", () => ({ kindIcon: {} }));

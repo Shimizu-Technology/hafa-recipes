@@ -379,6 +379,7 @@ export function createBabyApi(
         scope?: Scope;
         record_id?: string;
         child_id?: string | null;
+        ask_v2?: boolean;
       },
       g: number
     ) => request<ChatResult>("/chat", "POST", body, g),
@@ -405,6 +406,10 @@ export function createBabyApi(
     /** Shared with family or Just me. The row goes to `destination`, and the fence is where it lives now. */
     moveRecord: (row: BabyRecord, destination: string, g: Fence) =>
       request<BabyRecord>(`/records/${encodeURIComponent(row.id)}/move`, "POST", { space_id: destination, revision: row.revision }, g),
+    renameConversation: (id: string, title: string, g: Fence) =>
+      request<Conversation>(`/conversations/${encodeURIComponent(id)}`, "PATCH", { title }, g),
+    deleteConversation: (id: string, g: Fence) =>
+      request<void>(`/conversations/${encodeURIComponent(id)}`, "DELETE", undefined, g),
     export: () => request<unknown>("/export"),
     erase: (g: number) => {
       epoch++;
