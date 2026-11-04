@@ -123,7 +123,8 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     await call("PATCH", API + "/profile", 200 if member else hidden, json={"ai_consent": True})
     for path in ("/children", "/records", "/search?q=SOURCE_SECRET", "/export", "/conversations",
                  "/events?from=" + at.date().isoformat() + "&to=" + at.date().isoformat(),
-                 "/care/summary?from=" + at.date().isoformat() + "&to=" + at.date().isoformat()):
+                 "/care/summary?from=" + at.date().isoformat() + "&to=" + at.date().isoformat(),
+                 "/care/stats?range=7d"):
         await call("GET", API + path, 200 if member or path == "/export" else hidden)
     await call("GET", API + "/changes", 200)
     await call("GET", f"{API}/records/{rows['care']['id']}", 200 if member else hidden)
@@ -144,8 +145,12 @@ async def test_every_endpoint_role_and_space(matrix, actor, destination):
     await call("PUT", event + "/occurrences", 200 if member else hidden,
                json={"original_start": at.isoformat(), "cancelled": True, "revision": 1})
     await call("DELETE", event + "/occurrences", 200 if member else hidden, params={"original_start": at.isoformat(), "revision": 2})
+    split_at = (at + timedelta(days=3)).isoformat()
+    await call("POST", event + "/split", 200 if member else hidden, json={"revision": 3, "from_start": split_at, "event": {
+        "id": str(uuid4()), "kind": "event", "title": "Next", "occurred_at": split_at,
+        "data": {"timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}}}})
     await call("POST", event + "/end-series", 200 if member else hidden,
-               json={"from_date": (at + timedelta(days=2)).date().isoformat(), "revision": 3})
+               json={"from_date": (at + timedelta(days=2)).date().isoformat(), "revision": 4})
     await call("POST", API + "/imports", 200 if parent else hidden, json={"id": str(uuid4()), "text": "Caller source"})
     await call("GET", f"{API}/imports/{sample['job']['id']}", 200 if parent else denied)
     await call("POST", f"{API}/imports/{sample['job']['id']}/retry", 403 if parent else denied)
