@@ -190,6 +190,23 @@ def visible_to(row, client):
     return row
 
 
+async def let_go_of_visit(db, access, event, generation, *also):
+    """A question or note about a visit stays; only its link to the event goes."""
+    for linked in await db.scalars(
+        select(BabyRecord).where(
+            (BabyRecord.space_id == event.space_id) if access.enabled else (
+                (BabyRecord.app_user_id == event.app_user_id) & (BabyRecord.generation == generation)
+            ),
+            BabyRecord.deleted_at.is_(None),
+            BabyRecord.data["event_id"].as_string() == str(event.id),
+            *also,
+        )
+    ):
+        linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
+        linked.revision, linked.updated_at = linked.revision + 1, now()
+        await touch(linked, access.grant(linked, kinds=False) if access.enabled else None)
+
+
 def no_event_link_from_legacy(client, data):
     if legacy_client(client) and (data or {}).get("event_id") is not None:
         raise HTTPException(422, "Update Håfa Baby to save this")
@@ -729,12 +746,15 @@ async def records(
     stage: Stage | None = None,
     occurred_from: AwareDatetime | None = None,
     occurred_to: AwareDatetime | None = None,
+    event_id: UUID | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
     access: Access = None,
 ):
     member = access.member
     conditions, order, extra = occurred_between(occurred_from, occurred_to), None, None
+    if event_id is not None:
+        conditions.append(BabyRecord.data["event_id"].as_string() == str(event_id))
     if stage is not None:
         conditions.append(stage_filter(stage))
     if timing == "now" and within_weeks is not None:
@@ -990,6 +1010,10 @@ async def patch_record(
         setattr(row, key, getattr(valid, key))
     row.revision, row.updated_at = row.revision + 1, now()
     await touch(row, access.target)
+    if row.kind == "event" and row.child_id and row.child_id != previous_child:
+        # What's about another baby no longer fits this visit.
+        await let_go_of_visit(db, access, row, generation,
+                              BabyRecord.child_id.is_not(None), BabyRecord.child_id != row.child_id)
     if removed_attachments:
         await retire_unreferenced_attachments(db, access, generation, removed_attachments)
     if row.kind == "feeding":
@@ -1113,19 +1137,7 @@ async def delete_record(
             collection.revision, collection.updated_at = collection.revision + 1, now()
             await touch(collection, access.grant(collection) if access.enabled else None)
     if row.kind == "event":
-        # A question or note about a visit stays; only its link to the removed event goes.
-        for linked in await db.scalars(
-            select(BabyRecord).where(
-                (BabyRecord.space_id == row.space_id) if access.enabled else (
-                    (BabyRecord.app_user_id == user.id) & (BabyRecord.generation == generation)
-                ),
-                BabyRecord.deleted_at.is_(None),
-                BabyRecord.data["event_id"].as_string() == str(identifier),
-            )
-        ):
-            linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
-            linked.revision, linked.updated_at = linked.revision + 1, now()
-            await touch(linked, access.grant(linked, kinds=False) if access.enabled else None)
+        await let_go_of_visit(db, access, row, generation)
     removed_attachments = row.data.get("attachment_ids", [])
     child_id = row.child_id
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None

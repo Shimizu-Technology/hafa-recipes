@@ -114,6 +114,69 @@ async function mount() {
     await settle();
   });
 }
+describe("changing every later date of a repeat", () => {
+  const series = { ...optimisticRecord({ id: "class", kind: "event", title: "Class", body: "", child_id: null, occurred_at: "2026-11-02T00:00:00.000Z", data: { timezone: "Pacific/Guam", recurrence: { frequency: "weekly" } } }), revision: 4 },
+    ended = { ...series, data: { ...series.data, recurrence: { frequency: "weekly", until: "2026-11-15" } } },
+    next = { id: "next", kind: "event" as const, title: "New class", body: "", child_id: null, occurred_at: "2026-11-16T00:00:00.000Z", data: series.data },
+    split = { id: "next", generation: 1, type: "event_split" as const, series: { id: "class", kind: "event" as const, title: "Class", body: "", child_id: null, occurred_at: series.occurred_at, data: ended.data, revision: 4 }, event: next, from_start: "2026-11-16T00:00:00.000Z", files: [] },
+    answer = { series: { ...ended, revision: 5 }, event: { ...optimisticRecord(next), revision: 1 } },
+    flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); }),
+    rows = () => baby.records.filter((row) => row.kind === "event").map((row) => [row.id, row.data.recurrence?.until ?? null]);
+  beforeEach(() => {
+    mock.api = { bootstrap: vi.fn(async () => bootstrap), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined,
+      save: vi.fn(async () => { throw Error("Each part must not be saved alone"); }), splitEvent: vi.fn(async () => answer) };
+    mock.saved = { ...emptyState(), bootstrap, records: [series], outbox: [split] } as unknown as DeviceState;
+  });
+  it("sends one request holding both parts", async () => {
+    await mount(); await flush();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(mock.api.splitEvent).toHaveBeenCalledExactlyOnceWith("class", { revision: 4, from_start: "2026-11-16T00:00:00.000Z", event: next }, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.records.find((row) => row.id === "class")).toMatchObject({ revision: 5 });
+    expect(baby.state.records.find((row) => row.id === "next")).toMatchObject({ revision: 1, title: "New class" });
+  });
+  it("keeps both on the phone while there's no signal, and sends the same thing later", async () => {
+    mock.api.splitEvent = vi.fn().mockRejectedValueOnce(new ApiError("Offline", 0)).mockResolvedValue(answer);
+    await mount(); await flush();
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["next"]);
+    expect((baby.state.outbox[0] as any).error).toBeUndefined();
+    expect(rows()).toEqual(expect.arrayContaining([["class", "2026-11-15"], ["next", null]]));
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.splitEvent.mock.calls[1]).toEqual(mock.api.splitEvent.mock.calls[0]);
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("tries again by itself after a server error", async () => {
+    mock.api.splitEvent = vi.fn().mockRejectedValueOnce(new ApiError("Busy", 503)).mockResolvedValue(answer);
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ attempts: 1 });
+    expect((baby.state.outbox[0] as any).error).toBeUndefined();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+    await flush();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it.each([[422, "You can keep up to 200 repeating events"], [409, "Changed"]])("loses nothing when it's refused with a %s, and discarding brings every date back", async (status, words) => {
+    mock.api.splitEvent = vi.fn(async () => { throw new ApiError(words, status); });
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ id: "next", conflict: status === 409 });
+    expect((baby.state.outbox[0] as any).error).toBeTruthy();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    expect(baby.state.records.find((row) => row.id === "class")!.data.recurrence!.until).toBeUndefined();
+    await act(async () => { await baby.discardQueued("next"); await settle(); });
+    expect(baby.state.outbox).toEqual([]);
+    expect(rows()).toEqual([["class", null]]);
+  });
+  it("forgets a split that landed and was removed since, without stopping the queue", async () => {
+    mock.api.splitEvent = vi.fn(async () => { throw new ApiError("Removed", 410); });
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("takes the answer when the old series has gone since", async () => {
+    mock.api.splitEvent = vi.fn(async () => ({ ...answer, series: null }));
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.records.map((row) => row.id)).toEqual(["next"]);
+  });
+});
 describe("Baby's here with no signal", () => {
   const child = { id: "baby", name: "Mia", revision: 3, due_date: "2026-12-10", birth_date: null },
     server = { ...bootstrap, children: [child] },

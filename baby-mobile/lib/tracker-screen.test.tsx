@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState } from "./models";
 
-const mock = vi.hoisted(() => ({ summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any, statsAsks: [] as unknown[][], statsRefresh: vi.fn() }));
+const mock = vi.hoisted(() => ({ events: { items: [], byDay: new Map(), failed: false, complete: true } as any, summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any, statsAsks: [] as unknown[][], statsRefresh: vi.fn() }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView",
   useWindowDimensions: () => ({ fontScale: mock.fontScale }),
@@ -24,13 +24,16 @@ vi.mock("@/lib/care-summary", () => import("./care-summary"));
 vi.mock("@/lib/care-days", () => import("./care-days"));
 vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: (...args: unknown[]) => { mock.summaries.push(args); return mock.summary; },
   useOtherDays: (...args: unknown[]) => { mock.otherAsks.push(args); return mock.others; }, useDeleted: () => mock.gone }));
+vi.mock("@/lib/events", () => import("./events"));
+vi.mock("@/lib/use-events", () => ({ useEvents: () => mock.events }));
+vi.mock("@/components/event-row", () => ({ ComingUp: "ComingUp", EventRow: "EventRow" }));
 vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
   mock.requests.push(options);
   return { all: mock.care, rows: mock.care, loading: false, error: options.occurred_from ? mock.error : "", refresh: vi.fn() };
 } }));
 const ui = vi.hoisted(() => ({
-  FilterChips: "FilterChips", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
+  Button: "Button", FilterChips: "FilterChips", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
   fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}),
 }));
 vi.mock("@/components/ui", () => ui);

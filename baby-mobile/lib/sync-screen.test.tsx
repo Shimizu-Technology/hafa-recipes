@@ -11,6 +11,7 @@ vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
 vi.mock("@/lib/api", () => import("./api"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
+vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/files", () => ({ exportFile: vi.fn() }));
 vi.mock("@/components/ui", () => ({ Button: "Button", Card: "Card", Copy: "Copy", Empty: "Empty", Notice: "Notice", Screen: "Screen", Section: "Section", useToast: () => scope.toast }));
 import Sync from "../app/sync";
@@ -114,4 +115,16 @@ it("asks the API about a sent birth date too, and names it", async () => {
   await discard();
   expect(b.discardQueued).toHaveBeenCalledWith("b", undefined, child);
   expect(renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join("")).join()).toContain("Birth date");
+});
+
+it("names a refused split in plain words, and says what discarding it takes along", async () => {
+  const event = (id: string, title: string) => ({ id, kind: "event" as const, title, body: "", child_id: null, occurred_at: "2026-11-16T00:00:00.000Z", data: { timezone: "Pacific/Guam" } }),
+    split: Mutation = { id: "next", generation: 1, type: "event_split", series: { ...event("class", "Class"), revision: 4 }, event: event("next", "New class"), from_start: "2026-11-16T00:00:00.000Z", files: [], conflict: true, error: "This event changed somewhere else" },
+    b = setup([split, { id: "edit", generation: 1, type: "save", files: [], record: { ...event("next", "Newer class"), revision: 0 } }]);
+  expect(await ask("Discard this queued change")).toContain("This also removes 1 later change");
+  const words = renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => [n.props.children].flat().join(""));
+  expect(words).toContain("New class");
+  expect(words.join(" ")).toMatch(/Changes Class from November 16, 2026 on\. Discarding this keeps every date as it was\./);
+  await act(async () => { await scope.alerts.at(-1)!.buttons.find((button) => button.text === "Discard change")!.onPress!(); });
+  expect(b.discardQueued).toHaveBeenCalledWith("next", undefined);
 });

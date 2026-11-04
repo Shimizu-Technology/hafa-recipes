@@ -1,6 +1,6 @@
 import type { BabyRecord, Kind } from "./models";
 
-/** Everything the Day view lists. Events and milestones join this once they exist. */
+/** The records the Day view lists as they are. Events join them as dated occurrences, from `useEvents`. */
 export const timelineKinds: Kind[] = ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session"];
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -23,7 +23,7 @@ export function weekOf(key: string) {
   return Array.from({ length: 7 }, (_, index) => addDays(first, index));
 }
 
-function zoneParts(instant: Date, timeZone: string) {
+export function zoneParts(instant: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(instant),
     part = (type: string) => Number(parts.find((value) => value.type === type)?.value);
   return { year: part("year"), month: part("month"), day: part("day"), hour: part("hour"), minute: part("minute"), second: part("second") };
@@ -36,9 +36,10 @@ function zoneOffset(instant: Date, timeZone: string) {
 /**
  * The instant a family's clock reads this time on this day. Days and totals follow the profile's zone, as the API does,
  * and resolve the same way: a time read twice is the first, and a time the clock skips is the moment after the jump, so
- * a midnight skipped in spring (Santiago) starts its day at 1:00 rather than pulling in the hour before.
+ * a midnight skipped in spring (Santiago) starts its day at 1:00 rather than pulling in the hour before. `second` asks
+ * for the later reading, as a repeat does whose first date was in the repeated hour.
  */
-export function zonedInstant(key: string, hours: number, minutes: number, timeZone?: string | null) {
+export function zonedInstant(key: string, hours: number, minutes: number, timeZone?: string | null, second = false) {
   const [year, month, day] = key.split("-").map(Number);
   try {
     if (!timeZone) throw Error("No zone");
@@ -46,7 +47,7 @@ export function zonedInstant(key: string, hours: number, minutes: number, timeZo
       before = zoneOffset(new Date(guess - 24 * hour), timeZone), after = zoneOffset(new Date(guess + 24 * hour), timeZone),
       reads = (offset: number) => zoneOffset(new Date(guess - offset), timeZone) === offset,
       real = [before, after].filter(reads).map((offset) => guess - offset);
-    return new Date(real.length ? Math.min(...real) : guess - before);
+    return new Date(real.length ? (second ? Math.max : Math.min)(...real) : guess - (second ? after : before));
   } catch { return new Date(year, month - 1, day, hours, minutes); }
 }
 export function dayRange(key: string, timeZone?: string | null) {

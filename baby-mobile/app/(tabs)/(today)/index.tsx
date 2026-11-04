@@ -19,6 +19,7 @@ import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance"
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { PregnancyHero, TipSection } from "@/components/tips";
+import { NextEvent } from "@/components/event-row";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
 
@@ -112,6 +113,7 @@ export default function Today() {
         <Copy numeric kind="small" tone="muted">{`${dueLine(child.due_date!, today)}. Add the birth date to start feeding, sleep and diaper logs and see tips for this age.`}</Copy>
         <Button title="Add the birth date" onPress={addBirth} />
       </Card>}
+      <NextEvent childId={child.id} today={todayKey} now={now} />
       <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
         <Tile icon="pulse-outline" label="Contraction timer" hint="Start, stop, and the last hour" onPress={() => router.push("/contractions")} />
         <Tile icon="footsteps-outline" label="Kick counter" hint="A tap for each movement, and your history" onPress={() => router.push("/kicks")} />
@@ -159,6 +161,7 @@ export default function Today() {
         <Icon name="chevron-forward" size={16} color={c.muted} />
       </PressTarget>}
       {fontScale >= dockBelow && quickLog}
+      <NextEvent childId={child?.id ?? null} today={todayKey} now={now} />
       {!!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />

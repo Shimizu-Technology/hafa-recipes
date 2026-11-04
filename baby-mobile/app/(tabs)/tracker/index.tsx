@@ -9,7 +9,10 @@ import { dayOverlay } from "@/lib/care-summary";
 import { otherDayMark } from "@/lib/care-days";
 import { useCareSummary, useDeleted, useOtherDays } from "@/lib/use-care-summary";
 import { newestFirst } from "@/lib/feed-reducer";
-import { Copy, Empty, FilterChips, Grouped, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
+import { useEvents } from "@/lib/use-events";
+import { dayTimeline, eventCount } from "@/lib/events";
+import { Button, Copy, Empty, FilterChips, Grouped, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
+import { ComingUp, EventRow } from "@/components/event-row";
 import { HeaderPill } from "@/components/tab-stack";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
@@ -59,12 +62,17 @@ export default function Tracker() {
     rows = care.all.filter((row) => onDay(row, day, timezone, now)).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
     future = keyDate(day) > keyDate(today),
     { fontScale } = useWindowDimensions(),
-    marked = new Set(strip.filter((key) => other(key) || overlay(summary?.[key], key).dots.length > 0));
+    events = useEvents(scope, strip[0], strip[strip.length - 1]),
+    dayEvents = events.byDay.get(day) ?? [],
+    // Event dots come from `useEvents`, which knows what's queued. The summary's own only knows what's saved.
+    marked = new Set(strip.filter((key) => other(key) || events.byDay.has(key) || overlay(summary?.[key], key).dots.some((dot) => dot !== "event"))),
+    timeline = dayTimeline(rows, dayEvents, newest);
   useEffect(() => {
     // A link to one day, from Today or the calendar.
     if (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day)) { setPicked(params.day === today ? null : params.day); setView("day"); }
   }, [params.day, params.at]);
-  const pick = (key: string) => setPicked(key === today ? null : key),
+  const addEvent = (key: string) => router.push({ pathname: "/edit", params: { kind: "event", day: key } }),
+    pick = (key: string) => setPicked(key === today ? null : key),
     quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} /> : null;
   return (
     <Screen title="Tracker" scrollRef={scroller} onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
@@ -76,8 +84,11 @@ export default function Tracker() {
         <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
         <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
       </Grouped>}
-      {view === "month" ? <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date}
-        onOpen={(key) => { pick(key); setView("day"); }} /> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} expecting={expecting} now={now}
+      {view === "month" ? <>
+        <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onOpen={(key) => { pick(key); setView("day"); }} />
+        <Button secondary size="lg" icon="add" title="Add event" onPress={() => addEvent(day)} />
+        <ComingUp childId={scope} today={today} />
+      </> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} expecting={expecting} now={now}
         // A bar can be far down the page, and the day has to start at its own title.
         onOpen={(key) => { pick(key); setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />
@@ -94,21 +105,23 @@ export default function Tracker() {
             </PressTarget>
           </View>
         </View>
-        {!future && <Copy numeric kind="small" tone="muted">{summaryLine(overlay(summary?.[day], day))}</Copy>}
+        {(!future || dayEvents.length > 0) && <Copy numeric kind="small" tone="muted">{[!future && summaryLine(overlay(summary?.[day], day)), dayEvents.length > 0 && eventCount(dayEvents.length)].filter(Boolean).join(" · ")}</Copy>}
       </View>
       {day === today && <LegacyTimer />}
       {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
       {fontScale >= dockBelow && quickLog}
-      {rows.length ? <View style={{ gap: 4 }}>
+      {timeline.length ? <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <Copy kind="small" tone="muted">Everything, in order</Copy>
           <OrderToggle newest={newest} onFlip={() => setNewest(!newest)} />
         </View>
-        <Grouped separatorInset={0}>{rows.map((row) => (
-          <TimelineRow key={row.id} record={row} rows={care.all} day={day} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === row.id)} />
-        ))}</Grouped>
+        <Grouped separatorInset={0}>{timeline.map((entry) => "event_id" in entry
+          ? <EventRow key={`${entry.event_id}:${entry.original_start}`} item={entry} day={day} />
+          : <TimelineRow key={entry.id} record={entry} rows={care.all} day={day} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === entry.id)} />
+        )}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}
+      <Button secondary size="lg" icon="add" title="Add event" onPress={() => addEvent(day)} />
       </>}
       <Grouped>
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
