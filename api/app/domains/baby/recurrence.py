@@ -3,6 +3,9 @@
 An occurrence keeps the wall-clock time of the first one in the event's own time zone, so a
 9 AM appointment stays at 9 AM across a clock change. Each date is worked out from the first
 occurrence, never from the previous one, so a Jan 31 monthly repeat is Feb 28, then Mar 31.
+
+A series split off from a later date keeps counting from the date the repeat first had, its
+anchor, so going on from that Feb 28 is still Mar 31.
 """
 
 import calendar
@@ -36,29 +39,43 @@ def first_index(frequency, interval, anchor, earliest):
     return max(0, gap - 1)
 
 
+def falls_on(anchor, frequency, interval, day):
+    """Whether counting from ``anchor`` gives ``day``."""
+    if day < anchor:
+        return False
+    n = first_index(frequency, interval, anchor, day)
+    while (found := nth_date(anchor, frequency, interval, n)) < day:
+        n += 1
+    return found == day
+
+
 def starts_between(start, zone, rule, lo, hi):
-    """Original starts ``s`` with ``lo <= s < hi``, in order. ``rule`` is (frequency, interval, until)."""
+    """Original starts ``s`` with ``lo <= s < hi``, in order. ``rule`` is (frequency, interval, until, anchor)."""
     if rule is None:
         if lo <= start < hi:
             yield start
         return
-    frequency, interval, until = rule
+    frequency, interval, until, anchor = rule
     local = start.astimezone(zone)
-    n = first_index(frequency, interval, local.date(), lo.astimezone(zone).date())
+    first = local.date()
+    anchor = anchor or first
+    n = first_index(frequency, interval, anchor, max(first, lo.astimezone(zone).date()))
     while True:
         try:
-            day = nth_date(local.date(), frequency, interval, n)
+            day = nth_date(anchor, frequency, interval, n)
         except (OverflowError, ValueError):
             return  # Past the last calendar year.
+        n += 1
+        if day < first:
+            continue
         if until is not None and day > until:
             return
         # The first occurrence is the stored instant, exact even when the hour repeats at a clock change.
-        moment = start if n == 0 else datetime.combine(day, local.time(), zone).astimezone(UTC)
+        moment = start if day == first else datetime.combine(day, local.time(), zone).astimezone(UTC)
         if moment >= hi:
             return
         if moment >= lo:
             yield moment
-        n += 1
 
 
 def is_start(start, zone, rule, moment):
