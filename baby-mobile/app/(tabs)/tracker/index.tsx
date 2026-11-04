@@ -5,12 +5,13 @@ import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, dayRange, daySummary, keyDate, addDays, recordDay, timelineKinds } from "@/lib/tracker";
-import { Copy, Empty, Grouped, HeaderAction, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
+import { Copy, Empty, FilterChips, Grouped, HeaderAction, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
 import { QuickLog } from "@/components/quick-log";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
+import { TrackerMonth } from "@/components/tracker-month";
 
 /** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
 const dockBelow = 1.5;
@@ -21,6 +22,7 @@ export default function Tracker() {
     today = dayKey(profileToday(now, timezone)),
     [picked, setPicked] = useState<string | null>(null),
     [newest, setNewest] = useState(true),
+    [view, setView] = useState("day"),
     day = picked ?? today,
     range = dayRange(day, timezone),
     // A day looks back one more, for a sleep that ran over midnight into it.
@@ -37,15 +39,18 @@ export default function Tracker() {
     marked = new Set(recent.all.map((row) => recordDay(row.occurred_at, timezone)));
   useEffect(() => {
     // A link to one day, from Today or the calendar.
-    if (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day)) setPicked(params.day === today ? null : params.day);
+    if (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day)) { setPicked(params.day === today ? null : params.day); setView("day"); }
   }, [params.day, params.at]);
   const pick = (key: string) => setPicked(key === today ? null : key),
     quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} /> : null;
   return (
-    <Screen title="Tracker" onRefresh={() => Promise.all([care.refresh(), recent.refresh()])} footer={fontScale < dockBelow ? quickLog : undefined}>
+    <Screen title="Tracker" onRefresh={() => Promise.all([care.refresh(), recent.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
       <Stack.Screen options={{ title: "Tracker" }} />
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
+      <FilterChips label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }]} />
+      {view === "month" ? <TrackerMonth today={today} day={day} childId={b.state.selectedChild ?? child?.id ?? null} birthDate={child?.birth_date}
+        onOpen={(key) => { pick(key); setView("day"); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />
       <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
@@ -74,6 +79,7 @@ export default function Tracker() {
         ))}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}
+      </>}
       <Grouped>
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>

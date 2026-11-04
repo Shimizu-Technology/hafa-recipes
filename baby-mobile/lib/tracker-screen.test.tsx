@@ -23,7 +23,7 @@ vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
   return { all: mock.care, rows: mock.care, loading: false, error: options.occurred_from ? mock.error : "", refresh: vi.fn() };
 } }));
 const ui = vi.hoisted(() => ({
-  PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
+  FilterChips: "FilterChips", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
   HeaderAction: "HeaderAction", fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}),
 }));
 vi.mock("@/components/ui", () => ui);
@@ -34,6 +34,7 @@ vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
 vi.mock("@/components/quick-log", () => ({ QuickLog: (props: any) => { mock.quick.push(props); return "quick-log"; } }));
 vi.mock("@/components/tracker-day", () => import("../components/tracker-day"));
+vi.mock("@/components/tracker-month", () => ({ TrackerMonth: "TrackerMonth" }));
 import Tracker from "../app/(tabs)/tracker/index";
 import { timelineDetail } from "../components/tracker-day";
 
@@ -158,4 +159,18 @@ it("describes a timeline row with what the title doesn't say", () => {
   expect(timelineDetail(row("x", "feeding", "2026-11-03T02:45:00.000Z", { method: "breast", actions: [{ ...actions[0], at: "2026-11-03T02:45:00.000Z" }] }), now)).toBe("No end time");
   expect(timelineDetail(row("x", "diaper", started, { type: "dirty" }, "First black one\nsecond line"), now)).toBe("First black one");
   expect(timelineDetail(row("x", "sleep", started, { end_at: "2026-11-04T03:45:00.000Z" }), now)).toMatch(/to/);
+});
+
+it("opens a day from the calendar, back in the Day view with its quick log", async () => {
+  await mount();
+  const chips = () => renderer!.root.findAll((n) => String(n.type) === "FilterChips")[0];
+  expect(chips().props.options.map((o: any) => o.label)).toEqual(["Day", "Calendar"]);
+  await act(async () => chips().props.onChange("month"));
+  expect(screen().props.footer).toBeFalsy();
+  const month = renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0];
+  expect(month.props).toMatchObject({ today: "2026-11-04", childId: "baby", birthDate: "2026-10-25" });
+  await act(async () => month.props.onOpen("2026-10-26"));
+  expect(chips().props.value).toBe("day");
+  expect(copy().join(" ")).toContain("Oct 26");
+  expect(lastQuick().pastDay).toEqual({ key: "2026-10-26", timezone: "Pacific/Guam" });
 });
