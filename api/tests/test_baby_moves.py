@@ -32,9 +32,11 @@ async def enabled(baby_api):
 
 
 async def family_for(api, personal):
-    result = await api.client.post("/api/v1/baby/family", headers=records.headers(personal, generation=1))
-    assert result.status_code == 200, result.text
-    return UUID(result.json()["id"])
+    api.settings.baby_invites_enabled = True
+    result = await api.client.post("/api/v1/baby/family/invites", headers=records.headers(personal, generation=1),
+        json={"publish_shared": True, "disclosure_version": 1})
+    assert result.status_code == 201, result.text
+    return UUID(result.json()["space_id"])
 
 
 async def test_create_family_replay_stale_phone_and_queued_care(baby_api, enabled):
@@ -150,8 +152,9 @@ async def test_shared_file_is_copied_and_unshare_removes_category(baby_api, enab
 
 @pytest.mark.parametrize("client", [None, "2"])
 async def test_only_client_three_can_create_family(baby_api, enabled, client):
+    baby_api.settings.baby_invites_enabled = True
     h = shared.GEN | ({"X-Baby-Client": client} if client else {})
-    assert (await baby_api.client.post("/api/v1/baby/family", headers=h)).status_code == 403
+    assert (await baby_api.client.post("/api/v1/baby/family/invites", headers=h)).status_code == 403
 
 
 async def test_family_routes_are_hidden_with_gate_off(baby_api):
@@ -201,3 +204,68 @@ async def test_failed_family_transaction_retains_private_rows_and_cleanup_receip
         queued = list(await db.scalars(select(DeletionCleanupJob).where(DeletionCleanupJob.status == "queued")))
         assert len(queued) == 1 and queued[0].storage_prefixes
         assert storage.local_path(queued[0].storage_prefixes[0] + "asset").is_file()
+
+
+async def test_parent_cannot_privatize_another_creators_post(baby_api, enabled):
+    from app.domains.baby.models import BabySpaceMember
+
+    family = await family_for(baby_api, enabled)
+    async with baby_api.sessions() as db:
+        db.add(BabySpaceMember(space_id=family, app_user_id="other", role="parent"))
+        other_personal = (await db.get(BabyMembership, "other")).personal_space_id
+        await db.commit()
+    post = shared.payload("source")
+    assert (await baby_api.client.post("/api/v1/baby/records", headers=records.headers(family, generation=1), json=post)).status_code == 200
+    result = await baby_api.client.post(f"/api/v1/baby/records/{post['id']}/move",
+        headers=records.headers(family, "other", 1), json={"space_id": str(other_personal), "revision": 1})
+    assert result.status_code == 403, result.text
+
+
+@pytest.mark.parametrize("kind", ["source", "collection", "question", "import"])
+async def test_queued_noncare_for_moved_child(baby_api, enabled, kind):
+    h = records.headers(enabled, generation=1)
+    child = str(uuid4())
+    assert (await baby_api.client.post("/api/v1/baby/children", headers=h, json={"id": child, "name": "Baby"})).status_code == 200
+    await family_for(baby_api, enabled)
+    body = shared.payload(kind, child_id=child) if kind != "import" else {"id": str(uuid4()), "text": "Saved text", "child_id": child}
+    path = "/imports" if kind == "import" else "/records"
+    result = await baby_api.client.post("/api/v1/baby" + path, headers=h, json=body)
+    if kind in {"question", "import"}:
+        assert result.status_code == 409 and result.json()["code"] == "moved", result.text
+    else:
+        assert result.status_code == 200, result.text
+        assert result.json()["child_id"] is None and result.json()["space_id"] == str(enabled)
+
+
+async def test_attachment_copy_has_no_account_or_space_locks(baby_api, enabled, monkeypatch, tmp_path):
+    # The journal retains the original while Create family moves the source.
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.domains.baby import moves as implementation
+    from app.domains.baby import storage
+    from app.domains.baby.models import BabySpace
+    from app.models.identity import AppUser
+
+    monkeypatch.setattr(storage, "local_root", lambda: tmp_path)
+    image = BytesIO()
+    Image.new("RGB", (16, 16), "white").save(image, "PNG")
+    asset = str(uuid4())
+    result = await baby_api.client.post("/api/v1/baby/attachments",
+        headers={**records.headers(enabled, generation=1), "Idempotency-Key": asset},
+        files={"file": ("test.png", image.getvalue(), "image/png")})
+    assert result.status_code == 200, result.text
+    h = records.headers(enabled, generation=1)
+    for kind in ("journal", "source"):
+        result = await baby_api.client.post("/api/v1/baby/records", headers=h,
+            json=shared.payload(kind, data={"attachment_ids": [asset]}))
+        assert result.status_code == 200, result.text
+    original = implementation.put_payload
+    async def checked(*args, **kwargs):
+        async with baby_api.sessions() as other:
+            await other.scalar(select(AppUser).where(AppUser.id == "owner").with_for_update(nowait=True))
+            await other.scalar(select(BabySpace).where(BabySpace.id == enabled).with_for_update(nowait=True))
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(implementation, "put_payload", checked)
+    await family_for(baby_api, enabled)

@@ -46,6 +46,49 @@ async def rotate_credentials(db, access):
         await touch(row, grant)
 
 
+async def prepare_move_files(db, actor, access, record_id=None):
+    """Stage immutable copies before account/space locks; receipts cover retries."""
+    from types import SimpleNamespace
+
+    if record_id is None and any(g.space.kind == "family" for g in access.spaces):
+        await db.rollback()
+        db.info["baby_move_files"] = {}
+        return
+    query = select(BabyRecord).where(access.condition(BabyRecord), BabyRecord.deleted_at.is_(None))
+    if record_id is not None:
+        query = query.where(BabyRecord.id == record_id)
+    else:
+        query = query.where(BabyRecord.space_id == access.personal_space_id, BabyRecord.kind != "journal",
+                            BabyRecord.data["just_me"].as_boolean().is_distinct_from(True))
+    rows = list(await db.scalars(query))
+    moving_ids = {row.id for row in rows}
+    identifiers = {UUID(key) for row in rows for key in row.data.get("attachment_ids", [])}
+    snapshots = [SimpleNamespace(id=asset.id, object_key=asset.object_key, byte_hash=asset.byte_hash,
+        size=asset.size, space_id=asset.space_id, generation=asset.generation, mime_type=asset.mime_type)
+        for asset in await db.scalars(select(BabyAttachment).where(
+            access.condition(BabyAttachment), BabyAttachment.id.in_(identifiers), BabyAttachment.state == "ready"))]
+    snapshots = [asset for asset in snapshots if await db.scalar(select(BabyRecord.id).where(
+        BabyRecord.space_id == asset.space_id, BabyRecord.deleted_at.is_(None),
+        BabyRecord.id.not_in(moving_ids), BabyRecord.data["attachment_ids"].contains([str(asset.id)])).limit(1))]
+    # Rollback releases even the discovery transaction before storage I/O.
+    await db.rollback()
+    prepared = {}
+    for asset in snapshots:
+        identifier = uuid4()
+        # The physical prefix is stored independently of destination generation.
+        prefix = attachment_prefix(identifier, actor, asset.generation)
+        async with async_sessionmaker(db.bind, expire_on_commit=False)() as receipts:
+            receipt = cleanup_job(actor, [prefix], after=now() + timedelta(hours=1))
+            receipts.add(receipt)
+            await receipts.commit()
+            receipt_id = receipt.id
+        payload = await read_bytes(asset)
+        await put_payload(prefix + "asset", payload, asset.mime_type)
+        prepared[asset.id] = ((asset.object_key, asset.byte_hash, asset.size, asset.space_id, asset.generation),
+                              identifier, prefix, receipt_id)
+    db.info["baby_move_files"] = prepared
+
+
 async def move_file(db, access, asset, source, destination, record_id, batch_ids):
     await acquire_asset_lock(db, asset.id)
     other = await db.scalar(select(BabyRecord.id).where(
@@ -56,24 +99,19 @@ async def move_file(db, access, asset, source, destination, record_id, batch_ids
         asset.space_id, asset.generation = destination.id, destination.generation
         await touch(asset, destination)
         return asset.id
-    identifier = uuid4()
-    prefix = attachment_prefix(identifier, access.actor, destination.generation)
-    # A durable, independent receipt survives rollback of the whole family move.
-    # It has no user FK, so this never waits on the account locks held above.
-    async with async_sessionmaker(db.bind, expire_on_commit=False)() as receipts:
-        receipt = cleanup_job(access.actor, [prefix], after=now() + timedelta(hours=1))
-        receipts.add(receipt)
-        await receipts.commit()
-    payload = await read_bytes(asset)
-    await put_payload(prefix + "asset", payload, asset.mime_type)
+    prepared = db.info.get("baby_move_files", {}).get(asset.id)
+    signature = (asset.object_key, asset.byte_hash, asset.size, asset.space_id, asset.generation)
+    if prepared is None or prepared[0] != signature:
+        raise HTTPException(409, "Attached files changed; retry the move")
+    _, identifier, prefix, receipt_id = prepared
     copy = BabyAttachment(id=identifier, app_user_id=access.actor, space_id=destination.id,
         generation=destination.generation, name=asset.name, mime_type=asset.mime_type,
         size=asset.size, object_key=prefix + "asset", byte_hash=asset.byte_hash, state="ready",
-        cleanup_job_id=receipt.id)
+        cleanup_job_id=receipt_id)
     await touch(copy, destination)
     from app.models.deletion import DeletionCleanupJob
 
-    intent = await db.get(DeletionCleanupJob, receipt.id)
+    intent = await db.get(DeletionCleanupJob, receipt_id)
     intent.status, intent.completed_at, intent.storage_prefixes = "completed", now(), []
     return identifier
 
@@ -102,6 +140,9 @@ async def move_record(db, access, row, destination, *, just_me=False, batch_ids=
         raise HTTPException(403, "Only the writer can share or un-share a journal entry")
     if destination.space.kind == "personal" and destination.id != access.personal_space_id:
         raise HTTPException(403, "Choose your own personal space")
+    if (source.space.kind == "family" and destination.space.kind == "personal"
+            and row.app_user_id is not None and row.app_user_id != access.actor):
+        raise HTTPException(403, "Only the creator can make this shared entry personal")
     if source.id == destination.id:
         data = dict(row.data)
         if just_me:

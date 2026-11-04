@@ -129,7 +129,7 @@ def _snapshot(rows):
 
 
 async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=None,
-                     generation=None, write=False, bootstrap=False, actor_ids=(), active=True, extra_space_ids=()):
+                     generation=None, write=False, bootstrap=False, actor_ids=(), active=True, extra_space_ids=(), poll=False):
     """Discover, lock users ascending, lock spaces ascending, then recheck access.
 
     Workers and capabilities pass their stored destination; request headers cannot
@@ -154,7 +154,7 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
         affected = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
             BabySpaceMember.space_id.in_(lock_ids))))
         for identifier in sorted({actor, *actor_ids, *affected}):
-            if await db.scalar(select(AppUser.id).where(AppUser.id == identifier).with_for_update()) is None:
+            if await db.scalar(select(AppUser.id).where(AppUser.id == identifier).with_for_update(key_share=poll)) is None:
                 raise HTTPException(404, "Account unavailable")
         for identifier in lock_ids:
             space = await db.scalar(select(BabySpace).where(BabySpace.id == identifier).with_for_update())

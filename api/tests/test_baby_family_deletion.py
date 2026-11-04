@@ -163,6 +163,9 @@ async def test_exit_retires_unattached_family_upload(family_case, action):
     uploaded = await api.client.post("/api/v1/baby/attachments", headers={**h, "Idempotency-Key": str(identifier)},
         files={"file": ("unattached.png", png.getvalue(), "image/png")})
     assert uploaded.status_code == 200, uploaded.text
+    async with api.sessions() as db:
+        unattached_path = privacy.storage.local_path((await db.get(BabyAttachment, identifier)).object_key)
+    assert unattached_path.is_file()
     if action == "leave":
         result = await api.client.post(f"/api/v1/baby/family/{family}/leave", headers=h)
     elif action == "remove":
@@ -173,6 +176,14 @@ async def test_exit_retires_unattached_family_upload(family_case, action):
     async with api.sessions() as db:
         assert (await db.get(BabyAttachment, identifier)).state == "deleted"
         assert (await db.get(BabyAttachment, asset)).state == "ready"
+        from sqlalchemy import select
+
+        from app.models.deletion import DeletionCleanupJob
+
+        jobs = list(await db.scalars(select(DeletionCleanupJob).where(DeletionCleanupJob.status == "queued")))
+    for job in jobs:
+        await privacy.complete_cleanup(api, job.id)
+    assert not unattached_path.exists() and path.is_file()
 
 
 async def test_account_delete_cancels_surviving_family_source(family_case):

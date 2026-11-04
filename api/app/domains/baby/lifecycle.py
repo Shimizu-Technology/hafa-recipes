@@ -112,7 +112,7 @@ async def space_relations(db, access, child_id, data, *, record_id, kind):
         personal_journal = kind == "journal" and target.space.kind == "personal"
         if child.space_id != target.id and not personal_journal:
             if kind in {"feeding", "sleep", "diaper", "contraction", "kick_session", "pumping",
-                        "medicine", "temperature", "growth", "milestone", "custom", "routine", "event"}:
+                        "medicine", "temperature", "growth", "milestone", "custom", "routine", "event", "question", "import"}:
                 # Reuse the moved-row protocol so queued care can retarget to its child.
                 await access.row(db, BabyChild, child_id, write=True)
             raise HTTPException(422, "Related items must be in the same Baby space")
@@ -124,6 +124,9 @@ async def space_relations(db, access, child_id, data, *, record_id, kind):
             raise HTTPException(422, "Related items must be in the same Baby space")
         if row.state != "ready":
             raise HTTPException(409, "Attachment is not ready")
+        from app.domains.baby.access import touch
+
+        await touch(row, access.grant(row))
     for identifier in data.get("record_ids", []):
         if str(identifier) == str(record_id):
             raise HTTPException(422, "A collection cannot contain itself")
@@ -268,6 +271,7 @@ async def lock_family_data(db, owner, *, space_id=None):
         conversations = list(await db.execute(select(BabyConversation.space_id, BabyConversation.app_user_id).where(
             BabyConversation.context_space_ids.op("?|")(cast([str(key) for key in ids], ARRAY(Text)))))) if ids else []
         ids.update(row.space_id for row in conversations)
+        ids.discard(None)
         actors = set(await db.scalars(select(BabySpaceMember.app_user_id).where(BabySpaceMember.space_id.in_(ids))))
         actors.update(row.app_user_id for row in conversations)
         return ids, actors | {owner}
@@ -346,7 +350,8 @@ async def end_family_membership(db, actor, grant, grants, *, removed=False, allo
         credential.revoked_at = now()
         await touch(credential, grant)
     await db.execute(BabySpaceInvite.__table__.update().where(
-        BabySpaceInvite.space_id == grant.id, BabySpaceInvite.created_by == actor,
+        BabySpaceInvite.space_id == grant.id,
+        (BabySpaceInvite.created_by == actor) if not removed else True,
         BabySpaceInvite.used_at.is_(None), BabySpaceInvite.revoked_at.is_(None)).values(revoked_at=now()))
     from app.domains.baby.attachments import acquire_asset_lock, stored_prefix
 

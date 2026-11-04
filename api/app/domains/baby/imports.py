@@ -75,7 +75,7 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
         return import_response(prior, access)
     access.check_generation(generation)
     await validate_relations(
-        db, access, generation, body.child_id, {"attachment_ids": body.attachment_ids}
+        db, access, generation, body.child_id, {"attachment_ids": body.attachment_ids}, kind="import"
     )
     count = await db.scalar(
         select(func.count())

@@ -53,7 +53,7 @@ async def changes_access(request: Request, user: User, db: Database):
         raise HTTPException(403, "Update Baby before fetching space changes")
     # A short read transaction locks the same membership graph as writers. No
     # external processing occurs here; removal cannot change a page's visibility.
-    return await access_for(db, user.id, client="3", write=True, bootstrap=True)
+    return await access_for(db, user.id, client="3", write=True, bootstrap=True, poll=True)
 
 
 ChangesAccess = Annotated[object, Depends(changes_access)]
@@ -126,6 +126,9 @@ async def changes(db: Database, access: ChangesAccess,
         pages.append({"id": str(grant.id), "generation": grant.generation, "access_version": grant.access_version,
             "cursor": next_cursor, "items": items, "has_more": more, "reset": False})
     readable_ids = {grant.id for grant in access.spaces}
-    return {"spaces": pages, "cursor": {page["id"]: page["cursor"] for page in pages},
+    result = {"spaces": pages, "cursor": {page["id"]: page["cursor"] for page in pages},
         "has_more": any(page["has_more"] for page in pages),
         "removed_space_ids": [str(key) for key in cursors if key not in readable_ids]}
+
+    await db.rollback()
+    return result

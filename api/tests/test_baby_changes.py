@@ -134,3 +134,59 @@ async def test_invalid_cursors_are_bounded(baby_api, enabled, cursor):
 async def test_changes_returns_404_with_flag_off(baby_api):
     baby_api.settings.baby_family_enabled = False
     assert (await baby_api.client.get("/api/v1/baby/changes", headers={"X-Baby-Client": "3"})).status_code == 404
+
+
+async def test_hidden_upload_becomes_visible_after_reference(baby_api, enabled, monkeypatch, tmp_path):
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from app.domains.baby import storage
+
+    monkeypatch.setattr(storage, "get_settings", lambda: SimpleNamespace(environment="test", baby_local_storage_dir=str(tmp_path)))
+    family = await moves.family_for(baby_api, enabled)
+    async with baby_api.sessions() as db:
+        db.add(BabySpaceMember(space_id=family, app_user_id="other", role="parent"))
+        await db.commit()
+    image = BytesIO()
+    Image.new("RGB", (16, 16), "white").save(image, "PNG")
+    identifier = str(uuid4())
+    h = records.headers(family, generation=1)
+    result = await baby_api.client.post("/api/v1/baby/attachments", headers={**h, "Idempotency-Key": identifier},
+        files={"file": ("test.png", image.getvalue(), "image/png")})
+    assert result.status_code == 200, result.text
+    first = await fetch(baby_api, actor="other")
+    assert identifier not in {item["id"] for item in items(first)}
+    result = await baby_api.client.post("/api/v1/baby/records", headers=h,
+        json=shared.payload("source", data={"attachment_ids": [identifier]}))
+    assert result.status_code == 200, result.text
+    delta = items(await fetch(baby_api, first["cursor"], actor="other"))
+    assert identifier in {item["id"] for item in delta if item["entity"] == "attachment"}
+
+
+async def test_changes_releases_transaction_before_returning(baby_api, enabled):
+    from app.domains.baby.changes import changes
+
+    async with baby_api.sessions() as db:
+        access = await access_for(db, "owner", client="3", write=True, bootstrap=True)
+        result = await changes(db, access, cursor="{}", access_version="{}", limit=100)
+        assert result["spaces"]
+        assert not db.in_transaction()
+
+
+@pytest.mark.parametrize("client", [None, "2"])
+async def test_changes_requires_client_three(baby_api, enabled, client):
+    headers = {"X-Baby-Client": client} if client else {}
+    result = await baby_api.client.get("/api/v1/baby/changes", headers=headers)
+    assert result.status_code == 403, result.text
+
+
+async def test_poll_account_lock_allows_recipes_foreign_key_insert(baby_api, enabled):
+    from app.models.recipe import Recipe
+
+    async with baby_api.sessions() as db:
+        await access_for(db, "owner", client="3", write=True, bootstrap=True, poll=True)
+        async with baby_api.sessions() as other:
+            other.add(Recipe(user_id="owner", source_url="manual://poll-lock-test", source_type="manual", extracted={"title": "Synthetic"}))
+            await asyncio.wait_for(other.flush(), timeout=1)

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.domains.baby.access import access_for
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.models import BabyRecord, BabySpaceMember
-from app.domains.baby.moves import create_family, move_record, require_contract
+from app.domains.baby.moves import move_record, require_contract
 from app.domains.baby.schemas import DomainModel
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.share_models import BabyShareCredential
@@ -18,6 +18,15 @@ router = APIRouter(tags=["baby"], route_class=BabyRoute)
 
 
 async def family_access(request: Request, user: User, db: Database):
+    from app.domains.baby.access import family_enabled
+    from app.domains.baby.moves import prepare_move_files
+
+    moving = request.method == "POST" and request.url.path.endswith("/move")
+    inviting = request.method == "POST" and request.url.path.endswith("/family/invites")
+    if family_enabled() and request.headers.get("X-Baby-Client") == "3" and (moving or inviting):
+        discovery = await access_for(db, user.id, client="3", bootstrap=True)
+        record_id = UUID(request.path_params["identifier"]) if moving else None
+        await prepare_move_files(db, user.id, discovery, record_id)
     # Capabilities in a former space must also rotate, without late user locks.
     extra = set(await db.scalars(select(BabyShareCredential.space_id).where(
         BabyShareCredential.app_user_id == user.id, BabyShareCredential.revoked_at.is_(None))))
@@ -34,15 +43,6 @@ def require_family_client(access):
         raise HTTPException(404, "Not found")
     if access.client != "3":
         raise HTTPException(403, "Update Baby before using family features")
-
-
-@router.post("/family")
-async def family(user: User, db: Database, generation: Generation, access: FamilyAccess = None):
-    require_family_client(access)
-    access.check_generation(generation)
-    space = await create_family(db, access)
-    await db.commit()
-    return {"id": space.id, "generation": space.generation}
 
 
 class MoveRequest(DomainModel):

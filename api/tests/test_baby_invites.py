@@ -156,3 +156,37 @@ async def test_invite_shutdown_keeps_revocation_and_member_management_available(
     response = await baby_api.client.delete(
         f"/api/v1/baby/family/{invitation['space_id']}/invites/{invitation['id']}", headers=h)
     assert response.status_code == 200
+
+
+async def test_cached_profile_can_withdraw_consent_without_exposing_disclosure(baby_api, invites):
+    await create(baby_api, invites)
+    bootstrap = await baby_api.client.get("/api/v1/baby/bootstrap", headers={"X-Baby-Client": "2"})
+    assert "family_disclosures" not in bootstrap.json()["profile"]
+    cached = {**bootstrap.json()["profile"], "family_disclosures": [{"version": 1}], "ai_consent": False}
+    result = await baby_api.client.patch("/api/v1/baby/profile", headers=shared.GEN, json=cached)
+    assert result.status_code == 200, result.text
+    assert "family_disclosures" not in result.json()
+    async with baby_api.sessions() as db:
+        assert (await db.get(BabyMembership, "owner")).profile["family_disclosures"]
+
+
+async def test_removal_revokes_other_parents_unused_invite(baby_api, invites):
+    invitation = await create(baby_api, invites)
+    assert (await accept(baby_api, invitation)).status_code == 200
+    unused = await create(baby_api, invites)
+    result = await baby_api.client.delete(f"/api/v1/baby/family/{invitation['space_id']}/members/other",
+        headers=records.headers(invitation["space_id"], generation=1))
+    assert result.status_code == 200, result.text
+    assert (await accept(baby_api, unused)).status_code == 409
+
+
+async def test_direct_family_creation_cannot_bypass_disclosure(baby_api, invites):
+    result = await baby_api.client.post("/api/v1/baby/family", headers=records.headers(invites, generation=1))
+    assert result.status_code == 404, result.text
+
+
+async def test_invites_hidden_when_family_gate_off(baby_api, enabled):
+    baby_api.settings.baby_family_enabled = False
+    baby_api.settings.baby_invites_enabled = True
+    result = await baby_api.client.post("/api/v1/baby/family/invites", headers=records.headers(enabled, generation=1), json={})
+    assert result.status_code == 404, result.text

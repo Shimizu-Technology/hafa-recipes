@@ -302,7 +302,7 @@ async def bootstrap_state(user, db, *, create, request):
         else []
     )
     result = {
-        "profile": Profile.model_validate(member.profile).model_dump(),
+        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
         "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
@@ -437,7 +437,7 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
         personal = next(g for g in access.member_spaces if g.id == member.personal_space_id)
         await touch(personal.space, personal)
     await db.commit()
-    return member.profile
+    return Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"})
 
 
 @router.get("/children")
@@ -870,11 +870,16 @@ async def create_record(
             raise HTTPException(410, "This entry was removed; create a new entry")
         return await record_reply(db, prior, access)
     access.check_generation(generation)
-    await validate_relations(db, access, generation, body.child_id, body.data, record_id=body.id, kind=body.kind)
+    child_id = body.child_id
+    if access.enabled and child_id and body.kind in {"source", "collection"} and access.target.space.kind == "personal":
+        child = await access.row(db, BabyChild, child_id)
+        if child.space_id != access.target.id:
+            child_id = None
+    await validate_relations(db, access, generation, child_id, body.data, record_id=body.id, kind=body.kind)
     if body.kind == "event":
         await check_series_cap(db, access, generation, body.data, record_id=body.id)
     row = BabyRecord(
-        **body.model_dump(),
+        **{**body.model_dump(), "child_id": child_id},
         app_user_id=user.id,
         space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,
@@ -1121,7 +1126,7 @@ async def export(user: User, db: Database, client: Client = None):
         "format": "hafa-baby-v1",
         "exported_at": now(),
         "generation": member.generation,
-        "profile": member.profile,
+        "profile": Profile.model_validate(member.profile).model_dump(exclude={"family_disclosures"}),
         "children": [child_response(row, access) for row in await rows(BabyChild) if row.deleted_at is None],
         "records": [record_response(row, access, readable) for row in records],
         "attachments": [metadata(row, access) for row in await rows(BabyAttachment) if row.state == "ready"],

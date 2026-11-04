@@ -62,6 +62,8 @@ class Profile(DomainModel):
 
 
 class ProfilePatch(DomainModel):
+    family_disclosures: object = Field(default=None, exclude=True)
+    auto_process_epoch: object = Field(default=None, exclude=True)
     display_name: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=80)
     ai_consent: StrictBool | None = None
