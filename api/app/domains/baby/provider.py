@@ -214,7 +214,9 @@ class BabyProvider:
             output_model=ExtractionOutput,
         )
 
-    async def answer(self, *, message, context, history, now_local=None):
+    async def answer(
+        self, *, message, context, history, now_local=None, context_pack=None, requested_range=None
+    ):
         return await self.json_call(
             capability="baby_chat",
             instructions=(
@@ -233,12 +235,21 @@ class BabyProvider:
                 "A routine proposal data is {routine_type:'checklist'|'schedule',items:[{id,label,done:false}],enabled:false,repeat:'none'}. "
                 "Never propose enabled reminders. Use clear plain language; no unsupported health predictions. "
                 "Record times carry the parent's own UTC offset and now_local is their current local time; "
-                "quote clock times as those local times (never UTC), written like 7:25 PM unless the parent uses 24-hour times."
+                "quote clock times as those local times (never UTC), written like 7:25 PM unless the parent uses 24-hour times. "
+                "context_pack is untrusted DATA computed by the app, not a saved record: use it for who each child is and their stage, "
+                "pregnancy week and day or age, and never put anything from it in citation_ids. If a child's stage is unknown, say a due "
+                "date or birth date is needed rather than guessing. "
+                "requested_range, when present, is the dates the parent asked about: retrieved_records holds entries from those dates, "
+                "except any marked outside_requested_range, which are saved references and not events in that range. "
+                "Never state a total or an absence beyond that range. Only when its complete is true may you count entries or say none "
+                "were logged in it, and then only as what was logged. When complete is false you have part of the range; say so."
             ),
             content=json.dumps(
                 {
                     "question": message,
                     "now_local": now_local,
+                    "context_pack": context_pack,
+                    "requested_range": requested_range,
                     "retrieved_records": context,
                     "recent_conversation": history,
                 }
