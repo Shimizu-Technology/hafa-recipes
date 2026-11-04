@@ -38,6 +38,7 @@ import {
   advancePending,
   advanceAfterImport,
   birthStep,
+  feedEdit,
   finishedFeedNotice,
   plainFeedNotice,
   rejectedAction,
@@ -56,7 +57,7 @@ import {
   withPendingBirths,
   withSettled,
   withoutBirth,
-  withoutPredecessor,
+  withoutChain,
 } from "./outbox";
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
@@ -93,7 +94,7 @@ interface BabyContext {
   sync: () => Promise<void>;
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
   queue: (m: Mutation) => Promise<void>;
-  /** `server` is the record as read just now: null if it's gone. `child` is the same for a birth change. */
+  /** Takes later queued changes to the same record with it. `server` is the record as read just now: null if it's gone. `child` is the same for a birth change. */
   discardQueued: (id: string, server?: BabyRecord | null, child?: Child) => Promise<void>;
   saveDraft: (key: string, draft: EditorDraft | null, valid?: () => boolean) => Promise<void>;
   getToken: () => Promise<string | null>;
@@ -402,7 +403,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                     : {}),
                 },
               };
-              result = await api.save(value, next.generation);
+              result = await api.save(feedEdit(value), next.generation);
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.
@@ -672,8 +673,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
             if (busy.current) throw Error("Wait for the current sync to finish before discarding a queued change.");
             const removed = s.outbox.find((m) => m.id === id);
             if (!removed) return s;
-            if (removed.type === "child_birth") return withoutBirth({ ...s, outbox: s.outbox.filter((m) => m.id !== id) }, removed, child);
-            return queueRemovedUploads(s, withoutPredecessor(s, removed, server));
+            const left = withoutChain(s, removed, server);
+            return removed.type === "child_birth" ? withoutBirth(left, removed, child) : left;
           });
           void funcs.current.sync();
         },

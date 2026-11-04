@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { ApiError } from "@/lib/api";
 import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
-import { retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
+import { laterChangesNotice, queuedChain, retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
@@ -43,13 +43,11 @@ export default function Sync() {
     } else if (m.type === "child_birth" && m.sent) {
       const fresh = await b.api.bootstrap().catch(() => { throw unread; });
       await b.discardQueued(m.id, undefined, fresh.children.find((child) => child.id === m.child_id));
-    } else if (m.conflict && (m.type === "save" || m.type === "delete") && !remote[m.id]) {
-      // Anything queued behind a conflict is rebuilt on the saved version. Without a read it keeps its revision and the API decides.
-      const saved = await b.api.record(m.record.id).catch((e) => (e instanceof ApiError && !e.local && e.status === 404 ? null : undefined));
-      await b.discardQueued(m.id, saved);
     } else await b.discardQueued(m.id, remote[m.id]);
     // Other offline revisions may share these private original files. Explicit device cleanup clears them safely.
   }
+  /** One durable write takes these together, so she's told how many before it happens. */
+  const alsoGone = (m: Mutation) => laterChangesNotice(queuedChain(b.state.outbox, m).length - 1);
   async function retry(m: Mutation) {
     await b.commit((s) => ({
       ...s,
@@ -173,7 +171,7 @@ export default function Sync() {
                         onPress={() =>
                           Alert.alert(
                             "Discard this local change?",
-                            "The reviewed server version will be kept. This removes the local change shown above.",
+                            `The reviewed server version will be kept. This removes the local change shown above. ${alsoGone(m)}`.trim(),
                             [
                               { text: "Cancel", style: "cancel" },
                               {
@@ -201,7 +199,6 @@ export default function Sync() {
                           row.id === m.id && row.type === "save"
                             ? {
                                 ...retryMutation(row),
-                                base: undefined,
                                 record: {
                                   ...row.record,
                                   id: Crypto.randomUUID(),
@@ -238,7 +235,7 @@ export default function Sync() {
                 onPress={() =>
                   Alert.alert(
                     "Discard this change?",
-                    "This removes only this unsynced change. Later changes to this entry stay on this phone. You can export a text backup first.",
+                    `${alsoGone(m) || "This removes this unsynced change."} You can export a text backup first.`,
                     [
                       { text: "Keep change", style: "cancel" },
                       { text: "Discard change", style: "destructive", onPress: () => void run(() => discard(m)) },

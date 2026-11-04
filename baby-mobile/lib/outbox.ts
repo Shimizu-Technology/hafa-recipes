@@ -28,37 +28,12 @@ export function pendingRecords(state: DeviceState) {
 }
 export function addMutation(state: DeviceState, mutation: Mutation) {
   if (state.outbox.some((m) => m.id === mutation.id)) return state;
-  const shown = mutation.type === "save" && !mutation.base && pendingRecords(state).find((r) => r.id === mutation.record.id);
-  return { ...state, outbox: [...state.outbox, shown ? { ...mutation, base: baseOf(state, shown) } : mutation] };
+  const shown = mutation.type === "save" && !mutation.base && pendingRecords(state).some((r) => r.id === mutation.record.id);
+  return { ...state, outbox: [...state.outbox, shown ? { ...mutation, base: baseOf(state, mutation.record.id) } : mutation] };
 }
-/** The copy she sees and the queued changes already in it. An editor keeps this from the moment it opens. */
-export function baseOf(state: DeviceState, { title, body, child_id, occurred_at, data, id }: BabyRecord): SaveBase {
-  return { record: { title, body, child_id, occurred_at, data },
-    after: state.outbox.filter((m) => mutationRecordId(m) === id).map((m) => m.id),
-    files: inheritedFiles(state, id).map((f) => f.id) };
-}
-type Editable = SaveBase["record"];
-const editedFields = ["title", "body", "child_id", "occurred_at"] as const;
-/** Her edits, laid over another copy: what she changed stays, and everything she only inherited comes from that copy. */
-function rebuilt<T extends Editable>(record: T, base: Editable, on: Editable): T {
-  const data = { ...on.data }, next = { ...record, data };
-  for (const key of editedFields) next[key] = (same(record[key], base[key]) ? on[key] : record[key]) as never;
-  for (const key of new Set([...Object.keys(record.data), ...Object.keys(base.data)])) {
-    if (same(record.data[key], base.data[key])) continue;
-    if (key in record.data) data[key] = record.data[key];
-    else delete data[key];
-  }
-  return next;
-}
-/** The saved copy moved too: did it move any field she edited, to something else? */
-function collides(record: Editable, base: Editable, saved: Editable) {
-  const clash = (mine: unknown, was: unknown, theirs: unknown) => !same(mine, was) && !same(theirs, mine) && !same(theirs, was);
-  return editedFields.some((key) => clash(record[key], base[key], saved[key])) ||
-    Object.keys({ ...record.data, ...base.data }).some((key) => clash(record.data[key], base.data[key], saved.data[key]));
-}
-export const laterChangeNotice = "This was saved on top of the change you discarded, and the saved version is different. Compare them before it syncs.";
-function reviewLater<T extends Mutation>(change: T): T {
-  return { ...change, conflict: true, error: laterChangeNotice };
+/** The queued changes already in the copy she sees. An editor keeps this from the moment it opens. */
+export function baseOf(state: DeviceState, id: string): SaveBase {
+  return { after: state.outbox.filter((m) => mutationRecordId(m) === id).map((m) => m.id) };
 }
 /** Bounded, but what a kept draft still needs to know stays. */
 export function withSettled(state: DeviceState, id: string, outcome: SettledChange): DeviceState {
@@ -66,67 +41,45 @@ export function withSettled(state: DeviceState, id: string, outcome: SettledChan
     rows = [...Object.entries(state.settled ?? {}), [id, outcome] as const];
   return { ...state, settled: Object.fromEntries(rows.filter(([key], at) => at >= rows.length - 50 || needed.has(key))) };
 }
+/** A queued change and all that's queued after it on the same record. Each was built on the one before, so they go together. */
+export function queuedChain(outbox: Mutation[], change: Mutation) {
+  const at = outbox.findIndex((m) => m.id === change.id), id = mutationRecordId(change);
+  return at < 0 ? [] : outbox.slice(at).filter((m, index) => !index || (!!id && mutationRecordId(m) === id));
+}
+export const laterChangesNotice = (later: number) =>
+  later ? `This also removes ${later} later ${later === 1 ? "change" : "changes"} to this entry.` : "";
 /**
- * A queued change is going away, unsent or decided against. Later saves took a whole copy with it in, so each is rebuilt
- * from the saved version and the changes still queued, keeping only what it edited itself. It's one write, so nothing
- * behind it can sync until the rebuilt copy is durable. A read of the saved version lets a save move to that revision,
- * as it's now built on it. One whose fields moved there as well, or that can't be rebuilt, waits for her review.
+ * Discards a queued change and its chain, and queues the release of uploads nothing left refers to. It's one write, so
+ * it can't half-apply. `server` is the record as read just now, and null if it's gone. A sent tap can turn out to have
+ * landed, and then that read proves the revision it made.
  */
-export function withoutPredecessor(state: DeviceState, removed: Mutation, server?: BabyRecord | null): DeviceState {
-  const id = mutationRecordId(removed), at = state.outbox.findIndex((m) => m.id === removed.id),
-    saved = server === undefined ? state.records.find((r) => r.id === id) : server,
-    gone = "files" in removed ? removed.files.map((f) => f.id) : [];
-  let view = saved && !saved.cache_partial ? saved : undefined;
-  const outbox = state.outbox.flatMap((m, index) => {
-    if (m.id === removed.id) return [];
-    if (mutationRecordId(m) !== id) return [m];
-    let change = m;
-    if (m.type === "save" && index > at && !(m.base && !m.base.after.includes(removed.id))) {
-      if (!m.base) change = removed.type === "import" ? m : reviewLater(m);
-      else {
-        const base = { ...m.base, after: m.base.after.filter((known) => known !== removed.id) },
-          files = m.files.filter((f) => !(m.base!.files.includes(f.id) && gone.includes(f.id))),
-          revision = m.record.revision;
-        if (!view) change = revision && server === undefined ? reviewLater(m) : { ...m, base, files };
-        else {
-          const record = { ...rebuilt(m.record, m.base.record, view), revision };
-          const moved = !!server && !!revision && server.revision !== revision;
-          change = !moved ? { ...m, record, base, files }
-            : collides(m.record, m.base.record, server) ? reviewLater({ ...m, record, base, files })
-              : { ...m, record: { ...record, revision: server.revision }, base, files, error: undefined, conflict: false };
-        }
-      }
-    }
-    view = pendingRecords({ ...state, records: view ? [view] : [], outbox: [change] })[0];
-    return [change];
-  });
-  const made = server && (removed.type === "feed_action" || removed.type === "session_action") ? producedRevision(removed, server) : undefined;
-  return withSettled({ ...state, outbox,
-    ...(server ? { records: replaceRecord(state.records, server) } : server === null ? { records: state.records.filter((r) => r.id !== id) } : {}),
-  }, removed.id, { ...(made === undefined ? {} : { made }), ...(gone.length ? { files: gone } : {}) });
+export function withoutChain(state: DeviceState, removed: Mutation, server?: BabyRecord | null): DeviceState {
+  const gone = new Set(queuedChain(state.outbox, removed).map((m) => m.id)), id = mutationRecordId(removed),
+    made = server && removed.type !== "save" ? producedRevision(removed, server) : undefined;
+  const noted = [...gone].reduce((next, change) => withSettled(next, change, change === removed.id && made !== undefined ? { made } : { discarded: true }), state);
+  return queueRemovedUploads(state, { ...noted, outbox: state.outbox.filter((m) => !gone.has(m.id)),
+    ...(server ? { records: replaceRecord(state.records, server) } : server === null ? { records: state.records.filter((r) => r.id !== id) } : {}) });
 }
 /**
- * An open or kept draft, once the changes it was built on have left the outbox. It moves one revision only for a change
- * it saw land, which is what proves the new revision holds nothing it hasn't seen. The row's own revision proves nothing.
- * Her edits stay, and what she only inherited comes from the current copy, so a discarded change leaves it too.
+ * An open or kept draft, once changes it was built on have left the outbox. What she wrote stays as it is, and only its
+ * revision moves. It goes up one step for a change it saw land, which is what proves the new revision holds nothing it
+ * hasn't seen. A discarded change never reached the saved row, so it goes back to that row's revision, but never up to
+ * one it hasn't seen: the API answers that with a conflict for review.
  */
 export function settledDraft(draft: EditorDraft, state: DeviceState): EditorDraft {
-  const base = draft.base;
-  if (!base?.after.length) return draft;
-  const after = base.after.filter((id) => state.outbox.some((m) => m.id === id));
-  if (after.length === base.after.length) return draft;
+  const built = draft.base?.after;
+  if (!built?.length) return draft;
+  const after = built.filter((id) => state.outbox.some((m) => m.id === id));
+  if (after.length === built.length) return draft;
+  const saved = state.records.find((r) => r.id === draft.id)?.revision;
   let revision = draft.revision ?? 0;
-  const gone: string[] = [];
-  for (const id of base.after) {
+  for (const id of built) {
     if (after.includes(id)) continue;
     const outcome = state.settled?.[id];
     if (outcome?.made !== undefined && revision + 1 === outcome.made) revision = outcome.made;
-    gone.push(...(outcome?.files ?? []));
+    else if (outcome?.discarded && saved !== undefined) revision = Math.min(revision, saved);
   }
-  const view = pendingRecords(state).find((r) => r.id === draft.id),
-    files = draft.files.filter((f) => !gone.includes(f.id));
-  const settled = { ...(view ? rebuilt(draft, base.record, view) : draft), files, revision: revision || draft.revision };
-  return { ...settled, base: view ? { ...baseOf(state, view), after, files: base.files } : { ...base, after } };
+  return { ...draft, revision: revision || draft.revision, base: { after } };
 }
 export function fencedState(state: DeviceState, generation: number) {
   if (
@@ -200,6 +153,15 @@ export function inheritedFiles(state: DeviceState, id: string) {
 function derivedOnly({ data }: RecordWrite) {
   const reduced = reduceFeed(data.actions);
   return !!reduced && data.side === (reduced.side ?? reduced.start_side) && (data.duration_minutes ?? undefined) === reduced.duration_minutes;
+}
+/**
+ * What an edit to a feed sends. Anything that only follows from its taps isn't hers to change, even if one of those taps
+ * was since discarded. Left out, the API keeps its own. A side it didn't expect would finish the feed as corrected by hand.
+ */
+export function feedEdit<T extends RecordWrite>(record: T): T {
+  if (!record.revision || record.kind !== "feeding" || !derivedOnly(record)) return record;
+  const { actions: _, state: __, side: ___, duration_minutes: ____, end_at: _____, ...data } = record.data;
+  return { ...record, data };
 }
 /** A queued edit takes what the API worked out from the taps. Otherwise an unchanged duration would look like a correction. */
 function withServerFeed(record: RecordWrite, result: BabyRecord): RecordWrite {

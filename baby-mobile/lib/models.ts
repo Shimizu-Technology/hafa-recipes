@@ -202,17 +202,13 @@ export interface ChatResult {
   citations: Citation[];
   proposal?: Proposal;
 }
-/** What a save or draft was built on, so what it changed itself can be told from what it inherited. */
-export interface SaveBase {
-  /** The copy it started from, with the queued changes below already in it. */
-  record: Pick<RecordWrite, "title" | "body" | "child_id" | "occurred_at" | "data">;
-  /** The queued changes to this record that copy shows, oldest first. Only these can move it to a newer revision. */
-  after: string[];
-  /** The local files it took from them. */
-  files: string[];
-}
-/** What became of a queued change. A landed one has the revision it made; a discarded one has the files it took with it. */
-export interface SettledChange { made?: number; files?: string[] }
+/**
+ * What a save or draft was built on: the queued changes to this record it already showed, oldest first. Only these can
+ * move it to a newer revision. Copies kept by an earlier test build hold more here, which nothing reads.
+ */
+export interface SaveBase { after: string[] }
+/** What became of a queued change: the revision it's proven to have made, or that it was discarded. Neither means not known. */
+export interface SettledChange { made?: number; discarded?: boolean }
 export interface EditorDraft {
   id: string;
   kind: Kind;

@@ -193,14 +193,39 @@ describe("an editor opened while the feed's Switch was still queued", () => {
     await act(async () => { await account.drain(); });
     expect(sent(account).revision).toBe(1);
   });
-  it("takes a discarded Switch back out of what she's writing", async () => {
+  it("leaves what she's writing exactly as it is when the Switch is discarded behind it", async () => {
     const account = opened();
     await mount(Edit);
     await type("Sleepy today");
-    account.state = { ...account.state, outbox: [], settled: { swap: {} } };
+    account.state = { ...account.state, outbox: [], settled: { swap: { discarded: true } } };
+    await act(async () => { renderer!.update(React.createElement(Edit)); });
     await press("Save changes");
     await act(async () => { await account.drain(); });
-    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today", data: { side: "left", actions: [start] } });
+    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today" });
+    expect(sent(account).data).toEqual(feed(1).data);
+    expect(account.state.outbox[0]).toMatchObject({ base: { after: [] } });
+  });
+  it("does the same for a kept draft, and it goes back to the saved row's revision", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); renderer!.unmount(); await account.drain(); });
+    renderer = undefined;
+    const kept = account.state.drafts["record:feed"];
+    account.state = { ...account.state, outbox: [], settled: { swap: { discarded: true } }, drafts: { "record:feed": { ...kept, revision: 4 } as never } };
+    await mount(Edit);
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today" });
+  });
+  it("doesn't take on a revision the other phone made, when the Switch it was built on is discarded", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    account.state = { ...account.state, records: [feed(6, { body: "From the other phone" })] as never, outbox: [], settled: { swap: { discarded: true } } };
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today" });
   });
   it("still sends a draft kept by an older build at the revision of the row it opened on", async () => {
     const account = setup(), draft = { ...feed(0), revision: 0, body: "Older build", files: [], existing: true };

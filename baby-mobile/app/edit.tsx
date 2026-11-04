@@ -74,7 +74,7 @@ export default function Edit() {
         if (!d && params.id) {
           let row = b.records.find((r) => r.id === params.id);
           if (!row || row.cache_partial) row = await b.api.record(params.id);
-          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row) };
+          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row.id) };
         }
         const kind = params.kind ?? "journal",
           child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
@@ -115,7 +115,7 @@ export default function Edit() {
     });
     return () => app.remove();
   }, [slot]);
-  // What she's typing stays while a change this draft was built on lands or goes away behind it.
+  // Only the revision moves while a change this draft was built on lands or goes away behind it. What she's typing stays.
   useEffect(() => {
     const open = latest.current;
     if (!open || retired.current) return;
@@ -252,7 +252,7 @@ export default function Edit() {
             data: from.kind === "source" ? { ...from.data, source_text: from.data.source_text || from.body || undefined } : from.data,
             ...(revision ? { revision } : {}) }, files,
           // A draft kept by an older build doesn't know what it saw, so it follows nothing.
-          ...(base ?? from.existing ? { base: base ?? { record, after: [], files: [] } } : {}),
+          ...(base ?? from.existing ? { base: base ?? { after: [] } } : {}),
         };
       };
       const mutation = build(d);

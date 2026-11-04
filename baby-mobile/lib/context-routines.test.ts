@@ -17,8 +17,10 @@ const mock = vi.hoisted(() => ({
   cleanupOwner: null as string | null,
   readCleanup: vi.fn(),
   failWrites: false,
+  alert: vi.fn(),
 }));
 vi.mock("react-native", () => ({
+  Alert: { alert: (...args: unknown[]) => mock.alert(...args) },
   Platform: { OS: "ios" },
   AppState: {
     currentState: "active",
@@ -376,72 +378,64 @@ describe("feed actions in the sync loop", () => {
       mock.saved = { ...mock.saved!, records: [running()], outbox: [] };
     };
     const saved = (over: object = {}) => mock.api.save = vi.fn(async (r: any) => ({ ...optimisticRecord(r), revision: r.revision + 1, ...over }));
-    it("takes a discarded Switch back out of a later note, so the note can't finish the feed", async () => {
+    const held = { ...swap, hold_until: "2030-01-01T00:00:00.000Z" };
+    it("Switch, a note, then discard the Switch: both go, the row is as last synced and still running, and nothing is sent", async () => {
       offline(); saved();
       await mount(); await flush();
-      await act(async () => { await baby.queue({ ...swap, hold_until: "2030-01-01T00:00:00.000Z" }); await settle(); });
+      await act(async () => { await baby.queue(held); await settle(); });
       expect(baby.records.find((r) => r.id === "feed")?.data.side).toBe("both");
       await noted("Sleepy today");
       await act(async () => { await baby.discardQueued("swap"); await settle(); });
       await flush();
-      const sent = mock.api.save.mock.calls[0][0];
-      expect(sent).toMatchObject({ id: "feed", revision: 1, body: "Sleepy today" });
-      expect(sent.data.side).toBe("left");
-      expect(sent.data.actions).toEqual([start]);
       expect(queued()).toEqual([]);
+      expect(baby.records.find((r) => r.id === "feed")).toEqual(running());
+      expect(mock.api.save).not.toHaveBeenCalled();
+      expect(mock.api.feedAction).not.toHaveBeenCalled();
     });
-    it("keeps the edit she made to a field the discarded change also touched", async () => {
+    it("sends a draft built on that Switch without anything that could finish the feed", async () => {
       offline(); saved();
       await mount(); await flush();
-      await act(async () => { await baby.queue({ ...swap, hold_until: "2030-01-01T00:00:00.000Z" }); await settle(); });
-      await noted("First", "one");
-      await noted("First, then second", "two");
+      await act(async () => { await baby.queue(held); await settle(); });
+      const shown = baby.records.find((r) => r.id === "feed")!;
       await act(async () => { await baby.discardQueued("swap"); await settle(); });
+      await act(async () => { await baby.queue({ id: "draft", generation: 1, type: "save", files: [], base: { after: [] }, record: { ...shown, body: "Typed on the old copy" } }); await settle(); });
       await flush();
-      expect(mock.api.save.mock.calls.map(([r]: any[]) => [r.body, r.data.side])).toEqual([["First", "left"], ["First, then second", "left"]]);
+      const sent = mock.api.save.mock.calls[0][0];
+      expect(sent).toMatchObject({ revision: 1, body: "Typed on the old copy" });
+      for (const key of ["actions", "state", "side", "duration_minutes", "end_at"]) expect(sent.data).not.toHaveProperty(key);
     });
-    it("rebuilds a later save without an earlier save's title, and leaves its own edit", async () => {
+    it("sends a side she changed by hand, since that is the correction", async () => {
+      offline(); saved();
+      await mount(); await flush();
+      await act(async () => { await baby.queue({ id: "fix", generation: 1, type: "save", files: [], record: { ...running(), data: { ...running().data, side: "right" } } }); await settle(); });
+      await flush();
+      expect(mock.api.save.mock.calls[0][0].data.side).toBe("right");
+    });
+    it("leaves an earlier save to sync, and doesn't send what followed the one discarded", async () => {
       offline(); mock.api.save = vi.fn(async () => { throw new ApiError("Offline", 0); });
       await mount(); await flush();
-      const shown = () => baby.records.find((r) => r.id === "feed")!;
-      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...shown(), title: "Inherited" } }); await settle(); });
-      await act(async () => { await baby.queue({ id: "second", generation: 1, type: "save", files: [], record: { ...shown(), body: "Mine" } }); await settle(); });
-      await act(async () => { await baby.discardQueued("first"); await settle(); });
-      const left = baby.state.outbox.find((m) => m.id === "second")!;
-      expect(left).toMatchObject({ record: { title: write.title, body: "Mine", revision: 1 } });
-    });
-    it("rebuilds a conflict's later change on the version she reviewed, so it doesn't conflict a second time", async () => {
-      const reviewed = running({ revision: 4, title: "From the other phone" });
-      mock.api.save = vi.fn(async (r: any) => { if (r.revision !== 4) throw new ApiError("Changed", 409); return { ...optimisticRecord(r), revision: 5 }; });
-      mock.api.feedAction = vi.fn(async () => { throw new ApiError("Offline", 0); });
-      mock.saved = { ...mock.saved!, records: [running()], outbox: [] };
-      await mount(); await flush();
-      const shown = () => baby.records.find((r) => r.id === "feed")!;
-      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...shown(), body: "Mine, first" } }); await settle(); });
+      await noted("A", "a");
+      await noted("A then B", "b");
+      await noted("A then B then C", "c");
+      saved();
+      await act(async () => { await baby.discardQueued("b"); await settle(); });
       await flush();
-      expect(baby.state.outbox[0]).toMatchObject({ id: "first", conflict: true });
-      await act(async () => { await baby.queue({ id: "second", generation: 1, type: "save", files: [], record: { ...shown(), data: { ...shown().data, notes: "Mine, second" } } }); await settle(); });
-      await act(async () => { await baby.discardQueued("first", reviewed); await settle(); });
-      await flush();
-      const sent = mock.api.save.mock.calls.at(-1)![0];
-      expect(sent).toMatchObject({ revision: 4, title: "From the other phone", body: "" });
-      expect(sent.data.notes).toBe("Mine, second");
+      expect(mock.api.save.mock.calls.map(([r]: any[]) => r.body)).toEqual(["A"]);
       expect(queued()).toEqual([]);
     });
-    it("sends a later change to review when it and the other phone both changed one field", async () => {
-      const reviewed = running({ revision: 4, body: "From the other phone" });
+    it("removes the whole chain behind a conflict when she keeps the version she reviewed", async () => {
+      const reviewed = running({ revision: 4, title: "From the other phone" });
       mock.api.save = vi.fn(async () => { throw new ApiError("Changed", 409); });
       mock.saved = { ...mock.saved!, records: [running()], outbox: [] };
       await mount(); await flush();
-      const shown = () => baby.records.find((r) => r.id === "feed")!;
-      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...shown(), title: "Mine, first" } }); await settle(); });
+      await noted("Mine, first", "first");
       await flush();
-      await act(async () => { await baby.queue({ id: "second", generation: 1, type: "save", files: [], record: { ...shown(), body: "Mine, second" } }); await settle(); });
-      const asked = mock.api.save.mock.calls.length;
+      expect(baby.state.outbox[0]).toMatchObject({ id: "first", conflict: true });
+      await noted("Mine, second", "second");
       await act(async () => { await baby.discardQueued("first", reviewed); await settle(); });
       await flush();
-      expect(mock.api.save.mock.calls.length).toBe(asked);
-      expect(baby.state.outbox[0]).toMatchObject({ id: "second", conflict: true, record: { revision: 1, body: "Mine, second" } });
+      expect(queued()).toEqual([]);
+      expect(baby.records.find((r) => r.id === "feed")).toEqual(reviewed);
     });
     it("remembers what a landed tap made, for an editor opened before it landed", async () => {
       mock.api.feedAction = vi.fn(async () => timed({ revision: 2, data: { ...write.data, side: "both", actions: [start, { ...swap.action, revision: 2 }] } }));
@@ -449,26 +443,121 @@ describe("feed actions in the sync loop", () => {
       await mount(); await flush();
       expect(baby.state.settled?.swap).toEqual({ made: 2 });
     });
-    it("takes a tap back out of a later note when Undo cancels it too", async () => {
-      offline(); saved();
+    it("Undo of a tap with nothing after it asks nothing", async () => {
+      offline(); saved(); mock.alert.mockClear();
+      await mount(); await flush();
+      let undo = async () => {};
+      await act(async () => { undo = await switchFeed(baby, runningFeed(baby.records, null)!); await settle(); });
+      await act(async () => { await undo(); await settle(); });
+      expect(mock.alert).not.toHaveBeenCalled();
+      expect(queued()).toEqual([]);
+    });
+    it("Undo of a tap says what else goes, and removes the chain once she agrees", async () => {
+      offline(); saved(); mock.alert.mockReset();
+      mock.alert.mockImplementation((_t: string, _m: string, buttons: { text: string; onPress: () => void }[]) => buttons.find((b) => b.text === "Undo")!.onPress());
       await mount(); await flush();
       let undo = async () => {};
       await act(async () => { undo = await switchFeed(baby, runningFeed(baby.records, null)!); await settle(); });
       await noted("Sleepy today");
       await act(async () => { await undo(); await settle(); });
+      expect(mock.alert.mock.calls[0][1]).toBe("This also removes 1 later change to this entry.");
+      expect(queued()).toEqual([]);
       await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
-      expect(mock.api.save.mock.calls[0][0]).toMatchObject({ body: "Sleepy today", data: { side: "left", actions: [start] } });
+      expect(mock.api.save).not.toHaveBeenCalled();
+      expect(mock.api.feedAction).not.toHaveBeenCalled();
     });
-    it("doesn't release the later change unless the rebuilt copy was written", async () => {
+    it("Undo leaves everything in place when she decides to keep it, and doesn't count as a switch back", async () => {
+      offline(); saved(); mock.alert.mockReset();
+      mock.alert.mockImplementation((_t: string, _m: string, buttons: { text: string; onPress: () => void }[]) => buttons.find((b) => b.text === "Keep it")!.onPress());
+      await mount(); await flush();
+      let undo = async () => {};
+      await act(async () => { undo = await switchFeed(baby, runningFeed(baby.records, null)!); await settle(); });
+      await noted("Sleepy today");
+      const before = queued();
+      await act(async () => { await expect(undo()).rejects.toThrow("Nothing was undone."); await settle(); });
+      expect(queued()).toEqual(before);
+    });
+    it("commits as one write: a failed write leaves the chain whole, and a relaunch finds it whole or gone, never half", async () => {
       offline(); saved();
       await mount(); await flush();
-      await act(async () => { await baby.queue({ ...swap, hold_until: "2030-01-01T00:00:00.000Z" }); await settle(); });
+      await act(async () => { await baby.queue(held); await settle(); });
       await noted("Sleepy today");
+      const whole = mock.state!, writes: DeviceState[] = [];
+      expect(whole.outbox.map((m) => m.id)).toEqual(["swap", "note"]);
       mock.failWrites = true;
       await act(async () => { await baby.discardQueued("swap").catch(() => undefined); await settle(); });
       mock.failWrites = false;
       expect(queued()).toEqual(["swap", "note"]);
+      expect(mock.state).toBe(whole);
       expect(mock.api.save).not.toHaveBeenCalled();
+      await act(async () => { await baby.discardQueued("swap"); await settle(); });
+      writes.push(mock.state!);
+      await act(async () => renderer?.unmount()); renderer = undefined;
+      mock.saved = writes[0];
+      await mount(); await flush();
+      expect(queued()).toEqual([]);
+      expect(baby.records.find((r) => r.id === "feed")).toEqual(running());
+      expect(mock.api.save).not.toHaveBeenCalled();
+    });
+    it("loads a queue from an earlier test build with the longer form of base, and it still syncs", async () => {
+      saved();
+      const old = { id: "old", generation: 1, type: "save" as const, files: [], record: { ...write, body: "Kept", revision: 1 },
+        base: { record: { title: "Feeding", body: "", child_id: null, occurred_at: start.at, data: {} }, after: [], files: [] } };
+      mock.saved = { ...mock.saved!, records: [running()], outbox: [old], settled: { gone: { files: ["x"] }, landed: { made: 2 } } } as never;
+      await mount(); await flush();
+      expect(mock.api.save.mock.calls[0][0]).toMatchObject({ body: "Kept", revision: 1 });
+      expect(mock.api.save.mock.calls[0][0]).not.toHaveProperty("base");
+      expect(queued()).toEqual([]);
+    });
+    it("loads a queue from build 32 with no base or outcomes, and it still syncs", async () => {
+      saved();
+      const old = { id: "old", generation: 1, type: "save" as const, files: [], record: { ...write, body: "Kept", revision: 1 } };
+      mock.saved = { ...mock.saved!, records: [running()], outbox: [old] };
+      await mount(); await flush();
+      expect(mock.api.save.mock.calls[0][0]).toMatchObject({ body: "Kept", revision: 1 });
+      expect(queued()).toEqual([]);
+    });
+    it.each([
+      ["journal", { kind: "journal", title: "Journal entry", data: {} }],
+      ["question", { kind: "question", title: "Ask the midwife", data: {} }],
+      ["saved post", { kind: "source", title: "A saved post", data: { url: "https://example.com/post", source_text: "A tip" } }],
+      ["routine", { kind: "routine", title: "Vitamins", data: { enabled: false, cadence: "daily" } }],
+    ])("takes an ordinary %s through conflict review: kept, reviewed, discarded with what followed", async (_name, shape: any) => {
+      const row = { ...optimisticRecord({ id: "plain", body: "Saved", child_id: null, occurred_at: start.at, ...shape }), revision: 1 };
+      const reviewed = { ...row, revision: 3, body: "From the other phone" };
+      const edit = (id: string, body: string) => ({ id, generation: 1, type: "save" as const, files: [], record: { ...row, body } });
+      mock.api.save = vi.fn(async () => { throw new ApiError("Changed", 409); });
+      mock.saved = { ...mock.saved!, records: [row], outbox: [] };
+      // Routines come back from a full read after each sync, so the API has to hold them too.
+      mock.api.records = vi.fn(async () => (page(shape.kind === "routine" ? [reviewed] : [])));
+      await mount(); await flush();
+      await act(async () => { await baby.queue(edit("first", "Mine")); await settle(); });
+      await flush();
+      expect(baby.state.outbox[0]).toMatchObject({ id: "first", conflict: true });
+      await act(async () => { await baby.queue(edit("second", "Mine again")); await settle(); });
+      expect(queued()).toEqual(["first", "second"]);
+      const calls = mock.api.save.mock.calls.length;
+      await flush();
+      expect(mock.api.save.mock.calls.length).toBe(calls);
+      await act(async () => { await baby.discardQueued("first", reviewed); await settle(); });
+      await flush();
+      expect(queued()).toEqual([]);
+      expect(baby.state.records.find((r) => r.id === "plain")).toEqual(reviewed);
+      expect(mock.api.save.mock.calls.length).toBe(calls);
+    });
+    it.each(["journal", "question", "source", "routine"])("lets a reviewed %s save go at the version she reviewed", async (kind) => {
+      const row = { ...optimisticRecord({ id: "plain", kind: kind as never, title: "Mine", body: "Saved", child_id: null, occurred_at: start.at, data: {} }), revision: 1 };
+      mock.api.save = vi.fn(async (r: any) => { if (r.revision !== 3) throw new ApiError("Changed", 409); return { ...optimisticRecord(r), revision: 4 }; });
+      mock.saved = { ...mock.saved!, records: [row], outbox: [] };
+      mock.api.records = vi.fn(async () => (page(kind === "routine" ? [{ ...row, body: "Mine", revision: 4 }] : [])));
+      await mount(); await flush();
+      await act(async () => { await baby.queue({ id: "first", generation: 1, type: "save", files: [], record: { ...row, body: "Mine" } }); await settle(); });
+      await flush();
+      expect(baby.state.outbox[0]).toMatchObject({ id: "first", conflict: true });
+      await act(async () => { await baby.commit((s) => ({ ...s, outbox: s.outbox.map((m: any) => ({ ...m, conflict: false, error: undefined, record: { ...m.record, revision: 3 } })) })); await baby.sync(); await settle(); });
+      await flush();
+      expect(queued()).toEqual([]);
+      expect(baby.state.records.find((r) => r.id === "plain")).toMatchObject({ body: "Mine", revision: 4 });
     });
   });
   it("sends a session's tap by its own id, keeps it through a lost answer, and says so if the entry is gone", async () => {

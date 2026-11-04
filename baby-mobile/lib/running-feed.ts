@@ -1,9 +1,10 @@
+import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
 import type { BabyRecord, DeviceState, FeedAction, FeedTimer, Mutation } from "./models";
 import { runningFeed, withFeedAction, type RunningFeed } from "./feed-reducer";
 import { activeTimer, changeTimer, feedRecordData, type FeedSide } from "./feed-timer";
-import { addMutation, withoutPredecessor } from "./outbox";
+import { addMutation, laterChangesNotice, queuedChain, withoutChain } from "./outbox";
 import { careSummary } from "./care-format";
 import { careWrite, logCare } from "./quick-care";
 
@@ -25,13 +26,30 @@ function queueAction(b: Account, recordId: string, action: Omit<FeedAction, "id"
   return b.queue(mutation).then(() => id);
 }
 
-/** Take back an action still on this phone. False once its request has begun, because the API may accept it. */
+function confirmLater(later: number) {
+  return new Promise<boolean>((resolve) => Alert.alert("Undo this?", laterChangesNotice(later), [
+    { text: "Keep it", style: "cancel", onPress: () => resolve(false) },
+    { text: "Undo", style: "destructive", onPress: () => resolve(true) },
+  ], { onDismiss: () => resolve(false) }));
+}
+const takeable = (state: DeviceState, id: string) => state.outbox.find((change) => change.id === id && !(change.type === "feed_action" && change.sent));
+
+/**
+ * Take back an action still on this phone, with what's queued after it on that record. She's asked first if anything is.
+ * False once its request has begun, because the API may accept it.
+ */
 async function cancelAction(b: Account, id: string) {
-  let cancelled = false;
+  let later = 0, cancelled = false;
   await b.commit((state) => {
-    const queued = state.outbox.find((change) => change.id === id && !(change.type === "feed_action" && change.sent));
+    const queued = takeable(state, id);
+    later = queued ? queuedChain(state.outbox, queued).length - 1 : 0;
+    return state;
+  });
+  if (later && !(await confirmLater(later))) throw Error("Nothing was undone.");
+  await b.commit((state) => {
+    const queued = takeable(state, id);
     cancelled = !!queued;
-    return queued ? withoutPredecessor(state, queued) : state;
+    return queued ? withoutChain(state, queued) : state;
   });
   return cancelled;
 }
