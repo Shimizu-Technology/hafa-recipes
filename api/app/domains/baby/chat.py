@@ -444,6 +444,8 @@ async def care_context(db, owner, generation, child_id, zone):
 async def context_pack(db, owner, generation, request, zone):
     """Facts computed by code, kept out of the citable records and free of record IDs."""
     today = now().astimezone(zone).date()
+    # A focused or Saved or Journal conversation is not about care, so it isn't sent any.
+    with_care = not request.record_id and request.scope in {"all", "care"}
     query = select(BabyChild).where(
         BabyChild.app_user_id == owner,
         BabyChild.generation == generation,
@@ -460,13 +462,14 @@ async def context_pack(db, owner, generation, request, zone):
         for key in ("due_date", "birth_date"):
             if getattr(child, key):
                 entry[key] = getattr(child, key).isoformat()
-        care, logged = await care_context(db, owner, generation, child.id, zone)
-        # A baby's empty day is news; an unborn child's is not.
-        if logged or entry["stage"] == "baby":
-            entry.update(care)
+        if with_care:
+            care, logged = await care_context(db, owner, generation, child.id, zone)
+            # A baby's empty day is news; an unborn child's is not.
+            if logged or entry["stage"] == "baby":
+                entry.update(care)
         children.append(entry)
     pack = {"children": children, "today": today.isoformat()}
-    if not request.child_id:
+    if with_care and not request.child_id:
         care, logged = await care_context(db, owner, generation, None, zone)
         if logged:
             pack["care_with_no_child"] = care

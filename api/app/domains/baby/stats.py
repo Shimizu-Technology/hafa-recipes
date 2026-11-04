@@ -108,9 +108,9 @@ def next_side(data):
     ``side`` is the starting side only until feeds store their switches: today a feed that
     switched is saved as Both. Read the first action here once L3a adds them.
     """
-    if data.get("method") != "breast":
+    if text_in(data, "method") != "breast":
         return None
-    return {"left": "right", "right": "left"}.get(data.get("side"))
+    return {"left": "right", "right": "left"}.get(text_in(data, "side"))
 
 
 async def last_feed(db, owner, generation, child_id, zone, at):
@@ -125,12 +125,14 @@ async def last_feed(db, owner, generation, child_id, zone, at):
     if row is None:
         return None
     data = row.data if isinstance(row.data, dict) else {}
-    keys = ("method", "side", "amount", "unit", "duration_minutes")
+    details = {key: text_in(data, key) for key in ("method", "side", "unit")}
+    details |= {key: number_in(data.get(key)) for key in ("amount", "duration_minutes")}
     return {
         "at": row.occurred_at.astimezone(zone).isoformat(),
-        **{key: data[key] for key in keys if data.get(key) is not None},
+        **{key: value for key, value in details.items() if value is not None},
         "suggested_next_side": next_side(data),
     }
+
 
 def text_in(data, key):
     """A categorical value from stored JSON; older or malformed rows may hold anything."""

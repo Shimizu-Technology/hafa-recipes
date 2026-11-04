@@ -512,3 +512,41 @@ async def test_exact_title_outside_the_range_beats_newer_generic_tips(baby_api, 
         await log(baby_api, "source", f"Tummy note {number}", guam(2), body="Tummy.")
     context, _ = await ask(baby_api, "What did start tummy time today say?")
     assert exact in [item["id"] for item in context]
+
+
+@needs_database
+@pytest.mark.parametrize(
+    ("fields", "has_care"),
+    [
+        ({"scope": "all"}, True),
+        ({"scope": "care"}, True),
+        ({"scope": "library"}, False),
+        ({"scope": "journal"}, False),
+    ],
+)
+async def test_care_in_the_pack_follows_the_conversation_scope(baby_api, frozen, fields, has_care):
+    child = (await baby_api.client.post("/api/v1/baby/children", headers=GEN, json={
+        "id": str(uuid4()), "name": "Mia", "birth_date": "2026-10-01"})).json()["id"]
+    await log(baby_api, "feeding", "Feed", guam(4, 9), data={"method": "breast", "side": "left"}, child=child)
+    request = ChatRequest(request_id=uuid4(), message="How are things?", **fields)
+    async with baby_api.sessions() as db:
+        pack = await context_pack(db, "owner", 1, request, GUAM)
+    assert pack["children"][0]["name"] == "Mia"
+    assert ("last_feed" in pack["children"][0]) is has_care
+
+
+@needs_database
+async def test_a_focused_entry_gets_no_care_history(baby_api, frozen):
+    child = (await baby_api.client.post("/api/v1/baby/children", headers=GEN, json={
+        "id": str(uuid4()), "name": "Mia", "birth_date": "2026-10-01"})).json()["id"]
+    await log(baby_api, "feeding", "Feed", guam(4, 9), data={"method": "breast", "side": "left"}, child=child)
+    saved = await log(baby_api, "source", "Swaddling", guam(3))
+    request = ChatRequest(request_id=uuid4(), message="Summarize this", scope="library", record_id=saved)
+    async with baby_api.sessions() as db:
+        pack = await context_pack(db, "owner", 1, request, GUAM)
+    assert "last_feed" not in pack["children"][0] and "care_with_no_child" not in pack
+
+
+def test_a_malformed_last_feed_suggests_nothing():
+    assert next_side({"method": "breast", "side": []}) is None
+    assert next_side({"method": [], "side": "left"}) is None
