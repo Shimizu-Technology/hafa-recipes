@@ -1172,8 +1172,10 @@ async def delete_data(
 
 # All routes are registered under one integration entry point.
 
+from app.domains.baby.changes import router as changes_router  # noqa: E402
 from app.domains.baby.family_router import router as family_router  # noqa: E402
 
+router.include_router(changes_router)
 router.include_router(family_router)
 router.include_router(attachments_router)
 router.include_router(upload_router)

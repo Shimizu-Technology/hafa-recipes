@@ -225,7 +225,7 @@ In this order:
 
 `X-Baby-Generation` is compared to the resolved space's generation, never `baby_memberships.generation`.
 
-**Because old builds only see the personal space,** Kami must update before creating a family, or her baby profile would disappear from her old build. Only `X-Baby-Client: 2` can create a family or accept an invite.
+**Because old builds only see the personal space,** Kami must update before creating a family, or her baby profile would disappear from her old build. Only `X-Baby-Client: 3` can create a family or accept an invite.
 
 ### 4 Device storage
 
@@ -396,3 +396,15 @@ detail/return context, light/dark appearance, compact screens and larger text.
 Record the tested source, screenshots, outcomes and platform limits in the private
 acceptance ledger. Type checking and the repository gate cover both platform
 branches; a clean build alone does not establish native interaction acceptance.
+
+
+### R1 enablement and baseline runbook
+
+Keep `BABY_FAMILY_ENABLED=false` in production while deploying this stack. The lead enables it only after the F4 fixes and F9c are deployed and verified, migration 058 is applied, and every instance/worker from before F2 is gone. Keep `BABY_INVITES_ENABLED=false` and do not create any family yet.
+
+1. Establish the restore point and confirm no family spaces exist.
+2. Enable `BABY_FAMILY_ENABLED` on **every** API instance and worker; verify the running release. `touch()` supplied no destination while the flag was off, so an earlier F3 run does not establish the sync baseline.
+3. Rerun F3 dry-run, then apply with its append-only audit. Verify `null_space_ids=0` and `rows_assigned=0`, then independently require **zero NULL `change_seq`** across children, records, attachments, imports, conversations, messages, share credentials and share captures. Repeat the verification after a final dry-run. Stop on conflicts or missing rows.
+4. Exercise a synthetic client-3 snapshot from cursor 0 and a worker update. Only after the baseline and privacy matrix pass may the lead enable invites and begin the synthetic rehearsal.
+
+`GET /changes` is client-3-only and returns 404 with the family gate off. `cursor` and optional `access_version` are JSON maps of space UUIDs to integers (at most eight spaces); `limit` is 1–100 per space. The response has `spaces`, the next `cursor` map, `has_more`, and `removed_space_ids`. Each space page includes `id`, `generation`, `access_version`, `cursor`, `has_more`, `reset`, and `items`. Items carry `seq` and `entity`; removals carry `id`, `removed: true`, and `seq`. No raw import requests, capability hashes or tokens are returned. Pass the last access versions on subsequent pages: `reset: true` requires a fresh snapshot from zero. A missing former space must be purged locally. Pages lock access until their database transaction closes and never hold locks during external processing.
