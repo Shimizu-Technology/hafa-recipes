@@ -5,7 +5,8 @@ import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, dayRange, daySummary, keyDate, addDays, recordDay, timelineKinds } from "@/lib/tracker";
-import { Copy, Empty, FilterChips, Grouped, HeaderAction, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
+import { Copy, Empty, FilterChips, Grouped, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
+import { HeaderPill } from "@/components/tab-stack";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
@@ -56,7 +57,7 @@ export default function Tracker() {
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
           <View style={{ flexShrink: 1 }}><Copy kind="heading">{dayTitle(day, today)}</Copy></View>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            {day !== today && <HeaderAction title="Back to today" onPress={() => pick(today)} />}
+            {day !== today && <HeaderPill title="Back to today" onPress={() => pick(today)} />}
             <PressTarget accessibilityRole="button" accessibilityLabel="Day before" onPress={() => pick(addDays(day, -1))} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
               <Icon name="chevron-back" size={22} color={c.text} />
             </PressTarget>

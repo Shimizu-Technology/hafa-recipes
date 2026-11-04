@@ -503,3 +503,43 @@ describe("logging another day", () => {
     expect(lastSave()).toMatchObject({ kind: "sleep", occurred_at: noon, data: { end_at: "2026-11-01T04:00:00.000Z" } });
   });
 });
+
+it("shrinks what just saved to one line when another log opens, so the dock never buries the page", async () => {
+  setup();
+  await mount();
+  await press("Diaper");
+  await press("Poo");
+  expect(target("Green")).toBeDefined();
+  await press("Bottle");
+  expect(target("Green")).toBeUndefined();
+  expect(renderer!.root.findAll((n) => String(n.type) === "TextInput")).toHaveLength(0);
+  expect(target("Undo Poo")).toBeDefined();
+  // Closing the other log brings it back, while it's still there.
+  await press("Bottle");
+  expect(target("Green")).toBeDefined();
+});
+
+it("keeps a note she was mid-way through when the next log saves, and starts the next row empty", async () => {
+  const b = setup();
+  await mount();
+  await press("Diaper");
+  await press("Poo");
+  const input = () => renderer!.root.findAll((n) => String(n.type) === "TextInput")[0];
+  await act(async () => input().props.onChangeText("Half a thought"));
+  await press("Diaper");
+  await press("Pee");
+  expect(pendingRecords(b.state).find((r) => r.data.type === "dirty")!.body).toBe("Half a thought");
+  expect(input().props.value).toBe("");
+  expect(pendingRecords(b.state).find((r) => r.data.type === "wet")!.body).toBe("");
+});
+
+it("drops a half-written note when the entry itself is undone, and doesn't bring the entry back", async () => {
+  const b = setup();
+  await mount();
+  await press("Diaper");
+  await press("Poo");
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "TextInput")[0].props.onChangeText("Never mind"));
+  await press("Undo Poo");
+  expect(pendingRecords(b.state)).toEqual([]);
+  expect(b.state.outbox.map((m) => m.type)).toEqual(["save", "delete"]);
+});

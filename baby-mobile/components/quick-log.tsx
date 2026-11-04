@@ -79,8 +79,18 @@ function RunningCard({ feed, onSwitch, onDone }: { feed: RunningFeed; onSwitch: 
 }
 
 /** The optional row after a diaper: colour for a poo, and a note. Skipping it costs nothing. */
-function Follow({ colors, color, onColor, onNote, onFocusChange }: { colors: boolean; color?: PoopColor; onColor: (value?: PoopColor) => void; onNote: (note: string) => void; onFocusChange: (holding: boolean) => void }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), input = useRef<TextInput>(null), [note, setNote] = useState(""), [other, setOther] = useState(false);
+function Follow({ colors, color, undone, onColor, onNote, onFocusChange }: { colors: boolean; color?: PoopColor; undone: { current: boolean }; onColor: (value?: PoopColor) => void; onNote: (note: string) => void; onFocusChange: (holding: boolean) => void }) {
+  const c = useColors(), { fontScale } = useWindowDimensions(), input = useRef<TextInput>(null), [note, setNote] = useState(""), [other, setOther] = useState(false),
+    latest = useRef({ note: "", sent: "", onNote });
+  latest.current.note = note;
+  latest.current.onNote = onNote;
+  const send = () => {
+    const text = latest.current.note.trim();
+    if (text !== latest.current.sent) { latest.current.sent = text; latest.current.onNote(text); }
+  };
+  // The row can leave while she's mid-note (the next log, or a tab with the keyboard still up). What she wrote stays,
+  // unless she undid the entry.
+  useEffect(() => () => { if (!undone.current) send(); }, []);
   return <View style={{ gap: 8, paddingHorizontal: 12, paddingBottom: 12 }}>
     {colors && <View accessibilityRole="radiogroup" accessibilityLabel="Colour" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
       {swatches.map((swatch) => {
@@ -101,16 +111,20 @@ function Follow({ colors, color, onColor, onNote, onFocusChange }: { colors: boo
     </View>}
     <TextInput key={fontScale} ref={input} accessibilityLabel="Add a note" value={note} onChangeText={setNote} placeholder={other ? "What colour? (optional)" : "Add a note (optional)"} placeholderTextColor={c.muted}
       returnKeyType="done" maxLength={1000} maxFontSizeMultiplier={0} onFocus={() => onFocusChange(true)}
-      onBlur={() => { onNote(note.trim()); onFocusChange(false); }}
+      onBlur={() => { send(); onFocusChange(false); }}
       style={{ minHeight: 52, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16, backgroundColor: c.tile, color: c.text, fontFamily: fonts.regular, fontSize: 16, lineHeight: 21 }} />
   </View>;
 }
 
 /** What just saved, with Undo. It fades on its own; nothing here needs an answer. */
-function SavedRow({ saved, color, now, day, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved; color?: PoopColor; now: Date; day?: PastDay; onUndo: () => void; onGone: () => void;
+function SavedRow({ saved, compact, color, now, day, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved;
+  /** Another log is open: one line with Undo, so the dock never buries the page. */
+  compact?: boolean;
+  color?: PoopColor; now: Date; day?: PastDay; onUndo: () => void; onGone: () => void;
   onMove: (iso: string | null) => void; onColor: (value?: PoopColor) => void; onNote: (note: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), reduced = useReducedMotion(), fade = useRef(new Animated.Value(1)).current,
     [choosing, setChoosing] = useState(false), [holding, setHolding] = useState(false), [touched, setTouched] = useState(0),
+    undone = useRef(false),
     touch = () => setTouched((value) => value + 1);
   useEffect(() => {
     let active = true, timer: ReturnType<typeof setTimeout> | undefined;
@@ -119,14 +133,14 @@ function SavedRow({ saved, color, now, day, onUndo, onGone, onMove, onColor, onN
       if (!active) return;
       if (reader && !touched) AccessibilityInfo.announceForAccessibility(`${saved.label} saved.${saved.undo ? " Undo available." : ""}`);
       // Never fade while she is choosing a time or writing a note.
-      if (holding || choosing) return;
+      if ((holding || choosing) && !compact) return;
       timer = setTimeout(() => {
         if (reduced) return onGone();
         Animated.timing(fade, { toValue: 0, duration: 240, easing: easeOut, useNativeDriver: true }).start(({ finished }) => { if (finished) onGone(); });
       }, reader ? 20000 : saved.follow ? 9000 : 6000);
     });
     return () => { active = false; if (timer) clearTimeout(timer); fade.stopAnimation(); };
-  }, [saved.key, holding, choosing, touched]);
+  }, [saved.key, holding, choosing, touched, compact]);
   return <Animated.View style={{ opacity: fade, borderRadius: radii.toast, backgroundColor: c.surface, borderWidth: 1, borderColor: c.outline }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: quickTarget, paddingLeft: 12 }}>
       <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.accent }}>
@@ -137,15 +151,15 @@ function SavedRow({ saved, color, now, day, onUndo, onGone, onMove, onColor, onN
         <Text key={`s:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>Saved</Text>
       </View>
       {!!saved.at && <TimeChip label={friendlyTime(saved.at, now)} open={choosing} onPress={() => { tap(); setChoosing(!choosing); }} />}
-      {!!saved.undo && <PressTarget accessibilityRole="button" accessibilityLabel={`Undo ${saved.label}`} onPress={onUndo}
+      {!!saved.undo && <PressTarget accessibilityRole="button" accessibilityLabel={`Undo ${saved.label}`} onPress={() => { undone.current = true; onUndo(); }}
         style={{ minHeight: quickTarget, minWidth: quickTarget, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}>
         <Text key={`u:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 16, lineHeight: 20, color: c.accentText }}>Undo</Text>
       </PressTarget>}
     </View>
-    {choosing && !!saved.at && <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+    {choosing && !compact && !!saved.at && <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
       <TimeChoices value={saved.at} now={now} day={day} onChange={(iso) => { setChoosing(false); onMove(iso); touch(); }} />
     </View>}
-    {!!saved.follow && <Follow colors={saved.follow === "color"} color={color} onFocusChange={setHolding}
+    {!!saved.follow && !compact && <Follow colors={saved.follow === "color"} color={color} undone={undone} onFocusChange={setHolding}
       onColor={(value) => { onColor(value); touch(); }} onNote={(note) => { onNote(note); touch(); }} />}
   </Animated.View>;
 }
@@ -287,7 +301,7 @@ export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
     return save("Sleep started", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
   }
   return <View style={{ gap: 8 }}>
-    {!!saved && <SavedRow saved={saved} now={now} day={pastDay} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
+    {!!saved && <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={pastDay} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
       onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
       onMove={(iso) => {
         const moved = iso ?? new Date().toISOString();

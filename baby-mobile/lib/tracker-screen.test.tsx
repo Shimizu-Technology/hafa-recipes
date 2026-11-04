@@ -24,11 +24,12 @@ vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
 } }));
 const ui = vi.hoisted(() => ({
   FilterChips: "FilterChips", PressTarget: "Pressable", Icon: "Icon", Copy: "Copy", Grouped: "Grouped", Notice: "Notice", Row: "Row", Screen: "Screen", Empty: "Empty",
-  HeaderAction: "HeaderAction", fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}),
+  fonts: {}, radii: {}, typeScale: { caption: {} }, useColors: () => ({}),
 }));
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/record-row", () => ({ kindIcon: {} }));
+vi.mock("@/components/tab-stack", () => ({ HeaderPill: "HeaderPill" }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: "ChildFilter" }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
@@ -100,7 +101,7 @@ it("reaches any recent day in one tap, and steps by day, with a way back to toda
   expect(mock.requests.filter((r) => r.occurred_from).at(-1)).toMatchObject({ poll: false });
   await act(async () => target("Day before")!.props.onPress());
   expect(copy().join(" ")).toContain("Nov 1");
-  await act(async () => renderer!.root.findAll((n) => String(n.type) === "HeaderAction")[0].props.onPress());
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "HeaderPill")[0].props.onPress());
   expect(copy()).toContain("Today");
 });
 
@@ -109,7 +110,7 @@ it("logs into the day on screen: past days ask for the time, future days have no
   expect(lastQuick().pastDay).toBeUndefined();
   await press("Day before");
   expect(lastQuick().pastDay).toEqual({ key: "2026-11-03", timezone: "Pacific/Guam" });
-  await act(async () => renderer!.root.findAll((n) => String(n.type) === "HeaderAction")[0].props.onPress());
+  await act(async () => renderer!.root.findAll((n) => String(n.type) === "HeaderPill")[0].props.onPress());
   await press("Day after");
   expect(screen().props.footer).toBeFalsy();
   const empty = renderer!.root.findAll((n) => String(n.type) === "Empty")[0];
