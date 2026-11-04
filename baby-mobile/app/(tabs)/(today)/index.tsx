@@ -18,7 +18,7 @@ import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
-import { PregnancyHero, TipSection } from "@/components/tips";
+import { BabyAgeCard, PregnancyHero, TipSection } from "@/components/tips";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
 
@@ -163,6 +163,7 @@ export default function Today() {
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />
       </View>}
+      {stage === "baby" && child && <BabyAgeCard child={child} now={today} tips={tipsNow.rows} />}
       <Grouped>
         {showCare && <Row title={sleepTitle} detail={sleepDetail} numericDetail icon={kindIcon.sleep}
           onPress={() => router.push(sleepEntry ? { pathname: "/record/[id]", params: { id: sleepEntry.id } } : "/care-history")} />}
@@ -176,7 +177,6 @@ export default function Today() {
           onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal", at: String(Date.now()) } })} />
         <Row title="Care history" numericDetail detail={showCare ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
-      {stage === "baby" && <TipSection title="For this age" view="now" rows={tipsNow.rows} />}
       {!children.length && <Row title="Add a baby profile" detail="Personalize everyday care when you’re ready"
         icon="person-add-outline" onPress={() => router.push("/child")} />}
     </Screen>

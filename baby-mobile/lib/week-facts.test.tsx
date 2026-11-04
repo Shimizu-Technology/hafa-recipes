@@ -8,10 +8,11 @@ vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", PressTarget: "P
 vi.mock("@/lib/weekly-content", async () => {
   const real = await import("./weekly-content");
   // The same function and batch, with its one switch as this test sets it.
-  return { ...real, weekContent: (week: number, options: { preview?: boolean } = {}) => real.weekContent(week, { ...options, from: real.batches.map((batch) => ({ ...batch, approved: mock.approved })) }) };
+  return { ...real, weekContent: (week: number, options: { preview?: boolean } = {}) => real.weekContent(week, { ...options, from: real.batches.map((batch) => ({ ...batch, approved: mock.approved })) }),
+    ageContent: (age: BabyAge, options: { preview?: boolean } = {}) => real.ageContent(age, { ...options, from: real.ageBatches.map((batch) => ({ ...batch, approved: mock.approved })) }) };
 });
-import { WeekFacts } from "../components/week-facts";
-import { batches } from "./weekly-content";
+import { AgeFacts, WeekFacts } from "../components/week-facts";
+import { ageBatches, batches, type BabyAge } from "./weekly-content";
 
 const week35 = batches[0].weeks.find((week) => week.week === 35)!;
 let renderer: ReactTestRenderer | undefined;
@@ -48,7 +49,7 @@ describe("while the batch isn't approved", () => {
   });
   it("offers no preview for a week with nothing to preview", async () => {
     vi.stubGlobal("__DEV__", true);
-    await mount(20);
+    await mount(3);
     expect(words()).toContain(waiting);
     expect(devButton()).toBeUndefined();
   });
@@ -75,9 +76,57 @@ describe("once the batch is approved", () => {
     const links = renderer!.root.findAll((n) => String(n.type) === "PressTarget").map((n) => n.props.accessibilityLabel).join();
     for (const name of ["marchofdimes.org", "kidshealth.org", "cdc.gov", "nhs.uk", "intergrowth21.com"]) expect(links).toContain(name);
   });
-  it("a week outside the batch still gets the waiting line", async () => {
+  it("a week outside every batch still gets the waiting line", async () => {
     mock.approved = true;
-    await mount(20);
+    await mount(3);
     expect(words()).toContain(waiting);
+  });
+  it("a week with only a stated size shows that, with its link, and no number or table", async () => {
+    mock.approved = true;
+    await mount(7);
+    expect(words()).toContain("Roughly a blueberry");
+    expect(words()).not.toContain("by weight");
+    expect(words()).not.toContain(" oz");
+    const toggle = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === "Sources")!;
+    await act(async () => toggle.props.onPress());
+    expect(words()).not.toContain("Sizes:");
+    expect(renderer!.root.findAll((n) => String(n.type) === "PressTarget").map((n) => n.props.accessibilityLabel).join()).toContain("kidshealth.org");
+  });
+  it("a week from WHO's chart shows its weight, under a pound in ounces, and no length", async () => {
+    mock.approved = true;
+    await mount(14);
+    expect(words()).toContain("about 3 oz (90 g)");
+    expect(words()).toContain("Roughly a lemon, by weight");
+    expect(words()).not.toContain(" in (");
+  });
+});
+
+describe("after birth", () => {
+  const waitingAge = "What’s typical at this age is coming once a doctor has reviewed it.";
+  const line = ageBatches[0].periods[0].items[0].text;
+  it("shows the waiting line and no fact in a release build while unapproved", async () => {
+    vi.stubGlobal("__DEV__", false);
+    await act(async () => { renderer = create(<AgeFacts age={{ unit: "week", age: 1 }} />); });
+    expect(words()).toContain(waitingAge);
+    expect(words()).not.toContain(line);
+    expect(devButton()).toBeUndefined();
+  });
+  it("a development build can preview it, clearly labelled", async () => {
+    vi.stubGlobal("__DEV__", true);
+    await act(async () => { renderer = create(<AgeFacts age={{ unit: "week", age: 1 }} />); });
+    await act(async () => devButton()!.props.onPress());
+    expect(words()).toContain("Development only. Not reviewed by a doctor.");
+    expect(words()).toContain(line);
+  });
+  it("once approved, shows the lines and the note, with sources one tap away", async () => {
+    mock.approved = true;
+    vi.stubGlobal("__DEV__", false);
+    await act(async () => { renderer = create(<AgeFacts age={{ unit: "week", age: 1 }} />); });
+    expect(words()).toContain(line);
+    expect(words()).toContain("Every baby goes at their own pace");
+    expect(words()).not.toContain("Development only");
+    const toggle = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => n.props.accessibilityLabel === "Sources")!;
+    await act(async () => toggle.props.onPress());
+    expect(renderer!.root.findAll((n) => String(n.type) === "PressTarget").map((n) => n.props.accessibilityLabel).join()).toContain("healthychildren.org");
   });
 });

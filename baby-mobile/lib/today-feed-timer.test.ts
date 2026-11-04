@@ -65,7 +65,7 @@ vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => undefined }));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
-vi.mock("@/components/tips", () => ({ PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
+vi.mock("@/components/tips", () => ({ BabyAgeCard: "BabyAgeCard", PregnancyHero: "PregnancyHero", TipSection: "TipSection" }));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/use-timing-tips", () => ({ useTimingTips: () => ({ rows: [], total: 0 }) }));
 import Today from "../app/(tabs)/(today)/index";
@@ -235,7 +235,8 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("PregnancyHero", () => true)).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(1);
   expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(1);
-  expect(find("TipSection", () => true).map((n) => n.props.title)).toEqual(["For this age"]);
+  expect(find("BabyAgeCard", () => true)[0].props.tips).toBeDefined();
+  expect(find("TipSection", () => true)).toHaveLength(0);
   account.state.bootstrap!.children = []; await render();
   expect(find("StackScreen", () => true)[0].props.options.title).toBe("Today");
   expect(find("FirstStep", () => true)[0].props.child).toBeNull();

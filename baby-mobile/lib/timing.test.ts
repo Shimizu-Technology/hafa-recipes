@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { optimisticRecord, type BabyRecord, type Child, type Relevance } from "./models";
 import {
-  babyAgeWeeks, byStart, careLogsStarted, dueLine, matchesTiming, pregnancyProgress, profileToday, relevanceFromForm, timingChild, timingContext, timingForm,
+  babyAgeCard, babyAgeWeeks, byStart, careLogsStarted, dueLine, matchesTiming, pregnancyProgress, profileToday, relevanceFromForm, timingChild, timingContext, timingForm,
   timingLabel, tipTopic, todayStage,
 } from "./timing";
 
@@ -120,5 +120,30 @@ describe("timing editor", () => {
     expect(relevanceFromForm({ stage: "pregnancy", from: "3.5", to: "", unit: "weeks" })).toEqual({ error: "Enter a week from 0 to 45." });
     expect(relevanceFromForm({ stage: "baby", from: "6", to: "3", unit: "months" })).toEqual({ error: "The start needs to come before the end." });
     expect(timingForm(undefined)).toEqual({ stage: "none", from: "", to: "", unit: "months" });
+  });
+});
+
+describe("babyAgeCard", () => {
+  const at = (y: number, m: number, d: number) => new Date(y, m - 1, d, 15);
+  it("counts week 1 from the birth day, through week 12", () => {
+    expect(babyAgeCard("2026-12-10", at(2026, 12, 10))).toEqual({ unit: "week", age: 1 });
+    expect(babyAgeCard("2026-12-10", at(2026, 12, 16))).toEqual({ unit: "week", age: 1 });
+    expect(babyAgeCard("2026-12-10", at(2026, 12, 17))).toEqual({ unit: "week", age: 2 });
+    expect(babyAgeCard("2026-12-10", at(2027, 3, 3))).toEqual({ unit: "week", age: 12 }); // Day 83.
+  });
+  it("moves to month 3 after week 12, before three full months have passed, then counts completed months", () => {
+    expect(babyAgeCard("2026-12-10", at(2027, 3, 4))).toEqual({ unit: "month", age: 3 }); // Day 84.
+    expect(babyAgeCard("2026-12-10", at(2027, 4, 9))).toEqual({ unit: "month", age: 3 });
+    expect(babyAgeCard("2026-12-10", at(2027, 4, 10))).toEqual({ unit: "month", age: 4 });
+  });
+  it("turns the month on the last day of a shorter month", () => {
+    expect(babyAgeCard("2026-10-31", at(2027, 2, 27))).toEqual({ unit: "month", age: 3 });
+    expect(babyAgeCard("2026-10-31", at(2027, 2, 28))).toEqual({ unit: "month", age: 4 });
+  });
+  it("stops after 24 months, and has nothing for a date in the future or no date", () => {
+    expect(babyAgeCard("2026-12-10", at(2029, 1, 9))).toEqual({ unit: "month", age: 24 });
+    expect(babyAgeCard("2026-12-10", at(2029, 1, 10))).toBeNull();
+    expect(babyAgeCard("2026-12-10", at(2026, 12, 9))).toBeNull();
+    expect(babyAgeCard("", at(2026, 12, 9))).toBeNull();
   });
 });
