@@ -40,6 +40,7 @@ vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/components/ui", () => import("../components/ui"));
 
 import { View } from "react-native";
+import { HeaderAction } from "../components/ui";
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
@@ -458,4 +459,13 @@ it("connects section navigation to the Screen's real scroll container and conten
   expect(scroll.props.ref).toBe(scrollRef);
   act(() => scroll.props.onContentSizeChange(390, 1600));
   expect(ready).toHaveBeenCalledOnce();
+});
+
+it("keeps a header action's words inside the bar's one height at the largest text size", async () => {
+  mock.fontScale = 3.1;
+  await mount(<HeaderAction title="Close" onPress={() => undefined} />);
+  const words = renderer!.root.findByType("Text" as React.ElementType);
+  expect(words.props.maxFontSizeMultiplier).toBeGreaterThan(1);
+  expect(words.props.maxFontSizeMultiplier).toBeLessThanOrEqual(1.6);
+  expect(words.props.numberOfLines).toBe(1);
 });
