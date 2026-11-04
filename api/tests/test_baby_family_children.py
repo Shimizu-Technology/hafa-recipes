@@ -70,7 +70,7 @@ async def test_child_replay_after_move_and_parent_only_delete(baby_api, family):
     assert replay.status_code == 200 and replay.json()["generation"] == 7
     result = await c.patch(f"/api/v1/baby/children/{identifier}", headers=original,
                            json={"revision": 1, "name": "Stale destination"})
-    assert result.status_code == 409 and result.json()["detail"]["code"] == "moved"
+    assert result.status_code == 409 and result.json()["code"] == "moved"
     result = await c.delete(f"/api/v1/baby/children/{identifier}?revision=1", headers=records.headers(family, "other"))
     assert result.status_code == 403
 

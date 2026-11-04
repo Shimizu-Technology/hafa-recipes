@@ -39,8 +39,8 @@ async def test_personal_journal_family_child_is_ignored_after_delete_then_cleare
     assert result.status_code == 200 and result.json()["child_id"] == child["id"]
     care = shared.payload("diaper", child_id=child["id"], data={"type": "wet"})
     result = await c.post("/api/v1/baby/records", headers=private, json=care)
-    assert result.status_code == 409 and result.json()["detail"]["code"] == "moved"
-    assert result.json()["detail"]["record"]["name"] == child["name"]
+    assert result.status_code == 409 and result.json()["code"] == "moved"
+    assert result.json()["record"]["name"] == child["name"]
     result = await c.delete(f"/api/v1/baby/children/{child['id']}?revision=1", headers=records.headers(family, "other"))
     assert result.status_code == 204
     for path in (f"/records/{journal['id']}", "/records", "/search?q=Notes"):
