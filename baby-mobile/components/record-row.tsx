@@ -16,6 +16,7 @@ export const kindIcon: Record<Kind, IconName> = {
   question: "chatbubble-ellipses-outline",
   collection: "folder-outline",
   contraction: "pulse-outline",
+  kick_session: "footsteps-outline",
 };
 /** Journal entries and doctor questions lead with their date, not the same glyph on every row. Decorative: the row says the time. */
 export function DateBlock({ iso }: { iso: string }) {

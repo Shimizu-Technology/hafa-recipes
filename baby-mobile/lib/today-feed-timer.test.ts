@@ -226,7 +226,7 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
   expect(find("Pressable", p => p.accessibilityLabel === "Breastfeed")).toHaveLength(0);
   expect(find("CareGlance", () => true)).toHaveLength(0);
   for (const label of ["Save a link", "Journal", "Doctor question"]) expect(find("Pressable", p => p.accessibilityLabel === label)).toHaveLength(1);
-  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Doctor questions", "Journal", "Lists & routines", "Contraction timer", "Baby’s here?"]);
+  expect(find("Row", () => true).map((n) => n.props.title)).toEqual(["Doctor questions", "Journal", "Lists & routines", "Contraction timer", "Kick counter", "Baby’s here?"]);
   await act(async () => (find("Row", p => p.title === "Baby’s here?")[0].props.onPress as () => void)());
   expect(scope.push).toHaveBeenLastCalledWith({ pathname: "/child", params: { id: "baby" } });
   child.birth_date = "2026-11-02"; await render();

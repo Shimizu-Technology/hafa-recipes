@@ -1,7 +1,7 @@
 import type { BabyRecord, Kind } from "./models";
 
 /** Everything the Day view lists. Events and milestones join this once they exist. */
-export const timelineKinds: Kind[] = ["feeding", "sleep", "diaper", "journal", "question", "contraction"];
+export const timelineKinds: Kind[] = ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session"];
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const hour = 60 * 60_000;

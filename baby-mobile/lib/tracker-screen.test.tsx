@@ -19,6 +19,7 @@ vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/contractions", () => import("./contractions"));
+vi.mock("@/lib/kicks", () => import("./kicks"));
 vi.mock("@/lib/care-summary", () => import("./care-summary"));
 vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => mock.summary }));
 vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
@@ -90,7 +91,7 @@ it("opens on today with a summary, the quick log and everything in order, newest
 it("asks the API for the day and the one before, for a sleep over midnight", async () => {
   await mount();
   const day = mock.requests.find((r) => r.occurred_from);
-  expect(day).toMatchObject({ occurred_from: "2026-11-02T14:00:00.000Z", occurred_to: "2026-11-04T14:00:00.000Z", poll: true, kinds: ["feeding", "sleep", "diaper", "journal", "question", "contraction"] });
+  expect(day).toMatchObject({ occurred_from: "2026-11-02T14:00:00.000Z", occurred_to: "2026-11-04T14:00:00.000Z", poll: true, kinds: ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session"] });
 });
 
 it("reaches any recent day in one tap, and steps by day, with a way back to today", async () => {

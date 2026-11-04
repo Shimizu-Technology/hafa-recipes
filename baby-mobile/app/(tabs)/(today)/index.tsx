@@ -121,6 +121,7 @@ export default function Today() {
       </Grouped>
       <Grouped>
         <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
+        <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
       </Grouped>
       {pregnant && <Row title="Baby’s here?" detail="Add birth details to start feeding, sleep and diaper logs" icon="heart-outline"
         onPress={addBirth} />}

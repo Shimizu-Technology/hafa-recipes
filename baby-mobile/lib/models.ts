@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -98,6 +98,8 @@ export interface RecordData {
   /** What's in a bottle. Stored in the API's words; shown as Breast milk or Formula. */
   contents?: "breast_milk" | "formula" | null;
   end_at?: string;
+  /** Movements felt in a kick session. */
+  count?: number;
   type?: "wet" | "dirty" | "both" | "dry";
   /** A poo's colour, as the API stores it. */
   color?: "black" | "green" | "yellow" | "brown" | "red" | "white" | null;
@@ -287,6 +289,7 @@ export const kindName: Record<Kind, string> = {
   question: "Doctor question",
   collection: "Collection",
   contraction: "Contraction",
+  kick_session: "Kick count",
 };
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {

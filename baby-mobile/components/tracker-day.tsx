@@ -7,6 +7,7 @@ import { feedProgress } from "@/lib/feed-reducer";
 import { addDays, clockIn, keyDate, recordDay, weekOf } from "@/lib/tracker";
 import { Icon, PressTarget, fonts, radii, typeScale, useColors } from "./ui";
 import { contractionDetail } from "@/lib/contractions";
+import { kickDetail } from "@/lib/kicks";
 import { kindIcon } from "./record-row";
 
 const letters = ["S", "M", "T", "W", "T", "F", "S"];
@@ -58,6 +59,7 @@ export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZ
   if (progress === "running") return "Feeding now";
   if (progress === "no_end") return "No end time";
   if (record.kind === "contraction") return contractionDetail(record, now);
+  if (record.kind === "kick_session") return kickDetail(record, now);
   return record.body.trim().split("\n")[0] ?? "";
 }
 
