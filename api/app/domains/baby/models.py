@@ -1,4 +1,8 @@
-"""Baby tables. Owner-based access remains until F4; creator IDs are never rewritten."""
+"""Baby tables; children, records and attachments keep app_user_id as their creator.
+
+Creator IDs are never rewritten. Family access follows space membership when
+BABY_FAMILY_ENABLED is on; the disabled gate preserves legacy owner access.
+"""
 
 import uuid
 

@@ -8,7 +8,12 @@ from app.domains.baby.models import BabyRecord
 
 def legacy_client(client):
     """Build 32 sends no client header, and cannot read or write what it does not know."""
+    if client == "3":
+        from app.domains.baby.access import family_enabled
+
+        return not family_enabled()
     return client != "2"
+
 
 # Past 44 weeks without a birth date the due date is stale, not late pregnancy.
 LATEST_PREGNANCY_DAYS = 44 * 7 + 6
@@ -28,29 +33,44 @@ def child_timing(child, today):
     return {"stage": "pregnancy", "pregnancy_week": days // 7, "pregnancy_day": days % 7}
 
 
+def row_scope(model, owner, generation):
+    if hasattr(owner, "condition"):
+        return owner.condition(model)
+    return and_(model.app_user_id == owner, model.generation == generation)
+
+
 def records_query(
-    owner, generation, *, kind=None, child_id=None, q=None, record_ids=None,
+    owner,
+    generation,
+    *,
+    kind=None,
+    child_id=None,
+    q=None,
+    record_ids=None,
     topic=None,
     uncategorized=False,
 ):
     query = select(BabyRecord).where(
-        BabyRecord.app_user_id == owner,
-        BabyRecord.generation == generation,
+        row_scope(BabyRecord, owner, generation),
         BabyRecord.deleted_at.is_(None),
     )
     if uncategorized:
         collection = aliased(BabyRecord)
         membership = (
-            select(collection.id).where(
-                collection.app_user_id == owner,
-                collection.generation == generation,
+            select(collection.id)
+            .where(
+                row_scope(collection, owner, generation),
+                (collection.space_id == BabyRecord.space_id)
+                if getattr(owner, "enabled", False)
+                else True,
                 collection.deleted_at.is_(None),
                 collection.kind == "collection",
                 collection.data["record_ids"].contains(
                     # Correlate across complete history instead of a recent cache.
                     func.jsonb_build_array(cast(BabyRecord.id, String))
                 ),
-            ).exists()
+            )
+            .exists()
         )
         query = query.where(BabyRecord.kind == "source", ~membership)
     if record_ids is not None:

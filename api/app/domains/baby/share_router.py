@@ -2,19 +2,21 @@
 
 import hashlib
 import secrets
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import func, select, text
 
+from app.domains.baby.access import access_for, family_enabled, touch
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.imports import admit_import
-from app.domains.baby.lifecycle import digest, membership_for, now
+from app.domains.baby.lifecycle import digest, now
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.schemas import (
     DEFAULT_SOURCE_TITLE,
@@ -65,15 +67,31 @@ async def require_schema(db):
 
 
 async def share_credential(
-    db: Database, bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]
+    db: Database, request: Request,
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]
 ):
     await require_schema(db)
     parsed = parse_token(bearer.credentials) if bearer else None
     row = await db.get(BabyShareCredential, parsed[0]) if parsed else None
     if row is None or not secrets.compare_digest(row.token_hash, parsed[1]):
         raise HTTPException(401, "Reconnect sharing in Baby")
-    await membership_for(db, row.app_user_id, generation=row.generation, write=True)
+    access = await access_for(db, row.app_user_id, stored_space_id=row.space_id,
+                              space_id=request.headers.get("X-Baby-Space"),
+                              generation=row.generation, write=True)
+    if access.enabled and access.target.role == "caregiver" and request.method != "DELETE":
+        raise HTTPException(403, "This role cannot share saved sources")
+    supplied_generation = request.headers.get("X-Baby-Generation")
+    if access.enabled and supplied_generation is not None:
+        try:
+            supplied = int(supplied_generation)
+        except ValueError:
+            raise HTTPException(422, "Choose a valid Baby generation") from None
+        if not 1 <= supplied <= 2_147_483_647:
+            raise HTTPException(422, "Choose a valid Baby generation")
+        if supplied != access.target.generation:
+            raise HTTPException(409, "Baby data changed; refresh before saving")
     await db.refresh(row)
+    db.info["baby_share_access"] = access
     if (
         row.revoked_at is not None
         or row.expires_at <= now()
@@ -91,16 +109,25 @@ class SessionRequest(DomainModel):
 
 
 @router.post("/session", status_code=201)
-async def provision(body: SessionRequest, user: User, db: Database, generation: Generation):
+async def provision(body: SessionRequest, user: User, db: Database, generation: Generation,
+                    request: Request):
     await require_schema(db)
-    member = await membership_for(db, user.id, generation=generation, write=True)
     installation = token_hash(str(body.installation_id))
+    prior_spaces = list(await db.scalars(select(BabyShareCredential.space_id).where(
+        BabyShareCredential.app_user_id == user.id,
+        BabyShareCredential.installation_hash == installation))) if family_enabled() else []
+    access = await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
+                              space_id=request.headers.get("X-Baby-Space"), generation=generation,
+                              write=True, extra_space_ids=[value for value in prior_spaces if value is not None])
+    member = access.member
+    if access.enabled and access.target.role == "caregiver":
+        raise HTTPException(403, "This role cannot share saved sources")
     row = await db.scalar(
         select(BabyShareCredential).where(
             BabyShareCredential.app_user_id == user.id,
-            BabyShareCredential.generation == generation,
+            (BabyShareCredential.generation == generation) if not access.enabled else True,
             BabyShareCredential.installation_hash == installation,
-        )
+        ).order_by((BabyShareCredential.generation == generation).desc(), BabyShareCredential.expires_at.desc()).limit(1)
     )
     if row is None:
         count = await db.scalar(
@@ -115,28 +142,50 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
         if count >= 5:
             raise HTTPException(409, "Reconnect an existing sharing installation")
         row = BabyShareCredential(
-            id=uuid4(), app_user_id=user.id, generation=generation, space_id=member.personal_space_id, installation_hash=installation
+            id=uuid4(), app_user_id=user.id, generation=generation,
+            space_id=access.target.id if access.enabled else member.personal_space_id,
+            installation_hash=installation
         )
         db.add(row)
+    if access.enabled:
+        # Rotating a capability never erases originals or pending capture receipts.
+        with db.no_autoflush:
+            older = list(await db.scalars(select(BabyShareCredential).where(
+                BabyShareCredential.app_user_id == user.id,
+                BabyShareCredential.installation_hash == installation,
+                BabyShareCredential.id != row.id, BabyShareCredential.revoked_at.is_(None)
+            ).with_for_update()))
+        for old in older:
+            old.revoked_at = now()
+            stamp = next((g for g in access.locked_spaces if g.id == old.space_id), None)
+            if stamp is None:
+                raise HTTPException(409, "Sharing destination changed; retry reconnecting")
+            await touch(old, stamp)
+        row.space_id, row.generation = access.target.id, generation
     secret = secrets.token_urlsafe(32)
     row.token_hash, row.expires_at, row.revoked_at = (
         token_hash(secret),
         now() + timedelta(days=30),
         None,
     )
+    await touch(row, access.target)
     await db.commit()
-    return {
+    result = {
         "credential_id": str(row.id),
         "token": f"hfbs_v1.{row.id}.{secret}",
         "generation": generation,
         "auto_process_epoch": member.profile.get("auto_process_epoch", 0),
         "expires_at": row.expires_at,
     }
+    if access.enabled:
+        result["space_id"] = str(row.space_id)
+    return result
 
 
 @router.delete("/session", status_code=204)
 async def revoke(db: Database, credential: Credential):
     credential.revoked_at = now()
+    await touch(credential, db.info["baby_share_access"].target)
     await db.commit()
     return Response(status_code=204)
 
@@ -172,11 +221,19 @@ class CaptureRequest(DomainModel):
         )
 
 
-async def admit_capture(db, capture, member):
-    """Caller holds the stable account lock. No original is removed on refusal."""
+async def admit_capture(db, capture, member, access=None):
+    """No original is removed on refusal; admission uses the capture's stored space."""
+    if capture.status != "deferred":
+        return
+    if access is None:
+        access = await access_for(db, capture.app_user_id, stored_space_id=capture.space_id,
+                                  generation=capture.generation, write=True)
+        member = access.member
+    capture = await access.row(db, BabyShareCapture, capture.id, write=access.enabled)
     if capture.status != "deferred":
         return
     capture.last_attempt_at = now()
+    await touch(capture, access.target)
     if not (
         member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
     ) or capture.request.get("automatic_epoch", 0) != member.profile.get("auto_process_epoch", 0):
@@ -186,10 +243,14 @@ async def admit_capture(db, capture, member):
         await db.commit()
         return
     source = await db.get(BabyRecord, capture.record_id)
-    if source is None or source.deleted_at is not None:
+    if source is None or source.deleted_at is not None or (
+        access.enabled and (source.space_id != capture.space_id or source.generation != capture.generation)
+    ):
         capture.status = "saved"
         await db.commit()
         return
+    capture_id, capture_owner, capture_space, capture_generation = (
+        capture.id, capture.app_user_id, capture.space_id, capture.generation)
     body = ImportCreate(
         id=capture.id,
         record_id=capture.record_id,
@@ -197,19 +258,27 @@ async def admit_capture(db, capture, member):
     )
     try:
         await admit_import(
-            body, SimpleNamespace(id=capture.app_user_id), db, capture.generation, automatic=True
+            body, SimpleNamespace(id=capture.app_user_id), db, capture.generation, automatic=True,
+            access=access, stored_space_id=capture.space_id
         )
     except HTTPException as error:
         if error.status_code not in {409, 410, 429}:
             raise
         await db.rollback()
-        await db.refresh(capture)
+        access = await access_for(db, capture_owner, stored_space_id=capture_space,
+                                  generation=capture_generation, write=True)
+        capture = await access.row(db, BabyShareCapture, capture_id, write=access.enabled)
         capture.last_attempt_at = now()
+        await touch(capture, access.target)
         await db.commit()
         return
     # Admission commits its durable import before this optional receipt update.
     # Replay sees the same import UUID after an interrupted receipt update.
+    access = await access_for(db, capture.app_user_id, stored_space_id=capture.space_id,
+                              generation=capture.generation, write=True)
+    capture = await access.row(db, BabyShareCapture, capture_id, write=access.enabled)
     capture.status = "queued"
+    await touch(capture, access.target)
     await db.commit()
 
 
@@ -221,7 +290,7 @@ async def drain_deferred_captures(db, *, limit=20):
         (
             await db.execute(
                 select(
-                    BabyShareCapture.id, BabyShareCapture.app_user_id, BabyShareCapture.generation
+                    BabyShareCapture.id, BabyShareCapture.app_user_id, BabyShareCapture.generation, BabyShareCapture.space_id
                 )
                 .where(BabyShareCapture.status == "deferred")
                 .order_by(
@@ -232,15 +301,25 @@ async def drain_deferred_captures(db, *, limit=20):
         ).all()
     )
     admitted = 0
-    for identifier, owner, generation in candidates:
+    for identifier, owner, generation, stored_space in candidates:
         try:
-            member = await membership_for(db, owner, generation=generation, write=True)
+            access = await access_for(db, owner, stored_space_id=stored_space,
+                                      generation=generation, write=True)
+            member = access.member
         except HTTPException:
-            await db.rollback()
+            from app.domains.baby.runtime import retire_unreachable
+
+            await retire_unreachable(db, BabyShareCapture, identifier, owner, generation, stored_space)
             continue
         capture = await db.get(BabyShareCapture, identifier, populate_existing=True)
         if capture is not None:
-            await admit_capture(db, capture, member)
+            try:
+                await admit_capture(db, capture, member, access)
+            except HTTPException:
+                from app.domains.baby.runtime import retire_unreachable
+
+                await retire_unreachable(db, BabyShareCapture, identifier, owner, generation, stored_space)
+                continue
             if capture.status == "queued":
                 admitted += 1
         await db.commit()
@@ -249,9 +328,9 @@ async def drain_deferred_captures(db, *, limit=20):
 
 @router.post("/captures", status_code=202)
 async def submit(body: CaptureRequest, db: Database, credential: Credential):
-    member = await membership_for(
-        db, credential.app_user_id, generation=credential.generation, write=True
-    )
+    access = await access_for(db, credential.app_user_id, stored_space_id=credential.space_id,
+                              generation=credential.generation, write=True)
+    member = access.member
     immutable = body.model_dump(mode="json")
     if not body.automatic_epoch:
         immutable.pop("automatic_epoch", None)
@@ -259,9 +338,11 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
     capture = await db.get(BabyShareCapture, body.capture_id)
     replayed = capture is not None
     if capture:
+        if access.enabled:
+            replace(access, spaces=access.member_spaces).grant(capture)
         if (
             capture.app_user_id != credential.app_user_id
-            or capture.generation != credential.generation
+            or (not access.enabled and capture.generation != credential.generation)
             or capture.creation_hash != fingerprint
         ):
             raise HTTPException(409, "Capture identity already used")
@@ -278,22 +359,22 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             ):
                 raise HTTPException(409, "Source identity already used")
         else:
-            db.add(
-                BabyRecord(
+            source = BabyRecord(
                     **original.model_dump(),
                     app_user_id=credential.app_user_id,
-                    space_id=member.personal_space_id,
+                    space_id=credential.space_id if access.enabled else member.personal_space_id,
                     generation=credential.generation,
                     revision=1,
                     creation_hash=original_hash,
                     created_at=now(),
                     updated_at=now(),
                 )
-            )
+            db.add(source)
+            await touch(source, access.target)
         capture = BabyShareCapture(
             id=body.capture_id,
             app_user_id=credential.app_user_id,
-            space_id=member.personal_space_id,
+            space_id=credential.space_id if access.enabled else member.personal_space_id,
             generation=credential.generation,
             record_id=body.capture_id,
             creation_hash=fingerprint,
@@ -304,12 +385,13 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
             else "saved",
         )
         db.add(capture)
+        await touch(capture, access.target)
         # Original and receipt commit together, before capped processing admission.
         await db.commit()
     await admit_capture(db, capture, member)
     await db.refresh(capture)
     job = await db.get(BabyImport, capture.id)
-    return {
+    result = {
         "capture_id": str(capture.id),
         "record_id": str(capture.record_id),
         "generation": capture.generation,
@@ -321,3 +403,6 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
         "import_id": str(job.id) if job else None,
         "replayed": replayed,
     }
+    if access.enabled:
+        result["space_id"] = str(capture.space_id)
+    return result

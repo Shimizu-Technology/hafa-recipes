@@ -1,4 +1,4 @@
-"""Personal-space provisioning only. Access remains owner-based until F4."""
+"""Idempotent personal-space provisioning; request and worker access lives in access.py."""
 from fastapi import HTTPException
 from sqlalchemy import select
 

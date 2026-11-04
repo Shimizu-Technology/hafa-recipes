@@ -14,12 +14,13 @@ from typing import Annotated, NamedTuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import and_, func, literal_column, or_, tuple_
 
-from app.domains.baby.dependencies import Client, Database, Generation, User
-from app.domains.baby.lifecycle import membership_for, now, owned
+from app.domains.baby.access import touch
+from app.domains.baby.dependencies import Access, Client, Database, Generation, User
+from app.domains.baby.lifecycle import now, owned
 from app.domains.baby.models import BabyChild, BabyRecord
 from app.domains.baby.queries import legacy_client
 from app.domains.baby.recurrence import is_start, starts_between
@@ -249,7 +250,8 @@ async def check_series_cap(db, owner, generation, data, *, record_id):
         return
     count = await db.scalar(
         kind_query(owner, generation, ("event",), func.count()).where(
-            BabyRecord.data["recurrence"].as_string().is_not(None), BabyRecord.id != record_id
+            BabyRecord.data["recurrence"].as_string().is_not(None), BabyRecord.id != record_id,
+            (BabyRecord.space_id == owner.target.id) if getattr(owner, "enabled", False) else True
         )
     )
     if count >= MAX_SERIES:
@@ -299,13 +301,13 @@ async def day_marks(db, owner, generation, child_id, zone, first, last):
     return marks
 
 
-def only_current_clients(client):
+def only_current_clients(client: Client = None):
     # Build 32 has no calendar; to it these routes do not exist.
     if legacy_client(client):
         raise HTTPException(404, "Not found")
 
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(only_current_clients)])
 async def event_list(
     user: User,
     db: Database,
@@ -313,6 +315,7 @@ async def event_list(
     last: Annotated[date, Query(alias="to")],
     child_id: UUID | None = None,
     client: Client = None,
+    access: Access = None,
 ):
     """Occurrences on the parent's calendar days ``from`` to ``to``, inclusive.
 
@@ -320,11 +323,11 @@ async def event_list(
     """
     only_current_clients(client)
     check_range(first, last)
-    member = await membership_for(db, user.id)
+    member = access.member
     if child_id:
-        await owned(db, BabyChild, user.id, member.generation, child_id)
+        await owned(db, BabyChild, access, member.generation, child_id)
     zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
-    found, complete = await occurrences(db, user.id, member.generation, child_id, window_for(first, last, zone))
+    found, complete = await occurrences(db, access, member.generation, child_id, window_for(first, last, zone))
     return {
         "items": [item.item() for item in found[:MAX_OCCURRENCES]],
         "complete": complete and len(found) <= MAX_OCCURRENCES,
@@ -342,10 +345,10 @@ class SeriesEnd(DomainModel):
     from_date: date
 
 
-async def series_for_edit(db, user, generation, identifier, client):
+async def series_for_edit(db, access, generation, identifier, client):
     only_current_clients(client)
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    access.check_generation(generation)
+    row = await owned(db, BabyRecord, access, generation, identifier)
     if row.kind != "event":
         raise HTTPException(404, "Item unavailable")
     return row
@@ -361,7 +364,7 @@ def repeating(row):
     return event, ZoneInfo(event.timezone)
 
 
-async def save_series(db, row, event, revision):
+async def save_series(db, row, event, revision, access):
     from app.domains.baby.router import record_response, revision_matches
 
     revision_matches(row, revision)
@@ -373,19 +376,21 @@ async def save_series(db, row, event, revision):
         raise HTTPException(422, "Enter valid details for this event") from None
     row.data = event.model_dump(mode="json")
     row.revision, row.updated_at = row.revision + 1, now()
+    await touch(row, access.target)
     await db.commit()
-    return record_response(row)
+    return record_response(row, access)
 
 
-@router.put("/events/{identifier}/occurrences")
+@router.put("/events/{identifier}/occurrences", dependencies=[Depends(only_current_clients)])
 async def change_occurrence(
     identifier: UUID, body: OccurrenceChange, user: User, db: Database, generation: Generation,
     client: Client = None,
+    access: Access = None,
 ):
     """Cancel or change one occurrence. Repeating it is harmless: the same change is not an error."""
     from app.domains.baby.router import record_response
 
-    row = await series_for_edit(db, user, generation, identifier, client)
+    row = await series_for_edit(db, access, generation, identifier, client)
     event, zone = repeating(row)
     if not is_start(row.occurred_at, zone, event.rule, body.original_start):
         raise HTTPException(422, "That is not one of this event's dates")
@@ -394,45 +399,46 @@ async def change_occurrence(
     )
     kept = [item for item in event.exceptions if item.original_start != body.original_start]
     if change in event.exceptions:
-        return record_response(row)
+        return record_response(row, access)
     event.exceptions = [*kept, change]
-    return await save_series(db, row, event, body.revision)
+    return await save_series(db, row, event, body.revision, access)
 
 
-@router.delete("/events/{identifier}/occurrences")
+@router.delete("/events/{identifier}/occurrences", dependencies=[Depends(only_current_clients)])
 async def restore_occurrence(
     identifier: UUID, original_start: AwareDatetime, revision: Annotated[int, Query(ge=1)],
-    user: User, db: Database, generation: Generation, client: Client = None,
+    user: User, db: Database, generation: Generation, client: Client = None, access: Access = None,
 ):
     """Put one occurrence back as the rule gives it."""
     from app.domains.baby.router import record_response
 
-    row = await series_for_edit(db, user, generation, identifier, client)
+    row = await series_for_edit(db, access, generation, identifier, client)
     event, _ = repeating(row)
     kept = [item for item in event.exceptions if item.original_start != original_start]
     if len(kept) == len(event.exceptions):
-        return record_response(row)
+        return record_response(row, access)
     event.exceptions = kept
-    return await save_series(db, row, event, revision)
+    return await save_series(db, row, event, revision, access)
 
 
-@router.post("/events/{identifier}/end-series")
+@router.post("/events/{identifier}/end-series", dependencies=[Depends(only_current_clients)])
 async def end_series(
     identifier: UUID, body: SeriesEnd, user: User, db: Database, generation: Generation,
     client: Client = None,
+    access: Access = None,
 ):
     """Stop a repeat from ``from_date`` on the event's own calendar; earlier occurrences stay."""
     from app.domains.baby.router import record_response
 
-    row = await series_for_edit(db, user, generation, identifier, client)
+    row = await series_for_edit(db, access, generation, identifier, client)
     event, zone = repeating(row)
     last = body.from_date - timedelta(days=1)
     if last < row.occurred_at.astimezone(zone).date():
         raise HTTPException(422, "That would remove every date; delete the event instead")
     if event.recurrence.until is not None and event.recurrence.until <= last:
-        return record_response(row)
+        return record_response(row, access)
     event.recurrence.until = last
     event.exceptions = [
         item for item in event.exceptions if item.original_start.astimezone(zone).date() <= last
     ]
-    return await save_series(db, row, event, body.revision)
+    return await save_series(db, row, event, body.revision, access)

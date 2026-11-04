@@ -3,6 +3,7 @@
 import json
 import math
 import re
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -11,9 +12,10 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import String, case, cast, func, or_, select
 
 from app.ai_governance import ai_request_context
+from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.dependencies import Client, Database, Generation, User
-from app.domains.baby.lifecycle import digest, membership_for, now, owned
+from app.domains.baby.dependencies import Access, Client, Database, Generation, User
+from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
     DAILY_LIMIT_CODE,
@@ -56,6 +58,18 @@ def conversation_response(row):
         key: getattr(row, key)
         for key in ("id", "title", "scope", "record_id", "child_id", "created_at", "updated_at")
     }
+
+
+async def conversation_child(db, row, access):
+    if not access.enabled or row.child_id is None:
+        return row.child_id
+    with db.no_autoflush:
+        return await db.scalar(select(BabyChild.id).where(
+            BabyChild.id == row.child_id, access.condition(BabyChild), BabyChild.deleted_at.is_(None)))
+
+
+async def conversation_reply(db, row, access):
+    return {**conversation_response(row), "child_id": await conversation_child(db, row, access)}
 
 
 def clean_assistant_message(message):
@@ -358,7 +372,7 @@ async def dated_rows(db, query, window, terms):
     return rows[:DATED_LIMIT], len(rows) <= DATED_LIMIT, outside
 
 
-async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), legacy=False):
+async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), legacy=False, tracked=None):
     """Citable records, their display excerpts, and the date range they answer, if one was asked."""
     window = None if request.record_id else date_window(request.message, now().astimezone(zone))
     names = set(query_terms(" ".join(child_names)))
@@ -385,12 +399,17 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
     in_range = len(rows)
     rows, in_full = rows + outside, in_full | {row.id for row in outside}
     context, displays, available = [], {}, 45000
+    from app.domains.baby.lifecycle import readable_journal_children
+
+    readable = await readable_journal_children(db, rows, owner)
     for position, row in enumerate(rows):
         limit = 7000 if row.id in in_full else BRIEF_EXCERPT
         excerpt = excerpt_for(row, terms, limit=min(limit, available), zone=zone)
         if not excerpt or available <= 0:
             complete = complete and position >= in_range
             break
+        if tracked is not None:
+            tracked["records"][row.id] = (row.space_id, row.generation, row.revision)
         context.append(
             {
                 "id": str(row.id),
@@ -398,7 +417,7 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), 
                 "kind": row.kind,
                 "occurred_at": row.occurred_at.astimezone(zone).isoformat(),
                 "revision": row.revision,
-                "child_id": str(row.child_id) if row.child_id else None,
+                "child_id": str(row.child_id) if row.child_id and (row.kind != "journal" or row.child_id in readable) else None,
                 "excerpt": excerpt,
                 "source_url": row.data.get("url"),
                 "evidence_type": (
@@ -438,12 +457,12 @@ def today_totals(stats):
     }
 
 
-async def care_context(db, owner, generation, child_id, zone):
+async def care_context(db, owner, generation, child_id, zone, *, tracked=None):
     at = now()
     today = at.astimezone(zone).date()
-    feed = await last_feed(db, owner, generation, child_id, zone, at)
+    feed = await last_feed(db, owner, generation, child_id, zone, at, tracked=tracked)
     totals = today_totals(
-        await care_stats(db, owner, generation, child_id, zone, custom_days(today, today, zone, at))
+        await care_stats(db, owner, generation, child_id, zone, custom_days(today, today, zone, at), tracked=tracked)
     )
     logged = (
         feed
@@ -455,20 +474,23 @@ async def care_context(db, owner, generation, child_id, zone):
     return {"last_feed": feed, "today_totals": totals}, bool(logged)
 
 
-async def context_pack(db, owner, generation, request, zone):
+async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     """Facts computed by code, kept out of the citable records and free of record IDs."""
     today = now().astimezone(zone).date()
     # A focused or Saved or Journal conversation is not about care, so it isn't sent any.
     with_care = not request.record_id and request.scope in {"all", "care"}
+    from app.domains.baby.queries import row_scope
+
     query = select(BabyChild).where(
-        BabyChild.app_user_id == owner,
-        BabyChild.generation == generation,
+        row_scope(BabyChild, owner, generation),
         BabyChild.deleted_at.is_(None),
     )
     if request.child_id:
         query = query.where(BabyChild.id == request.child_id)
     children = []
     for child in await db.scalars(query.order_by(BabyChild.name).limit(PACK_CHILDREN)):
+        if tracked is not None:
+            tracked["children"][child.id] = (child.space_id, child.generation, child.revision)
         entry = {"name": child.name, "stage": "unknown"}
         entry.update(child_timing(child, today) or {})
         if entry["stage"] == "baby":
@@ -477,14 +499,14 @@ async def context_pack(db, owner, generation, request, zone):
             if getattr(child, key):
                 entry[key] = getattr(child, key).isoformat()
         if with_care:
-            care, logged = await care_context(db, owner, generation, child.id, zone)
+            care, logged = await care_context(db, owner, generation, child.id, zone, tracked=tracked)
             # A baby's empty day is news; an unborn child's is not.
             if logged or entry["stage"] == "baby":
                 entry.update(care)
         children.append(entry)
     pack = {"children": children, "today": today.isoformat()}
     if with_care and not request.child_id:
-        care, logged = await care_context(db, owner, generation, None, zone)
+        care, logged = await care_context(db, owner, generation, None, zone, tracked=tracked)
         if logged:
             pack["care_with_no_child"] = care
     return pack
@@ -509,46 +531,89 @@ def reviewed_proposal(raw):
     return {key: getattr(proposal, key) for key in ("kind", "title", "body", "data")}
 
 
+class ContextChanged(Exception):
+    pass
+
+
+def chat_scopes(access):
+    personal = next(g for g in access.spaces if g.id == access.personal_space_id)
+    # Caregivers cannot use family content in Ask; their personal library stays theirs.
+    readable = replace(access, spaces=tuple(g for g in access.spaces if g.role == "parent"), target=None)
+    private = replace(access, spaces=(personal,), target=personal if access.target else None)
+    return readable, private
+
+
+def conversation_scope(model, access):
+    if not access.enabled:
+        return access.condition(model)
+    readable, private = chat_scopes(access)
+    return private.condition(model) & (model.app_user_id == access.actor) & model.context_space_ids.contained_by(
+        [str(g.id) for g in readable.spaces])
+
+
+async def verify_context(db, access, tracked):
+    readable, _ = chat_scopes(access)
+    for model, key in ((BabyRecord, "records"), (BabyChild, "children")):
+        snapshots = tracked[key]
+        rows = list(await db.scalars(select(model).where(
+            model.id.in_(snapshots), readable.condition(model), model.deleted_at.is_(None)
+        ).order_by(model.id).with_for_update().execution_options(populate_existing=True)))
+        if len(rows) != len(snapshots) or any(
+            (row.space_id, row.generation, row.revision) != snapshots[row.id] for row in rows
+        ):
+            raise ContextChanged()
+
+
 @router.get("/conversations")
-async def conversations(user: User, db: Database):
-    member = await membership_for(db, user.id)
+async def conversations(user: User, db: Database, access: Access = None):
     rows = await db.scalars(
         select(BabyConversation)
         .where(
-            BabyConversation.app_user_id == user.id,
-            BabyConversation.generation == member.generation,
+            conversation_scope(BabyConversation, access),
         )
         .order_by(BabyConversation.updated_at.desc())
         .limit(100)
     )
-    return {"items": [conversation_response(row) for row in rows]}
+    return {"items": [await conversation_reply(db, row, access) for row in rows]}
 
 
 @router.get("/conversations/{identifier}")
-async def get_conversation(identifier: UUID, user: User, db: Database, client: Client = None):
-    member = await membership_for(db, user.id)
-    row = await owned(db, BabyConversation, user.id, member.generation, identifier)
+async def get_conversation(identifier: UUID, user: User, db: Database, client: Client = None,
+                           access: Access = None):
+    row = await db.scalar(select(BabyConversation).where(
+        BabyConversation.id == identifier, conversation_scope(BabyConversation, access)))
+    if row is None:
+        raise HTTPException(404, "Item unavailable")
     messages = await db.scalars(
         select(BabyMessage)
         .where(
-            BabyMessage.app_user_id == user.id,
-            BabyMessage.generation == member.generation,
+            conversation_scope(BabyMessage, access),
             BabyMessage.conversation_id == identifier,
         )
         .order_by(BabyMessage.created_at, BabyMessage.id)
         .limit(500)
     )
     return {
-        **conversation_response(row),
+        **await conversation_reply(db, row, access),
         "messages": [message_response(message, legacy=legacy_client(client)) for message in messages],
     }
 
 
 @router.post("/chat")
 async def chat(
-    body: ChatRequest, user: User, db: Database, generation: Generation, client: Client = None
+    body: ChatRequest, user: User, db: Database, generation: Generation, client: Client = None,
+    access: Access = None,
 ):
-    member = await membership_for(db, user.id, generation=generation, write=True)
+    return await answer_chat(body, user, db, generation, client, access)
+
+
+async def answer_chat(body, user, db, generation, client, access, *, retries=2):
+    access.check_generation(generation)
+    member = access.member
+    readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
+    if access.enabled and access.target.id != access.personal_space_id:
+        raise HTTPException(422, "Ask conversations belong in your personal Baby space")
+    tracked = {"records": {}, "children": {}} if access.enabled else None
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
     provider = BabyProvider()
@@ -556,10 +621,16 @@ async def chat(
         raise HTTPException(
             503, "AI is temporarily unavailable; your library and journal remain available"
         )
+    original_body = body
     fingerprint = digest(body.model_dump(mode="json"))
     prior = await db.get(BabyMessage, body.request_id, populate_existing=True)
     answer_id = uuid5(NAMESPACE_URL, f"hafa-baby-answer:{user.id}:{generation}:{body.request_id}")
     if prior:
+        if access.enabled and (
+            prior.space_id != access.personal_space_id or
+            not set(prior.context_space_ids or []).issubset({str(g.id) for g in readable.spaces})
+        ):
+            raise HTTPException(404, "Conversation context is no longer available")
         if (
             prior.app_user_id != user.id
             or prior.generation != generation
@@ -568,6 +639,8 @@ async def chat(
             raise HTTPException(409, "This question identity was used with different content")
         answer = await db.get(BabyMessage, answer_id)
         if answer:
+            if access.enabled and not set(answer.context_space_ids or []).issubset({str(g.id) for g in readable.spaces}):
+                raise HTTPException(404, "Conversation context is no longer available")
             return {
                 "conversation_id": answer.conversation_id, **answer.content,
                 "citations": citations_for(
@@ -582,7 +655,7 @@ async def chat(
             )
         if prior.content.get("attempts", 0) >= 3:
             raise HTTPException(429, "This question reached its retry limit; please ask again")
-        conversation = await owned(db, BabyConversation, user.id, generation, prior.conversation_id)
+        conversation = await owned(db, BabyConversation, private, generation, prior.conversation_id)
     else:
         count = await db.scalar(
             select(func.count())
@@ -597,19 +670,21 @@ async def chat(
             raise HTTPException(
                 429, "Daily question allowance reached; your saved information remains available"
             )
-        if body.child_id:
-            await owned(db, BabyChild, user.id, generation, body.child_id)
         if body.conversation_id:
             conversation = await owned(
-                db, BabyConversation, user.id, generation, body.conversation_id
+                db, BabyConversation, private, generation, body.conversation_id
             )
+            if body.child_id == conversation.child_id and await conversation_child(db, conversation, access) is None:
+                body = body.model_copy(update={"child_id": None})
             if (
                 conversation.scope != body.scope
                 or conversation.record_id != body.record_id
-                or conversation.child_id != body.child_id
+                or await conversation_child(db, conversation, access) != body.child_id
             ):
                 raise HTTPException(409, "Conversation context changed; start a new conversation")
         else:
+            if body.child_id:
+                await owned(db, BabyChild, readable, generation, body.child_id)
             conversation = BabyConversation(
                 app_user_id=user.id,
                 space_id=member.personal_space_id,
@@ -622,6 +697,7 @@ async def chat(
                 updated_at=now(),
             )
             db.add(conversation)
+            await touch(conversation, access.target)
             await db.flush()
         prior = BabyMessage(
             id=body.request_id,
@@ -634,6 +710,11 @@ async def chat(
             created_at=now(),
         )
         db.add(prior)
+        await touch(prior, access.target)
+    if body.child_id == conversation.child_id and await conversation_child(db, conversation, access) is None:
+        body = body.model_copy(update={"child_id": None})
+    if access.enabled and not set(conversation.context_space_ids or []).issubset({str(g.id) for g in readable.spaces}):
+        raise HTTPException(404, "Conversation context is no longer available")
     active = await db.scalar(
         select(func.count())
         .select_from(BabyMessage)
@@ -660,9 +741,12 @@ async def chat(
     if count >= 500:
         raise HTTPException(422, "This conversation is full; start a new conversation")
     zone = parent_zone(member.profile.get("timezone"))
-    pack = await context_pack(db, user.id, generation, body, zone)
+    pack = await context_pack(db, readable, generation, body, zone,
+                              **({"tracked": tracked} if tracked is not None else {}))
     context, displays, requested_range = await retrieve(
-        db, user.id, generation, body, zone, legacy=legacy_client(client), child_names=[item["name"] for item in pack["children"]]
+        db, readable, generation, body, zone, legacy=legacy_client(client),
+        child_names=[item["name"] for item in pack["children"]],
+        **({"tracked": tracked} if tracked is not None else {})
     )
     history_rows = list(
         await db.scalars(
@@ -687,13 +771,19 @@ async def chat(
         "attempts": prior.content.get("attempts", 0) + 1,
         "lease_until": (now() + timedelta(minutes=3)).isoformat(),
     }
+    await touch(prior, access.target)
+    answer_lease = prior.content["lease_until"]
+    personal_space_id = access.personal_space_id
     await db.commit()
 
     async def gate():
         from app.db.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as check:
-            current = await membership_for(check, user.id, generation=generation)
+            fresh = await access_for(check, user.id, client=client,
+                                     space_id=personal_space_id if access.enabled else None,
+                                     generation=generation)
+            current = fresh.member
             if not current.profile.get("ai_consent") or current.consent_epoch != epoch:
                 raise HTTPException(403, "AI processing permission changed")
 
@@ -724,22 +814,36 @@ async def chat(
         ]
         proposal = reviewed_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
-        current = await membership_for(db, user.id, generation=generation, write=True)
+        access = await access_for(db, user.id, client=client,
+                                  space_id=personal_space_id if access.enabled else None,
+                                  generation=generation, write=True)
+        current = access.member
+        readable, private = chat_scopes(access) if access.enabled else (user.id, user.id)
         if current.consent_epoch != epoch or not current.profile.get("ai_consent"):
             raise HTTPException(
                 403, "AI processing permission changed; this response was discarded"
             )
-        # Resolve deletion/edit races under the owner lock before exposing sources.
-        for citation in citations:
+        if access.enabled:
+            await verify_context(db, access, tracked)
+        # Legacy completion retains its existing citation revision check.
+        for citation in citations if not access.enabled else []:
             current_record = await owned(db, BabyRecord, user.id, generation, UUID(citation["id"]))
             if current_record.revision != allowed[citation["id"]]["revision"]:
                 raise HTTPException(
                     409,
                     "Your saved information changed while AI answered; ask again to use the current version",
                 )
-        await owned(db, BabyConversation, user.id, generation, conversation_id)
-        prior = await owned(db, BabyMessage, user.id, generation, body.request_id)
+        conversation = await owned(db, BabyConversation, private, generation, conversation_id)
+        prior = await owned(db, BabyMessage, private, generation, body.request_id)
+        if access.enabled and prior.content.get("lease_until") != answer_lease:
+            raise HTTPException(409, "This answer lease changed; the response was discarded")
         prior.content = {**prior.content, "status": "ready", "lease_until": None}
+        await touch(prior, access.target)
+        if access.enabled:
+            used = {str(value[0]) for snapshots in tracked.values() for value in snapshots.values()}
+            used.update(conversation.context_space_ids or [])
+            conversation.context_space_ids = sorted(used)
+            prior.context_space_ids = sorted(used)
         answer = BabyMessage(
             id=answer_id,
             app_user_id=user.id,
@@ -748,22 +852,39 @@ async def chat(
             conversation_id=conversation_id,
             role="assistant",
             content=payload,
+            context_space_ids=conversation.context_space_ids if access.enabled else [],
             created_at=now(),
         )
         db.add(answer)
+        if access.enabled:
+            conversation.child_id = await conversation_child(db, conversation, access)
         conversation.updated_at = now()
+        await touch(prior, access.target)
+        await touch(answer, access.target)
+        await touch(conversation, access.target)
         await db.commit()
         return {"conversation_id": conversation_id, **payload}
     except Exception as failure:
         await db.rollback()
         try:
-            current = await membership_for(db, user.id, generation=generation, write=True)
+            access = await access_for(db, user.id, client=client,
+                                      space_id=personal_space_id if access.enabled else None,
+                                      generation=generation, write=True)
+            current = access.member
+            _, private = chat_scopes(access) if access.enabled else (user.id, user.id)
             if current.consent_epoch == epoch:
-                prior = await owned(db, BabyMessage, user.id, generation, body.request_id)
+                prior = await owned(db, BabyMessage, private, generation, body.request_id)
                 prior.content = {**prior.content, "status": "failed", "lease_until": None}
+                await touch(prior, access.target)
                 await db.commit()
         except HTTPException:
             await db.rollback()
+        if isinstance(failure, ContextChanged):
+            if retries:
+                access = await access_for(db, user.id, client=client, space_id=personal_space_id,
+                                          generation=generation, write=True)
+                return await answer_chat(original_body, user, db, generation, client, access, retries=retries - 1)
+            raise HTTPException(409, "Your library changed while answering; please retry") from None
         if isinstance(failure, HTTPException):
             raise failure
         from app.domains.workouts.budget import BudgetError

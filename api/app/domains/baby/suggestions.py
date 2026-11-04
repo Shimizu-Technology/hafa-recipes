@@ -6,8 +6,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.domains.baby.dependencies import Database, Generation, User
-from app.domains.baby.lifecycle import digest, membership_for, now
+from app.domains.baby.access import access_for, touch
+from app.domains.baby.dependencies import Access, Database, Generation, User
+from app.domains.baby.lifecycle import digest, now
 from app.domains.baby.models import BabyRecord
 from app.domains.baby.processing import comparable
 from app.domains.baby.schemas import (
@@ -24,26 +25,30 @@ DECIDED = {"accept": "accepted", "dismiss": "dismissed"}
 
 @router.post("/records/{identifier}/suggested-category")
 async def decide_one(
-    identifier: UUID, body: SuggestionDecision, user: User, db: Database, generation: Generation
+    identifier: UUID, body: SuggestionDecision, user: User, db: Database, generation: Generation,
+    access: Access = None,
 ):
     batch = SuggestionBatch(
         action=body.action, items=[{"record_id": identifier, "revision": body.revision}]
     )
-    return await decide(batch, user, db, generation)
+    return await decide(batch, user, db, generation, access=access)
 
 
 @router.post("/suggested-categories")
-async def decide_many(body: SuggestionBatch, user: User, db: Database, generation: Generation):
-    return await decide(body, user, db, generation)
+async def decide_many(body: SuggestionBatch, user: User, db: Database, generation: Generation,
+                      access: Access = None):
+    return await decide(body, user, db, generation, access=access)
 
 
-async def decide(body, user, db, generation):
+async def decide(body, user, db, generation, *, access=None):
     from app.domains.baby.router import record_response
 
-    member = await membership_for(db, user.id, generation=generation, write=True)
+    if access is None:
+        access = await access_for(db, user.id, generation=generation, write=True)
+    access.check_generation(generation)
+    member = access.member
     owner_rows = select(BabyRecord).where(
-        BabyRecord.app_user_id == user.id,
-        BabyRecord.generation == generation,
+        access.condition(BabyRecord),
         BabyRecord.deleted_at.is_(None),
     )
     sources = {
@@ -55,6 +60,10 @@ async def decide(body, user, db, generation):
             )
         )
     }
+    if access.enabled:
+        for source in sorted(sources.values(), key=lambda row: row.id):
+            if source.space_id != access.target.id:
+                await access.row(db, BabyRecord, source.id, write=True)
     collections, created = None, set()
     results, changed_sources, changed_collections = [], {}, {}
     for item in body.items:
@@ -79,15 +88,18 @@ async def decide(body, user, db, generation):
             if collections is None:
                 collections = list(
                     await db.scalars(
-                        owner_rows.where(BabyRecord.kind == "collection").order_by(
+                        owner_rows.where(BabyRecord.kind == "collection",
+                                         (BabyRecord.space_id == access.target.id) if access.enabled else True).order_by(
                             BabyRecord.created_at, BabyRecord.id
                         )
                     )
                 )
             target = category_for(collections, suggestion)
             if target is None:
-                target = new_category(user.id, generation, suggestion["name"], member.personal_space_id)
+                target = new_category(user.id, generation, suggestion["name"],
+                                      access.target.id if access.enabled else member.personal_space_id)
                 db.add(target)
+                await touch(target, access.target)
                 collections.append(target)
                 created.add(target.id)
             try:
@@ -109,18 +121,20 @@ async def decide(body, user, db, generation):
                     target.revision += 1
                 target.updated_at = now()
                 changed_collections[target.id] = target
+                await touch(target, access.target)
             decision.update(collection_id=str(target.id), name=target.title[:80])
             outcome["collection_id"] = str(target.id)
         source.data = {**source.data, "suggested_category": decision}
         source.revision, source.updated_at = source.revision + 1, now()
         changed_sources[source.id] = source
+        await touch(source, access.target)
         outcome["status"] = DECIDED[body.action]
     await db.flush()
     await db.commit()
     return {
         "results": results,
-        "records": [record_response(row) for row in changed_sources.values()],
-        "collections": [record_response(row) for row in changed_collections.values()],
+        "records": [record_response(row, access) for row in changed_sources.values()],
+        "collections": [record_response(row, access) for row in changed_collections.values()],
     }
 
 

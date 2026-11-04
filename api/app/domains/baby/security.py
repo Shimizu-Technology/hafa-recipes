@@ -36,7 +36,12 @@ class BabyRoute(PrivateFailureRoute):
                         raise HTTPException(413, "Choose a smaller upload")
                     chunks.append(chunk)
                 request._body = b"".join(chunks)
-            response = await original(request)
+            try:
+                response = await original(request)
+            except HTTPException as error:
+                if error.status_code != 409 or not isinstance(error.detail, dict) or error.detail.get("code") != "moved":
+                    raise
+                response = JSONResponse(error.detail, status_code=409)
             response.headers["Cache-Control"] = "private, no-store"
             return response
 
