@@ -74,14 +74,17 @@ router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
 KindsFilter = Annotated[list[Kind] | None, Query(max_length=len(get_args(Kind)))]
 
 
-def child_response(row):
-    return {
+def child_response(row, access=None):
+    result = {
         "id": str(row.id),
         "name": row.name,
         "birth_date": row.birth_date,
         "due_date": row.due_date,
         "revision": row.revision,
     }
+    if getattr(access, "enabled", False) and access.client == "3":
+        result.update(space_id=str(row.space_id), generation=row.generation)
+    return result
 
 
 def record_response(row, access=None):
@@ -289,7 +292,7 @@ async def bootstrap_state(user, db, *, create, request):
     )
     result = {
         "profile": Profile.model_validate(member.profile).model_dump(),
-        "children": [child_response(row) for row in children],
+        "children": [child_response(row, access) for row in children],
         "generation": member.generation,
         "active": member.status == "active",
         "ai_available": BabyProvider().enabled,
@@ -427,41 +430,46 @@ async def patch_profile(body: ProfilePatch, user: User, db: Database, generation
 
 
 @router.get("/children")
-async def children(user: User, db: Database):
-    member = await membership_for(db, user.id)
+async def children(user: User, db: Database, access: Access = None):
     rows = await db.scalars(
         select(BabyChild)
         .where(
-            BabyChild.app_user_id == user.id,
-            BabyChild.generation == member.generation,
+            access.condition(BabyChild),
             BabyChild.deleted_at.is_(None),
         )
         .order_by(BabyChild.name)
     )
-    return {"items": [child_response(row) for row in rows]}
+    return {"items": [child_response(row, access) for row in rows]}
 
 
 @router.post("/children")
-async def create_child(body: ChildCreate, user: User, db: Database, generation: Generation):
-    member = await membership_for(db, user.id, generation=generation, write=True)
+async def create_child(body: ChildCreate, user: User, db: Database, generation: Generation,
+                       access: Access = None):
+    member = access.member
     fingerprint = digest(body.model_dump(mode="json"))
+    if not access.enabled:
+        access.check_generation(generation)
+    if access.enabled and access.target.role != "parent":
+        raise HTTPException(403, "Only a parent can create a child profile")
     prior = await db.get(BabyChild, body.id)
     if prior:
+        if access.enabled:
+            access.grant(prior)
         if (
-            prior.app_user_id != user.id
-            or prior.generation != generation
+            (not access.enabled and (prior.app_user_id != user.id or prior.generation != generation))
             or prior.creation_hash != fingerprint
         ):
             raise HTTPException(409, "This save identity was already used")
         if prior.deleted_at:
             raise HTTPException(410, "This child profile was removed; create a new profile")
-        return child_response(prior)
+        return child_response(prior, access)
+    access.check_generation(generation)
     count = await db.scalar(
         select(func.count())
         .select_from(BabyChild)
         .where(
-            BabyChild.app_user_id == user.id,
-            BabyChild.generation == generation,
+            access.condition(BabyChild),
+            (BabyChild.space_id == access.target.id) if access.enabled else True,
             BabyChild.deleted_at.is_(None),
         )
     )
@@ -470,22 +478,26 @@ async def create_child(body: ChildCreate, user: User, db: Database, generation: 
     row = BabyChild(
         **body.model_dump(),
         app_user_id=user.id,
-        space_id=member.personal_space_id,
+        space_id=access.target.id if access.enabled else member.personal_space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,
     )
     db.add(row)
+    await touch(row, access.target)
     await db.commit()
-    return child_response(row)
+    return child_response(row, access)
 
 
 @router.patch("/children/{identifier}")
 async def patch_child(
-    identifier: UUID, body: ChildPatch, user: User, db: Database, generation: Generation
+    identifier: UUID, body: ChildPatch, user: User, db: Database, generation: Generation,
+    access: Access = None,
 ):
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyChild, user.id, generation, identifier)
+    access.check_generation(generation)
+    if access.enabled and access.target.role != "parent":
+        raise HTTPException(403, "Only a parent can edit a child profile")
+    row = await owned(db, BabyChild, access, generation, identifier)
     revision_matches(row, body.revision)
     values = {**child_response(row), **body.model_dump(exclude_unset=True, exclude={"revision"})}
     values.pop("revision", None)
@@ -496,8 +508,9 @@ async def patch_child(
     for key in ("name", "birth_date", "due_date"):
         setattr(row, key, getattr(valid, key))
     row.revision += 1
+    await touch(row, access.target)
     await db.commit()
-    return child_response(row)
+    return child_response(row, access)
 
 
 @router.delete("/children/{identifier}", status_code=204)
@@ -507,32 +520,40 @@ async def delete_child(
     db: Database,
     generation: Generation,
     revision: Annotated[int, Query(ge=1)],
+    access: Access = None,
 ):
-    await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyChild, user.id, generation, identifier)
+    access.check_generation(generation)
+    row = await owned(db, BabyChild, access, generation, identifier)
     revision_matches(row, revision)
+    if access.enabled and access.target.role != "parent":
+        raise HTTPException(403, "Only a parent can delete a child profile")
     for model in (BabyRecord, BabyConversation):
         for item in await db.scalars(
             select(model).where(
-                model.app_user_id == user.id,
-                model.generation == generation,
+                access.condition(model),
+                ((model.space_id == row.space_id) if model is BabyRecord else (model.app_user_id == user.id))
+                if access.enabled else True,
                 model.child_id == identifier,
             )
         ):
             item.child_id, item.updated_at = None, now()
             if model is BabyRecord:
                 item.revision += 1
+            await touch(item, access.grant(item) if access.enabled else None)
     # Pending imports and open conversations cannot reattach a deleted child.
     for job in await db.scalars(
         select(BabyImport).where(
-            BabyImport.app_user_id == user.id, BabyImport.generation == generation
+            access.condition(BabyImport),
+            (BabyImport.space_id == row.space_id) if access.enabled else True,
         )
     ):
         if job.request.get("child_id") == str(identifier):
             job.request = {**job.request, "child_id": None}
+            await touch(job, access.grant(job) if access.enabled else None)
     row.deleted_at, row.name, row.birth_date, row.due_date = now(), "", None, None
     row.revision += 1
-    await settle_running_feeds(db, user.id, generation, None)
+    await touch(row, access.target)
+    await settle_running_feeds(db, access, generation, None)
     await db.commit()
     return Response(status_code=204)
 
