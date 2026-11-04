@@ -40,7 +40,7 @@ async def decide_many(body: SuggestionBatch, user: User, db: Database, generatio
 async def decide(body, user, db, generation):
     from app.domains.baby.router import record_response
 
-    await membership_for(db, user.id, generation=generation, write=True)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     owner_rows = select(BabyRecord).where(
         BabyRecord.app_user_id == user.id,
         BabyRecord.generation == generation,
@@ -86,7 +86,7 @@ async def decide(body, user, db, generation):
                 )
             target = category_for(collections, suggestion)
             if target is None:
-                target = new_category(user.id, generation, suggestion["name"])
+                target = new_category(user.id, generation, suggestion["name"], member.personal_space_id)
                 db.add(target)
                 collections.append(target)
                 created.add(target.id)
@@ -133,13 +133,14 @@ def category_for(collections, suggestion):
     return next((row for row in collections if name and comparable(row.title) == name), None)
 
 
-def new_category(owner, generation, name):
+def new_category(owner, generation, name, space_id):
     created = RecordCreate(
         id=uuid4(), kind="collection", title=name, occurred_at=now(), data={"record_ids": []}
     )
     return BabyRecord(
         **created.model_dump(),
         app_user_id=owner,
+        space_id=space_id,
         generation=generation,
         revision=1,
         creation_hash=digest(created.model_dump(mode="json")),

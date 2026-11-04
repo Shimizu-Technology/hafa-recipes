@@ -29,17 +29,31 @@ logger = logging.getLogger("hafa.baby.worker")
 WORKER_LOCK = 7340050
 
 
-async def schema_complete(connection, *, tables=BABY_TABLES, allowed_forms=ALLOWED_FORMS):
+async def schema_complete(connection, *, tables=None, allowed_forms=ALLOWED_FORMS):
     """Check the running models against the explicit pre-F11 compatibility contract."""
-    return await check_schema(connection, tables=tables, allowed_forms=allowed_forms)
+    if tables is None:
+        from app.domains.baby.share_models import BabyShareCapture, BabyShareCredential
+
+        tables = (*BABY_TABLES, BabyShareCredential.__table__, BabyShareCapture.__table__)
+    # Once a release maps a column it must exist; historical migrations still
+    # use their frozen optional forms directly. Keep nullable/SET NULL expansion.
+    mapped = {table.name: table for table in tables}
+    forms = {name: {column: tuple(form for form in options
+        if form is not None or column not in mapped[name].c)
+        for column, options in contract.items()}
+        for name, contract in allowed_forms.items() if name in mapped}
+    return await check_schema(connection, tables=tables, allowed_forms=forms)
 
 
 async def verify_baby_schema(session_factory=None):
     if not getattr(get_settings(), "baby_api_enabled", False):
         return
     async with (session_factory or AsyncSessionLocal)() as db:
+        for version in (56, 57):
+            if not await db.scalar(text("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=:version)"), {"version": version}):
+                raise RuntimeError(f"Apply Baby migration{version:03} before deploying F2")
         if not await schema_complete(db):
-            raise RuntimeError("Baby migration050 schema is incomplete")
+            raise RuntimeError("Baby schema is incomplete; apply migrations056 and057 before F2")
         if not await db.scalar(
             text("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=50)")
         ):

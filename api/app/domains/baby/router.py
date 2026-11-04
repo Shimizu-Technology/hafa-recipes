@@ -1,19 +1,22 @@
 """Owner-scoped records and product lifecycle. No AI write bypass exists."""
 
 from copy import deepcopy
-from datetime import datetime
-from typing import Annotated, Literal
+from datetime import date, datetime
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import ValidationError
+from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import func, or_, select
 
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
-from app.domains.baby.dependencies import Database, Generation, Limit, Offset, User
+from app.domains.baby.dependencies import Client, Database, Generation, Limit, Offset, User
+from app.domains.baby.events import check_series_cap, day_marks
+from app.domains.baby.events import router as events_router
+from app.domains.baby.feeds import retimed, same_action
 from app.domains.baby.imports import router as imports_router
 from app.domains.baby.lifecycle import (
     digest,
@@ -22,6 +25,7 @@ from app.domains.baby.lifecycle import (
     membership_for,
     now,
     owned,
+    settle_running_feeds,
     validate_relations,
 )
 from app.domains.baby.models import (
@@ -36,27 +40,36 @@ from app.domains.baby.models import (
 from app.domains.baby.queries import (
     LATEST_PREGNANCY_DAYS,
     child_timing,
+    legacy_client,
     records_query,
     stage_filter,
     timing_bounds,
     timing_filter,
 )
 from app.domains.baby.schemas import (
+    NEW_KINDS,
+    V1_KINDS,
     ChildCreate,
     ChildPatch,
     CollectionData,
+    EventData,
+    FeedActionRequest,
     Kind,
     Profile,
     ProfilePatch,
     RecordCreate,
     RecordPatch,
+    SessionActionRequest,
     SourceRelevance,
     Stage,
 )
-from app.domains.baby.security import BabyRoute
+from app.domains.baby.security import BabyRoute, new_kinds_enabled
+from app.domains.baby.sessions import SESSION_KINDS
+from app.domains.baby.stats import MAX_CUSTOM_DAYS, care_summary, number_in
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
+KindsFilter = Annotated[list[Kind] | None, Query(max_length=len(get_args(Kind)))]
 
 
 def child_response(row):
@@ -89,6 +102,81 @@ def record_response(row):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category")
+PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id",), "question": ("event_id",)}
+
+
+def reconciled_event(data, start):
+    """An edited series' data without the changes to dates it no longer has; bad data is left to be refused."""
+    try:
+        return EventData.model_validate(data).without_orphans(start).model_dump(mode="json")
+    except ValidationError:
+        return data
+
+
+def kept_additions(current, patch, keys):
+    data = dict(patch)
+    for key in keys:
+        if key not in data and key in current:
+            data[key] = deepcopy(current[key])
+    return data
+
+
+def corrected_by_hand(current, patch):
+    if "side" in patch and patch["side"] != current.get("side"):
+        return True
+    if "duration_minutes" not in patch:
+        return False
+    return number_in(patch["duration_minutes"]) != number_in(current.get("duration_minutes"))
+
+
+def feed_patch_data(current, patch):
+    """Actions only change through feed-action, and their results follow from them.
+
+    Changing a side or duration by hand is the exception: the parent knows better than the
+    taps, so the feed becomes a plain finished entry that a late tap cannot overwrite.
+    """
+    data = kept_additions(current, patch, ("state", "end_at", "contents"))
+    data.pop("actions", None)
+    if not current.get("actions"):
+        return data
+    if corrected_by_hand(current, patch):
+        return {**data, "state": "finished"}
+    return {
+        **data,
+        "actions": deepcopy(current["actions"]),
+        "side": current.get("side"),
+        "duration_minutes": current.get("duration_minutes"),
+    }
+
+
+def session_patch_data(current, patch):
+    """Taps and stops only change through session-action, and their results follow from them."""
+    data = {key: value for key, value in patch.items() if key != "session_actions"}
+    if not current.get("session_actions"):
+        return data
+    kept = ("session_actions", "count", "end_at")
+    return {**data, **{key: deepcopy(current[key]) for key in kept if key in current}}
+
+
+def visible_to(row, client):
+    if legacy_client(client) and row.kind not in V1_KINDS:
+        raise HTTPException(404, "Item unavailable")
+    return row
+
+
+def no_event_link_from_legacy(client, data):
+    if legacy_client(client) and (data or {}).get("event_id") is not None:
+        raise HTTPException(422, "Update Håfa Baby to save this")
+
+
+def can_create(kind, client):
+    if kind not in NEW_KINDS:
+        return
+    if legacy_client(client):
+        raise HTTPException(422, "Update Håfa Baby to save this")
+    if not new_kinds_enabled():
+        # Retryable, so a client that shipped first keeps its entry queued.
+        raise HTTPException(503, "This can't be saved yet; it will try again")
 
 
 def user_timing(relevance):
@@ -97,10 +185,7 @@ def user_timing(relevance):
 
 
 def source_patch_data(current, patch):
-    data = dict(patch)
-    for key in SOURCE_ADDITIONS:
-        if key not in data and key in current:
-            data[key] = deepcopy(current[key])
+    data = kept_additions(current, patch, SOURCE_ADDITIONS)
     stored, relevance = current.get("relevance"), data.get("relevance")
     if relevance is None and stored:
         # Clearing is a decision too: an empty user marker keeps reprocessing
@@ -122,6 +207,18 @@ def same_timing(proposed, current):
 
 def timing_values(relevance):
     return SourceRelevance.model_validate(relevance).model_dump(exclude={"origin", "quote"})
+
+
+def occurred_between(occurred_from, occurred_to):
+    """Half-open, so consecutive days never share an entry. ``ix_baby_records_owner`` covers it."""
+    if occurred_from is not None and occurred_to is not None and occurred_from >= occurred_to:
+        raise HTTPException(422, "Choose a start before the end")
+    conditions = []
+    if occurred_from is not None:
+        conditions.append(BabyRecord.occurred_at >= occurred_from)
+    if occurred_to is not None:
+        conditions.append(BabyRecord.occurred_at < occurred_to)
+    return conditions
 
 
 def revision_matches(row, revision):
@@ -155,6 +252,11 @@ async def bootstrap_state(user, db, *, create):
         )
         db.add(member)
         await db.flush()
+    if create:
+        # GET stays read-only. Every creation site provisions through its write path.
+        from app.domains.baby.spaces import ensure_personal_space
+
+        await ensure_personal_space(db, member)
     from app.domains.baby.provider import BabyProvider
 
     children = (
@@ -188,6 +290,9 @@ async def enroll(user: User, db: Database, generation: Generation):
         member.status = "active"
         member.profile = Profile().model_dump()
         member.updated_at = now()
+    from app.domains.baby.spaces import ensure_personal_space
+
+    await ensure_personal_space(db, member)
     await db.commit()
     return {"generation": member.generation, "active": True}
 
@@ -298,7 +403,7 @@ async def children(user: User, db: Database):
 
 @router.post("/children")
 async def create_child(body: ChildCreate, user: User, db: Database, generation: Generation):
-    await membership_for(db, user.id, generation=generation, write=True)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     fingerprint = digest(body.model_dump(mode="json"))
     prior = await db.get(BabyChild, body.id)
     if prior:
@@ -325,6 +430,7 @@ async def create_child(body: ChildCreate, user: User, db: Database, generation: 
     row = BabyChild(
         **body.model_dump(),
         app_user_id=user.id,
+        space_id=member.personal_space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,
@@ -386,6 +492,7 @@ async def delete_child(
             job.request = {**job.request, "child_id": None}
     row.deleted_at, row.name, row.birth_date, row.due_date = now(), "", None, None
     row.revision += 1
+    await settle_running_feeds(db, user.id, generation, None)
     await db.commit()
     return Response(status_code=204)
 
@@ -408,6 +515,7 @@ async def record_list(
     conditions=(),
     order=None,
     extra=None,
+    client=None,
 ):
     if kind is not None and kinds is not None:
         raise HTTPException(422, "Choose kind or kinds, not both")
@@ -448,6 +556,8 @@ async def record_list(
         query = query.where(BabyRecord.kind.in_(kinds))
     if child_id and include_general:
         query = query.where(or_(BabyRecord.child_id == child_id, BabyRecord.child_id.is_(None)))
+    if legacy_client(client):
+        query = query.where(BabyRecord.kind.in_(V1_KINDS))
     for condition in conditions:
         query = query.where(condition)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
@@ -520,8 +630,9 @@ async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_w
 async def records(
     user: User,
     db: Database,
+    client: Client = None,
     kind: Kind | None = None,
-    kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
+    kinds: KindsFilter = None,
     child_id: UUID | None = None,
     include_general: bool = False,
     collection_id: UUID | None = None,
@@ -534,11 +645,13 @@ async def records(
     baby_age_weeks: Annotated[int | None, Query(ge=0, le=520)] = None,
     within_weeks: Annotated[int | None, Query(ge=1, le=104)] = None,
     stage: Stage | None = None,
+    occurred_from: AwareDatetime | None = None,
+    occurred_to: AwareDatetime | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
-    conditions, order, extra = [], None, None
+    conditions, order, extra = occurred_between(occurred_from, occurred_to), None, None
     if stage is not None:
         conditions.append(stage_filter(stage))
     if timing == "now" and within_weeks is not None:
@@ -576,6 +689,7 @@ async def records(
         conditions=conditions,
         order=order,
         extra=extra,
+        client=client,
     )
 
 
@@ -584,17 +698,21 @@ async def search(
     user: User,
     db: Database,
     q: Annotated[str, Query(min_length=1, max_length=300)],
+    client: Client = None,
     kind: Kind | None = None,
-    kinds: Annotated[list[Kind] | None, Query(max_length=8)] = None,
+    kinds: KindsFilter = None,
     child_id: UUID | None = None,
     include_general: bool = False,
     collection_id: UUID | None = None,
     uncategorized: bool = False,
     topic: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    occurred_from: AwareDatetime | None = None,
+    occurred_to: AwareDatetime | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ):
     member = await membership_for(db, user.id)
+    conditions = occurred_between(occurred_from, occurred_to)
     return await record_list(
         db,
         user.id,
@@ -609,18 +727,49 @@ async def search(
         collection_id=collection_id,
         topic=topic,
         uncategorized=uncategorized,
+        conditions=conditions,
+        client=client,
     )
 
 
-@router.get("/records/{identifier}")
-async def get_record(identifier: UUID, user: User, db: Database):
+@router.get("/care/summary")
+async def care_days(
+    user: User,
+    db: Database,
+    first: Annotated[date, Query(alias="from")],
+    last: Annotated[date, Query(alias="to")],
+    child_id: UUID | None = None,
+    client: Client = None,
+):
+    """Tracker's days and calendar dots. Without a child, the logs that have no child."""
     member = await membership_for(db, user.id)
-    return record_response(await owned(db, BabyRecord, user.id, member.generation, identifier))
+    if child_id:
+        await owned(db, BabyChild, user.id, member.generation, child_id)
+    zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
+    # Build 32 knows no events, contractions or kicks, so it gets no dots for them.
+    marks = None
+    if not legacy_client(client) and first <= last and (last - first).days < MAX_CUSTOM_DAYS:
+        marks = await day_marks(db, user.id, member.generation, child_id, zone, first, last)
+    try:
+        return await care_summary(db, user.id, member.generation, child_id, zone, first, last, now(), marks)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+
+
+@router.get("/records/{identifier}")
+async def get_record(identifier: UUID, user: User, db: Database, client: Client = None):
+    member = await membership_for(db, user.id)
+    row = await owned(db, BabyRecord, user.id, member.generation, identifier)
+    return record_response(visible_to(row, client))
 
 
 @router.post("/records")
-async def create_record(body: RecordCreate, user: User, db: Database, generation: Generation):
-    await membership_for(db, user.id, generation=generation, write=True)
+async def create_record(
+    body: RecordCreate, user: User, db: Database, generation: Generation, client: Client = None
+):
+    can_create(body.kind, client)
+    no_event_link_from_legacy(client, body.data)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     if body.kind == "source" and body.data.get("relevance") is not None:
         body.data["relevance"] = user_timing(body.data["relevance"])
     fingerprint = digest(body.model_dump(mode="json"))
@@ -636,9 +785,12 @@ async def create_record(body: RecordCreate, user: User, db: Database, generation
             raise HTTPException(410, "This entry was removed; create a new entry")
         return record_response(prior)
     await validate_relations(db, user.id, generation, body.child_id, body.data, record_id=body.id)
+    if body.kind == "event":
+        await check_series_cap(db, user.id, generation, body.data, record_id=body.id)
     row = BabyRecord(
         **body.model_dump(),
         app_user_id=user.id,
+        space_id=member.personal_space_id,
         generation=generation,
         revision=1,
         creation_hash=fingerprint,
@@ -646,34 +798,133 @@ async def create_record(body: RecordCreate, user: User, db: Database, generation
         updated_at=now(),
     )
     db.add(row)
+    if row.kind == "feeding":
+        await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
     await db.commit()
     return record_response(row)
 
 
 @router.patch("/records/{identifier}")
 async def patch_record(
-    identifier: UUID, body: RecordPatch, user: User, db: Database, generation: Generation
+    identifier: UUID,
+    body: RecordPatch,
+    user: User,
+    db: Database,
+    generation: Generation,
+    client: Client = None,
 ):
     await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
     revision_matches(row, body.revision)
+    no_event_link_from_legacy(client, body.data)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values.update(body.model_dump(exclude_unset=True, exclude={"revision"}))
     if row.kind == "source" and isinstance(body.data, dict):
         values["data"] = source_patch_data(row.data, body.data)
+    elif row.kind in PATCH_ADDITIONS and isinstance(body.data, dict):
+        values["data"] = kept_additions(row.data, body.data, PATCH_ADDITIONS[row.kind])
+    elif row.kind == "feeding" and isinstance(body.data, dict):
+        values["data"] = feed_patch_data(row.data, body.data)
+    elif row.kind in SESSION_KINDS and isinstance(body.data, dict):
+        values["data"] = session_patch_data(row.data, body.data)
+    if (
+        row.kind == "feeding"
+        and body.occurred_at
+        and isinstance(values["data"], dict)
+        and values["data"].get("actions")
+    ):
+        values["data"] = {
+            **values["data"],
+            "actions": retimed(values["data"]["actions"], body.occurred_at.isoformat()),
+        }
+    if row.kind == "event":
+        values["data"] = reconciled_event(values["data"], values["occurred_at"])
     try:
         valid = RecordCreate.model_validate(values)
     except ValidationError:
         raise HTTPException(422, "Enter valid details for this entry") from None
     await validate_relations(db, user.id, generation, valid.child_id, valid.data, record_id=row.id)
+    if row.kind == "event":
+        await check_series_cap(db, user.id, generation, valid.data, record_id=row.id)
     removed_attachments = set(row.data.get("attachment_ids", [])) - set(
         valid.data.get("attachment_ids", [])
     )
+    previous_child = row.child_id
     for key in ("title", "body", "child_id", "occurred_at", "data"):
         setattr(row, key, getattr(valid, key))
     row.revision, row.updated_at = row.revision + 1, now()
     if removed_attachments:
         await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+    if row.kind == "feeding":
+        for child_id in {previous_child, row.child_id}:
+            await settle_running_feeds(db, user.id, generation, child_id, changed=row.id)
+    await db.commit()
+    return record_response(row)
+
+
+@router.post("/records/{identifier}/feed-action")
+async def feed_action(
+    identifier: UUID, body: FeedActionRequest, user: User, db: Database, generation: Generation
+):
+    """A running feed's tap. Idempotent by its ID, and needs no revision: taps never conflict."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    stored = row.data.get("actions", [])
+    if (
+        row.kind != "feeding"
+        or row.data.get("method") != "breast"
+        or not (stored or row.data.get("state") in {"running", "unknown_end"})
+    ):
+        raise HTTPException(409, "This feed isn't being timed")
+    action = body.model_dump(mode="json")
+    prior = next((item for item in stored if item["id"] == action["id"]), None)
+    if prior:
+        if not same_action(prior, action):
+            raise HTTPException(409, "This save identity was already used with different content")
+        return record_response(row)
+    values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
+    values["data"]["actions"] = [*stored, {**action, "revision": row.revision + 1}]
+    try:
+        valid = RecordCreate.model_validate(values)
+    except ValidationError:
+        raise HTTPException(422, "Enter valid details for this entry") from None
+    row.data, row.occurred_at = valid.data, valid.occurred_at
+    row.revision, row.updated_at = row.revision + 1, now()
+    await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
+    await db.commit()
+    return record_response(row)
+
+
+@router.post("/records/{identifier}/session-action")
+async def session_action(
+    identifier: UUID,
+    body: SessionActionRequest,
+    user: User,
+    db: Database,
+    generation: Generation,
+    client: Client = None,
+):
+    """A kick session's tap or a contraction's stop. Idempotent by its ID, and needs no revision."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
+    stored = row.data.get("session_actions", [])
+    # A count from before taps had identities has nothing an action could add to.
+    if row.kind not in SESSION_KINDS or (row.data.get("count") and not stored):
+        raise HTTPException(409, "This entry isn't being timed")
+    action = body.model_dump(mode="json")
+    prior = next((item for item in stored if item["id"] == action["id"]), None)
+    if prior:
+        if not same_action(prior, action):
+            raise HTTPException(409, "This save identity was already used with different content")
+        return record_response(row)
+    values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
+    values["data"]["session_actions"] = [*stored, {**action, "revision": row.revision + 1}]
+    try:
+        valid = RecordCreate.model_validate(values)
+    except ValidationError:
+        raise HTTPException(422, "Enter valid details for this entry") from None
+    row.data = valid.data
+    row.revision, row.updated_at = row.revision + 1, now()
     await db.commit()
     return record_response(row)
 
@@ -685,9 +936,10 @@ async def delete_record(
     db: Database,
     generation: Generation,
     revision: Annotated[int, Query(ge=1)],
+    client: Client = None,
 ):
     await membership_for(db, user.id, generation=generation, write=True)
-    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
     revision_matches(row, revision)
     # Cancel processing before deleting the source, so completion cannot recreate it.
     for job in await db.scalars(
@@ -713,16 +965,32 @@ async def delete_record(
                 ],
             }
             collection.revision, collection.updated_at = collection.revision + 1, now()
+    if row.kind == "event":
+        # A question or note about a visit stays; only its link to the removed event goes.
+        for linked in await db.scalars(
+            select(BabyRecord).where(
+                BabyRecord.app_user_id == user.id,
+                BabyRecord.generation == generation,
+                BabyRecord.deleted_at.is_(None),
+                BabyRecord.kind.in_(("question", "journal")),
+                BabyRecord.data["event_id"].as_string() == str(identifier),
+            )
+        ):
+            linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
+            linked.revision, linked.updated_at = linked.revision + 1, now()
     removed_attachments = row.data.get("attachment_ids", [])
+    child_id = row.child_id
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None
     row.revision, row.updated_at = row.revision + 1, now()
     await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+    if row.kind == "feeding":
+        await settle_running_feeds(db, user.id, generation, child_id)
     await db.commit()
     return Response(status_code=204)
 
 
 @router.get("/export")
-async def export(user: User, db: Database):
+async def export(user: User, db: Database, client: Client = None):
     member = await membership_for(db, user.id, write=True)
     from app.domains.baby.attachments import metadata
     from app.domains.baby.chat import conversation_response, message_response
@@ -745,13 +1013,15 @@ async def export(user: User, db: Database):
             child_response(row) for row in await rows(BabyChild) if row.deleted_at is None
         ],
         "records": [
-            record_response(row) for row in await rows(BabyRecord) if row.deleted_at is None
+            record_response(row)
+            for row in await rows(BabyRecord)
+            if row.deleted_at is None and not (legacy_client(client) and row.kind not in V1_KINDS)
         ],
         "attachments": [
             metadata(row) for row in await rows(BabyAttachment) if row.state == "ready"
         ],
         "conversations": [conversation_response(row) for row in await rows(BabyConversation)],
-        "messages": [message_response(row) for row in await rows(BabyMessage)],
+        "messages": [message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)],
     }
 
 
@@ -777,3 +1047,4 @@ router.include_router(upload_router)
 router.include_router(chat_router)
 router.include_router(imports_router)
 router.include_router(suggestions_router)
+router.include_router(events_router)

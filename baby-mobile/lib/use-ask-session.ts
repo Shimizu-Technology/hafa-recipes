@@ -235,10 +235,15 @@ export function useAskSession(recordId?: string, active = true) {
     return null;
   }
   function startNew() {
-    if (!live.current.active) return;
+    if (!live.current.active || working.current) return;
     stash();
-    const operation = ticket();
-    activate(current.current.context, undefined, [], current.current.focusedTitle);
+    const operation = ticket(), prior = current.current,
+      // On a screen opened for one entry, a new chat stays on it. Anywhere else it is a general chat,
+      // whatever the conversation on screen searched: scope has no other control now.
+      onEntry = !!recordId && prior.context.record_id === recordId;
+    activate(onEntry ? prior.context : { scope: "all", record_id: null, child_id: live.current.b.state.selectedChild },
+      undefined, [], onEntry ? prior.focusedTitle : undefined);
+    setShowHistory(false);
     update({ ...current.current, requestId: undefined });
     void save(current.current).catch(() => { if (operation.valid()) setError("Could not save this question draft. Try again."); });
   }

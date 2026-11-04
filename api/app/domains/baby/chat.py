@@ -12,7 +12,7 @@ from sqlalchemy import String, case, cast, func, or_, select
 
 from app.ai_governance import ai_request_context
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.dependencies import Database, Generation, User
+from app.domains.baby.dependencies import Client, Database, Generation, User
 from app.domains.baby.lifecycle import digest, membership_for, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
@@ -20,9 +20,10 @@ from app.domains.baby.provider import (
     BabyProvider,
     budget_failure_message,
 )
-from app.domains.baby.queries import child_timing, records_query
-from app.domains.baby.schemas import ChatRequest, RecordCreate
+from app.domains.baby.queries import child_timing, legacy_client, records_query
+from app.domains.baby.schemas import V1_KINDS, ChatRequest, RecordCreate
 from app.domains.baby.security import BabyRoute
+from app.domains.baby.stats import care_stats, custom_days, last_feed
 
 router = APIRouter(tags=["baby"], route_class=BabyRoute)
 SCOPE_KINDS = {
@@ -66,14 +67,21 @@ def clean_assistant_message(message):
     return re.sub(r"[ \t]{2,}", " ", message).strip()
 
 
-def message_response(row):
+def citations_for(citations, *, legacy):
+    """Build 32 cannot open what it does not know, so it is not offered as a source."""
+    if not legacy:
+        return citations
+    return [item for item in citations or [] if item.get("kind", "source") in V1_KINDS]
+
+
+def message_response(row, *, legacy=False):
     return {
         "id": row.id,
         "conversation_id": row.conversation_id,
         "role": row.role,
         "content": clean_assistant_message(row.content.get("message", ""))
         if row.role == "assistant" else row.content.get("message", ""),
-        "citations": row.content.get("citations", []),
+        "citations": citations_for(row.content.get("citations", []), legacy=legacy),
         "proposal": row.content.get("proposal"),
         "created_at": row.created_at,
         "status": row.content.get("status", "ready"),
@@ -132,9 +140,12 @@ def parent_zone(name):
 
 def local_data(data, zone):
     """Care times the model reads in the parent's own timezone, so answers quote local clock times."""
-    if zone is None or not isinstance(data, dict):
+    if not isinstance(data, dict):
         return data
-    shifted = dict(data)
+    # Each tap's identity says nothing the count and times don't.
+    shifted = {key: value for key, value in data.items() if key != "session_actions"}
+    if zone is None:
+        return shifted
     for key in ("end_at", "reminder_at"):
         moment = parsed_time(shifted.get(key))
         if moment and moment.tzinfo:
@@ -347,17 +358,21 @@ async def dated_rows(db, query, window, terms):
     return rows[:DATED_LIMIT], len(rows) <= DATED_LIMIT, outside
 
 
-async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=()):
+async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=(), legacy=False):
     """Citable records, their display excerpts, and the date range they answer, if one was asked."""
     window = None if request.record_id else date_window(request.message, now().astimezone(zone))
     names = set(query_terms(" ".join(child_names)))
     terms = [term for term in query_terms(without_dates(request.message)) if term not in names]
     query = records_query(owner, generation, child_id=request.child_id)
+    if legacy:
+        query = query.where(BabyRecord.kind.in_(V1_KINDS))
     if request.scope in SCOPE_KINDS:
         query = query.where(BabyRecord.kind.in_(SCOPE_KINDS[request.scope]))
     outside, in_full, complete = [], set(), True
     if request.record_id:
         focus = await owned(db, BabyRecord, owner, generation, request.record_id)
+        if legacy and focus.kind not in V1_KINDS:
+            raise HTTPException(404, "Item unavailable")
         if request.child_id and focus.child_id != request.child_id:
             raise HTTPException(422, "The selected entry belongs to a different child")
         if request.scope in SCOPE_KINDS and focus.kind not in SCOPE_KINDS[request.scope]:
@@ -404,9 +419,47 @@ async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=()):
     return context, displays, requested_range
 
 
+def today_totals(stats):
+    """S1's numbers for today, without its record IDs or averages today cannot have."""
+    return {
+        "feeding": {
+            key: stats["feeding"][key]
+            for key in (
+                "count", "left", "right", "both", "bottle_count",
+                "bottle_ml", "bottle_oz", "breast_minutes", "timed_breast_feeds",
+            )
+        },
+        "diapers": {key: stats["diapers"][key] for key in ("count", "pee", "poo", "dry")},
+        "sleep": {
+            **{key: stats["sleep"][key] for key in ("total_minutes", "longest_minutes", "sleeps")},
+            "in_progress_since": [item["started_at"] for item in stats["sleep"]["open"]],
+        },
+        "complete": stats["complete"],
+    }
+
+
+async def care_context(db, owner, generation, child_id, zone):
+    at = now()
+    today = at.astimezone(zone).date()
+    feed = await last_feed(db, owner, generation, child_id, zone, at)
+    totals = today_totals(
+        await care_stats(db, owner, generation, child_id, zone, custom_days(today, today, zone, at))
+    )
+    logged = (
+        feed
+        or totals["feeding"]["count"]
+        or totals["diapers"]["count"]
+        or totals["sleep"]["sleeps"]
+        or totals["sleep"]["in_progress_since"]
+    )
+    return {"last_feed": feed, "today_totals": totals}, bool(logged)
+
+
 async def context_pack(db, owner, generation, request, zone):
     """Facts computed by code, kept out of the citable records and free of record IDs."""
     today = now().astimezone(zone).date()
+    # A focused or Saved or Journal conversation is not about care, so it isn't sent any.
+    with_care = not request.record_id and request.scope in {"all", "care"}
     query = select(BabyChild).where(
         BabyChild.app_user_id == owner,
         BabyChild.generation == generation,
@@ -423,8 +476,18 @@ async def context_pack(db, owner, generation, request, zone):
         for key in ("due_date", "birth_date"):
             if getattr(child, key):
                 entry[key] = getattr(child, key).isoformat()
+        if with_care:
+            care, logged = await care_context(db, owner, generation, child.id, zone)
+            # A baby's empty day is news; an unborn child's is not.
+            if logged or entry["stage"] == "baby":
+                entry.update(care)
         children.append(entry)
-    return {"children": children, "today": today.isoformat()}
+    pack = {"children": children, "today": today.isoformat()}
+    if with_care and not request.child_id:
+        care, logged = await care_context(db, owner, generation, None, zone)
+        if logged:
+            pack["care_with_no_child"] = care
+    return pack
 
 
 def reviewed_proposal(raw):
@@ -462,7 +525,7 @@ async def conversations(user: User, db: Database):
 
 
 @router.get("/conversations/{identifier}")
-async def get_conversation(identifier: UUID, user: User, db: Database):
+async def get_conversation(identifier: UUID, user: User, db: Database, client: Client = None):
     member = await membership_for(db, user.id)
     row = await owned(db, BabyConversation, user.id, member.generation, identifier)
     messages = await db.scalars(
@@ -477,12 +540,14 @@ async def get_conversation(identifier: UUID, user: User, db: Database):
     )
     return {
         **conversation_response(row),
-        "messages": [message_response(message) for message in messages],
+        "messages": [message_response(message, legacy=legacy_client(client)) for message in messages],
     }
 
 
 @router.post("/chat")
-async def chat(body: ChatRequest, user: User, db: Database, generation: Generation):
+async def chat(
+    body: ChatRequest, user: User, db: Database, generation: Generation, client: Client = None
+):
     member = await membership_for(db, user.id, generation=generation, write=True)
     if not member.profile.get("ai_consent"):
         raise HTTPException(403, "Enable AI processing in settings before asking a question")
@@ -505,6 +570,9 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         if answer:
             return {
                 "conversation_id": answer.conversation_id, **answer.content,
+                "citations": citations_for(
+                    answer.content.get("citations", []), legacy=legacy_client(client)
+                ),
                 "message": clean_assistant_message(answer.content.get("message", "")),
             }
         lease = prior.content.get("lease_until")
@@ -544,6 +612,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         else:
             conversation = BabyConversation(
                 app_user_id=user.id,
+                space_id=member.personal_space_id,
                 generation=generation,
                 title=body.message[:100],
                 scope=body.scope,
@@ -557,6 +626,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         prior = BabyMessage(
             id=body.request_id,
             app_user_id=user.id,
+            space_id=member.personal_space_id,
             generation=generation,
             conversation_id=conversation.id,
             role="user",
@@ -592,7 +662,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
     zone = parent_zone(member.profile.get("timezone"))
     pack = await context_pack(db, user.id, generation, body, zone)
     context, displays, requested_range = await retrieve(
-        db, user.id, generation, body, zone, child_names=[item["name"] for item in pack["children"]]
+        db, user.id, generation, body, zone, legacy=legacy_client(client), child_names=[item["name"] for item in pack["children"]]
     )
     history_rows = list(
         await db.scalars(
@@ -673,6 +743,7 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
         answer = BabyMessage(
             id=answer_id,
             app_user_id=user.id,
+            space_id=current.personal_space_id,
             generation=generation,
             conversation_id=conversation_id,
             role="assistant",

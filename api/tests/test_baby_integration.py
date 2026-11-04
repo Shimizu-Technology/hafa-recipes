@@ -38,7 +38,7 @@ GEN = {"X-Baby-Generation": "1"}
 
 
 @pytest.fixture
-async def baby_api(monkeypatch):
+async def baby_api(monkeypatch, request):
     require_disposable_test_database(DATABASE_URL)
     engine = create_async_engine(DATABASE_URL)
     try:
@@ -56,6 +56,8 @@ async def baby_api(monkeypatch):
             baby_api_enabled=True, environment="test", deletion_cleanup_max_attempts=20
         )
         for name in BABY_MIGRATIONS:
+            if int(name.split(".")[1].split("_")[0]) > getattr(request, "param", 57):
+                continue
             await importlib.import_module(name).run_migration(
                 configured=settings, migration_engine=engine
             )
@@ -86,6 +88,9 @@ async def baby_api(monkeypatch):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
+            if getattr(request, "param", 57) < 57:
+                yield SimpleNamespace(client=client, sessions=sessions, engine=engine, settings=settings)
+                return
             assert (await client.get("/api/v1/baby/bootstrap")).status_code == 409
             await client.post("/api/v1/baby/bootstrap")
             await client.post("/api/v1/baby/bootstrap", headers={"X-Test-Owner": "other"})

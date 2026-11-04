@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
@@ -16,6 +16,7 @@ from app.domains.baby.models import (
     BabyMessage,
     BabyRecord,
 )
+from app.domains.baby.stats import care_query
 from app.models.identity import AppUser
 
 
@@ -46,6 +47,10 @@ async def membership_for(db, owner, *, generation=None, write=False, active=True
         raise HTTPException(409, "Open Baby and deliberately start a new library before saving")
     if generation is not None and generation != row.generation:
         raise HTTPException(409, "Baby data changed; refresh before saving")
+    if write:
+        from app.domains.baby.spaces import ensure_personal_space
+
+        await ensure_personal_space(db, row)
     return row
 
 
@@ -69,12 +74,52 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
         row = await owned(db, BabyAttachment, owner, generation, UUID(str(identifier)))
         if row.state != "ready":
             raise HTTPException(409, "Attachment is not ready")
+    if data.get("event_id"):
+        from uuid import UUID
+
+        if (await owned(db, BabyRecord, owner, generation, UUID(str(data["event_id"])))).kind != "event":
+            raise HTTPException(422, "Choose an event from your calendar")
     for identifier in data.get("record_ids", []):
         from uuid import UUID
 
         if str(identifier) == str(record_id):
             raise HTTPException(422, "A collection cannot contain itself")
         await owned(db, BabyRecord, owner, generation, UUID(str(identifier)))
+
+
+# A phone's clock can run a little ahead. Further ahead is a plan or a typo, not a feed under way.
+FEED_START_TOLERANCE = timedelta(minutes=5)
+
+
+async def settle_running_feeds(db, owner, generation, child_id, *, changed=None):
+    """Per child, only the newest breastfeed can be running; ties go to the higher record ID.
+
+    Worked out from the live feeds each time, so arrival order cannot matter and undoing the
+    newest feed restores the one before it. A finish still wins: it can arrive after this.
+    A feed dated ahead neither runs nor ends one that does, and is left alone until its time.
+    ``changed`` is the row the caller has already counted as a new revision.
+    """
+    await db.flush()
+    latest = now() + FEED_START_TOLERANCE
+    feeds = care_query(owner, generation, child_id, BabyRecord).where(BabyRecord.kind == "feeding")
+    newest = await db.scalar(
+        feeds.where(
+            BabyRecord.data["method"].as_string() == "breast", BabyRecord.occurred_at <= latest
+        )
+        .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
+        .limit(1)
+    )
+    if newest is None:
+        return
+    running = await db.scalars(feeds.where(BabyRecord.data["state"].as_string() == "running"))
+    for row in {item.id: item for item in (*running, newest)}.values():
+        if row.occurred_at > latest:
+            continue
+        wanted = "running" if row.id == newest.id else "unknown_end"
+        if row.data.get("state") in {"running", "unknown_end"} and row.data["state"] != wanted:
+            row.data = {**row.data, "state": wanted}
+            if row.id != changed:
+                row.revision, row.updated_at = row.revision + 1, now()
 
 
 async def owned_cleanup_prefixes(db, owner):
@@ -124,3 +169,7 @@ async def erase_product_data(db, member, generation):
     member.consent_epoch += 1
     member.profile = {}
     member.updated_at = now()
+
+    from app.domains.baby.spaces import ensure_personal_space
+
+    await ensure_personal_space(db, member)

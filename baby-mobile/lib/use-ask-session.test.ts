@@ -122,6 +122,52 @@ it("rejects a queued older owner write after a focused screen takes over (M3)", 
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
 
+it("starts a general new chat from an old care conversation, from History, without losing a draft", async () => {
+  const account = setup();
+  account.api.conversation.mockResolvedValue(conversation({ scope: "care", record_id: null, child_id: null }, "old"));
+  await mount();
+  await act(async () => result.load("old"));
+  expect(result.messages).toHaveLength(2);
+  await act(async () => { await result.openHistory(); });
+  expect(result.showHistory).toBe(true);
+  await act(async () => result.startNew());
+  expect(result.showHistory).toBe(false);
+  expect(result.messages).toEqual([]);
+  expect(result.conversation).toBeUndefined();
+  expect(result.context).toEqual(general);
+  await question("Fresh question");
+  await act(async () => { await result.send(); });
+  expect(account.api.chat.mock.calls[0][0]).toMatchObject({ scope: "all", conversation_id: undefined, message: "Fresh question" });
+});
+
+it("keeps a new chat on the entry a focused screen opened for", async () => {
+  const account = setup();
+  await mount("entry");
+  await question("About this");
+  await act(async () => { await result.send(); });
+  expect(result.conversation).toBe("answer-conversation");
+  await act(async () => result.startNew());
+  expect(result.messages).toEqual([]);
+  expect(result.conversation).toBeUndefined();
+  expect(result.context.record_id).toBe("entry");
+  expect(result.focusedTitle).toBe("Saved advice");
+  await question("Another");
+  await act(async () => { await result.send(); });
+  expect(account.api.chat.mock.calls[1][0]).toMatchObject({ record_id: "entry", conversation_id: undefined });
+});
+
+it("ignores New chat while an answer is on its way", async () => {
+  const account = setup(), pending = held<Awaited<ReturnType<typeof account.api.chat>>>();
+  account.api.chat.mockReturnValueOnce(pending.promise);
+  await mount();
+  await question("In flight");
+  let sending!: Promise<void>; await act(async () => { sending = result.send(); });
+  await act(async () => result.startNew());
+  await act(async () => { pending.release({ conversation_id: "kept", message: "Answer", citations: [] }); await sending; });
+  expect(result.conversation).toBe("kept");
+  expect(result.messages.map((m) => m.content)).toEqual(["In flight", "Answer"]);
+});
+
 it("restores scope/record/child metadata before a history follow-up, matching the real API context contract", async () => {
   const account = setup(), context: AskContext = { scope: "care", record_id: null, child_id: "other-child" };
   account.api.conversation.mockResolvedValue(conversation(context));

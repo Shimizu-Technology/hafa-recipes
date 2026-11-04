@@ -52,6 +52,9 @@ BABY_MIGRATIONS = (
     "migrations.050_add_baby_domain",
     "migrations.051_add_baby_share",
     "migrations.052_allow_baby_media_cleanup",
+    "migrations.055_expand_baby_record_kinds",
+    "migrations.056_add_baby_spaces",
+    "migrations.057_add_baby_push",
 )
 
 

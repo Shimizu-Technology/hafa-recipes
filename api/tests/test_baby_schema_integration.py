@@ -25,27 +25,11 @@ SPACE_TABLES = (
 )
 CREATORS = ("baby_children", "baby_records", "baby_attachments")
 LIVE_TABLES = (*BABY_TABLES, BabyShareCredential.__table__, BabyShareCapture.__table__)
+OLD_TABLES = (*BABY_V1_TABLES, *BABY_SHARE_V1_TABLES)
 
 
-async def simulate_stage(engine, stage):
+async def simulate_contract_stage(engine, stage):
     async with engine.begin() as db:
-        if stage >= 55:
-            await db.execute(text("ALTER TABLE baby_records DROP CONSTRAINT ck_baby_record_kind"))
-            await db.execute(text("""ALTER TABLE baby_records ADD CONSTRAINT ck_baby_record_kind
-                CHECK (kind IN ('source','journal','feeding','sleep','diaper','routine','question',
-                'collection','event','contraction','kick_session','pumping','medicine',
-                'temperature','growth','milestone','custom'))"""))
-        if stage >= 56:
-            await db.execute(text("CREATE TABLE baby_spaces (id UUID PRIMARY KEY)"))
-            await db.execute(text("ALTER TABLE baby_memberships ADD COLUMN personal_space_id UUID"))
-            for table in SPACE_TABLES:
-                await db.execute(text(f"""ALTER TABLE {table}
-                    ADD COLUMN space_id UUID REFERENCES baby_spaces(id) ON DELETE CASCADE,
-                    ADD COLUMN change_seq BIGINT"""))
-            for table in ("baby_conversations", "baby_messages"):
-                await db.execute(text(f"ALTER TABLE {table} ADD COLUMN context_space_ids UUID[]"))
-        if stage >= 57:
-            await db.execute(text("CREATE TABLE baby_test_devices (id UUID PRIMARY KEY)"))
         if stage >= 58:
             for table in SPACE_TABLES:
                 await db.execute(text(f"ALTER TABLE {table} ALTER COLUMN space_id SET NOT NULL"))
@@ -57,16 +41,21 @@ async def simulate_stage(engine, stage):
                         REFERENCES app_users(id) ON DELETE SET NULL"""))
 
 
-@pytest.mark.parametrize("stage", [54, 55, 56, 57, 58])
-async def test_startup_and_named_chain_rerun_at_each_stage(baby_api, monkeypatch, stage):
-    await simulate_stage(baby_api.engine, stage)
+@pytest.mark.parametrize("baby_api", [54, 55, 56, 57, 58], indirect=True)
+async def test_startup_and_named_chain_rerun_at_each_stage(baby_api, monkeypatch, request):
+    stage = request.node.callspec.params["baby_api"]
+    await simulate_contract_stage(baby_api.engine, stage)
     monkeypatch.setattr("app.domains.baby.runtime.get_settings", lambda: baby_api.settings)
-    await verify_baby_schema(baby_api.sessions)
+    if stage >= 57:
+        await verify_baby_schema(baby_api.sessions)
+    else:
+        with pytest.raises(RuntimeError, match="before deploying F2"):
+            await verify_baby_schema(baby_api.sessions)
     async with baby_api.engine.connect() as db:
-        assert await schema_complete(db, tables=LIVE_TABLES)
+        assert await schema_complete(db, tables=OLD_TABLES)
         if stage >= 56:
             # A caller can request the strict mapped shape instead.
-            assert await schema_complete(db, allowed_forms={}) == (stage < 58)
+            assert await schema_complete(db, tables=OLD_TABLES, allowed_forms={}) == (stage < 58)
     for name in BABY_MIGRATIONS:
         await importlib.import_module(name).run_migration(
             configured=baby_api.settings, migration_engine=baby_api.engine
@@ -111,7 +100,6 @@ async def test_strict_rules_still_reject_drift(baby_api, ddl):
 @pytest.mark.parametrize("table", SPACE_TABLES)
 @pytest.mark.parametrize("drift", ["type", "action", "missing_fk", "unvalidated_fk"])
 async def test_every_space_column_is_checked_without_an_orm_mapping(baby_api, table, drift):
-    await simulate_stage(baby_api.engine, 56)
     async with baby_api.engine.begin() as db:
         await db.execute(text(f"ALTER TABLE {table} DROP CONSTRAINT {table}_space_id_fkey"))
         if drift == "type":
@@ -132,8 +120,8 @@ async def test_every_space_column_is_checked_without_an_orm_mapping(baby_api, ta
 async def test_frozen_creation_and_verification_ignore_future_model_changes(baby_api, monkeypatch):
     changed_tables = (BABY_TABLES[1], BabyShareCredential.__table__)
     async with baby_api.engine.begin() as db:
-        await db.execute(text("DELETE FROM schema_migrations WHERE version IN (50,51,52)"))
-        for table in reversed(LIVE_TABLES):
+        await db.execute(text("DELETE FROM schema_migrations WHERE version IN (50,51,52,55,56,57)"))
+        for table in reversed(OLD_TABLES):
             await db.execute(text(f"DROP TABLE {table.name} CASCADE"))
     added = []
     try:

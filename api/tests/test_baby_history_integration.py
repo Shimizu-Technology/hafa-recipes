@@ -130,6 +130,6 @@ async def test_kind_groups_and_explicit_general_notes_obey_child_owner_and_gener
 @pytest.mark.parametrize("path", ["/records", "/search?q=hospital"])
 async def test_kind_group_filters_are_bounded_and_unambiguous(baby_api, path):
     separator = "&" if "?" in path else "?"
-    for invalid in ["kinds=invalid", "kind=journal&kinds=journal", "&".join(["kinds=journal"] * 9)]:
+    for invalid in ["kinds=invalid", "kind=journal&kinds=journal", "&".join(["kinds=journal"] * 18)]:
         response = await baby_api.client.get("/api/v1/baby" + path + separator + invalid)
         assert response.status_code == 422, response.text

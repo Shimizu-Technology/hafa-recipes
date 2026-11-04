@@ -82,7 +82,9 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   These records remain visible without a child filter and are excluded when
   filtering for a specific child.
 - `GET /records?kind=&child_id=&q=&limit=30&offset=0`: `{items,total,has_more}`.
-  Optional repeated `kinds=journal&kinds=question` filters up to eight valid kinds
+  Optional `occurred_from` and `occurred_to` (with `/search` too) filter `occurred_at`:
+  offset-required timestamps, from inclusive and to exclusive. Encode `+` in a query.
+  Optional repeated `kinds=journal&kinds=question` filters up to every valid kind
   before pagination; do not combine `kind` and `kinds`. Child filters are exact
   by default; `include_general=true` explicitly includes unassigned records too.
   Optional `collection_id=<UUID>` validates a live same-owner/generation collection
@@ -95,7 +97,12 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
 - Record shape: `{id,kind,title,body,child_id,occurred_at,data,revision,created_at,
-  updated_at}`. Kinds: `source,journal,feeding,sleep,diaper,routine,question,collection`.
+  updated_at}`. Kinds: `source,journal,feeding,sleep,diaper,routine,question,collection`,
+  plus `event,contraction,kick_session,pumping,medicine,temperature,growth,milestone,custom`.
+  Only requests with `X-Baby-Client: 2` see or write those nine: any other request gets the
+  first eight on list, search, record and export, 404 for a newer record, and 422 on create.
+  Creating one also needs `BABY_NEW_KINDS_ENABLED`, set after migration 055; until then
+  the create returns a retryable 503.
   Creation accepts caller-generated `id` for durable retry; conflicting replay
   must not overwrite. PATCH requires `revision`; stale edits return 409.
 - `data` is validated per kind: source `{url?,topics:[],source_text?,summary?,
@@ -105,8 +112,25 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   processing finished. Saving or editing a source never starts an import or AI
   call; explicit `POST /imports` is separate. Feeding
   `{method:breast|bottle|other,amount?,unit?:ml|oz,
-  side?:left|right|both,duration_minutes?}`; sleep `{end_at?}`; diaper
-  `{type:wet|dirty|both|dry}`; routine `{routine_type:checklist|schedule,
+  side?:left|right|both,duration_minutes?,state?:running|finished|unknown_end,
+  actions?:[{id,action:start|switch|finish,at,side?:left|right}],end_at?,
+  contents?:breast_milk|formula}`; sleep `{end_at?}`; diaper
+  `{type:wet|dirty|both|dry,color?:black|green|yellow|brown|red|white}`; event
+  `{timezone,end?,all_day?,category?,location?,attendees?:[],
+  recurrence?:{frequency:daily|weekly|monthly|yearly,interval?,until?:date},
+  exceptions?:[{original_start,cancelled|overrides}],attachment_ids?:[]}`; contraction
+  `{end_at?}`; kick_session `{end_at?,count?}`; pumping `{end_at?,side?,amount?,unit?,
+  duration_minutes?}`; medicine `{name,dose?}`; temperature `{value,unit:c|f,
+  method?:armpit|rectal|oral|ear|forehead|other}`; growth `{weight?,weight_unit?:kg|lb,
+  length?,length_unit?:cm|in,head?,head_unit?:cm|in}` with at least one measurement;
+  milestone `{milestone_id?,attachment_ids?:[]}`; custom `{label?,value?,unit?}`.
+  PATCH keeps the feeding and diaper additions when a client omits them; only an explicit
+  null clears one, and `actions` only change through `feed-action`, `session_actions` only
+  through `session-action`. Changing `side` or
+  `duration_minutes` by hand on a feed with actions makes it a plain finished entry, and
+  changing `occurred_at` moves its start action. `contents` applies to bottles, `color` to poo, and `state`, `actions`
+  and `end_at` to breastfeeds; a change of method or type drops what no longer applies;
+  routine `{routine_type:checklist|schedule,
   items:[{id,label,done}],reminder_at?,timezone?,repeat?:none|daily|weekly,
   enabled?:boolean}`; journal/question `{attachment_ids?:[],
   provenance?:caregiver_observation|clinician_instruction}`; collection
@@ -128,6 +152,10 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   born siblings, and a due date past 44w6d without a birth date asks for one) or
   baby age (from birth date), or by an explicit `pregnancy_week`/`baby_age_weeks`;
   `within_weeks` is for `upcoming` only; `stage=` filters by stated stage.
+- `GET /care/summary?from=&to=&child_id=`: inclusive dates in the profile time zone, up to
+  92 days. Without `child_id`, the logs that have no child. Returns the stats service's totals
+  and `days:[{date,partial,feeding,diapers,sleep,dots:[feeding|diaper|sleep]}]`. Days
+  after today are left out, and a wholly future range has no days.
 - `GET /search?q=&kind=&child_id=&limit=30`: same record list envelope. Search
   covers source text, title, body, summaries and topics, not only recent records.
 - `POST /imports`: `{id,url?,text?,attachment_ids?:[],child_id?,topics?:[]}`;
@@ -238,7 +266,10 @@ A running feed stores its actions, and everything else is derived by one pure re
 - **Reducer:** the earliest `finish` is terminal. A `switch` before it applies even if it arrives later. Later actions are kept but have no effect. Duration comes from the segments, only when finished.
 - **Per child:** the newest `start` is the running feed, whatever order they arrive in, with ties broken by record id. Older running feeds become `unknown_end`: no end time, no duration, left out of minutes in Stats, which says so. A running feed older than 60 minutes shows as not running.
 - **Client:** a new durable `feed_action` outbox type, ordered behind its record's create via `mutationRecordId`.
+- **Proof for waiting edits:** each stored action carries the `revision` it produced, set by the API, so a phone replaying a lost response moves a waiting edit only past its own write.
+- **Sessions:** `POST /records/{id}/session-action {action_id, action: tap|undo|finish, at, target?}` is the same idea for `kick_session` (tap, take back, finish) and `contraction` (stop). `data.session_actions` holds them, bounded at 1000 and 20; `count` and `end_at` are derived. Two phones never conflict, and overlapping sessions all stay finishable.
 - **Tests:** permutations of finish and switch races, timestamp ties, reversed starts, concurrent ordinary edits.
+- `side` is `both` once more than one side was used. A finished feed with no actions (a Both tap, or any older feed) also counts as the newest feed for its child, and refuses actions with 409. A bottle does not close a running feed. Undoing the newest feed restores the one before it. A finish after a feed became `unknown_end` still finishes it.
 - Old device timers finish the old way, then are gone. Next side: opposite of the side the last feed started on (P3).
 
 ### 8 Leaving, deleting, un-sharing

@@ -300,7 +300,7 @@ async def upload_attachment(
     file: UploadFile = File(...),
     upload_id: UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    await membership_for(db, user.id, generation=generation, write=True)
+    member = await membership_for(db, user.id, generation=generation, write=True)
     if not storage.available(storage_service):
         raise HTTPException(503, "Private file storage is temporarily unavailable")
     mime = (file.content_type or "").split(";")[0].lower()
@@ -383,6 +383,7 @@ async def upload_attachment(
         prior = BabyAttachment(
             id=identifier,
             app_user_id=user.id,
+            space_id=member.personal_space_id,
             generation=generation,
             name=name,
             mime_type=mime,
