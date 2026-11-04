@@ -17,6 +17,7 @@ from app.domains.baby.ask_research import (
     research_for,
     strings_in,
 )
+from app.domains.baby.ask_safety import SAFETY_RULES, must_research_first
 from app.domains.baby.lifecycle import now, owned, readable_journal_children
 from app.domains.baby.models import BabyChild, BabyMembership, BabyRecord, BabySpaceMember
 from app.domains.baby.queries import child_timing, records_query, row_scope
@@ -123,6 +124,21 @@ def permission_for_kind(kind):
     return "saved" if kind in SAVED_KINDS else "logs"
 
 
+def tool_fields(may_use_tools, forced, permissions):
+    """What this question may use, and how this round. A required first tool is used once."""
+    choice = "auto" if may_use_tools else "none"
+    if may_use_tools and forced:
+        choice = {"type": "function", "name": forced.pop(0)}
+    return {
+        "tools": [
+            {"type": "function", "name": name, "strict": True, **tool.schema}
+            for name, tool in TOOLS.items()
+            if TOOL_PERMISSIONS.get(name, "saved") in permissions
+        ],
+        "tool_choice": choice,
+    }
+
+
 class AskTools:
     """One question's reads. ``tracked`` and ``citable`` are what the final recheck and citations use."""
 
@@ -140,21 +156,13 @@ class AskTools:
         self.web_sources, self.research_failed = [], False
         self.history, self.searched = list(history), None
         self.search_query, self.search_frozen = None, False
+        self.forced_tools = ["research_trusted"] if must_research_first(question) else []
 
     def instructions(self, base):
-        return base + " " + TOOL_GUIDE + TOOL_RULES
+        return base + " " + TOOL_GUIDE + TOOL_RULES + SAFETY_RULES
 
     def request_fields(self, may_use_tools):
-        if not TOOLS:
-            return {}
-        return {
-            "tools": [
-                {"type": "function", "name": name, "strict": True, **tool.schema}
-                for name, tool in TOOLS.items()
-                if TOOL_PERMISSIONS.get(name, "saved") in self.permissions
-            ],
-            "tool_choice": "auto" if may_use_tools else "none",
-        }
+        return tool_fields(may_use_tools, self.forced_tools, self.permissions)
 
     async def scope(self, db):
         """Access as of now. ``check`` also stops this read if consent or access changed since the question began."""

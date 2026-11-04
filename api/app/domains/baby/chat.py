@@ -20,6 +20,7 @@ from app.domains.baby.lifecycle import digest, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
 from app.domains.baby.provider import (
     DAILY_LIMIT_CODE,
+    AnswerOutput,
     BabyProvider,
     ContextChanged,
     budget_failure_message,
@@ -112,6 +113,7 @@ def message_response(row, *, legacy=False):
         "citations": citations_for(row.content.get("citations", []), legacy=legacy),
         "proposal": row.content.get("proposal"),
         "sources": row.content.get("sources", []),
+        "help": row.content.get("help"),
         "created_at": row.created_at,
         "status": row.content.get("status", "ready"),
     }
@@ -853,6 +855,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             request_id=str(body.request_id), user_id=user.id, job_id=None, route="/api/v1/baby/chat"
         ):
             if use_v2:
+                from app.domains.baby.ask_safety import classify
                 from app.domains.baby.ask_tools import AskTools
                 from app.domains.baby.ask_v2 import answer_question
 
@@ -863,7 +866,9 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                     focus_id=body.record_id,
                     history=[item["message"] for item in history if item["message"] != body.message],
                 )
-                result = await answer_question(
+                urgent = classify(body.message, [item["name"] for item in pack["children"]])
+                # Urgent replies are fixed: no model, no reading, and nothing to wait for.
+                result = AnswerOutput(message=urgent.message, safety=urgent.kind) if urgent else await answer_question(
                     provider, tools=tools, message=body.message, history=history,
                     now_local=now().astimezone(zone).isoformat(timespec="minutes"),
                     context_pack=pack,
@@ -894,11 +899,20 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
         if use_v2:
             from app.domains.baby.ask_research import UNAVAILABLE_NOTICE, checked_answer
+            from app.domains.baby.ask_safety import MESSAGES, answer_checks
 
-            message, sources = checked_answer(payload["message"], result.source_urls, tools.web_sources)
-            if tools.research_failed and not sources:
-                message = f"{message}\n\n{UNAVAILABLE_NOTICE}"
-            payload.update(message=message, sources=sources)
+            if result.safety in MESSAGES:
+                # Nothing the model wrote or read goes with a fixed reply.
+                citations, proposal = [], None
+                payload.update(message=MESSAGES[result.safety], citations=[], proposal=None, sources=[], help=result.safety)
+            else:
+                message, sources = checked_answer(payload["message"], result.source_urls, tools.web_sources)
+                if tools.research_failed and not sources:
+                    message = f"{message}\n\n{UNAVAILABLE_NOTICE}"
+                message, help_kind, extra = answer_checks(body.message, result.model_copy(update={"message": message}))
+                known = {source["url"] for source in sources}
+                payload.update(message=message, sources=sources + [item for item in extra if item["url"] not in known],
+                               help=help_kind)
         access = await access_for(db, user.id, client=client,
                                   space_id=personal_space_id if access.enabled else None,
                                   generation=generation, write=True)

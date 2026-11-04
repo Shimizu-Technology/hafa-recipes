@@ -312,6 +312,15 @@ export interface Citation {
   /** Present on newer responses; older stored conversations omit it. */
   kind?: Kind;
 }
+/** A link from the web a new-Ask answer used. `kind` says whether it came from the trusted list or the open web. */
+export interface WebSource {
+  url: string;
+  title: string;
+  domain: string;
+  kind: "trusted" | "web";
+  ref?: string;
+}
+export type AskHelp = "urgent_maternal" | "harm" | "baby_unwell" | "mental_health";
 export interface Proposal {
   kind: Kind;
   title: string;
@@ -323,6 +332,8 @@ export interface ChatMessage {
   content: string;
   citations?: Citation[];
   proposal?: Proposal;
+  sources?: WebSource[];
+  help?: AskHelp | null;
   id?: string;
 }
 export interface Conversation {
@@ -339,6 +350,8 @@ export interface ChatResult {
   message: string;
   citations: Citation[];
   proposal?: Proposal;
+  sources?: WebSource[];
+  help?: AskHelp | null;
 }
 /**
  * What a save or draft was built on: the queued changes to this record it already showed, oldest first. Only these can

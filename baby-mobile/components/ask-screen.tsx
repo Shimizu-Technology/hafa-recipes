@@ -209,6 +209,7 @@ function AskChat({ back }: { back: boolean }) {
           </View>
         ) : (
           <View key={m.id ?? index} style={{ gap: 12 }}>
+            {!!m.help && <Button title="Open Help" onPress={() => router.push("/help")} />}
             <Copy>{readableCitations(m.content, m.citations)}</Copy>
             {!!m.citations?.length && (
               <View style={{ gap: 8 }}>

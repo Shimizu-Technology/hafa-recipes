@@ -58,8 +58,11 @@ def request_for(model: str, body: dict[str, Any]) -> dict[str, Any]:
     request["output_config"] = {"effort": effort if effort and effort != "none" else "low"}
     if body.get("tools"):
         request["tools"] = [tool_for(tool) for tool in body["tools"]]
-        if body.get("tool_choice") == "none":
+        choice = body.get("tool_choice")
+        if choice == "none":
             request["tool_choice"] = {"type": "none"}
+        elif isinstance(choice, dict):
+            request["tool_choice"] = {"type": "tool", "name": choice["name"]}
     return request
 
 

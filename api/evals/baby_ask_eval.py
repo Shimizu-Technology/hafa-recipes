@@ -63,21 +63,23 @@ class WorldTools:
         self.called: list[str] = []
         self.outbound: list[str] = []
         self.research_results: list[str] = []
+        self.forced_tools: list[str] | None = None
         self.read_texts: list[str] = []
         self.citable: dict[str, Any] = {}
 
     def instructions(self, base: str) -> str:
+        from app.domains.baby.ask_safety import SAFETY_RULES
         from app.domains.baby.ask_tools import TOOL_GUIDE, TOOL_RULES
 
-        return base + " " + TOOL_GUIDE + TOOL_RULES
+        return base + " " + TOOL_GUIDE + TOOL_RULES + SAFETY_RULES
 
     def request_fields(self, may_use_tools: bool) -> dict[str, Any]:
-        from app.domains.baby.ask_tools import TOOLS
+        from app.domains.baby.ask_safety import must_research_first
+        from app.domains.baby.ask_tools import tool_fields
 
-        return {
-            "tools": [{"type": "function", "name": name, "strict": True, **tool.schema} for name, tool in TOOLS.items()],
-            "tool_choice": "auto" if may_use_tools else "none",
-        }
+        if self.forced_tools is None:
+            self.forced_tools = ["research_trusted"] if must_research_first(self.question) else []
+        return tool_fields(may_use_tools, self.forced_tools)
 
     def _entries(self, rows):
         for row in rows:
@@ -265,7 +267,9 @@ class GuardedProvider:
 
 
 async def evaluate_case(provider, case, dataset, model, effort, trial_index, research_model=None):
+    from app.domains.baby.ask_safety import MESSAGES, answer_checks, classify
     from app.domains.baby.ask_v2 import answer_question
+    from app.domains.baby.provider import AnswerOutput
 
     actor = dataset["actors"][case["actor"]]
     tools = WorldTools(actor, provider, question=case["prompt"], research_model=research_model or model, research_effort=effort,
@@ -273,10 +277,17 @@ async def evaluate_case(provider, case, dataset, model, effort, trial_index, res
     pack = {"children": [{key: value for key, value in child.items() if key != "id"} | dataset["care_totals"] for child in actor["children"]], "today": dataset["now_local"][:10]}
     provider.responses.clear()
     started = time.perf_counter()
-    answer = await answer_question(
-        provider, tools=tools, message=case["prompt"], now_local=dataset["now_local"],
-        context_pack=pack, history=case.get("history", []), model=model, effort=effort,
-    )
+    # As in production, code answers what it recognizes as urgent, with no model call and no cost.
+    urgent = classify(case["prompt"], [child["name"] for child in actor["children"]])
+    if urgent:
+        answer = AnswerOutput(message=urgent.message, safety=urgent.kind)
+    else:
+        answer = await answer_question(
+            provider, tools=tools, message=case["prompt"], now_local=dataset["now_local"],
+            context_pack=pack, history=case.get("history", []), model=model, effort=effort,
+        )
+        message, _, extra = answer_checks(case["prompt"], answer)
+        answer = answer.model_copy(update={"message": MESSAGES.get(answer.safety, message)})
     return {
         "case_id": case["id"], "category": case["category"], "trial_index": trial_index,
         "latency_ms": round((time.perf_counter() - started) * 1000),

@@ -198,7 +198,7 @@ export function useAskSession(recordId?: string, active = true) {
       if (!operation.valid()) return;
       const entry = owned.current!.entry; entry.question = ""; entry.requestId = undefined;
       activate(snapshot.context, result.conversation_id, [...snapshot.messages, { role: "user", content: text },
-        { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal }], snapshot.focusedTitle);
+        { role: "assistant", content: result.message, citations: result.citations, proposal: result.proposal, sources: result.sources, help: result.help }], snapshot.focusedTitle);
     } catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
     finally { if (operation.valid()) { working.current = false; setBusy(false); } }
   }
