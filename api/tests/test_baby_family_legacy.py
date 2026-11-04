@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from app.domains.baby import storage
-from app.domains.baby.models import BabyMembership
+from app.domains.baby.models import BabyConversation, BabyMembership
 from app.domains.baby.provider import AnswerOutput
 from app.domains.baby.runtime import BabyWorker
 from tests import test_baby_access as foundation
@@ -40,10 +40,24 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     baby_api.settings.baby_new_kinds_enabled = True
     async with baby_api.sessions() as db:
         personal = (await db.get(BabyMembership, "owner")).personal_space_id
-    hidden = shared.payload("source", title="Family only")
-    assert (await c.post("/api/v1/baby/records", headers=records.headers(family, "other"), json=hidden)).status_code == 200
+    family_actor = "owner" if enabled else "other"
+    family_headers = records.headers(family, family_actor)
+    hidden_child = {"id": str(uuid4()), "name": "Hidden family child"}
+    assert (await c.post("/api/v1/baby/children", headers=family_headers, json=hidden_child)).status_code == 200
+    hidden_care = shared.payload("diaper", data={"type": "wet"})
+    assert (await c.post("/api/v1/baby/records", headers=family_headers, json=hidden_care)).status_code == 200
+    async with baby_api.sessions() as db:
+        hidden_conversation = BabyConversation(app_user_id=family_actor, space_id=family, generation=7,
+            title="Hidden family conversation", scope="all", context_space_ids=[str(family)])
+        db.add(hidden_conversation)
+        await db.commit()
+        hidden_conversation_id = str(hidden_conversation.id)
+    hidden = shared.payload("source", title="Family only", body="Legacy hidden")
+    assert (await c.post("/api/v1/baby/records", headers=family_headers, json=hidden)).status_code == 200
     new_kind = shared.payload("contraction")
     assert (await c.post("/api/v1/baby/records", headers=records.headers(personal, generation=1), json=new_kind)).status_code == 200
+    calendar = shared.payload("event", data={"timezone": "Pacific/Guam", "recurrence": {"frequency": "daily"}})
+    assert (await c.post("/api/v1/baby/records", headers=records.headers(personal, generation=1), json=calendar)).status_code == 200
     baby_api.settings.baby_family_enabled = enabled
 
     async def call(method, path, *, expected=200, headers=None, **kwargs):
@@ -62,7 +76,9 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     await call("PATCH", "/api/v1/baby/profile", json={"ai_consent": True})
     child_id = str(uuid4())
     await call("POST", "/api/v1/baby/children", json={"id": child_id, "name": "Personal child"})
-    await call("GET", "/api/v1/baby/children")
+    children = await call("GET", "/api/v1/baby/children")
+    assert {item["id"] for item in children["items"]} == {child_id}
+    assert hidden_child["id"] not in str(children)
     await call("PATCH", f"/api/v1/baby/children/{child_id}", json={"revision": 1, "name": "Edited child"})
     source = shared.payload("source", child_id=child_id, data={"source_text": "Legacy original",
         "relevance": {"stage": "pregnancy", "pregnancy_week_min": 20},
@@ -72,7 +88,8 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     ids = {row["id"] for row in page["items"]}
     assert hidden["id"] not in ids
     assert (new_kind["id"] in ids) == (h.get("X-Baby-Client") == "2")
-    await call("GET", "/api/v1/baby/search?q=Legacy")
+    search = await call("GET", "/api/v1/baby/search?q=Legacy")
+    assert {item["id"] for item in search["items"]} == {source["id"]}
     await call("GET", f"/api/v1/baby/records/{source['id']}")
     edited = await call("PATCH", f"/api/v1/baby/records/{source['id']}", json={
         "revision": 1, "data": {"source_text": "Legacy updated"}})
@@ -86,7 +103,21 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
     await call("POST", "/api/v1/baby/records", json=feed)
     await call("POST", f"/api/v1/baby/records/{feed['id']}/feed-action", json={
         "action_id": str(uuid4()), "action": "finish", "at": "2026-10-20T12:10:00+10:00"})
-    await call("GET", "/api/v1/baby/care/summary?from=2026-10-20&to=2026-10-20")
+    summary = await call("GET", "/api/v1/baby/care/summary?from=2026-10-20&to=2026-10-20")
+    assert summary["feeding"]["count"] == 1 and summary["diapers"]["count"] == 0
+    expected_event = 200 if h.get("X-Baby-Client") == "2" else 404
+    calendar_page = await call("GET", "/api/v1/baby/events?from=2026-10-20&to=2026-10-20", expected=expected_event)
+    if expected_event == 200:
+        assert {item["event_id"] for item in calendar_page["items"]} == {calendar["id"]}
+    occurrence = "2026-10-21T12:00:00+10:00"
+    await call("PUT", f"/api/v1/baby/events/{calendar['id']}/occurrences", expected=expected_event,
+               json={"original_start": occurrence, "cancelled": True, "revision": 1})
+    await call("DELETE", f"/api/v1/baby/events/{calendar['id']}/occurrences", expected=expected_event,
+               params={"original_start": occurrence, "revision": 2})
+    await call("POST", f"/api/v1/baby/events/{calendar['id']}/end-series", expected=expected_event,
+               json={"from_date": "2026-10-22", "revision": 3})
+    await call("POST", f"/api/v1/baby/records/{new_kind['id']}/session-action", expected=expected_event,
+               json={"action_id": str(uuid4()), "action": "finish", "at": "2026-10-20T12:01:00+10:00"})
     image = BytesIO()
     Image.new("RGB", (20, 20), "white").save(image, "PNG")
     asset = await call("POST", "/api/v1/baby/attachments", files={"file": ("synthetic.png", image.getvalue(), "image/png")})
@@ -116,7 +147,9 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
 
     monkeypatch.setattr("app.domains.baby.chat.BabyProvider", Provider)
     answer = await call("POST", "/api/v1/baby/chat", json={"request_id": str(uuid4()), "message": "Summarize my library", "scope": "all"})
-    await call("GET", "/api/v1/baby/conversations")
+    conversations = await call("GET", "/api/v1/baby/conversations")
+    assert {row["id"] for row in conversations["items"]} == {answer["conversation_id"]}
+    assert hidden_conversation_id not in str(conversations)
     await call("GET", f"/api/v1/baby/conversations/{answer['conversation_id']}")
     credential = await call("POST", "/api/v1/baby/share/session", expected=201, json={"installation_id": str(uuid4())})
     capability = {"Authorization": "Bearer " + credential["token"]}
@@ -149,3 +182,19 @@ async def test_family_gate_preserves_first_write_provisioning(baby_api, family):
     result = await baby_api.client.post("/api/v1/baby/bootstrap", headers={
         "X-Test-Owner": "legacy-bootstrap", "X-Baby-Client": "3"})
     assert result.status_code == 200 and len(result.json()["spaces"]) == 1, result.text
+
+
+async def test_foreign_personal_space_write_guard(baby_api, family):
+    from fastapi import HTTPException
+
+    from app.domains.baby.access import access_for
+    from app.domains.baby.models import BabySpaceMember
+
+    # Deliberately invalid membership: normal provisioning never grants another personal space.
+    async with baby_api.sessions() as db:
+        other_personal = (await db.get(BabyMembership, "other")).personal_space_id
+        db.add(BabySpaceMember(space_id=other_personal, app_user_id="owner", role="parent"))
+        await db.commit()
+        with pytest.raises(HTTPException) as error:
+            await access_for(db, "owner", client="3", space_id=other_personal, write=True)
+        assert error.value.status_code == 403
