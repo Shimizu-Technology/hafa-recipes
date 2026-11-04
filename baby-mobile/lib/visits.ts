@@ -10,7 +10,15 @@ const firstLine = (text: string) => {
 const newest = (a: BabyRecord, b: BabyRecord) => b.occurred_at.localeCompare(a.occurred_at);
 export const visitQuestions = (rows: readonly BabyRecord[], id: string) => rows.filter((row) => row.kind === "question" && row.data.event_id === id).sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 export const visitNotes = (rows: readonly BabyRecord[], id: string) => rows.filter((row) => row.kind === "journal" && row.data.event_id === id && row.data.provenance === "clinician_instruction").sort(newest);
-export const looseQuestions = (rows: readonly BabyRecord[]) => rows.filter((row) => row.kind === "question" && !row.data.event_id).sort(newest);
+/** A question or note about one baby can't sit on another's visit. General ones fit any, and any fits a family one, as the API has it. */
+export const fitsVisit = (row: Pick<BabyRecord, "child_id">, visit: Pick<BabyRecord, "child_id">) => !row.child_id || !visit.child_id || row.child_id === visit.child_id;
+export const looseQuestions = (rows: readonly BabyRecord[], visit?: Pick<BabyRecord, "child_id">) =>
+  rows.filter((row) => row.kind === "question" && !row.data.event_id && (!visit || fitsVisit(row, visit))).sort(newest);
+/** A record moved to a baby its visit isn't for comes off the visit, and stays in Journal. Null, because the API keeps a link that's only left out. */
+export function withFittingVisit<T extends Pick<BabyRecord, "child_id" | "data">>(draft: T, rows: readonly BabyRecord[]): T {
+  const visit = draft.data.event_id ? rows.find((row) => row.id === draft.data.event_id) : undefined;
+  return visit && !fitsVisit(draft, visit) ? { ...draft, data: { ...draft.data, event_id: null } } : draft;
+}
 export const questionWords = (row: Pick<BabyRecord, "title" | "body">) => row.body.trim() || row.title;
 
 function written(id: string, kind: Kind, text: string, visit: Visit, data: RecordData): RecordWrite {
@@ -42,12 +50,12 @@ export function nextVisitDraft(id: string, row: BabyRecord, shown: EventOccurren
     data: { timezone: zone, all_day: shown.all_day, category: "appointment", location: shown.location, attendees: shown.attendees, end: length ? new Date(start + length).toISOString() : null,
       ...(row.data.reminder_minutes !== undefined ? { reminder_minutes: row.data.reminder_minutes } : {}) } };
 }
-/** What this phone keeps of a kind, as just read. Same rule as events: a row gone from a whole list is gone. */
-export function withVisitRows(state: DeviceState, kinds: readonly Kind[], rows: readonly BabyRecord[], complete: boolean): DeviceState {
-  const fresh = new Map(rows.map((row) => [row.id, row])), held = state.records.filter((row) => kinds.includes(row.kind)),
+/** What this phone keeps of what `belongs` to a read, as just read. Same rule as events: a row gone from a whole list is gone. */
+export function withVisitRows(state: DeviceState, belongs: (row: BabyRecord) => boolean, rows: readonly BabyRecord[], complete: boolean): DeviceState {
+  const fresh = new Map(rows.map((row) => [row.id, row])), held = state.records.filter(belongs),
     same = rows.every((row) => held.some((known) => known.id === row.id && known.revision === row.revision)) && (!complete || held.length === rows.length);
   if (same) return state;
   const queued = new Set(state.outbox.flatMap((change) => (change.type === "save" || change.type === "delete" ? [change.record.id] : [])));
-  return { ...state, records: [...rows, ...state.records.filter((row) => !fresh.has(row.id) && (!kinds.includes(row.kind) || !complete || queued.has(row.id)))]
+  return { ...state, records: [...rows, ...state.records.filter((row) => !fresh.has(row.id) && (!belongs(row) || !complete || queued.has(row.id)))]
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)) };
 }

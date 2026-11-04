@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type RecordData } from "./models";
-import { looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withVisitRows } from "./visits";
+import { looseQuestions, newQuestion, newVisitNote, nextAppointment, nextVisitDraft, questionWords, visitAfter, visitNotes, visitQuestions, withFittingVisit, withVisitRows } from "./visits";
 
-const guam = "Pacific/Guam";
+const guam = "Pacific/Guam", isQuestion = (item: BabyRecord) => item.kind === "question";
 const row = (id: string, kind: BabyRecord["kind"], data: RecordData = {}, occurred_at = "2026-11-01T00:00:00Z", body = "") => optimisticRecord({ id, kind, title: id, body, child_id: null, occurred_at, data });
 const when = (id: string, at: string, category: EventOccurrence["category"] = "appointment"): EventOccurrence => ({ event_id: id, original_start: at, occurrence_start: at, occurrence_end: null, all_day: false, timezone: guam, title: id, category, location: null, attendees: [], child_id: null, repeats: false, changed: false, revision: 1 });
 
@@ -17,6 +17,19 @@ describe("what belongs to a visit", () => {
   });
   it("offers only questions on no visit to link", () => {
     expect(looseQuestions(rows).map((item) => item.id)).toEqual(["loose"]);
+  });
+  it("offers a child's visit that child's questions and general ones, and a family visit any", () => {
+    const person = (id: string, child: string | null) => ({ ...row(id, "question"), child_id: child }), mixed = [person("noas", "noa"), person("kais", "kai"), person("general", null)];
+    expect(looseQuestions(mixed, { child_id: "noa" }).map((item) => item.id).sort()).toEqual(["general", "noas"]);
+    expect(looseQuestions(mixed, { child_id: null })).toHaveLength(3);
+  });
+  it("lets go of a visit when the question moves to a baby it doesn't fit", () => {
+    const visit = { ...row("visit", "event"), child_id: "noa" }, draft = { ...row("q", "question", { event_id: "visit" }), child_id: "kai", files: [], existing: true };
+    expect(withFittingVisit(draft, [visit]).data.event_id).toBeNull();
+    expect(withFittingVisit({ ...draft, child_id: "noa" }, [visit]).data.event_id).toBe("visit");
+    expect(withFittingVisit({ ...draft, child_id: null }, [visit]).data.event_id).toBe("visit");
+    expect(withFittingVisit(draft, [{ ...visit, child_id: null }]).data.event_id).toBe("visit");
+    expect(withFittingVisit(draft, []).data.event_id).toBe("visit");
   });
   it("reads a question in her whole words", () => {
     expect(questionWords(row("short", "question", {}, undefined, "All of it, however long"))).toBe("All of it, however long");
@@ -62,16 +75,24 @@ describe("the phone's copy", () => {
   const state = (records: BabyRecord[], outbox: DeviceState["outbox"] = []) => ({ ...emptyState(), records, outbox }) as DeviceState;
   it("doesn't write when nothing changed", () => {
     const question = row("q", "question"), held = state([question, row("feed", "feeding")]);
-    expect(withVisitRows(held, ["question"], [question], true)).toBe(held);
+    expect(withVisitRows(held, isQuestion, [question], true)).toBe(held);
   });
   it("adds what it read, and forgets only what a whole list shows is gone", () => {
     const fresh = row("fresh", "question"), gone = row("gone", "question"), queued = row("queued", "question"), feed = row("feed", "feeding"),
       held = state([gone, queued, feed], [{ id: "m", generation: 1, type: "save", record: queued, files: [] }]);
-    expect(withVisitRows(held, ["question"], [fresh], true).records.map((item) => item.id).sort()).toEqual(["feed", "fresh", "queued"]);
-    expect(withVisitRows(held, ["question"], [fresh], false).records.map((item) => item.id).sort()).toEqual(["feed", "fresh", "gone", "queued"]);
+    expect(withVisitRows(held, isQuestion, [fresh], true).records.map((item) => item.id).sort()).toEqual(["feed", "fresh", "queued"]);
+    expect(withVisitRows(held, isQuestion, [fresh], false).records.map((item) => item.id).sort()).toEqual(["feed", "fresh", "gone", "queued"]);
   });
   it("picks up a link the API took off when its event was deleted", () => {
     const linked = { ...row("q", "question", { event_id: "visit" }), revision: 1 }, cleared = { ...row("q", "question"), revision: 2 };
-    expect(looseQuestions(withVisitRows(state([linked]), ["question"], [cleared], true).records).map((item) => item.id)).toEqual(["q"]);
+    expect(looseQuestions(withVisitRows(state([linked]), isQuestion, [cleared], true).records).map((item) => item.id)).toEqual(["q"]);
+  });
+});
+describe("reading one visit's records", () => {
+  it("forgets only what was on this visit and isn't any more, and leaves other journal entries alone", () => {
+    const belongs = (item: BabyRecord) => item.data.event_id === "visit",
+      kept = row("kept", "question", { event_id: "visit" }), gone = row("gone", "journal", { event_id: "visit" }), other = row("diary", "journal"), elsewhere = row("q", "question", { event_id: "other" }),
+      held = { ...emptyState(), records: [kept, gone, other, elsewhere] } as DeviceState;
+    expect(withVisitRows(held, belongs, [kept], true).records.map((item) => item.id).sort()).toEqual(["diary", "kept", "q"]);
   });
 });

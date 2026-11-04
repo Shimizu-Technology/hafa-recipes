@@ -1,6 +1,6 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EventOccurrence, type Mutation } from "./models";
 
 const mock = vi.hoisted(() => ({ baby: null as any, upcoming: [] as any[], push: vi.fn(), toast: vi.fn(), ids: 0 }));
@@ -21,7 +21,7 @@ vi.mock("./ui", () => ui);
 vi.mock("./record-row", () => ({ kindIcon: { question: "q", journal: "j" } }));
 vi.mock("../components/ui", () => ui);
 vi.mock("../components/record-row", () => ({ kindIcon: { question: "q", journal: "j" } }));
-import { LinkQuestions, NextVisitQuestions, RecordVisit, VisitQuestions, VisitSections } from "../components/visit-sections";
+import { LinkQuestions, NextVisitQuestions, RecordVisit, useVisitDrafts, VisitQuestions, VisitSections } from "../components/visit-sections";
 
 const guam = "Pacific/Guam";
 let renderer: ReactTestRenderer | undefined;
@@ -125,4 +125,109 @@ it("on a question: one tap onto the next visit, and once on one, the way back", 
   await act(async () => { await row("Take off this visit").props.onPress(); });
   // Explicit null: the API keeps a link that's only left out.
   expect((again.state.outbox[0] as any).record.data.event_id).toBeNull();
+});
+
+describe("a half-typed question when the baby changes", () => {
+  const soon = new Date(Date.now() + 86_400_000).toISOString(), forA = { ...appointment("a-visit", soon, "Noa's check"), child_id: "noa" }, forB = { ...appointment("b-visit", soon, "Kai's check"), child_id: "kai" };
+  const today = (items: EventOccurrence[]) => <NextVisitQuestions items={items} />, label = "Add a question for the doctor";
+  const type = (text: string) => act(async () => { all("Field").find((n) => n.props.label === label)!.props.onChange(text); });
+  const value = () => all("Field").find((n) => n.props.label === label)!.props.value;
+  const show = (items: EventOccurrence[]) => act(async () => { renderer!.update(today(items)); });
+  it("doesn't carry it over to the other baby's appointment, and it's still there on the way back", async () => {
+    const b = setup([]);
+    await mount(today([forA]));
+    await type("Is this rash normal?");
+    await show([forB]);
+    expect(value()).toBe("");
+    expect(all("Button")[0].props.disabled).toBe(true);
+    await act(async () => { await all("Button")[0].props.onPress(); });
+    expect(b.queue).not.toHaveBeenCalled();
+    await show([forA]);
+    expect(value()).toBe("Is this rash normal?");
+    await act(async () => { await all("Button")[0].props.onPress(); });
+    expect(b.state.outbox[0]).toMatchObject({ record: { child_id: "noa", data: { event_id: "a-visit" } } });
+  });
+  it("gives the input a new identity for each appointment, so nothing the keyboard holds carries over", async () => {
+    setup([]);
+    await mount(today([forA]));
+    const first = all("Field")[0].instance ?? (all("Field")[0] as any)._fiber.key;
+    await show([forB]);
+    expect((all("Field")[0] as any)._fiber.key).not.toBe(first);
+    expect((all("Field")[0] as any)._fiber.key).toContain("b-visit");
+  });
+  it("saves to the appointment it was typed for even if the screen moves on while it saves, and clears only that one", async () => {
+    const b = setup([]);
+    let land = () => {};
+    b.queue.mockImplementation((change: Mutation) => new Promise<void>((done) => { land = () => { b.state = { ...b.state, outbox: [...b.state.outbox, change] }; done(); }; }));
+    await mount(today([forA]));
+    await type("For Noa");
+    let pressing: Promise<void> | undefined;
+    await act(async () => { pressing = all("Button")[0].props.onPress(); });
+    await show([forB]);
+    await type("For Kai");
+    await act(async () => { land(); await pressing; });
+    expect(b.state.outbox[0]).toMatchObject({ record: { body: "For Noa", child_id: "noa", data: { event_id: "a-visit" } } });
+    expect(value()).toBe("For Kai");
+    await show([forA]);
+    expect(value()).toBe("");
+  });
+  it("shows a failure on the appointment that failed", async () => {
+    const b = setup([]);
+    b.queue.mockRejectedValueOnce(Error("Storage is full."));
+    await mount(today([forA]));
+    await type("Keep me");
+    await act(async () => { await all("Button")[0].props.onPress(); });
+    expect(all("Notice")).toHaveLength(1);
+    await show([forB]);
+    expect(all("Notice")).toHaveLength(0);
+    await show([forA]);
+    expect(all("Notice")).toHaveLength(1);
+  });
+  it("keeps it while the other baby has no appointment at all", async () => {
+    setup([]);
+    function Holder({ items }: { items: EventOccurrence[] }) {
+      const drafts = useVisitDrafts();
+      return <NextVisitQuestions items={items} drafts={drafts} />;
+    }
+    await mount(<Holder items={[forA]} />);
+    await type("Still here");
+    await act(async () => { renderer!.update(<Holder items={[]} />); });
+    expect(all("Field")).toHaveLength(0);
+    await act(async () => { renderer!.update(<Holder items={[forA]} />); });
+    expect(value()).toBe("Still here");
+  });
+});
+
+describe("which questions fit which visit", () => {
+  const person = (id: string, child: string | null, data: BabyRecord["data"] = {}) => ({ ...record(id, "question", data), child_id: child });
+  const children = [{ id: "noa", name: "Noa", revision: 1 }, { id: "kai", name: "Kai", revision: 1 }];
+  const withChildren = (rows: BabyRecord[]) => { const b = setup(rows); b.state = { ...b.state, bootstrap: { ...b.state.bootstrap!, children } }; return b; };
+  it("offers a child's appointment only that child's questions and general ones", async () => {
+    withChildren([person("noas", "noa"), person("kais", "kai"), person("general", null)]);
+    await mount(<VisitSections visit={{ id: "visit", child_id: "noa" }} />);
+    expect(row("noas")).toBeDefined();
+    expect(row("general")).toBeDefined();
+    expect(row("kais")).toBeUndefined();
+  });
+  it("offers a family appointment every question and says whose each is", async () => {
+    withChildren([person("noas", "noa"), person("kais", "kai"), person("general", null), person("on-it", "kai", { event_id: "visit" })]);
+    await mount(<VisitSections visit={{ id: "visit", child_id: null }} />);
+    expect(row("noas").props.detail).toBe("For Noa · Tap to add to this visit");
+    expect(row("kais").props.detail).toBe("For Kai · Tap to add to this visit");
+    expect(row("general").props.detail).toBe("Tap to add to this visit");
+    expect(row("on-it").props.detail).toBe("For Kai");
+  });
+  it("in Journal, links only what fits the next appointment", async () => {
+    const b = withChildren([]);
+    mock.upcoming = [{ ...appointment("v", new Date(Date.now() + 86_400_000).toISOString()), child_id: "noa" }];
+    await mount(<LinkQuestions rows={[person("noas", "noa"), person("kais", "kai"), person("general", null)]} />);
+    await act(async () => { await row("Add these 2 questions to OB visit").props.onPress(); });
+    expect(b.state.outbox.map((m: any) => m.record.id)).toEqual(["noas", "general"]);
+  });
+  it("on a question, offers only a visit it fits", async () => {
+    withChildren([]);
+    mock.upcoming = [{ ...appointment("v", new Date(Date.now() + 86_400_000).toISOString()), child_id: "noa" }];
+    await mount(<RecordVisit record={person("kais", "kai")} />);
+    expect(renderer!.toJSON()).toBeNull();
+  });
 });

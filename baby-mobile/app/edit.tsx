@@ -13,7 +13,7 @@ import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Sect
 import { DateField } from "@/components/date-field";
 import { EventFields } from "@/components/event-fields";
 import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, dayName } from "@/lib/events";
-import { nextVisitDraft } from "@/lib/visits";
+import { nextVisitDraft, withFittingVisit } from "@/lib/visits";
 import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { sendsCareDetails, seriesLimitMessage } from "../lib/api";
@@ -268,7 +268,7 @@ export default function Edit() {
       const id = Crypto.randomUUID();
       const splitId = Crypto.randomUUID();
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
-        const from = given.kind === "event" ? eventWrite(given) : given;
+        const from = given.kind === "event" ? eventWrite(given) : withFittingVisit(given, b.records);
         const { files, existing: _, revision, base, event_edit: __, ...record } = from;
         return {
           id, generation, type: "save",
