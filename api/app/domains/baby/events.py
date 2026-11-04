@@ -516,6 +516,9 @@ async def split_series(
     last = body.from_start.astimezone(zone).date() - timedelta(days=1)
     if last < row.occurred_at.astimezone(zone).date():
         raise HTTPException(422, "That is the first date; change the whole event instead")
+    # The old series keeps every date before the split, so an earlier start would show those dates twice.
+    if new.occurred_at.astimezone(ZoneInfo(new.data["timezone"])).date() <= last:
+        raise HTTPException(422, "The new dates can't start before the date being changed")
     await validate_relations(db, access, generation, new.child_id, new.data, record_id=new.id, kind="event")
     await check_series_cap(db, access, generation, new.data, record_id=new.id)
     resaved(row, ending_before(event, zone, last))

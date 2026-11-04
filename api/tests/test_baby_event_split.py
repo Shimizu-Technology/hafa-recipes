@@ -144,6 +144,8 @@ async def test_a_refused_split_changes_nothing(baby_api, monkeypatch):
     for at in ("2026-11-16T09:00:00+10:00", "2026-11-01T09:00:00+10:00"):
         response = await split(baby_api, row, at, replacement(at))
         assert response.status_code == 422, response.text
+    # Starting a week before the split would list November 8 from both halves; an earlier hour that day is fine.
+    await untouched(replacement("2026-11-08T09:00:00+10:00"), 422)
     # A commit that fails leaves neither half.
     event = replacement(start)
 
@@ -156,6 +158,18 @@ async def test_a_refused_split_changes_nothing(baby_api, monkeypatch):
     monkeypatch.undo()
     assert await stored(baby_api, event["id"]) is None
     assert (await stored(baby_api, row["id"])).revision == row["revision"]
+
+
+@needs_database
+async def test_a_split_can_move_the_time_earlier_on_the_same_day(baby_api):
+    await allow_events(baby_api)
+    row = await series(baby_api)
+    start = "2026-11-15T09:00:00+10:00"
+    response = await split(baby_api, row, start, replacement("2026-11-15T07:30:00+10:00"))
+    assert response.status_code == 200, response.text
+    assert await starts(baby_api, "2026-11-08", "2026-11-15") == [
+        ("2026-11-08T09:00:00+10:00", row["title"]), ("2026-11-15T07:30:00+10:00", "New name"),
+    ]
 
 
 @needs_database
