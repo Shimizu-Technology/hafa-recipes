@@ -64,13 +64,11 @@ export function clockIn(date: Date, timeZone?: string | null) {
   catch { return date.toLocaleTimeString(undefined, format); }
 }
 
-/** Sleep inside a day. A sleep running over midnight counts on both days, and overlaps count once. */
+/** Sleep inside a day, as the API counts it. A sleep over midnight counts on both days, overlaps count once, and one still going has no minutes until it ends. */
 export function sleepMs(rows: readonly BabyRecord[], from: string, to: string, now = new Date()) {
   const start = new Date(from).getTime(), end = Math.min(new Date(to).getTime(), now.getTime());
-  const spans = rows.filter((row) => row.kind === "sleep").flatMap((row) => {
-    const a = new Date(row.occurred_at).getTime();
-    // An open sleep from long ago was never ended, and isn't still happening.
-    const b = row.data.end_at ? new Date(row.data.end_at).getTime() : now.getTime() - a < 24 * hour ? now.getTime() : NaN;
+  const spans = rows.filter((row) => row.kind === "sleep" && row.data.end_at).flatMap((row) => {
+    const a = new Date(row.occurred_at).getTime(), b = new Date(row.data.end_at!).getTime();
     return Number.isFinite(a) && Number.isFinite(b) ? [[Math.max(a, start), Math.min(b, end)] as const] : [];
   }).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
   let total = 0, reached = start;
@@ -81,18 +79,47 @@ export function sleepMs(rows: readonly BabyRecord[], from: string, to: string, n
   return total;
 }
 
+/** Whether an entry belongs on a day's timeline. A sleep is there on every day it touches, while it's still current too. */
+export function onDay(row: BabyRecord, key: string, timeZone?: string | null, now = new Date()) {
+  if (recordDay(row.occurred_at, timeZone) === key) return true;
+  if (row.kind !== "sleep") return false;
+  const { from, to } = dayRange(key, timeZone), start = new Date(row.occurred_at).getTime(),
+    end = row.data.end_at ? new Date(row.data.end_at).getTime() : now.getTime() - start < 24 * hour ? now.getTime() : NaN;
+  return start < new Date(to).getTime() && end > new Date(from).getTime();
+}
+
+/** One day's totals, in the shape `/care/summary` returns. */
+export interface CareDay {
+  date: string;
+  feeding: { count: number };
+  diapers: { count: number; pee: number; poo: number; dry: number };
+  sleep: { total_minutes: number };
+  dots: string[];
+}
+/** The API's day worked out from rows on this phone, for offline and for changes it hasn't seen. Half-open, and never the future. */
+export function dayTotals(rows: readonly BabyRecord[], key: string, timeZone?: string | null, now = new Date()): CareDay {
+  const { from, to } = dayRange(key, timeZone), start = new Date(from).getTime(), end = Math.min(new Date(to).getTime(), now.getTime()),
+    today = rows.filter((row) => { const at = new Date(row.occurred_at).getTime(); return at >= start && at < end; }),
+    diapers = today.filter((row) => row.kind === "diaper"),
+    count = today.filter((row) => row.kind === "feeding").length,
+    minutes = sleepMs(rows, from, to, now) / 60_000;
+  return {
+    date: key,
+    feeding: { count },
+    diapers: { count: diapers.length, pee: diapers.filter((row) => row.data.type === "wet" || row.data.type === "both").length,
+      poo: diapers.filter((row) => row.data.type === "dirty" || row.data.type === "both").length, dry: diapers.filter((row) => row.data.type === "dry").length },
+    sleep: { total_minutes: minutes },
+    dots: [count && "feeding", diapers.length && "diaper", (minutes || today.some((row) => row.kind === "sleep" && !row.data.end_at)) && "sleep"].filter(Boolean) as string[],
+  };
+}
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** One line for a day: "9 feeds · 6 pee · 3 poo · 11h sleep". It counts what was logged and never judges it. */
+export function summaryLine(day: CareDay) {
+  const sleep = day.sleep.total_minutes / 60;
+  return [plural(day.feeding.count, "feed"), `${day.diapers.pee} pee`, `${day.diapers.poo} poo`, `${sleep > 0 && sleep < 1 ? "<1" : Math.round(sleep)}h sleep`].join(" · ");
+}
 export function daySummary(rows: readonly BabyRecord[], key: string, timeZone?: string | null, now = new Date()) {
-  const { from, to } = dayRange(key, timeZone),
-    today = rows.filter((row) => recordDay(row.occurred_at, timeZone) === key),
-    diapers = today.filter((row) => row.kind === "diaper"),
-    sleep = sleepMs(rows, from, to, now) / hour;
-  return [
-    plural(today.filter((row) => row.kind === "feeding").length, "feed"),
-    `${diapers.filter((row) => row.data.type === "wet" || row.data.type === "both").length} pee`,
-    `${diapers.filter((row) => row.data.type === "dirty" || row.data.type === "both").length} poo`,
-    `${sleep > 0 && sleep < 1 ? "<1" : Math.round(sleep)}h sleep`,
-  ].join(" · ");
+  return summaryLine(dayTotals(rows, key, timeZone, now));
 }

@@ -7,16 +7,19 @@ const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1 }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: mock.fontScale }) }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/care-days", () => import("./care-days"));
+vi.mock("@/lib/care-summary", () => import("./care-summary"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", fonts: {}, useColors: () => ({}) }));
 import { TrackerMonth, monthGrid, stepMonth } from "../components/tracker-month";
 import { careDays, firstCareDay } from "./care-days";
+import { recordDay } from "./tracker";
 
 const today = "2026-11-04";
 const entry = (id: string, occurred_at: string, kind: "feeding" | "journal" = "feeding"): BabyRecord =>
   optimisticRecord({ id, kind, title: id, body: "", child_id: kind === "journal" ? null : "baby", occurred_at, data: { method: "breast" } });
 let renderer: ReactTestRenderer | undefined;
+const careDay = (date: string, feeds = 1) => ({ date, feeding: { count: feeds }, diapers: { count: 0, pee: 0, poo: 0, dry: 0 }, sleep: { total_minutes: 0 }, dots: feeds ? ["feeding"] : [] });
 function setup(rows: BabyRecord[] = [], outbox: Mutation[] = []) {
   const records = vi.fn(async (filters: any) => {
     const list = rows.filter((row) => (!filters.occurred_from || row.occurred_at >= filters.occurred_from) && (!filters.occurred_to || row.occurred_at < filters.occurred_to)
@@ -24,7 +27,8 @@ function setup(rows: BabyRecord[] = [], outbox: Mutation[] = []) {
     const offset = filters.offset ?? 0;
     return { items: list.slice(offset, offset + filters.limit), total: list.length, has_more: offset + filters.limit < list.length };
   });
-  mock.baby = { api: { records }, state: { ...emptyState(), outbox, bootstrap: { generation: 1, active: true, ai_available: false, children: [], profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
+  const careSummary = vi.fn(async () => ({ days: rows.filter((row) => row.kind === "feeding").map((row) => careDay(recordDay(row.occurred_at, "Pacific/Guam"))) }));
+  mock.baby = { api: { records, careSummary }, state: { ...emptyState(), outbox, bootstrap: { generation: 1, active: true, ai_available: false, children: [], profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
   return records;
 }
 const targets = () => renderer!.root.findAll((n) => String(n.type) === "Pressable");
@@ -47,17 +51,18 @@ it("lays a month out in whole weeks, with the days around it, and steps across y
 });
 
 it("marks days that have something, from the API and from this phone, and opens a day on tap", async () => {
-  const unsynced: Mutation = { id: "m", generation: 1, type: "save", files: [], record: { id: "u", kind: "diaper", title: "", body: "", child_id: "baby", occurred_at: "2026-11-10T02:00:00Z", data: { type: "wet" } } };
+  const unsynced: Mutation = { id: "m", generation: 1, type: "save", files: [], record: { id: "u", kind: "diaper", title: "", body: "", child_id: "baby", occurred_at: "2026-10-31T20:00:00Z", data: { type: "wet" } } };
   const records = setup([entry("a", "2026-11-02T02:00:00.000Z"), entry("note", "2026-11-03T02:00:00.000Z", "journal")], [unsynced]);
   await mount();
   expect(heading()).toContain("November");
   const dotted = targets().filter((n) => String(n.props.accessibilityLabel).includes("has entries")).map((n) => n.props.accessibilityLabel);
   expect(dotted).toHaveLength(3);
-  expect(dotted.join()).toMatch(/November 2.*November 3.*November 10/);
+  expect(dotted.join()).toMatch(/November 1.*November 2.*November 3/);
   expect(target("Wednesday, November 4")?.props.accessibilityLabel).toContain("today");
   await act(async () => target("Monday, November 2")!.props.onPress());
   expect(onOpen).toHaveBeenCalledWith("2026-11-02");
-  expect(records).toHaveBeenCalledWith(expect.objectContaining({ occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
+  expect(mock.baby.api.careSummary).toHaveBeenCalledWith("2026-11-01", "2026-12-05", "baby");
+  expect(records).toHaveBeenCalledWith(expect.objectContaining({ kinds: ["journal", "question"], occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
 });
 
 it("reaches the first day home in three taps or fewer: Tracker, Calendar, First log, however long ago", async () => {
@@ -107,14 +112,22 @@ it("gives every day a 44pt target at least, and names it for VoiceOver", async (
   for (const node of targets()) if (String(node.props.accessibilityLabel).includes("day,")) expect(node.props.style.minHeight).toBeGreaterThanOrEqual(44);
 });
 
-it("reads every page of a busy month, and stops when a screen has moved on", async () => {
-  const rows = Array.from({ length: 250 }, (_, i) => entry(`r${i}`, new Date(Date.UTC(2026, 10, 1 + (i % 28), 2, i % 60)).toISOString()));
-  const records = setup(rows), { from, to } = { from: "2026-10-31T14:00:00.000Z", to: "2026-12-05T14:00:00.000Z" };
-  expect((await careDays(mock.baby, "baby", from, to, "Pacific/Guam")).size).toBe(28);
+it("reads every page of notes in a busy month, and stops when a screen has moved on", async () => {
+  const rows = Array.from({ length: 250 }, (_, i) => entry(`r${i}`, new Date(Date.UTC(2026, 10, 1 + (i % 28), 2, i % 60)).toISOString(), "journal"));
+  const records = setup(rows);
+  expect((await careDays(mock.baby, "baby", "2026-11-01", "2026-12-05", "Pacific/Guam")).others.size).toBe(28);
   expect(records).toHaveBeenCalledTimes(3);
   records.mockClear();
-  await careDays(mock.baby, "baby", from, to, "Pacific/Guam", () => false);
+  await careDays(mock.baby, "baby", "2026-11-01", "2026-12-05", "Pacific/Guam", () => false);
   expect(records).toHaveBeenCalledOnce();
+});
+
+it("takes a queued delete's dot away, so a day never promises what's gone", async () => {
+  const saved = entry("a", "2026-11-02T02:00:00.000Z"), gone: Mutation = { id: "m", generation: 1, type: "delete", record: saved };
+  setup([saved], [gone]);
+  mock.baby.state.records = [saved];
+  await mount();
+  expect(targets().filter((n) => String(n.props.accessibilityLabel).includes("has entries"))).toEqual([]);
 });
 
 it("finds no first day when nothing is logged", async () => {

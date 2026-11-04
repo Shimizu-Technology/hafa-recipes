@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, dayKey, dayRange, daySummary, keyDate, recordDay, sleepMs, weekOf, zonedInstant } from "./tracker";
+import { addDays, dayKey, dayRange, daySummary, dayTotals, keyDate, onDay, recordDay, sleepMs, weekOf, zonedInstant } from "./tracker";
 import { optimisticRecord, type BabyRecord } from "./models";
 
 const guam = "Pacific/Guam";
@@ -65,10 +65,24 @@ describe("the day's summary", () => {
     const a = row("sleep", "2026-11-03T20:00:00Z", { end_at: "2026-11-03T22:00:00Z" }), b = row("sleep", "2026-11-03T21:00:00Z", { end_at: "2026-11-03T23:00:00Z" });
     expect(sleepMs([a, b], from, to, late) / 3_600_000).toBe(3);
   });
-  it("counts a sleep still running up to now, and not one nobody ended", () => {
+  it("gives a sleep still going no minutes until it ends, as the API does", () => {
     const now = new Date("2026-11-03T21:00:00Z");
-    expect(sleepMs([row("sleep", "2026-11-03T20:00:00Z")], from, to, now) / 3_600_000).toBe(1);
+    expect(sleepMs([row("sleep", "2026-11-03T20:00:00Z")], from, to, now)).toBe(0);
     expect(sleepMs([row("sleep", "2026-11-01T20:00:00Z")], from, to, now)).toBe(0);
+    expect(dayTotals([row("sleep", "2026-11-03T20:00:00Z")], "2026-11-04", guam, now).dots).toEqual(["sleep"]);
+  });
+  it("puts a sleep over midnight on both days' timelines, and one still going on today's", () => {
+    const over = row("sleep", "2026-11-03T12:00:00Z", { end_at: "2026-11-03T16:00:00Z" }), now = new Date("2026-11-04T00:00:00Z");
+    expect(onDay(over, "2026-11-03", guam, now)).toBe(true);
+    expect(onDay(over, "2026-11-04", guam, now)).toBe(true);
+    expect(onDay(over, "2026-11-05", guam, now)).toBe(false);
+    expect(onDay(row("sleep", "2026-11-03T12:00:00Z"), "2026-11-04", guam, now)).toBe(true);
+    expect(onDay(row("sleep", "2026-10-30T12:00:00Z"), "2026-11-04", guam, now)).toBe(false);
+    expect(onDay(row("diaper", "2026-11-03T12:00:00Z", { type: "wet" }), "2026-11-04", guam, now)).toBe(false);
+  });
+  it("leaves out what's after now, as the API does", () => {
+    const now = new Date("2026-11-03T21:00:00Z");
+    expect(dayTotals([row("diaper", "2026-11-03T22:00:00Z", { type: "wet" })], "2026-11-04", guam, now).diapers.count).toBe(0);
   });
   it("says under an hour rather than rounding it away", () => {
     expect(daySummary([row("sleep", "2026-11-03T20:00:00Z", { end_at: "2026-11-03T20:20:00Z" })], "2026-11-04", guam, late)).toContain("<1h sleep");

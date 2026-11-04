@@ -6,7 +6,9 @@ import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
 import { activeTimer } from "@/lib/feed-timer";
 import { runningFeed } from "@/lib/feed-reducer";
-import { dayKey, daySummary } from "@/lib/tracker";
+import { dayKey, summaryLine } from "@/lib/tracker";
+import { dayOverlay } from "@/lib/care-summary";
+import { useCareSummary } from "@/lib/use-care-summary";
 import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
@@ -71,7 +73,9 @@ export default function Today() {
     // A device timer is from an older build: it finishes the old way, on its own card, and is gone.
     timer = activeTimer(b.state),
     running = runningFeed(latestCare.all, child?.id ?? null, now),
-    timezone = b.state.bootstrap!.profile.timezone;
+    timezone = b.state.bootstrap!.profile.timezone,
+    todayKey = dayKey(today),
+    summary = useCareSummary(child?.id ?? null, todayKey, todayKey, { poll: true });
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
     sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
     sleepDetail = sleepGlanceDetail(glance, now),
@@ -119,7 +123,7 @@ export default function Today() {
         onPress={addBirth} />}
     </Screen>
   );
-  const todayLine = `Today: ${daySummary(latestCare.all.filter((row) => row.child_id === child?.id), dayKey(today), timezone, now)}`;
+  const todayLine = `Today: ${summaryLine(dayOverlay(b.state, child?.id ?? null, timezone, now)(summary?.[todayKey], todayKey))}`;
   const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} /> : null;
   return (
     <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, today) : child.name : undefined} numericSubtitle={showCare}

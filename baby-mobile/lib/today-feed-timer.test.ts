@@ -59,6 +59,8 @@ vi.mock("@/components/quick-log", () => import("../components/quick-log"));
 vi.mock("@/lib/running-feed", () => import("./running-feed"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
+vi.mock("@/lib/care-summary", () => import("./care-summary"));
+vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => undefined }));
 vi.mock("@/lib/api", () => ({ sendsCareDetails: false }));
 vi.mock("../components/date-field", () => ({ DateField: "DateField" }));
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));

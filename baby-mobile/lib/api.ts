@@ -14,6 +14,7 @@ import type {
   RecordWrite,
   Scope,
 } from "./models";
+import type { CareDay } from "./tracker";
 import { dailyAiLimitMessage } from "./import-status";
 /**
  * What this build tells the API it understands, as `X-Baby-Client`. 2 reads and writes every current kind and field, in
@@ -229,6 +230,9 @@ export function createBabyApi(
       filters: Pick<RecordFilters, "kinds" | "include_general" | "offset" | "limit" | "collection_id" | "topic" | "uncategorized"> = {}) =>
       request<RecordPage>("/search?" + query({ q, kind, child_id, limit: 100, ...filters })),
     record: (id: string) => request<BabyRecord>(`/records/${encodeURIComponent(id)}`),
+    /** Totals and dots per calendar day, inclusive, on the profile's clock. No child means the logs that have none. */
+    careSummary: (from: string, to: string, child_id?: string | null) =>
+      request<{ days: CareDay[] }>("/care/summary?" + query({ from, to, child_id })),
     save: (value: RecordWrite, g: number) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
       // Repair optional links at the wire boundary, including durable outbox

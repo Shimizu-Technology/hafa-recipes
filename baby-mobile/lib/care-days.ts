@@ -1,31 +1,35 @@
 import type { useBaby } from "./context";
+import type { Kind } from "./models";
 import { pendingRecords } from "./outbox";
-import { recordDay, timelineKinds } from "./tracker";
+import { isCare } from "./care-format";
+import { dayRange, recordDay, timelineKinds } from "./tracker";
 
 type Account = Pick<ReturnType<typeof useBaby>, "api" | "state">;
 
-/** Most entries a month's dots read: over 30 logs a day. L6's summary replaces this, in this one function. */
-const pageLimit = 100, pagesLimit = 12;
+/** Over 30 a day, more than a month ever has. These kinds have no totals, so `/care/summary` doesn't put a dot on them. */
+const pageLimit = 100, pagesLimit = 12, otherKinds: readonly Kind[] = timelineKinds.filter((kind) => !isCare(kind));
 
-/** Which days in a range have anything on them. Saved entries come from the API; unsynced ones from this phone. */
-export async function careDays(b: Account, childId: string | null, from: string, to: string, timezone?: string | null, current = () => true) {
-  const days = new Set<string>();
+/** Which days in a range have something on them, from the API: its care days, and the days with notes or questions. */
+export async function careDays(b: Account, childId: string | null, first: string, last: string, timezone?: string | null, current = () => true) {
+  const { from } = dayRange(first, timezone), { to } = dayRange(last, timezone), others = new Set<string>(),
+    days = Object.fromEntries((await b.api.careSummary(first, last, childId)).days.map((day) => [day.date, day]));
   for (let page = 0; page < pagesLimit; page++) {
-    const response = await b.api.records({ kinds: timelineKinds, child_id: childId, include_general: true, occurred_from: from, occurred_to: to, limit: pageLimit, offset: page * pageLimit || undefined });
-    if (!current()) return days;
+    const response = await b.api.records({ kinds: otherKinds, child_id: childId, include_general: true, occurred_from: from, occurred_to: to, limit: pageLimit, offset: page * pageLimit || undefined });
+    if (!current()) break;
     for (const row of response.items) {
       // By real time: the API's and this phone's timestamps aren't always written the same way.
       const at = new Date(row.occurred_at).getTime();
-      if (at >= new Date(from).getTime() && at < new Date(to).getTime()) days.add(recordDay(row.occurred_at, timezone));
+      if (at >= new Date(from).getTime() && at < new Date(to).getTime()) others.add(recordDay(row.occurred_at, timezone));
     }
     if (!response.has_more) break;
   }
-  return days;
+  return { days, others };
 }
 
-export function localCareDays(b: Pick<Account, "state">, childId: string | null, timezone?: string | null) {
+/** Days holding a note or question not yet saved. Queued care goes through `dayOverlay`, with the rest of its day. */
+export function localOtherDays(b: Pick<Account, "state">, childId: string | null, timezone?: string | null) {
   return new Set(pendingRecords(b.state)
-    .filter((row) => timelineKinds.includes(row.kind) && (!childId || !row.child_id || row.child_id === childId))
+    .filter((row) => otherKinds.includes(row.kind) && (!childId || !row.child_id || row.child_id === childId))
     .map((row) => recordDay(row.occurred_at, timezone)));
 }
 

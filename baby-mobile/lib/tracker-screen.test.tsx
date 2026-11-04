@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "" }));
+const mock = vi.hoisted(() => ({ baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView",
   useWindowDimensions: () => ({ fontScale: mock.fontScale }),
@@ -18,6 +18,8 @@ vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
+vi.mock("@/lib/care-summary", () => import("./care-summary"));
+vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => mock.summary }));
 vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
   mock.requests.push(options);
@@ -49,7 +51,7 @@ const targets = () => renderer!.root.findAll((n) => String(n.type) === "Pressabl
 const target = (label: string) => targets().find((n) => n.props.accessibilityLabel === label || n.props.accessibilityLabel?.startsWith(label));
 const copy = () => renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => n.props.children);
 const titles = () => renderer!.root.findAll((n) => String(n.type) === "Text").map((n) => [n.props.children].flat().join(""));
-async function mount() { await act(async () => { renderer = create(<Tracker />); }); }
+async function mount() { mock.baby.state.records = mock.care; await act(async () => { renderer = create(<Tracker />); }); }
 async function press(label: string) {
   const node = target(label);
   expect(node, label).toBeDefined();
@@ -60,7 +62,7 @@ beforeEach(() => {
   vi.useFakeTimers({ now });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  mock.care = []; mock.requests = []; mock.params = {}; mock.push.mockClear(); mock.fontScale = 1; mock.quick = []; mock.error = "";
+  mock.care = []; mock.requests = []; mock.params = {}; mock.push.mockClear(); mock.fontScale = 1; mock.quick = []; mock.error = ""; mock.summary = undefined;
   mock.baby = { state: { ...emptyState(), bootstrap: { generation: 1, active: true, ai_available: false,
     children: [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25" }],
     profile: { display_name: "K", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
@@ -175,6 +177,25 @@ it("opens a day from the calendar, back in the Day view with its quick log", asy
   expect(chips().props.value).toBe("day");
   expect(copy().join(" ")).toContain("Oct 26");
   expect(lastQuick().pastDay).toEqual({ key: "2026-10-26", timezone: "Pacific/Guam" });
+});
+
+it("takes the day's line from the API, so a sleep still going adds nothing and one over midnight counts", async () => {
+  mock.care = [row("open", "sleep", "2026-11-03T20:00:00.000Z")];
+  mock.summary = { "2026-11-04": { date: "2026-11-04", feeding: { count: 4 }, diapers: { count: 3, pee: 2, poo: 1, dry: 0 }, sleep: { total_minutes: 300 }, dots: ["feeding"] }, "2026-11-02": { date: "2026-11-02", feeding: { count: 0 }, diapers: { count: 0, pee: 0, poo: 0, dry: 0 }, sleep: { total_minutes: 60 }, dots: ["sleep"] } };
+  await mount();
+  expect(copy()).toContain("4 feeds · 2 pee · 1 poo · 5h sleep");
+  expect(targets().find((n) => String(n.props.accessibilityLabel).includes("November 2"))!.props.accessibilityLabel).toContain("has entries");
+});
+
+it("lists a sleep that ran over midnight on the second day too, to change it from there", async () => {
+  mock.care = [row("night", "sleep", "2026-11-03T12:00:00.000Z", { end_at: "2026-11-03T16:00:00.000Z" }), row("before", "sleep", "2026-11-03T02:00:00.000Z", { end_at: "2026-11-03T03:00:00.000Z" })];
+  mock.summary = {};
+  await mount();
+  const rows = targets().filter((n) => n.props.accessibilityHint === "Opens this entry to change it");
+  expect(rows).toHaveLength(1);
+  expect(rows[0].props.accessibilityLabel).toContain("Began the day before");
+  await press("Day before");
+  expect(targets().filter((n) => n.props.accessibilityHint === "Opens this entry to change it")).toHaveLength(2);
 });
 
 it("shows a timer from an older build on Tracker, today only", async () => {

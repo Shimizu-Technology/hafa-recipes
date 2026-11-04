@@ -4,7 +4,9 @@ import { View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
-import { dayKey, dayRange, daySummary, keyDate, addDays, recordDay, timelineKinds } from "@/lib/tracker";
+import { dayKey, dayRange, summaryLine, keyDate, addDays, onDay, timelineKinds, weekOf } from "@/lib/tracker";
+import { dayOverlay } from "@/lib/care-summary";
+import { useCareSummary } from "@/lib/use-care-summary";
 import { newestFirst } from "@/lib/feed-reducer";
 import { Copy, Empty, FilterChips, Grouped, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
 import { HeaderPill } from "@/components/tab-stack";
@@ -31,14 +33,17 @@ export default function Tracker() {
     // A day looks back one more, for a sleep that ran over midnight into it.
     care = useTodayCare({ kinds: timelineKinds, occurred_from: dayRange(addDays(day, -1), timezone).from, occurred_to: range.to, pages: 5, limit: 500, poll: day === today }),
     recent = useTodayCare(),
+    // The weeks a swipe away, so their dots are already there.
+    strip = Array.from({ length: 90 }, (_, index) => addDays(weekOf(day)[0], index - 42)),
     children = b.state.bootstrap!.children,
     child = timingChild(b.state, keyDate(today)),
     logging = careLogsStarted(children, keyDate(today)) && !!child && todayStage(child, keyDate(today)) === "baby",
-    rows = care.all.filter((row) => recordDay(row.occurred_at, timezone) === day).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
-    counted = child ? care.all.filter((row) => row.child_id === child.id) : care.all,
+    summary = useCareSummary(child?.id ?? null, strip[0], strip[strip.length - 1], { poll: day === today }),
+    overlay = dayOverlay(b.state, child?.id ?? null, timezone, now),
+    rows = care.all.filter((row) => onDay(row, day, timezone, now)).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
     future = keyDate(day) > keyDate(today),
     { fontScale } = useWindowDimensions(),
-    marked = new Set(recent.all.map((row) => recordDay(row.occurred_at, timezone)));
+    marked = new Set(strip.filter((key) => overlay(summary?.[key], key).dots.length > 0));
   useEffect(() => {
     // A link to one day, from Today or the calendar.
     if (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day)) { setPicked(params.day === today ? null : params.day); setView("day"); }
@@ -67,7 +72,7 @@ export default function Tracker() {
             </PressTarget>
           </View>
         </View>
-        {!future && <Copy numeric kind="small" tone="muted">{daySummary(counted, day, timezone, now)}</Copy>}
+        {!future && <Copy numeric kind="small" tone="muted">{summaryLine(overlay(summary?.[day], day))}</Copy>}
       </View>
       {day === today && <LegacyTimer />}
       {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
@@ -78,7 +83,7 @@ export default function Tracker() {
           <OrderToggle newest={newest} onFlip={() => setNewest(!newest)} />
         </View>
         <Grouped separatorInset={0}>{rows.map((row) => (
-          <TimelineRow key={row.id} record={row} rows={care.all} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === row.id)} />
+          <TimelineRow key={row.id} record={row} rows={care.all} day={day} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === row.id)} />
         ))}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}

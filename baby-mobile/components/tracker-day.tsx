@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { careSummary, isCare } from "@/lib/care-format";
 import { kindName, type BabyRecord } from "@/lib/models";
 import { feedProgress } from "@/lib/feed-reducer";
-import { addDays, clockIn, keyDate, weekOf } from "@/lib/tracker";
+import { addDays, clockIn, keyDate, recordDay, weekOf } from "@/lib/tracker";
 import { Icon, PressTarget, fonts, radii, typeScale, useColors } from "./ui";
 import { kindIcon } from "./record-row";
 
@@ -49,8 +49,10 @@ const timeOf = (iso: string, timeZone?: string | null) => {
 };
 
 /** The second line of a timeline row: what the title doesn't already say. */
-export function timelineDetail(record: BabyRecord, { rows = [record], timeZone, now = new Date() }: { rows?: readonly BabyRecord[]; timeZone?: string | null; now?: Date } = {}) {
-  if (record.kind === "sleep" && record.data.end_at) return `${timeOf(record.occurred_at, timeZone)} to ${timeOf(record.data.end_at, timeZone)}`;
+export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZone, now = new Date() }: { rows?: readonly BabyRecord[]; day?: string; timeZone?: string | null; now?: Date } = {}) {
+  const carried = !!day && record.kind === "sleep" && recordDay(record.occurred_at, timeZone) !== day ? "Began the day before" : "";
+  if (record.kind === "sleep" && record.data.end_at) return [carried, `${timeOf(record.occurred_at, timeZone)} to ${timeOf(record.data.end_at, timeZone)}`].filter(Boolean).join(" · ");
+  if (carried) return carried;
   const progress = record.kind === "feeding" ? feedProgress(record, rows, now) : undefined;
   if (progress === "running") return "Feeding now";
   if (progress === "no_end") return "No end time";
@@ -58,10 +60,10 @@ export function timelineDetail(record: BabyRecord, { rows = [record], timeZone, 
 }
 
 /** One thing that happened: when, what, and a way in to change it. */
-export function TimelineRow({ record, rows, timeZone, pending, now }: { record: BabyRecord; rows?: readonly BabyRecord[]; timeZone?: string | null; pending?: boolean; now: Date }) {
+export function TimelineRow({ record, rows, day, timeZone, pending, now }: { record: BabyRecord; rows?: readonly BabyRecord[]; day?: string; timeZone?: string | null; pending?: boolean; now: Date }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), when = timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
     title = isCare(record.kind) ? careSummary(record.kind, record.data, record.occurred_at, now, timeZone) : kindName[record.kind],
-    detail = [timelineDetail(record, { rows, timeZone, now }) || (isCare(record.kind) ? "" : record.title), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
+    detail = [timelineDetail(record, { rows, day, timeZone, now }) || (isCare(record.kind) ? "" : record.title), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
   return <PressTarget accessibilityRole="button" accessibilityLabel={`${when}, ${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 4 : 10, minHeight: 62, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: c.surface }}>
