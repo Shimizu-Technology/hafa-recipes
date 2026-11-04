@@ -1,6 +1,6 @@
 """Bounded, explicit wire schemas; source claims never become care instructions."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -11,12 +11,15 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     StrictBool,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
 from app.domains.baby.feeds import instant, reduce_feed, with_derived
+from app.domains.baby.recurrence import is_start
 
 # Matches the mobile source kind label; keep API capture and processing defaults together.
 DEFAULT_SOURCE_TITLE = "Saved source"
@@ -338,6 +341,8 @@ class RoutineData(DomainModel):
 class JournalData(DomainModel):
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     provenance: Literal["caregiver_observation", "clinician_instruction"] = "caregiver_observation"
+    # A question for a visit, or a note after it. Checked against the owner's events on save.
+    event_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class CollectionData(DomainModel):
@@ -347,20 +352,87 @@ class CollectionData(DomainModel):
 Label = Annotated[str, Field(min_length=1, max_length=120)]
 
 
+EventCategory = Literal["appointment", "family", "celebration", "milestone", "reminder", "other"]
+# Outside these years a date is a typo, and calendar maths would overflow.
+EVENT_YEARS = range(2000, 2101)
+MAX_EVENT_DAYS = 366
+
+
+def labels(values):
+    """Trimmed, non-blank and distinct ignoring case, in the order given."""
+    if values is None:
+        return None
+    cleaned = [value.strip() for value in values]
+    if not all(cleaned) or len({value.casefold() for value in cleaned}) != len(cleaned):
+        raise ValueError("Each name must be filled in once")
+    return cleaned
+
+
 class EventRecurrence(DomainModel):
     frequency: Literal["daily", "weekly", "monthly", "yearly"]
     interval: Annotated[int, Field(strict=True, ge=1, le=99)] = 1
+    # The last day, on the event's own calendar, that an occurrence can start.
     until: date | None = None
+
+    @field_validator("until")
+    @classmethod
+    def sensible_until(cls, value):
+        if value is not None and value.year not in EVENT_YEARS:
+            raise ValueError("Choose an end date between 2000 and 2100")
+        return value
 
 
 class EventOverrides(DomainModel):
+    """What one occurrence changes. A new ``all_day`` needs a new ``start``.
+
+    A field left out keeps the series' value. Null clears an ``end``, ``category`` or ``location``;
+    the others always have a value, so null is refused (clear ``attendees`` with an empty list).
+    """
+
     start: AwareDatetime | None = None
     end: AwareDatetime | None = None
     all_day: StrictBool | None = None
     title: str | None = Field(default=None, min_length=1, max_length=240)
-    category: str | None = Field(default=None, max_length=40)
+    category: EventCategory | None = None
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] | None = Field(default=None, max_length=30)
+
+    @field_validator("start", "all_day", "title", "attendees", mode="before")
+    @classmethod
+    def not_cleared(cls, value):
+        if value is None:
+            raise ValueError("Give a value, or leave this out to keep the series' own")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def meaningful_title(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a title")
+        return value.strip()
+
+    @field_validator("location")
+    @classmethod
+    def trimmed_location(cls, value):
+        return value and value.strip()
+
+    @field_validator("attendees")
+    @classmethod
+    def distinct_attendees(cls, value):
+        return labels(value)
+
+    @model_validator(mode="after")
+    def changes_something(self):
+        if not self.model_fields_set:
+            raise ValueError("Change something, or cancel this occurrence")
+        if self.all_day is not None and self.start is None:
+            raise ValueError("Choose a new start when changing all-day")
+        return self
+
+    @model_serializer(mode="wrap")
+    def only_what_was_said(self, handler: SerializerFunctionWrapHandler):
+        # Stored as given: a field left out and a field set to null mean different things.
+        return {key: value for key, value in handler(self).items() if key in self.model_fields_set}
 
 
 class EventException(DomainModel):
@@ -376,17 +448,31 @@ class EventException(DomainModel):
 
 
 class EventData(DomainModel):
-    """``occurred_at`` is the start, and a missing ``child_id`` is the whole family."""
+    """``occurred_at`` is the start, and a missing ``child_id`` is the whole family.
+
+    An all-day event starts at midnight on its own calendar, and its ``end`` (when there is
+    one) is the midnight after its last day. Other ends are the moment it finishes.
+    """
 
     end: AwareDatetime | None = None
     all_day: StrictBool = False
     timezone: str = Field(max_length=80)
-    category: str | None = Field(default=None, max_length=40)
+    category: EventCategory | None = None
     location: str | None = Field(default=None, max_length=240)
     attendees: list[Label] = Field(default_factory=list, max_length=30)
     recurrence: EventRecurrence | None = None
     exceptions: list[EventException] = Field(default_factory=list, max_length=200)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
+
+    @field_validator("location")
+    @classmethod
+    def trimmed_location(cls, value):
+        return value.strip() or None if value is not None else None
+
+    @field_validator("attendees")
+    @classmethod
+    def distinct_attendees(cls, value):
+        return labels(value)
 
     @model_validator(mode="after")
     def valid_event(self):
@@ -395,6 +481,52 @@ class EventData(DomainModel):
         if len(set(starts)) != len(starts):
             raise ValueError("Each occurrence can have one change")
         return self
+
+    @property
+    def rule(self):
+        """(frequency, interval, until) for the repeat maths, or None."""
+        repeat = self.recurrence
+        return repeat and (repeat.frequency, repeat.interval, repeat.until)
+
+    def without_orphans(self, start):
+        """Drop the changes to dates this event no longer has, as when its start or repeat moves."""
+        zone = ZoneInfo(self.timezone)
+        self.exceptions = [
+            item for item in self.exceptions
+            if self.rule and is_start(start, zone, self.rule, item.original_start)
+        ]
+        return self
+
+    def check_times(self, start):
+        """The rules that need the start, which lives on the record."""
+        if self.exceptions and self.recurrence is None:
+            raise ValueError("Only a repeating event has occurrences to change")
+        zone = ZoneInfo(self.timezone)
+        check_span(start, self.end, self.all_day, zone)
+        if self.recurrence and self.recurrence.until:
+            if self.recurrence.until < start.astimezone(zone).date():
+                raise ValueError("A repeat cannot end before the event starts")
+        for item in self.exceptions:
+            if item.original_start < start:
+                raise ValueError("An occurrence cannot come before the event starts")
+            change = item.overrides
+            if change is not None and (change.start or change.end):
+                all_day = self.all_day if change.all_day is None else change.all_day
+                check_span(change.start or item.original_start, change.end, all_day, zone)
+
+
+def check_span(start, end, all_day, zone):
+    if start.astimezone(zone).year not in EVENT_YEARS:
+        raise ValueError("Choose a date between 2000 and 2100")
+    if all_day and any(
+        moment.astimezone(zone).time() != time() for moment in (start, end) if moment
+    ):
+        raise ValueError("An all-day event starts and ends at midnight")
+    if end is not None:
+        if end <= start:
+            raise ValueError("An event must end after it starts")
+        if end - start > timedelta(days=MAX_EVENT_DAYS):
+            raise ValueError("An event can last up to a year")
 
 
 class ContractionData(DomainModel):
@@ -511,6 +643,8 @@ class RecordCreate(DomainModel):
             started = reduce_feed(self.data["actions"])["started_at"]
             if started:
                 self.occurred_at = instant(started)
+        if self.kind == "event":
+            EventData.model_validate(self.data).check_times(self.occurred_at)
         end_field = END_FIELDS.get(self.kind)
         if end_field and self.data.get(end_field):
             # The stored form is JSON; the validated form compares instants across offsets.
