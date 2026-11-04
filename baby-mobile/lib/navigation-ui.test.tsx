@@ -76,7 +76,8 @@ vi.mock("@/lib/suggestions", () => import("./suggestions"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/components/saved-post-row", () => import("../components/saved-post-row"));
 import Library from "../app/(tabs)/library";
-import Journal, { JournalContent } from "../app/(tabs)/journal";
+import Journal, { JournalContent } from "../app/journal";
+import Add from "../app/add";
 import RecordDetail from "../app/record/[id]";
 import { Grouped, Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
@@ -143,12 +144,27 @@ it("keeps compact Journal filters horizontal, writing-only, and clears route-dri
   mock.params = { filter: "all" };
   await act(async () => renderer!.update(<Journal />));
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["journal", "question"]);
-  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Write")).toBe(false);
   expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).some(n => n.props.horizontal)).toBe(true);
   mock.params = { filter: "question" };
   await act(async () => renderer!.update(<Journal />));
   await press("Prepare a visit summary");
   expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Share 0 selected entries" && n.props.disabled)).toBe(true);
+});
+it("opens Journal as a pushed screen with Back and Write, and old filtered links keep working", async () => {
+  mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/journal", params: { filter: "question", at: "1" } }];
+  mock.params = { filter: "question", at: "1" };
+  await mount(<Journal />);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  expect(renderer!.root.findByType(Screen).props.back).toBe(true);
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
+  await press("Write");
+  expect(mock.stack.at(-1)).toEqual({ pathname: "/edit", params: { kind: "question" } });
+});
+it("shrinks the Add sheet to things to keep: care leaves, a video or link leads", async () => {
+  mock.stack = [{ pathname: "/add" }];
+  await mount(<Add />);
+  const labels = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => n.props.accessibilityLabel).filter(Boolean);
+  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Keep a doctor question", "Make a list"]);
 });
 it("keeps care-only history pushed with Back and disclosed care search", async () => {
   mock.stack = [{ pathname: "/(tabs)" }, { pathname: "/care-history" }];

@@ -258,8 +258,8 @@ export default function Today() {
         <Row numericDetail title={routine?.title || "Lists & routines"}
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />
-        <Row title="Write in your journal" icon="book-outline"
-          onPress={() => router.push({ pathname: "/edit", params: { kind: "journal" } })} />
+        <Row title="Journal" detail="Notes, photos and documents" icon="book-outline"
+          onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal", at: String(Date.now()) } })} />
         <Row title="Care history" numericDetail detail={showCare ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
       {stage === "baby" && <TipSection title="For this age" view="now" rows={tipsNow.rows} />}

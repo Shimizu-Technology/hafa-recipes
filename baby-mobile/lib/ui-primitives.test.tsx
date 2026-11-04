@@ -188,7 +188,7 @@ it.each(["", undefined, "A useful subtitle"])("keeps optional subtitle %j inside
 });
 
 
-it.each(["Today", "Saved", "Journal", "Ask"])("leaves Add to the tab bar and shows %s's account as initials", async title => {
+it.each(["Today", "Tracker", "Saved", "Ask"])("leaves Add to the tab bar and shows %s's account as initials", async title => {
   mock.baby = { ...mock.baby, state: { ...mock.baby.state, bootstrap: { profile: { display_name: "Kami Shimizu" } } } as any };
   await mount(<TabStack title={title} />);
   expect(mock.options).toEqual([]);

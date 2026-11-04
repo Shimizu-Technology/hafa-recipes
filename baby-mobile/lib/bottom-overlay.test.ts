@@ -3,7 +3,7 @@ import { OVERLAY_GAP, isTabRoute, overlayBottom, getDockedFooterHeight, reportDo
 
 describe("bottom overlay placement", () => {
   it("treats only the tab group as showing the tab bar", () => {
-    expect(isTabRoute(["(tabs)", "journal"])).toBe(true);
+    expect(isTabRoute(["(tabs)", "tracker"])).toBe(true);
     expect(isTabRoute(["record", "[id]"])).toBe(false);
     expect(isTabRoute([])).toBe(false);
   });

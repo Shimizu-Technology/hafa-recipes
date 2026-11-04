@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Keyboard, Platform, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
-import { useBaby } from "@/lib/context";
-import { careLogsStarted, profileToday } from "@/lib/timing";
 import { reportTabBarHeight } from "@/lib/bottom-overlay";
 import { Icon, PressTarget, fonts, tap, useColors, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
@@ -12,11 +10,11 @@ import { useReducedMotion } from "./motion";
 export const TAB_BAR_HEIGHT = 56;
 
 type TabSpec = { route: string; label: string; icon: IconName; selectedIcon: IconName };
-/** Today · Saved · Add · Journal · Ask. Add opens the Add sheet; it is an action, not a tab. */
+/** Today · Tracker · Add · Saved · Ask. Add opens the Add sheet; it is an action, not a tab. */
 export const tabs: TabSpec[] = [
   { route: "(today)", label: "Today", icon: "sunny-outline", selectedIcon: "sunny" },
+  { route: "tracker", label: "Tracker", icon: "calendar-outline", selectedIcon: "calendar" },
   { route: "library", label: "Saved", icon: "bookmark-outline", selectedIcon: "bookmark" },
-  { route: "journal", label: "Journal", icon: "book-outline", selectedIcon: "book" },
   { route: "ask", label: "Ask", icon: "chatbubble-ellipses-outline", selectedIcon: "chatbubble-ellipses" },
 ];
 
@@ -32,7 +30,7 @@ function useKeyboardShown() {
   return shown;
 }
 
-/** Slot order in the bar: Today, Saved, [Add], Journal, Ask. */
+/** Slot order in the bar: Today, Tracker, [Add], Saved, Ask. */
 const slotOf = [0, 1, 3, 4];
 
 /**
@@ -41,9 +39,7 @@ const slotOf = [0, 1, 3, 4];
  * the centre Add is a deep-clay circle, the one filled object in the bar.
  */
 export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
-  const c = useColors(), keyboard = useKeyboardShown(), reduced = useReducedMotion(), bootstrap = useBaby().state.bootstrap,
-    // Before birth the Add sheet has no feed, sleep or diaper logs, so don't promise them.
-    care = !bootstrap || careLogsStarted(bootstrap.children, profileToday(new Date(), bootstrap.profile.timezone)),
+  const c = useColors(), keyboard = useKeyboardShown(), reduced = useReducedMotion(),
     focused = state.routes[state.index]?.name,
     selectedIndex = tabs.findIndex((tab) => tab.route === focused),
     [width, setWidth] = useState(0), slot = width / 5,
@@ -88,7 +84,7 @@ export function BabyTabBar({ state, navigation, insets }: BottomTabBarProps) {
       {item(tabs[0])}
       {item(tabs[1])}
       <PressTarget testID="tab-add" accessibilityRole="button" accessibilityLabel="Add" accessibilityShowsLargeContentViewer accessibilityLargeContentTitle="Add"
-        accessibilityHint={care ? "Save a source, write, or log care" : "Save a source, write in your journal, or keep a doctor question"}
+        accessibilityHint="Save a video or link, write in your journal, keep a doctor question, or make a list"
         onPress={() => { tap(); router.push("/add"); }} style={styles.slot}>
         <View style={[styles.add, { backgroundColor: c.addFill }]}><Icon name="add" size={26} color={c.onAdd} /></View>
         <Text allowFontScaling={false} style={[styles.label, { color: c.muted, fontFamily: fonts.semibold }]}>Add</Text>

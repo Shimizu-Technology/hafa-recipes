@@ -114,9 +114,11 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
     <Screen
       title={careHistory ? "Care history" : "Journal"}
       onRefresh={refreshHistory}
-      back={careHistory}
-      action={careHistory && <HeaderAction title={searching ? "Close search" : "Search"}
-        onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />}
+      back
+      // A pushed screen has no tab bar, so Add isn't there to write from.
+      action={careHistory ? <HeaderAction title={searching ? "Close search" : "Search"}
+        onPress={() => { setSearching(!searching); if (searching) setQ(""); }} />
+        : <HeaderAction title="Write" onPress={() => router.push({ pathname: "/edit", params: { kind: filter === "question" ? "question" : "journal" } })} />}
     >
       {!careHistory && <HeaderSearch value={q} onChange={setQ} placeholder="Search notes and questions" />}
       <SyncStatus />
