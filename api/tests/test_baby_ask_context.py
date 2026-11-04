@@ -128,6 +128,8 @@ def test_date_words_are_not_search_terms_and_recaps_have_none():
     assert care_kinds("When did she last eat?") == ["feeding"]
     assert care_kinds("Any poop or naps?") == ["sleep", "diaper"]
     assert care_kinds("Hospital bag") == []
+    for question in ("When did she last have medicine?", "Did she get any meds today?", "Any medications?"):
+        assert care_kinds(question) == ["medicine"]
 
 
 def test_context_pack_uses_the_timing_rules():
@@ -553,3 +555,69 @@ async def test_a_focused_entry_gets_no_care_history(baby_api, frozen):
 def test_a_malformed_last_feed_suggests_nothing():
     assert next_side({"method": "breast", "side": []}) is None
     assert next_side({"method": [], "side": "left"}) is None
+
+
+
+async def log_new(api, kind, title, at, data, child=None, body=""):
+    """A kind only a current client can write."""
+    response = await api.client.post(
+        "/api/v1/baby/records",
+        headers={**GEN, "X-Baby-Client": "2"},
+        json=shared.payload(kind, title=title, body=body, occurred_at=at.isoformat(), data=data, child_id=child),
+    )
+    assert response.status_code in {200, 201}, response.text
+    return response.json()["id"]
+
+
+async def new_child(api):
+    response = await api.client.post("/api/v1/baby/children", headers=GEN, json={"name": "Mia", "birth_date": "2026-09-01"})
+    assert response.status_code in {200, 201}, response.text
+    return response.json()["id"]
+
+
+@pytest.fixture
+def new_kinds(monkeypatch):
+    monkeypatch.setattr("app.domains.baby.router.new_kinds_enabled", lambda: True)
+
+
+@needs_database
+async def test_a_dose_is_found_by_the_word_medicine_behind_newer_care_logs(baby_api, frozen, new_kinds):
+    dose = await log_new(baby_api, "medicine", "Tylenol", guam(4, 8), {"name": "Tylenol", "dose": "2.5 mL"})
+    for minute in range(35):
+        await log(baby_api, "diaper", "Diaper", guam(4, 18, minute), data={"type": "wet"})
+    for question in ("When did she last have medicine?", "Did she get any meds?"):
+        ids = [item["id"] for item in (await ask(baby_api, question))[0]]
+        assert dose in ids, question
+
+
+@needs_database
+async def test_her_own_logs_are_found_when_she_asks_about_herself_with_a_baby_selected(baby_api, frozen, new_kinds):
+    child = await new_child(baby_api)
+    pressure = await log_new(baby_api, "custom", "118/76", guam(4, 9), {"label": "Blood pressure"})
+    weight = await log_new(baby_api, "custom", "My weight", guam(4, 9, 5), {"label": "My weight", "value": 145.5, "unit": "lb"})
+    vitamin = await log_new(baby_api, "custom", "Prenatal", guam(4, 9, 10), {"label": "Vitamins and medicine"})
+    feeling = await log_new(baby_api, "custom", "Tired", guam(4, 9, 15), {"label": "How I'm feeling"})
+    diaper = await log(baby_api, "diaper", "Diaper", guam(4, 10), data={"type": "wet"}, child=child)
+
+    async def ids(message):
+        return [item["id"] for item in (await ask(baby_api, message, child_id=child))[0]]
+
+    assert pressure in await ids("What was my blood pressure?")
+    assert pressure in await ids("What was my bp?")
+    assert weight in await ids("What is my weight now?")
+    assert vitamin in await ids("Did I take my vitamins?")
+    assert feeling in await ids("How have I been feeling?")
+    # A question about the baby stays on the baby, even with the same words.
+    assert weight not in await ids("What was her weight?")
+    assert weight not in await ids("What is my baby's weight?")
+    assert pressure not in await ids("How was her sleep?")
+    assert diaper in await ids("Any diapers?")
+
+
+@needs_database
+async def test_a_journal_entry_with_no_baby_stays_out_when_she_asks_about_herself(baby_api, frozen, new_kinds):
+    child = await new_child(baby_api)
+    note = await log(baby_api, "journal", "How my weight feels", guam(4, 9))
+    pressure = await log_new(baby_api, "custom", "118/76", guam(4, 9, 5), {"label": "Blood pressure"})
+    found = [item["id"] for item in (await ask(baby_api, "What is my blood pressure and my weight?", child_id=child))[0]]
+    assert pressure in found and note not in found
