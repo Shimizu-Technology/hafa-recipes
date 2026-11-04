@@ -118,8 +118,8 @@ async def record_reply(db, row, access):
 
 
 # Clients that predate these fields omit them; only an explicit null clears one.
-SOURCE_ADDITIONS = ("relevance", "suggested_category")
-PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id",), "question": ("event_id",)}
+SOURCE_ADDITIONS = ("relevance", "suggested_category", "just_me")
+PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id", "just_me"), "collection": ("just_me",), "question": ("event_id",)}
 
 
 def reconciled_event(data, start):
@@ -1147,6 +1147,9 @@ async def delete_data(
 
 # All routes are registered under one integration entry point.
 
+from app.domains.baby.family_router import router as family_router  # noqa: E402
+
+router.include_router(family_router)
 router.include_router(attachments_router)
 router.include_router(upload_router)
 router.include_router(chat_router)
