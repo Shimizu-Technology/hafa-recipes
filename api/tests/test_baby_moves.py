@@ -44,7 +44,7 @@ async def test_create_family_replay_stale_phone_and_queued_care(baby_api, enable
     assert (await c.post("/api/v1/baby/children", headers=h, json=child_body)).status_code == 200
     source = shared.payload("source", child_id=child_id)
     journal = shared.payload(child_id=child_id)
-    private = shared.payload("source", data={"just_me": True})
+    private = shared.payload("source", child_id=child_id, data={"just_me": True})
     for body in (source, journal, private):
         assert (await c.post("/api/v1/baby/records", headers=h, json=body)).status_code == 200
     c._transport.app.include_router(native.router)
@@ -69,9 +69,15 @@ async def test_create_family_replay_stale_phone_and_queued_care(baby_api, enable
         assert (await db.get(BabyMembership, "owner")).generation == 1
         for body in (journal, private):
             assert (await db.get(BabyRecord, body["id"])).space_id == enabled
+        assert (await db.get(BabyRecord, private["id"])).child_id is None
+        assert (await db.get(BabyRecord, journal["id"])).child_id == UUID(child_id)
         assert (await db.scalar(select(BabyShareCredential))).revoked_at is not None
         tombstones = list(await db.scalars(select(BabyMovedOut.record_id).where(BabyMovedOut.space_id == enabled)))
         assert UUID(source["id"]) in tombstones and UUID(child_id) in tombstones
+
+    unshared = await c.post(f"/api/v1/baby/records/{source['id']}/move",
+        headers=records.headers(family, generation=1), json={"space_id": str(enabled), "revision": 2})
+    assert unshared.status_code == 200 and unshared.json()["child_id"] is None, unshared.text
 
 
 async def test_import_mid_move_requeues_and_discards_old_completion(baby_api, enabled):

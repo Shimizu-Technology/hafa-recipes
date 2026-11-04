@@ -107,6 +107,11 @@ async def move_record(db, access, row, destination, *, just_me=False, batch_ids=
     file_map = file_map if file_map is not None else {}
     # Discover every relation before the first row mutation/autoflush.
     data = dict(row.data)
+    child_id = row.child_id
+    if child_id and row.kind in {"source", "collection"} and destination.space.kind == "personal":
+        child = await db.get(BabyChild, child_id)
+        if child is None or child.space_id != destination.id:
+            child_id = None
     attachment_ids = set(data.get("attachment_ids", []))
     assets = list(await db.scalars(select(BabyAttachment).where(
         BabyAttachment.id.in_([UUID(key) for key in attachment_ids - file_map.keys()]),
@@ -144,10 +149,10 @@ async def move_record(db, access, row, destination, *, just_me=False, batch_ids=
     target = replace(access, target=destination)
     # During Create family, batch relations are validated after the final move.
     if not batch_ids:
-        await validate_relations(db, target, destination.generation, row.child_id, data,
+        await validate_relations(db, target, destination.generation, child_id, data,
                                  record_id=row.id, kind=row.kind)
     await moved_out(db, row.id, source)
-    row.space_id, row.generation, row.data = destination.id, destination.generation, data
+    row.space_id, row.generation, row.data, row.child_id = destination.id, destination.generation, data, child_id
     row.revision, row.updated_at = row.revision + 1, now()
     await touch(row, destination)
     for job in jobs:
@@ -194,6 +199,12 @@ async def create_family(db, access):
         await moved_out(db, child.id, personal)
         child.space_id, child.generation, child.revision = space.id, 1, child.revision + 1
         await touch(child, destination)
+    moved_children = {child.id for child in children}
+    for row in rows:
+        if row not in moving and row.kind != "journal" and row.child_id in moved_children:
+            # Just me posts stay private; only journals retain a family child link.
+            row.child_id, row.revision, row.updated_at = None, row.revision + 1, now()
+            await touch(row, personal)
     ids = frozenset(row.id for row in moving)
     file_map = {}
     for row in moving:
