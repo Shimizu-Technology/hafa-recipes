@@ -14,6 +14,7 @@ from app.domains.baby.attachments import retire_unreferenced_attachments, upload
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
 from app.domains.baby.dependencies import Client, Database, Generation, Limit, Offset, User
+from app.domains.baby.feeds import retimed, same_action
 from app.domains.baby.imports import router as imports_router
 from app.domains.baby.lifecycle import (
     digest,
@@ -22,6 +23,7 @@ from app.domains.baby.lifecycle import (
     membership_for,
     now,
     owned,
+    settle_running_feeds,
     validate_relations,
 )
 from app.domains.baby.models import (
@@ -48,6 +50,7 @@ from app.domains.baby.schemas import (
     ChildCreate,
     ChildPatch,
     CollectionData,
+    FeedActionRequest,
     Kind,
     Profile,
     ProfilePatch,
@@ -57,6 +60,7 @@ from app.domains.baby.schemas import (
     Stage,
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled
+from app.domains.baby.stats import number_in
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
@@ -93,10 +97,7 @@ def record_response(row):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category")
-PATCH_ADDITIONS = {
-    "feeding": ("state", "actions", "end_at", "contents"),
-    "diaper": ("color",),
-}
+PATCH_ADDITIONS = {"diaper": ("color",)}
 
 
 def kept_additions(current, patch, keys):
@@ -105,6 +106,34 @@ def kept_additions(current, patch, keys):
         if key not in data and key in current:
             data[key] = deepcopy(current[key])
     return data
+
+
+def corrected_by_hand(current, patch):
+    if "side" in patch and patch["side"] != current.get("side"):
+        return True
+    if "duration_minutes" not in patch:
+        return False
+    return number_in(patch["duration_minutes"]) != number_in(current.get("duration_minutes"))
+
+
+def feed_patch_data(current, patch):
+    """Actions only change through feed-action, and their results follow from them.
+
+    Changing a side or duration by hand is the exception: the parent knows better than the
+    taps, so the feed becomes a plain finished entry that a late tap cannot overwrite.
+    """
+    data = kept_additions(current, patch, ("state", "end_at", "contents"))
+    data.pop("actions", None)
+    if not current.get("actions"):
+        return data
+    if corrected_by_hand(current, patch):
+        return {**data, "state": "finished"}
+    return {
+        **data,
+        "actions": deepcopy(current["actions"]),
+        "side": current.get("side"),
+        "duration_minutes": current.get("duration_minutes"),
+    }
 
 
 def visible_to(row, client):
@@ -427,6 +456,7 @@ async def delete_child(
             job.request = {**job.request, "child_id": None}
     row.deleted_at, row.name, row.birth_date, row.due_date = now(), "", None, None
     row.revision += 1
+    await settle_running_feeds(db, user.id, generation, None)
     await db.commit()
     return Response(status_code=204)
 
@@ -704,6 +734,8 @@ async def create_record(
         updated_at=now(),
     )
     db.add(row)
+    if row.kind == "feeding":
+        await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
     await db.commit()
     return record_response(row)
 
@@ -726,6 +758,18 @@ async def patch_record(
         values["data"] = source_patch_data(row.data, body.data)
     elif row.kind in PATCH_ADDITIONS and isinstance(body.data, dict):
         values["data"] = kept_additions(row.data, body.data, PATCH_ADDITIONS[row.kind])
+    elif row.kind == "feeding" and isinstance(body.data, dict):
+        values["data"] = feed_patch_data(row.data, body.data)
+    if (
+        row.kind == "feeding"
+        and body.occurred_at
+        and isinstance(values["data"], dict)
+        and values["data"].get("actions")
+    ):
+        values["data"] = {
+            **values["data"],
+            "actions": retimed(values["data"]["actions"], body.occurred_at.isoformat()),
+        }
     try:
         valid = RecordCreate.model_validate(values)
     except ValidationError:
@@ -734,11 +778,48 @@ async def patch_record(
     removed_attachments = set(row.data.get("attachment_ids", [])) - set(
         valid.data.get("attachment_ids", [])
     )
+    previous_child = row.child_id
     for key in ("title", "body", "child_id", "occurred_at", "data"):
         setattr(row, key, getattr(valid, key))
     row.revision, row.updated_at = row.revision + 1, now()
     if removed_attachments:
         await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+    if row.kind == "feeding":
+        for child_id in {previous_child, row.child_id}:
+            await settle_running_feeds(db, user.id, generation, child_id, changed=row.id)
+    await db.commit()
+    return record_response(row)
+
+
+@router.post("/records/{identifier}/feed-action")
+async def feed_action(
+    identifier: UUID, body: FeedActionRequest, user: User, db: Database, generation: Generation
+):
+    """A running feed's tap. Idempotent by its ID, and needs no revision: taps never conflict."""
+    await membership_for(db, user.id, generation=generation, write=True)
+    row = await owned(db, BabyRecord, user.id, generation, identifier)
+    stored = row.data.get("actions", [])
+    if (
+        row.kind != "feeding"
+        or row.data.get("method") != "breast"
+        or not (stored or row.data.get("state") in {"running", "unknown_end"})
+    ):
+        raise HTTPException(409, "This feed isn't being timed")
+    action = body.model_dump(mode="json")
+    prior = next((item for item in stored if item["id"] == action["id"]), None)
+    if prior:
+        if not same_action(prior, action):
+            raise HTTPException(409, "This save identity was already used with different content")
+        return record_response(row)
+    values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
+    values["data"]["actions"] = [*stored, action]
+    try:
+        valid = RecordCreate.model_validate(values)
+    except ValidationError:
+        raise HTTPException(422, "Enter valid details for this entry") from None
+    row.data, row.occurred_at = valid.data, valid.occurred_at
+    row.revision, row.updated_at = row.revision + 1, now()
+    await settle_running_feeds(db, user.id, generation, row.child_id, changed=row.id)
     await db.commit()
     return record_response(row)
 
@@ -780,9 +861,12 @@ async def delete_record(
             }
             collection.revision, collection.updated_at = collection.revision + 1, now()
     removed_attachments = row.data.get("attachment_ids", [])
+    child_id = row.child_id
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None
     row.revision, row.updated_at = row.revision + 1, now()
     await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+    if row.kind == "feeding":
+        await settle_running_feeds(db, user.id, generation, child_id)
     await db.commit()
     return Response(status_code=204)
 

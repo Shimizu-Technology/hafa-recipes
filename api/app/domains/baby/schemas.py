@@ -1,6 +1,6 @@
 """Bounded, explicit wire schemas; source claims never become care instructions."""
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -15,6 +15,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from app.domains.baby.feeds import instant, reduce_feed, with_derived
 
 # Matches the mobile source kind label; keep API capture and processing defaults together.
 DEFAULT_SOURCE_TITLE = "Saved source"
@@ -243,7 +245,14 @@ class FeedAction(DomainModel):
     def side_matches_action(self):
         if (self.action == "finish") != (self.side is None):
             raise ValueError("Start and switch name a side; finish does not")
+        # A phone with a wrong clock must not hold "newest start" for a child far ahead.
+        if self.at > datetime.now(UTC) + timedelta(days=1):
+            raise ValueError("Check this phone's date and time")
         return self
+
+
+class FeedActionRequest(FeedAction):
+    id: UUID = Field(validation_alias="action_id")
 
 
 class FeedingData(DomainModel):
@@ -496,6 +505,12 @@ class RecordCreate(DomainModel):
         self.data = DATA_MODELS[self.kind].model_validate(self.data).model_dump(mode="json")
         if not self.title.strip():
             raise ValueError("Enter a title")
+        if self.kind == "feeding" and self.data.get("actions"):
+            # A feed's start is its time, so "newest start" can be read from the owner index.
+            self.data = with_derived(self.data)
+            started = reduce_feed(self.data["actions"])["started_at"]
+            if started:
+                self.occurred_at = instant(started)
         end_field = END_FIELDS.get(self.kind)
         if end_field and self.data.get(end_field):
             # The stored form is JSON; the validated form compares instants across offsets.

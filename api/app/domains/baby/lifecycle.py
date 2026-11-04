@@ -16,6 +16,7 @@ from app.domains.baby.models import (
     BabyMessage,
     BabyRecord,
 )
+from app.domains.baby.stats import care_query
 from app.models.identity import AppUser
 
 
@@ -75,6 +76,31 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
         if str(identifier) == str(record_id):
             raise HTTPException(422, "A collection cannot contain itself")
         await owned(db, BabyRecord, owner, generation, UUID(str(identifier)))
+
+
+async def settle_running_feeds(db, owner, generation, child_id, *, changed=None):
+    """Per child, only the newest breastfeed can be running; ties go to the higher record ID.
+
+    Worked out from the live feeds each time, so arrival order cannot matter and undoing the
+    newest feed restores the one before it. A finish still wins: it can arrive after this.
+    ``changed`` is the row the caller has already counted as a new revision.
+    """
+    await db.flush()
+    feeds = care_query(owner, generation, child_id, BabyRecord).where(BabyRecord.kind == "feeding")
+    newest = await db.scalar(
+        feeds.where(BabyRecord.data["method"].as_string() == "breast")
+        .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
+        .limit(1)
+    )
+    if newest is None:
+        return
+    running = await db.scalars(feeds.where(BabyRecord.data["state"].as_string() == "running"))
+    for row in {item.id: item for item in (*running, newest)}.values():
+        wanted = "running" if row.id == newest.id else "unknown_end"
+        if row.data.get("state") in {"running", "unknown_end"} and row.data["state"] != wanted:
+            row.data = {**row.data, "state": wanted}
+            if row.id != changed:
+                row.revision, row.updated_at = row.revision + 1, now()
 
 
 async def owned_cleanup_prefixes(db, owner):

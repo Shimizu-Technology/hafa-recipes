@@ -11,6 +11,7 @@ from typing import NamedTuple
 
 from sqlalchemy import and_, or_, select
 
+from app.domains.baby.feeds import reduce_feed
 from app.domains.baby.models import BabyRecord
 
 CARE_KINDS = ("feeding", "sleep", "diaper")
@@ -105,12 +106,18 @@ async def care_stats(db, owner, generation, child_id, zone, stats_range):
 def next_side(data):
     """Opposite of the side the feed started on; a Both or bottle feed suggests nothing.
 
-    ``side`` is the starting side only until feeds store their switches: today a feed that
-    switched is saved as Both. Read the first action here once L3a adds them.
+    A feed with actions keeps its starting side there, even after switching makes it Both.
     """
     if text_in(data, "method") != "breast":
         return None
-    return {"left": "right", "right": "left"}.get(text_in(data, "side"))
+    return {"left": "right", "right": "left"}.get(started_side(data) or text_in(data, "side"))
+
+
+def started_side(data):
+    try:
+        return reduce_feed(data.get("actions") or [])["started_side"]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None  # Older or malformed rows may hold anything.
 
 
 async def last_feed(db, owner, generation, child_id, zone, at):
@@ -118,7 +125,8 @@ async def last_feed(db, owner, generation, child_id, zone, at):
         await db.execute(
             care_query(owner, generation, child_id, BabyRecord.occurred_at, BabyRecord.data)
             .where(BabyRecord.kind == "feeding", BabyRecord.occurred_at <= at)
-            .order_by(BabyRecord.occurred_at.desc())
+            # Ties break as feed settlement does, so "last" and "running" are the same feed.
+            .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
             .limit(1)
         )
     ).first()
@@ -189,6 +197,7 @@ def summarize(rows, stats_range, zone, *, complete=True):
         for day in stats_range.days
     }
     feed_times, bottles, timed, unusable, open_sleeps, slept_spans = [], 0, 0, 0, [], []
+    unknown_ends = 0
     for row in rows:
         data = row.data if isinstance(row.data, dict) else {}
         at = row.occurred_at.astimezone(UTC)
@@ -223,7 +232,10 @@ def summarize(rows, stats_range, zone, *, complete=True):
             if side in {"left", "right", "both"}:
                 totals[side] += 1
             duration = number_in(data.get("duration_minutes"))
-            if duration is not None:
+            # A feed nobody finished still happened, but how long it lasted is not known.
+            if text_in(data, "state") == "unknown_end":
+                unknown_ends += 1
+            elif duration is not None:
                 totals["breast_minutes"] += duration
                 timed += 1
         elif method == "bottle":
@@ -272,6 +284,7 @@ def summarize(rows, stats_range, zone, *, complete=True):
             "bottle_oz": rounded(total("feeding", "bottle_oz")),
             "breast_minutes": rounded(total("feeding", "breast_minutes")),
             "timed_breast_feeds": timed,
+            "unknown_end_feeds": unknown_ends,
             "days_logged": len(fed),
             "days_total": len(finished),
         },
