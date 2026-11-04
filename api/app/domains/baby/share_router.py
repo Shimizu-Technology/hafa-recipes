@@ -2,20 +2,21 @@
 
 import hashlib
 import secrets
+from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, Field, model_validator
 from sqlalchemy import func, select, text
 
-from app.domains.baby.access import access_for, touch
+from app.domains.baby.access import access_for, family_enabled, touch
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.imports import admit_import
-from app.domains.baby.lifecycle import digest, membership_for, now
+from app.domains.baby.lifecycle import digest, now
 from app.domains.baby.models import BabyImport, BabyRecord
 from app.domains.baby.schemas import (
     DEFAULT_SOURCE_TITLE,
@@ -66,15 +67,19 @@ async def require_schema(db):
 
 
 async def share_credential(
-    db: Database, bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]
+    db: Database, request: Request,
+    bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]
 ):
     await require_schema(db)
     parsed = parse_token(bearer.credentials) if bearer else None
     row = await db.get(BabyShareCredential, parsed[0]) if parsed else None
     if row is None or not secrets.compare_digest(row.token_hash, parsed[1]):
         raise HTTPException(401, "Reconnect sharing in Baby")
-    await membership_for(db, row.app_user_id, generation=row.generation, write=True)
+    access = await access_for(db, row.app_user_id, stored_space_id=row.space_id,
+                              space_id=request.headers.get("X-Baby-Space"),
+                              generation=row.generation, write=True)
     await db.refresh(row)
+    db.info["baby_share_access"] = access
     if (
         row.revoked_at is not None
         or row.expires_at <= now()
@@ -92,16 +97,23 @@ class SessionRequest(DomainModel):
 
 
 @router.post("/session", status_code=201)
-async def provision(body: SessionRequest, user: User, db: Database, generation: Generation):
+async def provision(body: SessionRequest, user: User, db: Database, generation: Generation,
+                    request: Request):
     await require_schema(db)
-    member = await membership_for(db, user.id, generation=generation, write=True)
     installation = token_hash(str(body.installation_id))
+    prior_spaces = list(await db.scalars(select(BabyShareCredential.space_id).where(
+        BabyShareCredential.app_user_id == user.id,
+        BabyShareCredential.installation_hash == installation))) if family_enabled() else []
+    access = await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
+                              space_id=request.headers.get("X-Baby-Space"), generation=generation,
+                              write=True, extra_space_ids=[value for value in prior_spaces if value is not None])
+    member = access.member
     row = await db.scalar(
         select(BabyShareCredential).where(
             BabyShareCredential.app_user_id == user.id,
-            BabyShareCredential.generation == generation,
+            (BabyShareCredential.generation == generation) if not access.enabled else True,
             BabyShareCredential.installation_hash == installation,
-        )
+        ).order_by((BabyShareCredential.generation == generation).desc(), BabyShareCredential.expires_at.desc()).limit(1)
     )
     if row is None:
         count = await db.scalar(
@@ -116,28 +128,50 @@ async def provision(body: SessionRequest, user: User, db: Database, generation: 
         if count >= 5:
             raise HTTPException(409, "Reconnect an existing sharing installation")
         row = BabyShareCredential(
-            id=uuid4(), app_user_id=user.id, generation=generation, space_id=member.personal_space_id, installation_hash=installation
+            id=uuid4(), app_user_id=user.id, generation=generation,
+            space_id=access.target.id if access.enabled else member.personal_space_id,
+            installation_hash=installation
         )
         db.add(row)
+    if access.enabled:
+        # Rotating a capability never erases originals or pending capture receipts.
+        with db.no_autoflush:
+            older = list(await db.scalars(select(BabyShareCredential).where(
+                BabyShareCredential.app_user_id == user.id,
+                BabyShareCredential.installation_hash == installation,
+                BabyShareCredential.id != row.id, BabyShareCredential.revoked_at.is_(None)
+            ).with_for_update()))
+        for old in older:
+            old.revoked_at = now()
+            stamp = next((g for g in access.locked_spaces if g.id == old.space_id), None)
+            if stamp is None:
+                raise HTTPException(409, "Sharing destination changed; retry reconnecting")
+            await touch(old, stamp)
+        row.space_id, row.generation = access.target.id, generation
     secret = secrets.token_urlsafe(32)
     row.token_hash, row.expires_at, row.revoked_at = (
         token_hash(secret),
         now() + timedelta(days=30),
         None,
     )
+    await touch(row, access.target)
     await db.commit()
-    return {
+    result = {
         "credential_id": str(row.id),
         "token": f"hfbs_v1.{row.id}.{secret}",
         "generation": generation,
         "auto_process_epoch": member.profile.get("auto_process_epoch", 0),
         "expires_at": row.expires_at,
     }
+    if access.enabled:
+        result["space_id"] = str(row.space_id)
+    return result
 
 
 @router.delete("/session", status_code=204)
 async def revoke(db: Database, credential: Credential):
     credential.revoked_at = now()
+    await touch(credential, db.info["baby_share_access"].target)
     await db.commit()
     return Response(status_code=204)
 
@@ -291,7 +325,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
     replayed = capture is not None
     if capture:
         if access.enabled:
-            access.grant(capture)
+            replace(access, spaces=access.member_spaces).grant(capture)
         if (
             capture.app_user_id != credential.app_user_id
             or (not access.enabled and capture.generation != credential.generation)
@@ -343,7 +377,7 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
     await admit_capture(db, capture, member)
     await db.refresh(capture)
     job = await db.get(BabyImport, capture.id)
-    return {
+    result = {
         "capture_id": str(capture.id),
         "record_id": str(capture.record_id),
         "generation": capture.generation,
@@ -355,3 +389,6 @@ async def submit(body: CaptureRequest, db: Database, credential: Credential):
         "import_id": str(job.id) if job else None,
         "replayed": replayed,
     }
+    if access.enabled:
+        result["space_id"] = str(capture.space_id)
+    return result

@@ -60,6 +60,7 @@ def baby_mutation_paths():
         "attachments": ("admit", "publish", "replay", "release", "delete", "quota_pending", "quota_abandoned"),
         "imports": ("admit", "retry", "cancel", "capture_cancel"),
         "worker": ("claim", "ready", "edit", "removed", "expired_lease", "moved", "consent", "failure", "attempts"),
+        "credentials": ("provision", "rotate", "revoke"),
         "suggestions": ("accept", "dismiss", "bulk", "new_category"),
         "chat": ("admit", "ready", "retry", "failure", "context_changed"),
         "captures": ("submit", "defer", "permission_changed", "missing_source", "admit", "retry_later"),

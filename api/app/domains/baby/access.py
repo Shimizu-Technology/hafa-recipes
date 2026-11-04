@@ -47,6 +47,7 @@ class BabyAccess:
     enabled: bool
     client: str | None
     member_spaces: tuple[SpaceAccess, ...] = ()
+    locked_spaces: tuple[SpaceAccess, ...] = ()
 
     @property
     def personal_space_id(self):
@@ -118,7 +119,7 @@ def _snapshot(rows):
 
 
 async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=None,
-                     generation=None, write=False, bootstrap=False, actor_ids=(), active=True):
+                     generation=None, write=False, bootstrap=False, actor_ids=(), active=True, extra_space_ids=()):
     """Discover, lock users ascending, lock spaces ascending, then recheck access.
 
     Workers and capabilities pass their stored destination; request headers cannot
@@ -130,15 +131,24 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
         return BabyAccess(actor, member, (), None, False, client)
     member = await membership_for(db, actor, active=active)
     discovered = await _spaces(db, actor, member.personal_space_id if not active else None)
+    locked = []
     if write:
+        # Extra destinations come only from server-discovered actor-owned capabilities.
+        lock_ids = sorted({space.id for space, _, _ in discovered} | set(extra_space_ids))
         # All writers in this domain use this order, including short worker claims.
         affected = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
-            BabySpaceMember.space_id.in_([space.id for space, _, _ in discovered]))))
+            BabySpaceMember.space_id.in_(lock_ids))))
         for identifier in sorted({actor, *actor_ids, *affected}):
             if await db.scalar(select(AppUser.id).where(AppUser.id == identifier).with_for_update()) is None:
                 raise HTTPException(404, "Account unavailable")
-        for space, _, _ in discovered:
-            await db.scalar(select(BabySpace.id).where(BabySpace.id == space.id).with_for_update())
+        for identifier in lock_ids:
+            space = await db.scalar(select(BabySpace).where(BabySpace.id == identifier).with_for_update())
+            if space is not None:
+                locked.append(SpaceAccess(space, "internal", 0, db, db.get_transaction()))
+        affected_after = set(await db.scalars(select(BabySpaceMember.app_user_id).where(
+            BabySpaceMember.space_id.in_(lock_ids))))
+        if affected_after != affected:
+            raise HTTPException(409, "Baby access changed; retry before saving")
         before = _snapshot(discovered)
         discovered = await _spaces(db, actor, member.personal_space_id if not active else None)
         if before != _snapshot(discovered):
@@ -176,7 +186,7 @@ async def access_for(db, actor, *, client=None, space_id=None, stored_space_id=N
             raise HTTPException(409, "Baby data changed; refresh before saving")
     if write:
         db.info["baby_family_write"] = True
-    return BabyAccess(actor, member, grants, target, True, client, member_spaces)
+    return BabyAccess(actor, member, grants, target, True, client, member_spaces, tuple(locked))
 
 
 async def touch(row, space):
