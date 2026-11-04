@@ -1,7 +1,7 @@
 """Date words in a question select dates in the parent's timezone; they are never searched for."""
 
 import re
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import NamedTuple
 
 NUMBERS = dict(zip("one two three four five six seven eight nine ten".split(), range(1, 11), strict=True))
@@ -28,6 +28,10 @@ DATE_PHRASE = re.compile(
 )
 
 
+# A title in quotes names a saved entry; its words are not dates ("Start tummy time today").
+QUOTED = re.compile(r'"[^"]*"|“[^”]*”|‘[^’]*’')
+
+
 class DateWindow(NamedTuple):
     """A half-open range: ``start`` is included and ``end`` is not."""
 
@@ -47,6 +51,11 @@ def past_date(month, day, today):
         return moment if moment <= today else date(today.year - 1, month, day)
     except ValueError:
         return None
+
+
+def elapsed_before(moment, delta):
+    """Real elapsed time back from now, so a clock change cannot stretch a rolling window."""
+    return (moment.astimezone(UTC) - delta).astimezone(moment.tzinfo)
 
 
 def phrase_range(match, local_now):
@@ -87,10 +96,10 @@ def phrase_range(match, local_now):
         return at(first), at((first + timedelta(days=32)).replace(day=1))
     if found["rolling"]:
         days = {"day": 1, "week": 7, "month": 30}[found["rolling"].lower()]
-        return local_now - timedelta(days=days), local_now
+        return elapsed_before(local_now, timedelta(days=days)), local_now
     if found["count"]:
         hours = {"hour": 1, "day": 24, "week": 168}[found["unit"].lower()]
-        return local_now - timedelta(hours=number(found["count"]) * hours), local_now
+        return elapsed_before(local_now, timedelta(hours=number(found["count"]) * hours)), local_now
     if found["ago"]:
         return whole(today - timedelta(days=number(found["ago"])))
     if found["weekday"]:
@@ -112,7 +121,7 @@ def phrase_range(match, local_now):
 def date_window(message, local_now):
     """The dates a question asks about, spanning all of them when it names several."""
     found = []
-    for match in DATE_PHRASE.finditer(message):
+    for match in DATE_PHRASE.finditer(QUOTED.sub(" ", message)):
         span = phrase_range(match, local_now)
         if span:
             found.append((" ".join(match[0].lower().split()), *span))
@@ -126,4 +135,9 @@ def date_window(message, local_now):
 
 
 def without_dates(message):
-    return DATE_PHRASE.sub(" ", message)
+    """Search words, keeping quoted titles whole."""
+    parts, last = [], 0
+    for quoted in QUOTED.finditer(message):
+        parts += [DATE_PHRASE.sub(" ", message[last : quoted.start()]), quoted[0].strip("\"“”‘’")]
+        last = quoted.end()
+    return " ".join([*parts, DATE_PHRASE.sub(" ", message[last:])])

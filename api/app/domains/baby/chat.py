@@ -332,16 +332,16 @@ async def dated_rows(db, query, window, terms):
         # "Tips for this week": a saved reference applies whenever it was saved. Logs do not.
         outside = list(
             await db.scalars(
-                newest(
-                    query.where(
-                        or_(*matches),
-                        or_(
-                            BabyRecord.occurred_at < window.start,
-                            BabyRecord.occurred_at >= window.end,
-                        ),
-                        BabyRecord.kind.not_in(SCOPE_KINDS["care"]),
-                    )
-                ).limit(OUTSIDE_RANGE_LIMIT)
+                query.where(
+                    or_(*matches),
+                    or_(
+                        BabyRecord.occurred_at < window.start,
+                        BabyRecord.occurred_at >= window.end,
+                    ),
+                    BabyRecord.kind.not_in(SCOPE_KINDS["care"]),
+                )
+                .order_by(ranked(matches).desc(), BabyRecord.occurred_at.desc())
+                .limit(OUTSIDE_RANGE_LIMIT)
             )
         )
     rows = list(await db.scalars(in_range.order_by(*order).limit(DATED_LIMIT + 1)))
