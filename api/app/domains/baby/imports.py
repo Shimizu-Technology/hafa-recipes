@@ -40,6 +40,8 @@ async def admit_import(body, user, db, generation, *, automatic=False, access=No
     if access is None:
         access = await access_for(db, user.id, generation=None, stored_space_id=stored_space_id, write=True)
     member = access.member
+    if access.enabled and access.target.role == "caregiver":
+        raise HTTPException(403, "This role cannot create saved sources")
     if automatic and not (
         member.profile.get("ai_consent") and member.profile.get("auto_process_shares")
     ):
