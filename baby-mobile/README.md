@@ -53,6 +53,8 @@ surface with memory-only state, not the supported release target.
 
 ## Dependency review renewal — 2026-10-24
 
+minimatch GHSA advisory 1244623 (Nov 2026, globparts amplification) has the same reachability as the earlier minimatch finding: only `@expo/fingerprint` and `glob` use it, in Expo build tooling on our own file patterns, and it's absent from the native bundle.
+
 Reviewed `baby-mobile/package-lock.json` from `fca37f99` with the audit-policy renewal.
 Acceptance requires a fresh Node 22.22.2 install, tests, typecheck, Doctor and
 runtime audit; Workouts and Baby also require all-platform export and native
