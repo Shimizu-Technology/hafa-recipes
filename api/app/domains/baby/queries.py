@@ -5,6 +5,23 @@ from sqlalchemy.orm import aliased
 
 from app.domains.baby.models import BabyRecord
 
+# Past 44 weeks without a birth date the due date is stale, not late pregnancy.
+LATEST_PREGNANCY_DAYS = 44 * 7 + 6
+
+
+def child_timing(child, today):
+    """Where a child is today, or None when its dates cannot say."""
+    if child.birth_date is not None and child.birth_date <= today:
+        return {"stage": "baby", "baby_age_weeks": min((today - child.birth_date).days // 7, 520)}
+    if child.due_date is None:
+        return None
+    # Gestational age counts 280 days to the due date; weeks are completed weeks.
+    days = 280 - (child.due_date - today).days
+    if days > LATEST_PREGNANCY_DAYS:
+        return None
+    days = max(0, days)
+    return {"stage": "pregnancy", "pregnancy_week": days // 7, "pregnancy_day": days % 7}
+
 
 def records_query(
     owner, generation, *, kind=None, child_id=None, q=None, record_ids=None,

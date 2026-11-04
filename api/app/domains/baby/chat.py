@@ -8,9 +8,10 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import String, case, cast, func, or_, select
 
 from app.ai_governance import ai_request_context
+from app.domains.baby.ask_dates import date_window, without_dates
 from app.domains.baby.dependencies import Database, Generation, User
 from app.domains.baby.lifecycle import digest, membership_for, now, owned
 from app.domains.baby.models import BabyChild, BabyConversation, BabyMessage, BabyRecord
@@ -19,7 +20,7 @@ from app.domains.baby.provider import (
     BabyProvider,
     budget_failure_message,
 )
-from app.domains.baby.queries import records_query
+from app.domains.baby.queries import child_timing, records_query
 from app.domains.baby.schemas import ChatRequest, RecordCreate
 from app.domains.baby.security import BabyRoute
 
@@ -30,8 +31,23 @@ SCOPE_KINDS = {
     "care": ("feeding", "sleep", "diaper", "routine"),
 }
 STOPWORDS = frozenset(
-    "a an and are as at be been by can could did do does for from had has have how i in is it me my of on or our should that the their them there these they this to us was we were what when where which who why will with would you your about please saved find show tell".split()
+    "a an and are as at be been by can could did do does for from had has have how i in is it me my of on or our should that the their them there these they this to us was we were what when where which who why will with would you your about please saved find show tell "
+    # Words that ask for a recap or point at the baby would otherwise match unrelated saved text.
+    "happen happened happening going doing lately recent recently anything everything something update updates recap summary overview latest last she he her hers him his baby".split()
 )
+# Care logs are terse and typed, so "eat" can never find a feeding by its text.
+CARE_WORDS = {
+    "feeding": "eat eats ate eaten eating feed feeds fed feeding feedings nurse nurses nursed nursing bottle bottles breastfeed breastfed breastfeeding".split(),
+    "sleep": "sleep sleeps slept sleeping asleep nap naps napped napping woke awake".split(),
+    "diaper": "diaper diapers poo poos poop poops pooped pee pees peed wet dirty".split(),
+}
+RECENT_LIMIT = 30  # About one day of newborn logs.
+DATED_LIMIT = 60
+KIND_LIMIT = 10
+MATCH_LIMIT = 12
+OUTSIDE_RANGE_LIMIT = 6
+PACK_CHILDREN = 12
+BRIEF_EXCERPT = 1500  # So one long saved video cannot crowd out a day of care logs.
 
 
 def conversation_response(row):
@@ -254,40 +270,111 @@ def display_excerpt(record, terms, *, limit=1000):
     return bounded("\n\n".join(filter(None, [summary, body])), terms, 7000).strip()[:limit]
 
 
-async def retrieve(db, owner, generation, request, zone=UTC):
-    terms = query_terms(request.message)
+def care_kinds(message):
+    words = {word.lower() for word in re.findall(r"[\w'-]+", message)}
+    return [kind for kind, names in CARE_WORDS.items() if words.intersection(names)]
+
+
+def term_matches(terms):
+    haystack = BabyRecord.title + " " + BabyRecord.body + " " + cast(BabyRecord.data, String)
+    return [
+        haystack.ilike("%" + term.replace("%", "\\%").replace("_", "\\_") + "%", escape="\\")
+        for term in terms
+    ]
+
+
+def ranked(matches):
+    return sum((case((match, 1), else_=0) for match in matches))
+
+
+def newest(query):
+    return query.order_by(BabyRecord.occurred_at.desc())
+
+
+def unique_rows(rows):
+    return list({row.id: row for row in rows}.values())
+
+
+async def undated_rows(db, query, request, terms):
+    """Without dates: logs of a named kind, then keywords, then recent records in scope."""
+    rows, matched = [], []
+    kinds = care_kinds(request.message)
+    if kinds:
+        rows += await db.scalars(
+            newest(query.where(BabyRecord.kind.in_(kinds))).limit(KIND_LIMIT)
+        )
+    if terms and request.scope != "care":
+        matches = term_matches(terms)
+        matched = list(
+            await db.scalars(
+                query.where(or_(*matches))
+                .order_by(ranked(matches).desc(), BabyRecord.occurred_at.desc())
+                .limit(MATCH_LIMIT)
+            )
+        )
+    rows += matched
+    if not rows or request.scope == "care":
+        rows += await db.scalars(newest(query).limit(RECENT_LIMIT))
+    return unique_rows(rows), {row.id for row in matched}
+
+
+async def dated_rows(db, query, window, terms):
+    """Every entry in the range, keyword matches first, up to a bound the caller reports."""
+    in_range = query.where(
+        BabyRecord.occurred_at >= window.start, BabyRecord.occurred_at < window.end
+    )
+    order = [BabyRecord.occurred_at.desc()]
+    outside = []
+    if terms:
+        matches = term_matches(terms)
+        order.insert(0, ranked(matches).desc())
+        # "Tips for this week": a saved reference applies whenever it was saved. Logs do not.
+        outside = list(
+            await db.scalars(
+                newest(
+                    query.where(
+                        or_(*matches),
+                        or_(
+                            BabyRecord.occurred_at < window.start,
+                            BabyRecord.occurred_at >= window.end,
+                        ),
+                        BabyRecord.kind.not_in(SCOPE_KINDS["care"]),
+                    )
+                ).limit(OUTSIDE_RANGE_LIMIT)
+            )
+        )
+    rows = list(await db.scalars(in_range.order_by(*order).limit(DATED_LIMIT + 1)))
+    return rows[:DATED_LIMIT], len(rows) <= DATED_LIMIT, outside
+
+
+async def retrieve(db, owner, generation, request, zone=UTC, *, child_names=()):
+    """Citable records, their display excerpts, and the date range they answer, if one was asked."""
+    window = None if request.record_id else date_window(request.message, now().astimezone(zone))
+    names = set(query_terms(" ".join(child_names)))
+    terms = [term for term in query_terms(without_dates(request.message)) if term not in names]
     query = records_query(owner, generation, child_id=request.child_id)
     if request.scope in SCOPE_KINDS:
         query = query.where(BabyRecord.kind.in_(SCOPE_KINDS[request.scope]))
+    outside, in_full, complete = [], set(), True
     if request.record_id:
         focus = await owned(db, BabyRecord, owner, generation, request.record_id)
         if request.child_id and focus.child_id != request.child_id:
             raise HTTPException(422, "The selected entry belongs to a different child")
         if request.scope in SCOPE_KINDS and focus.kind not in SCOPE_KINDS[request.scope]:
             raise HTTPException(422, "The selected entry is outside this conversation scope")
-        rows = [focus]
-    elif terms and request.scope != "care":
-        from sqlalchemy import String, cast
-
-        haystack = BabyRecord.title + " " + BabyRecord.body + " " + cast(BabyRecord.data, String)
-        matches = [
-            haystack.ilike("%" + term.replace("%", "\\%").replace("_", "\\_") + "%", escape="\\")
-            for term in terms
-        ]
-        rank = sum((case((match, 1), else_=0) for match in matches))
-        rows = list(
-            await db.scalars(
-                query.where(or_(*matches))
-                .order_by(rank.desc(), BabyRecord.occurred_at.desc())
-                .limit(12)
-            )
-        )
+        rows, in_full = [focus], {focus.id}
+    elif window:
+        rows, complete, outside = await dated_rows(db, query, window, terms)
     else:
-        rows = list(await db.scalars(query.order_by(BabyRecord.occurred_at.desc()).limit(20)))
+        rows, in_full = await undated_rows(db, query, request, terms)
+    in_range = len(rows)
+    rows, in_full = rows + outside, in_full | {row.id for row in outside}
     context, displays, available = [], {}, 45000
-    for row in rows:
-        excerpt = excerpt_for(row, terms, limit=min(7000, available), zone=zone)
+    for position, row in enumerate(rows):
+        limit = 7000 if row.id in in_full else BRIEF_EXCERPT
+        excerpt = excerpt_for(row, terms, limit=min(limit, available), zone=zone)
         if not excerpt or available <= 0:
+            complete = complete and position >= in_range
             break
         context.append(
             {
@@ -303,11 +390,41 @@ async def retrieve(db, owner, generation, request, zone=UTC):
                     "source_claim" if row.kind == "source"
                     else row.data.get("provenance", "caregiver_observation")
                 ),
+                **({"outside_requested_range": True} if position >= in_range else {}),
             }
         )
         displays[str(row.id)] = display_excerpt(row, terms)
         available -= len(excerpt)
-    return context, displays
+    requested_range = window and {
+        "label": window.label,
+        "start": window.start.isoformat(),
+        "end_before": window.end.isoformat(),
+        "complete": complete,
+    }
+    return context, displays, requested_range
+
+
+async def context_pack(db, owner, generation, request, zone):
+    """Facts computed by code, kept out of the citable records and free of record IDs."""
+    today = now().astimezone(zone).date()
+    query = select(BabyChild).where(
+        BabyChild.app_user_id == owner,
+        BabyChild.generation == generation,
+        BabyChild.deleted_at.is_(None),
+    )
+    if request.child_id:
+        query = query.where(BabyChild.id == request.child_id)
+    children = []
+    for child in await db.scalars(query.order_by(BabyChild.name).limit(PACK_CHILDREN)):
+        entry = {"name": child.name, "stage": "unknown"}
+        entry.update(child_timing(child, today) or {})
+        if entry["stage"] == "baby":
+            entry["baby_age_days"] = (today - child.birth_date).days
+        for key in ("due_date", "birth_date"):
+            if getattr(child, key):
+                entry[key] = getattr(child, key).isoformat()
+        children.append(entry)
+    return {"children": children, "today": today.isoformat()}
 
 
 def reviewed_proposal(raw):
@@ -473,7 +590,10 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
     if count >= 500:
         raise HTTPException(422, "This conversation is full; start a new conversation")
     zone = parent_zone(member.profile.get("timezone"))
-    context, displays = await retrieve(db, user.id, generation, body, zone)
+    pack = await context_pack(db, user.id, generation, body, zone)
+    context, displays, requested_range = await retrieve(
+        db, user.id, generation, body, zone, child_names=[item["name"] for item in pack["children"]]
+    )
     history_rows = list(
         await db.scalars(
             select(BabyMessage)
@@ -516,7 +636,9 @@ async def chat(body: ChatRequest, user: User, db: Database, generation: Generati
                 message=body.message,
                 context=context,
                 history=history,
-                now_local=datetime.now(zone).isoformat(timespec="minutes"),
+                now_local=now().astimezone(zone).isoformat(timespec="minutes"),
+                context_pack=pack,
+                requested_range=requested_range,
             )
         allowed = {item["id"]: item for item in context}
         if any(identifier not in allowed for identifier in result.citation_ids):

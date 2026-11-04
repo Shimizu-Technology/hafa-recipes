@@ -33,7 +33,14 @@ from app.domains.baby.models import (
     BabyMessage,
     BabyRecord,
 )
-from app.domains.baby.queries import records_query, stage_filter, timing_bounds, timing_filter
+from app.domains.baby.queries import (
+    LATEST_PREGNANCY_DAYS,
+    child_timing,
+    records_query,
+    stage_filter,
+    timing_bounds,
+    timing_filter,
+)
 from app.domains.baby.schemas import (
     ChildCreate,
     ChildPatch,
@@ -457,10 +464,6 @@ async def record_list(
     }
 
 
-# Past 44 weeks without a birth date the due date is stale, not late pregnancy.
-LATEST_PREGNANCY_DAYS = 44 * 7 + 6
-
-
 async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_weeks):
     """Where the parent is now: an explicit week/age, or one child's due/birth date."""
     if pregnancy_week is not None and baby_age_weeks is not None:
@@ -502,17 +505,15 @@ async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_w
         child = children[0] if children else None
     if child is None or not (child.birth_date or child.due_date):
         raise HTTPException(422, "Add a due date or birth date to see what is relevant now")
-    base = {"child_id": str(child.id), "basis": "child", "today": today.isoformat()}
-    if born(child):
-        return {**base, "stage": "baby", "baby_age_weeks": min((today - child.birth_date).days // 7, 520)}
-    if child.due_date is None:
-        raise HTTPException(422, "Add a due date to see what is relevant now")
-    # Gestational age counts 280 days to the due date; weeks are completed weeks.
-    days = 280 - (child.due_date - today).days
-    if days > LATEST_PREGNANCY_DAYS:
-        raise HTTPException(422, "Add the birth date to see what is relevant now")
-    days = max(0, days)
-    return {**base, "stage": "pregnancy", "pregnancy_week": days // 7, "pregnancy_day": days % 7}
+    timing = child_timing(child, today)
+    if timing is None:
+        raise HTTPException(
+            422,
+            "Add a due date to see what is relevant now"
+            if child.due_date is None
+            else "Add the birth date to see what is relevant now",
+        )
+    return {"child_id": str(child.id), "basis": "child", "today": today.isoformat(), **timing}
 
 
 @router.get("/records")
