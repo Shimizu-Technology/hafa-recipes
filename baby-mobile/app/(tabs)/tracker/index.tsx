@@ -128,6 +128,7 @@ export default function Tracker() {
       </>}
       <Grouped>
         <Row title="Doctor summary" detail="One page to bring to an appointment" icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: scope ?? undefined } })} />
+        {logging && <Row title="Growth" detail="Your measurements on CDC’s WHO charts" icon="trending-up-outline" onPress={() => router.push("/growth")} />}
         <Row title="Care history" detail="Search all care logs" icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
     </Screen>
