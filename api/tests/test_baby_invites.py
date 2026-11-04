@@ -163,7 +163,7 @@ async def test_cached_profile_can_withdraw_consent_without_exposing_disclosure(b
     bootstrap = await baby_api.client.get("/api/v1/baby/bootstrap", headers={"X-Baby-Client": "2"})
     assert "family_disclosures" not in bootstrap.json()["profile"]
     cached = {**bootstrap.json()["profile"], "family_disclosures": [{"version": 1}], "ai_consent": False}
-    result = await baby_api.client.patch("/api/v1/baby/profile", headers=shared.GEN, json=cached)
+    result = await baby_api.client.patch("/api/v1/baby/profile", headers={**shared.GEN, "X-Baby-Client": "2"}, json=cached)
     assert result.status_code == 200, result.text
     assert "family_disclosures" not in result.json()
     async with baby_api.sessions() as db:

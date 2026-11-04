@@ -462,7 +462,10 @@ async def test_moved_journal_payload_redacts_unreadable_child(matrix):
     assert result.status_code == 200, result.text
     assert (await api.client.post(f"{API}/family/{family}/leave", headers=records.headers(family, "other", 1))).status_code == 200
     # Join a new family, then retry an old editor against that destination.
-    new_family = await invites.create(api, own)
+    created = await api.client.post(API + "/family/invites", headers=records.headers(own, "other", 1),
+        json={"publish_shared": True, "disclosure_version": 1})
+    assert created.status_code == 201, created.text
+    new_family = created.json()
     result = await api.client.patch(f"{API}/records/{journal['id']}",
         headers=records.headers(new_family["space_id"], "other", 1),
         json={"revision": 1, "body": "Queued edit"})
