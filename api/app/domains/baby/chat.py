@@ -609,6 +609,7 @@ async def chat(
         else:
             conversation = BabyConversation(
                 app_user_id=user.id,
+                space_id=member.personal_space_id,
                 generation=generation,
                 title=body.message[:100],
                 scope=body.scope,
@@ -622,6 +623,7 @@ async def chat(
         prior = BabyMessage(
             id=body.request_id,
             app_user_id=user.id,
+            space_id=member.personal_space_id,
             generation=generation,
             conversation_id=conversation.id,
             role="user",
@@ -738,6 +740,7 @@ async def chat(
         answer = BabyMessage(
             id=answer_id,
             app_user_id=user.id,
+            space_id=current.personal_space_id,
             generation=generation,
             conversation_id=conversation_id,
             role="assistant",

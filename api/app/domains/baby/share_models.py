@@ -1,15 +1,17 @@
 """Optional Baby-only native intake authority and durable capture receipts."""
 
-from sqlalchemy import Column, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-from app.domains.baby.models import Base, identifier, owner
+from app.domains.baby.models import Base, identifier, owner, space_column
 
 
 class BabyShareCredential(Base):
     __tablename__ = "baby_share_credentials"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
     generation = Column(Integer, nullable=False)
     installation_hash = Column(String(64), nullable=False)
     token_hash = Column(String(64), nullable=False, unique=True)
@@ -26,6 +28,8 @@ class BabyShareCapture(Base):
     __tablename__ = "baby_share_captures"
     id = identifier()
     app_user_id = owner()
+    space_id = space_column()
+    change_seq = Column(BigInteger)
     generation = Column(Integer, nullable=False)
     creation_hash = Column(String(64), nullable=False)
     request = Column(JSONB, nullable=False)

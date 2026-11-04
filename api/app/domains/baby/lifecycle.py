@@ -47,6 +47,10 @@ async def membership_for(db, owner, *, generation=None, write=False, active=True
         raise HTTPException(409, "Open Baby and deliberately start a new library before saving")
     if generation is not None and generation != row.generation:
         raise HTTPException(409, "Baby data changed; refresh before saving")
+    if write:
+        from app.domains.baby.spaces import ensure_personal_space
+
+        await ensure_personal_space(db, row)
     return row
 
 

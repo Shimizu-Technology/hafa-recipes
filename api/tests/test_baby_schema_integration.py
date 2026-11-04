@@ -25,6 +25,7 @@ SPACE_TABLES = (
 )
 CREATORS = ("baby_children", "baby_records", "baby_attachments")
 LIVE_TABLES = (*BABY_TABLES, BabyShareCredential.__table__, BabyShareCapture.__table__)
+OLD_TABLES = (*BABY_V1_TABLES, *BABY_SHARE_V1_TABLES)
 
 
 async def simulate_contract_stage(engine, stage):
@@ -45,12 +46,16 @@ async def test_startup_and_named_chain_rerun_at_each_stage(baby_api, monkeypatch
     stage = request.node.callspec.params["baby_api"]
     await simulate_contract_stage(baby_api.engine, stage)
     monkeypatch.setattr("app.domains.baby.runtime.get_settings", lambda: baby_api.settings)
-    await verify_baby_schema(baby_api.sessions)
+    if stage >= 57:
+        await verify_baby_schema(baby_api.sessions)
+    else:
+        with pytest.raises(RuntimeError, match="before deploying F2"):
+            await verify_baby_schema(baby_api.sessions)
     async with baby_api.engine.connect() as db:
-        assert await schema_complete(db, tables=LIVE_TABLES)
+        assert await schema_complete(db, tables=OLD_TABLES)
         if stage >= 56:
             # A caller can request the strict mapped shape instead.
-            assert await schema_complete(db, allowed_forms={}) == (stage < 58)
+            assert await schema_complete(db, tables=OLD_TABLES, allowed_forms={}) == (stage < 58)
     for name in BABY_MIGRATIONS:
         await importlib.import_module(name).run_migration(
             configured=baby_api.settings, migration_engine=baby_api.engine
@@ -116,7 +121,7 @@ async def test_frozen_creation_and_verification_ignore_future_model_changes(baby
     changed_tables = (BABY_TABLES[1], BabyShareCredential.__table__)
     async with baby_api.engine.begin() as db:
         await db.execute(text("DELETE FROM schema_migrations WHERE version IN (50,51,52,55,56,57)"))
-        for table in reversed(LIVE_TABLES):
+        for table in reversed(OLD_TABLES):
             await db.execute(text(f"DROP TABLE {table.name} CASCADE"))
     added = []
     try:

@@ -39,16 +39,16 @@ async def test_restore_guard_atomic_rollback_and_rerun(baby_api, monkeypatch, re
     for _ in range(2):
         await migration.run_migration(configured=baby_api.settings, migration_engine=baby_api.engine)
     # Previous-release bootstrap and writes work against the expanded database.
-    assert (await baby_api.client.get("/api/v1/baby/bootstrap")).status_code == 200
+    assert (await baby_api.client.post("/api/v1/baby/bootstrap")).status_code == 200
     assert (await baby_api.client.post("/api/v1/baby/records", headers=shared.GEN,
                                       json=shared.payload())).status_code == 200
 
 
 async def test_notification_queue_persists_and_bounds_unknown_retry(baby_api):
-    space, notification = uuid4(), uuid4()
+    notification = uuid4()
+    async with baby_api.engine.connect() as db:
+        space = await db.scalar(text("SELECT personal_space_id FROM baby_memberships WHERE app_user_id='owner'"))
     async with baby_api.engine.begin() as db:
-        await db.execute(text("""INSERT INTO baby_spaces(id,kind,generation,created_by)
-            VALUES(:id,'personal',1,'owner')"""), {"id": space})
         await db.execute(text("""INSERT INTO baby_notifications
             (id,space_id,app_user_id,idempotency_key,collapse_id,kind,due_at)
             VALUES(:id,:space,'owner','reminder/owner/1','same-on-retry','feed',now())"""),
