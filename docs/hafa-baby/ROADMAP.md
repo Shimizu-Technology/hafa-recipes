@@ -95,7 +95,12 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   `GET /records/{id}`, `POST /records`, `PATCH /records/{id}`,
   `DELETE /records/{id}?revision=N`.
 - Record shape: `{id,kind,title,body,child_id,occurred_at,data,revision,created_at,
-  updated_at}`. Kinds: `source,journal,feeding,sleep,diaper,routine,question,collection`.
+  updated_at}`. Kinds: `source,journal,feeding,sleep,diaper,routine,question,collection`,
+  plus `event,contraction,kick_session,pumping,medicine,temperature,growth,milestone,custom`.
+  Only requests with `X-Baby-Client: 2` see or write those nine: any other request gets the
+  first eight on list, search, record and export, 404 for a newer record, and 422 on create.
+  Creating one also needs `BABY_NEW_KINDS_ENABLED`, set after migration 055; until then
+  the create returns a retryable 503.
   Creation accepts caller-generated `id` for durable retry; conflicting replay
   must not overwrite. PATCH requires `revision`; stale edits return 409.
 - `data` is validated per kind: source `{url?,topics:[],source_text?,summary?,
@@ -105,8 +110,22 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   processing finished. Saving or editing a source never starts an import or AI
   call; explicit `POST /imports` is separate. Feeding
   `{method:breast|bottle|other,amount?,unit?:ml|oz,
-  side?:left|right|both,duration_minutes?}`; sleep `{end_at?}`; diaper
-  `{type:wet|dirty|both|dry}`; routine `{routine_type:checklist|schedule,
+  side?:left|right|both,duration_minutes?,state?:running|finished|unknown_end,
+  actions?:[{id,action:start|switch|finish,at,side?:left|right}],end_at?,
+  contents?:breast_milk|formula}`; sleep `{end_at?}`; diaper
+  `{type:wet|dirty|both|dry,color?:black|green|yellow|brown|red|white}`; event
+  `{timezone,end?,all_day?,category?,location?,attendees?:[],
+  recurrence?:{frequency:daily|weekly|monthly|yearly,interval?,until?:date},
+  exceptions?:[{original_start,cancelled|overrides}],attachment_ids?:[]}`; contraction
+  `{end_at?}`; kick_session `{end_at?,count?}`; pumping `{end_at?,side?,amount?,unit?,
+  duration_minutes?}`; medicine `{name,dose?}`; temperature `{value,unit:c|f,
+  method?:armpit|rectal|oral|ear|forehead|other}`; growth `{weight?,weight_unit?:kg|lb,
+  length?,length_unit?:cm|in,head?,head_unit?:cm|in}` with at least one measurement;
+  milestone `{milestone_id?,attachment_ids?:[]}`; custom `{label?,value?,unit?}`.
+  PATCH keeps the feeding and diaper additions when a client omits them; only an explicit
+  null clears one. `contents` applies to bottles, `color` to poo, and `state`, `actions`
+  and `end_at` to breastfeeds; a change of method or type drops what no longer applies;
+  routine `{routine_type:checklist|schedule,
   items:[{id,label,done}],reminder_at?,timezone?,repeat?:none|daily|weekly,
   enabled?:boolean}`; journal/question `{attachment_ids?:[],
   provenance?:caregiver_observation|clinician_instruction}`; collection

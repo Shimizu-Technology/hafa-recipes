@@ -1,7 +1,7 @@
 """Bounded, explicit wire schemas; source claims never become care instructions."""
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,8 +20,16 @@ from pydantic import (
 DEFAULT_SOURCE_TITLE = "Saved source"
 
 Kind = Literal[
-    "source", "journal", "feeding", "sleep", "diaper", "routine", "question", "collection"
+    "source", "journal", "feeding", "sleep", "diaper", "routine", "question", "collection",
+    "event", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth",
+    "milestone", "custom",
 ]
+# Writable only after migration 055 widens ck_baby_record_kind, and never by an older client.
+NEW_KINDS = (
+    "event", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth",
+    "milestone", "custom",
+)
+V1_KINDS = tuple(kind for kind in get_args(Kind) if kind not in NEW_KINDS)
 Revision = Annotated[int, Field(strict=True, ge=1, le=2_147_483_647)]
 
 
@@ -223,17 +231,48 @@ class SourceData(DomainModel):
         return value
 
 
+class FeedAction(DomainModel):
+    id: UUID
+    action: Literal["start", "switch", "finish"]
+    at: AwareDatetime
+    side: Literal["left", "right"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def side_matches_action(self):
+        if (self.action == "finish") != (self.side is None):
+            raise ValueError("Start and switch name a side; finish does not")
+        return self
+
+
 class FeedingData(DomainModel):
     method: Literal["breast", "bottle", "other"]
     amount: float | None = Field(default=None, ge=0, le=10000)
     unit: Literal["ml", "oz"] | None = None
     side: Literal["left", "right", "both"] | None = None
     duration_minutes: float | None = Field(default=None, ge=0, le=1440)
+    # Omit empty additions on the wire to preserve pre-upgrade creation hashes.
+    state: Literal["running", "finished", "unknown_end"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    actions: list[FeedAction] = Field(
+        default_factory=list, max_length=100, exclude_if=lambda value: not value
+    )
+    end_at: AwareDatetime | None = Field(default=None, exclude_if=lambda value: value is None)
+    contents: Literal["breast_milk", "formula"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def amount_requires_unit(self):
         if self.amount is not None and self.unit is None:
             raise ValueError("Choose a unit for the amount")
+        # An older client can change the method while it keeps fields it never saw.
+        if self.method != "breast":
+            self.state, self.actions, self.end_at = None, [], None
+        if self.method != "bottle":
+            self.contents = None
         return self
 
 
@@ -243,6 +282,16 @@ class SleepData(DomainModel):
 
 class DiaperData(DomainModel):
     type: Literal["wet", "dirty", "both", "dry"]
+    color: Literal["black", "green", "yellow", "brown", "red", "white"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def color_needs_poo(self):
+        # An older client can change the type while it keeps the color it never saw.
+        if self.type not in {"dirty", "both"}:
+            self.color = None
+        return self
 
 
 class RoutineItem(DomainModel):
@@ -279,6 +328,126 @@ class CollectionData(DomainModel):
     record_ids: list[UUID] = Field(default_factory=list, max_length=500)
 
 
+Label = Annotated[str, Field(min_length=1, max_length=120)]
+
+
+class EventRecurrence(DomainModel):
+    frequency: Literal["daily", "weekly", "monthly", "yearly"]
+    interval: Annotated[int, Field(strict=True, ge=1, le=99)] = 1
+    until: date | None = None
+
+
+class EventOverrides(DomainModel):
+    start: AwareDatetime | None = None
+    end: AwareDatetime | None = None
+    all_day: StrictBool | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    category: str | None = Field(default=None, max_length=40)
+    location: str | None = Field(default=None, max_length=240)
+    attendees: list[Label] | None = Field(default=None, max_length=30)
+
+
+class EventException(DomainModel):
+    original_start: AwareDatetime
+    cancelled: StrictBool = False
+    overrides: EventOverrides | None = None
+
+    @model_validator(mode="after")
+    def one_change(self):
+        if self.cancelled == (self.overrides is not None):
+            raise ValueError("Cancel this occurrence or change it")
+        return self
+
+
+class EventData(DomainModel):
+    """``occurred_at`` is the start, and a missing ``child_id`` is the whole family."""
+
+    end: AwareDatetime | None = None
+    all_day: StrictBool = False
+    timezone: str = Field(max_length=80)
+    category: str | None = Field(default=None, max_length=40)
+    location: str | None = Field(default=None, max_length=240)
+    attendees: list[Label] = Field(default_factory=list, max_length=30)
+    recurrence: EventRecurrence | None = None
+    exceptions: list[EventException] = Field(default_factory=list, max_length=200)
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def valid_event(self):
+        Profile.timezone_known(self.timezone)
+        starts = [item.original_start for item in self.exceptions]
+        if len(set(starts)) != len(starts):
+            raise ValueError("Each occurrence can have one change")
+        return self
+
+
+class ContractionData(DomainModel):
+    end_at: AwareDatetime | None = None
+
+
+class KickSessionData(DomainModel):
+    end_at: AwareDatetime | None = None
+    count: Annotated[int, Field(strict=True, ge=0, le=1000)] = 0
+
+
+class PumpingData(DomainModel):
+    end_at: AwareDatetime | None = None
+    side: Literal["left", "right", "both"] | None = None
+    amount: float | None = Field(default=None, ge=0, le=10000)
+    unit: Literal["ml", "oz"] | None = None
+    duration_minutes: float | None = Field(default=None, ge=0, le=1440)
+
+    @model_validator(mode="after")
+    def amount_requires_unit(self):
+        if self.amount is not None and self.unit is None:
+            raise ValueError("Choose a unit for the amount")
+        return self
+
+
+class MedicineData(DomainModel):
+    name: str = Field(min_length=1, max_length=120)
+    dose: str | None = Field(default=None, max_length=80)
+
+
+class TemperatureData(DomainModel):
+    value: float = Field(gt=0, le=130)
+    unit: Literal["c", "f"]
+    method: Literal["armpit", "rectal", "oral", "ear", "forehead", "other"] | None = None
+
+
+class GrowthData(DomainModel):
+    weight: float | None = Field(default=None, gt=0, le=500)
+    weight_unit: Literal["kg", "lb"] | None = None
+    length: float | None = Field(default=None, gt=0, le=300)
+    length_unit: Literal["cm", "in"] | None = None
+    head: float | None = Field(default=None, gt=0, le=100)
+    head_unit: Literal["cm", "in"] | None = None
+
+    @model_validator(mode="after")
+    def measured_with_units(self):
+        pairs = (
+            (self.weight, self.weight_unit),
+            (self.length, self.length_unit),
+            (self.head, self.head_unit),
+        )
+        if all(value is None for value, _ in pairs):
+            raise ValueError("Enter a measurement")
+        if any(value is not None and unit is None for value, unit in pairs):
+            raise ValueError("Choose a unit for each measurement")
+        return self
+
+
+class MilestoneData(DomainModel):
+    milestone_id: str | None = Field(default=None, min_length=1, max_length=80)
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
+
+
+class CustomData(DomainModel):
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+    value: float | None = Field(default=None, ge=-1000000, le=1000000)
+    unit: str | None = Field(default=None, max_length=20)
+
+
 DATA_MODELS = {
     "source": SourceData,
     "feeding": FeedingData,
@@ -288,6 +457,21 @@ DATA_MODELS = {
     "journal": JournalData,
     "question": JournalData,
     "collection": CollectionData,
+    "event": EventData,
+    "contraction": ContractionData,
+    "kick_session": KickSessionData,
+    "pumping": PumpingData,
+    "medicine": MedicineData,
+    "temperature": TemperatureData,
+    "growth": GrowthData,
+    "milestone": MilestoneData,
+    "custom": CustomData,
+}
+# Where each kind that ends later keeps its end. Feeds are absent: clock differences
+# between phones can put a finish before a start, and the reducer owns that.
+END_FIELDS = {
+    "sleep": "end_at", "event": "end", "contraction": "end_at", "kick_session": "end_at",
+    "pumping": "end_at",
 }
 
 
@@ -305,9 +489,11 @@ class RecordCreate(DomainModel):
         self.data = DATA_MODELS[self.kind].model_validate(self.data).model_dump(mode="json")
         if not self.title.strip():
             raise ValueError("Enter a title")
-        if self.kind == "sleep" and self.data.get("end_at"):
-            if SleepData.model_validate(self.data).end_at < self.occurred_at:
-                raise ValueError("Sleep cannot end before it starts")
+        end_field = END_FIELDS.get(self.kind)
+        if end_field and self.data.get(end_field):
+            # The stored form is JSON; the validated form compares instants across offsets.
+            if getattr(DATA_MODELS[self.kind].model_validate(self.data), end_field) < self.occurred_at:
+                raise ValueError(f"{self.kind.replace('_', ' ').capitalize()} cannot end before it starts")
         return self
 
 
