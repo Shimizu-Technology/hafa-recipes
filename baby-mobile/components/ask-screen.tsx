@@ -125,9 +125,9 @@ export default function AskScreen({ back = false }: { back?: boolean }) {
         </>
       )}
       <Copy kind="small" tone="muted">
-        {chat.context.child_id
-          ? "For " + (b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id)?.name ?? "the conversation’s child profile")
-          : focused ? "General / personal entry" : scopeLine[chat.context.scope]}
+        {[chat.context.child_id ? "For " + (b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id)?.name ?? "the conversation’s child profile") : "",
+          // A conversation keeps searching where it began, so it says so next to the child.
+          focused ? (chat.context.child_id ? "" : "General / personal entry") : scopeLine[chat.context.scope]].filter(Boolean).join(" · ")}
       </Copy>
       {chat.resolving && !busy && (
         <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />

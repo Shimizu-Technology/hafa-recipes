@@ -257,6 +257,18 @@ it("says when an older conversation from History searches only part of the app",
   await mount(<AskEntry />);
   expect(renderer!.root.findAllByType("Text" as React.ElementType).some(t => t.props.children === "Care logs only")).toBe(true);
 });
+
+it("shows a retained scope beside the child, so a follow-up never quietly leaves out Journal and Saved", async () => {
+  mock.baby.state.bootstrap.children = [{ id: "isla", name: "Isla" }];
+  mock.ask = { context: { scope: "care", record_id: null, child_id: "isla" }, messages: [{ role: "user", content: "Q" }] };
+  await mount(<AskEntry />);
+  const text = () => renderer!.root.findAllByType("Text" as React.ElementType).map((t) => t.props.children).join("|");
+  expect(text()).toContain("For Isla · Care logs only");
+  mock.ask = { context: { scope: "all", record_id: "entry", child_id: "isla" } };
+  await act(async () => renderer!.update(<AskEntry />));
+  expect(text()).toContain("For Isla");
+  expect(text()).not.toContain("For Isla ·");
+});
 it("opens history separately from a long conversation and returns without losing its draft", async () => {
   const openHistory = vi.fn();
   mock.ask = { question: "Keep this draft", messages: [{ role: "user", content: "Earlier question" }], showHistory: true, openHistory,
