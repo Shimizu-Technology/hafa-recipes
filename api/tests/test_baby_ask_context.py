@@ -83,6 +83,25 @@ def test_other_words_select_no_dates(question):
     assert date_window(question, NOW) is None
 
 
+def test_quoted_title_is_not_a_date_and_stays_searchable():
+    question = 'What did "Start tummy time today" say?'
+    assert date_window(question, NOW) is None
+    assert query_terms(without_dates(question))[:3] == ["start", "tummy", "time"]
+    assert "today" in query_terms(without_dates(question))
+
+
+@pytest.mark.parametrize(
+    "now",
+    [
+        datetime(2026, 11, 1, 12, 0, tzinfo=ZoneInfo("America/New_York")),
+        datetime(2026, 3, 8, 12, 0, tzinfo=ZoneInfo("America/New_York")),
+    ],
+)
+def test_rolling_hours_are_real_hours_across_a_clock_change(now):
+    window = date_window("last 24 hours", now)
+    assert (window.end.astimezone(UTC) - window.start.astimezone(UTC)).total_seconds() == 24 * 3600
+
+
 def test_small_hours_and_year_boundary():
     late = datetime(2026, 11, 4, 3, 0, tzinfo=GUAM)
     assert date_window("tonight", late)[1:] == (guam(3, 18), guam(4, 8))
@@ -364,3 +383,12 @@ async def test_chat_sends_the_pack_and_range_but_cannot_cite_the_pack(baby_api, 
     ).json()["timing"]
     expected = child_timing(SimpleNamespace(birth_date=None, due_date=date(2026, 12, 10)), today)
     assert {key: timing[key] for key in expected} == expected
+
+
+@needs_database
+async def test_exact_title_outside_the_range_beats_newer_generic_tips(baby_api, frozen):
+    exact = await log(baby_api, "source", "Start tummy time today", guam(1), body="On a firm mat.")
+    for number in range(8):
+        await log(baby_api, "source", f"Tummy note {number}", guam(2), body="Tummy.")
+    context, _ = await ask(baby_api, "What did start tummy time today say?")
+    assert exact in [item["id"] for item in context]
