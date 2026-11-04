@@ -827,6 +827,17 @@ class ChatRequest(DomainModel):
         return value.strip()
 
 
+class ConversationPatch(DomainModel):
+    title: str = Field(min_length=1, max_length=100)
+
+    @field_validator("title")
+    @classmethod
+    def meaningful_title(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a name")
+        return value.strip()
+
+
 class SuggestionDecision(DomainModel):
     revision: Revision
     action: Literal["accept", "dismiss"] = "accept"

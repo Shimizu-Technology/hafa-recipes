@@ -9,12 +9,12 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, delete, func, or_, select
 
 from app.ai_governance import ai_request_context
 from app.domains.baby.access import access_for, touch
 from app.domains.baby.ask_dates import date_window, without_dates
-from app.domains.baby.ask_gate import ask_v2_allowed
+from app.domains.baby.ask_gate import ask_v2_allowed, ask_v2_on
 from app.domains.baby.ask_safety import (
     CANT_ANSWER,
     CANT_ANSWER_LINE,
@@ -33,7 +33,7 @@ from app.domains.baby.provider import (
     budget_failure_message,
 )
 from app.domains.baby.queries import child_timing, legacy_client, records_query, row_scope
-from app.domains.baby.schemas import V1_KINDS, ChatRequest, RecordCreate
+from app.domains.baby.schemas import V1_KINDS, ChatRequest, ConversationPatch, RecordCreate
 from app.domains.baby.security import BabyRoute
 from app.domains.baby.stats import care_stats, custom_days, last_feed
 
@@ -645,6 +645,53 @@ async def get_conversation(identifier: UUID, user: User, db: Database, client: C
         **await conversation_reply(db, row, access),
         "messages": [message_response(message, legacy=legacy_client(client)) for message in messages],
     }
+
+
+def require_new_ask(client):
+    # Until the new Ask is on, and for builds that predate conversations they can manage, these don't exist.
+    if not ask_v2_on() or legacy_client(client):
+        raise HTTPException(404, "Not found")
+
+
+async def conversation_for_change(db, identifier, access):
+    row = await db.scalar(select(BabyConversation).where(
+        BabyConversation.id == identifier, conversation_scope(BabyConversation, access)
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(404, "Item unavailable")
+    return row
+
+
+@router.patch("/conversations/{identifier}")
+async def rename_conversation(
+    identifier: UUID, body: ConversationPatch, user: User, db: Database, generation: Generation,
+    client: Client = None, access: Access = None,
+):
+    require_new_ask(client)
+    access.check_generation(generation)
+    row = await conversation_for_change(db, identifier, access)
+    # Renaming isn't new activity, so the conversation keeps its place in the list.
+    row.title = body.title
+    await touch(row, access.target)
+    reply = await conversation_reply(db, row, access)
+    await db.commit()
+    return reply
+
+
+@router.delete("/conversations/{identifier}", status_code=204)
+async def delete_conversation(
+    identifier: UUID, user: User, db: Database, generation: Generation,
+    client: Client = None, access: Access = None,
+):
+    """Removes the conversation and every message in it, for good. An answer still on its way is discarded."""
+    require_new_ask(client)
+    access.check_generation(generation)
+    row = await conversation_for_change(db, identifier, access)
+    await db.execute(delete(BabyMessage).where(
+        BabyMessage.conversation_id == row.id, BabyMessage.app_user_id == user.id
+    ))
+    await db.delete(row)
+    await db.commit()
 
 
 @router.post("/chat")
