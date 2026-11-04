@@ -32,6 +32,7 @@ import {
   fencedState,
   heldUntil,
   mutationRecordId,
+  settledSplit,
   pendingRecords,
   replaceRecord,
   shouldRetry,
@@ -309,7 +310,25 @@ export function BabyProvider({ children }: PropsWithChildren) {
         if (heldUntil(next) || waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
         try {
           let result: BabyRecord | undefined;
-          if (next.type === "delete") {
+          if (next.type === "event_split") {
+            let done: Awaited<ReturnType<typeof api.splitEvent>>;
+            try {
+              done = await api.splitEvent(next.series.id, { revision: next.series.revision ?? 0, from_start: next.from_start, event: next.event }, next.generation);
+            } catch (failure) {
+              if (!(failure instanceof ApiError) || failure.local || !current() || (failure.status !== 409 && failure.status !== 410)) throw failure;
+              // Gone means it landed once and the new event was removed since. Refused means nothing changed: the old dates all stay.
+              await commit((s) => ({ ...s, outbox: failure.status === 410 ? s.outbox.filter((m) => m.id !== next.id)
+                : s.outbox.map((m) => (m.id === next.id ? { ...m, conflict: true, error: "This event changed somewhere else, so nothing was changed. Discard this and make your change again." } : m)) }));
+              continue;
+            }
+            await commit((s) => ({ ...s, settled: withSettled(s, next.id, settledSplit(next)).settled,
+              records: replaceRecord(done.series ? replaceRecord(s.records, done.series) : s.records.filter((r) => r.id !== next.series.id), done.event),
+              outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => {
+                const moved = done.series ? advancePending(m, next, done.series) : m;
+                return advancePending(moved, next, done.event);
+              }) }));
+            continue;
+          } else if (next.type === "delete") {
             await api.remove(next.record, next.generation);
           } else if (next.type === "child_birth") {
             const server = serverChildren.find((child) => child.id === next.child_id), step = birthStep(server, next);
@@ -453,7 +472,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
             setError(messageFor(e));
             break;
           }
-          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || retriedSave(next)) && shouldRetry(status)) {
+          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || next.type === "event_split" || retriedSave(next)) && shouldRetry(status)) {
             await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "delete" && m.type !== "import" ? retryLater(m) : m)) }));
             continue;
           }

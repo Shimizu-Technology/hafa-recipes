@@ -3,6 +3,7 @@ import type {
   Bootstrap,
   BabyRecord,
   ChatResult,
+  EventOccurrence,
   SuggestionResult,
   Child,
   Conversation,
@@ -24,12 +25,15 @@ import { dailyAiLimitMessage } from "./import-status";
  */
 export const babyClient = 2 as 2 | null;
 export const sendsCareDetails = babyClient === 2;
+const seriesLimit = "You can keep up to 200 repeating events";
+export const seriesLimitMessage = `${seriesLimit}. Delete one you no longer need, or save this one without repeating.`;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
 const knownDetails = new Set([
   "Add the birth date to see what is relevant now",
   "Add a due date or birth date to see what is relevant now",
   "Add a due date to see what is relevant now",
   "Choose which child to show timing for",
+  seriesLimit,
 ]);
 export interface RecordFilters {
   kind?: Kind;
@@ -48,6 +52,8 @@ export interface RecordFilters {
   /** Half-open, with an offset: from <= occurred_at < to. */
   occurred_from?: string;
   occurred_to?: string;
+  /** Questions and notes linked to this event. */
+  event_id?: string;
 }
 export class ApiError extends Error {
   constructor(
@@ -152,7 +158,7 @@ export function createBabyApi(
                   : response.status === 413
                     ? "This file is too large. Choose a smaller file."
                     : response.status === 422
-                      ? known ? `${known}.` : "Some details need review. Check your entries and try again."
+                      ? known === seriesLimit ? seriesLimitMessage : known ? `${known}.` : "Some details need review. Check your entries and try again."
                       : response.status === 429
                         ? dailyLimit
                           ? dailyAiLimitMessage
@@ -237,6 +243,13 @@ export function createBabyApi(
       request<{ days: CareDay[] }>("/care/summary?" + query({ from, to, child_id })),
     /** One range's totals, averages and days. Every Stats number comes from here. */
     careStats: (choice: StatsChoice, child_id?: string | null) => request<CareStats>("/care/stats?" + query({ ...choice, child_id })),
+    /** Dated occurrences on these calendar days, inclusive. With a child: theirs and the whole family's. */
+    events: (from: string, to: string, child_id?: string | null) =>
+      request<{ items: EventOccurrence[]; complete: boolean }>("/events?" + query({ from, to, child_id })),
+    /** Ends a repeat before this date and starts the next: both or neither. Sending it again gets the same answer. */
+    splitEvent: (series: string, { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }: { revision: number; from_start: string; event: RecordWrite }, g: number) =>
+      request<{ series: BabyRecord | null; event: BabyRecord }>(`/events/${encodeURIComponent(series)}/split`, "POST",
+        { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }, g),
     save: (value: RecordWrite, g: number) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
       // Repair optional links at the wire boundary, including durable outbox

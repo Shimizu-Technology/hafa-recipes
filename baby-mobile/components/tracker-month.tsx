@@ -5,6 +5,8 @@ import { useBaby } from "@/lib/context";
 import { careDays, firstCareDay, otherDayMark } from "@/lib/care-days";
 import { useDeleted } from "@/lib/use-care-summary";
 import { dayOverlay } from "@/lib/care-summary";
+import { useEvents } from "@/lib/use-events";
+import { categoryName } from "@/lib/events";
 import { addDays, dayKey, keyDate, weekOf, type CareDay } from "@/lib/tracker";
 import { friendlyDate } from "@/lib/care-format";
 import { Copy, Icon, Notice, PressTarget, fonts, useColors } from "./ui";
@@ -33,6 +35,10 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
     [firstDay, setFirstDay] = useState<string | undefined>(undefined),
     latest = useRef(b), grid = useMemo(() => monthGrid(month), [month]), cacheKey = JSON.stringify([month, childId, b.state.bootstrap?.generation]);
   latest.current = b;
+  const events = useEvents(childId, grid.weeks[0][0], grid.weeks[grid.weeks.length - 1][6]),
+    // Up to three colours a day, in the order they fall. A day's category names are in its label, so colour isn't the only signal.
+    kinds = (key: string) => [...new Set((events.byDay.get(key) ?? []).map((item) => item.category ?? "other"))],
+    shownKinds = [...new Set(grid.weeks.flat().filter((key) => monthKey(key) === month).flatMap(kinds))];
   const gone = useDeleted(), waiting = b.state.outbox.length;
   // Coming back to the tab, and whenever a queued change leaves, because that change is now in these answers.
   useFocusEffect(useCallback(() => {
@@ -52,7 +58,7 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
     return () => { active = false; };
   }, [childId, timezone]);
   const saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone), other = otherDayMark(b, childId, timezone, saved?.others, gone),
-    has = (key: string) => other(key) || overlay(saved?.days[key], key).dots.length > 0,
+    has = (key: string) => other(key) || overlay(saved?.days[key], key).dots.some((mark) => mark !== "event"),
     label = keyDate(`${month}-01`).toLocaleDateString(undefined, { month: "long", year: "numeric" }),
     jumps = [firstDay && { key: firstDay, label: "First log" }, birthDate && birthDate !== firstDay && { key: birthDate, label: "Born" }].filter(Boolean) as { key: string; label: string }[];
   return <View style={{ gap: 10 }}>
@@ -71,19 +77,28 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
       </View>
       {grid.weeks.map((week) => <View key={week[0]} style={{ flexDirection: "row" }}>
         {week.map((key) => {
-          const date = keyDate(key), other = monthKey(key) !== month, isToday = key === today, dot = has(key);
+          const date = keyDate(key), other = monthKey(key) !== month, isToday = key === today, dot = has(key), on = kinds(key);
           return <PressTarget key={key} accessibilityRole="button" accessibilityState={{ selected: key === day }}
-            accessibilityLabel={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}${dot ? ", has entries" : ""}${isToday ? ", today" : ""}`}
+            accessibilityLabel={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}${dot ? ", has entries" : ""}${on.length ? `, ${on.map(categoryName).join(", ")}` : ""}${isToday ? ", today" : ""}`}
             onPress={() => onOpen(key)}
             style={{ flex: 1, minHeight: 56, alignItems: "center", justifyContent: "center", gap: 2, opacity: other ? 0.5 : 1 }}>
             <View style={{ minWidth: 30, minHeight: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: isToday ? c.action : "transparent" }}>
               <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: isToday ? fonts.semibold : fonts.medium, fontSize: 16, lineHeight: 21, fontVariant: ["tabular-nums"], color: isToday ? c.onAction : other ? c.muted : c.text }}>{date.getDate()}</Text>
             </View>
-            <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: dot ? c.accent : "transparent" }} />
+            <View style={{ flexDirection: "row", gap: 3, height: 6, alignItems: "center" }}>
+              {dot && <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: c.muted }} />}
+              {on.slice(0, 3).map((kind) => <View key={kind} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.categories?.[kind] }} />)}
+            </View>
           </PressTarget>;
         })}
       </View>)}
     </View>
+    {shownKinds.length > 0 && <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 4 }}>
+      {shownKinds.map((kind) => <View key={kind} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.categories?.[kind] }} />
+        <Text key={fontScale} maxFontSizeMultiplier={1.3} style={{ fontFamily: fonts.regular, fontSize: 13, lineHeight: 18, color: c.muted }}>{categoryName(kind)}</Text>
+      </View>)}
+    </View>}
     {error && <Notice>Showing what’s on this phone. Older dots will come back when you reconnect.</Notice>}
     {jumps.map((jump) => <PressTarget key={jump.label} accessibilityRole="button" accessibilityLabel={`${jump.label}, ${friendlyDate(jump.key)}`} accessibilityHint="Opens that day" onPress={() => onOpen(jump.key)}
       style={{ minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, borderRadius: 20, backgroundColor: c.surface }}>

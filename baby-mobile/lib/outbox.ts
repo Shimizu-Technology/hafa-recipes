@@ -18,6 +18,11 @@ export function pendingRecords(state: DeviceState) {
         created_at: prior?.created_at ?? change.record.occurred_at,
         updated_at: change.record.occurred_at,
       });
+    } else if (change.type === "event_split") {
+      for (const record of [change.series, change.event]) {
+        const prior = rows.find((r) => r.id === record.id);
+        rows = replaceRecord(rows, { ...record, revision: record.revision ?? 0, created_at: prior?.created_at ?? record.occurred_at, updated_at: record.occurred_at });
+      }
     } else if (change.type === "delete") rows = rows.filter((r) => r.id !== change.record.id);
     else if (change.type === "feed_action")
       rows = rows.map((r) => (r.id === change.record_id ? withRecordAction(r, change.action) : r));
@@ -33,7 +38,7 @@ export function addMutation(state: DeviceState, mutation: Mutation) {
 }
 /** The queued changes already in the copy she sees. An editor keeps this from the moment it opens. */
 export function baseOf(state: DeviceState, id: string): SaveBase {
-  return { after: state.outbox.filter((m) => mutationRecordId(m) === id).map((m) => m.id) };
+  return { after: state.outbox.filter((m) => mutationRecordIds(m).includes(id)).map((m) => m.id) };
 }
 /** Bounded, but what a kept draft still needs to know stays. */
 export function withSettled(state: DeviceState, id: string, outcome: SettledChange): DeviceState {
@@ -43,8 +48,14 @@ export function withSettled(state: DeviceState, id: string, outcome: SettledChan
 }
 /** A queued change and all that's queued after it on the same record. Each was built on the one before, so they go together. */
 export function queuedChain(outbox: Mutation[], change: Mutation) {
-  const at = outbox.findIndex((m) => m.id === change.id), id = mutationRecordId(change);
-  return at < 0 ? [] : outbox.slice(at).filter((m, index) => !index || (!!id && mutationRecordId(m) === id));
+  const at = outbox.findIndex((m) => m.id === change.id), ids = new Set(mutationRecordIds(change));
+  return at < 0 ? [] : outbox.slice(at).filter((m, index) => {
+    const mine = mutationRecordIds(m);
+    if (index && !mine.some((id) => ids.has(id))) return false;
+    // A split takes both events along, so what follows on either goes with it.
+    mine.forEach((id) => ids.add(id));
+    return true;
+  });
 }
 export const laterChangesNotice = (later: number) =>
   later ? `This also removes ${later} later ${later === 1 ? "change" : "changes"} to this entry.` : "";
@@ -76,7 +87,8 @@ export function settledDraft(draft: EditorDraft, state: DeviceState): EditorDraf
   for (const id of built) {
     if (after.includes(id)) continue;
     const outcome = state.settled?.[id];
-    if (outcome?.made !== undefined && revision + 1 === outcome.made) revision = outcome.made;
+    const made = outcome?.made_for?.[draft.id] ?? outcome?.made;
+    if (made !== undefined && revision + 1 === made) revision = made;
     else if (outcome?.discarded && saved !== undefined) revision = Math.min(revision, saved);
   }
   return { ...draft, revision: revision || draft.revision, base: { after } };
@@ -176,6 +188,7 @@ function withServerFeed(record: RecordWrite, result: BabyRecord): RecordWrite {
  */
 export function producedRevision(done: Mutation, row: BabyRecord) {
   if (done.type === "save") return done.record.revision ? done.record.revision + 1 : 1;
+  if (done.type === "event_split") return row.id === done.event.id ? 1 : (done.series.revision ?? 0) + 1;
   if (done.type === "feed_action") return row.data.actions?.find((known) => known.id === done.action.id)?.revision;
   if (done.type === "session_action") return row.data.session_actions?.find((known) => known.id === done.action.id)?.revision;
   return undefined;
@@ -186,6 +199,12 @@ export function producedRevision(done: Mutation, row: BabyRecord) {
  * a record it never saw.
  */
 export function advancePending(m: Mutation, done: Mutation, result: BabyRecord): Mutation {
+  if (m.type === "event_split") {
+    if (m.series.id !== result.id || (m.base && !m.base.after.includes(done.id))) return m;
+    const made = producedRevision(done, result);
+    if (made === undefined || (m.series.revision ?? 0) + 1 !== made) return m;
+    return { ...m, series: { ...m.series, revision: made }, ...(m.base ? { base: { ...m.base, after: m.base.after.filter((id) => id !== done.id) } } : {}) };
+  }
   if ((m.type !== "save" && m.type !== "delete") || m.record.id !== result.id) return m;
   // A save that never saw this request has nothing of it in, so this revision isn't its to follow.
   if (m.type === "save" && m.base && !m.base.after.includes(done.id)) return m;
@@ -196,6 +215,10 @@ export function advancePending(m: Mutation, done: Mutation, result: BabyRecord):
   const record = done.type === "feed_action" && result.revision === made && m.record.kind === "feeding" && derivedOnly(m.record) ? withServerFeed(m.record, result) : m.record;
   return { ...m, record: { ...record, revision: made }, ...(m.base ? { base: { ...m.base, after: m.base.after.filter((id) => id !== done.id) } } : {}) };
 }
+/** What a landed split made of each event, for an editor that was open on either. */
+export const settledSplit = (done: Extract<Mutation, { type: "event_split" }>): SettledChange => ({
+  made_for: { [done.series.id]: (done.series.revision ?? 0) + 1, [done.event.id]: 1 },
+});
 /** What a 404 or 409 on a tap means, once the record has been read again. Only a record known to be gone or untimed loses it. */
 export function rejectedAction(row: BabyRecord | null, action: { id: string }): "removed" | "plain" | "applied" | "unresolved" {
   if (!row) return "removed";
@@ -215,13 +238,13 @@ export function switchTooLate(action: { action: string; at: string }, result: Ba
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "save" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "save" | "event_split" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
 /** Kinds the API can refuse for now with a 503 until its flag is on, so a build shipped first keeps them queued. */
 export function retriedSave(change: Mutation): change is Extract<Mutation, { type: "save" }> {
-  return change.type === "save" && (change.record.kind === "contraction" || change.record.kind === "kick_session");
+  return change.type === "save" && (change.record.kind === "contraction" || change.record.kind === "kick_session" || change.record.kind === "milestone" || change.record.kind === "custom");
 }
 /** How many rejected reads of a timed feed to try before asking her. */
 export const unresolvedAttempts = 5;
@@ -230,7 +253,14 @@ export const unresolvedAttempts = 5;
  * An unresolved ancestor holds only its own record, never the entire outbox. */
 export function mutationRecordId(change: Mutation) {
   if (change.type === "child_birth") return change.child_id;
+  if (change.type === "event_split") return change.series.id;
   return change.type === "save" || change.type === "delete" ? change.record.id : change.record_id;
+}
+/** Every record a change touches. Only a split has two, and each waits on what's before it. */
+export function mutationRecordIds(change: Mutation) {
+  if (change.type === "event_split") return [change.series.id, change.event.id];
+  const id = mutationRecordId(change);
+  return id ? [id] : [];
 }
 /** Still inside its Undo window; the sync loop comes back for it. */
 export function heldUntil(change: Mutation, now = Date.now()) {
@@ -239,9 +269,9 @@ export function heldUntil(change: Mutation, now = Date.now()) {
   return until > now ? until : 0;
 }
 export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
-  const recordId = mutationRecordId(change);
-  return !!recordId && outbox.slice(0, outbox.findIndex((m) => m.id === change.id))
-    .some((m) => mutationRecordId(m) === recordId);
+  const ids = mutationRecordIds(change);
+  return outbox.slice(0, outbox.findIndex((m) => m.id === change.id))
+    .some((m) => mutationRecordIds(m).some((id) => ids.includes(id)));
 }
 export function retryMutation<T extends Mutation>(change: T): T {
   return { ...change, error: undefined, conflict: false, localOnly: false };

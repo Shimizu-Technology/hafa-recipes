@@ -1,0 +1,1075 @@
+{
+  "batch": "cdc-milestones",
+  "wording": "CDC's own words, unchanged. Pronouns vary from page to page because CDC's do.",
+  "display_before_review": true,
+  "read_on": "2026-11-05",
+  "index_url": "https://www.cdc.gov/act-early/milestones/index.html",
+  "reuse_terms_url": "https://www.cdc.gov/other/agencymaterials.html",
+  "attribution": "Source: CDC, Learn the Signs. Act Early. Developed by CDC, and available for free on CDC's website.",
+  "non_endorsement": "Our use of this material, including links to CDC's website, does not imply endorsement by CDC, HHS or the United States Government of Håfa Baby, Shimizu Technology or their products.",
+  "not_a_screening_tool": "Learn the Signs. Act Early. materials are not a substitute for standardized, validated developmental screening tools.",
+  "concerned": {
+    "title": "If you have concerns",
+    "text": "Don't wait. If your child is not meeting one or more milestones, has lost skills he or she once had, or you have other concerns, act early. Talk with your child's doctor, share your concerns, and ask about developmental screening. The American Academy of Pediatrics recommends that children be screened for general development using standardized, validated tools at 9, 18, and 30 months and for autism at 18 and 24 months or whenever a parent or provider has a concern.",
+    "more": "Call your state or territory's early intervention program to find out if your child can get services to help. Learn more and find the number at cdc.gov/FindEI.",
+    "more_url": "https://www.cdc.gov/FindEI"
+  },
+  "ages": [
+    {
+      "id": "2mo",
+      "label": "2 months",
+      "months": 2,
+      "heading": "What most babies do by 2 months",
+      "url": "https://www.cdc.gov/act-early/milestones/2-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261019002625/https://www.cdc.gov/act-early/milestones/2-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-2mo-calms-down-when-spoken-to-or-picked-up",
+              "text": "Calms down when spoken to or picked up"
+            },
+            {
+              "id": "cdc-2mo-looks-at-your-face",
+              "text": "Looks at your face"
+            },
+            {
+              "id": "cdc-2mo-seems-happy-to-see-you-when-you-walk-up-to-her",
+              "text": "Seems happy to see you when you walk up to her"
+            },
+            {
+              "id": "cdc-2mo-smiles-when-you-talk-to-or-smile-at-her",
+              "text": "Smiles when you talk to or smile at her"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-2mo-makes-sounds-other-than-crying",
+              "text": "Makes sounds other than crying"
+            },
+            {
+              "id": "cdc-2mo-reacts-to-loud-sounds",
+              "text": "Reacts to loud sounds"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-2mo-watches-you-as-you-move",
+              "text": "Watches you as you move"
+            },
+            {
+              "id": "cdc-2mo-looks-at-a-toy-for-several-seconds",
+              "text": "Looks at a toy for several seconds"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-2mo-holds-head-up-when-on-tummy",
+              "text": "Holds head up when on tummy"
+            },
+            {
+              "id": "cdc-2mo-moves-both-arms-and-both-legs",
+              "text": "Moves both arms and both legs"
+            },
+            {
+              "id": "cdc-2mo-opens-hands-briefly",
+              "text": "Opens hands briefly"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4mo",
+      "label": "4 months",
+      "months": 4,
+      "heading": "What most babies do by 4 months",
+      "url": "https://www.cdc.gov/act-early/milestones/4-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261019002625/https://www.cdc.gov/act-early/milestones/4-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-4mo-smiles-on-his-own-to-get-your-attention",
+              "text": "Smiles on his own to get your attention"
+            },
+            {
+              "id": "cdc-4mo-chuckles-not-yet-a-full-laugh-when-you-try-to-make-him-laugh",
+              "text": "Chuckles (not yet a full laugh) when you try to make him laugh"
+            },
+            {
+              "id": "cdc-4mo-looks-at-you-moves-or-makes-sounds-to-get-or-keep-your-atten",
+              "text": "Looks at you, moves, or makes sounds to get or keep your attention"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-4mo-makes-sounds-like-oooo-aahh-cooing",
+              "text": "Makes sounds like “oooo”, “aahh” (cooing)"
+            },
+            {
+              "id": "cdc-4mo-makes-sounds-back-when-you-talk-to-him",
+              "text": "Makes sounds back when you talk to him"
+            },
+            {
+              "id": "cdc-4mo-turns-head-towards-the-sound-of-your-voice",
+              "text": "Turns head towards the sound of your voice"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-4mo-if-hungry-opens-mouth-when-he-sees-breast-or-bottle",
+              "text": "If hungry, opens mouth when he sees breast or bottle"
+            },
+            {
+              "id": "cdc-4mo-looks-at-her-hands-with-interest",
+              "text": "Looks at her hands with interest"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-4mo-holds-head-steady-without-support-when-you-are-holding-him",
+              "text": "Holds head steady without support when you are holding him"
+            },
+            {
+              "id": "cdc-4mo-holds-a-toy-when-you-put-it-in-his-hand",
+              "text": "Holds a toy when you put it in his hand"
+            },
+            {
+              "id": "cdc-4mo-uses-his-arm-to-swing-at-toys",
+              "text": "Uses his arm to swing at toys"
+            },
+            {
+              "id": "cdc-4mo-brings-hands-to-mouth",
+              "text": "Brings hands to mouth"
+            },
+            {
+              "id": "cdc-4mo-pushes-up-onto-elbows-forearms-when-on-tummy",
+              "text": "Pushes up onto elbows/forearms when on tummy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6mo",
+      "label": "6 months",
+      "months": 6,
+      "heading": "What most babies do by 6 months",
+      "url": "https://www.cdc.gov/act-early/milestones/6-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261019002625/https://www.cdc.gov/act-early/milestones/6-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-6mo-knows-familiar-people",
+              "text": "Knows familiar people"
+            },
+            {
+              "id": "cdc-6mo-likes-to-look-at-self-in-a-mirror",
+              "text": "Likes to look at self in a mirror"
+            },
+            {
+              "id": "cdc-6mo-laughs",
+              "text": "Laughs"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-6mo-takes-turns-making-sounds-with-you",
+              "text": "Takes turns making sounds with you"
+            },
+            {
+              "id": "cdc-6mo-blows-raspberries-sticks-tongue-out-and-blows",
+              "text": "Blows “raspberries” (sticks tongue out and blows)"
+            },
+            {
+              "id": "cdc-6mo-makes-squealing-noises",
+              "text": "Makes squealing noises"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-6mo-puts-things-in-her-mouth-to-explore-them",
+              "text": "Puts things in her mouth to explore them"
+            },
+            {
+              "id": "cdc-6mo-reaches-to-grab-a-toy-she-wants",
+              "text": "Reaches to grab a toy she wants"
+            },
+            {
+              "id": "cdc-6mo-closes-lips-to-show-she-doesnt-want-more-food",
+              "text": "Closes lips to show she doesn’t want more food"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-6mo-rolls-from-tummy-to-back",
+              "text": "Rolls from tummy to back"
+            },
+            {
+              "id": "cdc-6mo-pushes-up-with-straight-arms-when-on-tummy",
+              "text": "Pushes up with straight arms when on tummy"
+            },
+            {
+              "id": "cdc-6mo-leans-on-hands-to-support-herself-when-sitting",
+              "text": "Leans on hands to support herself when sitting"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9mo",
+      "label": "9 months",
+      "months": 9,
+      "heading": "What most babies do by 9 months",
+      "url": "https://www.cdc.gov/act-early/milestones/9-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261015140104/https://www.cdc.gov/act-early/milestones/9-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-9mo-is-shy-clingy-or-fearful-around-strangers",
+              "text": "Is shy, clingy, or fearful around strangers"
+            },
+            {
+              "id": "cdc-9mo-shows-several-facial-expressions-like-happy-sad-angry-and-su",
+              "text": "Shows several facial expressions, like happy, sad, angry, and surprised"
+            },
+            {
+              "id": "cdc-9mo-looks-when-you-call-her-name",
+              "text": "Looks when you call her name"
+            },
+            {
+              "id": "cdc-9mo-reacts-when-you-leave-looks-reaches-for-you-or-cries",
+              "text": "Reacts when you leave (looks, reaches for you, or cries)"
+            },
+            {
+              "id": "cdc-9mo-smiles-or-laughs-when-you-play-peek-a-boo",
+              "text": "Smiles or laughs when you play peek-a-boo"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-9mo-makes-a-lot-of-different-sounds-like-mamamama-and-bababababa",
+              "text": "Makes a lot of different sounds like “mamamama” and “bababababa”"
+            },
+            {
+              "id": "cdc-9mo-lifts-arms-up-to-be-picked-up",
+              "text": "Lifts arms up to be picked up"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-9mo-looks-for-objects-when-dropped-out-of-sight-like-his-spoon-o",
+              "text": "Looks for objects when dropped out of sight (like his spoon or toy)"
+            },
+            {
+              "id": "cdc-9mo-bangs-two-things-together",
+              "text": "Bangs two things together"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-9mo-gets-to-a-sitting-position-by-herself",
+              "text": "Gets to a sitting position by herself"
+            },
+            {
+              "id": "cdc-9mo-moves-things-from-one-hand-to-her-other-hand",
+              "text": "Moves things from one hand to her other hand"
+            },
+            {
+              "id": "cdc-9mo-uses-fingers-to-rake-food-towards-himself",
+              "text": "Uses fingers to “rake” food towards himself"
+            },
+            {
+              "id": "cdc-9mo-sits-without-support",
+              "text": "Sits without support"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1yr",
+      "label": "1 year",
+      "months": 12,
+      "heading": "What most babies do by 1 year",
+      "url": "https://www.cdc.gov/act-early/milestones/1-year.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261022123538/https://www.cdc.gov/act-early/milestones/1-year.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-1yr-plays-games-with-you-like-pat-a-cake",
+              "text": "Plays games with you, like pat-a-cake"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-1yr-waves-bye-bye",
+              "text": "Waves “bye-bye”"
+            },
+            {
+              "id": "cdc-1yr-calls-a-parent-mama-or-dada-or-another-special-name",
+              "text": "Calls a parent “mama” or “dada” or another special name"
+            },
+            {
+              "id": "cdc-1yr-understands-no-pauses-briefly-or-stops-when-you-say-it",
+              "text": "Understands “no” (pauses briefly or stops when you say it)"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-1yr-puts-something-in-a-container-like-a-block-in-a-cup",
+              "text": "Puts something in a container, like a block in a cup"
+            },
+            {
+              "id": "cdc-1yr-looks-for-things-he-sees-you-hide-like-a-toy-under-a-blanket",
+              "text": "Looks for things he sees you hide, like a toy under a blanket"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-1yr-pulls-up-to-stand",
+              "text": "Pulls up to stand"
+            },
+            {
+              "id": "cdc-1yr-walks-holding-on-to-furniture",
+              "text": "Walks, holding on to furniture"
+            },
+            {
+              "id": "cdc-1yr-drinks-from-a-cup-without-a-lid-as-you-hold-it",
+              "text": "Drinks from a cup without a lid, as you hold it"
+            },
+            {
+              "id": "cdc-1yr-picks-things-up-between-thumb-and-pointer-finger-like-small",
+              "text": "Picks things up between thumb and pointer finger, like small bits of food"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "15mo",
+      "label": "15 months",
+      "months": 15,
+      "heading": "What most children do by 15 months",
+      "url": "https://www.cdc.gov/act-early/milestones/15-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261021192017/https://www.cdc.gov/act-early/milestones/15-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-15mo-copies-other-children-while-playing-like-taking-toys-out-of",
+              "text": "Copies other children while playing, like taking toys out of a container when another child does"
+            },
+            {
+              "id": "cdc-15mo-shows-you-an-object-she-likes",
+              "text": "Shows you an object she likes"
+            },
+            {
+              "id": "cdc-15mo-claps-when-excited",
+              "text": "Claps when excited"
+            },
+            {
+              "id": "cdc-15mo-hugs-stuffed-doll-or-other-toy",
+              "text": "Hugs stuffed doll or other toy"
+            },
+            {
+              "id": "cdc-15mo-shows-you-affection-hugs-cuddles-or-kisses-you",
+              "text": "Shows you affection (hugs, cuddles, or kisses you)"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-15mo-tries-to-say-one-or-two-words-besides-mama-or-dada-like-ba-f",
+              "text": "Tries to say one or two words besides “mama” or “dada,” like “ba” for ball or “da” for dog"
+            },
+            {
+              "id": "cdc-15mo-looks-at-a-familiar-object-when-you-name-it",
+              "text": "Looks at a familiar object when you name it"
+            },
+            {
+              "id": "cdc-15mo-follows-directions-given-with-both-a-gesture-and-words-for-e",
+              "text": "Follows directions given with both a gesture and words. For example, he gives you a toy when you hold out your hand and say, “Give me the toy.”"
+            },
+            {
+              "id": "cdc-15mo-points-to-ask-for-something-or-to-get-help",
+              "text": "Points to ask for something or to get help"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-15mo-tries-to-use-things-the-right-way-like-a-phone-cup-or-book",
+              "text": "Tries to use things the right way, like a phone, cup, or book"
+            },
+            {
+              "id": "cdc-15mo-stacks-at-least-two-small-objects-like-blocks",
+              "text": "Stacks at least two small objects, like blocks"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-15mo-takes-a-few-steps-on-his-own",
+              "text": "Takes a few steps on his own"
+            },
+            {
+              "id": "cdc-15mo-uses-fingers-to-feed-herself-some-food",
+              "text": "Uses fingers to feed herself some food"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "18mo",
+      "label": "18 months",
+      "months": 18,
+      "heading": "What most children do by 18 months",
+      "url": "https://www.cdc.gov/act-early/milestones/18-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261021192017/https://www.cdc.gov/act-early/milestones/18-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-18mo-moves-away-from-you-but-looks-to-make-sure-you-are-close-by",
+              "text": "Moves away from you, but looks to make sure you are close by"
+            },
+            {
+              "id": "cdc-18mo-points-to-show-you-something-interesting",
+              "text": "Points to show you something interesting"
+            },
+            {
+              "id": "cdc-18mo-puts-hands-out-for-you-to-wash-them",
+              "text": "Puts hands out for you to wash them"
+            },
+            {
+              "id": "cdc-18mo-looks-at-a-few-pages-in-a-book-with-you",
+              "text": "Looks at a few pages in a book with you"
+            },
+            {
+              "id": "cdc-18mo-helps-you-dress-him-by-pushing-arm-through-sleeve-or-lifting",
+              "text": "Helps you dress him by pushing arm through sleeve or lifting up foot"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-18mo-tries-to-say-three-or-more-words-besides-mama-or-dada",
+              "text": "Tries to say three or more words besides “mama” or “dada”"
+            },
+            {
+              "id": "cdc-18mo-follows-one-step-directions-without-any-gestures-like-giving",
+              "text": "Follows one-step directions without any gestures, like giving you the toy when you say, “Give it to me.”"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-18mo-copies-you-doing-chores-like-sweeping-with-a-broom",
+              "text": "Copies you doing chores, like sweeping with a broom"
+            },
+            {
+              "id": "cdc-18mo-plays-with-toys-in-a-simple-way-like-pushing-a-toy-car",
+              "text": "Plays with toys in a simple way, like pushing a toy car"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-18mo-walks-without-holding-on-to-anyone-or-anything",
+              "text": "Walks without holding on to anyone or anything"
+            },
+            {
+              "id": "cdc-18mo-scribbles",
+              "text": "Scribbles"
+            },
+            {
+              "id": "cdc-18mo-drinks-from-a-cup-without-a-lid-and-may-spill-sometimes",
+              "text": "Drinks from a cup without a lid and may spill sometimes"
+            },
+            {
+              "id": "cdc-18mo-feeds-himself-with-his-fingers",
+              "text": "Feeds himself with his fingers"
+            },
+            {
+              "id": "cdc-18mo-tries-to-use-a-spoon",
+              "text": "Tries to use a spoon"
+            },
+            {
+              "id": "cdc-18mo-climbs-on-and-off-a-couch-or-chair-without-help",
+              "text": "Climbs on and off a couch or chair without help"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2yr",
+      "label": "2 years",
+      "months": 24,
+      "heading": "What most children do by 2 years",
+      "url": "https://www.cdc.gov/act-early/milestones/2-years.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261021192017/https://www.cdc.gov/act-early/milestones/2-years.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-2yr-notices-when-others-are-hurt-or-upset-like-pausing-or-lookin",
+              "text": "Notices when others are hurt or upset, like pausing or looking sad when someone is crying"
+            },
+            {
+              "id": "cdc-2yr-looks-at-your-face-to-see-how-to-react-in-a-new-situation",
+              "text": "Looks at your face to see how to react in a new situation"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-2yr-points-to-things-in-a-book-when-you-ask-like-where-is-the-be",
+              "text": "Points to things in a book when you ask, like “Where is the bear?”"
+            },
+            {
+              "id": "cdc-2yr-says-at-least-two-words-together-like-more-milk",
+              "text": "Says at least two words together, like “More milk.”"
+            },
+            {
+              "id": "cdc-2yr-points-to-at-least-two-body-parts-when-you-ask-him-to-show-y",
+              "text": "Points to at least two body parts when you ask him to show you"
+            },
+            {
+              "id": "cdc-2yr-uses-more-gestures-than-just-waving-and-pointing-like-blowin",
+              "text": "Uses more gestures than just waving and pointing, like blowing a kiss or nodding yes"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-2yr-holds-something-in-one-hand-while-using-the-other-hand-for-e",
+              "text": "Holds something in one hand while using the other hand; for example, holding a container and taking the lid off"
+            },
+            {
+              "id": "cdc-2yr-tries-to-use-switches-knobs-or-buttons-on-a-toy",
+              "text": "Tries to use switches, knobs, or buttons on a toy"
+            },
+            {
+              "id": "cdc-2yr-plays-with-more-than-one-toy-at-the-same-time-like-putting-t",
+              "text": "Plays with more than one toy at the same time, like putting toy food on a toy plate"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-2yr-kicks-a-ball",
+              "text": "Kicks a ball"
+            },
+            {
+              "id": "cdc-2yr-runs",
+              "text": "Runs"
+            },
+            {
+              "id": "cdc-2yr-walks-not-climbs-up-a-few-stairs-with-or-without-help",
+              "text": "Walks (not climbs) up a few stairs with or without help"
+            },
+            {
+              "id": "cdc-2yr-eats-with-a-spoon",
+              "text": "Eats with a spoon"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "30mo",
+      "label": "2½ years (30 months)",
+      "months": 30,
+      "heading": "What most children do by 30 months",
+      "url": "https://www.cdc.gov/act-early/milestones/30-months.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261021195049/https://www.cdc.gov/act-early/milestones/30-months.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-30mo-plays-next-to-other-children-and-sometimes-plays-with-them",
+              "text": "Plays next to other children and sometimes plays with them"
+            },
+            {
+              "id": "cdc-30mo-shows-you-what-she-can-do-by-saying-look-at-me",
+              "text": "Shows you what she can do by saying, “Look at me!”"
+            },
+            {
+              "id": "cdc-30mo-follows-simple-routines-when-told-like-helping-to-pick-up-to",
+              "text": "Follows simple routines when told, like helping to pick up toys when you say, “It’s clean-up time.”"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-30mo-says-about-50-words",
+              "text": "Says about 50 words"
+            },
+            {
+              "id": "cdc-30mo-says-two-or-more-words-together-with-one-action-word-like-do",
+              "text": "Says two or more words together, with one action word, like “Doggie run”"
+            },
+            {
+              "id": "cdc-30mo-names-things-in-a-book-when-you-point-and-ask-what-is-this",
+              "text": "Names things in a book when you point and ask, “What is this?”"
+            },
+            {
+              "id": "cdc-30mo-says-words-like-i-me-or-we",
+              "text": "Says words like “I,” “me,” or “we”"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-30mo-uses-things-to-pretend-like-feeding-a-block-to-a-doll-as-if",
+              "text": "Uses things to pretend, like feeding a block to a doll as if it were food"
+            },
+            {
+              "id": "cdc-30mo-shows-simple-problem-solving-skills-like-standing-on-a-small",
+              "text": "Shows simple problem-solving skills, like standing on a small stool to reach something"
+            },
+            {
+              "id": "cdc-30mo-follows-two-step-instructions-like-put-the-toy-down-and-clos",
+              "text": "Follows two-step instructions like “Put the toy down and close the door.”"
+            },
+            {
+              "id": "cdc-30mo-shows-he-knows-at-least-one-color-like-pointing-to-a-red-cra",
+              "text": "Shows he knows at least one color, like pointing to a red crayon when you ask, “Which one is red?”"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-30mo-uses-hands-to-twist-things-like-turning-doorknobs-or-unscrew",
+              "text": "Uses hands to twist things, like turning doorknobs or unscrewing lids"
+            },
+            {
+              "id": "cdc-30mo-takes-some-clothes-off-by-himself-like-loose-pants-or-an-ope",
+              "text": "Takes some clothes off by himself, like loose pants or an open jacket"
+            },
+            {
+              "id": "cdc-30mo-jumps-off-the-ground-with-both-feet",
+              "text": "Jumps off the ground with both feet"
+            },
+            {
+              "id": "cdc-30mo-turns-book-pages-one-at-a-time-when-you-read-to-her",
+              "text": "Turns book pages, one at a time, when you read to her"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3yr",
+      "label": "3 years",
+      "months": 36,
+      "heading": "What most children do by 3 years",
+      "url": "https://www.cdc.gov/act-early/milestones/3-years.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261012134541/https://www.cdc.gov/act-early/milestones/3-years.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-3yr-calms-down-within-10-minutes-after-you-leave-her-like-at-a-c",
+              "text": "Calms down within 10 minutes after you leave her, like at a childcare drop off"
+            },
+            {
+              "id": "cdc-3yr-notices-other-children-and-joins-them-to-play",
+              "text": "Notices other children and joins them to play"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-3yr-talks-with-you-in-conversation-using-at-least-two-back-and-f",
+              "text": "Talks with you in conversation using at least two back-and-forth exchanges"
+            },
+            {
+              "id": "cdc-3yr-asks-who-what-where-or-why-questions-like-where-is-mommy-dad",
+              "text": "Asks “who,” “what,” “where,” or “why” questions, like “Where is mommy/daddy?”"
+            },
+            {
+              "id": "cdc-3yr-says-what-action-is-happening-in-a-picture-or-book-when-aske",
+              "text": "Says what action is happening in a picture or book when asked, like “running,” “eating,” or “playing”"
+            },
+            {
+              "id": "cdc-3yr-says-first-name-when-asked",
+              "text": "Says first name, when asked"
+            },
+            {
+              "id": "cdc-3yr-talks-well-enough-for-others-to-understand-most-of-the-time",
+              "text": "Talks well enough for others to understand, most of the time"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-3yr-draws-a-circle-when-you-show-him-how",
+              "text": "Draws a circle, when you show him how"
+            },
+            {
+              "id": "cdc-3yr-avoids-touching-hot-objects-like-a-stove-when-you-warn-her",
+              "text": "Avoids touching hot objects, like a stove, when you warn her"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-3yr-strings-items-together-like-large-beads-or-macaroni",
+              "text": "Strings items together, like large beads or macaroni"
+            },
+            {
+              "id": "cdc-3yr-puts-on-some-clothes-by-himself-like-loose-pants-or-a-jacket",
+              "text": "Puts on some clothes by himself, like loose pants or a jacket"
+            },
+            {
+              "id": "cdc-3yr-uses-a-fork",
+              "text": "Uses a fork"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4yr",
+      "label": "4 years",
+      "months": 48,
+      "heading": "What most children do by 4 years",
+      "url": "https://www.cdc.gov/act-early/milestones/4-years.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261016054156/https://www.cdc.gov/act-early/milestones/4-years.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-4yr-pretends-to-be-something-else-during-play-teacher-superhero",
+              "text": "Pretends to be something else during play (teacher, superhero, dog)"
+            },
+            {
+              "id": "cdc-4yr-asks-to-go-play-with-children-if-none-are-around-like-can-i",
+              "text": "Asks to go play with children if none are around, like “Can I play with Alex?”"
+            },
+            {
+              "id": "cdc-4yr-comforts-others-who-are-hurt-or-sad-like-hugging-a-crying-fr",
+              "text": "Comforts others who are hurt or sad, like hugging a crying friend"
+            },
+            {
+              "id": "cdc-4yr-avoids-danger-like-not-jumping-from-tall-heights-at-the-play",
+              "text": "Avoids danger, like not jumping from tall heights at the playground"
+            },
+            {
+              "id": "cdc-4yr-likes-to-be-a-helper",
+              "text": "Likes to be a “helper”"
+            },
+            {
+              "id": "cdc-4yr-changes-behavior-based-on-where-she-is-place-of-worship-libr",
+              "text": "Changes behavior based on where she is (place of worship, library, playground)"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-4yr-says-sentences-with-four-or-more-words",
+              "text": "Says sentences with four or more words"
+            },
+            {
+              "id": "cdc-4yr-says-some-words-from-a-song-story-or-nursery-rhyme",
+              "text": "Says some words from a song, story, or nursery rhyme"
+            },
+            {
+              "id": "cdc-4yr-talks-about-at-least-one-thing-that-happened-during-her-day",
+              "text": "Talks about at least one thing that happened during her day, like “I played soccer.”"
+            },
+            {
+              "id": "cdc-4yr-answers-simple-questions-like-what-is-a-coat-for-or-what-is",
+              "text": "Answers simple questions like “What is a coat for?” or “What is a crayon for?”"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-4yr-names-a-few-colors-of-items",
+              "text": "Names a few colors of items"
+            },
+            {
+              "id": "cdc-4yr-tells-what-comes-next-in-a-well-known-story",
+              "text": "Tells what comes next in a well-known story"
+            },
+            {
+              "id": "cdc-4yr-draws-a-person-with-three-or-more-body-parts",
+              "text": "Draws a person with three or more body parts"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-4yr-catches-a-large-ball-most-of-the-time",
+              "text": "Catches a large ball most of the time"
+            },
+            {
+              "id": "cdc-4yr-serves-herself-food-or-pours-water-with-adult-supervision",
+              "text": "Serves herself food or pours water, with adult supervision"
+            },
+            {
+              "id": "cdc-4yr-unbuttons-some-buttons",
+              "text": "Unbuttons some buttons"
+            },
+            {
+              "id": "cdc-4yr-holds-crayon-or-pencil-between-fingers-and-thumb-not-a-fist",
+              "text": "Holds crayon or pencil between fingers and thumb (not a fist)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "5yr",
+      "label": "5 years",
+      "months": 60,
+      "heading": "What most children do by 5 years",
+      "url": "https://www.cdc.gov/act-early/milestones/5-years.html",
+      "page_date": "May 15, 2026",
+      "read_from": "https://web.archive.org/web/20261019231422/https://www.cdc.gov/act-early/milestones/5-years.html",
+      "domains": [
+        {
+          "id": "social",
+          "title": "Social/Emotional Milestones",
+          "items": [
+            {
+              "id": "cdc-5yr-follows-rules-or-takes-turns-when-playing-games-with-other-c",
+              "text": "Follows rules or takes turns when playing games with other children"
+            },
+            {
+              "id": "cdc-5yr-sings-dances-or-acts-for-you",
+              "text": "Sings, dances, or acts for you"
+            },
+            {
+              "id": "cdc-5yr-does-simple-chores-at-home-like-matching-socks-or-clearing-t",
+              "text": "Does simple chores at home, like matching socks or clearing the table after eating"
+            }
+          ]
+        },
+        {
+          "id": "language",
+          "title": "Language/Communication Milestones",
+          "items": [
+            {
+              "id": "cdc-5yr-tells-a-story-she-heard-or-made-up-with-at-least-two-events",
+              "text": "Tells a story she heard or made up with at least two events. For example, a cat was stuck in a tree and a firefighter saved it"
+            },
+            {
+              "id": "cdc-5yr-answers-simple-questions-about-a-book-or-story-after-you-rea",
+              "text": "Answers simple questions about a book or story after you read or tell it to him"
+            },
+            {
+              "id": "cdc-5yr-keeps-a-conversation-going-with-more-than-three-back-and-for",
+              "text": "Keeps a conversation going with more than three back-and-forth exchanges"
+            },
+            {
+              "id": "cdc-5yr-uses-or-recognizes-simple-rhymes-bat-cat-ball-tall",
+              "text": "Uses or recognizes simple rhymes (bat-cat, ball-tall)"
+            }
+          ]
+        },
+        {
+          "id": "cognitive",
+          "title": "Cognitive Milestones (learning, thinking, problem-solving)",
+          "items": [
+            {
+              "id": "cdc-5yr-counts-to-10",
+              "text": "Counts to 10"
+            },
+            {
+              "id": "cdc-5yr-names-some-numbers-between-1-and-5-when-you-point-to-them",
+              "text": "Names some numbers between 1 and 5 when you point to them"
+            },
+            {
+              "id": "cdc-5yr-uses-words-about-time-like-yesterday-tomorrow-morning-or-nig",
+              "text": "Uses words about time, like “yesterday,” “tomorrow,” “morning,” or “night”"
+            },
+            {
+              "id": "cdc-5yr-pays-attention-for-5-to-10-minutes-during-activities-for-exa",
+              "text": "Pays attention for 5 to 10 minutes during activities. For example, during story time or making arts and crafts (screen time does not count)"
+            },
+            {
+              "id": "cdc-5yr-writes-some-letters-in-her-name",
+              "text": "Writes some letters in her name"
+            },
+            {
+              "id": "cdc-5yr-names-some-letters-when-you-point-to-them",
+              "text": "Names some letters when you point to them"
+            }
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Movement/Physical Development Milestones",
+          "items": [
+            {
+              "id": "cdc-5yr-buttons-some-buttons",
+              "text": "Buttons some buttons"
+            },
+            {
+              "id": "cdc-5yr-hops-on-one-foot",
+              "text": "Hops on one foot"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

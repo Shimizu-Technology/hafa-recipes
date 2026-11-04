@@ -60,6 +60,7 @@ vi.mock("@/components/ui", async () => ({ ...(await import("../components/ui")),
 vi.mock("@/components/disclosure", () => import("../components/disclosure"));
 vi.mock("./ai-consent", () => ({ ensureAiConsent: async () => true }));
 vi.mock("@/components/ask-screen", () => import("../components/ask-screen"));
+vi.mock("@/components/visit-sections", () => ({ LinkQuestions: "LinkQuestions", RecordVisit: "RecordVisit" }));
 vi.mock("@/lib/source-title", () => import("./source-title"));
 vi.mock("@/lib/use-library-history", () => ({ useLibraryHistory: (view: { kind: string }) => (mock.views.push(view), {
   rows: mock.baby.records.filter((record: any) => record.kind === view.kind), loading: false, error: "", more: false,
@@ -157,7 +158,7 @@ it("shrinks the Add sheet to things to keep: care leaves, a video or link leads"
   mock.stack = [{ pathname: "/add" }];
   await mount(<Add />);
   const labels = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => n.props.accessibilityLabel).filter(Boolean);
-  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Keep a doctor question", "Make a list"]);
+  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Add to the calendar", "Keep a doctor question", "Make a list"]);
 });
 it("keeps care-only history pushed with Back and disclosed care search", async () => {
   mock.stack = [{ pathname: "/(tabs)" }, { pathname: "/care-history" }];

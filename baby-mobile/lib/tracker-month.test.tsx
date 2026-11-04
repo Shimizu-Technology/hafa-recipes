@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1, focus: [] as (() => void)[] }));
+const mock = vi.hoisted(() => ({ occurrences: [] as any[], baby: null as any, fontScale: 1, focus: [] as (() => void)[] }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: mock.fontScale }), AppState: { currentState: "active" } }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
 vi.mock("expo-router", async () => {
@@ -12,11 +12,13 @@ vi.mock("expo-router", async () => {
 });
 vi.mock("@/lib/care-days", () => import("./care-days"));
 vi.mock("@/lib/use-care-summary", () => import("./use-care-summary"));
+vi.mock("@/lib/use-events", () => import("./use-events"));
+vi.mock("@/lib/events", () => import("./events"));
 vi.mock("./context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/care-summary", () => import("./care-summary"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
-vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", fonts: {}, useColors: () => ({}) }));
+vi.mock("../components/ui", () => ({ Copy: "Copy", Icon: "Icon", Notice: "Notice", PressTarget: "Pressable", fonts: {}, useColors: () => ({ categories: { appointment: "clay", celebration: "gold" } }) }));
 import { TrackerMonth, monthGrid, stepMonth } from "../components/tracker-month";
 import { careDays, firstCareDay } from "./care-days";
 import { recordDay } from "./tracker";
@@ -34,7 +36,8 @@ function setup(rows: BabyRecord[] = [], outbox: Mutation[] = []) {
     return { items: list.slice(offset, offset + filters.limit), total: list.length, has_more: offset + filters.limit < list.length };
   });
   const careSummary = vi.fn(async () => ({ days: rows.filter((row) => row.kind === "feeding").map((row) => careDay(recordDay(row.occurred_at, "Pacific/Guam"))) }));
-  mock.baby = { api: { records, careSummary }, state: { ...emptyState(), outbox, bootstrap: { generation: 1, active: true, ai_available: false, children: [], profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
+  const events = vi.fn(async () => ({ items: mock.occurrences, complete: true }));
+  mock.baby = { commit: async () => undefined, current: () => true, api: { records, careSummary, events, lease: () => 0, assertLease: () => undefined }, state: { ...emptyState(), outbox, bootstrap: { generation: 1, active: true, ai_available: false, children: [], profile: { display_name: "", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
   return records;
 }
 const targets = () => renderer!.root.findAll((n) => String(n.type) === "Pressable");
@@ -68,7 +71,7 @@ it("marks days that have something, from the API and from this phone, and opens 
   await act(async () => target("Monday, November 2")!.props.onPress());
   expect(onOpen).toHaveBeenCalledWith("2026-11-02");
   expect(mock.baby.api.careSummary).toHaveBeenCalledWith("2026-11-01", "2026-12-05", "baby");
-  expect(records).toHaveBeenCalledWith(expect.objectContaining({ kinds: ["journal", "question", "contraction", "kick_session"], occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
+  expect(records).toHaveBeenCalledWith(expect.objectContaining({ kinds: ["journal", "question", "contraction", "kick_session", "milestone", "custom"], occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
 });
 
 it("reaches the first day home in three taps or fewer: Tracker, Calendar, First log, however long ago", async () => {
@@ -181,4 +184,17 @@ it("doesn't show one baby's first log on another's calendar while it's looking",
 it("finds no first day when nothing is logged", async () => {
   setup();
   expect(await firstCareDay(mock.baby, "baby", "Pacific/Guam")).toBeUndefined();
+});
+
+it("puts each category's colour on future months from the events API, and names it for VoiceOver", async () => {
+  setup();
+  const at = "2027-03-20T00:00:00.000Z";
+  mock.occurrences = [{ event_id: "e", original_start: at, occurrence_start: at, occurrence_end: null, all_day: false, timezone: "Pacific/Guam", title: "Baptism", category: "celebration", location: null, attendees: [], child_id: null, repeats: false, changed: false, revision: 1 }];
+  await mount({ day: "2027-03-20" });
+  expect(mock.baby.api.events).toHaveBeenCalledWith("2027-02-28", "2027-04-03", "baby");
+  // The summary has no future days, so this dot can only have come from the events.
+  expect(mock.baby.api.careSummary.mock.results[0] && target("Saturday, March 20")?.props.accessibilityLabel).toContain("Celebration");
+  const colours = renderer!.root.findAll((n) => String(n.type) === "View" && n.props.style?.width === 6).map((n) => n.props.style.backgroundColor);
+  expect(colours).toContain("gold");
+  mock.occurrences = [];
 });

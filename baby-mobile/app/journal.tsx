@@ -10,6 +10,7 @@ import { HeaderSearch } from "@/components/header-search";
 import { RecordRow } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
+import { LinkQuestions } from "@/components/visit-sections";
 export function JournalContent({ careHistory = false }: { careHistory?: boolean }) {
   const params = useLocalSearchParams<{ filter?: string; at?: string }>();
   const b = useBaby(),
@@ -114,6 +115,7 @@ export function JournalContent({ careHistory = false }: { careHistory?: boolean 
       {searching && <HeaderSearch value={q} onChange={setQ} placeholder={careHistory ? "Search care logs" : "Search notes and questions"} />}
       {filter === "question" && <Row title="Doctor summary" detail="One page with your questions, notes and daily totals"
         icon="document-text-outline" onPress={() => router.push({ pathname: "/doctor-summary", params: { child: b.state.selectedChild ?? undefined } })} />}
+      {filter === "question" && <LinkQuestions rows={records} />}
       {!!historyError && <>
         <Notice error>{historyError} Entries already on this device are shown below.</Notice>
         <Button secondary title="Try loading again" busy={loading}

@@ -1,0 +1,415 @@
+{
+  "batch": "baby-months-3-24",
+  "approved": false,
+  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md items O1 to O4 are signed off.",
+  "generated": "2026-11-05",
+  "unit": "month",
+  "note": {
+    "text": "Every baby goes at their own pace, so these may come sooner or later for yours.",
+    "source_url": "https://kidshealth.org/en/parents/development-1mo.html"
+  },
+  "periods": [
+    {
+      "age": 3,
+      "items": [
+        {
+          "text": "Your baby may hold and shake hand toys.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "As arms and legs loosen up, your baby may look longer and leaner.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Physical-Appearance-and-Growth-1-To-3-Months.aspx"
+        },
+        {
+          "text": "Held standing on your lap, your baby may discover bouncing.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 4,
+      "items": [
+        {
+          "text": "You may hear cooing: sounds like ooh and aah.",
+          "source_url": "https://kidshealth.org/en/parents/development-4mos.html"
+        },
+        {
+          "text": "Your baby may chuckle when you try to make them laugh.",
+          "source_url": "https://kidshealth.org/en/parents/development-4mos.html"
+        },
+        {
+          "text": "Babbling can begin about now, with a voice that rises and falls like talking.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-4-to-7-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 5,
+      "items": [
+        {
+          "text": "Your baby may rock on their tummy, kick and 'swim' with their arms.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-4-to-7-Months.aspx"
+        },
+        {
+          "text": "On their back, your baby may grab their feet and bring them to their mouth.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-4-to-7-Months.aspx"
+        },
+        {
+          "text": "Your baby is learning cause and effect, like a rattle making noise when it's shaken.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-4-to-7-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 6,
+      "items": [
+        {
+          "text": "You may hear raspberries and squeals.",
+          "source_url": "https://kidshealth.org/en/parents/development-6mos.html"
+        },
+        {
+          "text": "Your baby may know familiar people and enjoy looking in a mirror.",
+          "source_url": "https://kidshealth.org/en/parents/development-6mos.html"
+        },
+        {
+          "text": "Your baby may reach for a toy and put things in their mouth to explore them.",
+          "source_url": "https://kidshealth.org/en/parents/development-6mos.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 7,
+      "items": [
+        {
+          "text": "Your baby may start copying the sounds you make.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-4-to-7-Months.aspx"
+        },
+        {
+          "text": "Your baby may drop things on purpose to see you pick them up.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-4-to-7-Months.aspx"
+        },
+        {
+          "text": "Your baby may pass things from hand to hand.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-4-to-7-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 8,
+      "items": [
+        {
+          "text": "Your baby is curious about everything, and may spend two or three minutes with a toy before moving on.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-8-to-12-Months.aspx"
+        },
+        {
+          "text": "If you hide a toy under a scarf, your baby may lift the scarf to look for it.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-8-to-12-Months.aspx"
+        },
+        {
+          "text": "Crawling is usually mastered between 7 and 10 months. Some babies scoot instead, and a few never crawl.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-8-to-12-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 9,
+      "items": [
+        {
+          "text": "You may hear sounds like ba-ba-ba and ma-ma-ma.",
+          "source_url": "https://kidshealth.org/en/parents/development-9mos.html"
+        },
+        {
+          "text": "Your baby may be shy or clingy around strangers.",
+          "source_url": "https://kidshealth.org/en/parents/development-9mos.html"
+        },
+        {
+          "text": "Your baby may lift their arms to be picked up.",
+          "source_url": "https://kidshealth.org/en/parents/development-9mos.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 10,
+      "items": [
+        {
+          "text": "By now your baby may keep looking for a toy they know is hidden.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-8-to-12-Months.aspx"
+        },
+        {
+          "text": "Your baby may pull up to stand whenever they can, and may not yet know how to get down.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-8-to-12-Months.aspx"
+        },
+        {
+          "text": "Your baby may point or gesture toward what they want.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 11,
+      "items": [
+        {
+          "text": "Your baby may walk along furniture, holding on.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-8-to-12-Months.aspx"
+        },
+        {
+          "text": "Your baby may copy the gestures you make when you talk.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
+        },
+        {
+          "text": "Your baby probably understands more than you'd guess, like looking toward a toy you mention.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 12,
+      "items": [
+        {
+          "text": "Many babies take first steps around their first birthday, and it's normal to start earlier or later.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-8-to-12-Months.aspx",
+          "review_note": "CDC's own 18-month list has 'walks without holding on.' We say nothing that sets a deadline."
+        },
+        {
+          "text": "Some babies have two or three words by now. Many others babble with the tones of real speech.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Language-Development-8-to-12-Months.aspx"
+        },
+        {
+          "text": "Your baby may start showing what things are for, like holding a toy phone to their ear.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Cognitive-Development-8-to-12-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 13,
+      "items": [
+        {
+          "text": "Your toddler may suddenly seem to understand much of what you say.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Language-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may swing between fierce independence and clinging to you.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Emotional-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may enjoy covering and uncovering boxes.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 14,
+      "items": [
+        {
+          "text": "Your toddler may follow simple requests, like 'bring it to Mommy.'",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        },
+        {
+          "text": "Your toddler may point to show you what they need.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        },
+        {
+          "text": "Short separations may bring a fuss, and the protest is usually brief.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Emotional-Development-1-Year-Olds.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 15,
+      "items": [
+        {
+          "text": "Your toddler may try a word or two besides 'mama' and 'dada.'",
+          "source_url": "https://kidshealth.org/en/parents/development-15mos.html"
+        },
+        {
+          "text": "Your toddler may hug a stuffed toy and show you affection.",
+          "source_url": "https://kidshealth.org/en/parents/development-15mos.html"
+        },
+        {
+          "text": "Your toddler may take a few steps on their own.",
+          "source_url": "https://kidshealth.org/en/parents/development-15mos.html",
+          "review_note": "CDC's 15-month list has this too, so it's consistent."
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 16,
+      "items": [
+        {
+          "text": "Your toddler may start learning to walk backward, and up steps with help.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        },
+        {
+          "text": "Your toddler may enjoy being around other children, and copy them.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may start putting two words together. The range is wide, from 16 to 24 months.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 17,
+      "items": [
+        {
+          "text": "Your toddler may enjoy turning knobs and pages.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may ask questions with one word, like 'Up?' or 'Out?'",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Language-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may scribble.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 18,
+      "items": [
+        {
+          "text": "Many toddlers say about 10 words by now. Some say more, and some say fewer.",
+          "source_url": "https://kidshealth.org/en/parents/development-18mos.html",
+          "additional_source_urls": [
+            "https://medlineplus.gov/ency/article/002011.htm"
+          ]
+        },
+        {
+          "text": "Your toddler may climb on a chair or couch without help.",
+          "source_url": "https://kidshealth.org/en/parents/development-18mos.html"
+        },
+        {
+          "text": "Your toddler may start to recognize themselves in the mirror.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 19,
+      "items": [
+        {
+          "text": "Your toddler may use a few action words, like 'go' and 'jump.'",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Language-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may name pictures of things and animals.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        },
+        {
+          "text": "Your toddler may help get undressed and put things away.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 20,
+      "items": [
+        {
+          "text": "Your toddler may build a tower of up to four blocks, then knock it down.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may point to body parts when you name them.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        },
+        {
+          "text": "Your toddler may want to join in with whatever you're doing around the house.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 21,
+      "items": [
+        {
+          "text": "With you showing how, your toddler may try brushing teeth and washing hands.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Social-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may look for help when something goes wrong.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        },
+        {
+          "text": "Your toddler may start listening to stories with pictures.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 22,
+      "items": [
+        {
+          "text": "Your toddler may understand two-step requests, like 'Give me the ball and then get your shoes.'",
+          "source_url": "https://medlineplus.gov/ency/article/002012.htm"
+        },
+        {
+          "text": "Your toddler may stack five or six blocks.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may take toys apart and put them back together.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 23,
+      "items": [
+        {
+          "text": "'Me' and 'you' may become favorite words.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Language-Development-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may tell you when they're thirsty or hungry.",
+          "source_url": "https://medlineplus.gov/ency/article/002012.htm"
+        },
+        {
+          "text": "Your toddler may try simple games of pretend.",
+          "source_url": "https://medlineplus.gov/ency/article/002010.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 24,
+      "items": [
+        {
+          "text": "Many toddlers have at least 50 words by about now and can put two together, with differences among children.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Language-Development-1-Year-Olds.aspx",
+          "review_note": "CDC's lists: two words together at 2 years, about 50 words at 30 months. AAP's page says 50 by the end of the second year. They differ. Which should stand?"
+        },
+        {
+          "text": "Your toddler may start to favor one hand. Many children don't show a preference for years.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/toddler/Pages/Hand-and-Finger-Skills-1-Year-Olds.aspx"
+        },
+        {
+          "text": "Your toddler may kick a ball and run with better coordination.",
+          "source_url": "https://medlineplus.gov/ency/article/002012.htm"
+        }
+      ],
+      "review_status": "DRAFT"
+    }
+  ]
+}

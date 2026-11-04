@@ -1,0 +1,249 @@
+{
+  "batch": "baby-weeks-1-12",
+  "approved": false,
+  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md items N1 are signed off.",
+  "generated": "2026-11-05",
+  "unit": "week",
+  "note": {
+    "text": "Every baby goes at their own pace, so these may come sooner or later for yours.",
+    "source_url": "https://kidshealth.org/en/parents/development-1mo.html"
+  },
+  "periods": [
+    {
+      "age": 1,
+      "items": [
+        {
+          "text": "Your baby spends most of the time eating, sleeping, crying and filling diapers.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx"
+        },
+        {
+          "text": "Reflexes are strong. Startling, rooting and gripping your finger are all built in.",
+          "source_url": "https://kidshealth.org/en/parents/development-newborn.html",
+          "additional_source_urls": [
+            "https://medlineplus.gov/ency/article/002004.htm"
+          ]
+        },
+        {
+          "text": "Your baby can see about a foot away, just far enough to find your face.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 2,
+      "items": [
+        {
+          "text": "Crying is how your baby asks to be held, fed, changed or put down to sleep.",
+          "source_url": "https://kidshealth.org/en/parents/development-newborn.html"
+        },
+        {
+          "text": "Your voice and touch can soothe your baby.",
+          "source_url": "https://kidshealth.org/en/parents/development-newborn.html"
+        },
+        {
+          "text": "Your baby may turn toward your voice or other familiar sounds.",
+          "source_url": "https://kidshealth.org/en/parents/development-newborn.html",
+          "additional_source_urls": [
+            "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 3,
+      "items": [
+        {
+          "text": "Movements are often jerky or jittery. Your baby can't control most of them yet.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "Your baby doesn't have much neck control yet and needs your help to support their head.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "Hands stay mostly in tight fists.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx",
+          "additional_source_urls": [
+            "https://kidshealth.org/en/parents/development-1mo.html"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 4,
+      "items": [
+        {
+          "text": "By the end of the first month, your baby is much more alert and responsive.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx"
+        },
+        {
+          "text": "Your baby may prefer faces to other patterns, and likes high contrast.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx"
+        },
+        {
+          "text": "Eyes may wander or occasionally cross at this age.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx",
+          "review_note": "AAP's wording for about 1 month. Do you want a line on when to mention this to the pediatrician?"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 5,
+      "items": [
+        {
+          "text": "Your baby may recognize your voice.",
+          "source_url": "https://kidshealth.org/en/parents/development-1mo.html"
+        },
+        {
+          "text": "Pleasant sounds, like music, can make your baby more alert.",
+          "source_url": "https://kidshealth.org/en/parents/development-1mo.html"
+        },
+        {
+          "text": "Hands may come within range of your baby's eyes and mouth.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Developmental-Milestones-1-Month.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 6,
+      "items": [
+        {
+          "text": "A first real smile can come from around now.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx",
+          "review_note": "AAP says 'around her sixth week.' Could worry a parent if it's later. AAP's emotional development page says 'by the second month.'"
+        },
+        {
+          "text": "Your baby may wave their arms around when excited.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "Your baby spends a lot of the day watching and listening to the people around them.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 7,
+      "items": [
+        {
+          "text": "Early grins and grimaces are turning into real signals of pleasure.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
+        },
+        {
+          "text": "Hands are catching your baby's attention. After many tries, they may reach the mouth.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "Your baby may seem to smile past you. Looking away is a way of taking it all in.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 8,
+      "items": [
+        {
+          "text": "Most babies this age can lift their head when on their tummy.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx",
+          "additional_source_urls": [
+            "https://kidshealth.org/en/parents/development-2mos.html"
+          ]
+        },
+        {
+          "text": "You may hear sounds other than crying.",
+          "source_url": "https://kidshealth.org/en/parents/development-2mos.html"
+        },
+        {
+          "text": "Your baby may seem happy to see you.",
+          "source_url": "https://kidshealth.org/en/parents/development-2mos.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 9,
+      "items": [
+        {
+          "text": "Movement is getting smoother and wigglier as some newborn reflexes fade.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "Your baby may watch you as you move around.",
+          "source_url": "https://kidshealth.org/en/parents/development-2mos.html"
+        },
+        {
+          "text": "Babies often look round and chubby at this age.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Physical-Appearance-and-Growth-1-To-3-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 10,
+      "items": [
+        {
+          "text": "Your baby may hold your gaze for longer now.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
+        },
+        {
+          "text": "Hands open more often.",
+          "source_url": "https://kidshealth.org/en/parents/development-2mos.html",
+          "additional_source_urls": [
+            "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+          ]
+        },
+        {
+          "text": "Your baby may look at a toy for several seconds.",
+          "source_url": "https://kidshealth.org/en/parents/development-2mos.html"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 11,
+      "items": [
+        {
+          "text": "Smiling gives your baby a way besides crying to tell you things.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
+        },
+        {
+          "text": "Your baby may prefer certain people and give others a more curious look.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Emotional-and-Social-Development-Birth-to-3-Months.aspx"
+        },
+        {
+          "text": "Your baby may enjoy kicking their legs more actively.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        }
+      ],
+      "review_status": "DRAFT"
+    },
+    {
+      "age": 12,
+      "items": [
+        {
+          "text": "Your baby's whole body may look more relaxed, with legs straightening out from the newborn curl.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "Your baby may swipe at objects hanging just out of reach.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx"
+        },
+        {
+          "text": "The startle reflex has probably faded by now.",
+          "source_url": "https://www.healthychildren.org/English/ages-stages/baby/Pages/Movement-Birth-to-Three-Months.aspx",
+          "additional_source_urls": [
+            "https://medlineplus.gov/ency/article/002004.htm"
+          ]
+        }
+      ],
+      "review_status": "DRAFT"
+    }
+  ]
+}

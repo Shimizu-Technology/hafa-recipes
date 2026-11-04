@@ -117,6 +117,9 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
                params={"original_start": occurrence, "revision": 2})
     await call("POST", f"/api/v1/baby/events/{calendar['id']}/end-series", expected=expected_event,
                json={"from_date": "2026-10-22", "revision": 3})
+    await call("POST", f"/api/v1/baby/events/{calendar['id']}/split", expected=expected_event,
+               json={"revision": 4, "from_start": occurrence, "event": shared.payload(
+                   "event", occurred_at=occurrence, data={"timezone": "Pacific/Guam"})})
     await call("POST", f"/api/v1/baby/records/{new_kind['id']}/session-action", expected=expected_event,
                json={"action_id": str(uuid4()), "action": "finish", "at": "2026-10-20T12:01:00+10:00"})
     image = BytesIO()

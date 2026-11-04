@@ -65,13 +65,14 @@ export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZ
 
 /** One thing that happened: when, what, and a way in to change it. */
 export function TimelineRow({ record, rows, day, timeZone, pending, now }: { record: BabyRecord; rows?: readonly BabyRecord[]; day?: string; timeZone?: string | null; pending?: boolean; now: Date }) {
-  const c = useColors(), { fontScale } = useWindowDimensions(), when = timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
-    title = isCare(record.kind) ? careSummary(record.kind, record.data, record.occurred_at, now, timeZone) : kindName[record.kind],
+  // A milestone or a shot has a date, and no time of day to show.
+  const c = useColors(), { fontScale } = useWindowDimensions(), when = record.kind === "milestone" || record.kind === "custom" ? "" : timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
+    title = isCare(record.kind) ? careSummary(record.kind, record.data, record.occurred_at, now, timeZone) : record.data.label ?? kindName[record.kind],
     detail = [timelineDetail(record, { rows, day, timeZone, now }) || (isCare(record.kind) ? "" : record.title), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
-  return <PressTarget accessibilityRole="button" accessibilityLabel={`${when}, ${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
+  return <PressTarget accessibilityRole="button" accessibilityLabel={`${when ? `${when}, ` : ""}${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 4 : 10, minHeight: 62, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: c.surface }}>
-    <Text key={`w:${fontScale}`} maxFontSizeMultiplier={0} style={{ width: stacked ? undefined : Math.ceil(66 * Math.min(fontScale, 1.5)), ...typeScale.caption, fontSize: 13, lineHeight: 18, color: c.muted, fontVariant: ["tabular-nums"] }}>{when}</Text>
+    {!!when && <Text key={`w:${fontScale}`} maxFontSizeMultiplier={0} style={{ width: stacked ? undefined : Math.ceil(66 * Math.min(fontScale, 1.5)), ...typeScale.caption, fontSize: 13, lineHeight: 18, color: c.muted, fontVariant: ["tabular-nums"] }}>{when}</Text>}
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: stacked ? undefined : 1, minWidth: 0, alignSelf: stacked ? "stretch" : undefined }}>
       <View style={{ width: 36, height: 36, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: c.tile }}>
         <Icon name={kindIcon[record.kind]} size={19} color={c.accentText} />
