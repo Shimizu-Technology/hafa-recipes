@@ -10,6 +10,7 @@ import { Image } from "expo-image";
 import { Copy, Grouped, Icon, PressTarget, Section, fonts, radii, typeScale, useColors } from "./ui";
 import { Monogram, SavedPostRow, safeThumbnail } from "./saved-post-row";
 import { FadeUp } from "./motion";
+import { WeekFacts } from "./week-facts";
 
 const weekStyle = { fontFamily: fonts.display, fontSize: 52, lineHeight: 58, fontVariant: ["tabular-nums" as const] };
 const dayStyle = { fontFamily: fonts.displayItalic, fontSize: 22, lineHeight: 28 };
@@ -69,6 +70,7 @@ export function PregnancyHero({ child, now, tips = [] }: { child: Child; now: Da
           <Copy numeric kind="small" tone="muted">{`${progress.week} of ${TOTAL_WEEKS} weeks`}</Copy>
         </View>
       </View>
+      <WeekFacts week={progress.week} />
       <View style={{ height: 1, backgroundColor: c.border }} />
       <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>

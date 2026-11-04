@@ -6,6 +6,7 @@ const mock = vi.hoisted(() => ({
   params: {} as Record<string, string>, stack: [] as any[], baby: null as any, views: [] as any[], picker: null as any, toasts: [] as any[],
   exportVisit: vi.fn(async (_text: string, _owner: string) => {}),
 }));
+vi.mock("@/lib/weekly-content", () => import("./weekly-content"));
 vi.mock("react-native", () => ({
   RefreshControl: "RefreshControl", View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput",
   ActivityIndicator: "ActivityIndicator", InputAccessoryView: "InputAccessoryView", KeyboardAvoidingView: "KeyboardAvoidingView",
