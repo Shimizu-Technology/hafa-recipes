@@ -1,6 +1,8 @@
 import { Text, View, useWindowDimensions } from "react-native";
-import { Icon, PressTarget, radii, tap, typeScale, useColors } from "./ui";
+import { router } from "expo-router";
+import { Card, Copy, Icon, PressTarget, radii, tap, typeScale, useColors } from "./ui";
 import type { SetupStage } from "@/lib/child-setup";
+import type { Child } from "@/lib/models";
 
 const icons = { expecting: "calendar-outline", here: "heart-outline" } as const;
 
@@ -20,4 +22,19 @@ export function StageOptions({ labels, value, onChoose }: { labels: Record<Setup
       </PressTarget>;
     })}
   </View>;
+}
+
+/** What Today leads with until it knows a date. No baby yet says why there's nothing to track; a named baby just needs its date. */
+export function BabySetupCard({ child }: { child?: Child | null }) {
+  const name = child?.name.trim(), { fontScale } = useWindowDimensions(), large = fontScale >= 1.5,
+    why = <Copy tone="muted">{name ? "Add a due date or birth date and Today fills in." : "Feeds, kicks and everything else you can track start here once your baby has a profile."}</Copy>;
+  return <Card tone="hero" style={{ gap: 14 }}>
+    <Copy kind={large ? "label" : "heading"}>{name ? `Is ${name} here yet?` : "Is your baby here yet?"}</Copy>
+    {/* At the largest text the choices can't wait below a screenful of words. */}
+    {!large && why}
+    <StageOptions labels={{ expecting: "I’m expecting", here: "Baby’s here" }}
+      onChoose={(stage) => router.push({ pathname: "/child", params: { stage, ...(child ? { id: child.id } : {}) } })} />
+    {large && why}
+    {/* F7b's "join your family" line goes under these. */}
+  </Card>;
 }

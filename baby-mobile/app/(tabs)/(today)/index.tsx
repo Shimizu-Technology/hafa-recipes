@@ -16,7 +16,8 @@ import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, ra
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
-import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
+import { CareGlance, useMinuteClock } from "@/components/care-glance";
+import { BabySetupCard } from "@/components/stage-options";
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
@@ -80,7 +81,8 @@ export default function Today() {
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
     expecting = pregnant || stage === "needs_birth",
-    showCare = !!child && !expecting,
+    // A named baby with no date could be either stage, so care only stays for one who already has some logged.
+    showCare = !!child && !expecting && (stage !== "none" || latestCare.all.some((row) => row.child_id === child.id)),
     tipsNow = useTimingTips(child, "now", 5, today),
     tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
     // A device timer is from an older build: it finishes the old way, on its own card, and is gone.
@@ -155,14 +157,15 @@ export default function Today() {
   const todayLine = `Today: ${summaryLine(dayOverlay(b.state, child?.id ?? null, timezone, now)(summary?.[todayKey], todayKey))}`;
   const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} /> : null;
   return (
-    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, today) : child.name : undefined} numericSubtitle={showCare}
+    <Screen title={titleText} subtitle={child && showCare ? babyAge(child, today) : undefined} numericSubtitle={showCare}
       footer={fontScale < dockBelow ? quickLog : undefined}>
       <Stack.Screen options={{ title: titleText }} />
       <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
+      {stage === "none" && <BabySetupCard child={child} />}
       {timer ? <LegacyTimer />
-        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} /> : <FirstStep child={child} now={now} />}
+        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} /> : null}
       {showCare && <PressTarget accessibilityRole="button" accessibilityLabel={todayLine} accessibilityHint="Opens today in Tracker"
         onPress={() => router.navigate({ pathname: "/tracker", params: { day: dayKey(today), at: String(Date.now()) } })}
         style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingHorizontal: 4 }}>
@@ -170,8 +173,9 @@ export default function Today() {
         <Icon name="chevron-forward" size={16} color={c.muted} />
       </PressTarget>}
       {fontScale >= dockBelow && quickLog}
+      {stage === "none" && !showCare && <Copy kind="small" tone="muted">In the meantime</Copy>}
       <NextEvent childId={child?.id ?? null} today={todayKey} now={now} drafts={visitDrafts} />
-      {!!latestCare.error && <View style={{ gap: 8 }}>
+      {!!child && !!latestCare.error && <View style={{ gap: 8 }}>
         <Notice error>{latestCare.error} Care already on this device is shown below.</Notice>
         <Button secondary title="Try loading care again" busy={latestCare.loading} onPress={() => void latestCare.refresh()} />
       </View>}
@@ -191,8 +195,6 @@ export default function Today() {
           onPress={() => router.navigate({ pathname: "/journal", params: { filter: "journal", at: String(Date.now()) } })} />
         <Row title="Care history" numericDetail detail={showCare ? `${glance.feeds} feed${glance.feeds === 1 ? "" : "s"} today · All care logs` : "Feeding, sleep and diaper logs"} icon="time-outline" onPress={() => router.push("/care-history")} />
       </Grouped>
-      {!children.length && <Row title="Add a baby profile" detail="Personalize everyday care when you’re ready"
-        icon="person-add-outline" onPress={() => router.push("/child")} />}
     </Screen>
   );
 }
