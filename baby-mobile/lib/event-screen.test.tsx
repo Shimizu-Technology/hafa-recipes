@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type EditorDraft, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
+const mock = vi.hoisted(() => ({ upcoming: { items: [] as any[] }, baby: null as any, params: {} as Record<string, string>, push: vi.fn(), back: vi.fn(), dismissTo: vi.fn(), toast: vi.fn(), alerts: [] as any[], ids: 0 }));
 vi.mock("react-native", () => ({ View: "View", Image: "Image", Alert: { alert: (...args: unknown[]) => mock.alerts.push(args) }, AppState: { addEventListener: () => ({ remove() {} }) }, Platform: { OS: "ios" } }));
 vi.mock("expo-router", () => ({ useLocalSearchParams: () => mock.params, router: { push: mock.push, back: mock.back, dismissTo: mock.dismissTo } }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mock.ids}` }));
@@ -22,7 +22,10 @@ vi.mock("@/lib/files", () => ({ preserveFile: vi.fn(), removeLocal: vi.fn() }));
 vi.mock("@/lib/reminders", () => ({ requestReminders: vi.fn() }));
 vi.mock("@/components/collection-sources", () => ({ CollectionSources: "CollectionSources" }));
 vi.mock("@/components/date-field", () => ({ DateField: "DateField" }));
-vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile" }));
+vi.mock("@/components/event-row", () => ({ CategoryTile: "CategoryTile", openEvent: vi.fn() }));
+vi.mock("@/components/visit-sections", () => ({ VisitSections: "VisitSections" }));
+vi.mock("@/lib/use-events", () => ({ useUpcomingEvents: () => mock.upcoming }));
+vi.mock("@/lib/visits", () => import("./visits"));
 vi.mock("@/components/event-fields", () => import("../components/event-fields"));
 const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Chips: "Chips", Choice: "Choice", Copy: "Copy", Field: "Field", Grouped: "Grouped", Loading: "Loading", Notice: "Notice", Row: "Row", Section: "Section",
   Screen: ({ children, footer }: { children: unknown; footer?: unknown }) => [children, footer], useToast: () => mock.toast, useColors: () => ({ categories: {} }) }));
@@ -150,4 +153,49 @@ it("edits just one date as a change on the series, and offers only what one date
   await act(async () => { found("Field", (p) => p.label === "Location (optional)").props.onChange("Clinic"); });
   await press("Button", "Save changes");
   expect(b.state.outbox[0]).toMatchObject({ record: { title: "Class", occurred_at: "2026-11-02T00:00:00.000Z", revision: 4, data: { reminder_minutes: [60], exceptions: [{ original_start: "2026-11-09T00:00:00.000Z", cancelled: false, overrides: { location: "Clinic" } }] } } });
+});
+
+const visit = (extra: Partial<BabyRecord["data"]> = {}) => ({ ...event({ recurrence: null, category: "appointment", location: "Clinic", end: "2026-11-02T00:30:00.000Z", ...extra }), title: "OB visit" });
+it("shows an appointment's visit sections and Book next, and leaves other events alone", async () => {
+  setup([visit()]);
+  mock.params = { id: "class" };
+  await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(1);
+  await press("Button", "Book next");
+  expect(mock.push).toHaveBeenCalledWith({ pathname: "/edit", params: { kind: "event", from: "class", at: "2026-11-02T00:00:00.000Z" } });
+  await act(async () => renderer!.unmount());
+  setup([event({ recurrence: null, category: "family" })]);
+  await mount(EventDetail);
+  expect(renderer!.root.findAll((n) => String(n.type) === "VisitSections")).toHaveLength(0);
+  expect(renderer!.root.findAll((n) => n.props.title === "Book next")).toHaveLength(0);
+});
+it("tells her what stays when she deletes an appointment", async () => {
+  setup([visit()]);
+  mock.params = { id: "class" };
+  await mount(EventDetail);
+  await press("Button", "Delete event");
+  expect(mock.alerts[0][1]).toContain("Its questions and notes stay in your Journal.");
+});
+it("shows the next visit she's already booked", async () => {
+  setup([visit()]);
+  mock.params = { id: "class" };
+  const later = { event_id: "next", original_start: "2026-11-16T00:00:00.000Z", occurrence_start: "2026-11-16T00:00:00.000Z", occurrence_end: null, all_day: false, timezone: guam, title: "OB visit", category: "appointment", location: null, attendees: [], child_id: null, repeats: false, changed: false, revision: 1 };
+  mock.upcoming = { items: [later] };
+  await mount(EventDetail);
+  expect(found("Row", (p) => p.title === "Next visit").props.detail).toContain("Nov 16");
+  mock.upcoming = { items: [] };
+});
+it("Book next opens a form already filled in, and saves a new visit through the outbox, offline too", async () => {
+  const b = setup([visit()], false);
+  mock.params = { kind: "event", from: "class", at: "2026-11-02T00:00:00.000Z" };
+  await mount(Edit);
+  expect(renderer!.root.findAll((n) => n.props.label === "What’s it for?")).toHaveLength(0);
+  await press("Button", "Save next visit");
+  const [change] = b.state.outbox;
+  expect(change).toMatchObject({ type: "save", record: { kind: "event", title: "OB visit", occurred_at: "2026-11-16T00:00:00.000Z", child_id: null,
+    data: { category: "appointment", location: "Clinic", reminder_minutes: [60], end: "2026-11-16T00:30:00.000Z" } } });
+  expect(change.record.id).not.toBe("class");
+  expect(change.record.revision).toBeFalsy();
+  expect(change.record.data.recurrence).toBeUndefined();
+  expect(mock.back).toHaveBeenCalled();
 });

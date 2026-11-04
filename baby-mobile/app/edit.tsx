@@ -12,7 +12,8 @@ import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { EventFields } from "@/components/event-fields";
-import { eventWrite, newEvent, occurrenceDraft, onNewDay, seriesFull, splitEvent, dayName } from "@/lib/events";
+import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, dayName } from "@/lib/events";
+import { nextVisitDraft } from "@/lib/visits";
 import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { sendsCareDetails, seriesLimitMessage } from "../lib/api";
@@ -55,10 +56,10 @@ function firstLine(d: EditorDraft) {
   return line.length > 60 ? line.slice(0, 59).join("").trimEnd() + "…" : line.join("");
 }
 export default function Edit() {
-  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string }>(),
+  const params = useLocalSearchParams<{ kind?: Kind; id?: string; draft?: string; day?: string; scope?: "one" | "future"; at?: string; from?: string }>(),
     b = useBaby(),
     toast = useToast(),
-    slot = params.draft ?? (params.scope ? `event:${params.id}:${params.scope}:${params.at}` : params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
+    slot = params.draft ?? (params.from ? "book:" + params.from : params.scope ? `event:${params.id}:${params.scope}:${params.at}` : params.id ? "record:" + params.id : "new:" + (params.kind ?? "journal"));
   const [draft, setDraft] = useState<EditorDraft | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -89,6 +90,10 @@ export default function Edit() {
             .filter((r) => r.kind === "feeding" && r.child_id === child)
             .sort((x, y) => y.occurred_at.localeCompare(x.occurred_at))[0];
         const timezone = b.state.bootstrap!.profile.timezone;
+        if (!d && params.from) {
+          const from = b.records.find((r) => r.id === params.from) ?? await b.api.record(params.from);
+          d = nextVisitDraft(Crypto.randomUUID(), from, occurrenceAt(from, params.at));
+        }
         d ??= kind === "event" ? newEvent(Crypto.randomUUID(), child, params.day ?? dayKey(profileToday(new Date(), timezone)), timezone)
           : fresh(kind, child, kind === "feeding" ? nextFeed(lastFeed) : {});
         if (active) {
@@ -393,10 +398,10 @@ export default function Edit() {
       </Screen>
     );
   if (draft.kind === "event") return (
-    <Screen title={draft.existing ? "Edit event" : "Add to the calendar"} back
-      footer={<Button title={draft.existing ? "Save changes" : "Save event"} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}>
+    <Screen title={draft.existing ? "Edit event" : params.from ? "Book the next visit" : "Add to the calendar"} back
+      footer={<Button title={draft.existing ? "Save changes" : params.from ? "Save next visit" : "Save event"} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}>
       {!!error && <Notice error>{error}</Notice>}
-      <EventFields draft={draft} change={change} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
+      <EventFields draft={draft} change={change} quick={!params.from} today={dayKey(profileToday(new Date(), b.state.bootstrap!.profile.timezone))} />
       <Button variant="ghost" title="Discard this draft" disabled={busy} onPress={discard} />
     </Screen>
   );

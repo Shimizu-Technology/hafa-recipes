@@ -9,14 +9,17 @@ import { mutationRecordIds, replaceRecord } from "@/lib/outbox";
 import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Card, Copy, Grouped, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
-import { CategoryTile } from "@/components/event-row";
+import { CategoryTile, openEvent } from "@/components/event-row";
+import { VisitSections } from "@/components/visit-sections";
+import { useUpcomingEvents } from "@/lib/use-events";
+import { visitAfter } from "@/lib/visits";
 
 /** One event, on the date she opened. A repeating event says which dates a change reaches before making it. */
 export default function EventDetail() {
   const { id, at } = useLocalSearchParams<{ id: string; at?: string }>(), b = useBaby(), toast = useToast(),
     [error, setError] = useState(""), [missing, setMissing] = useState(false), [asking, setAsking] = useState<"edit" | "delete" | null>(null),
     row = b.records.find((item) => item.id === id && item.kind === "event"), timezone = b.state.bootstrap!.profile.timezone,
-    today = dayKey(profileToday(new Date(), timezone)), children = b.state.bootstrap!.children;
+    today = dayKey(profileToday(new Date(), timezone)), children = b.state.bootstrap!.children, upcoming = useUpcomingEvents(row?.child_id ?? null, today);
   useEffect(() => {
     if (row && !row.cache_partial) return;
     let active = true;
@@ -28,6 +31,7 @@ export default function EventDetail() {
   const shown = occurrenceAt(row, at), when = eventWhen(shown, today, timezone), original = shown.original_start, repeating = !!row.data.recurrence,
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
     child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
+  const appointment = shown.category === "appointment", booked = appointment ? visitAfter(upcoming.items, shown) : undefined;
   const edit = (scope?: "one" | "future") => router.push({ pathname: "/edit", params: { kind: "event", id: row.id, ...(scope ? { scope, at: original } : {}) } });
   async function save(record: BabyRecord) {
     await b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save", record, files: [] });
@@ -64,8 +68,12 @@ export default function EventDetail() {
       <Copy kind="small" tone="muted">{child?.name ?? "Whole family"}{repeating ? ` · ${repeatName(row.data.recurrence)}` : ""}</Copy>
       {!!row.body && <Copy>{row.body}</Copy>}
     </Card>
+    {appointment && <Button size="lg" icon="calendar-outline" title="Book next"
+      onPress={() => router.push({ pathname: "/edit", params: { kind: "event", from: row.id, at: original } })} />}
+    {booked && <Row numericDetail title="Next visit" detail={eventWhen(booked, today, timezone)} icon="calendar-outline" onPress={() => openEvent(booked)} />}
+    {appointment && <VisitSections visit={row} />}
     {asking === "edit" ? scopes : <Button secondary size="lg" icon="pencil-outline" title="Edit event" onPress={() => repeating ? setAsking("edit") : edit()} />}
-    {asking === "delete" ? scopes : <Button variant="destructive" title="Delete event" onPress={() => repeating ? setAsking("delete") : Alert.alert("Delete this event?", "This removes it from your calendar.", [
+    {asking === "delete" ? scopes : <Button variant="destructive" title="Delete event" onPress={() => repeating ? setAsking("delete") : Alert.alert("Delete this event?", appointment ? "This removes it from your calendar. Its questions and notes stay in your Journal." : "This removes it from your calendar.", [
       { text: "Keep it", style: "cancel" },
       { text: "Delete event", style: "destructive", onPress: () => void remove(deleteAll, "Event removed.") },
     ])} />}

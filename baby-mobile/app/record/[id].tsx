@@ -17,6 +17,7 @@ import { tipTopic } from "@/lib/timing";
 import { SourceContent } from "@/components/source-content";
 import { Disclosure } from "@/components/disclosure";
 import { TimingEditor, TimingRow } from "@/components/timing-editor";
+import { RecordVisit } from "@/components/visit-sections";
 import { ensureAiConsent } from "../../lib/ai-consent";
 export default function RecordDetail() {
   const { id } = useLocalSearchParams<{ id: string }>(),
@@ -216,6 +217,7 @@ export default function RecordDetail() {
           ))}
         </Section>
       )}
+      {(record.kind === "question" || !!data.event_id) && <RecordVisit record={record} />}
       {record.kind === "source" && editingTiming && <TimingEditor relevance={data.relevance} onClose={() => setEditingTiming(false)}
         onSave={(relevance) => { setEditingTiming(false); void update({ ...data, relevance }); }} />}
       <Grouped>
