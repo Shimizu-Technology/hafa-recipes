@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -269,3 +270,34 @@ async def test_older_clients_keep_additions_they_omit(baby_api):
     # Editing something else leaves stored data alone.
     title = await c.patch(f"{API}/records/{feed['id']}", headers=GEN, json={"revision": 2, "title": "Morning"})
     assert title.json()["data"]["actions"] == [action]
+
+
+@pytest.mark.parametrize("second", ["2026-11-04T08:00:00Z", "2026-11-04T18:00:00+10:00"])
+def test_a_retried_action_is_one_action_and_a_reused_id_is_refused(second):
+    identity = str(uuid4())
+    tap = {"id": identity, "action": "start", "at": "2026-11-04T08:00:00Z", "side": "left"}
+    feed = validated("feeding", {"method": "breast", "actions": [tap, {**tap, "at": second}]})
+    assert len(feed.data["actions"]) == 1
+    with pytest.raises(ValidationError):
+        validated("feeding", {"method": "breast", "actions": [tap, {**tap, "side": "right"}]})
+
+
+@needs_database
+async def test_build_32_chat_neither_retrieves_nor_cites_new_kinds(baby_api):
+    from app.domains.baby.chat import message_response, retrieve
+    from app.domains.baby.schemas import ChatRequest
+
+    await allow_new_kinds(baby_api)
+    body = shared.payload("kick_session", data=SAMPLES["kick_session"])
+    assert (await baby_api.client.post(f"{API}/records", headers=V2, json=body)).status_code == 200
+    request = ChatRequest(request_id=uuid4(), message="What has happened?")
+    async with baby_api.sessions() as db:
+        current, _, _ = await retrieve(db, "owner", 1, request)
+        old, _, _ = await retrieve(db, "owner", 1, request, legacy=True)
+    assert [item["kind"] for item in current] == ["kick_session"] and old == []
+    stored = SimpleNamespace(
+        id=uuid4(), conversation_id=uuid4(), role="assistant", created_at=None,
+        content={"message": "x", "citations": [{"id": "1", "kind": "kick_session"}, {"id": "2", "kind": "journal"}]},
+    )
+    assert [c["id"] for c in message_response(stored, legacy=True)["citations"]] == ["2"]
+    assert len(message_response(stored)["citations"]) == 2

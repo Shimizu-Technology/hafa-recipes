@@ -268,6 +268,13 @@ class FeedingData(DomainModel):
     def amount_requires_unit(self):
         if self.amount is not None and self.unit is None:
             raise ValueError("Choose a unit for the amount")
+        # A retried tap is one action, but one id can't mean two different taps.
+        actions = {}
+        for action in self.actions:
+            prior = actions.setdefault(action.id, action)
+            if (prior.action, prior.side, prior.at) != (action.action, action.side, action.at):
+                raise ValueError("One feed action id was used for two different actions")
+        self.actions = list(actions.values())
         # An older client can change the method while it keeps fields it never saw.
         if self.method != "breast":
             self.state, self.actions, self.end_at = None, [], None

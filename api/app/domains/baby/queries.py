@@ -5,6 +5,11 @@ from sqlalchemy.orm import aliased
 
 from app.domains.baby.models import BabyRecord
 
+
+def legacy_client(client):
+    """Build 32 sends no client header, and cannot read or write what it does not know."""
+    return client != "2"
+
 # Past 44 weeks without a birth date the due date is stale, not late pregnancy.
 LATEST_PREGNANCY_DAYS = 44 * 7 + 6
 

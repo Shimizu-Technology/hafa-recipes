@@ -36,6 +36,7 @@ from app.domains.baby.models import (
 from app.domains.baby.queries import (
     LATEST_PREGNANCY_DAYS,
     child_timing,
+    legacy_client,
     records_query,
     stage_filter,
     timing_bounds,
@@ -103,11 +104,6 @@ def kept_additions(current, patch, keys):
         if key not in data and key in current:
             data[key] = deepcopy(current[key])
     return data
-
-
-def legacy_client(client):
-    """Build 32 sends no client header, and cannot read or write what it does not know."""
-    return client != "2"
 
 
 def visible_to(row, client):
@@ -804,7 +800,7 @@ async def export(user: User, db: Database, client: Client = None):
             metadata(row) for row in await rows(BabyAttachment) if row.state == "ready"
         ],
         "conversations": [conversation_response(row) for row in await rows(BabyConversation)],
-        "messages": [message_response(row) for row in await rows(BabyMessage)],
+        "messages": [message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)],
     }
 
 
