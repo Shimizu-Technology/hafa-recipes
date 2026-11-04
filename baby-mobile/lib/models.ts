@@ -325,6 +325,8 @@ export interface Proposal {
   title: string;
   body: string;
   data: RecordData;
+  /** A suggested event's start. Other kinds are dated when she saves them. */
+  occurred_at?: string;
 }
 export interface ChatMessage {
   role: "user" | "assistant";

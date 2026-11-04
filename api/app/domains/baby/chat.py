@@ -552,14 +552,17 @@ async def context_pack(db, owner, generation, request, zone, *, tracked=None):
     return pack
 
 
-def reviewed_proposal(raw):
+def reviewed_proposal(raw, *, events=False):
     if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) - {"kind", "title", "body", "data"}:
+    is_event = events and isinstance(raw, dict) and raw.get("kind") == "event"
+    if not isinstance(raw, dict) or set(raw) - {"kind", "title", "body", "data", *(("occurred_at",) if is_event else ())}:
         raise ValueError("Invalid proposal")
-    if raw.get("kind") not in {"routine", "journal", "question"}:
+    if raw.get("kind") not in {"routine", "journal", "question"} and not is_event:
         raise ValueError("Unsupported proposal")
-    proposal = RecordCreate.model_validate({**raw, "occurred_at": now()})
+    proposal = RecordCreate.model_validate({**raw, "occurred_at": raw["occurred_at"]} if is_event else {**raw, "occurred_at": now()})
+    if is_event and (proposal.data.get("recurrence") or proposal.data.get("exceptions")):
+        raise ValueError("A suggested event is one date; she can make it repeat while reviewing")
     if proposal.kind == "routine" and (
         proposal.data.get("enabled") or proposal.data.get("reminder_at")
     ):
@@ -568,7 +571,18 @@ def reviewed_proposal(raw):
         raise ValueError("AI cannot attach private files")
     if proposal.data.get("provenance") == "clinician_instruction":
         raise ValueError("Only the caregiver can identify clinician instructions")
-    return {key: getattr(proposal, key) for key in ("kind", "title", "body", "data")}
+    return {
+        **{key: getattr(proposal, key) for key in ("kind", "title", "body", "data")},
+        **({"occurred_at": proposal.occurred_at.isoformat()} if is_event else {}),
+    }
+
+
+def offered_proposal(raw):
+    """A suggestion the rules refuse is just left out. The answer itself is still worth having."""
+    try:
+        return reviewed_proposal(raw, events=True)
+    except (ValueError, TypeError, KeyError):
+        return None
 
 
 def access_snapshot(access):
@@ -944,6 +958,8 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
     pack = await context_pack(db, readable, generation, body, zone,
                               **({"tracked": tracked} if tracked is not None else {}))
     context, displays, requested_range = [], {}, None
+    if use_v2 and body.record_id:
+        await owned(db, BabyRecord, readable, generation, body.record_id)
     if not use_v2:
         context, displays, requested_range = await retrieve(
             db, readable, generation, body, zone, legacy=legacy_client(client),
@@ -1025,10 +1041,14 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
                         focus_id=body.record_id,
                         history=[item["message"] for item in history if item["message"] != body.message],
                     )
+                    focus = {"kind": "entry", "record_id": str(body.record_id)} if body.record_id else (
+                        {"kind": "day", "date": body.focus_date.isoformat()} if body.focus_date else None
+                    )
+                    tools.forced_tools[:0] = [{"entry": "open_entry", "day": "day_log"}[focus["kind"]]] if focus else []
                     result = await answer_question(
                         provider, tools=tools, message=body.message, history=history,
                         now_local=now().astimezone(zone).isoformat(timespec="minutes"),
-                        context_pack=pack,
+                        context_pack=pack, focus=focus,
                     )
                     context, displays = list(tools.citable.values()), tools.displays
                     published = await checked_answer_reply(
@@ -1057,7 +1077,7 @@ async def answer_chat(body, user, db, generation, client, access, *, retries=2):
             }
             for identifier in dict.fromkeys(result.citation_ids)
         ]
-        proposal = reviewed_proposal(result.proposal)
+        proposal = offered_proposal(result.proposal) if use_v2 else reviewed_proposal(result.proposal)
         payload = {"message": clean_assistant_message(result.message), "citations": citations, "proposal": proposal}
         if use_v2:
             payload.update(message=published["message"], sources=published["sources"], help=published["help"])

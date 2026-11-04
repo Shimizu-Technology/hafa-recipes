@@ -32,6 +32,7 @@ BRIEF_EXCERPT, FULL_EXCERPT = 1500, 7000
 LIST_LIMIT, DAY_LIMIT, EVENT_LIMIT = 12, 60, 60
 QUERY_INPUT_CHARS = 600
 RECORD_FIELD_CHARS = 120
+CATEGORY_LIMIT = 40
 SAVED_KINDS = ("source", "collection", "question", "routine", "milestone", "custom")
 # Saved posts and journal entries have their own tools; a day's log is what was recorded that day.
 NOT_IN_DAY_LOG = ("source", "collection", "journal")
@@ -399,7 +400,16 @@ async def open_entry(tools, db, owner, arguments):
     row = await owned(db, BabyRecord, owner, tools.generation, arguments.record_id)
     if row.id != tools.focus_id and permission_for_kind(row.kind) not in tools.permissions:
         return unavailable(NOT_AVAILABLE)
-    return (await entries(tools, db, owner, [row], limit=FULL_EXCERPT))[0]
+    item = (await entries(tools, db, owner, [row], limit=FULL_EXCERPT))[0]
+    if row.kind == "collection":
+        # A category is its posts: what "Ask about this category" is asking about, and nothing more.
+        members = list(await db.scalars(
+            records_query(owner, tools.generation, record_ids=(row.data.get("record_ids") or [])[:CATEGORY_LIMIT])
+            .where(BabyRecord.kind.in_(SAVED_KINDS))
+            .order_by(BabyRecord.occurred_at.desc())
+        ))
+        item["members"] = await entries(tools, db, owner, members)
+    return item
 
 
 @tool(

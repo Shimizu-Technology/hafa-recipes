@@ -431,3 +431,32 @@ it("renames in the list and reports a failure", async () => {
   await act(async () => { expect(await result.renameConversation("history", "Other")).toBe(false); });
   expect(result.history[0].title).toBe("Latch help");
 });
+
+it("a day's chat sends its date only to the new Ask, and keeps its own draft", async () => {
+  const account = setup();
+  withNewAsk(account, 1);
+  await act(async () => { renderer = TestRenderer.create(React.createElement(function Day() { result = useAskSession(undefined, true, "2026-11-03"); return null; })); });
+  await question("How was this day?");
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  expect(account.state.drafts[askDraftKey({ ...general, focus_date: "2026-11-03" })]?.body).toBe("How was this day?");
+  expect(account.state.drafts[askDraftKey(general)]).toBeUndefined();
+  await act(async () => { await result.send(); });
+  expect(account.api.chat.mock.calls[0][0]).toMatchObject({ ask_v2: true, focus_date: "2026-11-03" });
+});
+
+it("without the new Ask a day's chat sends no date", async () => {
+  const account = setup();
+  await act(async () => { renderer = TestRenderer.create(React.createElement(function Day() { result = useAskSession(undefined, true, "2026-11-03"); return null; })); });
+  await question("How was this day?");
+  await act(async () => { await result.send(); });
+  expect("focus_date" in account.api.chat.mock.calls[0][0]).toBe(false);
+});
+
+it("a suggested event opens for review on its own date, and nothing saves until then", async () => {
+  const account = setup();
+  await mount();
+  await act(async () => { await result.review({ kind: "journal", title: "T", body: "", data: {}, occurred_at: "2026-11-12T09:30:00+10:00" }); });
+  const saved = Object.values(account.state.drafts)[0];
+  expect(saved.occurred_at).toBe("2026-11-12T09:30:00+10:00");
+  expect(account.api.chat).not.toHaveBeenCalled();
+});

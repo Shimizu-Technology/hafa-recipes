@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { friendlyDate } from "@/lib/care-format";
 import { useBaby } from "@/lib/context";
 import { ASK_UPDATE_TITLE, acknowledgeAsk, needsAskAcknowledgment } from "@/lib/ai-consent";
 import { citationExcerpt, readableCitations } from "@/lib/chat-citations";
@@ -8,7 +9,7 @@ import { AnswerText, WebSources } from "./ask-answer";
 import { AskHistory } from "./ask-history";
 import { kindIcon } from "@/components/record-row";
 import { useAskSession } from "@/lib/use-ask-session";
-import type { Proposal } from "@/lib/models";
+import { kindName, type Proposal } from "@/lib/models";
 import { babyLabel, isCaregiver } from "../lib/spaces";
 import { Button, Card, Copy, Grouped, Icon, Loading, Notice, PressTarget, Row, Screen, Section, fonts, radii, useColors } from "@/components/ui";
 import { HeaderIconButton, HeaderPill, TabActions, headerActions } from "./tab-stack";
@@ -66,12 +67,14 @@ function AskChat({ back }: { back: boolean }) {
   const [screenFocused, setScreenFocused] = useState(false);
   useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
   const b = useBaby(),
-    params = useLocalSearchParams<{ record_id?: string }>(),
+    params = useLocalSearchParams<{ record_id?: string; date?: string }>(),
     { fontScale, height } = useWindowDimensions(),
     composerMinimum = Math.max(46, Math.ceil(17 * fontScale * 1.45 + 24)),
-    chat = useAskSession(params.record_id, screenFocused),
+    chat = useAskSession(params.record_id, screenFocused, params.date),
     { question, messages, history, showHistory, busy, error, send, openHistory, load } = chat;
-  const focused = !!chat.context.record_id, askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id);
+  const focusedDay = chat.context.focus_date, focused = !!chat.context.record_id || !!focusedDay,
+    askedAbout = b.state.bootstrap!.children.find((child) => child.id === chat.context.child_id),
+    focusedCategory = b.records.some((row) => row.id === chat.context.record_id && row.kind === "collection");
   async function review(proposal: Proposal) {
     const result = await chat.review(proposal);
     if (result) router.push({ pathname: "/edit", params: { draft: result.key, kind: result.kind } });
@@ -106,7 +109,7 @@ function AskChat({ back }: { back: boolean }) {
       onRefresh={() => b.sync()}
       back={back}
       title={focused ? "Ask about this" : "Ask"}
-      subtitle={focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
+      subtitle={focusedDay ? friendlyDate(focusedDay) : focused ? chat.focusedTitle ?? "Your selected saved entry" : "Find what you saved and make sense of your notes."}
       followEnd={!showHistory && (messages.length > 0 || (busy && !chat.resolving))}
       footer={<View style={{ gap: 10 }}>
         {!available && <AiNotice service={b.state.bootstrap!.ai_available} consent={b.state.bootstrap!.profile.ai_consent} />}
@@ -147,14 +150,14 @@ function AskChat({ back }: { back: boolean }) {
       <Stack.Screen options={headerActions(back ? actions : <TabActions action={actions} />)} />
       {focused && (
         <>
-          <Notice>Questions use this saved entry and its own child profile, including general entries.</Notice>
-          <Button secondary title="Ask without a specific entry" onPress={() => chat.selectScope("all")} />
+          <Notice>{focusedDay ? "Questions start with this day’s log." : focusedCategory ? "Questions start with the posts in this category." : "Questions use this saved entry and its own child profile, including general entries."}</Notice>
+          <Button secondary title={focusedDay ? "Ask about everything" : "Ask without a specific entry"} onPress={() => chat.selectScope("all")} />
         </>
       )}
       <Copy kind="small" tone="muted">
         {[chat.context.child_id ? "For " + (askedAbout ? babyLabel(askedAbout, b.state.bootstrap) : "the conversation’s child profile") : "",
           // A conversation keeps searching where it began, so it says so next to the child.
-          focused ? (chat.context.child_id ? "" : "General / personal entry") : scopeLine[chat.context.scope]].filter(Boolean).join(" · ")}
+          focusedDay || focusedCategory ? "" : focused ? (chat.context.child_id ? "" : "General / personal entry") : scopeLine[chat.context.scope]].filter(Boolean).join(" · ")}
       </Copy>
       {chat.resolving && !busy && (
         <Button secondary title="Try opening this entry again" onPress={chat.retryFocus} />
@@ -163,9 +166,11 @@ function AskChat({ back }: { back: boolean }) {
         onRename={chat.renameConversation} onDelete={chat.deleteConversation} />}
       {!showHistory && !messages.length && (
         <View style={{ gap: 12 }}>
-          <Copy kind="heading">{focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
+          <Copy kind="heading">{focusedDay ? "Ask about this day." : focusedCategory ? "Ask about this category." : focused ? "Ask about this entry." : "Start with something on your mind."}</Copy>
           <Copy tone="muted">
-            {focused
+            {focusedDay
+              ? "Ask for a summary or find a detail. You will review any proposed changes."
+              : focused
               ? "Ask for a summary, find a detail, or draft a checklist from this source. You will review any proposed changes."
               : "Ask across your saved posts, journal and care logs. Try one of these:"}
           </Copy>
@@ -218,8 +223,11 @@ function AskChat({ back }: { back: boolean }) {
             {m.proposal && (
               <Card tone="soft">
                 <Copy kind="heading">Proposed: {m.proposal.title}</Copy>
-                <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
-                <Button secondary title="Review suggestion" onPress={() => void review(m.proposal!)} />
+                {/* A build without an editor for this kind can't open it, so it says what to do instead. */}
+                {kindName[m.proposal.kind] ? <>
+                  <Copy tone="muted">Nothing has been added or activated. Review and edit this suggestion first.</Copy>
+                  <Button secondary title="Review suggestion" onPress={() => void review(m.proposal!)} />
+                </> : <Copy tone="muted">Nothing has been added. This version of the app can’t open this suggestion, so add it yourself if you’d like it.</Copy>}
               </Card>
             )}
           </View>

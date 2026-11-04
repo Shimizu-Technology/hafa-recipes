@@ -11,9 +11,11 @@ vi.mock("expo-router", () => ({ Stack: { Screen: () => null }, router: { push: s
 vi.mock("@/lib/context", () => ({ useBaby: () => ({}) }));
 vi.mock("../components/ask-answer", () => ({ AnswerText: "AnswerText", WebSources: "WebSources" }));
 vi.mock("../components/ask-history", () => ({ AskHistory: "AskHistory" }));
+vi.mock("@/lib/care-format", () => ({ friendlyDate: (value: string) => value }));
 vi.mock("@/lib/ai-consent", () => ({ ASK_UPDATE_TITLE: "Ask can now do more", acknowledgeAsk: vi.fn(), needsAskAcknowledgment: () => false }));
 vi.mock("@/lib/chat-citations", () => ({ citationExcerpt: () => "", readableCitations: (text: string) => text }));
 vi.mock("@/components/record-row", () => ({ kindIcon: {} }));
+vi.mock("@/lib/models", () => ({ kindName: {} }));
 vi.mock("@/lib/use-ask-session", () => ({ useAskSession: () => ({}) }));
 vi.mock("../components/tab-stack", () => ({ HeaderIconButton: "HeaderIconButton", HeaderPill: "HeaderPill", TabActions: "TabActions", headerActions: () => ({}) }));
 vi.mock("@/components/ui", () => ({

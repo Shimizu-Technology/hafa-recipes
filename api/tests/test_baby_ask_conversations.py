@@ -1,5 +1,6 @@
 """Renaming and deleting conversations. Delete removes the messages from the server, not just the list."""
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -10,8 +11,8 @@ from app.domains.baby.models import BabyConversation, BabyMembership, BabyMessag
 from tests import test_baby_access as foundation
 from tests import test_baby_family_records as records
 from tests import test_baby_integration as shared
-from tests.test_baby_ask_tools import HEADERS, OTHER
-from tests.test_baby_ask_v2 import answered, enable, stub  # noqa: F401
+from tests.test_baby_ask_tools import HEADERS, OTHER, add
+from tests.test_baby_ask_v2 import answered, enable, stub, tool_call  # noqa: F401
 
 baby_api, family, pytestmark = foundation.baby_api, foundation.family, foundation.pytestmark
 URL = "/api/v1/baby/conversations"
@@ -123,3 +124,117 @@ async def test_in_a_family_only_the_person_who_asked_can_touch_their_chats(baby_
 def test_the_routes_are_registered_on_the_chat_router():
     paths = {(route.path, tuple(route.methods)) for route in chat.router.routes}
     assert ("/conversations/{identifier}", ("PATCH",)) in paths and ("/conversations/{identifier}", ("DELETE",)) in paths
+
+
+# "Ask about this": a focus the first round has to read, and suggestions that only ever wait for review.
+async def ask_focus(baby_api, **fields):
+    return await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={
+        "request_id": str(uuid4()), "message": "Tell me about this", "ask_v2": True, **fields})
+
+
+async def test_a_focused_entry_is_read_first_and_named(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    post = await add(baby_api, HEADERS, kind="source", title="Latch", data={"source_text": "nursing"})
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": post})), answered("About the latch", citation_ids=[post])]
+    response = await ask_focus(baby_api, record_id=post)
+    assert response.status_code == 200, response.text
+    assert stub.sent[0]["tool_choice"] == {"type": "function", "name": "open_entry"}
+    assert json.loads(stub.sent[0]["input"][0]["content"])["focus"] == {"kind": "entry", "record_id": post}
+    assert stub.sent[1]["tool_choice"] == "auto"
+    assert response.json()["citations"][0]["id"] == post
+
+
+async def test_a_focused_day_reads_that_days_log_first(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [tool_call("day_log", json.dumps({"date": "2026-11-03", "child_id": None})), answered("A quiet day")]
+    response = await ask_focus(baby_api, focus_date="2026-11-03")
+    assert response.status_code == 200, response.text
+    assert stub.sent[0]["tool_choice"] == {"type": "function", "name": "day_log"}
+    assert json.loads(stub.sent[0]["input"][0]["content"])["focus"] == {"kind": "day", "date": "2026-11-03"}
+
+
+async def test_a_focused_category_comes_with_its_members(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    member = await add(baby_api, HEADERS, kind="source", title="Swaddle", data={"source_text": "wrap"})
+    outside = await add(baby_api, HEADERS, kind="source", title="Other", data={"source_text": "other"})
+    category = await add(baby_api, HEADERS, kind="collection", title="Sleep", data={"record_ids": [member]})
+    stub.replies = [tool_call("open_entry", json.dumps({"record_id": category})), answered("One post", citation_ids=[member])]
+    response = await ask_focus(baby_api, record_id=category)
+    assert response.status_code == 200, response.text
+    found = json.loads(stub.sent[1]["input"][-1]["output"])["untrusted_data"]
+    assert [item["id"] for item in found["members"]] == [member] and outside not in json.dumps(found)
+    assert response.json()["citations"][0]["id"] == member
+
+
+async def test_someone_elses_entry_cannot_be_the_focus(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    theirs = await add(baby_api, OTHER, kind="source", title="Theirs", data={"source_text": "x"})
+    response = await ask_focus(baby_api, record_id=theirs)
+    assert response.status_code == 404 and stub.sent == []
+
+
+async def test_a_retry_without_a_focus_still_matches_older_questions(baby_api, stub):  # noqa: F811
+    await enable(baby_api)
+    identifier = str(uuid4())
+    body = {"request_id": identifier, "message": "How was today?", "ask_v2": False}
+    assert (await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json=body)).status_code == 200
+    # The same question sent again through the new Ask is the same question.
+    again = await baby_api.client.post("/api/v1/baby/chat", headers=HEADERS, json={**body, "ask_v2": True})
+    assert again.status_code == 200 and again.json()["message"] == "Old path answer"
+
+
+EVENT = {
+    "kind": "event", "title": "Well visit", "body": "", "occurred_at": "2026-11-12T09:30:00+10:00",
+    "data": {"timezone": "Pacific/Guam", "all_day": False, "end": None, "category": None, "location": None},
+}
+
+
+@pytest.mark.parametrize(
+    "proposal",
+    [
+        EVENT,
+        {"kind": "question", "title": "Ask about the rash", "body": "", "data": {}},
+        {"kind": "journal", "title": "Today", "body": "A draft", "data": {}},
+        {"kind": "routine", "title": "Bag", "body": "", "data": {"routine_type": "checklist", "items": [{"id": "a", "label": "Robe", "done": False}], "enabled": False, "repeat": "none"}},
+    ],
+)
+async def test_each_kind_of_suggestion_waits_for_review_and_nothing_saves(baby_api, stub, proposal):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("Here is a suggestion", proposal=proposal)]
+    before = (await baby_api.client.get("/api/v1/baby/records", headers=HEADERS)).json()["total"]
+    response = await ask_focus(baby_api)
+    assert response.status_code == 200, response.text
+    assert response.json()["proposal"]["title"] == proposal["title"]
+    if proposal["kind"] == "event":
+        assert response.json()["proposal"]["occurred_at"].startswith("2026-11-12T09:30")
+    assert (await baby_api.client.get("/api/v1/baby/records", headers=HEADERS)).json()["total"] == before
+    detail = await baby_api.client.get(f"{URL}/{response.json()['conversation_id']}", headers=HEADERS)
+    assert detail.json()["messages"][-1]["proposal"]["kind"] == proposal["kind"]
+
+
+@pytest.mark.parametrize(
+    "proposal",
+    [
+        {**EVENT, "data": {**EVENT["data"], "recurrence": {"frequency": "daily", "interval": 1}}},
+        {**EVENT, "data": {**EVENT["data"], "attachment_ids": [str(uuid4())]}},
+        {**EVENT, "occurred_at": "soon"},
+        {**EVENT, "child_id": str(uuid4())},
+        {"kind": "routine", "title": "Reminder", "body": "", "data": {"routine_type": "schedule", "items": [], "enabled": True, "repeat": "daily"}},
+        {"kind": "feeding", "title": "Fed", "body": "", "data": {}},
+        {"kind": "question", "title": "Clinician said", "body": "", "data": {"provenance": "clinician_instruction"}},
+        {"kind": "question", "title": "x", "body": "", "data": {}, "occurred_at": "2026-11-12T09:30:00+10:00"},
+    ],
+)
+async def test_a_suggestion_outside_the_rules_is_left_out_and_the_answer_stays(baby_api, stub, proposal):  # noqa: F811
+    await enable(baby_api)
+    stub.replies = [answered("Here is the answer", proposal=proposal)]
+    response = await ask_focus(baby_api)
+    assert response.status_code == 200, response.text
+    assert response.json()["proposal"] is None and response.json()["message"] == "Here is the answer"
+
+
+async def test_the_old_path_still_cannot_suggest_an_event(baby_api, stub):  # noqa: F811
+    from app.domains.baby.chat import reviewed_proposal
+
+    with pytest.raises(ValueError):
+        reviewed_proposal(EVENT)

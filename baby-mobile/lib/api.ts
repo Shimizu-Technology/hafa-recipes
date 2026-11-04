@@ -380,6 +380,7 @@ export function createBabyApi(
         record_id?: string;
         child_id?: string | null;
         ask_v2?: boolean;
+        focus_date?: string;
       },
       g: number
     ) => request<ChatResult>("/chat", "POST", body, g),

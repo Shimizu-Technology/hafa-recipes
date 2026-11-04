@@ -6,9 +6,9 @@ import { ApiError } from "./api";
 import { askV2Active } from "./ask-sources";
 import { messageFor, type ChatMessage, type Conversation, type EditorDraft, type Proposal, type Scope } from "./models";
 
-export interface AskContext { scope: Scope; record_id: string | null; child_id: string | null }
+export interface AskContext { scope: Scope; record_id: string | null; child_id: string | null; focus_date?: string }
 export function askDraftKey(context: AskContext, conversation?: string) {
-  return "chat:v2:" + JSON.stringify([context.scope, context.record_id, context.child_id, conversation ?? null]);
+  return "chat:v2:" + JSON.stringify([context.scope, context.record_id, context.child_id, conversation ?? null, ...(context.focus_date ? [context.focus_date] : [])]);
 }
 interface Session {
   context: AskContext;
@@ -22,18 +22,18 @@ interface Session {
 type Account = ReturnType<typeof useBaby>;
 interface DraftSession { owner?: symbol; version: number; question: string; requestId?: string }
 const draftSessions = new WeakMap<object, Map<string, DraftSession>>();
-export function useAskSession(recordId?: string, active = true) {
+export function useAskSession(recordId?: string, active = true, focusDate?: string) {
   const [attempt, setAttempt] = useState(0);
   const b = useBaby(),
     key = JSON.stringify([b.owner, b.state.bootstrap?.generation, b.api.lease(),
-      b.state.bootstrap?.profile.ai_consent, b.state.selectedChild, recordId ?? null, attempt]);
+      b.state.bootstrap?.profile.ai_consent, b.state.selectedChild, recordId ?? null, attempt, focusDate ?? null]);
   const live = useRef({ b, key, active });
   live.current = { b, key, active };
   const mounted = useRef(true), sequence = useRef(0), initialized = useRef(false), working = useRef(false), historyRequest = useRef(0),
     token = useRef(Symbol("Ask screen")),
     owned = useRef<{ entry: DraftSession; key: string; version: number } | undefined>(undefined);
   const initial: Session = {
-    context: { scope: "all", record_id: recordId ?? null, child_id: b.state.selectedChild },
+    context: { scope: "all", record_id: recordId ?? null, child_id: b.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) },
     messages: [], question: "", resolving: !!recordId,
   };
   const [session, setSession] = useState<Session>(initial),
@@ -148,7 +148,7 @@ export function useAskSession(recordId?: string, active = true) {
     setHistory([]); setShowHistory(false); setError("");
     const row = account.records.find((item) => item.id === recordId);
     if (!recordId) {
-      activate({ scope: "all", record_id: null, child_id: account.state.selectedChild });
+      activate({ scope: "all", record_id: null, child_id: account.state.selectedChild, ...(focusDate ? { focus_date: focusDate } : {}) });
       return;
     }
     activeAccount.current = account;
@@ -192,9 +192,10 @@ export function useAskSession(recordId?: string, active = true) {
     try {
       await save(sent, account);
       if (!operation.valid()) return;
-      const result = await account.api.chat({ ...snapshot.context,
+      const { focus_date, ...context } = snapshot.context, v2 = askV2Active(account.state.bootstrap);
+      const result = await account.api.chat({ ...context,
         record_id: snapshot.context.record_id ?? undefined, conversation_id: snapshot.conversation,
-        request_id: requestId, message: text, ...(askV2Active(account.state.bootstrap) ? { ask_v2: true } : {}) }, account.state.bootstrap!.generation);
+        request_id: requestId, message: text, ...(v2 ? { ask_v2: true, ...(focus_date ? { focus_date } : {}) } : {}) }, account.state.bootstrap!.generation);
       if (!operation.valid()) return;
       await account.saveDraft(askDraftKey(snapshot.context, snapshot.conversation), null, operation.valid);
       if (!operation.valid()) return;
@@ -230,7 +231,7 @@ export function useAskSession(recordId?: string, active = true) {
     if (!live.current.active) return null;
     const operation = ticket(false), id = Crypto.randomUUID(), key = "proposal:" + id;
     const value: EditorDraft = { id, kind: proposal.kind, title: proposal.title, body: proposal.body,
-      child_id: current.current.context.child_id, occurred_at: new Date().toISOString(),
+      child_id: current.current.context.child_id, occurred_at: proposal.occurred_at ?? new Date().toISOString(),
       data: { ...proposal.data, ...(proposal.kind === "routine" ? { enabled: false } : {}) }, files: [] };
     try { await operation.account.saveDraft(key, value, operation.valid); if (operation.valid()) return { key, kind: proposal.kind }; }
     catch (failure) { if (operation.valid()) setError(messageFor(failure)); }
@@ -271,7 +272,7 @@ export function useAskSession(recordId?: string, active = true) {
     const operation = ticket(), prior = current.current,
       // On a screen opened for one entry, a new chat stays on it. Anywhere else it is a general chat,
       // whatever the conversation on screen searched: scope has no other control now.
-      onEntry = !!recordId && prior.context.record_id === recordId;
+      onEntry = (!!recordId && prior.context.record_id === recordId) || (!!focusDate && prior.context.focus_date === focusDate);
     activate(onEntry ? prior.context : { scope: "all", record_id: null, child_id: live.current.b.state.selectedChild },
       undefined, [], onEntry ? prior.focusedTitle : undefined);
     setShowHistory(false);

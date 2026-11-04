@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { ScrollView, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
+import { askV2Active } from "@/lib/ask-sources";
 import { careLogsStarted, profileToday, timingChild, todayStage, trackerStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, dayRange, summaryLine, keyDate, addDays, onDay, timelineKinds, weekOf } from "@/lib/tracker";
@@ -144,6 +145,7 @@ export default function Tracker() {
       {(logging || expecting) && !future && <MoreLogs key={`more:${day}`} child={child!} now={now} shown={moreShown} title={logging ? undefined : day === today ? "Log now" : "Add to this day"} pastDay={day === today ? undefined : { key: day, timezone }} onOpen={(open, y) => { setMoreOpen(open); if (open) scroller.current?.scrollTo({ y, animated: true }); }} />}
       {/* The logs, searched across every day. Today has it too. */}
       <View>
+        {!future && askV2Active(b.state.bootstrap) && <QuietRow title="Ask about this day" onPress={() => router.push({ pathname: "/ask-entry", params: { date: day } })} />}
         <QuietRow title="Care history" onPress={() => router.push("/care-history")} />
         {!!child && canChangeBaby(b.state.bootstrap, child) && <QuietRow title="What shows" onPress={() => router.push({ pathname: "/what-shows", params: { child: child.id } })} />}
       </View>
