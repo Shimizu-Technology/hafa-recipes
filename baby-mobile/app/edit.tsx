@@ -12,7 +12,7 @@ import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 import { EventFields } from "@/components/event-fields";
-import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, dayName } from "@/lib/events";
+import { eventWrite, newEvent, occurrenceAt, occurrenceDraft, onNewDay, seriesFull, splitEvent, startsBeforeSplit, dayName } from "@/lib/events";
 import { nextVisitDraft, withFittingVisit } from "@/lib/visits";
 import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
@@ -212,6 +212,7 @@ export default function Edit() {
     if (d.kind === "event") {
       if (!d.title.trim()) throw Error("Give this event a name.");
       if (d.data.recurrence?.until && d.data.recurrence.until < recordDay(d.occurred_at, d.data.timezone)) throw Error("A repeat can’t end before the event starts.");
+      if (startsBeforeSplit(d)) throw Error("These changes can’t start before the date you’re changing. To move only this date, edit just this one.");
       if (seriesFull(b.records, d)) throw Error(seriesLimitMessage);
       return;
     }

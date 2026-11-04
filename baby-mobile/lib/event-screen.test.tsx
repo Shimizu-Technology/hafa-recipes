@@ -145,6 +145,15 @@ it("All future from a later date queues one change that holds both parts, so nei
   expect(split.event.data.recurrence.until).toBeUndefined();
   expect(mock.dismissTo).toHaveBeenCalledWith("/(tabs)/tracker");
 });
+it("All future can't start before the date it changes from, which the old series keeps", async () => {
+  const b = setup([event()]);
+  mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };
+  await mount(Edit);
+  await act(async () => { found("DateField", (p) => p.label === "Date and time").props.onChange("2026-11-09T00:00:00.000Z"); });
+  await press("Button", "Save changes");
+  expect(b.state.outbox).toEqual([]);
+  expect(mock.toast.mock.calls[0][0]).toContain("can’t start before the date you’re changing");
+});
 it("edits just one date as a change on the series, and offers only what one date can hold", async () => {
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "one", at: "2026-11-09T00:00:00.000Z" };
