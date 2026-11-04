@@ -197,3 +197,4 @@ async def touch(row, space):
                                          .values(change_seq=BabySpace.change_seq + 1)
                                          .returning(BabySpace.change_seq))
     db.add(row)
+    db.info.setdefault("baby_touched_rows", {})[id(row)] = db.sync_session.get_transaction()

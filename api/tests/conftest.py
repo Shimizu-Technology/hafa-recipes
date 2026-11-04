@@ -30,7 +30,7 @@ def _reset_ai_rate_limiter():
 @pytest.fixture(autouse=True)
 def _require_baby_mutation_stamp():
     """Observe real ORM writers after the family gate, including short worker transactions."""
-    from sqlalchemy import event, inspect
+    from sqlalchemy import event
     from sqlalchemy.orm import Session
 
     def check(session, context, instances):
@@ -40,7 +40,8 @@ def _require_baby_mutation_stamp():
             table = getattr(row, "__table__", None)
             if table is not None and table.name.startswith("baby_") and "space_id" in table.c and "change_seq" in table.c:
                 if session.is_modified(row):
-                    assert row.change_seq is not None and inspect(row).attrs.change_seq.history.has_changes(), (
+                    stamped = session.info.setdefault("baby_touched_rows", {}).pop(id(row), None)
+                    assert row.change_seq is not None and stamped is session.get_transaction(), (
                         "Baby mutation skipped touch", table.name, getattr(row, "id", None))
 
     event.listen(Session, "before_flush", check)
@@ -59,5 +60,6 @@ def baby_mutation_paths():
         "attachments": ("admit", "publish", "replay", "release", "delete", "quota_pending", "quota_abandoned"),
         "imports": ("admit", "retry", "cancel", "capture_cancel"),
         "worker": ("claim", "ready", "edit", "removed", "expired_lease", "moved", "consent", "failure", "attempts"),
+        "chat": ("admit", "ready", "retry", "failure", "context_changed"),
         "captures": ("submit", "defer", "permission_changed", "missing_source", "admit", "retry_later"),
     }

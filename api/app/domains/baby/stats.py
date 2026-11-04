@@ -98,12 +98,13 @@ def kind_query(owner, generation, kinds, *columns):
     )
 
 
-async def care_rows(db, owner, generation, child_id, stats_range):
+async def care_rows(db, owner, generation, child_id, stats_range, *, tracked=None):
     return list(
         await db.execute(
             care_query(
                 owner, generation, child_id,
                 BabyRecord.id, BabyRecord.kind, BabyRecord.occurred_at, BabyRecord.data,
+                *([BabyRecord.space_id, BabyRecord.generation, BabyRecord.revision] if tracked is not None else []),
             )
             .where(
                 BabyRecord.occurred_at < stats_range.end,
@@ -121,8 +122,11 @@ async def care_rows(db, owner, generation, child_id, stats_range):
     )
 
 
-async def care_stats(db, owner, generation, child_id, zone, stats_range):
-    rows = await care_rows(db, owner, generation, child_id, stats_range)
+async def care_stats(db, owner, generation, child_id, zone, stats_range, *, tracked=None):
+    rows = await care_rows(db, owner, generation, child_id, stats_range, tracked=tracked)
+    if tracked is not None:
+        for row in rows[:ROW_LIMIT]:
+            tracked["records"][row.id] = (row.space_id, row.generation, row.revision)
     return summarize(rows[:ROW_LIMIT], stats_range, zone, complete=len(rows) <= ROW_LIMIT)
 
 
@@ -182,10 +186,11 @@ def started_side(data):
         return None  # Older or malformed rows may hold anything.
 
 
-async def last_feed(db, owner, generation, child_id, zone, at):
+async def last_feed(db, owner, generation, child_id, zone, at, *, tracked=None):
     row = (
         await db.execute(
-            care_query(owner, generation, child_id, BabyRecord.occurred_at, BabyRecord.data)
+            care_query(owner, generation, child_id, BabyRecord.occurred_at, BabyRecord.data,
+                       *([BabyRecord.id, BabyRecord.space_id, BabyRecord.generation, BabyRecord.revision] if tracked is not None else []))
             .where(BabyRecord.kind == "feeding", BabyRecord.occurred_at <= at)
             # Ties break as feed settlement does, so "last" and "running" are the same feed.
             .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
@@ -194,6 +199,8 @@ async def last_feed(db, owner, generation, child_id, zone, at):
     ).first()
     if row is None:
         return None
+    if tracked is not None:
+        tracked["records"][row.id] = (row.space_id, row.generation, row.revision)
     data = row.data if isinstance(row.data, dict) else {}
     details = {key: text_in(data, key) for key in ("method", "side", "unit")}
     details |= {key: number_in(data.get(key)) for key in ("amount", "duration_minutes")}
