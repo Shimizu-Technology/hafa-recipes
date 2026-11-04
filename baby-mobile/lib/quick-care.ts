@@ -2,7 +2,8 @@ import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
 import type { BabyRecord, DeviceState, Kind, Mutation, RecordData, RecordWrite } from "./models";
 import { kindName } from "./models";
-import { addMutation } from "./outbox";
+import { newestFirst } from "./feed-reducer";
+import { addMutation, pendingRecords } from "./outbox";
 
 type Account = Pick<ReturnType<typeof useBaby>, "commit" | "queue" | "state" | "sync">;
 
@@ -75,11 +76,17 @@ export async function updateCare(b: Account, record: BabyRecord, data: RecordDat
     }), undone);
 }
 
-/** Change a saved entry's time, note or details. Built from the newest local copy, so changes made seconds apart all land. */
-export async function amendCare(b: Account & Pick<ReturnType<typeof useBaby>, "records">, id: string, change: (record: BabyRecord) => Partial<Pick<BabyRecord, "body" | "occurred_at" | "data">>) {
-  const record = b.records.find((row) => row.id === id);
-  if (!record) return;
-  await b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save", record: { ...record, ...change(record) }, files: [] });
+/**
+ * Change a saved entry's time, note or details. Built inside the write from the newest local copy, queued changes
+ * included, so changes made seconds apart all land rather than each undoing the one before.
+ */
+export async function amendCare(b: Account, id: string, change: (record: BabyRecord) => Partial<Pick<BabyRecord, "body" | "occurred_at" | "data">>) {
+  const mutation = Crypto.randomUUID(), generation = b.state.bootstrap!.generation;
+  await b.commit((state) => {
+    const record = pendingRecords(state).find((row) => row.id === id);
+    return record ? addMutation(state, { id: mutation, generation, type: "save", record: { ...record, ...change(record) }, files: [] }) : state;
+  });
+  void b.sync();
 }
 
 const ozToMl = 30;
@@ -91,8 +98,7 @@ export interface BottleChoice { amount: number; unit: "oz" | "ml"; contents?: No
 
 /** A bottle starts from the last one: same amount, same unit, same milk. Ounces until she uses something else. */
 export function bottleStart(rows: BabyRecord[], childId: string | null): BottleChoice {
-  const last = rows.filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "bottle")
-    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+  const last = rows.filter((row) => row.kind === "feeding" && row.child_id === childId && row.data.method === "bottle").sort(newestFirst)[0];
   const unit = last?.data.unit ?? "oz", amount = last?.data.amount;
   return typeof amount === "number" && amount > 0
     ? { amount, unit, contents: last!.data.contents ?? undefined, fromLast: true }

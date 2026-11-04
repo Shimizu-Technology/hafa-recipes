@@ -22,6 +22,17 @@ it("describes a baby's age in the units parents use", () => {
   expect(babyAge({}, now)).toBe("");
 });
 
+it("counts today on the family's clock, half-open, and breaks a next-side tie by record id", () => {
+  const moment = new Date("2026-11-04T03:00:00.000Z"), day = (at: string) => row("diaper", at, { type: "wet" });
+  // Today in Tokyo runs from 15:00Z on the 3rd until 15:00Z on the 4th, whatever zone the phone is in.
+  const rows = [day("2026-11-03T14:59:59.000Z"), day("2026-11-03T15:00:00.000Z"), day("2026-11-04T02:00:00.000Z"), day("2026-11-04T15:00:00.000Z")];
+  expect(careGlance(rows, "a", moment, "Asia/Tokyo").diapers.total).toBe(2);
+  expect(careGlance(rows, "a", moment, "America/Los_Angeles").diapers.total).toBe(3);
+  const breast = (id: string, side: "left" | "right", at: string) => ({ ...row("feeding", at, { method: "breast", side }), id });
+  expect(nextSide([breast("b", "left", "2026-11-04T22:00:00+10:00"), breast("a", "right", "2026-11-04T12:00:00.000Z")], "a")).toBe("right");
+  expect(nextSide([breast("a", "right", "2026-11-04T12:00:00.000Z"), breast("b", "left", "2026-11-04T22:00:00+10:00")], "a")).toBe("right");
+});
+
 it("summarizes today's care for one baby only", () => {
   const rows = [
     row("feeding", at(20, 16), { method: "breast", side: "left" }),

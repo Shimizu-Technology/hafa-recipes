@@ -86,7 +86,7 @@ it("keeps offline cached care, overlays pending saves/deletes, and limits to3in 
   await mount();
   expect(result.error).toContain("Could not connect");
   expect(result.loading).toBe(false);
-  expect(result.rows.map((row) => row.id)).toEqual(["new", "general", "old"]);
+  expect(result.rows.map((row) => row.id)).toEqual(["new", "old", "general"]);
 });
 it("keeps just-synced local care visible while excluding unrelated oldcache from a server page", async () => {
   const account = setup(async () => page([care("server")]));

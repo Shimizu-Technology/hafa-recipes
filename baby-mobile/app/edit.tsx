@@ -196,7 +196,9 @@ export default function Edit() {
       throw Error("Choose which baby this is for.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
       throw Error("Enter an amount greater than zero, or leave it empty.");
+    // A feed tapped Done at once really did take no time, and that can stay when she edits something else.
     if (d.kind === "feeding" && d.data.duration_minutes != null &&
+      !(d.data.duration_minutes === 0 && b.records.find((r) => r.id === d.id)?.data.duration_minutes === 0) &&
       (!Number.isFinite(d.data.duration_minutes) || d.data.duration_minutes <= 0))
       throw Error("Enter a duration greater than zero, or leave it empty.");
     if (d.kind === "sleep" && d.data.end_at && new Date(d.data.end_at) < new Date(d.occurred_at))
@@ -476,7 +478,6 @@ export default function Edit() {
           value={draft.data.color ?? ""}
           label="Colour"
           options={[{ value: "", label: "Not set" }, ...Object.entries(colorWords)
-            .filter(([value]) => ["black", "green", "yellow", "brown"].includes(value) || value === draft.data.color)
             .map(([value, label]) => ({ value, label }))]}
           onChange={(color) => data({ color: (color || null) as RecordData["color"] })}
         />
@@ -492,6 +493,7 @@ export default function Edit() {
       {draft.kind !== "collection" && (!writing || showDetails) && <DateField
         label={draft.kind === "sleep" ? "Sleep started" : "Date and time"}
         value={draft.occurred_at}
+        timeZone={isCare(draft.kind) ? b.state.bootstrap!.profile.timezone : undefined}
         onChange={(occurred_at) => change({ occurred_at })}
       />}
       {draft.kind === "sleep" && (

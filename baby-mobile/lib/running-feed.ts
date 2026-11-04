@@ -1,30 +1,35 @@
 import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
-import type { FeedAction, Mutation } from "./models";
-import type { RunningFeed } from "./feed-reducer";
-import type { FeedSide } from "./feed-timer";
+import type { BabyRecord, DeviceState, FeedAction, FeedTimer, Mutation } from "./models";
+import { instant, runningFeed, withFeedAction, type RunningFeed } from "./feed-reducer";
+import { activeTimer, changeTimer, feedRecordData, type FeedSide } from "./feed-timer";
+import { addMutation } from "./outbox";
+import { careSummary } from "./care-format";
 import { careWrite, logCare } from "./quick-care";
 
 type Account = Pick<ReturnType<typeof useBaby>, "commit" | "queue" | "state" | "sync" | "records">;
 
+/** How long the saved row offers Undo. VoiceOver needs longer to reach it and read it. */
+export const undoShown = (reader: boolean) => (reader ? 20_000 : 6000);
 /**
- * How long a Switch or Done stays on this phone before it syncs, so Undo can take it back. The finish a server has
- * accepted is terminal, by contract. It is durable the moment it's tapped, and keeps the time she tapped.
+ * How long a Switch or Done stays on this phone before it syncs, so Undo can take it back: as long as Undo is on
+ * screen, and a little more. The finish a server has accepted is terminal, by contract. It is durable the moment it's
+ * tapped, and keeps the time she tapped.
  */
-export const undoWindow = 6500;
+export const undoWindow = (reader: boolean) => undoShown(reader) + 500;
 
-function queueAction(b: Account, recordId: string, action: Omit<FeedAction, "id">, hold = undoWindow) {
+function queueAction(b: Account, recordId: string, action: Omit<FeedAction, "id">, hold: number) {
   const id = Crypto.randomUUID();
   const mutation: Mutation = { id, generation: b.state.bootstrap!.generation, type: "feed_action", record_id: recordId, action: { ...action, id },
     ...(hold ? { hold_until: new Date(Date.now() + hold).toISOString() } : {}) };
   return b.queue(mutation).then(() => id);
 }
 
-/** Take back an action still on this phone. False once it has reached the server. */
+/** Take back an action still on this phone. False once its request has begun, because the API may accept it. */
 async function cancelAction(b: Account, id: string) {
   let cancelled = false;
   await b.commit((state) => {
-    cancelled = state.outbox.some((change) => change.id === id);
+    cancelled = state.outbox.some((change) => change.id === id && !(change.type === "feed_action" && change.sent));
     return cancelled ? { ...state, outbox: state.outbox.filter((change) => change.id !== id) } : state;
   });
   return cancelled;
@@ -35,22 +40,51 @@ export function feedWrite(childId: string, side: FeedSide, now = new Date()) {
   const action: FeedAction = { id: Crypto.randomUUID(), action: "start", at: now.toISOString(), side };
   return careWrite("feeding", childId, { method: "breast", side, state: "running", actions: [action] }, now);
 }
-export function startFeed(b: Account, record: ReturnType<typeof feedWrite>) {
-  return logCare(b, record);
+/** One feed at a time per child, checked in the write: a timer from an older build finishes first, or it would become a second log. */
+function noTimer(state: DeviceState, childId: string | null) {
+  if (activeTimer(state)?.child_id === childId) throw Error("A feeding timer is running. Finish it from the timer above.");
+  return state;
+}
+export function startFeed(b: Account, record: ReturnType<typeof careWrite>) {
+  return logCare(b, record, (state) => noTimer(state, record.child_id));
 }
 
-export async function switchFeed(b: Account, feed: RunningFeed, now = new Date()) {
+export async function switchFeed(b: Account, feed: RunningFeed, now = new Date(), hold = undoWindow(false)) {
   const from = feed.segments[feed.segments.length - 1].side,
-    id = await queueAction(b, feed.record.id, { action: "switch", at: now.toISOString(), side: from === "left" ? "right" : "left" });
+    id = await queueAction(b, feed.record.id, { action: "switch", at: now.toISOString(), side: from === "left" ? "right" : "left" }, hold);
   return async () => {
     // Too late to take back: switching back is the same as tapping Switch again.
     if (!(await cancelAction(b, id))) await queueAction(b, feed.record.id, { action: "switch", at: new Date().toISOString(), side: from }, 0);
   };
 }
 
-export async function finishFeed(b: Account, feed: RunningFeed, now = new Date()) {
-  const id = await queueAction(b, feed.record.id, { action: "finish", at: now.toISOString() });
+export async function finishFeed(b: Account, feed: RunningFeed, now = new Date(), hold = undoWindow(false)) {
+  const id = await queueAction(b, feed.record.id, { action: "finish", at: now.toISOString() }, hold);
   return async () => {
     if (!(await cancelAction(b, id))) throw Error("This feed is already finished. You can change it in Tracker.");
   };
+}
+
+/** A record that began during this timer, so the timer's feed is already saved and only needs its end. */
+export function boundFeed(rows: readonly BabyRecord[], timer: FeedTimer, now = new Date()) {
+  const feed = runningFeed(rows, timer.child_id, now);
+  return feed && instant(feed.started_at) >= instant(timer.started_at) ? feed : undefined;
+}
+
+/** Finish a timer from an older build and clear it in one write: as a new entry, or on the record it's already bound to. */
+export async function finishTimer(b: Account, timer: FeedTimer, now = new Date()) {
+  const bound = boundFeed(b.records, timer, now), done = (state: DeviceState) => changeTimer(state, timer.started_at, () => undefined);
+  if (bound) {
+    const id = Crypto.randomUUID(), at = now.toISOString(),
+      mutation: Mutation = { id, generation: b.state.bootstrap!.generation, type: "feed_action", record_id: bound.record.id, action: { id, action: "finish", at },
+        hold_until: new Date(now.getTime() + undoWindow(false)).toISOString() };
+    await b.commit((state) => addMutation(done(state), mutation));
+    void b.sync();
+    return { summary: careSummary("feeding", withFeedAction(bound.record.data, mutation.action), bound.started_at), undo: async () => {
+      if (!(await cancelAction(b, id))) throw Error("This feed is already finished. You can change it in Tracker.");
+      await b.commit((state) => ({ ...state, feedTimer: timer }));
+    } };
+  }
+  const data = feedRecordData(timer, now), record = careWrite("feeding", timer.child_id, data, new Date(timer.started_at));
+  return { summary: careSummary("feeding", data, record.occurred_at), undo: await logCare(b, record, done) };
 }

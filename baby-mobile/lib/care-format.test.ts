@@ -60,3 +60,12 @@ it("files care under a baby by default while general notes stay general", () => 
   expect(defaultChild("journal", "b", kids)).toBe("b");
   expect(defaultChild("sleep", null, [])).toBeNull();
 });
+
+it("says times and days on the family's clock when it has one", () => {
+  const moment = new Date("2026-11-04T03:00:00.000Z");
+  expect(friendlyTime("2026-11-04T02:00:00.000Z", moment, "Asia/Tokyo")).toMatch(/^11:00.AM$/);
+  // Still the 3rd in UTC and already the 4th in Tokyo.
+  expect(friendlyTime("2026-11-03T15:30:00.000Z", new Date("2026-11-03T16:00:00.000Z"), "Asia/Tokyo")).toMatch(/^12:30.AM$/);
+  expect(friendlyTime("2026-11-03T14:00:00.000Z", moment, "Asia/Tokyo")).toMatch(/^Yesterday 11:00.PM$/);
+  expect(friendlyTime("2026-11-04T02:00:00.000Z", moment, "Not/AZone")).not.toBe("");
+});

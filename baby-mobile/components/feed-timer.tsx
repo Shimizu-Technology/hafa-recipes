@@ -15,7 +15,9 @@ import {
   spokenTimer,
   switchSide,
 } from "@/lib/feed-timer";
-import { Button, Card, Copy, fonts, useColors, useToast } from "./ui";
+import { activeTimer } from "@/lib/feed-timer";
+import { finishTimer } from "@/lib/running-feed";
+import { Button, Card, Copy, fonts, tap, useColors, useToast } from "./ui";
 
 /** Tick once a second only while the timer runs, Today is focused, and the app is in front. */
 export function useSecondClock(running: boolean) {
@@ -129,4 +131,18 @@ export function FeedTimerCard({
       <Button variant="ghost" title="Cancel timer" disabled={busy} onPress={cancel} />
     </Card>
   );
+}
+
+/** A timer started on an older build, on whichever screen she's logging from. It finishes here, then is gone. */
+export function LegacyTimer() {
+  const b = useBaby(), toast = useToast(), timer = activeTimer(b.state),
+    child = timer && b.state.bootstrap!.children.find((row) => row.id === timer.child_id);
+  if (!timer || !child) return null;
+  return <FeedTimerCard timer={timer} childName={child.name} onDone={async (running) => {
+    const { summary, undo } = await finishTimer(b, running);
+    tap();
+    toast(`${summary} · logged`, { label: "Undo", onPress: async () => {
+      try { await undo(); toast("Undone."); } catch (e) { toast(messageFor(e)); }
+    } });
+  }} />;
 }

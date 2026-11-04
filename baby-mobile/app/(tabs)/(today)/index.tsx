@@ -1,23 +1,18 @@
-import { useRef } from "react";
 import { Stack, router } from "expo-router";
 import { Text, View, useWindowDimensions } from "react-native";
-import * as Haptics from "expo-haptics";
 import { useBaby } from "@/lib/context";
-import { messageFor, type FeedTimer } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
 import { sleepGlanceDetail, babyAge, careGlance } from "@/lib/care-glance";
-import { careSummary } from "@/lib/care-format";
 import { routineToday, routineReminderLabel } from "@/lib/today-routines";
-import { careWrite, logCare } from "@/lib/quick-care";
-import { activeTimer, changeTimer, feedRecordData } from "@/lib/feed-timer";
+import { activeTimer } from "@/lib/feed-timer";
 import { runningFeed } from "@/lib/feed-reducer";
 import { dayKey, daySummary } from "@/lib/tracker";
-import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, useToast, type IconName } from "@/components/ui";
+import { Button, Card, Copy, Grouped, PressTarget, Icon, Notice, Row, Screen, radii, typeScale, useColors, type IconName } from "@/components/ui";
 import { kindIcon } from "@/components/record-row";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance";
-import { FeedTimerCard } from "@/components/feed-timer";
+import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { PregnancyHero, TipSection } from "@/components/tips";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
@@ -57,7 +52,6 @@ function Tile({ icon, label, hint, onPress, primary }: { icon: IconName; label: 
 
 export default function Today() {
   const b = useBaby(), c = useColors(),
-    toast = useToast(),
     now = useMinuteClock(),
     { fontScale } = useWindowDimensions(),
     children = b.state.bootstrap!.children,
@@ -66,7 +60,7 @@ export default function Today() {
     child = timingChild(b.state, today),
     records = b.records.filter((r) => !r.child_id || r.child_id === child?.id),
     latestCare = useTodayCare(),
-    glance = careGlance(latestCare.all, child?.id ?? null, now),
+    glance = careGlance(latestCare.all, child?.id ?? null, now, b.state.bootstrap!.profile.timezone),
     routines = records.filter((r) => routineToday(r, now)),
     stage = todayStage(child, today),
     pregnant = stage === "pregnancy",
@@ -76,42 +70,8 @@ export default function Today() {
     tipsNext = useTimingTips(pregnant ? child : null, "upcoming", 3, today),
     // A device timer is from an older build: it finishes the old way, on its own card, and is gone.
     timer = activeTimer(b.state),
-    timerChild = timer && children.find((c) => c.id === timer.child_id),
     running = runningFeed(latestCare.all, child?.id ?? null, now),
-    writing = useRef(false);
-  async function quick(action: () => Promise<() => Promise<void>>, message: string) {
-    // One write at a time: a double tap must not start two sleeps or end one twice.
-    if (writing.current) return;
-    writing.current = true;
-    try {
-      const undo = await action();
-      void Haptics.selectionAsync().catch(() => undefined);
-      toast(message, {
-        label: "Undo",
-        onPress: async () => {
-          try {
-            await undo();
-            toast("Undone.");
-          } catch (e) {
-            toast(messageFor(e));
-          }
-        },
-      });
-    } catch (e) {
-      toast(messageFor(e));
-    } finally {
-      writing.current = false;
-    }
-  }
-  /** Save the timed feed and clear the timer in one write. Undo removes the feed only. */
-  function finishFeed(running: FeedTimer) {
-    const data = feedRecordData(running),
-      record = careWrite("feeding", running.child_id, data, new Date(running.started_at));
-    return quick(
-      () => logCare(b, record, (s) => changeTimer(s, running.started_at, () => undefined)),
-      `${careSummary("feeding", data, record.occurred_at)} · logged`
-    );
-  }
+    timezone = b.state.bootstrap!.profile.timezone;
   const sleepEntry = glance.openSleep ?? glance.lastSleep,
     sleepTitle = glance.openSleep ? "Sleeping now" : glance.lastSleep ? "Awake" : "Sleep",
     sleepDetail = sleepGlanceDetail(glance, now),
@@ -122,10 +82,10 @@ export default function Today() {
   if (expecting && child) return (
     <Screen title={titleText}>
       <Stack.Screen options={{ title: titleText }} />
-      <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
+      <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
-      {timer && timerChild && <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />}
+      <LegacyTimer />
       {pregnant ? <>
         <PregnancyHero child={child} now={today} tips={tipsNow.rows} />
         <TipSection title="Coming up" view="upcoming" rows={tipsNext.rows} showTiming />
@@ -159,17 +119,17 @@ export default function Today() {
         onPress={addBirth} />}
     </Screen>
   );
-  const todayLine = `Today: ${daySummary(latestCare.all.filter((row) => row.child_id === child?.id), dayKey(today), b.state.bootstrap!.profile.timezone, now)}`;
-  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} legacyTimer={!!timer} /> : null;
+  const todayLine = `Today: ${daySummary(latestCare.all.filter((row) => row.child_id === child?.id), dayKey(today), timezone, now)}`;
+  const quickLog = child && showCare ? <QuickLog child={child} rows={latestCare.all} now={now} /> : null;
   return (
-    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, now) : child.name : undefined} numericSubtitle={showCare}
+    <Screen title={titleText} subtitle={child ? showCare ? babyAge(child, today) : child.name : undefined} numericSubtitle={showCare}
       footer={fontScale < dockBelow ? quickLog : undefined}>
       <Stack.Screen options={{ title: titleText }} />
-      <Copy numeric kind="small" tone="muted">{now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
+      <Copy numeric kind="small" tone="muted">{today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</Copy>
       <SyncStatus />
       {children.length > 1 && <ChildFilter />}
-      {timer && timerChild ? <FeedTimerCard timer={timer} childName={timerChild.name} onDone={finishFeed} />
-        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} /> : <FirstStep child={child} now={now} />}
+      {timer ? <LegacyTimer />
+        : child && showCare ? <CareGlance child={child} rows={latestCare.all} now={now} running={running} timeZone={timezone} /> : <FirstStep child={child} now={now} />}
       {showCare && <PressTarget accessibilityRole="button" accessibilityLabel={todayLine} accessibilityHint="Opens today in Tracker"
         onPress={() => router.navigate({ pathname: "/tracker", params: { day: dayKey(today), at: String(Date.now()) } })}
         style={{ minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingHorizontal: 4 }}>

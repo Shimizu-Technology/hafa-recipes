@@ -18,6 +18,7 @@ vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
+vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
   mock.requests.push(options);
   return { all: mock.care, rows: mock.care, loading: false, error: options.occurred_from ? mock.error : "", refresh: vi.fn() };
@@ -156,10 +157,10 @@ it("moves the quick log into the page at the largest text sizes", async () => {
 
 it("describes a timeline row with what the title doesn't say", () => {
   const started = "2026-11-04T02:45:00.000Z", actions = [{ id: "s", action: "start" as const, at: started, side: "left" as const }];
-  expect(timelineDetail(row("x", "feeding", started, { method: "breast", actions }), now)).toBe("Feeding now");
-  expect(timelineDetail(row("x", "feeding", "2026-11-03T02:45:00.000Z", { method: "breast", actions: [{ ...actions[0], at: "2026-11-03T02:45:00.000Z" }] }), now)).toBe("No end time");
-  expect(timelineDetail(row("x", "diaper", started, { type: "dirty" }, "First black one\nsecond line"), now)).toBe("First black one");
-  expect(timelineDetail(row("x", "sleep", started, { end_at: "2026-11-04T03:45:00.000Z" }), now)).toMatch(/to/);
+  expect(timelineDetail(row("x", "feeding", started, { method: "breast", actions }), { now })).toBe("Feeding now");
+  expect(timelineDetail(row("x", "feeding", "2026-11-03T02:45:00.000Z", { method: "breast", actions: [{ ...actions[0], at: "2026-11-03T02:45:00.000Z" }] }), { now })).toBe("No end time");
+  expect(timelineDetail(row("x", "diaper", started, { type: "dirty" }, "First black one\nsecond line"), { now })).toBe("First black one");
+  expect(timelineDetail(row("x", "sleep", started, { end_at: "2026-11-04T03:45:00.000Z" }), { now })).toMatch(/to/);
 });
 
 it("opens a day from the calendar, back in the Day view with its quick log", async () => {
@@ -174,4 +175,23 @@ it("opens a day from the calendar, back in the Day view with its quick log", asy
   expect(chips().props.value).toBe("day");
   expect(copy().join(" ")).toContain("Oct 26");
   expect(lastQuick().pastDay).toEqual({ key: "2026-10-26", timezone: "Pacific/Guam" });
+});
+
+it("shows a timer from an older build on Tracker, today only", async () => {
+  await mount();
+  const timers = () => renderer!.root.findAll((n) => String(n.type) === "LegacyTimer");
+  expect(timers()).toHaveLength(1);
+  await press("Day before");
+  expect(timers()).toHaveLength(0);
+});
+
+it("only says Feeding now for the newest feed, offline too", () => {
+  const started = "2026-11-04T02:30:00.000Z", older = row("old", "feeding", started, { method: "breast", state: "running", actions: [{ id: "s", action: "start", at: started, side: "left" }] }),
+    newer = row("new", "feeding", "2026-11-04T02:50:00.000Z", { method: "breast", state: "running", actions: [{ id: "t", action: "start", at: "2026-11-04T02:50:00.000Z", side: "right" }] });
+  expect(timelineDetail(older, { rows: [older, newer], now })).toBe("No end time");
+  expect(timelineDetail(newer, { rows: [older, newer], now })).toBe("Feeding now");
+});
+
+it("writes a row's clock on the family's clock", () => {
+  expect(timelineDetail(row("x", "sleep", "2026-11-04T01:00:00.000Z", { end_at: "2026-11-04T02:00:00.000Z" }), { now, timeZone: "Asia/Tokyo" })).toMatch(/^10:00.AM to 11:00.AM$/);
 });

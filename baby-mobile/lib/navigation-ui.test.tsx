@@ -50,6 +50,8 @@ vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => 
 }) }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
+vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
+vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/history", () => import("./history"));
 vi.mock("@/lib/visit-summary", () => import("./visit-summary"));
 vi.mock("@/lib/care-format", () => import("./care-format"));

@@ -20,10 +20,11 @@ export function useMinuteClock() {
 const sideWord = { left: "Left", right: "Right", both: "Both sides" } as const;
 
 /** Readable from across a dark room: when she last fed, and which side is next, with no tap. */
-export function CareGlance({ child, rows, now, running }: { child: Child; rows: BabyRecord[]; now: Date; running?: RunningFeed }) {
+export function CareGlance({ child, rows, now, running, timeZone }: { child: Child; rows: BabyRecord[]; now: Date; running?: RunningFeed; timeZone?: string | null }) {
   const c = useColors(), { fontScale } = useWindowDimensions(),
-    feed = careGlance(rows, child.id, now).lastFeed,
-    next = nextSide(rows, child.id),
+    feed = careGlance(rows, child.id, now, timeZone).lastFeed,
+    // Only with nothing running: "Feeding now Right, Next side Right" reads like a contradiction.
+    next = running ? undefined : nextSide(rows, child.id),
     elapsed = feed ? Math.max(0, Math.floor((now.getTime() - new Date(feed.occurred_at).getTime()) / 60_000)) : 0,
     value = elapsed < 60 ? `${elapsed}m` : elapsed < 2880 ? `${Math.floor(elapsed / 60)}h ${elapsed % 60}m` : `${Math.floor(elapsed / 1440)}d`,
     side = running?.segments[running.segments.length - 1]?.side,
@@ -32,7 +33,7 @@ export function CareGlance({ child, rows, now, running }: { child: Child; rows: 
         : feed.data.method === "bottle" ? "Bottle" : "Feeding",
       feed.data.amount ? `${feed.data.amount} ${feed.data.unit === "oz" ? "oz" : "mL"}` : "",
       feed.data.duration_minutes ? duration(feed.data.duration_minutes) : "",
-      friendlyTime(feed.occurred_at, now),
+      friendlyTime(feed.occurred_at, now, timeZone),
     ].filter(Boolean).join(" · ") : "Log a feed below.",
     stacked = fontScale >= 1.5,
     eyebrow = (text: string) => <Text key={`${text}:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>{text}</Text>;
@@ -43,7 +44,7 @@ export function CareGlance({ child, rows, now, running }: { child: Child; rows: 
         : feed ? <Text key={`value:${fontScale}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.4} style={{ ...typeScale.number, color: c.text }}>
           {!Number.isFinite(elapsed) ? "Time not recorded" : elapsed < 1 ? "Just now" : <>{value} <Text style={{ fontSize: typeScale.footnote.fontSize, color: c.muted }}>ago</Text></>}
         </Text> : <Copy kind="heading">No recent feed</Copy>}
-      <Copy numeric kind="small" tone="muted">{side ? `Started ${friendlyTime(running!.started_at, now)}` : detail}</Copy>
+      <Copy numeric kind="small" tone="muted">{side ? `Started ${friendlyTime(running!.started_at, now, timeZone)}` : detail}</Copy>
     </View>
     {!!next && <View style={{ gap: 2, alignItems: stacked ? "flex-start" : "flex-end", paddingLeft: stacked ? 0 : 14,
       borderLeftWidth: stacked ? 0 : 1, borderLeftColor: c.border }}>
@@ -57,7 +58,7 @@ export function CareGlance({ child, rows, now, running }: { child: Child; rows: 
       </View>
     </View>}
   </Card>;
-  const spoken = `${side ? `Feeding now, ${side} side, started ${friendlyTime(running!.started_at, now)}.` : feed ? `Last fed ${timeAgo(feed.occurred_at, now)}. ${detail}.` : "No feed logged yet."}${next ? ` Next side ${next}.` : ""}`;
+  const spoken = `${side ? `Feeding now, ${side} side, started ${friendlyTime(running!.started_at, now, timeZone)}.` : feed ? `Last fed ${timeAgo(feed.occurred_at, now)}. ${detail}.` : "No feed logged yet."}${next ? ` Next side ${next}.` : ""}`;
   return feed ? <PressTarget accessibilityRole="button" accessibilityLabel={spoken} accessibilityHint="Opens this feeding entry"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.id } })}>{content}</PressTarget>
     : <View accessible accessibilityLabel={spoken}>{content}</View>;

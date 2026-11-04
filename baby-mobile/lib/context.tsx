@@ -35,6 +35,13 @@ import {
   shouldRetry,
   advancePending,
   advanceAfterImport,
+  finishedFeedNotice,
+  plainFeedNotice,
+  rejectedAction,
+  removedFeedNotice,
+  retryLater,
+  switchTooLate,
+  unresolvedAttempts,
   queueRemovedUploads,
   uploadedReferences,
   waitingForEarlier,
@@ -291,12 +298,37 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (next.type === "delete") {
             await api.remove(next.record, next.generation);
           } else if (next.type === "feed_action") {
+            // Once the request begins the API may have it, whatever comes back. Undo sees this before it can take it back.
+            let taken = false;
+            await commit((s) => {
+              taken = s.outbox.some((m) => m.id === next.id);
+              return { ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "feed_action" ? { ...m, sent: true } : m)) };
+            });
+            if (!taken) continue;
             try {
               result = await api.feedAction(next.record_id, next.action, next.generation);
             } catch (failure) {
-              // The record is gone (404), or a hand edit made it a plain entry (409). The record stands, and there's
-              // nothing left for this action to change.
-              if (!(failure instanceof ApiError && (failure.status === 404 || failure.status === 409))) throw failure;
+              if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
+              let row: BabyRecord | null = null;
+              try { row = await api.record(next.record_id); }
+              catch (reading) {
+                if (!(reading instanceof ApiError && !reading.local && reading.status === 404)) throw reading;
+              }
+              const outcome = rejectedAction(row, next.action);
+              if (outcome === "unresolved") {
+                // The feed still takes taps, so this was a passing race. It's kept, and asks her if it doesn't clear.
+                const tries = (next.attempts ?? 0) + 1;
+                await commit((s) => ({ ...s, records: row ? replaceRecord(s.records, row) : s.records,
+                  outbox: s.outbox.map((m) => m.id !== next.id || m.type !== "feed_action" ? m
+                    : tries >= unresolvedAttempts ? { ...m, error: "This tap couldn’t be added to the feed. It’s safe on this phone." } : retryLater(m)) }));
+                continue;
+              }
+              await commit((s) => ({ ...s,
+                records: row ? replaceRecord(s.records, row) : s.records.filter((r) => r.id !== next.record_id),
+                ...(outcome === "applied" ? {} : { feedNotice: outcome === "removed" ? removedFeedNotice : plainFeedNotice }),
+                outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (row && outcome === "applied" ? advancePending(m, row, true) : m)),
+              }));
+              continue;
             }
           } else {
             let files = next.files.map((f) => ({
@@ -360,7 +392,8 @@ export function BabyProvider({ children }: PropsWithChildren) {
               : next.type === "delete"
                 ? s.records.filter((r) => r.id !== next.record.id)
                 : s.records,
-            outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (result ? advancePending(m, result) : m)),
+            ...(next.type === "feed_action" && result && switchTooLate(next.action, result) ? { feedNotice: finishedFeedNotice } : {}),
+            outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (result ? advancePending(m, result, next.type === "feed_action") : m)),
           }));
           // Uploaded originals stay in this private device container until explicit device cleanup.
           // A reopened offline draft may still reference them while its ancestor is syncing.
@@ -375,6 +408,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (status === 0 || status === 401) {
             setError(messageFor(e));
             break;
+          }
+          if (next.type === "feed_action" && shouldRetry(status)) {
+            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "feed_action" ? retryLater(m) : m)) }));
+            continue;
           }
           await commit((s) => ({
             ...s,

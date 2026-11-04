@@ -6,6 +6,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { careSummary, duration, friendlyTime } from "@/lib/care-format";
+import { feedProgress } from "@/lib/feed-reducer";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { inheritedFiles, mutationRecordId, replaceRecord } from "@/lib/outbox";
 import { PrivateAttachment } from "@/components/private-attachment";
@@ -106,6 +107,8 @@ export default function RecordDetail() {
       {record.kind === "feeding" && (
         <Card tone="hero">
           <Copy kind="heading">{careSummary("feeding", data, record.occurred_at)}</Copy>
+          {feedProgress(record, b.records) === "running" && <Copy tone="muted">Feeding now</Copy>}
+          {feedProgress(record, b.records) === "no_end" && <Copy tone="muted">No end time</Copy>}
         </Card>
       )}
       {record.kind === "sleep" && (

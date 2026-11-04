@@ -217,8 +217,11 @@ export type Mutation = { localOnly?: boolean } & (
       type: "feed_action";
       record_id: string;
       action: FeedAction;
-      /** Stays on this phone until then, so Undo can take it back. */
+      /** Stays on this phone until then: for Undo, or between retries. */
       hold_until?: string;
+      /** Its request has begun, so the API may already have it. Undo can't take it back any more. */
+      sent?: boolean;
+      attempts?: number;
       error?: string;
       conflict?: boolean;
     }
@@ -251,6 +254,8 @@ export interface FeedTimer {
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** A tap the API couldn't apply, kept until she has seen why. */
+  feedNotice?: string;
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];

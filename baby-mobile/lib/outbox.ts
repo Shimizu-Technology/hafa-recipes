@@ -1,6 +1,6 @@
 import { importFinished } from "./import-status";
-import { withFeedAction } from "./feed-reducer";
-import type { BabyRecord, DeviceState, ImportJob, Mutation } from "./models";
+import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
+import type { BabyRecord, DeviceState, FeedAction, ImportJob, Mutation, RecordWrite } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at)
@@ -19,7 +19,7 @@ export function pendingRecords(state: DeviceState) {
       });
     } else if (change.type === "delete") rows = rows.filter((r) => r.id !== change.record.id);
     else if (change.type === "feed_action")
-      rows = rows.map((r) => (r.id === change.record_id ? { ...r, data: withFeedAction(r.data, change.action) } : r));
+      rows = rows.map((r) => (r.id === change.record_id ? withRecordAction(r, change.action) : r));
   }
   return rows;
 }
@@ -32,7 +32,7 @@ export function fencedState(state: DeviceState, generation: number) {
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer: __, ...rest } = state;
+    const { routine_sync: _, feedTimer: __, feedNotice: ___, ...rest } = state;
     return {
       ...rest,
       records: [],
@@ -95,11 +95,49 @@ export function inheritedFiles(state: DeviceState, id: string) {
     ...new Map(files.map((f) => [f.id, { ...f, uploaded_id: f.uploaded_id ?? state.fileUploads?.[f.id] }])).values(),
   ];
 }
-export function advancePending(m: Mutation, result: BabyRecord): Mutation {
-  if (m.type === "import" || m.type === "feed_action" || m.record.id !== result.id) return m;
-  if (m.type === "delete") return { ...m, record: { ...m.record, revision: result.revision } };
-  return { ...m, record: { ...m.record, revision: result.revision } };
+/** Side and duration still as the feed's own actions say, so a parent hasn't corrected them by hand. */
+function derivedOnly({ data }: RecordWrite) {
+  const reduced = reduceFeed(data.actions);
+  return !!reduced && data.side === (reduced.side ?? reduced.start_side) && (data.duration_minutes ?? undefined) === reduced.duration_minutes;
 }
+/** A queued edit takes what the API worked out from the taps. Otherwise an unchanged duration would look like a correction. */
+function withServerFeed(record: RecordWrite, result: BabyRecord): RecordWrite {
+  const { actions, state, side, duration_minutes, end_at, ...rest } = record.data,
+    { actions: a, state: st, side: si, duration_minutes: du, end_at: en } = result.data;
+  return { ...record, data: { ...rest, actions: a, state: st, side: si, duration_minutes: du, ...(en ? { end_at: en } : {}) } };
+}
+/**
+ * The record moved one step, so a change waiting behind it follows. More than one step means someone else wrote in
+ * between, whatever this request was: the waiting change keeps its revision, and the API answers it with a conflict
+ * for review. That fence is what stops it overwriting an edit it never saw, or deleting a record it never saw.
+ */
+export function advancePending(m: Mutation, result: BabyRecord, fromAction = false): Mutation {
+  if (m.type === "import" || m.type === "feed_action" || m.record.id !== result.id) return m;
+  if ((m.record.revision ?? 0) + 1 !== result.revision) return m;
+  if (m.type === "delete") return { ...m, record: { ...m.record, revision: result.revision } };
+  const record = fromAction && m.record.kind === "feeding" && derivedOnly(m.record) ? withServerFeed(m.record, result) : m.record;
+  return { ...m, record: { ...record, revision: result.revision } };
+}
+/** What a 404 or 409 on a tap means, once the record has been read again. Only a record known to be gone or untimed loses it. */
+export function rejectedAction(row: BabyRecord | null, action: FeedAction): "removed" | "plain" | "applied" | "unresolved" {
+  if (!row) return "removed";
+  if (row.data.actions?.some((known) => known.id === action.id)) return "applied";
+  return row.data.actions?.length || row.data.state === "running" || row.data.state === "unknown_end" ? "unresolved" : "plain";
+}
+export const removedFeedNotice = "This feed was removed.";
+export const plainFeedNotice = "This feed was changed, and the saved one stands.";
+export const finishedFeedNotice = "This feed had already finished.";
+/** A switch that landed after the feed's finish does nothing, so she hears about it rather than seeing nothing change. */
+export function switchTooLate(action: FeedAction, result: BabyRecord) {
+  return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
+}
+/** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
+export function retryLater<T extends Extract<Mutation, { type: "feed_action" }>>(change: T, now = Date.now()): T {
+  const attempts = (change.attempts ?? 0) + 1;
+  return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
+}
+/** How many rejected reads of a timed feed to try before asking her. */
+export const unresolvedAttempts = 5;
 
 /** All operations on a record share one durable order, including source imports.
  * An unresolved ancestor holds only its own record, never the entire outbox. */

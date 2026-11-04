@@ -5,12 +5,14 @@ import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, dayRange, daySummary, keyDate, addDays, recordDay, timelineKinds } from "@/lib/tracker";
+import { newestFirst } from "@/lib/feed-reducer";
 import { Copy, Empty, FilterChips, Grouped, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
 import { HeaderPill } from "@/components/tab-stack";
 import { ChildFilter } from "@/components/child-filter";
 import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
 import { QuickLog } from "@/components/quick-log";
+import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
 import { TrackerMonth } from "@/components/tracker-month";
 
@@ -32,8 +34,7 @@ export default function Tracker() {
     children = b.state.bootstrap!.children,
     child = timingChild(b.state, keyDate(today)),
     logging = careLogsStarted(children, keyDate(today)) && !!child && todayStage(child, keyDate(today)) === "baby",
-    rows = care.all.filter((row) => recordDay(row.occurred_at, timezone) === day)
-      .sort((x, y) => (newest ? -1 : 1) * x.occurred_at.localeCompare(y.occurred_at)),
+    rows = care.all.filter((row) => recordDay(row.occurred_at, timezone) === day).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
     counted = child ? care.all.filter((row) => row.child_id === child.id) : care.all,
     future = keyDate(day) > keyDate(today),
     { fontScale } = useWindowDimensions(),
@@ -68,6 +69,7 @@ export default function Tracker() {
         </View>
         {!future && <Copy numeric kind="small" tone="muted">{daySummary(counted, day, timezone, now)}</Copy>}
       </View>
+      {day === today && <LegacyTimer />}
       {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}
       {fontScale >= dockBelow && quickLog}
       {rows.length ? <View style={{ gap: 4 }}>
@@ -76,7 +78,7 @@ export default function Tracker() {
           <OrderToggle newest={newest} onFlip={() => setNewest(!newest)} />
         </View>
         <Grouped separatorInset={0}>{rows.map((row) => (
-          <TimelineRow key={row.id} record={row} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === row.id)} />
+          <TimelineRow key={row.id} record={row} rows={care.all} timeZone={timezone} now={now} pending={b.state.outbox.some((m) => m.type === "save" && m.record.id === row.id)} />
         ))}</Grouped>
       </View> : <Empty icon="calendar-outline" title={future ? "Nothing planned yet" : "Nothing logged this day"}
         body={future ? "This day is still ahead." : logging ? "Tap a button below to add one." : "Feeds, sleep and diapers will show here once the baby’s here."} />}

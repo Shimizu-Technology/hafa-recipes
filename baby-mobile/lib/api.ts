@@ -16,11 +16,10 @@ import type {
 } from "./models";
 import { dailyAiLimitMessage } from "./import-status";
 /**
- * What this build tells the API it understands, as `X-Baby-Client`; null sends no header and reads as build 32.
- * The one switch for the Build A API contract: turn it to 2 only once that API is deployed. The new care fields
- * (`contents`, `color`) follow it, because they don't exist on the API before then and it rejects unknown fields.
+ * What this build tells the API it understands, as `X-Baby-Client`. 2 reads and writes every current kind and field, in
+ * the personal space only, with no space header. Client 3 is for builds that know about family spaces.
  */
-export const babyClient = null as 2 | null;
+export const babyClient = 2 as 2 | null;
 export const sendsCareDetails = babyClient === 2;
 /** Fixed server-owned 422 messages that tell the parent what to do next. Any other detail stays private. */
 const knownDetails = new Set([

@@ -4,11 +4,10 @@ import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord, type Child } from "@/lib/models";
 import { retimedActions, runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
 import { careGlance, nextSide } from "@/lib/care-glance";
-import { sendsCareDetails } from "@/lib/api";
 import { amendCare, bottleStart, careWrite, changeUnit, logCare, stepAmount, updateCare, type BottleChoice } from "@/lib/quick-care";
 import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
-import { clockText, type FeedSide } from "@/lib/feed-timer";
-import { feedWrite, finishFeed, startFeed, switchFeed } from "@/lib/running-feed";
+import { activeTimer, clockText, type FeedSide } from "@/lib/feed-timer";
+import { feedWrite, finishFeed, startFeed, switchFeed, undoShown } from "@/lib/running-feed";
 import { Icon, PressTarget, easeOut, fonts, radii, tap, typeScale, useColors, useToast, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
@@ -20,11 +19,13 @@ const other = (side: FeedSide): FeedSide => (side === "left" ? "right" : "left")
 /** Every night target is at least this tall. */
 export const quickTarget = 56;
 
-type Saved = { key: number; label: string; undo?: () => Promise<unknown>; recordId?: string; at?: string; follow?: "note" | "color" };
-type PoopColor = "black" | "green" | "yellow" | "brown";
+type Saved = { key: number; label: string; undo?: () => Promise<unknown>; recordId?: string; at?: string; follow?: "note" | "color";
+  /** A held tap: Undo goes at this moment, whatever else happens on screen, so it never outlasts the hold. */
+  until?: number };
+type PoopColor = NonNullable<BabyRecord["data"]["color"]>;
 const swatches: { label: string; value?: PoopColor; fill?: string }[] = [
   { label: "Black", value: "black", fill: "#1A1512" }, { label: "Green", value: "green", fill: "#5E6B38" }, { label: "Yellow", value: "yellow", fill: "#D8AE3F" },
-  { label: "Brown", value: "brown", fill: "#7A5230" }, { label: "Other" },
+  { label: "Brown", value: "brown", fill: "#7A5230" }, { label: "Red", value: "red", fill: "#B3392F" }, { label: "White", value: "white", fill: "#F7F3EA" }, { label: "Other" },
 ];
 const diaperChoices = [{ label: "Pee", type: "wet" }, { label: "Poo", type: "dirty" }, { label: "Both", type: "both" }, { label: "Dry", type: "dry" }] as const;
 type DiaperType = (typeof diaperChoices)[number]["type"];
@@ -53,7 +54,7 @@ function Tile({ icon, label, hint, primary, open, onPress }: { icon: IconName; l
 }
 
 /** The running feed: side and elapsed time, Switch and Done. Ignoring it is fine; the feed is already saved. */
-function RunningCard({ feed, onSwitch, onDone }: { feed: RunningFeed; onSwitch: () => void; onDone: () => void }) {
+function RunningCard({ feed, timeZone, onSwitch, onDone }: { feed: RunningFeed; timeZone?: string | null; onSwitch: () => void; onDone: () => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), now = useSecondClock(true),
     open = feed.segments[feed.segments.length - 1], side = open.side,
     earlier = feed.segments.slice(0, -1)
@@ -63,7 +64,7 @@ function RunningCard({ feed, onSwitch, onDone }: { feed: RunningFeed; onSwitch: 
   return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
     <View style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "flex-end", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 }}>
       {/* Read as one line, and not again every second. */}
-      <View accessible accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now)}`} style={{ flexShrink: 0 }}>
+      <View accessible accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now, timeZone)}`} style={{ flexShrink: 0 }}>
         <Text key={`e:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Feeding</Text>
         <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} numberOfLines={1} style={{ fontFamily: fonts.semibold, fontSize: 34, lineHeight: 40, color: c.text, fontVariant: ["tabular-nums"] }}>{`${word[side]} · ${spent}`}</Text>
       </View>
@@ -103,7 +104,7 @@ function Follow({ colors, color, undone, onColor, onNote, onFocusChange }: { col
             setOther(false);
             onColor(on ? undefined : swatch.value);
           }}
-          style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "30%" : 0, minWidth: 0, minHeight: quickTarget, borderRadius: 16, paddingVertical: 6, alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: on ? c.action : c.tile }}>
+          style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? "30%" : "22%", minWidth: 0, minHeight: quickTarget, borderRadius: 16, paddingVertical: 6, alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: on ? c.action : c.tile }}>
           <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: swatch.fill ?? "transparent", borderWidth: 1, borderColor: c.outline }} />
           <Text key={fontScale} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 12, lineHeight: 15, color: on ? c.onAction : c.text }}>{swatch.label}</Text>
         </PressTarget>;
@@ -117,10 +118,10 @@ function Follow({ colors, color, undone, onColor, onNote, onFocusChange }: { col
 }
 
 /** What just saved, with Undo. It fades on its own; nothing here needs an answer. */
-function SavedRow({ saved, compact, color, now, day, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved;
+function SavedRow({ saved, compact, color, now, day, timeZone, onUndo, onGone, onMove, onColor, onNote }: { saved: Saved;
   /** Another log is open: one line with Undo, so the dock never buries the page. */
   compact?: boolean;
-  color?: PoopColor; now: Date; day?: PastDay; onUndo: () => void; onGone: () => void;
+  color?: PoopColor; now: Date; day?: PastDay; timeZone?: string | null; onUndo: () => void; onGone: () => void;
   onMove: (iso: string | null) => void; onColor: (value?: PoopColor) => void; onNote: (note: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), reduced = useReducedMotion(), fade = useRef(new Animated.Value(1)).current,
     [choosing, setChoosing] = useState(false), [holding, setHolding] = useState(false), [touched, setTouched] = useState(0),
@@ -137,7 +138,7 @@ function SavedRow({ saved, compact, color, now, day, onUndo, onGone, onMove, onC
       timer = setTimeout(() => {
         if (reduced) return onGone();
         Animated.timing(fade, { toValue: 0, duration: 240, easing: easeOut, useNativeDriver: true }).start(({ finished }) => { if (finished) onGone(); });
-      }, reader ? 20000 : saved.follow ? 9000 : 6000);
+      }, saved.until ? Math.max(0, saved.until - Date.now()) : reader ? 20000 : saved.follow ? 9000 : 6000);
     });
     return () => { active = false; if (timer) clearTimeout(timer); fade.stopAnimation(); };
   }, [saved.key, holding, choosing, touched, compact]);
@@ -150,14 +151,14 @@ function SavedRow({ saved, compact, color, now, day, onUndo, onGone, onMove, onC
         <Text key={`l:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text }}>{saved.label}</Text>
         <Text key={`s:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>Saved</Text>
       </View>
-      {!!saved.at && <TimeChip label={friendlyTime(saved.at, now)} open={choosing} onPress={() => { tap(); setChoosing(!choosing); }} />}
+      {!!saved.at && <TimeChip label={friendlyTime(saved.at, now, timeZone)} open={choosing} onPress={() => { tap(); setChoosing(!choosing); }} />}
       {!!saved.undo && <PressTarget accessibilityRole="button" accessibilityLabel={`Undo ${saved.label}`} onPress={() => { undone.current = true; onUndo(); }}
         style={{ minHeight: quickTarget, minWidth: quickTarget, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}>
         <Text key={`u:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.bold, fontSize: 16, lineHeight: 20, color: c.accentText }}>Undo</Text>
       </PressTarget>}
     </View>
     {choosing && !compact && !!saved.at && <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
-      <TimeChoices value={saved.at} now={now} day={day} onChange={(iso) => { setChoosing(false); onMove(iso); touch(); }} />
+      <TimeChoices value={saved.at} now={now} day={day} timeZone={timeZone} onChange={(iso) => { setChoosing(false); onMove(iso); touch(); }} />
     </View>}
     {!!saved.follow && !compact && <Follow colors={saved.follow === "color"} color={color} undone={undone} onFocusChange={setHolding}
       onColor={(value) => { onColor(value); touch(); }} onNote={(note) => { onNote(note); touch(); }} />}
@@ -165,25 +166,27 @@ function SavedRow({ saved, compact, color, now, day, onUndo, onGone, onMove, onC
 }
 
 /** A panel above the tiles: what it's for, and when it happened. */
-function Panel({ title, detail, at, now, day, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; day?: PastDay; onTime: (iso: string | null) => void; children: React.ReactNode }) {
-  // On another day "now" would be wrong, so the times are already open, and asking.
+function Panel({ title, detail, at, now, day, timeZone, needTime, onTime, children }: { title: string; detail?: string; at: string | null; now: Date; day?: PastDay; timeZone?: string | null;
+  /** She tried to save on another day before saying when. */
+  needTime?: boolean; onTime: (iso: string | null) => void; children: React.ReactNode }) {
+  // On another day "now" would be wrong, so the times are already open, and asking. Nothing saves until she answers.
   const c = useColors(), { fontScale } = useWindowDimensions(), [open, setOpen] = useState(!!day),
-    noon = day ? zonedInstant(day.key, 12, 0, day.timezone).toISOString() : null,
-    shown = at ?? noon;
+    showing = open || !!needTime, asking = !!day && !at;
   return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
       <Text key={fontScale} maxFontSizeMultiplier={0} style={{ flexShrink: 1, fontFamily: fonts.semibold, fontSize: 15, lineHeight: 19, color: c.text, paddingHorizontal: 2 }}>
         {title}{detail ? <Text style={{ fontFamily: fonts.regular, fontSize: 13, color: c.muted }}>{`  ${detail}`}</Text> : null}
       </Text>
-      <TimeChip label={shown ? friendlyTime(shown, now) : "Now"} open={open} asking={!!day && !at} onPress={() => { tap(); setOpen(!open); }} />
+      <TimeChip label={at ? friendlyTime(at, now, timeZone) : day ? "Choose a time" : "Now"} open={showing} asking={asking} onPress={() => { tap(); setOpen(!showing); }} />
     </View>
-    {open && <TimeChoices value={shown ?? now.toISOString()} now={now} day={day} onChange={(iso) => { onTime(iso); setOpen(false); }} />}
+    {needTime && asking && <Text accessibilityLiveRegion="polite" key={`n:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText, paddingHorizontal: 2 }}>Choose a time first.</Text>}
+    {showing && <TimeChoices value={at ?? (day ? zonedInstant(day.key, 12, 0, day.timezone).toISOString() : now.toISOString())} now={now} day={day} timeZone={timeZone} onChange={(iso) => { onTime(iso); setOpen(false); }} />}
     {children}
   </View>;
 }
 
 /** The amount, the unit, and the two milks. Choosing a milk saves it. */
-function BottlePanel({ start, at, now, day, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; day?: PastDay; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
+function BottlePanel({ start, at, now, day, timeZone, needTime, onTime, onSave }: { start: BottleChoice; at: string | null; now: Date; day?: PastDay; timeZone?: string | null; needTime?: boolean; onTime: (iso: string | null) => void; onSave: (bottle: Pick<BottleChoice, "amount" | "unit" | "contents">) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [bottle, setBottle] = useState({ amount: start.amount, unit: start.unit }),
     same = start.fromLast && bottle.amount === start.amount && bottle.unit === start.unit,
     unitWord = bottle.unit === "oz" ? "oz" : "mL",
@@ -191,7 +194,7 @@ function BottlePanel({ start, at, now, day, onTime, onSave }: { start: BottleCho
       style={{ width: 64, minHeight: quickTarget, alignItems: "center", justifyContent: "center" }}>
       <Icon name={direction > 0 ? "add" : "remove"} size={24} color={c.text} />
     </PressTarget>;
-  return <Panel title="Bottle" at={at} now={now} day={day} onTime={onTime}>
+  return <Panel title="Bottle" at={at} now={now} day={day} timeZone={timeZone} needTime={needTime} onTime={onTime}>
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: c.tile }}>
       {step(-1, "Less")}
       <PressTarget accessibilityRole="button" accessibilityLabel={`${bottle.amount} ${unitWord}`} accessibilityHint={`Changes to ${bottle.unit === "oz" ? "milliliters" : "ounces"}`}
@@ -208,29 +211,39 @@ function BottlePanel({ start, at, now, day, onTime, onSave }: { start: BottleCho
   </Panel>;
 }
 
-export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
+export function QuickLog({ child, rows, now, pastDay }: {
   child: Child;
   rows: BabyRecord[];
   now: Date;
   /** Logging a day that isn't today: entries get that day's time, and nothing runs. */
   pastDay?: PastDay;
-  /** A timer started on an older build is still running; it finishes on its own card first. */
-  legacyTimer?: boolean;
 }) {
   const b = useBaby(), c = useColors(), toast = useToast(),
     [panel, setPanel] = useState<"breast" | "bottle" | "diaper" | "sleep" | null>(null),
     [at, setAt] = useState<string | null>(null),
     [saved, setSaved] = useState<Saved | null>(null),
+    [needTime, setNeedTime] = useState(false),
+    timeZone = b.state.bootstrap!.profile.timezone,
+    // A timer started on an older build is still running; it finishes on its own card first.
+    legacyTimer = activeTimer(b.state)?.child_id === child.id,
     // A ref, not state, so two taps in the same frame cannot both start a write.
     writing = useRef(false),
     keys = useRef(0),
     running = pastDay ? undefined : runningFeed(rows, child.id, now),
-    next = nextSide(rows, child.id),
-    openSleep = pastDay ? undefined : careGlance(rows, child.id, now).openSleep,
+    next = running ? undefined : nextSide(rows, child.id),
+    openSleep = pastDay ? undefined : careGlance(rows, child.id, now, timeZone).openSleep,
     last = rows.find((row) => row.kind === "feeding" && row.child_id === child.id && row.data.method === "breast"),
     savedRow = saved?.recordId ? b.records.find((row) => row.id === saved.recordId) : undefined,
-    when = () => (at ? new Date(at) : pastDay ? zonedInstant(pastDay.key, 12, 0, pastDay.timezone) : new Date());
-  async function save(label: string, action: () => Promise<() => Promise<unknown>>, details: Pick<Saved, "recordId" | "at" | "follow"> = {}) {
+    /** When this entry happened. On another day only she can say, so until she has, nothing saves. */
+    when = () => {
+      if (at) return new Date(at);
+      if (!pastDay) return new Date();
+      tap();
+      setNeedTime(true);
+      return null;
+    },
+    change = (iso: string | null) => { setAt(iso); setNeedTime(false); };
+  async function save(label: string, action: () => Promise<() => Promise<unknown>>, details: Pick<Saved, "recordId" | "at" | "follow" | "until"> = {}) {
     if (writing.current) return;
     writing.current = true;
     try {
@@ -238,6 +251,7 @@ export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
       tap("success");
       setPanel(null);
       setAt(null);
+      setNeedTime(false);
       setSaved({ key: ++keys.current, label, undo, ...details });
     } catch (e) { toast(messageFor(e)); }
     finally { writing.current = false; }
@@ -257,13 +271,15 @@ export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
     if (name === "breast" && legacyTimer && !pastDay) return toast("A feeding timer is running. Finish it from the timer above.");
     tap();
     setAt(null);
+    setNeedTime(false);
     setPanel(panel === name ? null : name);
   }
   function side(choice: FeedSide | "both") {
     const time = when();
+    if (!time) return;
     if (choice === "both") {
       const record = careWrite("feeding", child.id, { method: "breast", side: "both" }, time);
-      return save("Both sides", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
+      return save("Both sides", () => (pastDay ? logCare(b, record) : startFeed(b, record)), { recordId: record.id, at: record.occurred_at });
     }
     if (pastDay) {
       const plain = careWrite("feeding", child.id, { method: "breast", side: choice }, time);
@@ -273,35 +289,45 @@ export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
     return save(word[choice], () => startFeed(b, record), { recordId: record.id, at: record.occurred_at });
   }
   function bottle(choice: Pick<BottleChoice, "amount" | "unit" | "contents">) {
-    const record = careWrite("feeding", child.id, { method: "bottle", amount: choice.amount, unit: choice.unit,
-      ...(sendsCareDetails && choice.contents ? { contents: choice.contents } : {}) }, when());
+    const time = when();
+    if (!time) return;
+    const record = careWrite("feeding", child.id, { method: "bottle", amount: choice.amount, unit: choice.unit, ...(choice.contents ? { contents: choice.contents } : {}) }, time);
     return save(`${choice.contents ? contentWords[choice.contents] : "Bottle"}, ${choice.amount} ${choice.unit === "oz" ? "oz" : "mL"}`,
       () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
   }
   function diaper(label: string, type: DiaperType) {
-    const record = careWrite("diaper", child.id, { type }, when());
-    return save(label, () => logCare(b, record), { recordId: record.id, at: record.occurred_at,
-      // Colour goes to the API only once it can store it.
-      follow: sendsCareDetails && (type === "dirty" || type === "both") ? "color" : "note" });
+    const time = when();
+    if (!time) return;
+    const record = careWrite("diaper", child.id, { type }, time);
+    return save(label, () => logCare(b, record), { recordId: record.id, at: record.occurred_at, follow: type === "dirty" || type === "both" ? "color" : "note" });
   }
   /** On another day a sleep is logged whole: when it started, and how long. */
   function sleepFor(minutes: number) {
-    const start = when(), record = careWrite("sleep", child.id, { end_at: new Date(start.getTime() + minutes * 60_000).toISOString() }, start);
+    const start = when();
+    if (!start) return;
+    const record = careWrite("sleep", child.id, { end_at: new Date(start.getTime() + minutes * 60_000).toISOString() }, start);
     return save(careSummary("sleep", record.data, record.occurred_at), () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
   }
   function sleep() {
+    const time = when();
+    if (!time) return;
     if (openSleep) {
       const started = new Date(openSleep.occurred_at).getTime(),
         // A sleep can't end before it began, even if the chosen time says so.
-        end_at = new Date(Math.max(when().getTime(), started)).toISOString(),
+        end_at = new Date(Math.max(time.getTime(), started)).toISOString(),
         data = { ...openSleep.data, end_at };
       return save(careSummary("sleep", data, openSleep.occurred_at), () => updateCare(b, openSleep, data));
     }
-    const record = careWrite("sleep", child.id, {}, when());
+    const record = careWrite("sleep", child.id, {}, time);
     return save("Sleep started", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
   }
+  /** A Switch or Done waits on this phone as long as Undo is offered, however long that is for her. */
+  async function heldTap(label: string, action: (hold: number) => Promise<() => Promise<unknown>>) {
+    const shown = undoShown(await AccessibilityInfo.isScreenReaderEnabled().catch(() => false));
+    return save(label, () => action(shown + 500), { until: Date.now() + shown });
+  }
   return <View style={{ gap: 8 }}>
-    {!!saved && <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={pastDay} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
+    {!!saved && <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={pastDay} timeZone={timeZone} color={savedRow?.data.color as PoopColor | undefined} onUndo={() => void undo()}
       onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
       onMove={(iso) => {
         const moved = iso ?? new Date().toISOString();
@@ -312,26 +338,29 @@ export function QuickLog({ child, rows, now, legacyTimer, pastDay }: {
       // An explicit null clears it: the API keeps a field a PATCH leaves out.
       onColor={(color) => amend((row) => ({ data: { ...row.data, color: color ?? null } }))}
       onNote={(note) => amend((row) => (row.body === note ? {} : { body: note }))} />}
-    {running && <RunningCard feed={running}
-      onSwitch={() => void save(`Switched to ${word[other(running.segments[running.segments.length - 1].side)]}`, () => switchFeed(b, running))}
+    {running && <RunningCard feed={running} timeZone={timeZone}
+      onSwitch={() => {
+        const at = new Date();
+        void heldTap(`Switched to ${word[other(running.segments[running.segments.length - 1].side)]}`, (hold) => switchFeed(b, running, at, hold));
+      }}
       onDone={() => {
         const at = new Date(),
           done = withFeedAction(running.record.data, { id: "preview", action: "finish", at: at.toISOString() });
-        void save(careSummary("feeding", done, running.started_at), () => finishFeed(b, running, at));
+        void heldTap(careSummary("feeding", done, running.started_at), (hold) => finishFeed(b, running, at, hold));
       }} />}
-    {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now)}` : undefined} at={at} now={now} day={pastDay} onTime={setAt}>
+    {panel === "breast" && <Panel title="Which side?" detail={last?.data.side ? `Last: ${word[last.data.side]}, ${friendlyTime(last.occurred_at, now, timeZone)}` : undefined} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {(["left", "right", "both"] as const).map((choice) => <Option key={choice} label={word[choice]} strong={choice === next} detail={choice === next ? "Next" : undefined}
           onPress={() => void side(choice)} />)}
       </View>
     </Panel>}
-    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} at={at} now={now} day={pastDay} onTime={setAt} onSave={(choice) => void bottle(choice)} />}
-    {panel === "diaper" && <Panel title="Diaper" at={at} now={now} day={pastDay} onTime={setAt}>
+    {panel === "bottle" && <BottlePanel start={bottleStart(rows, child.id)} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change} onSave={(choice) => void bottle(choice)} />}
+    {panel === "diaper" && <Panel title="Diaper" at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {diaperChoices.map((choice) => <Option key={choice.type} label={choice.label} onPress={() => void diaper(choice.label, choice.type)} />)}
       </View>
     </Panel>}
-    {panel === "sleep" && <Panel title={openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now)}` : pastDay ? "Sleep, how long?" : "Sleep"} at={at} now={now} day={pastDay} onTime={setAt}>
+    {panel === "sleep" && <Panel title={openSleep ? `Sleeping since ${friendlyTime(openSleep.occurred_at, now, timeZone)}` : pastDay ? "Sleep, how long?" : "Sleep"} at={at} now={now} day={pastDay} timeZone={timeZone} needTime={needTime} onTime={change}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {pastDay ? ([["30 min", 30], ["1 hr", 60], ["2 hr", 120], ["3 hr", 180]] as const).map(([label, minutes]) => <Option key={label} label={label} onPress={() => void sleepFor(minutes)} />)
           : <Option label={openSleep ? "End" : "Start"} strong onPress={() => void sleep()} />}

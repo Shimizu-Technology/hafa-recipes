@@ -335,7 +335,7 @@ it("uses the explicit shared signup provisioner without a Baby generation header
   expect(url).toBe("https://service.example/api/auth/clerk-transition/onboard");
   expect(init?.method).toBe("POST");
   expect(JSON.parse(init?.body as string)).toEqual({ installation_id: "cmi_" + "a".repeat(64), intent: "create_account" });
-  expect(init?.headers).toEqual({ Authorization: "Bearer verified-token", "Content-Type": "application/json" });
+  expect(init?.headers).toEqual({ Authorization: "Bearer verified-token", "Content-Type": "application/json", "X-Baby-Client": "2" });
 });
 
 it("distinguishes server upload failure from offline without reflecting private details", async () => {
@@ -354,7 +354,10 @@ it("sends X-Baby-Client from one constant, and only when it is set", async () =>
     return new Response(JSON.stringify({ items: [], total: 0, has_more: false }), { status: 200 });
   });
   await api.records({});
-  expect(seen[0]["X-Baby-Client"]).toBe(babyClient ? String(babyClient) : undefined);
+  expect(babyClient).toBe(2);
+  expect(seen[0]["X-Baby-Client"]).toBe("2");
+  // Client 2 stays in the personal space, so it never names one.
+  expect(seen[0]["X-Baby-Space"]).toBeUndefined();
 });
 
 describe("feed actions on the wire", () => {

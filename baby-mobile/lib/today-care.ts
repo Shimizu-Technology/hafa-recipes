@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useBaby } from "./context";
 import { careKinds, messageFor, type BabyRecord, type DeviceState, type Kind, type RecordPage } from "./models";
+import { newestFirst } from "./feed-reducer";
 import { pendingRecords, replaceRecord } from "./outbox";
 
 /** A successful scoped response replaces cached matches; private cached care is
@@ -28,7 +29,7 @@ export function todayCareRows(
     .filter((row) => !deleted.has(row.id))
     .filter((row) => !childId || !row.child_id || row.child_id === childId)
     .filter((row) => remote === null || remote.has(row.id) || local.has(row.id))
-    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at) || a.id.localeCompare(b.id))
+    .sort(newestFirst)
     .slice(0, limit);
 }
 /** Enough recent care for today's totals at newborn frequency (about 30 entries a day per baby). */

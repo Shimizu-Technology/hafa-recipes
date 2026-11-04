@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
+import type { BabyRecord } from "./models";
+import { withFeedAction } from "./feed-reducer";
 import {
+  rejectedAction,
+  retryLater,
   addMutation,
   mutationRecordId,
   uploadedReferences,
@@ -113,7 +117,7 @@ describe("offline attachment ancestry", () => {
     expect(inheritedFiles(state, row.id)).toEqual([{ ...file, uploaded_id: "server-attachment" }]);
   });
   it("advances a queued correction and deletion to the successfully saved ancestor revision without losing files", () => {
-    const saved = { ...row, revision: 4, data: { attachment_ids: ["server-attachment"] } },
+    const saved = { ...row, revision: row.revision + 1, data: { attachment_ids: ["server-attachment"] } },
       file = { id: "local-photo", uri: "file:///private/photo.jpg", name: "photo.jpg", mime_type: "image/jpeg" };
     const correction: Mutation = {
       id: "save-b",
@@ -123,11 +127,11 @@ describe("offline attachment ancestry", () => {
       files: [file],
     };
     expect(advancePending(correction, saved)).toMatchObject({
-      record: { revision: 4, body: "edited while offline" },
+      record: { revision: row.revision + 1, body: "edited while offline" },
       files: [file],
     });
     expect(advancePending({ id: "delete", type: "delete", generation: 1, record: row }, saved)).toMatchObject({
-      record: { revision: 4 },
+      record: { revision: row.revision + 1 },
     });
   });
 });
@@ -203,6 +207,70 @@ it("applies the edit's attachment additions and removals to the terminal import 
     data: { attachment_ids: ["keep", "remove", "import-addition"] } };
   expect(advanceAfterImport(edit, result, { id: "job", status: "ready", baseline }))
     .toMatchObject({ record: { data: { attachment_ids: ["keep", "import-addition", "local-addition"] } } });
+});
+
+describe("a change waiting behind its record", () => {
+  const start = { id: "s", action: "start" as const, at: "2026-11-04T12:00:00.000Z", side: "left" as const },
+    end = { id: "e", action: "finish" as const, at: "2026-11-04T12:01:01.500Z" },
+    feedRow = (revision: number, data: BabyRecord["data"] = { method: "breast", side: "left", state: "running", actions: [start] }): BabyRecord =>
+      ({ id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: "baby", occurred_at: start.at, data, revision, created_at: "", updated_at: "" }),
+    accepted = (revision: number) => feedRow(revision, { method: "breast", side: "left", state: "finished", actions: [start, end], end_at: end.at, duration_minutes: 1.02 }),
+    edit = (revision: number, data: BabyRecord["data"]): Mutation => ({ id: "edit", generation: 1, type: "save", files: [], record: { ...feedRow(revision), body: "note", data } });
+  it("follows one step, this phone's own write", () => {
+    expect(advancePending(edit(1, { method: "breast" }), feedRow(2))).toMatchObject({ record: { revision: 2 } });
+    expect(advancePending({ id: "d", generation: 1, type: "delete", record: feedRow(1) }, feedRow(2))).toMatchObject({ record: { revision: 2 } });
+    expect(advancePending(edit(0, { method: "breast" }), feedRow(1))).toMatchObject({ record: { revision: 1 } });
+  });
+  it("stays put past another phone's edit, so the API raises the conflict: nothing overwritten, nothing deleted", () => {
+    expect(advancePending(edit(1, { method: "breast" }), accepted(3), true)).toMatchObject({ record: { revision: 1, data: { method: "breast" } } });
+    expect(advancePending({ id: "d", generation: 1, type: "delete", record: feedRow(1) }, accepted(3), true)).toMatchObject({ record: { revision: 1 } });
+  });
+  it("stays put on a replay it has already seen", () => {
+    expect(advancePending(edit(2, { method: "breast" }), feedRow(2), true)).toMatchObject({ record: { revision: 2 } });
+  });
+  it("takes the API's duration when an editor opened with Done queued left it alone, so it isn't read as a correction", () => {
+    const opened = withFeedAction(feedRow(1).data, end);
+    expect(opened.duration_minutes).toBe(1.02);
+    const stale = { ...opened, duration_minutes: 1.03 };
+    // The editor captured what the phone worked out. The API's answer replaces it, and the actions come too.
+    const rebased = advancePending(edit(1, opened), accepted(2), true);
+    expect(rebased).toMatchObject({ record: { revision: 2, body: "note", data: { duration_minutes: 1.02, side: "left", state: "finished", end_at: end.at, actions: [start, end] } } });
+    // A value the actions don't explain was typed by a person, and stays.
+    expect(advancePending(edit(1, stale), accepted(2), true)).toMatchObject({ record: { data: { duration_minutes: 1.03 } } });
+  });
+  it("takes the finish when an editor opened before Done, so its empty duration isn't read as a correction", () => {
+    expect(advancePending(edit(1, feedRow(1).data), accepted(2), true)).toMatchObject({ record: { revision: 2, data: { duration_minutes: 1.02, state: "finished", end_at: end.at, actions: [start, end] } } });
+  });
+  it("keeps a side or duration she corrected by hand", () => {
+    const corrected = { ...withFeedAction(feedRow(1).data, end), side: "right" as const };
+    expect(advancePending(edit(1, corrected), accepted(2), true)).toMatchObject({ record: { revision: 2, data: { side: "right" } } });
+  });
+  it("leaves records without actions alone, and ordinary saves don't rebase", () => {
+    const opened = withFeedAction(feedRow(1).data, end);
+    expect((advancePending(edit(1, opened), { ...accepted(2), data: { ...accepted(2).data, duration_minutes: 9 } }) as any).record.data.duration_minutes).toBe(1.02);
+  });
+});
+
+describe("what a rejected tap means", () => {
+  const end = { id: "e", action: "finish" as const, at: "2026-11-04T12:01:00.000Z" }, base = { id: "feed", kind: "feeding" as const, title: "", body: "", child_id: null, occurred_at: end.at, revision: 2, created_at: "", updated_at: "" };
+  it("drops only for a record known gone or deliberately untimed", () => {
+    expect(rejectedAction(null, end)).toBe("removed");
+    expect(rejectedAction({ ...base, data: { method: "breast", state: "finished" } }, end)).toBe("plain");
+    expect(rejectedAction({ ...base, data: { method: "bottle" } }, end)).toBe("plain");
+  });
+  it("counts a tap the record already holds, and keeps anything still timed", () => {
+    expect(rejectedAction({ ...base, data: { method: "breast", actions: [end] } }, end)).toBe("applied");
+    expect(rejectedAction({ ...base, data: { method: "breast", actions: [{ id: "s", action: "start", at: end.at, side: "left" }] } }, end)).toBe("unresolved");
+    expect(rejectedAction({ ...base, data: { method: "breast", state: "unknown_end" } }, end)).toBe("unresolved");
+  });
+  it("backs off further each try, and no further than five minutes", () => {
+    const tap: Extract<Mutation, { type: "feed_action" }> = { id: "e", generation: 1, type: "feed_action", record_id: "feed", action: end }, now = Date.parse(end.at);
+    const once = retryLater(tap, now), twice = retryLater(once, now), many = retryLater({ ...tap, attempts: 30 }, now);
+    expect(Date.parse(once.hold_until!) - now).toBe(5000);
+    expect(Date.parse(twice.hold_until!) - now).toBe(10_000);
+    expect(Date.parse(many.hold_until!) - now).toBe(300_000);
+    expect(once.id).toBe("e");
+  });
 });
 
 describe("feed actions in the outbox", () => {

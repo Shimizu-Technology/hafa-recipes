@@ -207,17 +207,88 @@ describe("feed actions in the sync loop", () => {
     await flush();
     expect(queued()).toEqual([]);
   });
-  it("drops an action whose record is gone, with nothing left to review", async () => {
+  const gone = () => { throw new ApiError("Gone", 404); };
+  const timed = (over: object = {}) => ({ ...optimisticRecord(write), revision: 2, ...over });
+  const plain = (over: object = {}) => ({ ...optimisticRecord({ ...write, data: { method: "breast" as const, side: "left" as const, state: "finished" as const } }), revision: 3, ...over });
+  it("reads the record before dropping a tap, drops it only once it's known gone, and says so", async () => {
     mock.api.feedAction.mockRejectedValueOnce(new ApiError("Gone", 404));
+    mock.api.record = vi.fn(async () => gone());
+    mock.saved = { ...mock.saved!, records: [timed()], outbox: [action("end")] };
+    await mount(); await flush();
+    expect(mock.api.record).toHaveBeenCalledWith("feed");
+    expect(queued()).toEqual([]);
+    expect(baby.state.records).toEqual([]);
+    expect(baby.state.feedNotice).toContain("removed");
+  });
+  it("drops a tap on a feed made plain by hand, keeps that record, and says so", async () => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Edited", 409));
+    mock.api.record = vi.fn(async () => plain());
     mock.saved = { ...mock.saved!, outbox: [action("end")] };
     await mount(); await flush();
     expect(queued()).toEqual([]);
-    expect(baby.error).toBe("");
+    expect(baby.state.records.find((r) => r.id === "feed")?.revision).toBe(3);
+    expect(baby.state.feedNotice).toContain("changed");
   });
-  it("drops an action on a feed a hand edit made plain: the record stands", async () => {
-    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Edited", 409));
+  it("consumes a tap the API already has, with nothing to tell her", async () => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Used", 409));
+    mock.api.record = vi.fn(async () => timed({ data: { ...write.data, actions: [start, action("end").action] } }));
     mock.saved = { ...mock.saved!, outbox: [action("end")] };
     await mount(); await flush();
+    expect(queued()).toEqual([]);
+    expect(baby.state.feedNotice).toBeUndefined();
+  });
+  it("keeps a tap when the record can't be read, or the feed still takes taps, and asks her only if it never clears", async () => {
+    mock.api.feedAction.mockRejectedValue(new ApiError("Edited", 409));
+    mock.api.record = vi.fn(async () => { throw new ApiError("Service", 503); });
+    mock.saved = { ...mock.saved!, outbox: [action("end")] };
+    await mount(); await flush();
+    expect(queued()).toEqual(["end"]);
+    expect(baby.state.outbox[0]).toMatchObject({ attempts: 1 });
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    mock.api.record = vi.fn(async () => timed());
+    for (let i = 0; i < 6; i++) await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); await settle(); });
+    expect(queued()).toEqual(["end"]);
+    expect(baby.state.outbox[0].error).toContain("couldn’t be added");
+    expect(baby.state.feedNotice).toBeUndefined();
+  });
+  it("tells her when a switch landed after the feed had already finished", async () => {
+    const late = { id: "swap", generation: 1, type: "feed_action" as const, record_id: "feed", action: { id: "swap", action: "switch" as const, at: "2026-11-04T12:09:30.000Z", side: "right" as const } };
+    mock.api.feedAction = vi.fn(async () => timed({ revision: 3, data: { ...write.data, state: "finished", end_at: "2026-11-04T12:09:00.000Z" } }));
+    mock.saved = { ...mock.saved!, outbox: [late] };
+    await mount(); await flush();
+    expect(baby.state.feedNotice).toContain("already finished");
+  });
+  it.each([408, 429, 500, 503])("waits and retries the same tap after a %i, and later changes follow", async (status) => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Busy", status));
+    const later = { id: "note", generation: 1, type: "save" as const, files: [], record: { ...write, body: "note", revision: 1 } };
+    mock.api.save = vi.fn(async (r: any) => ({ ...optimisticRecord(r), revision: r.revision + 1 }));
+    mock.saved = { ...mock.saved!, outbox: [action("end"), later] };
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ id: "end", attempts: 1, sent: true });
+    expect(baby.state.outbox[0].error).toBeUndefined();
+    expect(mock.api.save).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5100); await settle(); });
+    expect(mock.api.feedAction.mock.calls.map((call: any[]) => call[1].id)).toEqual(["end", "end"]);
+    expect(queued()).toEqual([]);
+    expect(mock.api.save).toHaveBeenCalledOnce();
+  });
+  it("sends a waiting edit at its own revision when someone else wrote first, so the API can stop it", async () => {
+    // The tap lands at revision 3 on a record this phone knew at 1: another phone wrote revision 2.
+    mock.api.feedAction = vi.fn(async () => timed({ revision: 3 }));
+    const edit = { id: "note", generation: 1, type: "save" as const, files: [], record: { ...write, body: "mine", revision: 1 } };
+    mock.api.save = vi.fn(async (r: any) => { if (r.revision !== 3) throw new ApiError("Changed", 409); return { ...optimisticRecord(r), revision: 4 }; });
+    mock.saved = { ...mock.saved!, outbox: [action("end"), edit] };
+    await mount(); await flush();
+    expect(mock.api.save).toHaveBeenCalledWith(expect.objectContaining({ body: "mine", revision: 1 }), 1);
+    expect(baby.state.outbox[0]).toMatchObject({ id: "note", conflict: true });
+  });
+  it("marks a tap sent before its request, and doesn't send one Undo took first", async () => {
+    let release!: () => void;
+    mock.api.feedAction = vi.fn(() => new Promise((yes) => { release = () => yes(timed({ revision: 2 })); }));
+    mock.saved = { ...mock.saved!, outbox: [action("end")] };
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ sent: true });
+    await act(async () => { release(); await settle(); });
     expect(queued()).toEqual([]);
   });
   it("marks any other rejection for review, without losing it", async () => {

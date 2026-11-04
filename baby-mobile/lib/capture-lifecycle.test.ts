@@ -101,6 +101,27 @@ it("does not recreate a saved draft when its serialized commit is held through a
   expect(account.state.outbox).toHaveLength(1);
   expect(account.state.drafts).toEqual({});
 });
+it("lets an unchanged zero-minute feed through, and still stops a zero she typed", async () => {
+  const account = setup(), feed = { id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: null, occurred_at: "2026-10-21T07:50:00.000Z", revision: 2, created_at: "", updated_at: "",
+    data: { method: "breast", side: "left", duration_minutes: 0 } };
+  (account as { records: unknown[] }).records = [feed];
+  const before = scope.params;
+  scope.params = { id: "feed" } as unknown as typeof scope.params;
+  await mount(Edit);
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(1);
+  await act(async () => renderer!.unmount());
+  renderer = undefined;
+  (account as { records: unknown[] }).records = [{ ...feed, data: { ...feed.data, duration_minutes: 12 } }];
+  account.state = { ...account.state, outbox: [] };
+  await mount(Edit);
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Field" && node.props.label?.startsWith("Duration"))[0].props.onChange("0"));
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(0);
+  scope.params = before;
+});
 it("resumes draft protection when the save commit fails", async () => {
   const account = setup(); account.commit.mockRejectedValueOnce(Error("Device storage unavailable"));
   await mount(Edit);

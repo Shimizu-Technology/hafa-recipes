@@ -57,6 +57,13 @@ export function recordDay(iso: string, timeZone?: string | null) {
   } catch { return dayKey(instant); }
 }
 
+/** A clock time on the family's clock, or the phone's if the zone can't be read. */
+export function clockIn(date: Date, timeZone?: string | null) {
+  const format = { hour: "numeric", minute: "2-digit" } as const;
+  try { return date.toLocaleTimeString(undefined, timeZone ? { ...format, timeZone } : format); }
+  catch { return date.toLocaleTimeString(undefined, format); }
+}
+
 /** Sleep inside a day. A sleep running over midnight counts on both days, and overlaps count once. */
 export function sleepMs(rows: readonly BabyRecord[], from: string, to: string, now = new Date()) {
   const start = new Date(from).getTime(), end = Math.min(new Date(to).getTime(), now.getTime());
