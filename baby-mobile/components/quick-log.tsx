@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { messageFor, type BabyRecord, type Child } from "@/lib/models";
-import { runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
+import { retimedActions, runningFeed, withFeedAction, type RunningFeed } from "@/lib/feed-reducer";
 import { careGlance, nextSide } from "@/lib/care-glance";
 import { sendsCareDetails } from "@/lib/api";
 import { amendCare, bottleStart, careWrite, changeUnit, logCare, stepAmount, updateCare, type BottleChoice } from "@/lib/quick-care";
 import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
 import { clockText, type FeedSide } from "@/lib/feed-timer";
-import { finishFeed, startFeed, switchFeed } from "@/lib/running-feed";
+import { feedWrite, finishFeed, startFeed, switchFeed } from "@/lib/running-feed";
 import { Icon, PressTarget, easeOut, fonts, radii, tap, typeScale, useColors, useToast, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
@@ -245,7 +245,8 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
       const record = careWrite("feeding", child.id, { method: "breast", side: "both" }, time);
       return save("Both sides", () => logCare(b, record), { recordId: record.id, at: record.occurred_at });
     }
-    return save(word[choice], () => startFeed(b, child.id, choice, time));
+    const record = feedWrite(child.id, choice, time);
+    return save(word[choice], () => startFeed(b, record), { recordId: record.id, at: record.occurred_at });
   }
   function bottle(choice: Pick<BottleChoice, "amount" | "unit" | "contents">) {
     const record = careWrite("feeding", child.id, { method: "bottle", amount: choice.amount, unit: choice.unit,
@@ -276,7 +277,8 @@ export function QuickLog({ child, rows, now, legacyTimer }: {
       onMove={(iso) => {
         const moved = iso ?? new Date().toISOString();
         setSaved({ ...saved, at: moved });
-        amend(() => ({ occurred_at: moved }));
+        // A running feed's time is its start, so the clock on the card follows. The API moves its own copy the same way.
+        amend((row) => ({ occurred_at: moved, ...(row.data.actions ? { data: { ...row.data, actions: retimedActions(row.data.actions, moved) } } : {}) }));
       }}
       // An explicit null clears it: the API keeps a field a PATCH leaves out.
       onColor={(color) => amend((row) => ({ data: { ...row.data, color: color ?? null } }))}

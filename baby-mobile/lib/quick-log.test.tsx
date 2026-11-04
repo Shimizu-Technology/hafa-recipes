@@ -219,6 +219,20 @@ it("shows a feed the other phone started, and finishes it from here", async () =
   expect(pendingRecords(b.state)[0].data).toMatchObject({ state: "finished", duration_minutes: 4 });
 });
 
+it("moves a running feed's start with the time chip, and the clock follows", async () => {
+  const b = setup();
+  await mount();
+  await press("Breastfeed");
+  await press("Left");
+  const chip = targets().find((n) => n.props.accessibilityLabel?.startsWith("Change time,"))!;
+  await act(async () => chip.props.onPress());
+  await refresh();
+  await press("5 min ago");
+  const moved = new Date(start.getTime() - 5 * 60_000).toISOString();
+  expect(pendingRecords(b.state)[0]).toMatchObject({ occurred_at: moved, data: { actions: [{ action: "start", at: moved }] } });
+  expect(texts().some((t) => t.startsWith("Left · 05:00"))).toBe(true);
+});
+
 it("leaves an older timer to finish on its own card first", async () => {
   const b = setup();
   b.state = { ...b.state, feedTimer: { child_id: "baby", generation: 2, started_at: start.toISOString(), segments: [{ side: "left", started_at: start.toISOString() }] } };

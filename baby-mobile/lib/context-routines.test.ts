@@ -214,6 +214,12 @@ describe("feed actions in the sync loop", () => {
     expect(queued()).toEqual([]);
     expect(baby.error).toBe("");
   });
+  it("drops an action on a feed a hand edit made plain: the record stands", async () => {
+    mock.api.feedAction.mockRejectedValueOnce(new ApiError("Edited", 409));
+    mock.saved = { ...mock.saved!, outbox: [action("end")] };
+    await mount(); await flush();
+    expect(queued()).toEqual([]);
+  });
   it("marks any other rejection for review, without losing it", async () => {
     mock.api.feedAction.mockRejectedValueOnce(new ApiError("Review", 422));
     mock.saved = { ...mock.saved!, outbox: [action("end")] };

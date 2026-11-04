@@ -294,8 +294,9 @@ export function BabyProvider({ children }: PropsWithChildren) {
             try {
               result = await api.feedAction(next.record_id, next.action, next.generation);
             } catch (failure) {
-              // The record is gone, on another phone or by Undo. There's nothing left for this action to change.
-              if (!(failure instanceof ApiError && failure.status === 404)) throw failure;
+              // The record is gone (404), or a hand edit made it a plain entry (409). The record stands, and there's
+              // nothing left for this action to change.
+              if (!(failure instanceof ApiError && (failure.status === 404 || failure.status === 409))) throw failure;
             }
           } else {
             let files = next.files.map((f) => ({

@@ -31,10 +31,12 @@ async function cancelAction(b: Account, id: string) {
 }
 
 /** Left or Right: the record is created with its start, so it's saved and synced as soon as the side is tapped. */
-export function startFeed(b: Account, childId: string, side: FeedSide, now = new Date()) {
-  const at = now.toISOString(),
-    action: FeedAction = { id: Crypto.randomUUID(), action: "start", at, side };
-  return logCare(b, careWrite("feeding", childId, { method: "breast", side, state: "running", actions: [action] }, now));
+export function feedWrite(childId: string, side: FeedSide, now = new Date()) {
+  const action: FeedAction = { id: Crypto.randomUUID(), action: "start", at: now.toISOString(), side };
+  return careWrite("feeding", childId, { method: "breast", side, state: "running", actions: [action] }, now);
+}
+export function startFeed(b: Account, record: ReturnType<typeof feedWrite>) {
+  return logCare(b, record);
 }
 
 export async function switchFeed(b: Account, feed: RunningFeed, now = new Date()) {

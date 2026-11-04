@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderActions, reduceFeed, runningFeed, runningLimit, withFeedAction } from "./feed-reducer";
+import { orderActions, reduceFeed, retimedActions, runningFeed, runningLimit, withFeedAction } from "./feed-reducer";
 import { optimisticRecord, type BabyRecord, type FeedAction } from "./models";
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 10, 4, 12, minutes)).toISOString();
@@ -32,17 +32,44 @@ describe("the reducer gives one result whatever the arrival order", () => {
   });
 });
 
-it("has no duration until it is finished, and no result without a start", () => {
-  expect(reduceFeed([start(0), swap(5, "right")])).toMatchObject({ state: "running", side: "both" });
+it("has no duration until it is finished, and nothing to say without an action", () => {
+  expect(reduceFeed([start(0), swap(5, "right")])).toMatchObject({ state: "running", side: "both", start_side: "left" });
   expect(reduceFeed([start(0)])?.duration_minutes).toBeUndefined();
   expect(reduceFeed([start(0)])?.end_at).toBeUndefined();
-  expect(reduceFeed([finish(5)])).toBeUndefined();
   expect(reduceFeed(undefined)).toBeUndefined();
+  expect(reduceFeed([])).toBeUndefined();
 });
 
-it("ignores a switch to the side already running, and a finish stamped before the start", () => {
-  expect(reduceFeed([start(0), swap(3, "left")])).toMatchObject({ side: "left", segments: [{ side: "left", started_at: at(0) }] });
-  expect(reduceFeed([finish(0, "z"), start(5)])).toMatchObject({ state: "running" });
+describe("matches the API where clocks disagree", () => {
+  it("skips a switch to the side already running", () => {
+    expect(reduceFeed([start(0), swap(3, "left")])).toMatchObject({ side: "left", segments: [{ side: "left", started_at: at(0) }] });
+  });
+  it("treats a finish stamped before the start as terminal: the earliest finish ends it", () => {
+    expect(reduceFeed([finish(0, "z"), start(5)])).toEqual({ state: "finished", start_side: "left", side: undefined, segments: [], end_at: at(0) });
+  });
+  it("opens the first segment at a switch stamped before the start, and counts it", () => {
+    expect(reduceFeed([swap(0, "right"), start(2, "left"), finish(4)])).toMatchObject({ side: "both", start_side: "left", duration_minutes: 4,
+      segments: [{ side: "right", started_at: at(0), ended_at: at(2) }, { side: "left", started_at: at(2), ended_at: at(4) }] });
+  });
+  it("still derives from a switch or a finish with no start", () => {
+    expect(reduceFeed([swap(1, "right")])).toMatchObject({ state: "running", side: "right", start_side: "right" });
+    expect(reduceFeed([finish(1)])).toMatchObject({ state: "finished", segments: [] });
+  });
+  it("gives minutes to two decimals with no minimum, and none past a day", () => {
+    const seconds = (s: number) => new Date(Date.UTC(2026, 10, 4, 12, 0, s)).toISOString();
+    expect(reduceFeed([start(0), { id: "f", action: "finish", at: seconds(20) }])?.duration_minutes).toBe(0.33);
+    const long = { id: "f", action: "finish" as const, at: new Date(Date.UTC(2026, 10, 6, 12, 1)).toISOString() };
+    expect(reduceFeed([start(0), long])).toMatchObject({ state: "finished", end_at: long.at });
+    expect(reduceFeed([start(0), long])?.duration_minutes).toBeUndefined();
+  });
+  it("sorts ids as plain text, not by locale", () => {
+    const hyphen: FeedAction = { id: "a-b", action: "switch", at: at(1), side: "right" }, letter: FeedAction = { id: "aab", action: "switch", at: at(1), side: "left" };
+    // "-" sorts before "a" in code units; a locale compare would ignore it.
+    expect(orderActions([letter, hyphen]).map((a) => a.id)).toEqual(["a-b", "aab"]);
+  });
+  it("moves the start when a time is corrected, and leaves the other taps", () => {
+    expect(retimedActions([start(5), swap(7, "right")], at(1)).map((a) => [a.action, a.at])).toEqual([["start", at(1)], ["switch", at(7)]]);
+  });
 });
 
 it("applies an action once, however many times it is replayed", () => {
@@ -53,6 +80,8 @@ it("applies an action once, however many times it is replayed", () => {
 
 const feed = (id: string, actions: FeedAction[], child = "baby", extra: Partial<BabyRecord["data"]> = {}): BabyRecord =>
   optimisticRecord({ id, kind: "feeding", title: "Feeding", body: "", child_id: child, occurred_at: actions[0]?.at ?? at(0), data: { method: "breast", actions, ...extra } });
+const plain = (id: string, minute: number, method: "breast" | "bottle", side?: "both"): BabyRecord =>
+  optimisticRecord({ id, kind: "feeding", title: "Feeding", body: "", child_id: "baby", occurred_at: at(minute), data: { method, ...(side ? { side } : {}) } });
 const now = new Date(at(10));
 
 describe("the running feed for a baby", () => {
@@ -66,6 +95,15 @@ describe("the running feed for a baby", () => {
   });
   it("is none when the newest start finished, even with an older one left open", () => {
     expect(runningFeed([feed("older", [start(0)]), feed("newer", [start(5), finish(7)])], "baby", now)).toBeUndefined();
+  });
+  it("is ended by a Both tap, but not by a bottle, which may be a top-up", () => {
+    expect(runningFeed([feed("older", [start(0)]), plain("both", 5, "breast", "both")], "baby", now)).toBeUndefined();
+    expect(runningFeed([feed("older", [start(0)]), plain("top-up", 5, "bottle")], "baby", now)?.record.id).toBe("older");
+  });
+  it("comes back when the newer feed is removed: it is derived, not sticky", () => {
+    const old = feed("older", [start(0)]);
+    expect(runningFeed([old, feed("newer", [start(5)])], "baby", now)?.record.id).toBe("newer");
+    expect(runningFeed([old], "baby", now)?.record.id).toBe("older");
   });
   it("keeps to its own baby, and ignores a feed the server marked unknown_end or one past the limit", () => {
     expect(runningFeed([feed("sibling", [start(5)], "other")], "baby", now)).toBeUndefined();
