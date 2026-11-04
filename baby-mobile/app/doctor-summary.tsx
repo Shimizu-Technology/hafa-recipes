@@ -5,7 +5,7 @@ import { useBaby } from "@/lib/context";
 import { customProblem, waitingEntries, type CareStats } from "@/lib/care-stats";
 import { kindName, messageFor, type BabyRecord } from "@/lib/models";
 import { friendlyTime } from "@/lib/care-format";
-import { lastSummaryLevel, localEntries, summaryEntries, summaryFileName, summaryHtml, summaryMaxDays } from "@/lib/doctor-summary";
+import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, summaryMaxDays } from "@/lib/doctor-summary";
 import { exportOnePagePdf } from "@/lib/files";
 import { profileToday, timingChild } from "@/lib/timing";
 import { addDays, dayKey } from "@/lib/tracker";
@@ -29,7 +29,7 @@ export default function DoctorSummary() {
     choice = useMemo(() => (problem ? null : { range: "custom" as const, from, to }), [problem, from, to]),
     answer = useCareStats(choice, childId),
     // `server` is false for what this phone holds, up at once and kept if the API can't be read (`failed`).
-    [entries, setEntries] = useState<{ key: string; rows: Entries; server: boolean; failed: boolean } | null>(null),
+    [entries, setEntries] = useState<{ key: string; rows: Entries; server: boolean; failed: boolean; tooLong?: string } | null>(null),
     // Questions and log notes start ticked. A journal entry is private, so it's only on the page if she ticks it.
     [picks, setPicks] = useState<Record<string, boolean>>({}),
     [busy, setBusy] = useState<"full" | "picked" | null>(null),
@@ -48,7 +48,7 @@ export default function DoctorSummary() {
     setEntries((prior) => (prior?.key === key ? prior : { key, rows: phone, server: false, failed: false }));
     void summaryEntries(b.api, b.state, childId, from, to, timezone).then(
       (rows) => { if (active) setEntries({ key, rows, server: true, failed: false }); },
-      () => { if (active) setEntries({ key, rows: phone, server: false, failed: true }); });
+      (e) => { if (active) setEntries({ key, rows: phone, server: false, failed: true, tooLong: e instanceof SummaryTooLong ? e.message : undefined }); });
     return () => { active = false; };
   }, [key, queue, attempt]);
   // A tick is for this baby's page. An entry with no baby shows on each, and shouldn't arrive already ticked.
@@ -60,7 +60,7 @@ export default function DoctorSummary() {
     picked = rows ? { questions: rows.questions.filter(on), notes: [...rows.journal, ...rows.logNotes].filter(on) } : null,
     waiting = stats ? waitingEntries(b.state, childId, stats, timezone) : 0,
     // Why the totals can't go on a page right now. A wrong total is worse than no page.
-    why = problem ? "" : answer.error || held?.failed ? "Håfa can’t be reached right now, and the totals come from there. You can still share your questions and notes."
+    why = problem ? "" : held?.tooLong ? held.tooLong : answer.error || held?.failed ? "Håfa can’t be reached right now, and the totals come from there. You can still share your questions and notes."
       : stats && !stats.complete ? "There are more logs in these days than a summary can add up at once, so its totals wouldn’t be right. Choose fewer days."
       : waiting === 1 ? "1 entry is still waiting to sync, so the totals would leave it out. You can share the full page once it’s synced, or your questions and notes now."
       : waiting ? `${waiting} entries are still waiting to sync, so the totals would leave them out. You can share the full page once they’ve synced, or your questions and notes now.` : "",

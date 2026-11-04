@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { answer, day } from "./care-stats-fixtures";
 import { emptyState, optimisticRecord, type BabyRecord, type Mutation } from "./models";
-import { lastSummaryLevel, localEntries, summaryEntries, summaryFileName, summaryHtml, type SummaryPage } from "./doctor-summary";
+import { lastSummaryLevel, localEntries, summaryEntries, SummaryTooLong, summaryFileName, summaryHtml, type SummaryPage } from "./doctor-summary";
 
 const row = (id: string, kind: BabyRecord["kind"], occurred_at: string, body = "", changes: Partial<BabyRecord> = {}) =>
   ({ ...optimisticRecord({ id, kind, title: kind === "journal" ? `Entry ${id}` : "", body, child_id: "baby", occurred_at, data: {} }), revision: 1, ...changes });
@@ -119,6 +119,14 @@ describe("gathering what can go on it", () => {
     expect(found.logNotes.map((item) => item.id)).toEqual(["feed-note"]);
     expect(found.journal.map((item) => item.id)).toEqual(["general", "in"]);
     expect(source.records.mock.calls.every(([filters]) => filters.child_id === "baby")).toBe(true);
+  });
+  it("refuses rather than quietly stopping when there are more entries than it can read", async () => {
+    const endless = (kind: string) => ({ records: vi.fn(async (filters: any) => ({ items: [], total: 9999, has_more: filters.kinds.includes(kind) })) });
+    const logs = endless("feeding"), questions = endless("question");
+    const asked = summaryEntries(logs as never, emptyState(), "baby", "2026-11-01", "2026-11-05", "Pacific/Guam");
+    await expect(asked).rejects.toBeInstanceOf(SummaryTooLong);
+    await expect(asked).rejects.toThrow("Choose fewer days");
+    await expect(summaryEntries(questions as never, emptyState(), "baby", "2026-11-01", "2026-11-05", "Pacific/Guam")).rejects.toThrow("more questions saved");
   });
   it("counts a queued question and drops a queued delete", async () => {
     const deleted = row("gone", "question", "2026-11-03T00:00:00.000Z", "Gone");

@@ -9,7 +9,7 @@ import { clockIn, dayRange, keyDate, recordDay } from "./tracker";
 /** A page holds a month of daily rows and still has room for the rest. */
 export const summaryMaxDays = 31;
 const careKinds: readonly Kind[] = ["feeding", "sleep", "diaper", "contraction", "kick_session"],
-  pageLimit = 100, pagesLimit = 12;
+  pageLimit = 100, pagesLimit = 20;
 
 const time = (iso: string) => new Date(iso).getTime();
 const newest = (x: BabyRecord, y: BabyRecord) => time(y.occurred_at) - time(x.occurred_at);
@@ -31,18 +31,25 @@ function entriesIn(all: BabyRecord[], childId: string | null, first: string, las
 export const localEntries = (state: DeviceState, childId: string | null, first: string, last: string, timezone?: string | null) =>
   entriesIn(pendingRecords(state), childId, first, last, timezone);
 
+/** More than a summary can read. Better no full page than one quietly missing a note she'd want the doctor to see. */
+export class SummaryTooLong extends Error {}
+
 /** All of it, from the API. Queued changes count, as they do on the Day view. */
 export async function summaryEntries(api: Pick<BabyApi, "records">, state: DeviceState, childId: string | null, first: string, last: string, timezone?: string | null) {
   const { from } = dayRange(first, timezone), { to } = dayRange(last, timezone), rows: BabyRecord[] = [];
-  const read = async (filters: Parameters<BabyApi["records"]>[0]) => {
+  const read = async (filters: Parameters<BabyApi["records"]>[0], tooLong: string) => {
     for (let page = 0; page < pagesLimit; page++) {
       const response = await api.records({ ...filters, limit: pageLimit, offset: page * pageLimit || undefined });
       rows.push(...response.items);
-      if (!response.has_more) break;
+      if (!response.has_more) return;
     }
+    throw new SummaryTooLong(tooLong);
   };
-  await read({ kinds: ["question"], child_id: childId, include_general: true });
-  await read({ kinds: [...careKinds, "journal"], child_id: childId, include_general: true, occurred_from: from, occurred_to: to });
+  // Questions aren't limited by the dates, so fewer days wouldn't help with those.
+  await read({ kinds: ["question"], child_id: childId, include_general: true },
+    "You have more questions saved than a summary can hold. Remove some you no longer need, then try again.");
+  await read({ kinds: [...careKinds, "journal"], child_id: childId, include_general: true, occurred_from: from, occurred_to: to },
+    "There are more entries in these days than a summary can hold, so some notes would be left out. Choose fewer days.");
   const changed = new Set(state.outbox.map(mutationRecordId)),
     queued = pendingRecords(state).filter((row) => changed.has(row.id));
   return entriesIn([...rows.filter((row) => !changed.has(row.id)), ...queued], childId, first, last, timezone);
