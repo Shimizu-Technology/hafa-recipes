@@ -102,6 +102,18 @@ it("asks which chart when the profile has no answer, shows it for this visit, an
   expect(m.account.commit).not.toHaveBeenCalled();
 });
 
+it("doesn't carry a chart she picked for one baby over to another", async () => {
+  setup("not_sure");
+  const bootstrap = m.account.state.bootstrap;
+  m.account.state = { ...m.account.state, bootstrap: { ...bootstrap, children: [...bootstrap.children, { id: "sister", name: "Mia", birth_date: "2026-12-10", revision: 1 }] } };
+  await mount();
+  await act(async () => renderer!.root.findByProps({ label: "Which chart", value: "" }).props.onChange("boys"));
+  expect(renderer!.root.findAll((n) => n.props.accessibilityRole === "image")).toHaveLength(1);
+  m.account.state = { ...m.account.state, selectedChild: "sister" };
+  await act(async () => renderer!.update(<Growth />));
+  expect(renderer!.root.findAll((n) => n.props.accessibilityRole === "image")).toEqual([]);
+  expect(renderer!.root.findByProps({ label: "Which chart" }).props.value).toBe("");
+});
 it("goes straight to the chart when the profile has an answer, and can still show the other one", async () => {
   setup("boy");
   m.rows = [row({ weight: 7.5, weight_unit: "lb" }, "2026-12-10T02:00:00.000Z")];

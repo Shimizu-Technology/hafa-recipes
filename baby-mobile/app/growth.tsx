@@ -26,9 +26,9 @@ export default function Growth() {
     child = timingChild(b.state, today), childId = child?.id ?? null,
     care = useTodayCare({ kinds: ["growth"], pages: 5, limit: 500, poll: false, child: childId }),
     [measure, setMeasure] = useState<Measure>("weight"),
-    // The profile says, once it has an answer. Until then she picks one here, and nothing is stored about the baby.
-    [picked, setPicked] = useState<ChartSex | null>(null),
-    sex = picked ?? (child ? chartFromChild(child) : null),
+    // The profile says, once it has an answer. Until then she picks one here, for this baby only, and nothing is stored about them.
+    [picked, setPicked] = useState<{ childId: string | null; sex: ChartSex } | null>(null),
+    sex = (picked?.childId === childId ? picked.sex : null) ?? (child ? chartFromChild(child) : null),
     flow = useLogFlow<string>(), scroller = useRef<ScrollView>(null), panelTop = useRef(0),
     tracker = trackerById("growth")!,
     points = child ? measuredOn(care.all, child, sex, measure, timeZone) : [],
@@ -40,7 +40,7 @@ export default function Growth() {
   const summary = latest ? `${measureWords[measure]} chart. ${points.length} measurement${points.length === 1 ? "" : "s"}. The latest is ${latest.text}${latest.percentile === null ? "" : `, ${percentileWords(latest.percentile)}`}.` : `${measureWords[measure]} chart, with no measurements yet.`;
   const chooser = <Section title="Which chart">
     <Copy kind="small" tone="muted">CDC’s charts are separate for boys and girls.</Copy>
-    <Chips label="Which chart" value={sex ?? ""} onChange={(next) => setPicked(next as ChartSex)}
+    <Chips label="Which chart" value={sex ?? ""} onChange={(next) => setPicked({ childId, sex: next as ChartSex })}
       options={[{ value: "girls", label: "Girls" }, { value: "boys", label: "Boys" }]} />
   </Section>;
   return <Screen scrollRef={scroller} title="Growth" subtitle={child?.name} back>
