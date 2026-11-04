@@ -74,6 +74,11 @@ async def validate_relations(db, owner, generation, child_id, data, *, record_id
         row = await owned(db, BabyAttachment, owner, generation, UUID(str(identifier)))
         if row.state != "ready":
             raise HTTPException(409, "Attachment is not ready")
+    if data.get("event_id"):
+        from uuid import UUID
+
+        if (await owned(db, BabyRecord, owner, generation, UUID(str(data["event_id"])))).kind != "event":
+            raise HTTPException(422, "Choose an event from your calendar")
     for identifier in data.get("record_ids", []):
         from uuid import UUID
 

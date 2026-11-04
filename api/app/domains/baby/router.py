@@ -97,7 +97,7 @@ def record_response(row):
 
 # Clients that predate these fields omit them; only an explicit null clears one.
 SOURCE_ADDITIONS = ("relevance", "suggested_category")
-PATCH_ADDITIONS = {"diaper": ("color",)}
+PATCH_ADDITIONS = {"diaper": ("color",), "journal": ("event_id",), "question": ("event_id",)}
 
 
 def kept_additions(current, patch, keys):
@@ -140,6 +140,11 @@ def visible_to(row, client):
     if legacy_client(client) and row.kind not in V1_KINDS:
         raise HTTPException(404, "Item unavailable")
     return row
+
+
+def no_event_link_from_legacy(client, data):
+    if legacy_client(client) and (data or {}).get("event_id") is not None:
+        raise HTTPException(422, "Update Håfa Baby to save this")
 
 
 def can_create(kind, client):
@@ -736,6 +741,7 @@ async def create_record(
     body: RecordCreate, user: User, db: Database, generation: Generation, client: Client = None
 ):
     can_create(body.kind, client)
+    no_event_link_from_legacy(client, body.data)
     member = await membership_for(db, user.id, generation=generation, write=True)
     if body.kind == "source" and body.data.get("relevance") is not None:
         body.data["relevance"] = user_timing(body.data["relevance"])
@@ -781,6 +787,7 @@ async def patch_record(
     await membership_for(db, user.id, generation=generation, write=True)
     row = visible_to(await owned(db, BabyRecord, user.id, generation, identifier), client)
     revision_matches(row, body.revision)
+    no_event_link_from_legacy(client, body.data)
     values = {key: deepcopy(getattr(row, key)) for key in RecordCreate.model_fields}
     values.update(body.model_dump(exclude_unset=True, exclude={"revision"}))
     if row.kind == "source" and isinstance(body.data, dict):
@@ -889,6 +896,19 @@ async def delete_record(
                 ],
             }
             collection.revision, collection.updated_at = collection.revision + 1, now()
+    if row.kind == "event":
+        # A question or note about a visit stays; only its link to the removed event goes.
+        for linked in await db.scalars(
+            select(BabyRecord).where(
+                BabyRecord.app_user_id == user.id,
+                BabyRecord.generation == generation,
+                BabyRecord.deleted_at.is_(None),
+                BabyRecord.kind.in_(("question", "journal")),
+                BabyRecord.data["event_id"].as_string() == str(identifier),
+            )
+        ):
+            linked.data = {key: value for key, value in linked.data.items() if key != "event_id"}
+            linked.revision, linked.updated_at = linked.revision + 1, now()
     removed_attachments = row.data.get("attachment_ids", [])
     child_id = row.child_id
     row.deleted_at, row.title, row.body, row.data, row.child_id = now(), "", "", {}, None
