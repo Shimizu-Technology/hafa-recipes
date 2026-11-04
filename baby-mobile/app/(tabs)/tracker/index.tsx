@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { View, useWindowDimensions } from "react-native";
+import { ScrollView, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
@@ -32,6 +32,7 @@ export default function Tracker() {
     [picked, setPicked] = useState<string | null>(null),
     [newest, setNewest] = useState(true),
     [chosenView, setView] = useState<string | null>(null),
+    scroller = useRef<ScrollView>(null),
     // Kept here, so opening a day from a bar and coming back finds the same range.
     [statsChoice, setStatsChoice] = useState<StatsChoice>({ range: "7d" }),
     day = picked ?? today,
@@ -66,7 +67,7 @@ export default function Tracker() {
   const pick = (key: string) => setPicked(key === today ? null : key),
     quickLog = logging && !future ? <QuickLog key={day} child={child!} rows={recent.all} now={now} pastDay={day === today ? undefined : { key: day, timezone }} /> : null;
   return (
-    <Screen title="Tracker" onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
+    <Screen title="Tracker" scrollRef={scroller} onRefresh={() => Promise.all([care.refresh(), recent.refresh(), stats.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
       <Stack.Screen options={{ title: "Tracker" }} />
       <SyncStatus />
       {children.length > 1 && <ChildFilter only={scope ?? undefined} />}
@@ -77,7 +78,8 @@ export default function Tracker() {
       </Grouped>}
       {view === "month" ? <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date}
         onOpen={(key) => { pick(key); setView("day"); }} /> : view === "stats" ? <TrackerStats answer={stats} choice={statsChoice} onChoose={setStatsChoice} today={today} childId={scope} expecting={expecting} now={now}
-        onOpen={(key) => { pick(key); setView("day"); }} /> : <>
+        // A bar can be far down the page, and the day has to start at its own title.
+        onOpen={(key) => { pick(key); setView("day"); scroller.current?.scrollTo({ y: 0, animated: false }); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />
       <View style={{ gap: 4 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 }}>

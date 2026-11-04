@@ -22,7 +22,8 @@ export interface Bar {
   partial: boolean;
 }
 
-const slotWidth = 44, plot = 88, barWidth = 20, labelScale = 2;
+/** A week and today fit a phone without scrolling: 44pt wide on most, and just under on the smallest, where the slot is still as tall as the chart. */
+const slotWidth = 44, fitWidth = 42, plot = 88, barWidth = 20, labelScale = 2, cardPadding = 22;
 /** A bar with a 4pt rounded top, square at the baseline. */
 function barPath(x: number, top: number, bottom: number, rounded: boolean) {
   const r = rounded ? Math.min(4, (bottom - top) / 2, barWidth / 2) : 0, right = x + barWidth;
@@ -33,7 +34,7 @@ function barPath(x: number, top: number, bottom: number, rounded: boolean) {
 export function StatBars({ bars, colors, onOpen }: { bars: Bar[]; colors: readonly string[]; onOpen: (key: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), scale = Math.min(fontScale, labelScale),
     [width, setWidth] = useState(0), scroller = useRef<ScrollView>(null),
-    least = Math.round(slotWidth * scale), slot = width && width / bars.length > least ? width / bars.length : least,
+    slot = width && width / bars.length >= Math.round(fitWidth * scale) ? width / bars.length : Math.round(slotWidth * scale),
     capHeight = Math.ceil(18 * scale), height = plot + capHeight + 2,
     most = Math.max(1, ...bars.map((bar) => bar.values.reduce((total, value) => total + value, 0))),
     tall = (value: number) => (value / most) * plot,
@@ -67,7 +68,8 @@ export function StatBars({ bars, colors, onOpen }: { bars: Bar[]; colors: readon
       })}
     </View>
   </View>;
-  return <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+  // Runs to the card's edges, so a week of 44pt slots fits inside it.
+  return <View style={{ marginHorizontal: -cardPadding }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
     <ScrollView ref={scroller} horizontal showsHorizontalScrollIndicator={false} scrollEnabled={slot * bars.length > width} onContentSizeChange={() => scroller.current?.scrollToEnd({ animated: false })}>
       {chart}
     </ScrollView>

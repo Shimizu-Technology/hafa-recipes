@@ -22,6 +22,8 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
     {!!note && <Copy numeric kind="small" tone="muted">{note}</Copy>}
   </View>;
 }
+/** What an average rests on. Before any finished day has a log, there's nothing yet to rest it on. */
+const averageNote = (logged: number, total: number) => (logged ? basedOn(logged, total) : "starts after a full day is logged");
 const Tiles = ({ children }: { children: React.ReactNode }) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>{children}</View>;
 
 /** The Tracker's Stats: what was logged, by the API's numbers, and no opinion on any of them. */
@@ -44,7 +46,7 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
     pick = (value: string) => onChoose(value === "custom" ? { range: "custom", ...draft } : { range: value as "24h" | "7d" | "30d" }),
     edit = (next: typeof draft) => { setDraft(next); if (!customProblem(next.from, next.to, today)) onChoose({ range: "custom", ...next }); },
     labels = (key: string): [string, string] => [key === today ? "Today" : keyDate(key).toLocaleDateString(undefined, { weekday: "short" }), keyDate(key).toLocaleDateString(undefined, { month: "short", day: "numeric" })],
-    bar = (day: StatsDay, values: number[], cap: string, spoken: string): Bar => ({ key: day.date, labels: labels(day.date), values, partial: day.partial,
+    bar = (day: StatsDay, values: number[], cap: string, spoken: string): Bar => ({ key: day.date, labels: labels(day.date), values, partial: day.partial && !rolling,
       cap: values.some(Boolean) ? cap : nothing, spoken: `${keyDate(day.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}. ${values.some(Boolean) ? spoken : "Nothing logged"}.` }),
     days = stats?.days ?? [];
   const logged = stats ? stats.feeding.count + stats.diapers.count + stats.sleep.total_minutes + stats.sleep.open.length + stats.contractions.count + stats.kicks.sessions > 0 : false,
@@ -58,20 +60,20 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       <DateField dateOnly label="To" value={draft.to} onChange={(to) => edit({ ...draft, to })} />
       {!!problem && <Notice>{problem}</Notice>}
     </View>}
-    {!!answer.error && <Notice>{stats ? "Showing the last numbers from Håfa. " : ""}{answer.error}</Notice>}
+    {!!answer.error && <Notice>{stats ? "Showing the last numbers from Håfa." : answer.error}</Notice>}
     {answer.loading && !stats && <Copy kind="small" tone="muted">Adding it up…</Copy>}
     {!!stats && <>
       <Copy numeric kind="small" tone="muted">{rolling ? `The last 24 hours, up to ${clockIn(new Date(stats.range.end), timezone)}` : `${labels(days[0].date)[1]} to ${labels(days[days.length - 1].date)[1]}`}</Copy>
       {!stats.complete && <Notice>There are more logs in these days than Stats can add up at once, so try fewer days.</Notice>}
       {shown!.pending && <Notice>Some logs are still on this phone. Daily counts include them. Averages catch up once they’ve synced.</Notice>}
       {!logged && <Empty icon="stats-chart-outline" title="Nothing logged in these days" body={expecting ? "Contractions and kicks you time will show here." : "Feeds, diapers and sleep will add up here as you log them."} />}
-      {logged && !rolling && days.some((day) => day.partial) && <Copy kind="small" tone="muted">The paler bar is today so far. It isn’t in the averages.</Copy>}
+      {logged && care && !rolling && days.some((day) => day.partial) && <Copy kind="small" tone="muted">The paler bar is today so far. It isn’t in the averages.</Copy>}
       {logged && care && <>
         <Section title="Feeding">
           <Card>
             <Tiles>
               <Tile label="Feeds" value={String(stats.feeding.count)} />
-              {averages && <Tile label="Per day" value={stats.feeding.average_per_day === null ? nothing : String(stats.feeding.average_per_day)} note={basedOn(stats.feeding.days_logged, stats.feeding.days_total)} />}
+              {averages && <Tile label="Per day" value={stats.feeding.average_per_day === null ? nothing : String(stats.feeding.average_per_day)} note={averageNote(stats.feeding.days_logged, stats.feeding.days_total)} />}
               {stats.feeding.average_gap_minutes !== null && <Tile label="Average gap" value={duration(stats.feeding.average_gap_minutes)} note="start to start" />}
             </Tiles>
             <StatBars colors={single} onOpen={onOpen} bars={days.map((day) => bar(day, [day.feeding.count], String(day.feeding.count), words(day.feeding.count, "feed")))} />
@@ -89,17 +91,17 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
           <Card>
             <Tiles>
               <Tile label="Diapers" value={String(stats.diapers.count)} />
-              {averages && <Tile label="Per day" value={stats.diapers.average_per_day === null ? nothing : String(stats.diapers.average_per_day)} note={basedOn(stats.diapers.days_logged, stats.diapers.days_total)} />}
+              {averages && <Tile label="Per day" value={stats.diapers.average_per_day === null ? nothing : String(stats.diapers.average_per_day)} note={averageNote(stats.diapers.days_logged, stats.diapers.days_total)} />}
             </Tiles>
             <StatBars colors={colors} onOpen={onOpen} bars={days.map((day) => bar(day, [day.diapers.pee, day.diapers.poo, day.diapers.dry], String(day.diapers.count), `${words(day.diapers.count, "diaper")}: ${day.diapers.pee} pee, ${day.diapers.poo} poo, ${day.diapers.dry} dry`))} />
             <Legend colors={colors} items={[`Pee ${stats.diapers.pee}`, `Poo ${stats.diapers.poo}`, `Dry ${stats.diapers.dry}`]} />
-            {bothDiapers && <Copy kind="small" tone="muted">A diaper with both is in pee and in poo, and counts once on top of its bar.</Copy>}
+            {bothDiapers && <Copy kind="small" tone="muted">A diaper with both is in pee and in poo. The number on top counts it once.</Copy>}
           </Card>
         </Section>
         <Section title="Sleep">
           <Card>
             <Tiles>
-              <Tile label={averages ? "Per day" : "Total"} value={averages ? (stats.sleep.average_minutes_per_day === null ? nothing : duration(stats.sleep.average_minutes_per_day)) : duration(stats.sleep.total_minutes)} note={averages ? basedOn(stats.sleep.days_logged, stats.sleep.days_total) : undefined} />
+              <Tile label={averages ? "Per day" : "Total"} value={averages ? (stats.sleep.average_minutes_per_day === null ? nothing : duration(stats.sleep.average_minutes_per_day)) : duration(stats.sleep.total_minutes)} note={averages ? averageNote(stats.sleep.days_logged, stats.sleep.days_total) : undefined} />
               <Tile label="Longest stretch" value={stats.sleep.longest_minutes ? duration(stats.sleep.longest_minutes) : nothing} />
             </Tiles>
             <StatBars colors={single} onOpen={onOpen} bars={days.map((day) => bar(day, [day.sleep.total_minutes], shortHours(day.sleep.total_minutes), `${duration(day.sleep.total_minutes)} of sleep`))} />
@@ -111,7 +113,7 @@ export function TrackerStats({ answer, choice, onChoose, today, childId, expecti
       {logged && (expecting || stats.contractions.count > 0) && <Section title="Contractions">
         <Card>
           <Tiles>
-            <Tile label="Timed" value={String(stats.contractions.count)} />
+            <Tile label="Contractions" value={String(stats.contractions.count)} />
             {stats.contractions.average_seconds !== null && <Tile label="Average length" value={secondsWords(stats.contractions.average_seconds)} />}
           </Tiles>
           <StatBars colors={single} onOpen={onOpen} bars={days.map((day) => bar(day, [day.contractions.count], String(day.contractions.count), [words(day.contractions.count, "contraction"), day.contractions.average_seconds !== null ? `about ${secondsWords(day.contractions.average_seconds)} long` : ""].filter(Boolean).join(", ")))} />

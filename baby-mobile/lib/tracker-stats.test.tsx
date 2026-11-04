@@ -45,7 +45,7 @@ describe("with little or nothing logged", () => {
     const days = week(); days[6] = day(today, true, feeds(1));
     const stats = answer(days); stats.feeding.average_per_day = null; stats.feeding.days_logged = 0; stats.feeding.days_total = 6;
     await mount(stats);
-    expect(flat()).toContain("based on 0 logged days of 6");
+    expect(flat()).toContain("starts after a full day is logged");
     const labels = bars().map((bar) => bar.props.accessibilityLabel);
     expect(labels[0]).toContain("Nothing logged");
     expect(labels[6]).toContain("1 feed.");
