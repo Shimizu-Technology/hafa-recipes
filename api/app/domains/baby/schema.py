@@ -49,11 +49,14 @@ async def schema_complete(connection, *, tables, allowed_forms):
             expected = {
                 "VARCHAR": "varchar", "TEXT": "text", "INTEGER": "int4",
                 "UUID": "uuid", "JSONB": "jsonb", "DATE": "date", "DATETIME": "timestamptz",
+                "BIGINT": "int8", "BOOLEAN": "bool",
             }.get(str(column.type))
             if str(column.type).startswith("VARCHAR"):
                 expected = "varchar"
             delete_action = (
-                next(iter(column.foreign_keys)).ondelete if column.name == "app_user_id" else None
+                next(iter(column.foreign_keys)).ondelete
+                if column.name in {"app_user_id", "space_id"}
+                else None
             )
             required[column.name] = (ColumnForm(expected, column.nullable, delete_action),)
         for name, forms in (required | contract).items():

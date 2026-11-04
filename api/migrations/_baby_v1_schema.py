@@ -17,6 +17,23 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
+from app.domains.baby.schema import ColumnForm
+
+# Rerunning 050/051 must keep passing on every later stage, whatever startup later narrows to.
+BABY_V1_SPACE_TABLES = (
+    "baby_children", "baby_records", "baby_attachments", "baby_imports",
+    "baby_conversations", "baby_messages", "baby_share_credentials", "baby_share_captures",
+)
+BABY_V1_ALLOWED_FORMS = {
+    name: {"space_id": (None, ColumnForm("uuid", True, "CASCADE"), ColumnForm("uuid", False, "CASCADE"))}
+    for name in BABY_V1_SPACE_TABLES
+}
+for name in ("baby_children", "baby_records", "baby_attachments"):
+    BABY_V1_ALLOWED_FORMS[name]["app_user_id"] = (
+        ColumnForm("varchar", False, "CASCADE"),
+        ColumnForm("varchar", True, "SET NULL"),
+    )
+
 metadata = MetaData()
 # Reference targets only; these shared tables are never created here.
 Table("app_users", metadata, Column("id", String(64), primary_key=True))

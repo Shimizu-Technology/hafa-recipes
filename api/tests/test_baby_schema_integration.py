@@ -184,3 +184,35 @@ async def test_fresh_prepare_schema_runs_complete_named_chain(baby_api, monkeypa
         assert await schema_complete(db)
         assert (await db.execute(text("""SELECT version FROM schema_migrations
             WHERE version IN (50,51,52,54) ORDER BY version"""))).scalars().all() == [50, 51, 52, 54]
+
+
+async def test_later_tables_can_map_space_id_and_new_column_types():
+    """F2 will map these; an unmapped type would fail startup closed, or raise on a new table."""
+    from sqlalchemy import BigInteger, Boolean, ForeignKey, MetaData, String, Table
+    from sqlalchemy.dialects.postgresql import UUID
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.database_safety import require_disposable_test_database
+
+    meta = MetaData()
+    Table("baby_spaces", meta, Column("id", UUID(as_uuid=True), primary_key=True))
+    later = Table(
+        "baby_later_stage", meta,
+        Column("id", UUID(as_uuid=True), primary_key=True),
+        Column("space_id", UUID(as_uuid=True), ForeignKey("baby_spaces.id", ondelete="CASCADE"), nullable=False),
+        Column("seq", BigInteger, nullable=False),
+        Column("flag", Boolean, nullable=False),
+        Column("label", String(8), nullable=False),
+    )
+    require_disposable_test_database(shared.DATABASE_URL)
+    engine = create_async_engine(shared.DATABASE_URL)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP SCHEMA public CASCADE"))
+            await connection.execute(text("CREATE SCHEMA public"))
+            await connection.run_sync(meta.create_all)
+            assert await check_schema(connection, tables=(later,), allowed_forms={})
+            await connection.execute(text("ALTER TABLE baby_later_stage ALTER COLUMN seq TYPE integer"))
+            assert not await check_schema(connection, tables=(later,), allowed_forms={})
+    finally:
+        await engine.dispose()

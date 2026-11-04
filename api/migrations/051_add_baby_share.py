@@ -7,8 +7,8 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.database import engine
-from app.domains.baby.schema import ALLOWED_FORMS, schema_complete
-from migrations._baby_v1_schema import BABY_SHARE_V1_TABLES
+from app.domains.baby.schema import schema_complete
+from migrations._baby_v1_schema import BABY_SHARE_V1_TABLES, BABY_V1_ALLOWED_FORMS
 
 
 async def run_migration(*, configured=None, migration_engine=None):
@@ -37,7 +37,7 @@ async def run_migration(*, configured=None, migration_engine=None):
             )
         )
         if not await schema_complete(
-            connection, tables=BABY_SHARE_V1_TABLES, allowed_forms=ALLOWED_FORMS
+            connection, tables=BABY_SHARE_V1_TABLES, allowed_forms=BABY_V1_ALLOWED_FORMS
         ):
             raise RuntimeError("Baby migration051 schema verification failed")
         await connection.execute(
