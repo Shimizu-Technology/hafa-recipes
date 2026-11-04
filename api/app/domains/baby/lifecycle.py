@@ -298,10 +298,14 @@ async def erase_conversations(db, grants, *, actor=None, context=None):
     if context is not None:
         query = query.where(BabyConversation.context_space_ids.contains([str(context)]))
     for conversation in list(await db.scalars(query)):
-        grant = next(g for g in grants if g.id == conversation.space_id)
+        grant = next((g for g in grants if g.id == conversation.space_id), None)
+        if grant is None and conversation.space_id is not None:
+            raise HTTPException(409, "Baby access changed; retry deletion")
         for message in await db.scalars(select(BabyMessage).where(BabyMessage.conversation_id == conversation.id)):
-            await moved_out(db, message.id, grant)
-        await moved_out(db, conversation.id, grant)
+            if grant is not None:
+                await moved_out(db, message.id, grant)
+        if grant is not None:
+            await moved_out(db, conversation.id, grant)
         await db.delete(conversation)
         await db.flush()
 
@@ -344,9 +348,26 @@ async def end_family_membership(db, actor, grant, grants, *, removed=False, allo
     await db.execute(BabySpaceInvite.__table__.update().where(
         BabySpaceInvite.space_id == grant.id, BabySpaceInvite.created_by == actor,
         BabySpaceInvite.used_at.is_(None), BabySpaceInvite.revoked_at.is_(None)).values(revoked_at=now()))
+    from app.domains.baby.attachments import acquire_asset_lock, stored_prefix
+
+    prefixes = []
+    for asset in await db.scalars(select(BabyAttachment).where(
+        BabyAttachment.space_id == grant.id, BabyAttachment.app_user_id == actor,
+        BabyAttachment.state != "deleted").order_by(BabyAttachment.id)):
+        referenced = await db.scalar(select(BabyRecord.id).where(
+            BabyRecord.space_id == grant.id, BabyRecord.deleted_at.is_(None),
+            BabyRecord.data["attachment_ids"].contains([str(asset.id)])).limit(1))
+        pending = await db.scalar(select(BabyImport.id).where(
+            BabyImport.space_id == grant.id, BabyImport.status.in_(["queued", "processing"]),
+            BabyImport.request["attachment_ids"].contains([str(asset.id)])).limit(1))
+        if referenced is None and pending is None:
+            await acquire_asset_lock(db, asset.id)
+            prefixes.append(stored_prefix(asset))
+            asset.state = "deleted"
+            await touch(asset, grant)
     link.status, link.access_version = "removed" if removed else "left", link.access_version + 1
     await db.flush()
-    return []
+    return prefixes
 
 
 async def erase_baby_account(db, owner, grants):
@@ -355,7 +376,18 @@ async def erase_baby_account(db, owner, grants):
 
     if grants is None:
         return await owned_cleanup_prefixes(db, owner)
+    from app.domains.baby.access import touch
+
     prefixes = []
+    for grant in grants:
+        if grant.space.kind != "family":
+            continue
+        for source in await db.scalars(select(BabyRecord).where(
+            BabyRecord.space_id == grant.id, BabyRecord.app_user_id == owner,
+            BabyRecord.kind == "source", BabyRecord.data["status"].as_string().in_(["queued", "processing"]))):
+            source.data = {**source.data, "status": "cancelled"}
+            source.revision, source.updated_at = source.revision + 1, now()
+            await touch(source, grant)
     await db.execute(BabySpaceInvite.__table__.update().where(
         BabySpaceInvite.created_by == owner, BabySpaceInvite.used_at.is_(None),
         BabySpaceInvite.revoked_at.is_(None)).values(revoked_at=now()))

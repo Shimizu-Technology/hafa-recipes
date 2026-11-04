@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.domains.baby.access import access_for
 from app.domains.baby.dependencies import Database, Generation, User
-from app.domains.baby.models import BabyRecord
+from app.domains.baby.models import BabyRecord, BabySpaceMember
 from app.domains.baby.moves import create_family, move_record, require_contract
 from app.domains.baby.schemas import DomainModel
 from app.domains.baby.security import BabyRoute
@@ -92,7 +92,11 @@ async def leave(space_id: UUID, request: Request, user: User, db: Database, gene
     from app.domains.baby.lifecycle import end_family_membership
 
     access, grants = await erasure_access(request, db, user.id, space_id, generation)
-    await end_family_membership(db, user.id, access.target, grants)
+    prefixes = await end_family_membership(db, user.id, access.target, grants)
+    from app.domains.baby.attachments import cleanup_job
+
+    if prefixes:
+        db.add(cleanup_job(user.id, prefixes))
     await db.commit()
     return {"left": True}
 
@@ -105,7 +109,11 @@ async def remove_member(space_id: UUID, actor: str, request: Request, user: User
     access, grants = await erasure_access(request, db, user.id, space_id, generation)
     if access.target.role != "parent":
         raise HTTPException(403, "Only parents can remove a family member")
-    await end_family_membership(db, actor, access.target, grants, removed=True)
+    prefixes = await end_family_membership(db, actor, access.target, grants, removed=True)
+    from app.domains.baby.attachments import cleanup_job
+
+    if prefixes:
+        db.add(cleanup_job(actor, prefixes))
     await db.commit()
     return {"removed": True}
 
@@ -118,6 +126,10 @@ async def delete_family(space_id: UUID, request: Request, user: User, db: Databa
     access, grants = await erasure_access(request, db, user.id, space_id, generation)
     if access.target.role != "parent":
         raise HTTPException(403, "Only parents can delete the family")
+    if await db.scalar(select(BabySpaceMember.app_user_id).where(
+        BabySpaceMember.space_id == space_id, BabySpaceMember.status == "active",
+        BabySpaceMember.role == "parent", BabySpaceMember.app_user_id != user.id).limit(1)):
+        raise HTTPException(409, "Only the last parent can delete the family")
     prefixes = await erase_space(db, access.target.space, grants)
     if prefixes:
         db.add(cleanup_job(user.id, prefixes))

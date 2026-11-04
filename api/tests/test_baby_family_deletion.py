@@ -80,7 +80,7 @@ async def test_recipes_delete_with_no_baby_data_still_works(privacy_api):
         assert await db.get(Recipe, recipes["other"].id) is not None
 
 
-@pytest.mark.parametrize("action", ["leave", "remove", "data", "family"])
+@pytest.mark.parametrize("action", ["leave", "remove"])
 async def test_family_exit_preserves_personal_and_invalidates_context(family_case, action):
     api, case, personal, family, asset, path = family_case
     c = api.client
@@ -122,3 +122,74 @@ async def test_last_parent_must_delete_family_and_memberless_personal_is_swept(f
         assert await db.get(AppUser, "other") is not None
     await privacy.complete_cleanup(api, UUID(result.json()["cleanup"]["id"]))
     assert not path.exists() and not case.path.exists()
+
+
+async def test_other_parent_prevents_family_deletion(family_case):
+    api, case, personal, family, asset, path = family_case
+    result = await api.client.delete(f"/api/v1/baby/family/{family}", headers=records.headers(family, generation=1))
+    assert result.status_code == 409, result.text
+    async with api.sessions() as db:
+        assert await db.get(BabySpace, family) is not None
+
+
+@pytest.mark.parametrize("client", [None, "2", "3"])
+async def test_data_erasure_never_exits_family(family_case, client):
+    api, case, personal, family, asset, path = family_case
+    h = records.headers(personal, generation=1)
+    h.pop("X-Baby-Client")
+    if client:
+        h["X-Baby-Client"] = client
+    result = await api.client.delete("/api/v1/baby/data?generation=1", headers=h)
+    assert result.status_code == (409 if client == "3" else 200), result.text
+    if client == "3":
+        assert result.json()["detail"]["code"] == "family_exit_required"
+    async with api.sessions() as db:
+        assert (await db.get(BabySpaceMember, (family, "owner"))).status == "active"
+        assert await db.get(BabyRecord, case.capture["record_id"]) is not None
+
+
+@pytest.mark.parametrize("action", ["leave", "remove", "account"])
+async def test_exit_retires_unattached_family_upload(family_case, action):
+    from io import BytesIO
+    from uuid import uuid4
+
+    from PIL import Image
+
+    api, case, personal, family, asset, path = family_case
+    png = BytesIO()
+    Image.new("RGB", (16, 16), "blue").save(png, "PNG")
+    identifier = uuid4()
+    h = records.headers(family, generation=1)
+    uploaded = await api.client.post("/api/v1/baby/attachments", headers={**h, "Idempotency-Key": str(identifier)},
+        files={"file": ("unattached.png", png.getvalue(), "image/png")})
+    assert uploaded.status_code == 200, uploaded.text
+    if action == "leave":
+        result = await api.client.post(f"/api/v1/baby/family/{family}/leave", headers=h)
+    elif action == "remove":
+        result = await api.client.delete(f"/api/v1/baby/family/{family}/members/owner", headers=records.headers(family, "other", 1))
+    else:
+        result = await api.client.delete("/api/users/me")
+    assert result.status_code in {200, 202}, result.text
+    async with api.sessions() as db:
+        assert (await db.get(BabyAttachment, identifier)).state == "deleted"
+        assert (await db.get(BabyAttachment, asset)).state == "ready"
+
+
+async def test_account_delete_cancels_surviving_family_source(family_case):
+    api, case, personal, family, asset, path = family_case
+    result = await api.client.delete("/api/users/me")
+    assert result.status_code == 202, result.text
+    async with api.sessions() as db:
+        source = await db.get(BabyRecord, case.capture["record_id"])
+        assert source.data["status"] == "cancelled"
+        assert source.change_seq > 0
+
+
+async def test_pre_contract_null_space_chat_does_not_break_recipes_deletion(privacy_api):
+    api = privacy_api
+    from uuid import uuid4
+    async with api.sessions() as db:
+        db.add(BabyConversation(id=uuid4(), app_user_id="owner", generation=1, space_id=None, title="Legacy chat"))
+        await db.commit()
+    result = await api.client.delete("/api/users/me")
+    assert result.status_code == 202, result.text

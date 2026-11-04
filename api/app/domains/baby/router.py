@@ -1140,7 +1140,7 @@ async def delete_data(
 ):
     if expected != generation:
         raise HTTPException(409, "Deletion generation does not match")
-    from app.domains.baby.lifecycle import erase_baby_account, lock_family_data
+    from app.domains.baby.lifecycle import erase_conversations, erase_space, lock_family_data
 
     grants = await lock_family_data(db, user.id)
     member = await membership_for(db, user.id, write=True, active=False)
@@ -1154,13 +1154,25 @@ async def delete_data(
             raise HTTPException(422, "X-Baby-Space is required")
         if requested != member.personal_space_id:
             raise HTTPException(422, "Use Delete family to erase a family; data erasure targets your personal space")
+    if family_enabled() and request.headers.get("X-Baby-Client") == "3":
+        from app.domains.baby.models import BabySpaceMember
+
+        if await db.scalar(select(BabySpaceMember.space_id).where(
+            BabySpaceMember.app_user_id == user.id, BabySpaceMember.status == "active",
+            BabySpaceMember.space_id != member.personal_space_id).limit(1)):
+            raise HTTPException(409, {"code": "family_exit_required"})
     if member.status == "deleted" and member.generation == generation + 1:
         return {"deleted": True, "generation": member.generation}
     if member.status != "active" or member.generation != generation:
         raise HTTPException(409, "Baby data changed; refresh before deleting")
     if grants is not None:
+        personal_id = member.personal_space_id
         member.personal_space_id = None
-        prefixes = await erase_baby_account(db, user.id, grants)
+        await erase_conversations(db, grants, actor=user.id)
+        prefixes = []
+        for grant in grants:
+            if grant.id == personal_id:
+                prefixes.extend(await erase_space(db, grant.space, grants))
         if prefixes:
             from app.domains.baby.attachments import cleanup_job
 
