@@ -19,14 +19,16 @@ Offset = Annotated[int, Query(ge=0, le=1000000)]
 
 
 async def request_access(request: Request, user: User, db: Database):
-    from app.domains.baby.access import access_for
+    from app.domains.baby.access import access_for, family_enabled
 
     return await access_for(
         db,
         user.id,
         client=request.headers.get("X-Baby-Client"),
         space_id=request.headers.get("X-Baby-Space"),
-        write=request.method in {"POST", "PATCH", "PUT", "DELETE"},
+        write=request.method in {"POST", "PATCH", "PUT", "DELETE"} or (
+            not family_enabled() and getattr(request.scope.get("route"), "name", None) in {"get_attachment", "get_import"}
+        ),
     )
 
 

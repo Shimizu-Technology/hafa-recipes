@@ -68,10 +68,10 @@ class BabyAccess:
             conditions.append(condition)
         return or_(*conditions) if conditions else False
 
-    def grant(self, row):
+    def grant(self, row, *, kinds=True):
         for grant in self.spaces:
             if row.space_id == grant.id and row.generation == grant.generation:
-                if grant.role != "caregiver" or not hasattr(row, "kind") or row.kind in CAREGIVER_KINDS:
+                if not kinds or grant.role != "caregiver" or not hasattr(row, "kind") or row.kind in CAREGIVER_KINDS:
                     return grant
         raise HTTPException(404, "Item unavailable")
 
@@ -185,8 +185,6 @@ async def touch(row, space):
     """
     if space is None:
         return
-    if space.role == "caregiver" and hasattr(row, "kind") and row.kind not in CAREGIVER_KINDS:
-        raise HTTPException(403, "This role cannot save this kind of item")
     db = space.db
     if space.transaction is None or db.get_transaction() is not space.transaction:
         raise RuntimeError("touch requires the current access_for write transaction")

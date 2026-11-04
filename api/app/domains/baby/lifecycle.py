@@ -117,7 +117,11 @@ async def space_relations(db, access, child_id, data, *, record_id, kind):
                 await access.row(db, BabyChild, child_id, write=True)
             raise HTTPException(422, "Related items must be in the same Baby space")
     for identifier in data.get("attachment_ids", []):
-        row = await same_space(BabyAttachment, identifier)
+        from app.domains.baby.attachments import attachment_for
+
+        row = await attachment_for(db, access, UUID(str(identifier)))
+        if row.space_id != target.id:
+            raise HTTPException(422, "Related items must be in the same Baby space")
         if row.state != "ready":
             raise HTTPException(409, "Attachment is not ready")
     for identifier in data.get("record_ids", []):
@@ -188,10 +192,10 @@ async def owned_cleanup_prefixes(db, owner):
     exists = await db.scalar(text("SELECT to_regclass('public.baby_attachments') IS NOT NULL"))
     if not exists:
         return []
-    from app.domains.baby.attachments import attachment_prefix
+    from app.domains.baby.attachments import stored_prefix
 
     return [
-        attachment_prefix(row.id, owner, row.generation)
+        stored_prefix(row)
         for row in await db.scalars(
             select(BabyAttachment).where(BabyAttachment.app_user_id == owner)
         )

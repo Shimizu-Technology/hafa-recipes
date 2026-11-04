@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import AwareDatetime, ValidationError
 from sqlalchemy import func, or_, select
 
-from app.domains.baby.access import access_for, family_enabled, touch
+from app.domains.baby.access import CAREGIVER_KINDS, access_for, family_enabled, touch
 from app.domains.baby.attachments import retire_unreferenced_attachments, upload_router
 from app.domains.baby.attachments import router as attachments_router
 from app.domains.baby.chat import router as chat_router
@@ -848,6 +848,8 @@ async def create_record(
 ):
     can_create(body.kind, client)
     no_event_link_from_legacy(client, body.data)
+    if access.enabled and access.target.role == "caregiver" and body.kind not in CAREGIVER_KINDS:
+        raise HTTPException(403, "This role cannot save this kind of item")
     member = access.member
     if body.kind == "source" and body.data.get("relevance") is not None:
         body.data["relevance"] = user_timing(body.data["relevance"])
@@ -943,7 +945,7 @@ async def patch_record(
     row.revision, row.updated_at = row.revision + 1, now()
     await touch(row, access.target)
     if removed_attachments:
-        await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+        await retire_unreferenced_attachments(db, access, generation, removed_attachments)
     if row.kind == "feeding":
         for child_id in {previous_child, row.child_id}:
             await settle_running_feeds(db, access, generation, child_id, changed=row.id)
@@ -1084,7 +1086,7 @@ async def delete_record(
     row.revision, row.updated_at = row.revision + 1, now()
     await touch(row, access.target)
     if removed_attachments:
-        await retire_unreferenced_attachments(db, user.id, generation, removed_attachments)
+        await retire_unreferenced_attachments(db, access, generation, removed_attachments)
     if row.kind == "feeding":
         await settle_running_feeds(db, access, generation, child_id)
     await db.commit()

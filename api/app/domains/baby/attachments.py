@@ -10,11 +10,13 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Header, HTTPException, Response, UploadFile
 from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
 from app.domains.baby import storage
-from app.domains.baby.dependencies import Database, Generation, User
-from app.domains.baby.lifecycle import membership_for, now, owned
+from app.domains.baby.access import access_for, touch
+from app.domains.baby.dependencies import Access, Database, Generation, User
+from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyAttachment, BabyImport, BabyRecord
 from app.domains.baby.security import BabyRoute, BabyUploadRoute
 from app.image_validation import (
@@ -55,6 +57,58 @@ def attachment_prefix(identifier, owner, generation):
     return f"baby-private/{owner_hash}/{generation}/{UUID(str(identifier))}/"
 
 
+def stored_prefix(row):
+    from app.deletion_cleanup import is_allowed_cleanup_prefix
+
+    prefix, leaf = row.object_key.rsplit("/", 1)
+    prefix += "/"
+    if leaf != "asset" or not is_allowed_cleanup_prefix(prefix) or prefix.split("/")[3] != str(row.id):
+        raise HTTPException(409, "Attachment storage needs review")
+    return prefix
+
+
+def asset_scope(owner, generation, model):
+    if getattr(owner, "enabled", False):
+        return and_(model.space_id == owner.target.id, model.generation == owner.target.generation)
+    return and_(model.app_user_id == getattr(owner, "actor", owner), model.generation == generation)
+
+
+def actor_id(owner):
+    return getattr(owner, "actor", owner)
+
+
+async def refresh_access(db, access, generation, space_id=None):
+    return await access_for(db, access.actor, client=access.client,
+                            space_id=access.target.id if access.enabled else None,
+                            stored_space_id=space_id, generation=generation, write=True)
+
+
+async def attachment_for(db, access, identifier, *, write=False, deleting=False):
+    row = await access.row(db, BabyAttachment, identifier)
+    if not access.enabled:
+        return await access.row(db, BabyAttachment, identifier, write=write) if write else row
+    grant = access.grant(row)
+    if deleting:
+        if row.app_user_id != access.actor and not (grant.space.kind == "family" and grant.role == "parent"):
+            raise HTTPException(403, "Only the uploader or a family parent can delete this file")
+    reference = True
+    if row.app_user_id != access.actor:
+        reference = await db.scalar(select(BabyRecord.id).where(
+            access.condition(BabyRecord), BabyRecord.space_id == row.space_id,
+            BabyRecord.deleted_at.is_(None),
+            BabyRecord.data["attachment_ids"].contains([str(row.id)])).limit(1))
+        if reference is None and not deleting:
+            raise HTTPException(404, "Attachment unavailable")
+    if write:
+        try:
+            row = await access.row(db, BabyAttachment, identifier, write=True)
+        except HTTPException as error:
+            if error.status_code == 409 and reference is None and isinstance(error.detail, dict):
+                error.detail.pop("record", None)
+            raise
+    return row
+
+
 def cleanup_job(owner, prefixes, *, after=None):
     return DeletionCleanupJob(
         kind="baby_media",
@@ -66,8 +120,11 @@ def cleanup_job(owner, prefixes, *, after=None):
     )
 
 
-def metadata(row):
-    return {"id": str(row.id), "name": row.name, "mime_type": row.mime_type, "size": row.size}
+def metadata(row, access=None):
+    result = {"id": str(row.id), "name": row.name, "mime_type": row.mime_type, "size": row.size}
+    if getattr(access, "enabled", False) and access.client == "3":
+        result.update(space_id=str(row.space_id), generation=row.generation)
+    return result
 
 
 def attachment_references(owner, generation, identifier):
@@ -76,8 +133,7 @@ def attachment_references(owner, generation, identifier):
     record = (
         select(BabyRecord.id)
         .where(
-            BabyRecord.app_user_id == owner,
-            BabyRecord.generation == generation,
+            asset_scope(owner, generation, BabyRecord),
             BabyRecord.deleted_at.is_(None),
             BabyRecord.data["attachment_ids"].contains(identifiers),
         )
@@ -86,8 +142,7 @@ def attachment_references(owner, generation, identifier):
     capture = (
         select(BabyImport.id)
         .where(
-            BabyImport.app_user_id == owner,
-            BabyImport.generation == generation,
+            asset_scope(owner, generation, BabyImport),
             BabyImport.status.in_(["queued", "processing"]),
             BabyImport.request["attachment_ids"].contains(identifiers),
         )
@@ -103,8 +158,9 @@ async def retire_unreferenced_attachments(db, owner, generation, identifiers):
     Asset locks also fence external cleanup and any already-admitted SDK write.
     The caller commits the tombstone and durable cleanup together with its edit.
     """
-    with db.no_autoflush:
-        await membership_for(db, owner, generation=generation, write=True)
+    if not getattr(owner, "enabled", False):
+        with db.no_autoflush:
+            await membership_for(db, actor_id(owner), generation=generation, write=True)
     await db.flush()
     candidates = sorted({UUID(str(value)) for value in identifiers})
     if not candidates:
@@ -116,8 +172,7 @@ async def retire_unreferenced_attachments(db, owner, generation, identifiers):
             select(BabyAttachment)
             .where(
                 BabyAttachment.id.in_(candidates),
-                BabyAttachment.app_user_id == owner,
-                BabyAttachment.generation == generation,
+                asset_scope(owner, generation, BabyAttachment),
                 BabyAttachment.state != "deleted",
                 ~attachment_references(owner, generation, BabyAttachment.id),
             )
@@ -128,8 +183,11 @@ async def retire_unreferenced_attachments(db, owner, generation, identifiers):
     retired = 0
     for row in rows:
         await acquire_recipe_media_lock(db, row.id)
-        db.add(cleanup_job(owner, [attachment_prefix(row.id, owner, generation)]))
+        if getattr(owner, "enabled", False) and owner.target.role != "parent" and row.app_user_id != owner.actor:
+            continue
+        db.add(cleanup_job(actor_id(owner), [stored_prefix(row)]))
         row.state = "deleted"
+        await touch(row, owner.grant(row) if getattr(owner, "enabled", False) else None)
         retired += 1
     return retired
 
@@ -142,8 +200,9 @@ async def reconcile_attachment_quota(db, owner, generation, *, retaining=None):
     records and queued/processing imports always retain their files. Completed
     captures whose files were removed can be reclaimed after a short ACK grace.
     """
-    with db.no_autoflush:
-        await membership_for(db, owner, generation=generation, write=True)
+    if not getattr(owner, "enabled", False):
+        with db.no_autoflush:
+            await membership_for(db, actor_id(owner), generation=generation, write=True)
     await db.flush()
     cutoff = now() - timedelta(hours=1)
     pending = list(
@@ -154,11 +213,10 @@ async def reconcile_attachment_quota(db, owner, generation, *, retaining=None):
                 DeletionCleanupJob.id == BabyAttachment.cleanup_job_id,
             )
             .where(
-                BabyAttachment.app_user_id == owner,
-                BabyAttachment.generation == generation,
+                asset_scope(owner, generation, BabyAttachment),
                 BabyAttachment.state == "pending",
                 BabyAttachment.created_at <= cutoff,
-                DeletionCleanupJob.app_user_id == owner,
+                (DeletionCleanupJob.app_user_id == actor_id(owner)) if not getattr(owner, "enabled", False) else True,
                 DeletionCleanupJob.kind == "baby_media",
                 DeletionCleanupJob.status == "completed",
                 DeletionCleanupJob.completed_at.is_not(None),
@@ -177,15 +235,14 @@ async def reconcile_attachment_quota(db, owner, generation, *, retaining=None):
     reclaimed = 0
     for row in pending:
         await acquire_recipe_media_lock(db, row.id)
-        if row.object_key != attachment_prefix(row.id, owner, generation) + "asset":
-            continue
+        stored_prefix(row)
         row.state = "deleted"
+        await touch(row, owner.grant(row) if getattr(owner, "enabled", False) else None)
         reclaimed += 1  # The matching persisted cleanup already completed.
     terminal_capture = (
         select(BabyImport.id)
         .where(
-            BabyImport.app_user_id == owner,
-            BabyImport.generation == generation,
+            asset_scope(owner, generation, BabyImport),
             BabyImport.status.not_in(["queued", "processing"]),
             BabyImport.request["attachment_ids"].contains(
                 func.jsonb_build_array(cast(BabyAttachment.id, String))
@@ -204,13 +261,12 @@ async def reconcile_attachment_quota(db, owner, generation, *, retaining=None):
                 DeletionCleanupJob,
                 and_(
                     DeletionCleanupJob.id == BabyAttachment.cleanup_job_id,
-                    DeletionCleanupJob.app_user_id == owner,
+                    (DeletionCleanupJob.app_user_id == actor_id(owner)) if not getattr(owner, "enabled", False) else True,
                     DeletionCleanupJob.kind == "baby_media",
                 ),
             )
             .where(
-                BabyAttachment.app_user_id == owner,
-                BabyAttachment.generation == generation,
+                asset_scope(owner, generation, BabyAttachment),
                 BabyAttachment.state == "ready",
                 or_(
                     last_confirmed < now() - timedelta(days=7),
@@ -299,8 +355,10 @@ async def upload_attachment(
     generation: Generation,
     file: UploadFile = File(...),
     upload_id: UUID | None = Header(default=None, alias="Idempotency-Key"),
+    access: Access = None,
 ):
-    member = await membership_for(db, user.id, generation=generation, write=True)
+    member = access.member
+    access.check_generation(generation)
     if not storage.available(storage_service):
         raise HTTPException(503, "Private file storage is temporarily unavailable")
     mime = (file.content_type or "").split(";")[0].lower()
@@ -315,14 +373,16 @@ async def upload_attachment(
     # Persist bounded reclamation even if remaining reservations still exceed
     # quota, so the next admission can make further progress instead of rolling
     # back the same batch forever.
-    if await reconcile_attachment_quota(db, user.id, generation, retaining=identifier):
+    if await reconcile_attachment_quota(db, access, generation, retaining=identifier):
         await db.commit()
-        await membership_for(db, user.id, generation=generation, write=True)
+        access = await refresh_access(db, access, generation)
     prior = await db.get(BabyAttachment, identifier, populate_existing=True)
     if prior:
+        if access.enabled:
+            access.grant(prior)
         if (
             prior.app_user_id != user.id
-            or prior.generation != generation
+            or (not access.enabled and prior.generation != generation)
             or prior.byte_hash != byte_hash
         ):
             raise HTTPException(409, "This upload identity has different content")
@@ -336,7 +396,7 @@ async def upload_attachment(
             if receipt is None:
                 # Retained assets can outlive an administratively pruned receipt.
                 # Restore content-free confirmation metadata, without writing bytes.
-                receipt = cleanup_job(user.id, [attachment_prefix(identifier, user.id, generation)])
+                receipt = cleanup_job(user.id, [stored_prefix(prior)])
                 receipt.id, receipt.status, receipt.completed_at = uuid4(), "completed", now()
                 receipt.storage_prefixes, receipt.next_attempt_at = [], None
                 db.add(receipt)
@@ -348,14 +408,14 @@ async def upload_attachment(
             ):
                 raise HTTPException(409, "This attachment needs a fresh upload")
             receipt.updated_at = now()
+            await touch(prior, access.grant(prior) if access.enabled else None)
             await db.commit()  # Renew grace across the following record-save request.
-            return metadata(prior)
+            return metadata(prior, access)
         if prior.state == "deleted":
             raise HTTPException(410, "This attachment was removed")
     total = await db.scalar(
         select(func.coalesce(func.sum(BabyAttachment.size), 0)).where(
-            BabyAttachment.app_user_id == user.id,
-            BabyAttachment.generation == generation,
+            asset_scope(access, generation, BabyAttachment),
             BabyAttachment.state != "deleted",
         )
     )
@@ -383,7 +443,7 @@ async def upload_attachment(
         prior = BabyAttachment(
             id=identifier,
             app_user_id=user.id,
-            space_id=member.personal_space_id,
+            space_id=access.target.id if access.enabled else member.personal_space_id,
             generation=generation,
             name=name,
             mime_type=mime,
@@ -394,11 +454,13 @@ async def upload_attachment(
             cleanup_job_id=intent.id,
         )
         db.add(prior)
+    await touch(prior, access.grant(prior) if access.enabled else None)
+    stored_space = prior.space_id
     await db.commit()  # Crash/cancellation after admission leaves a cleanup receipt.
     payload, validated_mime = await validate_payload(payload, mime)
-    await membership_for(db, user.id, generation=generation, write=True)
+    access = await refresh_access(db, access, generation, stored_space if access.enabled else None)
+    row = await attachment_for(db, access, identifier, write=True)
     await acquire_recipe_media_lock(db, identifier)
-    row = await owned(db, BabyAttachment, user.id, generation, identifier)
     guard = await db.get(DeletionCleanupJob, row.cleanup_job_id, populate_existing=True)
     if (
         row.state == "deleted"
@@ -407,23 +469,47 @@ async def upload_attachment(
         or guard.next_attempt_at <= now()
     ):
         raise HTTPException(410, "Upload expired; choose the file again")
+    key, guard_id = row.object_key, row.cleanup_job_id
+    if access.enabled:
+        await db.commit()
+        # The external PUT owns only the asset lock. Completion reacquires users, then spaces.
+        async with async_sessionmaker(db.bind, expire_on_commit=False)() as media_db:
+            await acquire_recipe_media_lock(media_db, identifier)
+            pending = await media_db.get(BabyAttachment, identifier)
+            receipt = await media_db.get(DeletionCleanupJob, guard_id)
+            if (pending is None or pending.state != "pending" or pending.space_id != stored_space
+                    or pending.generation != generation or pending.object_key != key
+                    or pending.cleanup_job_id != guard_id or receipt is None
+                    or receipt.status != "queued" or receipt.next_attempt_at <= now()):
+                raise HTTPException(410, "Upload expired; choose the file again")
+            await put_payload(key, payload, validated_mime)
+            await media_db.commit()
+        access = await refresh_access(db, access, generation, stored_space)
+        row = await attachment_for(db, access, identifier, write=True)
+        await acquire_recipe_media_lock(db, identifier)
+        guard = await db.get(DeletionCleanupJob, guard_id, populate_existing=True)
+        if (row.state != "pending" or row.cleanup_job_id != guard_id or row.object_key != key
+                or guard is None or guard.status != "queued" or guard.next_attempt_at <= now()):
+            raise HTTPException(410, "Upload expired; choose the file again")
+    else:
+        await put_payload(key, payload, validated_mime)
+    row.state, row.mime_type, row.size = "ready", validated_mime, len(payload)
+    await touch(row, access.grant(row) if access.enabled else None)
+    guard.status, guard.completed_at, guard.storage_prefixes = "completed", now(), []
+    await db.commit()
+    return metadata(row, access)
+
+
+async def put_payload(key, payload, mime):
     try:
         await _shielded_write(
-            Bucket=storage_service.bucket_name,
-            Key=row.object_key,
-            Body=payload,
-            ContentType=validated_mime,
-            ServerSideEncryption="AES256",
-            CacheControl="private, no-store",
+            Bucket=storage_service.bucket_name, Key=key, Body=payload, ContentType=mime,
+            ServerSideEncryption="AES256", CacheControl="private, no-store",
         )
     except asyncio.CancelledError:
         raise
     except Exception:
         raise HTTPException(503, "Upload did not finish; please retry") from None
-    row.state, row.mime_type, row.size = "ready", validated_mime, len(payload)
-    guard.status, guard.completed_at, guard.storage_prefixes = "completed", now(), []
-    await db.commit()
-    return metadata(row)
 
 
 async def read_bytes(row):
@@ -443,18 +529,18 @@ async def read_bytes(row):
 
 
 @router.get("/attachments/{identifier}/metadata")
-async def get_attachment_metadata(identifier: UUID, user: User, db: Database):
-    member = await membership_for(db, user.id)
-    row = await owned(db, BabyAttachment, user.id, member.generation, identifier)
+async def get_attachment_metadata(identifier: UUID, user: User, db: Database, access: Access = None):
+    row = await attachment_for(db, access, identifier)
     if row.state != "ready":
         raise HTTPException(404, "Attachment unavailable")
-    return metadata(row)
+    return metadata(row, access)
 
 
 @router.get("/attachments/{identifier}")
-async def get_attachment(identifier: UUID, user: User, db: Database):
-    member = await membership_for(db, user.id, write=True)
-    row = await owned(db, BabyAttachment, user.id, member.generation, identifier)
+async def get_attachment(identifier: UUID, user: User, db: Database, access: Access = None):
+    if not access.enabled:
+        await membership_for(db, user.id, write=True)
+    row = await attachment_for(db, access, identifier)
     if row.state != "ready":
         raise HTTPException(404, "Attachment unavailable")
     await acquire_recipe_media_lock(db, identifier)
@@ -472,24 +558,30 @@ async def get_attachment(identifier: UUID, user: User, db: Database):
 
 
 @router.post("/attachments/{identifier}/release", status_code=204)
-async def release_attachment(identifier: UUID, user: User, db: Database, generation: Generation):
+async def release_attachment(identifier: UUID, user: User, db: Database, generation: Generation,
+                             access: Access = None):
     """Discard an uploaded draft asset; shared/processing files are retained."""
-    await retire_unreferenced_attachments(db, user.id, generation, [identifier])
+    access.check_generation(generation)
+    if access.enabled:
+        await attachment_for(db, access, identifier, write=True, deleting=True)
+    await retire_unreferenced_attachments(db, access, generation, [identifier])
     await db.commit()
     return Response(status_code=204)
 
 
 @router.delete("/attachments/{identifier}", status_code=204)
-async def delete_attachment(identifier: UUID, user: User, db: Database, generation: Generation):
-    await membership_for(db, user.id, generation=generation, write=True)
+async def delete_attachment(identifier: UUID, user: User, db: Database, generation: Generation,
+                            access: Access = None):
+    access.check_generation(generation)
+    row = await attachment_for(db, access, identifier, write=True, deleting=True)
     await acquire_recipe_media_lock(db, identifier)
-    row = await owned(db, BabyAttachment, user.id, generation, identifier)
     if row.state != "deleted":
-        db.add(cleanup_job(user.id, [attachment_prefix(identifier, user.id, generation)]))
+        db.add(cleanup_job(user.id, [stored_prefix(row)]))
         row.state = "deleted"
+        await touch(row, access.grant(row) if access.enabled else None)
         for record in await db.scalars(
             select(BabyRecord).where(
-                BabyRecord.app_user_id == user.id, BabyRecord.generation == generation
+                asset_scope(access, generation, BabyRecord)
             )
         ):
             if str(identifier) in record.data.get("attachment_ids", []):
@@ -500,10 +592,10 @@ async def delete_attachment(identifier: UUID, user: User, db: Database, generati
                     ],
                 }
                 record.revision, record.updated_at = record.revision + 1, now()
+                await touch(record, access.grant(record, kinds=False) if access.enabled else None)
         for job in await db.scalars(
             select(BabyImport).where(
-                BabyImport.app_user_id == user.id,
-                BabyImport.generation == generation,
+                asset_scope(access, generation, BabyImport),
                 BabyImport.status.in_(["queued", "processing"]),
             )
         ):
@@ -514,14 +606,16 @@ async def delete_attachment(identifier: UUID, user: User, db: Database, generati
                     None,
                     None,
                 )
+                await touch(job, access.grant(job) if access.enabled else None)
                 source = await db.get(BabyRecord, job.record_id)
                 if (
                     source
-                    and source.app_user_id == user.id
-                    and source.generation == generation
+                    and ((source.space_id == row.space_id and source.generation == row.generation)
+                         if access.enabled else (source.app_user_id == user.id and source.generation == generation))
                     and source.deleted_at is None
                 ):
                     source.data = {**source.data, "status": "cancelled"}
                     source.revision, source.updated_at = source.revision + 1, now()
+                    await touch(source, access.grant(source, kinds=False) if access.enabled else None)
     await db.commit()
     return Response(status_code=204)
