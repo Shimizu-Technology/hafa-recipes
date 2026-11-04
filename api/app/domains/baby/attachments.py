@@ -83,6 +83,15 @@ async def refresh_access(db, access, generation, space_id=None):
                             stored_space_id=space_id, generation=generation, write=True)
 
 
+def attachment_visibility(access):
+    record = select(BabyRecord.id).where(
+        access.condition(BabyRecord), BabyRecord.space_id == BabyAttachment.space_id,
+        BabyRecord.deleted_at.is_(None),
+        BabyRecord.data["attachment_ids"].contains(func.jsonb_build_array(cast(BabyAttachment.id, String))),
+    ).exists()
+    return or_(BabyAttachment.app_user_id == access.actor, record)
+
+
 async def attachment_for(db, access, identifier, *, write=False, deleting=False):
     row = await access.row(db, BabyAttachment, identifier)
     if not access.enabled:

@@ -1095,39 +1095,36 @@ async def delete_record(
 
 @router.get("/export")
 async def export(user: User, db: Database, client: Client = None):
-    member = await membership_for(db, user.id, write=True)
-    from app.domains.baby.attachments import metadata
-    from app.domains.baby.chat import conversation_response, message_response
+    access = await access_for(db, user.id, client=client, write=True, bootstrap=True)
+    member = access.member
+    from app.domains.baby.attachments import attachment_visibility, metadata
+    from app.domains.baby.chat import conversation_response, conversation_scope, message_response
 
     async def rows(model):
-        return list(
-            await db.scalars(
-                select(model).where(
-                    model.app_user_id == user.id, model.generation == member.generation
-                )
-            )
-        )
+        condition = access.condition(model)
+        if access.enabled:
+            if model is BabyAttachment:
+                condition &= attachment_visibility(access)
+            elif model in (BabyConversation, BabyMessage):
+                condition = conversation_scope(model, access)
+                if model is BabyMessage:
+                    condition &= model.conversation_id.in_(select(BabyConversation.id).where(
+                        conversation_scope(BabyConversation, access)))
+        return list(await db.scalars(select(model).where(condition)))
 
+    records = [row for row in await rows(BabyRecord)
+               if row.deleted_at is None and not (legacy_client(client) and row.kind not in V1_KINDS)]
+    readable = await readable_journal_children(db, records, access)
     return {
         "format": "hafa-baby-v1",
         "exported_at": now(),
         "generation": member.generation,
         "profile": member.profile,
-        "children": [
-            child_response(row) for row in await rows(BabyChild) if row.deleted_at is None
-        ],
-        "records": [
-            record_response(row)
-            for row in await rows(BabyRecord)
-            if row.deleted_at is None and not (legacy_client(client) and row.kind not in V1_KINDS)
-        ],
-        "attachments": [
-            metadata(row) for row in await rows(BabyAttachment) if row.state == "ready"
-        ],
+        "children": [child_response(row, access) for row in await rows(BabyChild) if row.deleted_at is None],
+        "records": [record_response(row, access, readable) for row in records],
+        "attachments": [metadata(row, access) for row in await rows(BabyAttachment) if row.state == "ready"],
         "conversations": [conversation_response(row) for row in await rows(BabyConversation)],
-        "messages": [
-            message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)
-        ],
+        "messages": [message_response(row, legacy=legacy_client(client)) for row in await rows(BabyMessage)],
     }
 
 
