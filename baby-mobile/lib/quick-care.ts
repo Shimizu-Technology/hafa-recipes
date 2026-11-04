@@ -1,9 +1,9 @@
 import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
-import type { BabyRecord, Child, DeviceState, Kind, Mutation, RecordData, RecordWrite } from "./models";
+import type { BabyRecord, Child, DeviceState, Kind, Mutation, RecordData, RecordWrite, SessionAction } from "./models";
 import { kindName } from "./models";
 import { newestFirst } from "./feed-reducer";
-import { addMutation, pendingRecords } from "./outbox";
+import { addMutation, pendingRecords, withoutBirth } from "./outbox";
 
 type Account = Pick<ReturnType<typeof useBaby>, "commit" | "queue" | "state" | "sync">;
 
@@ -90,17 +90,28 @@ export async function amendCare(b: Account, id: string, change: (record: BabyRec
 }
 
 /**
- * "Baby's here?": today becomes the birth date, which is what turns care logs on. Nothing else changes, so everything
+ * "Baby's here?": today becomes the birth date, which is what turns care logs on. It's kept on this phone first, since
+ * there may be no signal in a delivery room, and care turns on straight away. Only the date changes, so everything
  * logged during the pregnancy stays where it was. Returns the undo for a tap made by mistake.
  */
-export async function babyArrived(b: Account & Pick<ReturnType<typeof useBaby>, "api">, child: Child, today: string) {
-  const write = async (birth_date: string | null, revision: number) => {
-    const saved = await b.api.child({ id: child.id, name: child.name, due_date: child.due_date ?? null, birth_date, revision }, b.state.bootstrap!.generation);
-    await b.commit((state) => ({ ...state, bootstrap: { ...state.bootstrap!, children: state.bootstrap!.children.map((row) => (row.id === saved.id ? saved : row)) } }));
-    return saved;
+export async function babyArrived(b: Account, child: Child, today: string) {
+  const id = Crypto.randomUUID(), back = Crypto.randomUUID(), generation = b.state.bootstrap!.generation, previous = child.birth_date ?? null;
+  await b.queue({ id, generation, type: "child_birth", child_id: child.id, birth_date: today, previous });
+  return async () => {
+    await b.commit((state) => {
+      const queued = state.outbox.find((m) => m.id === id);
+      // Still on this phone, so it can simply not happen. Once its request has begun the API may have it, so it goes back the same way.
+      if (queued?.type === "child_birth" && !queued.sent) return withoutBirth({ ...state, outbox: state.outbox.filter((m) => m.id !== id) }, queued);
+      return addMutation(state, { id: back, generation, type: "child_birth", child_id: child.id, birth_date: previous, previous: today });
+    });
+    void b.sync();
   };
-  const saved = await write(today, child.revision);
-  return () => write(child.birth_date ?? null, saved.revision);
+}
+
+/** One tap, take-back or stop, kept on this phone and replayed by its own id until the API has it. Returns its id. */
+export function queueSessionAction(b: Pick<Account, "queue" | "state">, recordId: string, action: Omit<SessionAction, "id">) {
+  const id = Crypto.randomUUID();
+  return b.queue({ id, generation: b.state.bootstrap!.generation, type: "session_action", record_id: recordId, action: { ...action, id } }).then(() => id);
 }
 
 const ozToMl = 30;

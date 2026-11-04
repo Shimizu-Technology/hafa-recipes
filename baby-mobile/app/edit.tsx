@@ -274,7 +274,7 @@ export default function Edit() {
       if (mutation.type === "save" && isCare(d.kind) && !d.existing) {
         // Quick logs return to Today; the new entry can be undone from there.
         const undo = undoSaved(b, mutation.record);
-        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at)}`, {
+        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at, undefined, b.state.bootstrap!.profile.timezone)}`, {
           label: "Undo",
           onPress: async () => {
             try {
@@ -505,7 +505,7 @@ export default function Edit() {
             onPress={() => data({ end_at: draft.data.end_at ? undefined : new Date().toISOString() })}
           />
           {draft.data.end_at && (
-            <DateField label="Sleep ended" value={draft.data.end_at} onChange={(end_at) => data({ end_at })} />
+            <DateField label="Sleep ended" value={draft.data.end_at} timeZone={b.state.bootstrap!.profile.timezone} onChange={(end_at) => data({ end_at })} />
           )}
         </>
       )}

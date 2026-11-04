@@ -8,6 +8,7 @@ import { amendCare, bottleStart, careWrite, changeUnit, logCare, stepAmount, upd
 import { careSummary, contentWords, friendlyTime } from "@/lib/care-format";
 import { activeTimer, clockText, type FeedSide } from "@/lib/feed-timer";
 import { feedWrite, finishFeed, startFeed, switchFeed, undoShown } from "@/lib/running-feed";
+import { router } from "expo-router";
 import { Icon, PressTarget, easeOut, fonts, radii, tap, typeScale, useColors, useToast, type IconName } from "./ui";
 import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
@@ -64,10 +65,11 @@ function RunningCard({ feed, timeZone, onSwitch, onDone }: { feed: RunningFeed; 
   return <View style={{ backgroundColor: c.surface, borderRadius: radii.card, padding: 12, gap: 10 }}>
     <View style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "flex-end", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 }}>
       {/* Read as one line, and not again every second. */}
-      <View accessible accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now, timeZone)}`} style={{ flexShrink: 0 }}>
+      <PressTarget accessibilityRole="button" accessibilityLabel={`Feeding, ${side} side, started ${friendlyTime(feed.started_at, now, timeZone)}`} accessibilityHint="Opens this feed"
+        onPress={() => router.push({ pathname: "/record/[id]", params: { id: feed.record.id } })} style={{ flexShrink: 0, minHeight: 56 }}>
         <Text key={`e:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.footnote, fontFamily: fonts.semibold, color: c.accentText }}>Feeding</Text>
         <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} numberOfLines={1} style={{ fontFamily: fonts.semibold, fontSize: 34, lineHeight: 40, color: c.text, fontVariant: ["tabular-nums"] }}>{`${word[side]} · ${spent}`}</Text>
-      </View>
+      </PressTarget>
       <Text key={`c:${fontScale}`} maxFontSizeMultiplier={0} style={{ flexShrink: 1, ...typeScale.caption, color: c.muted, textAlign: stacked ? "left" : "right" }}>
         {earlier || "You can put the phone down. It stays saved."}
       </Text>

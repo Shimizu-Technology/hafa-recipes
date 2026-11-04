@@ -89,6 +89,17 @@ beforeEach(() => {
   });
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
+it("sets a sleep's end on the family's clock, like its start", async () => {
+  setup();
+  const before = scope.params;
+  scope.params = { kind: "sleep" };
+  await mount(Edit);
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Choice" && node.props.label === "Sleep has ended")[0].props.onPress());
+  const fields = renderer!.root.findAll((node) => String(node.type) === "DateField");
+  expect(fields.find((field) => field.props.label === "Sleep started")?.props.timeZone).toBe("Pacific/Guam");
+  expect(fields.find((field) => field.props.label === "Sleep ended")?.props.timeZone).toBe("Pacific/Guam");
+  scope.params = before;
+});
 it("does not recreate a saved draft when its serialized commit is held through autosave, background and unmount", async () => {
   const account = setup(), gate = held<void>();
   account.holdCommit(gate.promise);

@@ -18,7 +18,9 @@ import {
   inheritedFiles,
   advancePending,
   advanceAfterImport,
+  birthStep,
   queueRemovedUploads,
+  withPendingBirths,
 } from "./outbox";
 import { emptyState, optimisticRecord, type Mutation } from "./models";
 const row = optimisticRecord({
@@ -126,11 +128,12 @@ describe("offline attachment ancestry", () => {
       record: { ...row, body: "edited while offline" },
       files: [file],
     };
-    expect(advancePending(correction, saved)).toMatchObject({
+    const landed: Mutation = { id: "save-a", type: "save", generation: 1, record: row, files: [] };
+    expect(advancePending(correction, landed, saved)).toMatchObject({
       record: { revision: row.revision + 1, body: "edited while offline" },
       files: [file],
     });
-    expect(advancePending({ id: "delete", type: "delete", generation: 1, record: row }, saved)).toMatchObject({
+    expect(advancePending({ id: "delete", type: "delete", generation: 1, record: row }, landed, saved)).toMatchObject({
       record: { revision: row.revision + 1 },
     });
   });
@@ -214,40 +217,94 @@ describe("a change waiting behind its record", () => {
     end = { id: "e", action: "finish" as const, at: "2026-11-04T12:01:01.500Z" },
     feedRow = (revision: number, data: BabyRecord["data"] = { method: "breast", side: "left", state: "running", actions: [start] }): BabyRecord =>
       ({ id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: "baby", occurred_at: start.at, data, revision, created_at: "", updated_at: "" }),
-    accepted = (revision: number) => feedRow(revision, { method: "breast", side: "left", state: "finished", actions: [start, end], end_at: end.at, duration_minutes: 1.02 }),
-    edit = (revision: number, data: BabyRecord["data"]): Mutation => ({ id: "edit", generation: 1, type: "save", files: [], record: { ...feedRow(revision), body: "note", data } });
+    accepted = (revision: number, made = revision) => feedRow(revision, { method: "breast", side: "left", state: "finished", actions: [start, { ...end, revision: made }], end_at: end.at, duration_minutes: 1.02 }),
+    edit = (revision: number, data: BabyRecord["data"]): Mutation => ({ id: "edit", generation: 1, type: "save", files: [], record: { ...feedRow(revision), body: "note", data } }),
+    tap: Mutation = { id: "e", generation: 1, type: "feed_action", record_id: "feed", action: end },
+    saved = (revision?: number): Mutation => ({ id: "s", generation: 1, type: "save", files: [], record: { ...feedRow(revision ?? 0), revision } }),
+    gone = (revision: number): Mutation => ({ id: "d", generation: 1, type: "delete", record: feedRow(revision) });
   it("follows one step, this phone's own write", () => {
-    expect(advancePending(edit(1, { method: "breast" }), feedRow(2))).toMatchObject({ record: { revision: 2 } });
-    expect(advancePending({ id: "d", generation: 1, type: "delete", record: feedRow(1) }, feedRow(2))).toMatchObject({ record: { revision: 2 } });
-    expect(advancePending(edit(0, { method: "breast" }), feedRow(1))).toMatchObject({ record: { revision: 1 } });
+    expect(advancePending(edit(1, { method: "breast" }), saved(1), feedRow(2))).toMatchObject({ record: { revision: 2 } });
+    expect(advancePending(gone(1), saved(1), feedRow(2))).toMatchObject({ record: { revision: 2 } });
+    expect(advancePending(edit(0, { method: "breast" }), saved(), feedRow(1))).toMatchObject({ record: { revision: 1 } });
   });
   it("stays put past another phone's edit, so the API raises the conflict: nothing overwritten, nothing deleted", () => {
-    expect(advancePending(edit(1, { method: "breast" }), accepted(3), true)).toMatchObject({ record: { revision: 1, data: { method: "breast" } } });
-    expect(advancePending({ id: "d", generation: 1, type: "delete", record: feedRow(1) }, accepted(3), true)).toMatchObject({ record: { revision: 1 } });
+    expect(advancePending(edit(1, { method: "breast" }), tap, accepted(3))).toMatchObject({ record: { revision: 1, data: { method: "breast" } } });
+    expect(advancePending(gone(1), tap, accepted(3))).toMatchObject({ record: { revision: 1 } });
   });
   it("stays put on a replay it has already seen", () => {
-    expect(advancePending(edit(2, { method: "breast" }), feedRow(2), true)).toMatchObject({ record: { revision: 2 } });
+    expect(advancePending(edit(2, { method: "breast" }), tap, accepted(2))).toMatchObject({ record: { revision: 2 } });
+  });
+  it("never moves an edit past another phone's write when a lost tap is replayed", () => {
+    // The tap made 5 and its answer was lost. Polling saw 5, so the edit says 5. Another phone wrote 6. The replay answers 6.
+    expect(advancePending(edit(5, { method: "breast" }), tap, accepted(6, 5))).toMatchObject({ record: { revision: 5 } });
+    expect(advancePending(gone(5), tap, accepted(6, 5))).toMatchObject({ record: { revision: 5 } });
+    // Built before the tap: it follows to 5 and no further, and takes nothing from the write it never saw. The API refuses it.
+    const behind = advancePending(edit(4, withFeedAction(feedRow(1).data, end)), tap, { ...accepted(6, 5), data: { ...accepted(6, 5).data, duration_minutes: 9 } });
+    expect(behind).toMatchObject({ record: { revision: 5, data: { duration_minutes: 1.02 } } });
+  });
+  it("treats a replayed create the same way: it made revision 1, wherever the row is now", () => {
+    expect(advancePending(edit(1, { method: "breast" }), saved(), feedRow(2))).toMatchObject({ record: { revision: 1 } });
+    expect(advancePending(edit(0, { method: "breast" }), saved(), feedRow(2))).toMatchObject({ record: { revision: 1 } });
+  });
+  it("doesn't guess when the API gives no proof", () => {
+    const unproven = feedRow(5, { method: "breast", state: "finished", actions: [start, end] });
+    expect(advancePending(edit(4, { method: "breast" }), tap, unproven)).toMatchObject({ record: { revision: 4 } });
+  });
+  it("follows a session's tap by the same proof", () => {
+    const beat = { id: "t", action: "tap" as const, at: end.at },
+      done: Mutation = { id: "t", generation: 1, type: "session_action", record_id: "feed", action: beat },
+      row = (revision: number, made: number) => feedRow(revision, { session_actions: [{ ...beat, revision: made }] });
+    expect(advancePending(edit(1, {}), done, row(2, 2))).toMatchObject({ record: { revision: 2 } });
+    expect(advancePending(edit(2, {}), done, row(3, 2))).toMatchObject({ record: { revision: 2 } });
   });
   it("takes the API's duration when an editor opened with Done queued left it alone, so it isn't read as a correction", () => {
     const opened = withFeedAction(feedRow(1).data, end);
     expect(opened.duration_minutes).toBe(1.02);
     const stale = { ...opened, duration_minutes: 1.03 };
     // The editor captured what the phone worked out. The API's answer replaces it, and the actions come too.
-    const rebased = advancePending(edit(1, opened), accepted(2), true);
+    const rebased = advancePending(edit(1, opened), tap, accepted(2));
     expect(rebased).toMatchObject({ record: { revision: 2, body: "note", data: { duration_minutes: 1.02, side: "left", state: "finished", end_at: end.at, actions: [start, end] } } });
     // A value the actions don't explain was typed by a person, and stays.
-    expect(advancePending(edit(1, stale), accepted(2), true)).toMatchObject({ record: { data: { duration_minutes: 1.03 } } });
+    expect(advancePending(edit(1, stale), tap, accepted(2))).toMatchObject({ record: { data: { duration_minutes: 1.03 } } });
   });
   it("takes the finish when an editor opened before Done, so its empty duration isn't read as a correction", () => {
-    expect(advancePending(edit(1, feedRow(1).data), accepted(2), true)).toMatchObject({ record: { revision: 2, data: { duration_minutes: 1.02, state: "finished", end_at: end.at, actions: [start, end] } } });
+    expect(advancePending(edit(1, feedRow(1).data), tap, accepted(2))).toMatchObject({ record: { revision: 2, data: { duration_minutes: 1.02, state: "finished", end_at: end.at, actions: [start, end] } } });
   });
   it("keeps a side or duration she corrected by hand", () => {
     const corrected = { ...withFeedAction(feedRow(1).data, end), side: "right" as const };
-    expect(advancePending(edit(1, corrected), accepted(2), true)).toMatchObject({ record: { revision: 2, data: { side: "right" } } });
+    expect(advancePending(edit(1, corrected), tap, accepted(2))).toMatchObject({ record: { revision: 2, data: { side: "right" } } });
   });
   it("leaves records without actions alone, and ordinary saves don't rebase", () => {
     const opened = withFeedAction(feedRow(1).data, end);
-    expect((advancePending(edit(1, opened), { ...accepted(2), data: { ...accepted(2).data, duration_minutes: 9 } }) as any).record.data.duration_minutes).toBe(1.02);
+    expect((advancePending(edit(1, opened), saved(1), { ...accepted(2), data: { ...accepted(2).data, duration_minutes: 9 } }) as any).record.data.duration_minutes).toBe(1.02);
+  });
+});
+
+describe("a birth date waiting on this phone", () => {
+  const bootstrap = { generation: 1, active: true, ai_available: false, children: [{ id: "baby", name: "Mia", revision: 3, due_date: "2026-12-10", birth_date: null }],
+      profile: { display_name: "", timezone: "UTC", ai_consent: false } },
+    born: Mutation = { id: "b", generation: 1, type: "child_birth", child_id: "baby", birth_date: "2026-11-05", previous: null };
+  it("shows through a fresh bootstrap, and takes only the date", () => {
+    const shown = withPendingBirths({ ...emptyState(), bootstrap, outbox: [born] }).bootstrap!.children[0];
+    expect(shown).toEqual({ id: "baby", name: "Mia", revision: 3, due_date: "2026-12-10", birth_date: "2026-11-05" });
+  });
+  it("follows the last change, and changes nothing with none queued", () => {
+    const back: Mutation = { ...(born as any), id: "u", birth_date: null, previous: "2026-11-05" };
+    expect(withPendingBirths({ ...emptyState(), bootstrap, outbox: [born, back] }).bootstrap!.children[0].birth_date).toBeNull();
+    const state = { ...emptyState(), bootstrap };
+    expect(withPendingBirths(state)).toBe(state);
+  });
+  it("is decided by the date, never by the revision", () => {
+    const child = (birth_date: string | null) => ({ ...bootstrap.children[0], birth_date, revision: 9 }), step = born as Extract<Mutation, { type: "child_birth" }>;
+    expect(birthStep(child(null), step)).toBe("send");
+    expect(birthStep(child("2026-11-05"), step)).toBe("done");
+    expect(birthStep(child("2026-11-04"), step)).toBe("different");
+    expect(birthStep(undefined, step)).toBe("gone");
+  });
+  it("orders behind its own child's changes only, and holds no files", () => {
+    expect(mutationRecordId(born)).toBe("baby");
+    expect([...uploadedReferences({ ...emptyState(), outbox: [born] })]).toEqual([]);
+    expect(pendingRecords({ ...emptyState(), outbox: [born] })).toEqual([]);
   });
 });
 
@@ -295,7 +352,7 @@ describe("feed actions in the outbox", () => {
   });
   it("is not changed by a record landing, and does not count as files or a routine", () => {
     const queued = action("a", "finish", "2026-11-04T12:09:00.000Z");
-    expect(advancePending(queued, { ...create.record, revision: 3, created_at: "", updated_at: "" })).toBe(queued);
+    expect(advancePending(queued, create, { ...create.record, revision: 3, created_at: "", updated_at: "" })).toBe(queued);
     expect([...uploadedReferences({ ...emptyState(), outbox: [queued] })]).toEqual([]);
   });
   it("holds until its Undo window ends, and only then", () => {

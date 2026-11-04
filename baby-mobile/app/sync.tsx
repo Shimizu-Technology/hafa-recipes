@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
+import { ApiError } from "@/lib/api";
+import { friendlyDate } from "@/lib/care-format";
 import { messageFor, pendingChanges, type BabyRecord, type Mutation } from "@/lib/models";
 import { retryMutation, waitingForEarlier, waitingForImport } from "@/lib/outbox";
 import { exportFile } from "@/lib/files";
 import { Button, Card, Copy, Empty, Notice, Screen, Section, useToast } from "@/components/ui";
 function rebase(row: Mutation, revision: number): Mutation {
-  if (row.type === "import" || row.type === "feed_action") return row;
+  if (row.type !== "save" && row.type !== "delete") return row;
   if (row.type === "delete") return { ...retryMutation(row), record: { ...row.record, revision } };
   return { ...retryMutation(row), record: { ...row.record, revision } };
 }
@@ -30,7 +32,18 @@ export default function Sync() {
   }
   async function discard(m: Mutation) {
     if (b.syncing) throw Error("Wait for the current sync to finish before discarding a queued change.");
-    await b.discardQueued(m.id, remote[m.id]);
+    // Once sent, the API may already have it, so this phone asks before forgetting it and showing the old copy again.
+    const unread = Error("This change may already be saved. Reconnect to check it before discarding.");
+    if ((m.type === "feed_action" || m.type === "session_action") && m.sent) {
+      const row = await b.api.record(m.record_id).catch((e) => {
+        if (e instanceof ApiError && !e.local && e.status === 404) return null;
+        throw unread;
+      });
+      await b.discardQueued(m.id, row);
+    } else if (m.type === "child_birth" && m.sent) {
+      const fresh = await b.api.bootstrap().catch(() => { throw unread; });
+      await b.discardQueued(m.id, undefined, fresh.children.find((child) => child.id === m.child_id));
+    } else await b.discardQueued(m.id, remote[m.id]);
     // Other offline revisions may share these private original files. Explicit device cleanup clears them safely.
   }
   async function retry(m: Mutation) {
@@ -68,6 +81,10 @@ export default function Sync() {
                   ? "Source import"
                   : m.type === "feed_action"
                   ? "Feeding update"
+                  : m.type === "session_action"
+                  ? "Timer update"
+                  : m.type === "child_birth"
+                  ? "Birth date"
                   : m.type === "delete"
                     ? "Delete: " + m.record.title
                     : m.record.title}
@@ -85,13 +102,15 @@ export default function Sync() {
               </Copy>
               {m.type === "import" ? (
                 <Copy>{m.url || m.text || "Attached source files"}</Copy>
-              ) : m.type === "feed_action" ? (
+              ) : m.type === "feed_action" || m.type === "session_action" ? (
                 <Copy>{`Saved at ${new Date(m.action.at).toLocaleTimeString()}.`}</Copy>
+              ) : m.type === "child_birth" ? (
+                <Copy>{m.birth_date ? `Born ${friendlyDate(m.birth_date)}.` : "Taking the birth date back."}</Copy>
               ) : (
                 <Copy>{m.record.body || "Care details and attachments are saved with this change."}</Copy>
               )}
               {m.error && <Notice error>{m.error}</Notice>}
-              {m.conflict && m.type !== "import" && m.type !== "feed_action" && (
+              {m.conflict && (m.type === "save" || m.type === "delete") && (
                 <>
                   <Button
                     secondary

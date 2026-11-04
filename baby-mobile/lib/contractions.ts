@@ -9,9 +9,9 @@ const time = (iso: string) => new Date(iso).getTime();
 export function ownContractions(rows: readonly BabyRecord[], childId: string | null) {
   return rows.filter((row) => row.kind === "contraction" && row.child_id === childId).sort(newestFirst);
 }
-export function runningContraction(rows: readonly BabyRecord[], childId: string | null, now = new Date()) {
-  const newest = ownContractions(rows, childId)[0];
-  return newest && !newest.data.end_at && now.getTime() - time(newest.occurred_at) < contractionLimit ? newest : undefined;
+/** Every contraction still being timed, newest first. Two phones can each start one, and none is hidden. */
+export function runningContractions(rows: readonly BabyRecord[], childId: string | null, now = new Date()) {
+  return ownContractions(rows, childId).filter((row) => !row.data.end_at && now.getTime() - time(row.occurred_at) < contractionLimit);
 }
 /** How long one lasted, in seconds. Nothing without an end. */
 export function lasted(row: BabyRecord) {
@@ -54,7 +54,7 @@ export function contractionDetail(row: BabyRecord, now = new Date()) {
 }
 
 export const doctorNoteTitle = "What my doctor told me";
-/** The newest copy of her note. Two phones offline could each make one; the newest is the one she last wrote. */
-export function doctorNote(rows: readonly BabyRecord[]) {
-  return rows.filter((row) => row.kind === "journal" && row.title === doctorNoteTitle && row.data.provenance === "clinician_instruction").sort(newestFirst)[0];
+/** The newest copy of her note for this baby. Two phones offline could each make one; the newest is the one she last wrote. */
+export function doctorNote(rows: readonly BabyRecord[], childId: string | null) {
+  return rows.filter((row) => row.kind === "journal" && row.child_id === childId && row.title === doctorNoteTitle && row.data.provenance === "clinician_instruction").sort(newestFirst)[0];
 }

@@ -37,12 +37,12 @@ export const glanceLimit = 100;
 /** How often Today looks for what the other phone logged, while it's on screen. */
 export const carePollMs = 15_000;
 
-/** Today's latest care by default. Tracker asks for a day's window instead, of every kind, over more pages. */
-export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pages = 1, limit = glanceLimit, poll = true }: {
-  kinds?: readonly Kind[]; occurred_from?: string; occurred_to?: string; pages?: number; limit?: number; poll?: boolean;
+/** Today's latest care by default. Tracker asks for a day's window instead, of every kind, over more pages, for one baby. */
+export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pages = 1, limit = glanceLimit, poll = true, child }: {
+  kinds?: readonly Kind[]; occurred_from?: string; occurred_to?: string; pages?: number; limit?: number; poll?: boolean; child?: string | null;
 } = {}) {
   const b = useBaby(),
-    childId = b.state.selectedChild,
+    childId = child === undefined ? b.state.selectedChild : child,
     key = JSON.stringify([b.owner, b.state.bootstrap?.generation, b.api.lease(), childId, occurred_from, occurred_to, poll, kinds]);
   const latest = useRef(b),
     viewKey = useRef(key),

@@ -2,6 +2,7 @@ import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
+import { withPendingBirths } from "./outbox";
 
 const scope = vi.hoisted(() => ({
   account: null as unknown,
@@ -243,31 +244,43 @@ it("leads with the pregnancy and saved tips while pregnant, then switches to car
 
 describe("Baby's here?", () => {
   const due = () => {
-    const account = setup() as ReturnType<typeof setup> & { api: { child: ReturnType<typeof vi.fn> } };
+    const account = setup();
     account.state.bootstrap!.children[0].due_date = "2026-11-20";
     account.state.records = [optimisticRecord({ id: "c", kind: "contraction", child_id: "baby", title: "Contraction", body: "", occurred_at: start.toISOString(), data: {} })];
-    account.api = { child: vi.fn(async (value: object) => ({ ...account.state.bootstrap!.children[0], ...value, revision: 2 })) };
+    // As the provider does on every write.
+    account.commit = vi.fn(async (change: (state: DeviceState) => DeviceState) => { account.state = withPendingBirths(change(account.state)); });
+    account.queue = vi.fn(async (m: Mutation) => { account.state = withPendingBirths({ ...account.state, outbox: [...account.state.outbox, m] }); });
     return account;
   };
   const here = () => find("Row", (p) => p.title === "Baby’s here?")[0];
-  it("sets today's date in one tap and turns on care, with nothing lost and an Undo", async () => {
+  it("keeps today's date on this phone in one tap and turns on care at once, with nothing lost and an Undo", async () => {
     const account = due();
     await render();
     await act(async () => { (here().props.onPress as () => void)(); });
-    expect(account.api.child).toHaveBeenCalledWith({ id: "baby", name: "Mia", due_date: "2026-11-20", birth_date: "2026-10-20", revision: 1 }, 2);
+    expect(account.state.outbox).toEqual([expect.objectContaining({ type: "child_birth", child_id: "baby", birth_date: "2026-10-20", previous: null, generation: 2 })]);
     await render();
-    expect(account.state.bootstrap!.children[0]).toMatchObject({ birth_date: "2026-10-20", due_date: "2026-11-20" });
+    expect(account.state.bootstrap!.children[0]).toMatchObject({ birth_date: "2026-10-20", due_date: "2026-11-20", revision: 1 });
     expect(find("Pressable", (p) => p.accessibilityLabel === "Breastfeed")).toHaveLength(1);
     expect(find("CareGlance", () => true)).toHaveLength(1);
     expect(account.state.records.map((row) => row.id)).toEqual(["c"]);
-    expect(account.state.outbox).toEqual([]);
     const [message, action] = scope.toast.mock.lastCall as [string, { label: string; onPress: () => Promise<void> }];
     expect(message).toContain("Birth date set to today");
     expect(action.label).toBe("Undo");
     await act(async () => { await action.onPress(); });
-    expect(account.api.child).toHaveBeenLastCalledWith({ id: "baby", name: "Mia", due_date: "2026-11-20", birth_date: null, revision: 2 }, 2);
+    expect(account.state.outbox).toEqual([]);
     await render();
     expect(find("Row", (p) => p.title === "Baby’s here?")).toHaveLength(1);
+  });
+  it("undoes by going back the same way once the request has begun, because the API may have it", async () => {
+    const account = due();
+    await render();
+    await act(async () => { (here().props.onPress as () => void)(); });
+    const first = account.state.outbox[0];
+    account.state = { ...account.state, outbox: [{ ...first, sent: true } as Mutation] };
+    const [, action] = scope.toast.mock.lastCall as [string, { onPress: () => Promise<void> }];
+    await act(async () => { await action.onPress(); });
+    expect(account.state.outbox.map((m) => (m.type === "child_birth" ? [m.birth_date, m.previous] : []))).toEqual([["2026-10-20", null], [null, "2026-10-20"]]);
+    expect(account.state.bootstrap!.children[0].birth_date).toBeNull();
   });
   it("uses the family's day, not the phone's", async () => {
     const account = due();
@@ -275,14 +288,14 @@ describe("Baby's here?", () => {
     vi.setSystemTime(new Date("2026-10-20T11:00:00.000Z"));
     await render();
     await act(async () => { (here().props.onPress as () => void)(); });
-    expect(account.api.child).toHaveBeenCalledWith(expect.objectContaining({ birth_date: "2026-10-21" }), 2);
+    expect(account.state.outbox[0]).toMatchObject({ birth_date: "2026-10-21" });
   });
-  it("says why when it can't reach the service, and leaves her where she was", async () => {
+  it("says why when this phone can't keep it, and leaves her where she was", async () => {
     const account = due();
-    account.api.child.mockRejectedValueOnce(Error("Connect to save this."));
+    account.queue = vi.fn(async () => { throw Error("Restore your private device data before saving."); });
     await render();
     await act(async () => { (here().props.onPress as () => void)(); });
-    expect(scope.toast).toHaveBeenCalledWith("Connect to save this.");
+    expect(scope.toast).toHaveBeenCalledWith("Restore your private device data before saving.");
     expect(account.state.bootstrap!.children[0].birth_date).toBeUndefined();
   });
   it("reaches both tools from Today in one tap", async () => {

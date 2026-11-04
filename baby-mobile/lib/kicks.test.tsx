@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
-import { kickDetail, openSession, ownSessions, sessionLimit, sessionSeconds } from "./kicks";
+import { kickDetail, openSessions, ownSessions, sessionLimit, sessionSeconds } from "./kicks";
 
 const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), open: vi.fn(async () => undefined), push: vi.fn() }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: 1 }), Linking: { openURL: scope.open },
@@ -16,6 +16,7 @@ vi.mock("@/lib/kicks", () => import("./kicks"));
 vi.mock("@/lib/contractions", () => import("./contractions"));
 vi.mock("@/lib/medical-wording", () => import("./medical-wording"));
 vi.mock("@/lib/quick-care", () => import("./quick-care"));
+vi.mock("@/lib/session-actions", () => import("./session-actions"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/timing", () => import("./timing"));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: "", refresh: vi.fn() }) }));
@@ -24,7 +25,11 @@ const ui = vi.hoisted(() => ({ Button: "Button", Card: "Card", Copy: "Copy", Emp
 vi.mock("@/components/ui", () => ui);
 vi.mock("../components/ui", () => ui);
 vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() }));
-vi.mock("@/components/feed-timer", () => ({ useSecondClock: () => new Date() }));
+vi.mock("@/components/feed-timer", async () => {
+  const { useRef } = await import("react");
+  // As the real one: it stops moving when asked not to tick.
+  return { useSecondClock: (running: boolean) => { const held = useRef(new Date()); if (running) held.current = new Date(); return held.current; } };
+});
 vi.mock("@/components/medical-source", () => import("../components/medical-source"));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: "SyncStatus" }));
 import Kicks from "../app/kicks";
@@ -85,6 +90,57 @@ it("makes one session of two taps before the first has saved", async () => {
   expect(pendingRecords(scope.account.state).filter((row: BabyRecord) => row.kind === "kick_session")).toHaveLength(1);
 });
 
+it("keeps every tap made before the first save finishes, behind that session's create", async () => {
+  const b = setup();
+  // A slow write: the session isn't on screen until it lands, however many taps come first.
+  let release = () => {};
+  const gate = new Promise<void>((yes) => { release = yes; }), original = b.queue;
+  b.queue = vi.fn(async (m: Mutation) => { await gate; return original(m); });
+  await mount();
+  const press = renderer!.root.findAll((n) => String(n.type) === "Pressable").find((n) => String(n.props.accessibilityLabel).startsWith("Movement"))!.props.onPress;
+  await act(async () => { press(); press(); press(); });
+  expect(b.state.outbox).toEqual([]);
+  await act(async () => { release(); });
+  await refresh();
+  expect(pendingRecords(b.state).filter((row: BabyRecord) => row.kind === "kick_session")).toHaveLength(1);
+  expect(session()?.data.count).toBe(3);
+  expect(b.state.outbox.map((m) => m.type)).toEqual(["save", "session_action", "session_action"]);
+  // The first tap's create goes first, and each later tap names that session.
+  const create = b.state.outbox[0] as Extract<Mutation, { type: "save" }>;
+  expect(b.state.outbox.slice(1).map((m) => (m as any).record_id)).toEqual([create.record.id, create.record.id]);
+});
+
+it("gives each tap its own identity, so two phones' taps add up instead of both saying two", async () => {
+  const b = setup();
+  await mount();
+  await movement(); await movement();
+  const tap = b.state.outbox[1] as Extract<Mutation, { type: "session_action" }>;
+  expect(tap).toMatchObject({ type: "session_action", action: { action: "tap" } });
+  // The other phone's tap reaches this one's copy of the session: this one's own still counts on top.
+  const record = (b.state.outbox[0] as Extract<Mutation, { type: "save" }>).record;
+  const theirs = { id: "theirs", action: "tap" as const, at: start.toISOString(), revision: 2 };
+  const landed = { ...record, revision: 2, created_at: "", updated_at: "", data: { ...record.data, count: 2, session_actions: [...record.data.session_actions!, theirs] } };
+  b.state = { ...b.state, records: [landed], outbox: [tap] };
+  await refresh();
+  expect(session()?.data.count).toBe(3);
+});
+
+it("keeps two overlapping sessions in reach, counts on the newest, and finishes either", async () => {
+  const b = setup();
+  const open = (id: string, minutes: number): BabyRecord => ({ ...optimisticRecord({ id, kind: "kick_session", title: "Kick count", body: "", child_id: "baby", occurred_at: new Date(start.getTime() - minutes * 60_000).toISOString(),
+    data: { count: 1, session_actions: [{ id: `${id}-tap`, action: "tap", at: new Date(start.getTime() - minutes * 60_000).toISOString() }] } }), revision: 1 });
+  b.state = { ...b.state, records: [open("mine", 1), open("theirs", 2)] };
+  await mount();
+  await movement();
+  expect(pendingRecords(b.state).find((row) => row.id === "mine")?.data.count).toBe(2);
+  expect(words()).toContain("Another session is still open");
+  await act(async () => { button("Finish this one")!.props.onPress(); }); await refresh();
+  expect(pendingRecords(b.state).find((row) => row.id === "theirs")?.data.end_at).toBe(start.toISOString());
+  expect(button("Finish this one")).toBeUndefined();
+  await act(async () => { button("Finish")!.props.onPress(); }); await refresh();
+  expect(button("Finish")).toBeUndefined();
+});
+
 it("takes one back, and the session with its only movement", async () => {
   setup();
   await mount();
@@ -103,6 +159,7 @@ it("finishes with the time, and the next tap starts a new session in the history
   await act(async () => { vi.advanceTimersByTime(600_000); });
   await act(async () => { button("Finish")!.props.onPress(); }); await refresh();
   expect(session()?.data.end_at).toBe(new Date(start.getTime() + 600_000).toISOString());
+  await act(async () => { vi.advanceTimersByTime(1000); });
   await movement();
   expect(ownSessions(pendingRecords(scope.account.state), "baby").map((row) => row.data.count)).toEqual([1, 1]);
   const rows = renderer!.root.findAll((n) => String(n.type) === "Row").map((n) => n.props.detail);
@@ -134,10 +191,10 @@ it("shows CDC's words unchanged, with who said them and a link, and none of ours
 describe("sessions", () => {
   const row = (id: string, at: string, data: BabyRecord["data"], child = "baby") => optimisticRecord({ id, kind: "kick_session", title: "Kick count", body: "", child_id: child, occurred_at: at, data });
   it("is open only while the newest has no end, and not forever", () => {
-    expect(openSession([row("a", start.toISOString(), { count: 2 })], "baby", start)?.id).toBe("a");
-    expect(openSession([row("a", start.toISOString(), { count: 2, end_at: start.toISOString() })], "baby", start)).toBeUndefined();
-    expect(openSession([row("a", start.toISOString(), { count: 2 })], "baby", new Date(start.getTime() + sessionLimit))).toBeUndefined();
-    expect(openSession([row("a", start.toISOString(), { count: 2 }, "other")], "baby", start)).toBeUndefined();
+    expect(openSessions([row("a", start.toISOString(), { count: 2 })], "baby", start).map((r) => r.id)).toEqual(["a"]);
+    expect(openSessions([row("a", start.toISOString(), { count: 2, end_at: start.toISOString() })], "baby", start)).toEqual([]);
+    expect(openSessions([row("a", start.toISOString(), { count: 2 })], "baby", new Date(start.getTime() + sessionLimit))).toEqual([]);
+    expect(openSessions([row("a", start.toISOString(), { count: 2 }, "other")], "baby", start)).toEqual([]);
   });
   it("says count and time, and one nobody finished says so", () => {
     const finished = row("a", start.toISOString(), { count: 12, end_at: new Date(start.getTime() + 1_080_000).toISOString() });

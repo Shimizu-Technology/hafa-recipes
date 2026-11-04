@@ -105,15 +105,20 @@ export function retimedActions(actions: readonly FeedAction[], at: string) {
 /** A running feed nobody finished stops showing as running. It stays saved with a side and start time, and no duration. */
 export const runningLimit = 60 * 60_000;
 
+/** Mirror of `FEED_START_TOLERANCE`: a phone's clock can run a little ahead. Further ahead is a plan or a typo. */
+const startTolerance = 5 * 60_000;
+
 export interface RunningFeed extends ReducedFeed { record: BabyRecord; started_at: string }
 
 /**
  * Mirror of `settle_running_feeds`: per child, only the newest breastfeed can be running, ties going to the higher
- * record id. A Both tap or a finished feed ends an older one; a bottle doesn't, because it may be a top-up. Worked out
- * from these rows and never from a stored state, so undoing the newest feed gives the one before it back, offline too.
+ * record id. A Both tap or a finished feed ends an older one; a bottle doesn't, because it may be a top-up. A feed dated
+ * ahead neither runs nor ends one that does. Worked out from these rows and never from a stored state, so undoing the
+ * newest feed gives the one before it back, offline too.
  */
 export function runningFeed(rows: readonly BabyRecord[], childId: string | null, now = new Date()): RunningFeed | undefined {
-  const newest = rows.filter((record) => record.kind === "feeding" && record.child_id === childId && record.data.method === "breast").sort(newestFirst)[0];
+  const latest = (now.getTime() + startTolerance) * 1000,
+    newest = rows.filter((record) => record.kind === "feeding" && record.child_id === childId && record.data.method === "breast" && instant(record.occurred_at) <= latest).sort(newestFirst)[0];
   if (!newest) return undefined;
   const reduced = reduceFeed(newest.data.actions);
   if (reduced?.state !== "running" || !reduced.segments.length || !reduced.started_at) return undefined;

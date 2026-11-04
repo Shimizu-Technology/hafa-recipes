@@ -1,9 +1,9 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any }));
+const mock = vi.hoisted(() => ({ summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView",
   useWindowDimensions: () => ({ fontScale: mock.fontScale }),
@@ -21,7 +21,9 @@ vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
 vi.mock("@/lib/contractions", () => import("./contractions"));
 vi.mock("@/lib/kicks", () => import("./kicks"));
 vi.mock("@/lib/care-summary", () => import("./care-summary"));
-vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: () => mock.summary }));
+vi.mock("@/lib/care-days", () => import("./care-days"));
+vi.mock("@/lib/use-care-summary", () => ({ useCareSummary: (...args: unknown[]) => { mock.summaries.push(args); return mock.summary; },
+  useOtherDays: (...args: unknown[]) => { mock.otherAsks.push(args); return mock.others; }, useDeleted: () => mock.gone }));
 vi.mock("@/components/feed-timer", () => ({ LegacyTimer: "LegacyTimer" }));
 vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: any = {}) => {
   mock.requests.push(options);
@@ -43,6 +45,7 @@ vi.mock("@/components/tracker-day", () => import("../components/tracker-day"));
 vi.mock("@/components/tracker-month", () => ({ TrackerMonth: "TrackerMonth" }));
 import Tracker from "../app/(tabs)/tracker/index";
 import { timelineDetail } from "../components/tracker-day";
+import { ChildFilter } from "@/components/child-filter";
 
 const now = new Date("2026-11-04T03:00:00.000Z"); // Wednesday Nov 4, 1 PM in Guam
 let renderer: ReactTestRenderer | undefined;
@@ -64,12 +67,59 @@ beforeEach(() => {
   vi.useFakeTimers({ now });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  mock.care = []; mock.requests = []; mock.params = {}; mock.push.mockClear(); mock.fontScale = 1; mock.quick = []; mock.error = ""; mock.summary = undefined;
+  mock.summaries = []; mock.otherAsks = []; mock.others = undefined; mock.gone = new Set(); mock.care = []; mock.requests = []; mock.params = {}; mock.push.mockClear(); mock.fontScale = 1; mock.quick = []; mock.error = ""; mock.summary = undefined;
   mock.baby = { state: { ...emptyState(), bootstrap: { generation: 1, active: true, ai_available: false,
     children: [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25" }],
     profile: { display_name: "K", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+describe("one baby at a time", () => {
+  const two = () => {
+    mock.baby.state.bootstrap.children = [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25" }, { id: "sister", name: "Noa", revision: 1, birth_date: "2026-10-25" }];
+    mock.baby.commit = vi.fn(async () => undefined);
+  };
+  it("uses the same baby for the timeline, totals, dots and logging when nothing is selected", async () => {
+    two();
+    await mount();
+    expect(mock.requests.length).toBeGreaterThan(0);
+    const child = mock.summaries[0][0];
+    expect(child).toBe("baby");
+    expect(mock.requests.every((request) => request.child === child)).toBe(true);
+    expect(mock.otherAsks[0][0]).toBe(child);
+    expect(lastQuick().child.id).toBe(child);
+    // It names that baby. "Everything" would say something the screen isn't showing.
+    expect(renderer!.root.findByType(ChildFilter as never).props.only).toBe(child);
+  });
+  it("follows a selected baby everywhere", async () => {
+    two();
+    mock.baby.state.selectedChild = "sister";
+    await mount();
+    expect(mock.summaries[0][0]).toBe("sister");
+    expect(mock.requests.every((request) => request.child === "sister")).toBe(true);
+    expect(lastQuick().child.id).toBe("sister");
+  });
+});
+
+describe("the week strip's dots", () => {
+  const marked = () => renderer!.root.findAll((n) => String(n.type) === "Pressable").filter((n) => String(n.props.accessibilityLabel).includes("has entries")).map((n) => String(n.props.accessibilityLabel));
+  it("shows days with only a note, question, contraction or kick session", async () => {
+    mock.others = new Map([["2026-11-02", ["kick"]]]);
+    await mount();
+    expect(marked().join()).toContain("November 2");
+    expect(marked().join()).not.toContain("November 3");
+  });
+  it("takes a queued delete off, and keeps it off once it has left the queue", async () => {
+    mock.others = new Map([["2026-11-02", ["kick"]]]);
+    mock.baby.state.outbox = [{ id: "d", generation: 1, type: "delete", record: { ...optimisticRecord({ id: "kick", kind: "kick_session", title: "", body: "", child_id: "baby", occurred_at: "2026-11-02T02:00:00.000Z", data: {} }), revision: 1 } }];
+    await mount();
+    expect(marked()).toEqual([]);
+    mock.baby.state.outbox = [];
+    mock.gone = new Set(["kick"]);
+    await act(async () => renderer!.update(<Tracker />));
+    expect(marked()).toEqual([]);
+  });
+});
 
 it("opens on today with a summary, the quick log and everything in order, newest first", async () => {
   mock.care = [

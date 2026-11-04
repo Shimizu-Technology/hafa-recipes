@@ -3,10 +3,16 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState, type Mutation } from "./models";
 
-const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1 }));
-vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: mock.fontScale }) }));
+const mock = vi.hoisted(() => ({ baby: null as any, fontScale: 1, focus: [] as (() => void)[] }));
+vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", useWindowDimensions: () => ({ fontScale: mock.fontScale }), AppState: { currentState: "active" } }));
 vi.mock("@/lib/context", () => ({ useBaby: () => mock.baby }));
+vi.mock("expo-router", async () => {
+  const { useEffect } = await import("react");
+  return { useFocusEffect: (fn: () => void) => { mock.focus.push(fn); return useEffect(fn, [fn]); } };
+});
 vi.mock("@/lib/care-days", () => import("./care-days"));
+vi.mock("@/lib/use-care-summary", () => import("./use-care-summary"));
+vi.mock("./context", () => ({ useBaby: () => mock.baby }));
 vi.mock("@/lib/care-summary", () => import("./care-summary"));
 vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
@@ -115,7 +121,9 @@ it("gives every day a 44pt target at least, and names it for VoiceOver", async (
 it("reads every page of notes in a busy month, and stops when a screen has moved on", async () => {
   const rows = Array.from({ length: 250 }, (_, i) => entry(`r${i}`, new Date(Date.UTC(2026, 10, 1 + (i % 28), 2, i % 60)).toISOString(), "journal"));
   const records = setup(rows);
-  expect((await careDays(mock.baby, "baby", "2026-11-01", "2026-12-05", "Pacific/Guam")).others.size).toBe(28);
+  const { others } = await careDays(mock.baby, "baby", "2026-11-01", "2026-12-05", "Pacific/Guam");
+  expect(others.size).toBe(28);
+  expect(others.get("2026-11-02")).toContain("r1");
   expect(records).toHaveBeenCalledTimes(3);
   records.mockClear();
   await careDays(mock.baby, "baby", "2026-11-01", "2026-12-05", "Pacific/Guam", () => false);
@@ -128,6 +136,46 @@ it("takes a queued delete's dot away, so a day never promises what's gone", asyn
   mock.baby.state.records = [saved];
   await mount();
   expect(targets().filter((n) => String(n.props.accessibilityLabel).includes("has entries"))).toEqual([]);
+});
+
+const dots = () => targets().filter((n) => String(n.props.accessibilityLabel).includes("has entries")).map((n) => String(n.props.accessibilityLabel));
+it("takes a queued delete of the last note off its day, whatever the API last said", async () => {
+  const note = entry("note", "2026-11-03T02:00:00.000Z", "journal"), gone: Mutation = { id: "m", generation: 1, type: "delete", record: note };
+  setup([note]);
+  await mount();
+  expect(dots().join()).toContain("November 3");
+  mock.baby.state = { ...mock.baby.state, outbox: [gone] };
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} />));
+  expect(dots()).toEqual([]);
+  // It stays off once the delete has landed and left the queue, before the next answer comes back.
+  mock.baby.api.records = vi.fn(() => new Promise(() => undefined));
+  mock.baby.state = { ...mock.baby.state, outbox: [] };
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} />));
+  expect(dots()).toEqual([]);
+});
+
+it("reads the month again on coming back, and whenever a queued change leaves", async () => {
+  const note = entry("note", "2026-11-03T02:00:00.000Z", "journal");
+  const records = setup([]);
+  await mount();
+  expect(dots()).toEqual([]);
+  // The other phone wrote while this tab was away. Coming back runs the focus effect again.
+  records.mockImplementation(async () => ({ items: [note], total: 1, has_more: false }));
+  await act(async () => { mock.focus.at(-1)!(); });
+  expect(dots().join()).toContain("November 3");
+  const before = mock.baby.api.careSummary.mock.calls.length;
+  mock.baby.state = { ...mock.baby.state, outbox: [{ id: "m", generation: 1, type: "save", files: [], record: entry("x", "2026-11-05T02:00:00.000Z") }] };
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="baby" onOpen={onOpen} />));
+  expect(mock.baby.api.careSummary.mock.calls.length).toBeGreaterThan(before);
+});
+
+it("doesn't show one baby's first log on another's calendar while it's looking", async () => {
+  setup([entry("a", "2026-08-26T02:00:00.000Z")]);
+  await mount();
+  expect(target("First log")).toBeDefined();
+  mock.baby.api.records = vi.fn(() => new Promise(() => undefined));
+  await act(async () => renderer!.update(<TrackerMonth today={today} day={today} childId="sister" onOpen={onOpen} />));
+  expect(target("First log")).toBeUndefined();
 });
 
 it("finds no first day when nothing is logged", async () => {

@@ -108,6 +108,85 @@ async function mount() {
     await settle();
   });
 }
+describe("Baby's here with no signal", () => {
+  const child = { id: "baby", name: "Mia", revision: 3, due_date: "2026-12-10", birth_date: null },
+    server = { ...bootstrap, children: [child] },
+    born = { id: "born", generation: 1, type: "child_birth" as const, child_id: "baby", birth_date: "2026-11-05", previous: null };
+  beforeEach(() => {
+    mock.api = { bootstrap: vi.fn(async () => server), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined,
+      child: vi.fn(async (value: any) => ({ ...child, ...value, revision: value.revision + 1 })) };
+    mock.saved = { ...emptyState(), bootstrap: server, outbox: [born] } as DeviceState;
+  });
+  const flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); });
+  const shown = () => baby.state.bootstrap!.children[0];
+  it("sends only the date at the revision the API has, and care stays on throughout", async () => {
+    await mount(); await flush();
+    expect(mock.api.child).toHaveBeenCalledExactlyOnceWith({ id: "baby", birth_date: "2026-11-05", revision: 3 }, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown()).toMatchObject({ birth_date: "2026-11-05", due_date: "2026-12-10", revision: 4 });
+  });
+  it("keeps the date through every bootstrap refresh while the request fails", async () => {
+    mock.api.child = vi.fn(async () => { throw new ApiError("Offline", 0); });
+    await mount(); await flush();
+    expect(shown().birth_date).toBe("2026-11-05");
+    await act(async () => { await baby.refresh(); await settle(); });
+    expect(shown().birth_date).toBe("2026-11-05");
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["born"]);
+  });
+  it("sends it again at the new revision after a conflict, never losing the date", async () => {
+    let onServer = { ...child };
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [onServer] }));
+    mock.api.child = vi.fn().mockRejectedValueOnce(new ApiError("Changed", 409)).mockImplementation(async (value: any) => (onServer = { ...onServer, ...value, revision: value.revision + 1 }));
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([expect.objectContaining({ id: "born", attempts: 1 })]);
+    expect(shown().birth_date).toBe("2026-11-05");
+    onServer = { ...child, due_date: "2026-12-11", revision: 7 };
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+    await flush();
+    expect(mock.api.child).toHaveBeenLastCalledWith({ id: "baby", birth_date: "2026-11-05", revision: 7 }, 1);
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown()).toMatchObject({ birth_date: "2026-11-05", due_date: "2026-12-11", revision: 8 });
+  });
+  it("is done without a write when the lost request already landed", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, birth_date: "2026-11-05", revision: 4 }] }));
+    await mount(); await flush();
+    expect(mock.api.child).not.toHaveBeenCalled();
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown()).toMatchObject({ birth_date: "2026-11-05", revision: 4 });
+  });
+  it("doesn't overwrite a different date saved elsewhere; it asks", async () => {
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [{ ...child, birth_date: "2026-11-04", revision: 4 }] }));
+    await mount(); await flush();
+    expect(mock.api.child).not.toHaveBeenCalled();
+    expect(baby.state.outbox[0]).toMatchObject({ id: "born" });
+    expect((baby.state.outbox[0] as any).error).toContain("different birth date");
+  });
+  it("retries after a server error rather than asking her", async () => {
+    mock.api.child = vi.fn().mockRejectedValueOnce(new ApiError("Busy", 503)).mockImplementation(async (value: any) => ({ ...child, ...value, revision: value.revision + 1 }));
+    await mount(); await flush();
+    expect(baby.state.outbox[0]).toMatchObject({ attempts: 1 });
+    expect((baby.state.outbox[0] as any).error).toBeUndefined();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+    await flush();
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("puts back what it saw when an unsent change is discarded", async () => {
+    mock.api.child = vi.fn(async () => { throw new ApiError("Offline", 0); });
+    await mount(); await flush();
+    await act(async () => { await baby.discardQueued("born"); await settle(); });
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown().birth_date).toBeNull();
+  });
+  it("restores what the API says when a sent change is discarded", async () => {
+    const landed = { ...child, birth_date: "2026-11-05", revision: 4 };
+    mock.api.bootstrap = vi.fn(async () => ({ ...server, children: [landed] }));
+    mock.saved = { ...mock.saved!, outbox: [{ ...born, sent: true, error: "Review" }] };
+    await mount(); await flush();
+    await act(async () => { await baby.discardQueued("born", undefined, landed); await settle(); });
+    expect(baby.state.outbox).toEqual([]);
+    expect(shown()).toMatchObject({ birth_date: "2026-11-05", revision: 4 });
+  });
+});
 function held() {
   let resolve!: (v: RecordPage) => void;
   const promise = new Promise<RecordPage>((yes) => {
@@ -218,7 +297,7 @@ describe("feed actions in the sync loop", () => {
     expect(mock.api.record).toHaveBeenCalledWith("feed");
     expect(queued()).toEqual([]);
     expect(baby.state.records).toEqual([]);
-    expect(baby.state.feedNotice).toContain("removed");
+    expect(baby.state.feedNotices?.[0]).toContain("removed");
   });
   it("drops a tap on a feed made plain by hand, keeps that record, and says so", async () => {
     mock.api.feedAction.mockRejectedValueOnce(new ApiError("Edited", 409));
@@ -227,7 +306,7 @@ describe("feed actions in the sync loop", () => {
     await mount(); await flush();
     expect(queued()).toEqual([]);
     expect(baby.state.records.find((r) => r.id === "feed")?.revision).toBe(3);
-    expect(baby.state.feedNotice).toContain("changed");
+    expect(baby.state.feedNotices?.[0]).toContain("changed");
   });
   it("consumes a tap the API already has, with nothing to tell her", async () => {
     mock.api.feedAction.mockRejectedValueOnce(new ApiError("Used", 409));
@@ -235,7 +314,7 @@ describe("feed actions in the sync loop", () => {
     mock.saved = { ...mock.saved!, outbox: [action("end")] };
     await mount(); await flush();
     expect(queued()).toEqual([]);
-    expect(baby.state.feedNotice).toBeUndefined();
+    expect(baby.state.feedNotices).toBeUndefined();
   });
   it("keeps a tap when the record can't be read, or the feed still takes taps, and asks her only if it never clears", async () => {
     mock.api.feedAction.mockRejectedValue(new ApiError("Edited", 409));
@@ -249,14 +328,76 @@ describe("feed actions in the sync loop", () => {
     for (let i = 0; i < 6; i++) await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); await settle(); });
     expect(queued()).toEqual(["end"]);
     expect(baby.state.outbox[0].error).toContain("couldn’t be added");
-    expect(baby.state.feedNotice).toBeUndefined();
+    expect(baby.state.feedNotices).toBeUndefined();
+  });
+  it("keeps both notices when two taps fail, so one can't hide the other", async () => {
+    mock.api.feedAction.mockRejectedValue(new ApiError("Gone", 404));
+    mock.api.record = vi.fn(async () => gone());
+    const plainTap = { ...action("second"), record_id: "other" };
+    mock.saved = { ...mock.saved!, outbox: [action("end"), plainTap] };
+    mock.api.record.mockImplementation(async (id: string) => { if (id === "feed") return gone(); return plain({ id: "other" }); });
+    await mount(); await flush();
+    expect(baby.state.feedNotices).toEqual(["This feed was removed.", "This feed was changed, and the saved one stands."]);
+  });
+  it("sends a stale edit at its own revision when a lost tap is replayed, so the API refuses it and nothing is overwritten", async () => {
+    const answered = timed({ revision: 6, body: "From the other phone", data: { ...write.data, state: "finished", actions: [start, { ...action("end").action, revision: 5 }] } });
+    mock.api.feedAction = vi.fn(async () => answered);
+    mock.api.save = vi.fn(async () => { throw new ApiError("Changed", 409); });
+    const stale = { id: "edit", generation: 1, type: "save" as const, files: [], record: { ...optimisticRecord(write), revision: 5, body: "Mine" } };
+    mock.saved = { ...mock.saved!, records: [{ ...optimisticRecord(write), revision: 5 }], outbox: [action("end"), stale] };
+    await mount(); await flush();
+    expect(mock.api.save.mock.calls[0][0]).toMatchObject({ id: "feed", revision: 5, body: "Mine" });
+    expect(baby.state.outbox[0]).toMatchObject({ id: "edit", conflict: true });
+    expect(baby.state.records.find((r) => r.id === "feed")?.body).toBe("From the other phone");
+  });
+  it("moves a waiting edit by exactly the revision the tap made", async () => {
+    mock.api.feedAction = vi.fn(async () => timed({ revision: 5, data: { ...write.data, state: "finished", actions: [start, { ...action("end").action, revision: 5 }] } }));
+    mock.api.save = vi.fn(async (r: any) => ({ ...optimisticRecord(r), revision: 6 }));
+    const waiting = { id: "edit", generation: 1, type: "save" as const, files: [], record: { ...optimisticRecord(write), revision: 4, body: "Mine" } };
+    mock.saved = { ...mock.saved!, outbox: [action("end"), waiting] };
+    await mount(); await flush();
+    expect(mock.api.save.mock.calls[0][0]).toMatchObject({ revision: 5, body: "Mine" });
+    expect(queued()).toEqual([]);
+  });
+  it("sends a session's tap by its own id, keeps it through a lost answer, and says so if the entry is gone", async () => {
+    const tap = { id: "tap", generation: 1, type: "session_action" as const, record_id: "kicks", action: { id: "tap", action: "tap" as const, at: "2026-11-04T12:10:00.000Z" } };
+    mock.api.sessionAction = vi.fn().mockRejectedValueOnce(new ApiError("Offline", 0)).mockImplementation(async (_id: string, value: any) => ({
+      ...optimisticRecord({ id: "kicks", kind: "kick_session", title: "Kick count", body: "", child_id: null, occurred_at: value.at, data: { count: 2, session_actions: [value] } }), revision: 2 }));
+    mock.saved = { ...mock.saved!, outbox: [tap] };
+    await mount(); await flush();
+    expect(queued()).toEqual(["tap"]);
+    expect(baby.state.outbox[0]).toMatchObject({ sent: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); await settle(); });
+    expect(mock.api.sessionAction.mock.calls.map((call: any[]) => call[1].id)).toEqual(["tap", "tap"]);
+    await flush();
+    expect(queued()).toEqual([]);
+    expect(baby.state.records.find((r) => r.id === "kicks")?.data.count).toBe(2);
+    mock.api.sessionAction = vi.fn(async () => { throw new ApiError("Gone", 404); });
+    mock.api.record = vi.fn(async () => gone());
+    await act(async () => { await baby.queue({ ...tap, id: "late", action: { ...tap.action, id: "late" } }); await settle(); });
+    await flush();
+    expect(baby.state.feedNotices?.[0]).toContain("entry was removed");
+  });
+  it("reads the record before discarding a sent tap, so a finished feed doesn't come back as running", async () => {
+    mock.saved = { ...mock.saved!, records: [timed()], outbox: [{ ...action("end"), sent: true, error: "Needs review" }] };
+    await mount(); await flush();
+    const finished = timed({ revision: 3, data: { ...write.data, state: "finished", end_at: "2026-11-04T12:09:00.000Z" } });
+    await act(async () => { await baby.discardQueued("end", finished); await settle(); });
+    expect(queued()).toEqual([]);
+    expect(baby.records.find((r) => r.id === "feed")?.data.state).toBe("finished");
+  });
+  it("forgets the row when the read says the record is gone", async () => {
+    mock.saved = { ...mock.saved!, records: [timed()], outbox: [{ ...action("end"), sent: true, error: "Needs review" }] };
+    await mount(); await flush();
+    await act(async () => { await baby.discardQueued("end", null); await settle(); });
+    expect(baby.records.find((r) => r.id === "feed")).toBeUndefined();
   });
   it("tells her when a switch landed after the feed had already finished", async () => {
     const late = { id: "swap", generation: 1, type: "feed_action" as const, record_id: "feed", action: { id: "swap", action: "switch" as const, at: "2026-11-04T12:09:30.000Z", side: "right" as const } };
     mock.api.feedAction = vi.fn(async () => timed({ revision: 3, data: { ...write.data, state: "finished", end_at: "2026-11-04T12:09:00.000Z" } }));
     mock.saved = { ...mock.saved!, outbox: [late] };
     await mount(); await flush();
-    expect(baby.state.feedNotice).toContain("already finished");
+    expect(baby.state.feedNotices?.[0]).toContain("already finished");
   });
   it.each([408, 429, 500, 503])("waits and retries the same tap after a %i, and later changes follow", async (status) => {
     mock.api.feedAction.mockRejectedValueOnce(new ApiError("Busy", status));

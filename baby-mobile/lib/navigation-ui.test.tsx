@@ -108,6 +108,16 @@ beforeEach(() => {
   };
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+it("reads a sleep's times on the family's clock, as Tracker does", async () => {
+  const sleep = { ...row("nap", "sleep"), data: { end_at: "2026-10-30T01:00:00Z" } };
+  mock.baby.records = [sleep];
+  mock.baby.state = { ...mock.baby.state, records: [sleep], bootstrap: { ...mock.baby.state.bootstrap, profile: { timezone: "Pacific/Kiritimati", ai_consent: true } } };
+  mock.params = { id: "nap" };
+  await mount(<RecordDetail />);
+  const texts = renderer!.root.findAll((n) => n.props?.numeric === true).map((n) => [n.props.children].flat().join("")).join(" | ");
+  expect(texts).toMatch(/Started.*2:00\sPM/);
+  expect(texts).toMatch(/Ended.*3:00\sPM/);
+});
 it("prepares a mixed journal and care visit summary from Doctor questions", async () => {
   mock.params = { filter: "question" };
   await mount(<Journal />);

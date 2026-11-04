@@ -2,14 +2,14 @@ import { useRef } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { contractionDetail, hourLine, lastHour, ownContractions, runningContraction, secondsWords, withGaps } from "@/lib/contractions";
-import { messageFor } from "@/lib/models";
+import { contractionDetail, hourLine, lastHour, ownContractions, runningContractions, secondsWords, withGaps } from "@/lib/contractions";
+import { messageFor, type BabyRecord } from "@/lib/models";
 import { cdcWarningSignsLine, cdcWarningSignsSource, cdcWarningSignsUrl, contractionGuidance } from "@/lib/medical-wording";
-import { careWrite, logCare, updateCare } from "@/lib/quick-care";
+import { careWrite, logCare, queueSessionAction } from "@/lib/quick-care";
 import { friendlyTime } from "@/lib/care-format";
 import { pregnancyProgress, profileToday, timingChild } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
-import { Copy, Empty, Grouped, Notice, PressTarget, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
+import { Button, Card, Copy, Empty, Grouped, Notice, PressTarget, Row, Screen, Section, fonts, radii, tap, typeScale, useColors, useToast } from "@/components/ui";
 import { useSecondClock } from "@/components/feed-timer";
 import { useMinuteClock } from "@/components/care-glance";
 import { DoctorNote } from "@/components/doctor-note";
@@ -23,10 +23,11 @@ export default function Contractions() {
     today = profileToday(minute, timeZone),
     child = timingChild(b.state, today),
     childId = child?.id ?? null,
-    care = useTodayCare({ kinds: ["contraction"], limit: 100 }),
+    care = useTodayCare({ kinds: ["contraction"], limit: 100, child: childId }),
     rows = ownContractions(care.all, childId),
-    running = runningContraction(rows, childId, minute),
-    now = useSecondClock(!!running),
+    // Always ticking: the last hour keeps moving after a stop, as older ones drop out of it.
+    now = useSecondClock(true),
+    [running, ...others] = runningContractions(rows, childId, now),
     writing = useRef(false),
     guidance = contractionGuidance(child?.due_date ? pregnancyProgress(child.due_date, today)?.week : undefined);
   async function save(action: () => Promise<() => Promise<unknown>>, message: string) {
@@ -39,9 +40,12 @@ export default function Contractions() {
     } catch (e) { toast(messageFor(e)); }
     finally { writing.current = false; }
   }
-  const toggle = () => running
-    ? save(() => updateCare(b, running, { ...running.data, end_at: new Date().toISOString() }), "Stopped")
-    : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
+  /** Its own durable change, so two phones stopping the same one never conflict. Undo takes back this stop. */
+  const stop = (row: BabyRecord) => save(async () => {
+    const id = await queueSessionAction(b, row.id, { action: "finish", at: new Date().toISOString() });
+    return () => queueSessionAction(b, row.id, { action: "undo", target: id, at: new Date().toISOString() });
+  }, "Stopped");
+  const toggle = () => running ? stop(running) : save(() => logCare(b, careWrite("contraction", childId, {}, new Date())), "Started");
   const elapsed = running ? secondsWords((now.getTime() - new Date(running.occurred_at).getTime()) / 1000) : "";
   return <Screen title="Contractions" back>
     <SyncStatus />
@@ -51,6 +55,11 @@ export default function Contractions() {
       <Text key={fontScale} maxFontSizeMultiplier={1.5} style={{ fontFamily: fonts.display, fontSize: 40, lineHeight: 48, color: c.onAction }}>{running ? "Stop" : "Start"}</Text>
       {!!running && <Text key={`t:${fontScale}`} maxFontSizeMultiplier={1.4} style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 28, color: c.onAction, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
     </PressTarget>
+    {others.map((row) => <Card key={row.id} tone="soft">
+      <Copy kind="label">Another one is still timing</Copy>
+      <Copy numeric kind="small" tone="muted">{`Started ${friendlyTime(row.occurred_at, minute, timeZone)} · ${secondsWords((now.getTime() - new Date(row.occurred_at).getTime()) / 1000)}`}</Copy>
+      <Button secondary title="Stop this one" onPress={() => void stop(row)} />
+    </Card>)}
     <Copy numeric kind="label">{hourLine(lastHour(rows, now))}</Copy>
     {!!guidance && <Notice>{guidance}</Notice>}
     {!!care.error && <Notice>Showing what’s on this phone. {care.error}</Notice>}

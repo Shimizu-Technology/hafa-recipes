@@ -93,6 +93,19 @@ describe("the running feed for a baby", () => {
     const a = feed("aaa", [start(5, "left", "1")]), b = feed("bbb", [start(5, "right", "2")]);
     for (const rows of [[a, b], [b, a]]) expect(runningFeed(rows, "baby", now)?.record.id).toBe("bbb");
   });
+  it("isn't taken over by a feed dated ahead, running or finished, until its time comes", () => {
+    const running = feed("running", [start(5)]), hours = (count: number) => new Date(now.getTime() + count * 3600_000).toISOString();
+    const ahead = (id: string, data: BabyRecord["data"]): BabyRecord => optimisticRecord({ id, kind: "feeding", title: "Feeding", body: "", child_id: "baby", occurred_at: hours(3), data });
+    expect(runningFeed([running, ahead("plan", { method: "breast", side: "left", duration_minutes: 10 })], "baby", now)?.record.id).toBe("running");
+    const later = feed("later", [{ id: "9", action: "start", at: hours(3), side: "right" }]);
+    expect(runningFeed([running, later], "baby", now)?.record.id).toBe("running");
+    expect(feedProgress(later, [running, later], now)).toBe("no_end");
+    expect(runningFeed([running, later], "baby", new Date(hours(3)))?.record.id).toBe("later");
+  });
+  it("still counts a phone whose clock runs a little ahead as the newest", () => {
+    const running = feed("running", [start(5)]), soon = new Date(now.getTime() + 120_000).toISOString();
+    expect(runningFeed([running, feed("soon", [{ id: "9", action: "start", at: soon, side: "right" }])], "baby", now)?.record.id).toBe("soon");
+  });
   it("is none when the newest start finished, even with an older one left open", () => {
     expect(runningFeed([feed("older", [start(0)]), feed("newer", [start(5), finish(7)])], "baby", now)).toBeUndefined();
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractionDetail, contractionLimit, doctorNote, hourLine, lastHour, ownContractions, runningContraction, secondsWords, withGaps } from "./contractions";
+import { contractionDetail, contractionLimit, doctorNote, hourLine, lastHour, ownContractions, runningContractions, secondsWords, withGaps } from "./contractions";
 import { contractionGuidance } from "./medical-wording";
 import { optimisticRecord, type BabyRecord } from "./models";
 
@@ -9,11 +9,12 @@ const row = (id: string, start: string, end?: string, child: string | null = "ba
 
 describe("timing", () => {
   it("is running only while the newest has no end, and not forever", () => {
-    expect(runningContraction([row("a", at(0))], "baby", new Date(at(1)))?.id).toBe("a");
-    expect(runningContraction([row("a", at(0), at(1))], "baby", new Date(at(2)))).toBeUndefined();
-    expect(runningContraction([row("a", at(0)), row("b", at(5), at(6))], "baby", new Date(at(7)))).toBeUndefined();
-    expect(runningContraction([row("a", at(0))], "baby", new Date(new Date(at(0)).getTime() + contractionLimit))).toBeUndefined();
-    expect(runningContraction([row("a", at(0), undefined, "other")], "baby", new Date(at(1)))).toBeUndefined();
+    expect(runningContractions([row("a", at(0))], "baby", new Date(at(1))).map((r) => r.id)).toEqual(["a"]);
+    expect(runningContractions([row("a", at(0), at(1))], "baby", new Date(at(2)))).toEqual([]);
+    expect(runningContractions([row("a", at(0))], "baby", new Date(new Date(at(0)).getTime() + contractionLimit))).toEqual([]);
+    expect(runningContractions([row("a", at(0), undefined, "other")], "baby", new Date(at(1)))).toEqual([]);
+    // Two phones can each start one. Both stay in reach, newest first, whatever else has ended since.
+    expect(runningContractions([row("a", at(0)), row("b", at(1)), row("c", at(2), at(3))], "baby", new Date(at(4))).map((r) => r.id)).toEqual(["b", "a"]);
   });
   it("measures how long each lasted, and the gap from the start of the one before", () => {
     const list = ownContractions([row("old", at(0), at(1)), row("new", at(5, 30), at(6, 15))], "baby");
@@ -58,6 +59,10 @@ it("ships no contraction guidance until a clinician approves it, under 37 weeks 
 it("finds her note by its label, the newest copy, and nothing else", () => {
   const note = (id: string, when: string, provenance: "clinician_instruction" | "caregiver_observation" = "clinician_instruction", title = "What my doctor told me") =>
     optimisticRecord({ id, kind: "journal", title, body: id, child_id: null, occurred_at: when, data: { provenance } });
-  expect(doctorNote([note("old", at(0)), note("new", at(5))])?.id).toBe("new");
-  expect(doctorNote([note("mine", at(0), "caregiver_observation"), note("other", at(0), "clinician_instruction", "From my midwife")])).toBeUndefined();
+  expect(doctorNote([note("old", at(0)), note("new", at(5))], null)?.id).toBe("new");
+  expect(doctorNote([note("mine", at(0), "caregiver_observation"), note("other", at(0), "clinician_instruction", "From my midwife")], null)).toBeUndefined();
+  // Never another baby's.
+  const sibling = { ...note("sister", at(9)), child_id: "sister" };
+  expect(doctorNote([sibling], "baby")).toBeUndefined();
+  expect(doctorNote([sibling, { ...note("mine", at(0)), child_id: "baby" }], "baby")?.id).toBe("mine");
 });

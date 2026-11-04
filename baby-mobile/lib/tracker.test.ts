@@ -88,3 +88,25 @@ describe("the day's summary", () => {
     expect(daySummary([row("sleep", "2026-11-03T20:00:00Z", { end_at: "2026-11-03T20:20:00Z" })], "2026-11-04", guam, late)).toContain("<1h sleep");
   });
 });
+
+describe("a family's midnight when the clocks change", () => {
+  it("starts a day on the real boundary when its midnight doesn't exist (Santiago, spring)", () => {
+    // 23:59:59 -04:00 on Sep 5 is followed by 01:00 -03:00 on Sep 6.
+    const { from, to } = dayRange("2026-09-06", "America/Santiago");
+    expect(from).toBe("2026-09-06T04:00:00.000Z");
+    expect(to).toBe("2026-09-07T03:00:00.000Z");
+    expect(dayRange("2026-09-05", "America/Santiago").to).toBe(from);
+    // The last hour of the night before stays on the night before.
+    expect(recordDay("2026-09-06T03:30:00.000Z", "America/Santiago")).toBe("2026-09-05");
+    expect(recordDay(from, "America/Santiago")).toBe("2026-09-06");
+  });
+  it("takes the first when a midnight is read twice (Havana, autumn)", () => {
+    // 00:59:59 -04:00 on Nov 1 falls back to 00:00 -05:00.
+    expect(zonedInstant("2026-11-01", 0, 0, "America/Havana").toISOString()).toBe("2026-11-01T04:00:00.000Z");
+  });
+  it("leaves ordinary days, whole-day zones and days far from a change alone", () => {
+    expect(zonedInstant("2026-11-04", 0, 0, "Pacific/Guam").toISOString()).toBe("2026-11-03T14:00:00.000Z");
+    expect(zonedInstant("2026-07-01", 0, 0, "America/Santiago").toISOString()).toBe("2026-07-01T04:00:00.000Z");
+    expect(zonedInstant("2026-03-08", 12, 30, "America/New_York").toISOString()).toBe("2026-03-08T16:30:00.000Z");
+  });
+});

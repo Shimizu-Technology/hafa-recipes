@@ -9,9 +9,9 @@ const time = (iso: string) => new Date(iso).getTime();
 export function ownSessions(rows: readonly BabyRecord[], childId: string | null) {
   return rows.filter((row) => row.kind === "kick_session" && row.child_id === childId).sort(newestFirst);
 }
-export function openSession(rows: readonly BabyRecord[], childId: string | null, now = new Date()) {
-  const newest = ownSessions(rows, childId)[0];
-  return newest && !newest.data.end_at && now.getTime() - time(newest.occurred_at) < sessionLimit ? newest : undefined;
+/** Every session still counting, newest first. Two phones can each start one: the taps go to the newest, and none is hidden. */
+export function openSessions(rows: readonly BabyRecord[], childId: string | null, now = new Date()) {
+  return ownSessions(rows, childId).filter((row) => !row.data.end_at && now.getTime() - time(row.occurred_at) < sessionLimit);
 }
 /** How long a session has run, or ran. */
 export function sessionSeconds(row: BabyRecord, now = new Date()) {

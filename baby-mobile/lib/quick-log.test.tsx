@@ -31,6 +31,7 @@ vi.mock("../components/ui", () => ({ PressTarget: "Pressable", Icon: "Icon", But
 vi.mock("../components/motion", () => ({ useReducedMotion: () => false }));
 import { QuickLog, quickTarget } from "../components/quick-log";
 import { amendCare, careWrite } from "./quick-care";
+import { router } from "expo-router";
 import { boundFeed, feedWrite, finishFeed, finishTimer, startFeed, switchFeed, undoWindow } from "./running-feed";
 import { CareGlance } from "../components/care-glance";
 import { runningFeed, runningLimit } from "./feed-reducer";
@@ -617,10 +618,20 @@ describe("a timer from an older build", () => {
     expect(saves()).toHaveLength(1);
     expect(b.state.feedTimer).toBeUndefined();
   });
-  it("finishes against the record already started during it, never a second log", async () => {
-    const b = setup(), started = feedWrite("baby", "right", new Date(start.getTime() + 60_000));
-    b.state = { ...b.state, feedTimer: timer(), outbox: [{ id: "create", generation: 2, type: "save", record: started, files: [] }] };
-    const done = await finishTimer(b as never, timer(), new Date(start.getTime() + 300_000));
+  it("doesn't finish someone else's feed that merely began during it: the timer saves its own", async () => {
+    const b = setup(), theirs = feedWrite("baby", "right", new Date(start.getTime() + 60_000));
+    b.state = { ...b.state, feedTimer: timer(), outbox: [{ id: "create", generation: 2, type: "save", record: theirs, files: [] }] };
+    await finishTimer(b as never, timer(), new Date(start.getTime() + 300_000));
+    expect(feedActions()).toEqual([]);
+    expect(saves().map((m) => m.record.data.method)).toEqual(["breast", "breast"]);
+    expect(saves()[1].record.id).not.toBe(theirs.id);
+    expect(pendingRecords(b.state).find((row) => row.id === theirs.id)?.data.state).toBe("running");
+    expect(b.state.feedTimer).toBeUndefined();
+  });
+  it("finishes against the record it names, never a second log", async () => {
+    const b = setup(), started = feedWrite("baby", "right", new Date(start.getTime() + 60_000)), named = { ...timer(), record_id: started.id };
+    b.state = { ...b.state, feedTimer: named, outbox: [{ id: "create", generation: 2, type: "save", record: started, files: [] }] };
+    const done = await finishTimer(b as never, named, new Date(start.getTime() + 300_000));
     expect(saves()).toHaveLength(1);
     expect(feedActions()).toEqual([expect.objectContaining({ record_id: started.id, action: expect.objectContaining({ action: "finish" }) })]);
     expect(b.state.feedTimer).toBeUndefined();
@@ -628,10 +639,22 @@ describe("a timer from an older build", () => {
     expect(feedActions()).toEqual([]);
     expect(b.state.feedTimer?.started_at).toBe(start.toISOString());
   });
-  it("doesn't bind to a feed from before it", () => {
+  it("binds by identity only, whenever the feed began", () => {
     setup();
-    const earlier = { ...feedWrite("baby", "right", new Date(start.getTime() - 60_000)), revision: 1, created_at: "", updated_at: "" };
-    expect(boundFeed([earlier], timer(), new Date(start.getTime() + 60_000))).toBeUndefined();
+    const row = (at: number) => ({ ...feedWrite("baby", "right", new Date(start.getTime() + at)), revision: 1, created_at: "", updated_at: "" });
+    expect(boundFeed([row(-60_000)], timer(), new Date(start.getTime() + 60_000))).toBeUndefined();
+    expect(boundFeed([row(30_000)], timer(), new Date(start.getTime() + 60_000))).toBeUndefined();
+    const named = row(30_000);
+    expect(boundFeed([named], { ...timer(), record_id: named.id }, new Date(start.getTime() + 60_000))?.record.id).toBe(named.id);
+  });
+});
+
+describe("the running card", () => {
+  it("opens the running record", async () => {
+    setup(); await mount(); await press("Breastfeed"); await press("Left");
+    const card = targets().find((n) => String(n.props.accessibilityLabel).startsWith("Feeding, left side"))!;
+    await act(async () => card.props.onPress());
+    expect(router.push).toHaveBeenCalledWith({ pathname: "/record/[id]", params: { id: saves()[0].record.id } });
   });
 });
 

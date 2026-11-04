@@ -43,10 +43,44 @@ describe("the API's day with this phone's changes on top", () => {
     const held = row("a", "sleep", "2026-11-03T20:00:00Z", { end_at: "2026-11-03T22:00:00Z" }),
       over = row("b", "sleep", "2026-11-03T21:00:00Z", { end_at: "2026-11-03T23:00:00Z" }),
       midnight = row("c", "sleep", "2026-11-04T12:00:00Z", { end_at: "2026-11-04T16:00:00Z" }), late = new Date("2026-11-05T00:00:00Z");
-    const overlay = dayOverlay(state([held], [save(over), save(midnight)]), "baby", guam, late);
-    expect(overlay(api(), key).sleep.total_minutes).toBe(180 + 120);
-    expect(overlay(api({ date: "2026-11-05", sleep: { total_minutes: 0 }, dots: [] }), "2026-11-05").dots).toContain("sleep");
-    expect(overlay(api({ date: "2026-11-05", sleep: { total_minutes: 0 }, dots: [] }), "2026-11-05").sleep.total_minutes).toBe(120);
+    const overlay = dayOverlay(state([held], [save(over), save(midnight)]), "baby", guam, late),
+      span = (record_id: string, from: string, to: string) => ({ record_id, from, to }),
+      withSpans = api({ sleep: { total_minutes: 120, spans: [span("a", "2026-11-03T20:00:00Z", "2026-11-03T22:00:00Z")] } });
+    expect(overlay(withSpans, key).sleep.total_minutes).toBe(180 + 120);
+    const next = api({ date: "2026-11-05", sleep: { total_minutes: 0, spans: [] }, dots: [] });
+    expect(overlay(next, "2026-11-05").dots).toContain("sleep");
+    expect(overlay(next, "2026-11-05").sleep.total_minutes).toBe(120);
+  });
+  it("keeps the API's total when a queued sleep arrives, for sleeps this phone doesn't hold", () => {
+    const queued = row("s", "sleep", "2026-11-04T03:00:00Z");
+    // Reproduced on 32fce648: a queued open sleep made a five-hour day read zero.
+    const open = dayOverlay(state([], [save(queued)]), "baby", guam, now);
+    const span = { record_id: "remote", from: "2026-11-04T00:00:00Z", to: "2026-11-04T05:00:00Z" };
+    expect(open(api({ sleep: { total_minutes: 300, spans: [span] } }), key).sleep.total_minutes).toBe(300);
+    // With no spans at all it doesn't guess: the API's total stands.
+    expect(open(api({ sleep: { total_minutes: 300 } }), key).sleep.total_minutes).toBe(300);
+    // A finished one is added, with its overlap counted once.
+    const finished = dayOverlay(state([], [save({ ...queued, data: { end_at: "2026-11-04T06:00:00Z" } })]), "baby", guam, now);
+    expect(finished(api({ sleep: { total_minutes: 300, spans: [span] } }), key).sleep.total_minutes).toBe(360);
+    expect(finished(api({ sleep: { total_minutes: 300 } }), key).sleep.total_minutes).toBe(300);
+  });
+  it("swaps only the sleep it has a change for, and takes back a queued delete's minutes", () => {
+    const held = row("mine", "sleep", "2026-11-04T00:00:00Z", { end_at: "2026-11-04T01:00:00Z" }),
+      spans = [{ record_id: "mine", from: "2026-11-04T00:00:00Z", to: "2026-11-04T01:00:00Z" }, { record_id: "theirs", from: "2026-11-04T02:00:00Z", to: "2026-11-04T04:00:00Z" }],
+      base = api({ sleep: { total_minutes: 180, spans } });
+    const longer = save({ ...held, data: { end_at: "2026-11-04T01:30:00Z" } });
+    expect(dayOverlay(state([held], [longer]), "baby", guam, now)(base, key).sleep.total_minutes).toBe(210);
+    const gone: Mutation = { id: "x", generation: 1, type: "delete", record: held };
+    expect(dayOverlay(state([held], [gone]), "baby", guam, now)(base, key).sleep.total_minutes).toBe(120);
+    const only = api({ sleep: { total_minutes: 60, spans: spans.slice(0, 1) } });
+    expect(dayOverlay(state([held], [gone]), "baby", guam, now)(only, key).dots).not.toContain("sleep");
+  });
+  it("keeps the API's dot for a sleep still going, unless that's the one queued", () => {
+    const open = row("open", "sleep", "2026-11-04T03:00:00Z"), other = row("d", "sleep", "2026-11-04T05:00:00Z", { end_at: "2026-11-04T05:30:00Z" }),
+      base = api({ sleep: { total_minutes: 0, spans: [] }, dots: ["sleep"] });
+    expect(dayOverlay(state([], [save(other)]), "baby", guam, now)(base, key).dots).toContain("sleep");
+    const gone: Mutation = { id: "x", generation: 1, type: "delete", record: open };
+    expect(dayOverlay(state([open], [gone]), "baby", guam, now)(base, key).dots).not.toContain("sleep");
   });
   it("leaves the API's sleep alone when no sleep is queued, including its minutes this phone can't see", () => {
     expect(dayOverlay(state([], [save(row("d", "diaper", "2026-11-04T01:00:00Z", { type: "wet" }))]), "baby", guam, now)(api(), key).sleep.total_minutes).toBe(120);

@@ -11,7 +11,11 @@ import { Card, Copy, fonts, radii, useColors, useToast } from "./ui";
  * instruction, so it syncs and stays findable. We show no examples, so nothing here reads as advice.
  */
 export function DoctorNote({ childId }: { childId: string | null }) {
-  const b = useBaby(), c = useColors(), toast = useToast(), { fontScale } = useWindowDimensions(), saved = doctorNote(b.records),
+  // Each baby has their own. Changing baby saves what's typed to the one it was typed for, and starts from the other's.
+  return <ChildNote key={childId} childId={childId} />;
+}
+function ChildNote({ childId }: { childId: string | null }) {
+  const b = useBaby(), c = useColors(), toast = useToast(), { fontScale } = useWindowDimensions(), saved = doctorNote(b.records, childId),
     [text, setText] = useState(saved?.body ?? ""), editing = useRef(false), latest = useRef({ text, saved, b });
   latest.current = { text, saved, b };
   // Another phone's copy arrives while she isn't typing.
@@ -19,8 +23,8 @@ export function DoctorNote({ childId }: { childId: string | null }) {
   useEffect(() => {
     // Only the newest few entries are on a phone at first, so look for it once.
     let active = true;
-    if (!saved) void b.api.search(doctorNoteTitle, "journal", undefined, { limit: 5 }).then((page) => {
-      const found = active ? doctorNote(page.items) : undefined;
+    if (!saved) void b.api.search(doctorNoteTitle, "journal", childId, { limit: 5 }).then((page) => {
+      const found = active ? doctorNote(page.items, childId) : undefined;
       if (found) void b.commit((state) => (state.records.some((row) => row.id === found.id) ? state : { ...state, records: [found, ...state.records] }));
     }).catch(() => undefined);
     return () => { active = false; };

@@ -10,6 +10,7 @@ import type {
   ImportJob,
   Kind,
   Profile,
+  SessionAction,
   RecordPage,
   RecordWrite,
   Scope,
@@ -258,6 +259,9 @@ export function createBabyApi(
     feedAction: (recordId: string, value: FeedAction, g: number) =>
       request<BabyRecord>(`/records/${recordId}/feed-action`, "POST",
         { action_id: value.id, action: value.action, at: value.at, ...(value.side ? { side: value.side } : {}) }, g),
+    sessionAction: (recordId: string, value: SessionAction, g: number) =>
+      request<BabyRecord>(`/records/${recordId}/session-action`, "POST",
+        { action_id: value.id, action: value.action, at: value.at, ...(value.target ? { target: value.target } : {}) }, g),
     /** Accept or dismiss suggested categories; each item reports its own result. */
     decideSuggestions: (items: { record_id: string; revision: number }[], g: number, action: "accept" | "dismiss" = "accept") =>
       request<SuggestionResult>("/suggested-categories", "POST", { action, items }, g),

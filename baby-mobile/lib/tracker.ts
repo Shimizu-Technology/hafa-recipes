@@ -33,14 +33,20 @@ function zoneOffset(instant: Date, timeZone: string) {
   return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(instant.getTime() / 1000) * 1000;
 }
 
-/** The instant a family's clock reads this time on this day. Days and totals follow the profile's zone, as the API does. */
+/**
+ * The instant a family's clock reads this time on this day. Days and totals follow the profile's zone, as the API does,
+ * and resolve the same way: a time read twice is the first, and a time the clock skips is the moment after the jump, so
+ * a midnight skipped in spring (Santiago) starts its day at 1:00 rather than pulling in the hour before.
+ */
 export function zonedInstant(key: string, hours: number, minutes: number, timeZone?: string | null) {
   const [year, month, day] = key.split("-").map(Number);
   try {
     if (!timeZone) throw Error("No zone");
     const guess = Date.UTC(year, month - 1, day, hours, minutes),
-      first = guess - zoneOffset(new Date(guess), timeZone);
-    return new Date(guess - zoneOffset(new Date(first), timeZone));
+      before = zoneOffset(new Date(guess - 24 * hour), timeZone), after = zoneOffset(new Date(guess + 24 * hour), timeZone),
+      reads = (offset: number) => zoneOffset(new Date(guess - offset), timeZone) === offset,
+      real = [before, after].filter(reads).map((offset) => guess - offset);
+    return new Date(real.length ? Math.min(...real) : guess - before);
   } catch { return new Date(year, month - 1, day, hours, minutes); }
 }
 export function dayRange(key: string, timeZone?: string | null) {
@@ -66,9 +72,13 @@ export function clockIn(date: Date, timeZone?: string | null) {
 
 /** Sleep inside a day, as the API counts it. A sleep over midnight counts on both days, overlaps count once, and one still going has no minutes until it ends. */
 export function sleepMs(rows: readonly BabyRecord[], from: string, to: string, now = new Date()) {
+  return mergedMs(rows.filter((row) => row.kind === "sleep" && row.data.end_at).map((row) => [row.occurred_at, row.data.end_at!] as const), from, to, now);
+}
+/** How much of a window these spans cover, counting overlaps once. */
+export function mergedMs(list: readonly (readonly [string, string])[], from: string, to: string, now = new Date()) {
   const start = new Date(from).getTime(), end = Math.min(new Date(to).getTime(), now.getTime());
-  const spans = rows.filter((row) => row.kind === "sleep" && row.data.end_at).flatMap((row) => {
-    const a = new Date(row.occurred_at).getTime(), b = new Date(row.data.end_at!).getTime();
+  const spans = list.flatMap(([first, last]) => {
+    const a = new Date(first).getTime(), b = new Date(last).getTime();
     return Number.isFinite(a) && Number.isFinite(b) ? [[Math.max(a, start), Math.min(b, end)] as const] : [];
   }).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
   let total = 0, reached = start;
@@ -93,7 +103,8 @@ export interface CareDay {
   date: string;
   feeding: { count: number };
   diapers: { count: number; pee: number; poo: number; dry: number };
-  sleep: { total_minutes: number };
+  /** `spans` names each finished sleep on this day, unmerged, so a queued one can be swapped in without guessing at the rest. */
+  sleep: { total_minutes: number; spans?: { record_id: string; from: string; to: string }[] };
   dots: string[];
 }
 /** The API's day worked out from rows on this phone, for offline and for changes it hasn't seen. Half-open, and never the future. */

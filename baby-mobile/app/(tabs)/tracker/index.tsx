@@ -6,7 +6,8 @@ import { careLogsStarted, profileToday, timingChild, todayStage } from "@/lib/ti
 import { useTodayCare } from "@/lib/today-care";
 import { dayKey, dayRange, summaryLine, keyDate, addDays, onDay, timelineKinds, weekOf } from "@/lib/tracker";
 import { dayOverlay } from "@/lib/care-summary";
-import { useCareSummary } from "@/lib/use-care-summary";
+import { otherDayMark } from "@/lib/care-days";
+import { useCareSummary, useDeleted, useOtherDays } from "@/lib/use-care-summary";
 import { newestFirst } from "@/lib/feed-reducer";
 import { Copy, Empty, FilterChips, Grouped, Icon, Notice, PressTarget, Row, Screen, useColors } from "@/components/ui";
 import { HeaderPill } from "@/components/tab-stack";
@@ -30,23 +31,28 @@ export default function Tracker() {
     [chosenView, setView] = useState<string | null>(null),
     day = picked ?? today,
     range = dayRange(day, timezone),
+    child = timingChild(b.state, keyDate(today)),
+    // Tracker is always about one baby: the timeline, totals, dots and logging all use this.
+    scope = child?.id ?? null,
     // A day looks back one more, for a sleep that ran over midnight into it.
-    care = useTodayCare({ kinds: timelineKinds, occurred_from: dayRange(addDays(day, -1), timezone).from, occurred_to: range.to, pages: 5, limit: 500, poll: day === today }),
-    recent = useTodayCare(),
+    care = useTodayCare({ kinds: timelineKinds, occurred_from: dayRange(addDays(day, -1), timezone).from, occurred_to: range.to, pages: 5, limit: 500, poll: day === today, child: scope }),
+    recent = useTodayCare({ child: scope }),
     // The weeks a swipe away, so their dots are already there.
     strip = Array.from({ length: 90 }, (_, index) => addDays(weekOf(day)[0], index - 42)),
     children = b.state.bootstrap!.children,
-    child = timingChild(b.state, keyDate(today)),
     logging = careLogsStarted(children, keyDate(today)) && !!child && todayStage(child, keyDate(today)) === "baby",
     expecting = !!child && !logging && todayStage(child, keyDate(today)) !== "none",
     // Before the birth there's nothing to log by the day yet, so she lands on the calendar and the tools.
     view = chosenView ?? (expecting ? "month" : "day"),
-    summary = useCareSummary(child?.id ?? null, strip[0], strip[strip.length - 1], { poll: day === today }),
-    overlay = dayOverlay(b.state, child?.id ?? null, timezone, now),
+    summary = useCareSummary(scope, strip[0], strip[strip.length - 1], { poll: day === today }),
+    others = useOtherDays(scope, strip[0], strip[strip.length - 1]),
+    gone = useDeleted(),
+    other = otherDayMark(b, scope, timezone, others, gone),
+    overlay = dayOverlay(b.state, scope, timezone, now),
     rows = care.all.filter((row) => onDay(row, day, timezone, now)).sort((x, y) => (newest ? 1 : -1) * newestFirst(x, y)),
     future = keyDate(day) > keyDate(today),
     { fontScale } = useWindowDimensions(),
-    marked = new Set(strip.filter((key) => overlay(summary?.[key], key).dots.length > 0));
+    marked = new Set(strip.filter((key) => other(key) || overlay(summary?.[key], key).dots.length > 0));
   useEffect(() => {
     // A link to one day, from Today or the calendar.
     if (params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day)) { setPicked(params.day === today ? null : params.day); setView("day"); }
@@ -57,13 +63,13 @@ export default function Tracker() {
     <Screen title="Tracker" onRefresh={() => Promise.all([care.refresh(), recent.refresh()])} footer={fontScale < dockBelow && view === "day" ? quickLog : undefined}>
       <Stack.Screen options={{ title: "Tracker" }} />
       <SyncStatus />
-      {children.length > 1 && <ChildFilter />}
+      {children.length > 1 && <ChildFilter only={scope ?? undefined} />}
       <FilterChips label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }]} />
       {expecting && <Grouped>
         <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
         <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
       </Grouped>}
-      {view === "month" ? <TrackerMonth today={today} day={day} childId={b.state.selectedChild ?? child?.id ?? null} birthDate={child?.birth_date}
+      {view === "month" ? <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date}
         onOpen={(key) => { pick(key); setView("day"); }} /> : <>
       <WeekStrip day={day} today={today} marked={marked} onPick={pick} />
       <View style={{ gap: 4 }}>

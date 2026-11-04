@@ -72,6 +72,18 @@ export interface FeedAction {
   action: "start" | "switch" | "finish";
   at: string;
   side?: "left" | "right";
+  /** The revision this tap made, set by the API. A retry can't be told from the row alone, so this is the proof. */
+  revision?: number;
+}
+/** A kick session's tap or take-back, or a contraction's stop. */
+export interface SessionAction {
+  id: string;
+  action: "tap" | "undo" | "finish";
+  at: string;
+  /** What an undo takes back. */
+  target?: string;
+  /** As on a feed action. */
+  revision?: number;
 }
 export interface RecordData {
   provenance?: "caregiver_observation" | "clinician_instruction";
@@ -97,9 +109,10 @@ export interface RecordData {
   state?: "running" | "finished" | "unknown_end";
   /** What's in a bottle. Stored in the API's words; shown as Breast milk or Formula. */
   contents?: "breast_milk" | "formula" | null;
-  end_at?: string;
-  /** Movements felt in a kick session. */
+  end_at?: string | null;
+  /** Movements felt in a kick session, from its actions. */
   count?: number;
+  session_actions?: SessionAction[];
   type?: "wet" | "dirty" | "both" | "dry";
   /** A poo's colour, as the API stores it. */
   color?: "black" | "green" | "yellow" | "brown" | "red" | "white" | null;
@@ -231,6 +244,33 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
   | {
+      /** The action's own id, as on a feed action. */
+      id: string;
+      generation: number;
+      type: "session_action";
+      record_id: string;
+      action: SessionAction;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
+      /** "Baby's here" with no signal: only the birth date changes, and only from the value it saw. */
+      id: string;
+      generation: number;
+      type: "child_birth";
+      child_id: string;
+      birth_date: string | null;
+      previous: string | null;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
       id: string;
       generation: number;
       type: "import";
@@ -256,11 +296,13 @@ export interface FeedTimer {
   started_at: string;
   segments: { side: "left" | "right"; started_at: string; ended_at?: string }[];
   paused_at?: string;
+  /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
+  record_id?: string;
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;
-  /** A tap the API couldn't apply, kept until she has seen why. */
-  feedNotice?: string;
+  /** Taps the API couldn't apply, kept until she has seen why. */
+  feedNotices?: string[];
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
   fileUploads: Record<string, string>;
   fileReleases?: string[];

@@ -1,12 +1,14 @@
 import { useRef } from "react";
+import * as Crypto from "expo-crypto";
 import { Text, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { kickDetail, openSession, ownSessions, sessionSeconds } from "@/lib/kicks";
+import { kickDetail, openSessions, ownSessions, sessionSeconds } from "@/lib/kicks";
 import { secondsWords } from "@/lib/contractions";
 import { cdcMovementDetail, cdcMovementOpening, cdcMovementSign, cdcWarningSignsSource, cdcWarningSignsUrl } from "@/lib/medical-wording";
-import { messageFor } from "@/lib/models";
-import { amendCare, careWrite, logCare, undoSaved } from "@/lib/quick-care";
+import { messageFor, type BabyRecord } from "@/lib/models";
+import { careWrite, logCare, queueSessionAction, undoSaved } from "@/lib/quick-care";
+import { reduceSession } from "@/lib/session-actions";
 import { friendlyTime } from "@/lib/care-format";
 import { profileToday, timingChild } from "@/lib/timing";
 import { useTodayCare } from "@/lib/today-care";
@@ -21,29 +23,34 @@ export default function Kicks() {
   const b = useBaby(), c = useColors(), toast = useToast(), { fontScale } = useWindowDimensions(), minute = useMinuteClock(),
     timeZone = b.state.bootstrap!.profile.timezone,
     childId = timingChild(b.state, profileToday(minute, timeZone))?.id ?? null,
-    care = useTodayCare({ kinds: ["kick_session"], limit: 100 }),
+    care = useTodayCare({ kinds: ["kick_session"], limit: 100, child: childId }),
     rows = ownSessions(care.all, childId),
-    open = openSession(rows, childId, minute),
-    now = useSecondClock(!!open),
-    latest = useRef({ open, b }),
-    starting = useRef(false);
-  latest.current = { open, b };
-  /** Each change is built in the write, so taps a moment apart all count. */
+    now = useSecondClock(true),
+    [open, ...others] = openSessions(rows, childId, now),
+    latest = useRef({ open }),
+    // The session the first tap began, from that tap until it's on screen. Taps meanwhile are queued behind its create.
+    reserved = useRef<string | null>(null);
+  latest.current = { open };
+  if (rows.some((row) => row.id === reserved.current)) reserved.current = null;
+  /** Each tap is its own durable change, so taps a moment apart and taps on another phone all count. */
   function run(action: () => Promise<unknown>) {
     tap();
     void action().catch((e) => toast(messageFor(e)));
   }
-  const count = (by: number, id: string) => amendCare(b, id, (row) => ({ data: { ...row.data, count: Math.max(0, (row.data.count ?? 0) + by) } }));
   const movement = () => {
-    if (latest.current.open) return run(() => count(1, latest.current.open!.id));
-    // Two taps before the first has saved are one session, not two.
-    if (starting.current) return;
-    starting.current = true;
-    run(() => logCare(b, careWrite("kick_session", childId, { count: 1 }, new Date())).finally(() => { starting.current = false; }));
+    const at = new Date(), session = reserved.current ?? latest.current.open?.id;
+    if (session) return run(() => queueSessionAction(b, session, { action: "tap", at: at.toISOString() }));
+    const record = careWrite("kick_session", childId, { count: 1, session_actions: [{ id: Crypto.randomUUID(), action: "tap", at: at.toISOString() }] }, at);
+    reserved.current = record.id;
+    run(() => logCare(b, record).catch((e) => { reserved.current = null; throw e; }));
   };
-  // Taking back the only movement takes back the session it began.
-  const takeBack = () => open && run(() => (open.data.count ?? 0) > 1 ? count(-1, open.id) : undoSaved(b, open)());
-  const finish = () => open && run(() => amendCare(b, open.id, (row) => ({ data: { ...row.data, end_at: new Date().toISOString() } })));
+  const takeBack = () => {
+    if (!open) return;
+    const { taps } = reduceSession(open.data.session_actions), last = taps[taps.length - 1];
+    // Taking back the only movement takes back the session it began.
+    run(() => (taps.length > 1 ? queueSessionAction(b, open.id, { action: "undo", target: last.id, at: new Date().toISOString() }) : undoSaved(b, open)()));
+  };
+  const finish = (session: BabyRecord) => run(() => queueSessionAction(b, session.id, { action: "finish", at: new Date().toISOString() }));
   return <Screen title="Kick counter" back>
     <SyncStatus />
     <PressTarget accessibilityRole="button" accessibilityLabel={`Movement. ${open?.data.count ?? 0} so far`} accessibilityHint="Counts one movement and saves it" onPress={movement}
@@ -54,8 +61,13 @@ export default function Kicks() {
     </PressTarget>
     {!!open && <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 8 }}>
       <View style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? undefined : 0 }}><Button secondary title="Take one back" onPress={takeBack} /></View>
-      <View style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? undefined : 0 }}><Button title="Finish" onPress={finish} /></View>
+      <View style={{ flexGrow: 1, flexBasis: fontScale >= 1.3 ? undefined : 0 }}><Button title="Finish" onPress={() => finish(open)} /></View>
     </View>}
+    {others.map((row) => <Card key={row.id} tone="soft">
+      <Copy kind="label">Another session is still open</Copy>
+      <Copy numeric kind="small" tone="muted">{`${friendlyTime(row.occurred_at, minute, timeZone)} · ${kickDetail(row, now)}`}</Copy>
+      <Button secondary title="Finish this one" onPress={() => finish(row)} />
+    </Card>)}
     <Card tone="soft">
       <Copy kind="small">{cdcMovementOpening}</Copy>
       <Copy kind="label">{cdcMovementSign}</Copy>

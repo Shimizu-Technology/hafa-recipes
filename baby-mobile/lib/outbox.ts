@@ -1,6 +1,7 @@
 import { importFinished } from "./import-status";
 import { instant, reduceFeed, withRecordAction } from "./feed-reducer";
-import type { BabyRecord, DeviceState, FeedAction, ImportJob, Mutation, RecordWrite } from "./models";
+import { withSessionAction } from "./session-actions";
+import type { BabyRecord, Child, DeviceState, ImportJob, Mutation, RecordWrite } from "./models";
 export function replaceRecord(records: BabyRecord[], record: BabyRecord) {
   return [record, ...records.filter((r) => r.id !== record.id)].sort((a, b) =>
     b.occurred_at.localeCompare(a.occurred_at)
@@ -20,6 +21,8 @@ export function pendingRecords(state: DeviceState) {
     } else if (change.type === "delete") rows = rows.filter((r) => r.id !== change.record.id);
     else if (change.type === "feed_action")
       rows = rows.map((r) => (r.id === change.record_id ? withRecordAction(r, change.action) : r));
+    else if (change.type === "session_action")
+      rows = rows.map((r) => (r.id === change.record_id ? withSessionAction(r, change.action) : r));
   }
   return rows;
 }
@@ -32,7 +35,7 @@ export function fencedState(state: DeviceState, generation: number) {
     (state.bootstrap && state.bootstrap.generation !== generation) ||
     (state.routine_sync && state.routine_sync.generation !== generation)
   ) {
-    const { routine_sync: _, feedTimer: __, feedNotice: ___, ...rest } = state;
+    const { routine_sync: _, feedTimer: __, feedNotices: ___, ...rest } = state;
     return {
       ...rest,
       records: [],
@@ -55,7 +58,7 @@ export function uploadedReferences(state: DeviceState) {
   return new Set(
     [
       ...Object.values(state.drafts).flatMap((draft) => draft.files),
-      ...state.outbox.flatMap((mutation) => (mutation.type === "delete" || mutation.type === "feed_action" ? [] : mutation.files)),
+      ...state.outbox.flatMap((mutation) => ("files" in mutation ? mutation.files : [])),
     ]
       .map((file) => file.uploaded_id ?? state.fileUploads?.[file.id])
       .filter((id): id is string => !!id)
@@ -107,32 +110,50 @@ function withServerFeed(record: RecordWrite, result: BabyRecord): RecordWrite {
   return { ...record, data: { ...rest, actions: a, state: st, side: si, duration_minutes: du, ...(en ? { end_at: en } : {}) } };
 }
 /**
- * The record moved one step, so a change waiting behind it follows. More than one step means someone else wrote in
- * between, whatever this request was: the waiting change keeps its revision, and the API answers it with a conflict
- * for review. That fence is what stops it overwriting an edit it never saw, or deleting a record it never saw.
+ * The revision a finished request is proven to have made. A save's follows from the one it sent: a create is always 1,
+ * and a PATCH only lands on its own revision. A tap needs no revision and can be a replay, so only the API can say,
+ * on the action it stored. The row's own revision proves nothing: another phone may have written since.
  */
-export function advancePending(m: Mutation, result: BabyRecord, fromAction = false): Mutation {
-  if (m.type === "import" || m.type === "feed_action" || m.record.id !== result.id) return m;
-  if ((m.record.revision ?? 0) + 1 !== result.revision) return m;
-  if (m.type === "delete") return { ...m, record: { ...m.record, revision: result.revision } };
-  const record = fromAction && m.record.kind === "feeding" && derivedOnly(m.record) ? withServerFeed(m.record, result) : m.record;
-  return { ...m, record: { ...record, revision: result.revision } };
+export function producedRevision(done: Mutation, row: BabyRecord) {
+  if (done.type === "save") return done.record.revision ? done.record.revision + 1 : 1;
+  if (done.type === "feed_action") return row.data.actions?.find((known) => known.id === done.action.id)?.revision;
+  if (done.type === "session_action") return row.data.session_actions?.find((known) => known.id === done.action.id)?.revision;
+  return undefined;
+}
+/**
+ * A change built just before this request follows it, and only that one step. Anything else keeps its revision, and the
+ * API answers it with a conflict for review. That fence is what stops it overwriting an edit it never saw, or deleting
+ * a record it never saw.
+ */
+export function advancePending(m: Mutation, done: Mutation, result: BabyRecord): Mutation {
+  if ((m.type !== "save" && m.type !== "delete") || m.record.id !== result.id) return m;
+  const made = producedRevision(done, result);
+  if (made === undefined || (m.record.revision ?? 0) + 1 !== made) return m;
+  if (m.type === "delete") return { ...m, record: { ...m.record, revision: made } };
+  // Later writes aren't this one's to take: the API refuses the edit anyway, and she compares them in review.
+  const record = done.type === "feed_action" && result.revision === made && m.record.kind === "feeding" && derivedOnly(m.record) ? withServerFeed(m.record, result) : m.record;
+  return { ...m, record: { ...record, revision: made } };
 }
 /** What a 404 or 409 on a tap means, once the record has been read again. Only a record known to be gone or untimed loses it. */
-export function rejectedAction(row: BabyRecord | null, action: FeedAction): "removed" | "plain" | "applied" | "unresolved" {
+export function rejectedAction(row: BabyRecord | null, action: { id: string }): "removed" | "plain" | "applied" | "unresolved" {
   if (!row) return "removed";
-  if (row.data.actions?.some((known) => known.id === action.id)) return "applied";
-  return row.data.actions?.length || row.data.state === "running" || row.data.state === "unknown_end" ? "unresolved" : "plain";
+  if ([...(row.data.actions ?? []), ...(row.data.session_actions ?? [])].some((known) => known.id === action.id)) return "applied";
+  return row.data.actions?.length || row.data.session_actions?.length || row.data.state === "running" || row.data.state === "unknown_end" ? "unresolved" : "plain";
+}
+/** Added once each, oldest first, so one can't hide another. */
+export function withNotice(state: DeviceState, notice: string): DeviceState {
+  return state.feedNotices?.includes(notice) ? state : { ...state, feedNotices: [...(state.feedNotices ?? []), notice] };
 }
 export const removedFeedNotice = "This feed was removed.";
+export const removedSessionNotice = "This entry was removed, so the tap wasn’t added.";
 export const plainFeedNotice = "This feed was changed, and the saved one stands.";
 export const finishedFeedNotice = "This feed had already finished.";
 /** A switch that landed after the feed's finish does nothing, so she hears about it rather than seeing nothing change. */
-export function switchTooLate(action: FeedAction, result: BabyRecord) {
+export function switchTooLate(action: { action: string; at: string }, result: BabyRecord) {
   return action.action === "switch" && !!result.data.end_at && instant(result.data.end_at) <= instant(action.at);
 }
 /** Tries a tap again with the same id, further apart each time, so a bad minute on the server doesn't lose or suspend it. */
-export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "save" }>>(change: T, now = Date.now()): T {
+export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "session_action" | "child_birth" | "save" }>>(change: T, now = Date.now()): T {
   const attempts = (change.attempts ?? 0) + 1;
   return { ...change, attempts, hold_until: new Date(now + Math.min(5000 * 2 ** (attempts - 1), 5 * 60_000)).toISOString() };
 }
@@ -146,11 +167,12 @@ export const unresolvedAttempts = 5;
 /** All operations on a record share one durable order, including source imports.
  * An unresolved ancestor holds only its own record, never the entire outbox. */
 export function mutationRecordId(change: Mutation) {
-  return change.type === "import" || change.type === "feed_action" ? change.record_id : change.record.id;
+  if (change.type === "child_birth") return change.child_id;
+  return change.type === "save" || change.type === "delete" ? change.record.id : change.record_id;
 }
 /** Still inside its Undo window; the sync loop comes back for it. */
 export function heldUntil(change: Mutation, now = Date.now()) {
-  if ((change.type !== "feed_action" && change.type !== "save") || !change.hold_until) return 0;
+  if (change.type === "delete" || change.type === "import" || !change.hold_until) return 0;
   const until = new Date(change.hold_until).getTime();
   return until > now ? until : 0;
 }
@@ -161,6 +183,30 @@ export function waitingForEarlier(outbox: Mutation[], change: Mutation) {
 }
 export function retryMutation<T extends Mutation>(change: T): T {
   return { ...change, error: undefined, conflict: false, localOnly: false };
+}
+
+/** A pending birth date shows everywhere as soon as it's tapped, and stays through every refresh until it lands. */
+export function withPendingBirths(state: DeviceState): DeviceState {
+  if (!state.bootstrap || !state.outbox.some((m) => m.type === "child_birth")) return state;
+  const children = state.outbox.reduce<Child[]>((rows, m) => m.type !== "child_birth" ? rows
+    : rows.map((child) => (child.id === m.child_id && (child.birth_date ?? null) !== m.birth_date ? { ...child, birth_date: m.birth_date } : child)), state.bootstrap.children);
+  return children === state.bootstrap.children ? state : { ...state, bootstrap: { ...state.bootstrap, children } };
+}
+/** What a removed birth change leaves behind: what the API said, or else what it saw before. */
+export function withoutBirth(state: DeviceState, m: Extract<Mutation, { type: "child_birth" }>, server?: Child): DeviceState {
+  if (!state.bootstrap) return state;
+  return { ...state, bootstrap: { ...state.bootstrap,
+    children: state.bootstrap.children.map((child) => (child.id !== m.child_id ? child : server ?? { ...child, birth_date: m.previous })) } };
+}
+/**
+ * What to do with a birth change, from the API's copy. Its revision is only how a write gets in: the question is the
+ * date. Already there is a replay or the other phone. Still what it saw means send it, at whatever revision the row is
+ * on now, so a conflict on another field can't lose it. A different date is someone's decision, and she reviews it.
+ */
+export function birthStep(server: Child | undefined, m: Extract<Mutation, { type: "child_birth" }>): "gone" | "done" | "send" | "different" {
+  if (!server) return "gone";
+  const saved = server.birth_date ?? null;
+  return saved === m.birth_date ? "done" : saved === m.previous ? "send" : "different";
 }
 
 /** Admission is not completion: an import may still replace source fields. */

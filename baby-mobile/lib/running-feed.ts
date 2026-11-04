@@ -1,7 +1,7 @@
 import * as Crypto from "expo-crypto";
 import type { useBaby } from "./context";
 import type { BabyRecord, DeviceState, FeedAction, FeedTimer, Mutation } from "./models";
-import { instant, runningFeed, withFeedAction, type RunningFeed } from "./feed-reducer";
+import { runningFeed, withFeedAction, type RunningFeed } from "./feed-reducer";
 import { activeTimer, changeTimer, feedRecordData, type FeedSide } from "./feed-timer";
 import { addMutation } from "./outbox";
 import { careSummary } from "./care-format";
@@ -65,10 +65,10 @@ export async function finishFeed(b: Account, feed: RunningFeed, now = new Date()
   };
 }
 
-/** A record that began during this timer, so the timer's feed is already saved and only needs its end. */
+/** The record this timer's feed is already saved as, by its identity. A feed that merely began during it is someone else's. */
 export function boundFeed(rows: readonly BabyRecord[], timer: FeedTimer, now = new Date()) {
   const feed = runningFeed(rows, timer.child_id, now);
-  return feed && instant(feed.started_at) >= instant(timer.started_at) ? feed : undefined;
+  return timer.record_id && feed?.record.id === timer.record_id ? feed : undefined;
 }
 
 /** Finish a timer from an older build and clear it in one write: as a new entry, or on the record it's already bound to. */

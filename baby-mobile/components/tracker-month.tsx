@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { useBaby } from "@/lib/context";
-import { careDays, firstCareDay, localOtherDays } from "@/lib/care-days";
+import { careDays, firstCareDay, otherDayMark } from "@/lib/care-days";
+import { useDeleted } from "@/lib/use-care-summary";
 import { dayOverlay } from "@/lib/care-summary";
 import { addDays, dayKey, keyDate, weekOf, type CareDay } from "@/lib/tracker";
 import { friendlyDate } from "@/lib/care-format";
@@ -27,11 +29,13 @@ export function stepMonth(month: string, by: number) {
 /** The calendar: tap a day to open it. A dot means there's something on it, and never says whether that's good. */
 export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today: string; day: string; childId: string | null; birthDate?: string | null; onOpen: (key: string) => void }) {
   const b = useBaby(), c = useColors(), { fontScale } = useWindowDimensions(), timezone = b.state.bootstrap!.profile.timezone,
-    [month, setMonth] = useState(monthKey(day)), [remote, setRemote] = useState<Record<string, { days: Record<string, CareDay>; others: ReadonlySet<string> }>>({}), [error, setError] = useState(false),
+    [month, setMonth] = useState(monthKey(day)), [remote, setRemote] = useState<Record<string, { days: Record<string, CareDay>; others: ReadonlyMap<string, readonly string[]> }>>({}), [error, setError] = useState(false),
     [firstDay, setFirstDay] = useState<string | undefined>(undefined),
     latest = useRef(b), grid = useMemo(() => monthGrid(month), [month]), cacheKey = JSON.stringify([month, childId, b.state.bootstrap?.generation]);
   latest.current = b;
-  useEffect(() => {
+  const gone = useDeleted(), waiting = b.state.outbox.length;
+  // Coming back to the tab, and whenever a queued change leaves, because that change is now in these answers.
+  useFocusEffect(useCallback(() => {
     let active = true;
     setError(false);
     void careDays(latest.current, childId, grid.weeks[0][0], grid.weeks[grid.weeks.length - 1][6], timezone, () => active)
@@ -39,14 +43,16 @@ export function TrackerMonth({ today, day, childId, birthDate, onOpen }: { today
       // The dots from this phone still show, and the days still open.
       .catch(() => { if (active) setError(true); });
     return () => { active = false; };
-  }, [cacheKey]);
+  }, [cacheKey, waiting]));
   useEffect(() => {
     let active = true;
+    // Never another baby's first log, while this one's is on its way.
+    setFirstDay(undefined);
     void firstCareDay(latest.current, childId, timezone).then((key) => { if (active) setFirstDay(key); }).catch(() => undefined);
     return () => { active = false; };
   }, [childId, timezone]);
-  const local = localOtherDays(b, childId, timezone), saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone),
-    has = (key: string) => local.has(key) || !!saved?.others.has(key) || overlay(saved?.days[key], key).dots.length > 0,
+  const saved = remote[cacheKey], overlay = dayOverlay(b.state, childId, timezone), other = otherDayMark(b, childId, timezone, saved?.others, gone),
+    has = (key: string) => other(key) || overlay(saved?.days[key], key).dots.length > 0,
     label = keyDate(`${month}-01`).toLocaleDateString(undefined, { month: "long", year: "numeric" }),
     jumps = [firstDay && { key: firstDay, label: "First log" }, birthDate && birthDate !== firstDay && { key: birthDate, label: "Born" }].filter(Boolean) as { key: string; label: string }[];
   return <View style={{ gap: 10 }}>
