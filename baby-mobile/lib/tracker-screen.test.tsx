@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, optimisticRecord, type BabyRecord, type DeviceState } from "./models";
 
-const mock = vi.hoisted(() => ({ events: { items: [], byDay: new Map(), failed: false, complete: true } as any, summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any }));
+const mock = vi.hoisted(() => ({ events: { items: [], byDay: new Map(), failed: false, complete: true } as any, summaries: [] as unknown[][], otherAsks: [] as unknown[][], others: undefined as ReadonlyMap<string, string[]> | undefined, gone: new Set<string>(), baby: null as any, care: [] as any[], requests: [] as any[], params: {} as Record<string, string>, push: vi.fn(), fontScale: 1, quick: [] as any[], error: "", summary: undefined as any, statsAsks: [] as unknown[][], statsRefresh: vi.fn() }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", ScrollView: "ScrollView",
   useWindowDimensions: () => ({ fontScale: mock.fontScale }),
@@ -46,6 +46,8 @@ vi.mock("@/components/care-glance", () => ({ useMinuteClock: () => new Date() })
 vi.mock("@/components/quick-log", () => ({ QuickLog: (props: any) => { mock.quick.push(props); return "quick-log"; } }));
 vi.mock("@/components/tracker-day", () => import("../components/tracker-day"));
 vi.mock("@/components/tracker-month", () => ({ TrackerMonth: "TrackerMonth" }));
+vi.mock("@/components/tracker-stats", () => ({ TrackerStats: "TrackerStats" }));
+vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: unknown) => { mock.statsAsks.push([choice, child]); return { loading: false, refresh: mock.statsRefresh }; } }));
 import Tracker from "../app/(tabs)/tracker/index";
 import { timelineDetail } from "../components/tracker-day";
 import { ChildFilter } from "@/components/child-filter";
@@ -70,7 +72,7 @@ beforeEach(() => {
   vi.useFakeTimers({ now });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  mock.summaries = []; mock.otherAsks = []; mock.others = undefined; mock.gone = new Set(); mock.care = []; mock.requests = []; mock.params = {}; mock.push.mockClear(); mock.fontScale = 1; mock.quick = []; mock.error = ""; mock.summary = undefined;
+  mock.summaries = []; mock.otherAsks = []; mock.others = undefined; mock.gone = new Set(); mock.care = []; mock.requests = []; mock.params = {}; mock.push.mockClear(); mock.fontScale = 1; mock.quick = []; mock.error = ""; mock.summary = undefined; mock.statsAsks = []; mock.statsRefresh = vi.fn();
   mock.baby = { state: { ...emptyState(), bootstrap: { generation: 1, active: true, ai_available: false,
     children: [{ id: "baby", name: "Mia", revision: 1, birth_date: "2026-10-25" }],
     profile: { display_name: "K", timezone: "Pacific/Guam", ai_consent: false } } } as DeviceState };
@@ -101,6 +103,34 @@ describe("one baby at a time", () => {
     expect(mock.summaries[0][0]).toBe("sister");
     expect(mock.requests.every((request) => request.child === "sister")).toBe(true);
     expect(lastQuick().child.id).toBe("sister");
+  });
+});
+
+describe("Stats", () => {
+  const stats = () => renderer!.root.findByType("TrackerStats" as never);
+  const views = () => renderer!.root.findAll((n) => String(n.type) === "FilterChips").find((n) => n.props.label === "Tracker view")!;
+  it("is one tap from Day, and asks for nothing until it's open", async () => {
+    await mount();
+    expect(mock.statsAsks.at(-1)![0]).toBeNull();
+    await act(async () => views().props.onChange("stats"));
+    expect(mock.statsAsks.at(-1)).toEqual([{ range: "7d" }, "baby"]);
+    expect(stats().props.childId).toBe("baby");
+  });
+  it("a bar opens its day, and coming back finds the same range", async () => {
+    await mount();
+    await act(async () => views().props.onChange("stats"));
+    await act(async () => stats().props.onChoose({ range: "30d" }));
+    await act(async () => stats().props.onOpen("2026-10-30"));
+    expect(views().props.value).toBe("day");
+    expect(renderer!.root.findAll((n) => String(n.type) === "Copy").map((n) => n.props.children).join()).toContain("Oct 30");
+    await act(async () => views().props.onChange("stats"));
+    expect(mock.statsAsks.at(-1)![0]).toEqual({ range: "30d" });
+  });
+  it("pull to refresh reads the numbers again", async () => {
+    await mount();
+    await act(async () => views().props.onChange("stats"));
+    await act(async () => { await screen().props.onRefresh(); });
+    expect(mock.statsRefresh).toHaveBeenCalled();
   });
 });
 
@@ -242,7 +272,7 @@ it("describes a timeline row with what the title doesn't say", () => {
 it("opens a day from the calendar, back in the Day view with its quick log", async () => {
   await mount();
   const chips = () => renderer!.root.findAll((n) => String(n.type) === "FilterChips")[0];
-  expect(chips().props.options.map((o: any) => o.label)).toEqual(["Day", "Calendar"]);
+  expect(chips().props.options.map((o: any) => o.label)).toEqual(["Day", "Calendar", "Stats"]);
   await act(async () => chips().props.onChange("month"));
   expect(screen().props.footer).toBeFalsy();
   const month = renderer!.root.findAll((n) => String(n.type) === "TrackerMonth")[0];

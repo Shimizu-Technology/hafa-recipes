@@ -10,6 +10,7 @@ import pytest
 from app.domains.baby import router as baby_router
 from app.domains.baby.stats import MAX_CUSTOM_DAYS, custom_days, summarize
 from tests import test_baby_integration as shared
+from tests.test_baby_care_kinds import allow_new_kinds
 
 baby_api = shared.baby_api
 needs_database = pytest.mark.skipif(not shared.DATABASE_URL, reason="Disposable TEST_DATABASE_URL required")
@@ -188,3 +189,93 @@ def test_a_kind_added_to_care_rows_is_not_counted_as_a_feed():
     row = SimpleNamespace(id=uuid4(), kind="contraction", occurred_at=NOW - timedelta(days=1), data={})
     window = custom_days(NOW.date() - timedelta(days=1), NOW.date() - timedelta(days=1), zone, NOW)
     assert summarize([row], window, zone)["feeding"]["count"] == 0
+
+
+async def stats(baby_api, window="7d", **params):
+    response = await baby_api.client.get(f"{API}/care/stats", params={"range": window, **params}, headers={"X-Baby-Client": "2"})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def make_child(baby_api):
+    child = str(uuid4())
+    response = await baby_api.client.post(f"{API}/children", headers=GEN, json={"id": child, "name": "QA Baby"})
+    assert response.status_code == 200, response.text
+    return child
+
+
+@needs_database
+async def test_stats_ranges_keep_today_out_of_averages_and_say_how_many_days_logged(baby_api, frozen):
+    for day in ("2026-11-01", "2026-11-02", "2026-11-04"):
+        await log(baby_api, "feeding", f"{day}T08:00:00+10:00", method="breast", side="left")
+    await log(baby_api, "feeding", "2026-11-01T11:00:00+10:00", method="breast", side="right")
+    result = await stats(baby_api)
+    assert [day["date"] for day in result["days"]][0] == "2026-10-28" and result["days"][-1]["partial"] is True
+    assert result["feeding"]["count"] == 4 and result["feeding"]["average_per_day"] == 1.5
+    assert (result["feeding"]["days_logged"], result["feeding"]["days_total"]) == (2, 7)
+    month = await stats(baby_api, "30d")
+    assert len(month["days"]) == 31 and month["feeding"]["days_total"] == 30
+
+
+@needs_database
+async def test_the_24_hour_range_rolls_from_now_and_gives_no_daily_average(baby_api, frozen):
+    await log(baby_api, "feeding", "2026-11-03T19:59:00+10:00", method="breast")  # Just outside.
+    await log(baby_api, "feeding", "2026-11-03T20:01:00+10:00", method="breast")
+    await log(baby_api, "feeding", "2026-11-04T08:00:00+10:00", method="breast")
+    result = await stats(baby_api, "24h")
+    assert [day["feeding"]["count"] for day in result["days"]] == [1, 1]
+    assert result["feeding"]["count"] == 2 and result["feeding"]["average_per_day"] is None
+    assert result["range"]["kind"] == "24h" and all(day["partial"] for day in result["days"])
+
+
+@needs_database
+async def test_a_custom_range_needs_both_dates_and_stays_within_the_limit(baby_api, frozen):
+    headers = {"X-Baby-Client": "2"}
+    assert (await baby_api.client.get(f"{API}/care/stats", params={"range": "custom", "from": "2026-11-01"}, headers=headers)).status_code == 422
+    over = {"range": "custom", "from": "2026-01-01", "to": "2026-11-01"}
+    assert (await baby_api.client.get(f"{API}/care/stats", params=over, headers=headers)).status_code == 422
+    assert (await baby_api.client.get(f"{API}/care/stats", params={"range": "9d"}, headers=headers)).status_code == 422
+    result = await stats(baby_api, "custom", **{"from": "2026-11-01", "to": "2026-11-20"})
+    assert result["days"][-1]["date"] == "2026-11-04"
+
+
+@needs_database
+async def test_stats_add_contractions_and_kicks_by_day_and_only_for_that_baby(baby_api, frozen):
+    await allow_new_kinds(baby_api)
+    child, other = await make_child(baby_api), await make_child(baby_api)
+    kinds = {"X-Baby-Client": "2"}
+
+    async def session(kind, at, child_id, **data):
+        body = shared.payload(kind, occurred_at=at, child_id=child_id, data=data)
+        response = await baby_api.client.post(f"{API}/records", headers={**GEN, **kinds}, json=body)
+        assert response.status_code == 200, response.text
+
+    await session("contraction", "2026-11-02T08:00:00+10:00", child)
+    await session("contraction", "2026-11-03T08:00:00+10:00", child, end_at="2026-11-03T08:01:00+10:00")
+    await session("contraction", "2026-11-03T09:00:00+10:00", child, end_at="2026-11-03T09:00:30+10:00")
+    await session("kick_session", "2026-11-03T10:00:00+10:00", child, end_at="2026-11-03T10:10:00+10:00", count=7)
+    await session("kick_session", "2026-11-03T10:00:00+10:00", other, count=99)
+    result = await stats(baby_api, child_id=child)
+    days = by_date(result)
+    assert days["2026-11-03"]["contractions"] == {"count": 2, "timed": 2, "average_seconds": 45}
+    assert days["2026-11-02"]["contractions"] == {"count": 1, "timed": 0, "average_seconds": None}
+    assert days["2026-11-03"]["kicks"] == {"sessions": 1, "movements": 7}
+    assert result["contractions"] == {"count": 3, "timed": 2, "average_seconds": 45}
+    assert result["kicks"] == {"sessions": 1, "movements": 7}
+    # The same day's feeds are not touched by any of it.
+    assert result["feeding"]["count"] == 0 and "sleep" in days["2026-11-03"]
+
+
+@needs_database
+async def test_stats_stay_with_the_owner_and_a_missing_or_foreign_child_is_refused(baby_api, frozen):
+    await log(baby_api, "feeding", "2026-11-03T08:00:00+10:00", method="breast")
+    response = await baby_api.client.get(f"{API}/care/stats", headers={"X-Test-Owner": "other", "X-Baby-Client": "2"})
+    assert response.status_code == 200 and response.json()["feeding"]["count"] == 0
+    child = await make_child(baby_api)
+    response = await baby_api.client.get(f"{API}/care/stats", params={"child_id": child}, headers={"X-Test-Owner": "other", "X-Baby-Client": "2"})
+    assert response.status_code == 404
+
+
+@needs_database
+async def test_build_32_has_no_stats_route(baby_api, frozen):
+    assert (await baby_api.client.get(f"{API}/care/stats", headers={"X-Baby-Client": "1"})).status_code == 404
