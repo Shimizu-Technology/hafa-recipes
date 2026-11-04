@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import { useBaby } from "@/lib/context";
 import { careWrite, logCare, pumpStart, type BottleChoice } from "@/lib/quick-care";
-import { friendlyTime } from "@/lib/care-format";
-import { dataFrom, feelingWords, lastLog, logTitle, moreKinds, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm, type LogForm } from "@/lib/more-logs";
+import { friendlyTime, timeAgo } from "@/lib/care-format";
+import { dataFrom, feelingWords, lastDose, lastLog, logTitle, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm, type LogForm } from "@/lib/more-logs";
 import type { Tracker } from "@/lib/trackers";
 import { messageFor, type Child, type RecordData } from "@/lib/models";
 import { useTodayCare } from "@/lib/today-care";
@@ -15,32 +15,38 @@ import type { PastDay } from "./quick-time";
 type Flow = ReturnType<typeof useLogFlow<string>>;
 type PanelProps = Omit<React.ComponentProps<typeof Panel>, "title" | "detail" | "children">;
 
+/** A time ahead of the clock can't have happened, so it means now. */
+const notAhead = (iso: string | null) => (iso && new Date(iso).getTime() > Date.now() ? null : iso);
+
 /** What just saved, with Undo, wherever the panel was opened from. */
 export function SavedLog({ flow, now, day, timeZone }: { flow: Flow; now: Date; day?: PastDay; timeZone?: string | null }) {
   const { saved, setSaved, panel, amend, undo } = flow;
   return saved ? <SavedRow key={saved.key} saved={saved} compact={!!panel} now={now} day={day} timeZone={timeZone} onUndo={() => void undo()}
     onGone={() => setSaved((current) => (current?.key === saved.key ? null : current))}
-    onMove={(iso) => { const moved = iso ?? new Date().toISOString(); setSaved({ ...saved, at: moved }); amend(() => ({ occurred_at: moved })); }}
+    onMove={(iso) => { const moved = notAhead(iso) ?? new Date().toISOString(); setSaved({ ...saved, at: moved }); amend(() => ({ occurred_at: moved })); }}
     onColor={() => undefined} onNote={(body) => amend((row) => (row.body === body ? {} : { body }))} /> : null;
 }
 
 /** Fields and a Save, for what can't be one tap. A wrong entry is said here and nothing is queued. */
-function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, saveAs }: { id: string; title: string; detail?: string; start: LogForm; autoFocus?: boolean; children?: React.ReactNode;
+function FormPanel({ id, title, detail, start, panelProps, autoFocus, children, hint, saveAs }: { id: string; title: string; detail?: string; start: LogForm; autoFocus?: boolean; children?: React.ReactNode;
+  /** A line under the fields that follows what she's typing. */
+  hint?: (form: LogForm) => string | undefined;
   panelProps: PanelProps; saveAs: (form: LogForm) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [form, setForm] = useState(start), [problem, setProblem] = useState("");
   return <Panel title={title} detail={detail} {...panelProps}>
     {children}
     <OnSurface><LogFields id={id} start={start} autoFocus={autoFocus} onChange={(next) => { setForm(next); setProblem(""); }} /></OnSurface>
+    {!!hint?.(form) && <Text key={`h:${fontScale}`} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.muted }}>{hint(form)}</Text>}
     {!!problem && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>{problem}</Text>}
     <Button size="lg" icon="checkmark" title="Save" accessibilityLabel={`Save ${title.toLowerCase()}`} onPress={() => { try { saveAs(form); } catch (e) { setProblem(messageFor(e)); } }} />
   </Panel>;
 }
 
 /** The amount from last time, and a side. Choosing a side saves it. */
-function PumpPanel({ start, panelProps, onSave }: { start: BottleChoice; panelProps: PanelProps; onSave: (side: keyof typeof sideWords, amount: Pick<BottleChoice, "amount" | "unit">) => void }) {
+function PumpPanel({ start, detail, panelProps, onSave }: { start: BottleChoice; detail?: string; panelProps: PanelProps; onSave: (side: keyof typeof sideWords, amount: Pick<BottleChoice, "amount" | "unit">) => void }) {
   const [amount, setAmount] = useState({ amount: start.amount, unit: start.unit }),
     same = start.fromLast && amount.amount === start.amount && amount.unit === start.unit;
-  return <Panel title="Pumping" {...panelProps}>
+  return <Panel title="Pumping" detail={detail} {...panelProps}>
     <AmountStepper amount={amount} onChange={setAmount} note={same ? "Same as last time" : undefined} />
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {(["left", "right", "both"] as const).map((side) => <Option key={side} height={64} label={sideWords[side]} onPress={() => onSave(side, amount)} />)}
@@ -48,13 +54,19 @@ function PumpPanel({ start, panelProps, onSave }: { start: BottleChoice; panelPr
   </Panel>;
 }
 
-function NotePanel({ panelProps, onSave }: { panelProps: PanelProps; onSave: (text: string) => void }) {
+function NotePanel({ detail, panelProps, onSave }: { detail?: string; panelProps: PanelProps; onSave: (text: string) => void }) {
   const c = useColors(), { fontScale } = useWindowDimensions(), [note, setNote] = useState(""), [empty, setEmpty] = useState(false);
-  return <Panel title="Note" {...panelProps}>
+  return <Panel title="Note" detail={detail} {...panelProps}>
     <OnSurface><Field multiline label="What to remember" value={note} autoFocus onChange={(text) => { setNote(text); setEmpty(false); }} /></OnSurface>
     {empty && <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>Write the note first.</Text>}
     <Button size="lg" icon="checkmark" title="Save" accessibilityLabel="Save note" onPress={() => { const text = note.trim(); setEmpty(!text); if (text) onSave(text); }} />
   </Panel>;
+}
+
+/** The panel's "Last" is only as good as the last look, so she hears when that didn't get through. */
+function OnThisPhone() {
+  const c = useColors(), { fontScale } = useWindowDimensions();
+  return <Text accessibilityLiveRegion="polite" key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, color: c.accentText }}>Showing what’s on this phone. Anything logged on another phone may be missing.</Text>;
 }
 
 const Choices = ({ children }: { children: React.ReactNode }) => <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{children}</View>;
@@ -67,47 +79,48 @@ export function TrackerPanel({ tracker, child, now, pastDay, flow }: { tracker: 
   const b = useBaby(), timeZone = b.state.bootstrap!.profile.timezone, id = tracker.id,
     // What she logs about herself has no baby on it, and stays with her.
     childId = tracker.about === "her" ? null : child.id,
-    rows = useTodayCare({ kinds: moreKinds, poll: false, child: child.id }).all,
-    panelProps = { at: flow.at, now, day: pastDay, timeZone, needTime: flow.needTime, onTime: flow.change };
+    // Only this kind, so another kind's logs can't push a dose out of reach, and it keeps looking while the panel is open.
+    care = useTodayCare({ kinds: [tracker.kind], poll: true, child: child.id }), rows = care.all,
+    behind = !!care.error || !!care.stale || b.online === false,
+    // A dose on the wrong baby would make both babies' Last wrong, so with two she can see which this is.
+    baby = tracker.about === "baby" && b.state.bootstrap!.children.length > 1 ? child.name : "",
+    who = baby ? `For ${baby}` : undefined,
+    panelProps = { at: flow.at, now, day: pastDay, timeZone, needTime: flow.needTime, onTime: (iso: string | null) => flow.change(notAhead(iso)) },
+    lastWords = (at: string) => `Last ${friendlyTime(at, now, timeZone)} · ${timeAgo(at, now)}`;
   function log(data: RecordData, title: string, label: string, body = "") {
     const time = flow.when();
     if (!time) return;
     const record = { ...careWrite(tracker.kind, childId, data, time), title, body };
-    return flow.save(label, () => logCare(b, record), { recordId: record.id, at: record.occurred_at, ...(body ? {} : { follow: "note" as const }) });
+    return flow.save(baby ? `${label}, for ${baby}` : label, () => logCare(b, record), { recordId: record.id, at: record.occurred_at, ...(body ? {} : { follow: "note" as const }) });
   }
   const saveForm = (form: LogForm, label: (data: Record<string, any>) => string) => {
     const data = dataFrom(id, form);
     return void log(data, logTitle(id, form), label(data as Record<string, any>));
   };
   const start = startForm(id, rows, childId), last = lastLog(rows, id, childId);
-  if (id === "pumping") return <PumpPanel start={pumpStart(rows, childId)} panelProps={panelProps} onSave={(side, amount) =>
-    void log({ side, amount: amount.amount, unit: amount.unit }, "Pumping", `Pumping, ${sideWords[side]}, ${amount.amount} ${amount.unit === "oz" ? "oz" : "mL"}`)} />;
-  if (id === "note") return <NotePanel panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />;
-  if (id === "feeling") return <Panel title={tracker.label} {...panelProps}>
-    <Choices>{feelingWords.map((word) => <Option key={word} height={64} label={word} onPress={() => void log(dataFrom(id, { ...start, name: word }), word, word)} />)}</Choices>
-  </Panel>;
-  if (id === "medicine") {
-    const recent = recentMedicines(rows, childId);
-    return <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recent.length} saveAs={(form) => saveForm(form, (data) => data.name)}>
-      {!!recent.length && <Choices>{recent.map((one) => <Option key={`${one.name}|${one.dose}`} height={64} label={one.name} detail={[one.dose, `Last ${friendlyTime(one.at, now, timeZone)}`].filter(Boolean).join(" · ")}
+  return <>
+    {behind && <OnThisPhone />}
+    {id === "pumping" ? <PumpPanel start={pumpStart(rows, childId)} detail={who} panelProps={panelProps} onSave={(side, amount) =>
+      void log({ side, amount: amount.amount, unit: amount.unit }, "Pumping", `Pumping, ${sideWords[side]}, ${amount.amount} ${amount.unit === "oz" ? "oz" : "mL"}`)} />
+    : id === "note" ? <NotePanel detail={who} panelProps={panelProps} onSave={(text) => void log({ label: noteLabel }, noteLabel, noteLabel, text)} />
+    : id === "feeling" ? <Panel title={tracker.label} {...panelProps}>
+      <Choices>{feelingWords.map((word) => <Option key={word} height={64} label={word} onPress={() => void log(dataFrom(id, { ...start, name: word }), word, word)} />)}</Choices>
+    </Panel>
+    : id === "medicine" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus={!recentMedicines(rows, childId).length} saveAs={(form) => saveForm(form, (data) => data.name)}
+      hint={(form) => { const typed = lastDose(rows, childId, form.name); return typed && [typed.dose, lastWords(typed.at)].filter(Boolean).join(" · "); }}>
+      {!!recentMedicines(rows, childId).length && <Choices>{recentMedicines(rows, childId).map((one) => <Option key={one.name.toLowerCase()} height={64} label={one.name} detail={[one.dose, lastWords(one.at)].filter(Boolean).join(" · ")}
         onPress={() => void log({ name: one.name, ...(one.dose ? { dose: one.dose } : {}) } as unknown as RecordData, one.name, one.name)} />)}</Choices>}
-    </FormPanel>;
-  }
-  if (id === "vitamins") {
-    const recent = recentVitamins(rows, childId);
-    return <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recent.length} saveAs={(form) => saveForm(form, () => form.name.trim())}>
-      {!!recent.length && <Choices>{recent.map((one) => <Option key={one.name} height={64} label={one.name} detail={`Last ${friendlyTime(one.at, now, timeZone)}`}
+    </FormPanel>
+    : id === "vitamins" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!recentVitamins(rows, childId).length} saveAs={(form) => saveForm(form, () => form.name.trim())}>
+      {!!recentVitamins(rows, childId).length && <Choices>{recentVitamins(rows, childId).map((one) => <Option key={one.name} height={64} label={one.name} detail={lastWords(one.at)}
         onPress={() => void log(dataFrom(id, { ...start, name: one.name }), one.name, one.name)} />)}</Choices>}
-    </FormPanel>;
-  }
-  if (id === "custom") {
-    const labels = recentCustomLabels(rows, childId);
-    return <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus={!labels.length} saveAs={(form) => saveForm(form, (data) => data.label)}>
-      {!!labels.length && <Choices>{labels.map((label) => <Option key={label} height={64} label={label} onPress={() => void log({ label }, label, label)} />)}</Choices>}
-    </FormPanel>;
-  }
-  if (id === "temperature") return <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus saveAs={(form) => saveForm(form, (data) => `${data.value} °${data.unit === "c" ? "C" : "F"}`)} />;
-  if (id === "my_weight") return <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus saveAs={(form) => saveForm(form, (data) => `${data.value} ${data.unit}`)} />;
-  if (id === "blood_pressure") return <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus saveAs={(form) => saveForm(form, () => logTitle(id, form))} />;
-  return <FormPanel id={id} title={tracker.label} detail={last ? `Last: ${friendlyTime(last.occurred_at, now, timeZone)}` : undefined} start={start} panelProps={panelProps} saveAs={(form) => saveForm(form, () => tracker.label)} />;
+    </FormPanel>
+    : id === "custom" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus={!recentCustomLabels(rows, childId).length} saveAs={(form) => saveForm(form, (data) => data.label)}>
+      {!!recentCustomLabels(rows, childId).length && <Choices>{recentCustomLabels(rows, childId).map((label) => <Option key={label} height={64} label={label} onPress={() => void log({ label }, label, label)} />)}</Choices>}
+    </FormPanel>
+    : id === "temperature" ? <FormPanel id={id} title={tracker.label} detail={who} start={start} panelProps={panelProps} autoFocus saveAs={(form) => saveForm(form, (data) => `${data.value} °${data.unit === "c" ? "C" : "F"}`)} />
+    : id === "my_weight" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus saveAs={(form) => saveForm(form, (data) => `${data.value} ${data.unit}`)} />
+    : id === "blood_pressure" ? <FormPanel id={id} title={tracker.label} start={start} panelProps={panelProps} autoFocus saveAs={(form) => saveForm(form, () => logTitle(id, form))} />
+    : <FormPanel id={id} title={tracker.label} detail={[who, last && `Last: ${friendlyTime(last.occurred_at, now, timeZone)}`].filter(Boolean).join(" · ") || undefined} start={start} panelProps={panelProps} saveAs={(form) => saveForm(form, () => tracker.label)} />}
+  </>;
 }

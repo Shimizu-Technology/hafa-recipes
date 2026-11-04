@@ -192,6 +192,12 @@ it("looks for the other phone's care every 15 seconds while focused, quietly, an
     expect(result.error).toBe("");
     expect(result.loading).toBe(false);
     expect(result.all.map((row) => row.id)).toEqual(["other-phone", "mine"]);
+    // But a panel showing a "Last" can say it may be behind, until a look gets through.
+    expect(result.stale).toBe(true);
+    transport.mockImplementation(async () => page([care("mine"), care("other-phone", null, "2026-10-20T00:00:00Z")]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs); });
+    expect(result.stale).toBe(false);
+    transport.mockImplementation(async () => { throw new TypeError("offline"); });
     scope.appState = "background";
     const calls = transport.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(carePollMs * 2); });

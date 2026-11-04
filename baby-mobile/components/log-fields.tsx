@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { methodWords } from "../lib/care-format";
-import type { LogForm } from "../lib/more-logs";
+import { changeWeightUnit, type LogForm } from "../lib/more-logs";
 import { Chips, Field } from "@/components/ui";
 
 export const sideWords = { left: "Left", right: "Right", both: "Both" } as const;
@@ -43,7 +43,7 @@ export function LogFields({ id, start, autoFocus, onChange }: { id: string; star
       <View style={{ flex: 1 }}><Field numeric label="Pounds" value={form.lb} onChange={(lb) => set({ lb })} /></View>
       <View style={{ flex: 1 }}><Field numeric label="Ounces" value={form.oz} onChange={(oz) => set({ oz })} /></View>
     </View> : <Field numeric label="Weight in kg" value={form.kg} onChange={(kg) => set({ kg })} />}
-    {unit(form.weightUnit, [["lb", "lb & oz"], ["kg", "kg"]], (weightUnit) => set({ weightUnit: weightUnit as LogForm["weightUnit"] }), "Weight unit")}
+    {unit(form.weightUnit, [["lb", "lb & oz"], ["kg", "kg"]], (next) => set(changeWeightUnit(form, next as LogForm["weightUnit"])), "Weight unit")}
     <Field numeric label={`Length in ${form.lengthUnit}`} value={form.length} onChange={(length) => set({ length })} />
     <Field numeric label={`Head around in ${form.headUnit}`} value={form.head} onChange={(head) => set({ head })} />
     {unit(form.lengthUnit, [["in", "in"], ["cm", "cm"]], (next) => set({ lengthUnit: next as "in", headUnit: next as "in" }), "Length and head unit")}

@@ -59,7 +59,9 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
   }
   const [page, setPage] = useState<{ key: string; ids: string[] } | null>(null),
     [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    /** The last quiet look failed. What's on screen stays, and a panel showing a "Last" can say it may be behind. */
+    [stale, setStale] = useState(false);
   /** `quiet` is the background look: no spinner, and a failure leaves what's on screen alone. */
   async function refresh({ quiet = false } = {}) {
     if (!active.current) return;
@@ -96,8 +98,9 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
         }, state.records);
         return { ...state, records };
       });
-      if (valid()) setPage({ key: capturedKey, ids: items.map((row) => row.id) });
+      if (valid()) { setPage({ key: capturedKey, ids: items.map((row) => row.id) }); setStale(false); }
     } catch (failure) {
+      if (valid() && quiet) setStale(true);
       if (valid() && !quiet) {
         setPage(null);
         setError(messageFor(failure));
@@ -130,6 +133,7 @@ export function useTodayCare({ kinds = careKinds, occurred_from, occurred_to, pa
     all,
     loading,
     error,
+    stale,
     refresh,
   };
 }

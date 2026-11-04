@@ -1,7 +1,8 @@
 import type { BabyRecord, Kind } from "./models";
+import { trackedKinds } from "./trackers";
 
 /** The records the Day view lists as they are. Events join them as dated occurrences, from `useEvents`. */
-export const timelineKinds: Kind[] = ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"];
+export const timelineKinds: Kind[] = [...trackedKinds, "journal", "question"];
 
 const pad = (value: number) => String(value).padStart(2, "0");
 const hour = 60 * 60_000;

@@ -177,6 +177,42 @@ describe("changing every later date of a repeat", () => {
     expect(baby.state.records.map((row) => row.id)).toEqual(["next"]);
   });
 });
+describe("from the review of #543: when the queue meets a failure", () => {
+  const dose = { ...optimisticRecord({ id: "dose", kind: "medicine", title: "Tylenol", body: "", child_id: "baby", occurred_at: "2026-11-04T02:00:00.000Z", data: {} }), revision: 1 },
+    undo = { id: "undo", generation: 1, type: "delete" as const, record: dose },
+    flush = () => act(async () => { await settle(); await vi.advanceTimersByTimeAsync(0); await settle(); }),
+    base = () => ({ bootstrap: vi.fn(async () => bootstrap), identity: vi.fn(async () => ({ id: "owner" })), records: vi.fn(async () => page([])), lease: () => mock.lease, assertLease: () => undefined });
+  it("15: tries an Undo again after a server error, and doesn't ask her about it", async () => {
+    let calls = 0;
+    mock.api = { ...base(), remove: vi.fn(async () => { if (!calls++) throw new ApiError("Down", 503); }) };
+    mock.saved = { ...emptyState(), bootstrap, records: [dose], outbox: [undo] } as unknown as DeviceState;
+    await mount(); await flush();
+    expect(mock.api.remove).toHaveBeenCalledTimes(1);
+    expect(baby.state.outbox[0]).toMatchObject({ id: "undo", attempts: 1 });
+    expect((baby.state.outbox[0] as any).error).toBeUndefined();
+    expect(baby.state.outbox[0]).toHaveProperty("hold_until");
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); await settle(); });
+    await act(async () => { await baby.sync(); await settle(); });
+    expect(mock.api.remove).toHaveBeenCalledTimes(2);
+    expect(baby.state.outbox).toEqual([]);
+  });
+  it("16: lets go of a replayed save whose entry was removed elsewhere, and later doses still go", async () => {
+    const write = (id: string) => ({ id: `m-${id}`, generation: 1, type: "save" as const, files: [], record: { id, kind: "medicine" as const, title: id, body: "", child_id: "baby", occurred_at: "2026-11-04T02:00:00.000Z", data: {} } });
+    mock.api = { ...base(), save: vi.fn(async (value: any) => { if (value.id === "gone") throw new ApiError("Removed", 410); return { ...optimisticRecord(value), revision: 1 }; }) };
+    mock.saved = { ...emptyState(), bootstrap, records: [], outbox: [write("gone"), write("next")] } as unknown as DeviceState;
+    await mount(); await flush();
+    expect(baby.state.outbox).toEqual([]);
+    expect(baby.state.records.map((row) => row.id)).toEqual(["next"]);
+  });
+  it("16: still stops at a 410 for a save with a file, where the upload may be what expired", async () => {
+    const file = { id: "f", uri: "file://x", name: "x", mime_type: "image/png", uploaded_id: "up" };
+    const write = { id: "m", generation: 1, type: "save" as const, files: [file], record: { id: "p", kind: "journal" as const, title: "p", body: "", child_id: null, occurred_at: "2026-11-04T02:00:00.000Z", data: {} } };
+    mock.api = { ...base(), save: vi.fn(async () => { throw new ApiError("Upload expired", 410); }) };
+    mock.saved = { ...emptyState(), bootstrap, records: [], outbox: [write] } as unknown as DeviceState;
+    await mount(); await flush();
+    expect(baby.state.outbox.map((m) => m.id)).toEqual(["m"]);
+  });
+});
 describe("Baby's here with no signal", () => {
   const child = { id: "baby", name: "Mia", revision: 3, due_date: "2026-12-10", birth_date: null },
     server = { ...bootstrap, children: [child] },

@@ -1,10 +1,10 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type BabyRecord, type DeviceState, type Mutation } from "./models";
 import { pendingRecords } from "./outbox";
 
-const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), push: vi.fn(), rows: [] as unknown[] }));
+const scope = vi.hoisted(() => ({ account: null as any, toast: vi.fn(), push: vi.fn(), rows: [] as unknown[], care: {} as Record<string, unknown>, options: [] as any[] }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Pressable: "Pressable", TextInput: "TextInput", ScrollView: "ScrollView", useWindowDimensions: () => ({ fontScale: 1 }),
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) }, Alert: { alert() {} },
@@ -14,7 +14,7 @@ vi.mock("react-native", () => ({
 vi.mock("expo-router", () => ({ router: { push: scope.push }, useFocusEffect: () => undefined }));
 vi.mock("expo-crypto", () => { let id = 0; return { randomUUID: () => `id-${++id}` }; });
 vi.mock("@/lib/context", () => ({ useBaby: () => scope.account }));
-vi.mock("@/lib/today-care", () => ({ useTodayCare: () => ({ all: pendingRecords(scope.account.state), rows: [], loading: false, error: "", refresh: vi.fn() }) }));
+vi.mock("@/lib/today-care", () => ({ useTodayCare: (options: unknown) => { scope.options.push(options); return { all: [...pendingRecords(scope.account.state), ...scope.rows], rows: [], loading: false, error: "", stale: false, refresh: vi.fn(), ...scope.care }; } }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
@@ -57,13 +57,14 @@ const type = async (label: string, text: string) => { await act(async () => rend
 const save = async (label: string) => { await act(async () => { renderer!.root.findAll((n) => String(n.type) === "Button").find((n) => n.props.accessibilityLabel === label)!.props.onPress(); }); };
 const saved = () => scope.account.state.outbox.filter((m: Mutation) => m.type === "save").map((m: any) => m.record as BabyRecord);
 
-beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); scope.toast.mockReset(); scope.push.mockReset(); });
+beforeEach(() => { vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); scope.toast.mockReset(); scope.push.mockReset(); scope.rows = []; scope.care = {}; scope.options = []; });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
 
 it("offers each stage its own trackers, from the list", async () => {
   setup();
   await mount();
-  expect(labels()).toEqual(["Pumping", "Medicine", "Temperature", "Growth", "Note", "Custom"]);
+  // Hers stay available after the birth, after the baby's.
+  expect(labels()).toEqual(["Pumping", "Medicine", "Temperature", "Growth", "Note", "Custom", "How I’m feeling", "My weight", "Blood pressure", "Vitamins & medicine"]);
   await act(async () => renderer!.unmount());
   setup();
   await mount(undefined, "expecting");
@@ -179,4 +180,80 @@ it("on another day asks when before saving anything", async () => {
   await press("8 AM");
   await press("Right");
   expect(saved()[0].occurred_at).toBe("2026-11-01T22:00:00.000Z");
+});
+
+describe("from the review of #543", () => {
+  const dose = (name: string, at: string, doseText?: string) => ({ id: `${name}-${at}`, kind: "medicine", title: name, body: "", child_id: "baby", occurred_at: at, data: { name, ...(doseText ? { dose: doseText } : {}) }, revision: 1, created_at: at, updated_at: at });
+  // 4:14 PM on the phone in Honolulu is 12:14 PM the next day in Guam: only the "ago" is true on both.
+  const now = new Date("2026-11-04T17:00:00.000Z");
+  it("2: says how long ago as well as when, so a Last can be trusted on any clock", async () => {
+    setup();
+    scope.rows = [dose("Tylenol", "2026-11-04T15:00:00.000Z", "2.5 mL")];
+    await mount();
+    await press("Medicine");
+    const chip = labels().find((label) => label?.startsWith("Tylenol"));
+    expect(chip).toContain("2.5 mL");
+    expect(chip).toContain("1:00 AM"); // Guam's clock, as Tracker reads.
+    expect(chip).toContain("2 h ago");
+  });
+  it("3: says when it can't reach the service, and keeps looking while the panel is open", async () => {
+    setup();
+    await mount();
+    await press("Medicine");
+    const panel = scope.options.at(-1);
+    expect(panel).toMatchObject({ poll: true, kinds: ["medicine"], child: "baby" });
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain("on this phone");
+    scope.care = { error: "No connection" };
+    await act(async () => renderer!.update(<MoreLogs child={child} now={now} stage="born" />));
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Showing what’s on this phone");
+    scope.care = { stale: true };
+    await act(async () => renderer!.update(<MoreLogs child={child} now={now} stage="born" />));
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Showing what’s on this phone");
+    scope.care = {};
+    scope.account.online = false;
+    await act(async () => renderer!.update(<MoreLogs child={child} now={now} stage="born" />));
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Showing what’s on this phone");
+  });
+  it("5: shows the Last of a medicine she types, even one not offered as a chip", async () => {
+    setup();
+    scope.rows = [dose("A", "2026-11-04T16:00:00.000Z"), dose("B", "2026-11-04T15:50:00.000Z"), dose("C", "2026-11-04T15:40:00.000Z"), dose("Gas drops", "2026-11-04T15:00:00.000Z", "0.3 mL")];
+    await mount();
+    await press("Medicine");
+    expect(labels().some((label) => label?.startsWith("Gas drops"))).toBe(false);
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain("0.3 mL");
+    await type("Name", "gas drops");
+    const text = JSON.stringify(renderer!.toJSON());
+    expect(text).toContain("0.3 mL");
+    expect(text).toContain("2 h ago");
+  });
+  it("10: names the baby in the panel and the saved row when there's more than one", async () => {
+    setup((state) => ({ ...state, bootstrap: { ...state.bootstrap!, children: [child, { id: "two", name: "Noa", revision: 1 }] } }));
+    await mount();
+    await press("Pumping");
+    expect(JSON.stringify(renderer!.toJSON())).toContain("For Mia");
+    await press("Left");
+    expect(labels()).toContain("Undo Pumping, Left, 3 oz, for Mia");
+  });
+  it("10: doesn't name a baby with only one, or on her own logs", async () => {
+    setup((state) => ({ ...state, bootstrap: { ...state.bootstrap!, children: [child, { id: "two", name: "Noa", revision: 1 }] } }));
+    await mount(undefined, "expecting");
+    await press("Blood pressure");
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain("For Mia");
+    await act(async () => renderer!.unmount());
+    setup();
+    await mount();
+    await press("Pumping");
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain("For Mia");
+  });
+  it("18: a picked time ahead of now becomes now", async () => {
+    setup();
+    await mount();
+    const before = Date.now();
+    await press("Pumping");
+    await press("Change time, Now");
+    await press("Pick a time");
+    await act(async () => renderer!.root.findByType("DateField" as never).props.onChange(new Date(Date.now() + 5 * 3600_000).toISOString()));
+    await press("Left");
+    expect(new Date(saved()[0].occurred_at).getTime()).toBeLessThan(before + 60_000);
+  });
 });

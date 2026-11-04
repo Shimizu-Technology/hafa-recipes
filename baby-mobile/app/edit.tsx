@@ -5,7 +5,7 @@ import * as Crypto from "expo-crypto";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useBaby } from "@/lib/context";
-import { kindName, messageFor, type EditorDraft, type Kind, type Mutation, type RecordData } from "@/lib/models";
+import { kindWord, messageFor, type EditorDraft, type Kind, type Mutation, type RecordData } from "@/lib/models";
 import { addMutation, baseOf, inheritedFiles, queueRemovedUploads, settledDraft } from "@/lib/outbox";
 import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
@@ -25,7 +25,7 @@ import { keepDraft } from "../lib/draft-content";
 import { ensureAiConsent } from "../lib/ai-consent";
 import { staysWithBaby } from "../lib/well-visits";
 import { dataFrom, formFrom, logTitle, moreKinds, type LogForm } from "../lib/more-logs";
-import { trackerFor } from "../lib/trackers";
+import { trackerFor, type Tracker } from "../lib/trackers";
 import { LogFields } from "../components/log-fields";
 function fresh(kind: Kind, child: string | null, prefill: RecordData = {}): EditorDraft {
   return {
@@ -73,6 +73,8 @@ export default function Edit() {
   const latest = useRef<EditorDraft | null>(null),
     loaded = useRef(false),
     logFormProblem = useRef(""),
+    // Which tracker this entry is stays as it opened, so typing someone else's label can't swap the fields mid-word.
+    openedAs = useRef<{ id: string; tracker?: Tracker } | null>(null),
     retired = useRef(false),
     working = useRef(false),
     changed = useRef(false);
@@ -230,6 +232,7 @@ export default function Edit() {
     )
       throw Error("Add a title, a note, or a source to keep.");
     if (logFormProblem.current) throw Error(logFormProblem.current);
+    if (trackerFor(d)?.opens === "panel" && new Date(d.occurred_at).getTime() > Date.now() + 60_000) throw Error("That time hasn’t happened yet. Choose an earlier one.");
     if (isCare(d.kind) && !d.existing && !d.child_id && b.state.bootstrap!.children.length)
       throw Error("Choose which baby this is for.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
@@ -279,7 +282,7 @@ export default function Edit() {
         const { files, existing: _, revision, base, event_edit: __, ...record } = from;
         return {
           id, generation, type: "save",
-          record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindName[from.kind]),
+          record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindWord(from.kind)),
             data: from.kind === "source" ? { ...from.data, source_text: from.data.source_text || from.body || undefined } : from.data,
             ...(revision ? { revision } : {}) }, files,
           // A draft kept by an older build doesn't know what it saw, so it follows nothing.
@@ -382,12 +385,13 @@ export default function Edit() {
   /** Its fields hold what she's typed, and the draft holds the last that made sense, so typing "37." doesn't lose the dot. */
   function logForm(form: LogForm, base: Record<string, unknown>) {
     try {
-      const id = trackerFor(draft!)!.id, made = dataFrom(id, form, base);
+      const id = openedAs.current!.tracker!.id, made = dataFrom(id, form, base);
       logFormProblem.current = "";
       change({ data: made, title: logTitle(id, form) });
     } catch (e) { logFormProblem.current = messageFor(e); }
   }
-  const log = draft ? trackerFor(draft) : undefined, isLog = log?.opens === "panel";
+  if (draft && openedAs.current?.id !== draft.id) openedAs.current = { id: draft.id, tracker: trackerFor(draft) };
+  const log = draft ? openedAs.current?.tracker : undefined, isLog = log?.opens === "panel";
   const notesField = draft && ((!["feeding", "sleep", "diaper"].includes(draft.kind) || showDetails) && (
         <Field
           label={
@@ -426,27 +430,27 @@ export default function Edit() {
     <Screen
       title={
         draft.existing
-          ? "Edit " + kindName[draft.kind].toLowerCase()
+          ? "Edit " + kindWord(draft.kind).toLowerCase()
           : draft.kind === "source"
             ? "Save a post"
             : draft.kind === "journal"
               ? "A moment to remember"
               : draft.kind === "question"
                 ? "For your next visit"
-                : kindName[draft.kind]
+                : kindWord(draft.kind)
       }
       back
-      footer={<Button title={draft.existing ? "Save changes" : draft.kind === "collection" ? "Save category" : draft.kind === "source" ? "Save post" : "Save " + kindName[draft.kind].toLowerCase()} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}
+      footer={<Button title={draft.existing ? "Save changes" : draft.kind === "collection" ? "Save category" : draft.kind === "source" ? "Save post" : "Save " + kindWord(draft.kind).toLowerCase()} icon="checkmark" size="lg" busy={busy} onPress={() => void save()} />}
       subtitle={saved ? "Draft saved privately on this device." : "Your draft stays here while you write."}
     >
       {!!error && <Notice error>{error}</Notice>}
-      {(showDetails || !["journal", "question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && (
+      {log?.about !== "her" && (showDetails || !["journal", "question", "collection", "source"].includes(draft.kind)) && b.state.bootstrap!.children.length > 0 && (
         <Chips
           value={draft.child_id ?? ""}
           label="Who is this for?"
           options={[
             // Care always belongs to a baby; older general care entries can still be reassigned.
-            ...((isCare(draft.kind) || staysWithBaby(draft)) && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
+            ...((isCare(draft.kind) || staysWithBaby(draft) || log?.about === "baby") && b.state.bootstrap!.children.some((c) => c.id === draft.child_id)
               ? []
               : [{ label: "For me / general", value: "" }]),
             ...b.state.bootstrap!.children.map((c) => ({ label: c.name, value: c.id })),
@@ -471,7 +475,7 @@ export default function Edit() {
                 ? "One little thing from today…"
                 : draft.kind === "routine"
                   ? "Hospital bag, evening routine…"
-                  : kindName[draft.kind]
+                  : kindWord(draft.kind)
           }
         />
       )}

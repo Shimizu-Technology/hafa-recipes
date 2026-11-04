@@ -20,11 +20,14 @@ import { CareGlance, FirstStep, useMinuteClock } from "@/components/care-glance"
 import { LegacyTimer } from "@/components/feed-timer";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
+import { trackerById } from "../../../lib/trackers";
 import { BabyAgeCard, PregnancyHero, TipSection } from "@/components/tips";
 import { NextEvent } from "@/components/event-row";
 import { useVisitDrafts } from "@/components/visit-sections";
 import { dueLine, profileToday, timingChild, todayStage } from "@/lib/timing";
 import { useTimingTips } from "@/lib/use-timing-tips";
+
+const contractions = trackerById("contractions")!, kicks = trackerById("kicks")!;
 
 /** The docked log covers too much of the screen at the largest text sizes, so it scrolls with the page there. */
 const dockBelow = 1.5;
@@ -121,8 +124,7 @@ export default function Today() {
       </Card>}
       <NextEvent childId={child.id} today={todayKey} now={now} drafts={visitDrafts} />
       <View style={{ flexDirection: fontScale >= 1.3 ? "column" : "row", gap: 12 }}>
-        <Tile icon="pulse-outline" label="Contraction timer" hint="Start, stop, and the last hour" onPress={() => router.push("/contractions")} />
-        <Tile icon="footsteps-outline" label="Kick counter" hint="A tap for each movement, and your history" onPress={() => router.push("/kicks")} />
+        {[contractions, kicks].map((tracker) => <Tile key={tracker.id} icon={tracker.icon} label={tracker.label} hint={tracker.detail!} onPress={() => router.push(tracker.opens as "/kicks")} />)}
       </View>
       <MoreLogs child={child} now={now} stage="expecting" onOpen={(open, y) => { if (open) scroller.current?.scrollTo({ y, animated: true }); }} />
       <View style={{ gap: 8 }}>

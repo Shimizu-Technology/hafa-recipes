@@ -51,6 +51,7 @@ vi.mock("@/components/tracker-stats", () => ({ TrackerStats: "TrackerStats" }));
 vi.mock("@/lib/use-care-stats", () => ({ useCareStats: (choice: unknown, child: unknown) => { mock.statsAsks.push([choice, child]); return { loading: false, refresh: mock.statsRefresh }; } }));
 import Tracker from "../app/(tabs)/tracker/index";
 import { TimelineRow, timelineDetail } from "../components/tracker-day";
+import { timelineKinds } from "./tracker";
 import { ChildFilter } from "@/components/child-filter";
 
 const now = new Date("2026-11-04T03:00:00.000Z"); // Wednesday Nov 4, 1 PM in Guam
@@ -175,7 +176,7 @@ it("opens on today with a summary, the quick log and everything in order, newest
 it("asks the API for the day and the one before, for a sleep over midnight", async () => {
   await mount();
   const day = mock.requests.find((r) => r.occurred_from);
-  expect(day).toMatchObject({ occurred_from: "2026-11-02T14:00:00.000Z", occurred_to: "2026-11-04T14:00:00.000Z", poll: true, kinds: ["feeding", "sleep", "diaper", "journal", "question", "contraction", "kick_session", "pumping", "medicine", "temperature", "growth", "milestone", "custom"] });
+  expect(day).toMatchObject({ occurred_from: "2026-11-02T14:00:00.000Z", occurred_to: "2026-11-04T14:00:00.000Z", poll: true, kinds: timelineKinds });
 });
 
 it("reaches any recent day in one tap, and steps by day, with a way back to today", async () => {
@@ -336,8 +337,19 @@ describe("the extra logs on the timeline", () => {
     expect(label({ ...entry("x", "custom", at, { label: "Bath" }), title: "Bath" } as never)).toBe("12:30 PM, Bath");
   });
   it("shows what she typed about herself, with no reading of it", () => {
-    expect(label({ ...entry("x", "custom", at, { label: "Blood pressure" }), title: "118/76", child_id: null } as never)).toBe("12:30 PM, Blood pressure. 118/76");
+    expect(label({ ...entry("x", "custom", at, { label: "Blood pressure" }), title: "118/76", child_id: null } as never)).toBe("12:30 PM, Blood pressure. 118/76 · For you");
     expect(label(entry("x", "custom", at, { label: "My weight", value: 145.5, unit: "lb" }) as never)).toBe("12:30 PM, My weight · 145.5 lb");
+  });
+  it("6: shows the reading and her note together", () => {
+    expect(label({ ...entry("x", "custom", at, { label: "Blood pressure" }, "left arm"), title: "118/76", child_id: null } as never)).toBe("12:30 PM, Blood pressure. 118/76 · left arm · For you");
+    expect(label({ ...entry("x", "custom", at, { label: "Vitamins and medicine" }, "with food"), title: "Prenatal", child_id: null } as never)).toBe("12:30 PM, Vitamins and medicine. Prenatal · with food · For you");
+    expect(label({ ...entry("x", "custom", at, { label: "Note" }, "Spit up"), title: "Note" } as never)).toBe("12:30 PM, Note. Spit up");
+    expect(label({ ...entry("x", "medicine", at, { name: "Tylenol" }, "after a feed"), title: "Tylenol" } as never)).toBe("12:30 PM, Medicine · Tylenol. after a feed");
+  });
+  it("11, 13: says whose it is when that isn't the baby on screen", () => {
+    expect(label({ ...entry("x", "custom", at, { label: "Blood pressure" }), title: "118/76", child_id: null } as never)).toBe("12:30 PM, Blood pressure. 118/76 · For you");
+    expect(label({ ...entry("x", "medicine", at, { name: "Tylenol" }), title: "Tylenol", child_id: null } as never)).toBe("12:30 PM, Medicine · Tylenol. From a removed profile");
+    expect(label({ ...entry("x", "custom", at, { label: "Shot" }), title: "Hep B", child_id: null } as never)).toBe("Shot. Hep B · From a removed profile");
   });
   it("still gives a shot only its name, on its date", () => {
     expect(label({ ...entry("x", "custom", at, { label: "Shot" }), title: "Hep B" } as never)).toBe("Shot. Hep B");

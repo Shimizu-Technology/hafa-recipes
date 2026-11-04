@@ -4,8 +4,7 @@ import { methodWords } from "./care-format";
 import { newestFirst } from "./feed-reducer";
 import { trackerById, trackerFor, trackers } from "./trackers";
 
-/** Every kind a tracker panel saves, for reading what's been logged. */
-export const moreKinds: Kind[] = ["pumping", "medicine", "temperature", "growth", "custom"];
+export { moreKinds } from "./trackers";
 export const noteLabel = trackerById("note")!.dataLabel!;
 export const feelingWords = ["Great", "Good", "Okay", "Tired", "Rough"] as const;
 
@@ -22,6 +21,8 @@ const blank: LogForm = { side: "both", amount: "", amountUnit: "oz", minutes: ""
   weightUnit: "lb", lb: "", oz: "", kg: "", length: "", lengthUnit: "in", head: "", headUnit: "in", label: "", myWeight: "", myWeightUnit: "lb", top: "", bottom: "" };
 
 const newestOf = (rows: readonly BabyRecord[], id: string, childId: string | null) => rows.filter((row) => trackerFor(row)?.id === id && row.child_id === childId).sort(newestFirst);
+/** A time ahead of the clock can't be the last time anything happened. */
+const happened = (rows: BabyRecord[], now: Date) => rows.filter((row) => new Date(row.occurred_at).getTime() <= now.getTime());
 export const lastLog = (rows: readonly BabyRecord[], id: string, childId: string | null) => newestOf(rows, id, childId)[0] as BabyRecord | undefined;
 
 /** Blank, in the units she last used. Ounces, pounds and inches until she uses something else. */
@@ -51,8 +52,26 @@ export function formFrom(id: string, data: RecordData, title = ""): LogForm {
     length: text(d.length), lengthUnit: d.length_unit === "cm" ? "cm" : "in", head: text(d.head), headUnit: d.head_unit === "cm" ? "cm" : "in" };
 }
 
-/** "37,5" reads as 37.5, as a phone in another language types it. Empty or not a number is NaN. */
-const decimal = (value: string) => { const typed = value.trim().replace(",", "."); return typed ? Number(typed) : Number.NaN; };
+/** "37,5" reads as 37.5, as a phone in another language types it. Empty or not a number is NaN, as is "1,000", which could be either. */
+const decimal = (value: string) => { const typed = value.trim(); return typed && !/,\d{3}$/.test(typed) ? Number(typed.replace(",", ".")) : Number.NaN; };
+const kgInLb = 0.45359237;
+
+/** Changing between lb and kg carries the weight over, so nothing typed is lost to the field that's gone. */
+export function changeWeightUnit(form: LogForm, weightUnit: LogForm["weightUnit"]): LogForm {
+  if (form.weightUnit === weightUnit) return form;
+  if (weightUnit === "kg") {
+    const pounds = (form.lb.trim() ? decimal(form.lb) : 0) + (form.oz.trim() ? decimal(form.oz) : 0) / 16;
+    return { ...form, weightUnit, kg: pounds > 0 ? String(Math.round(pounds * kgInLb * 100) / 100) : "", lb: "", oz: "" };
+  }
+  const kilos = form.kg.trim() ? decimal(form.kg) : 0;
+  if (!(kilos > 0)) return { ...form, weightUnit, kg: "" };
+  const ounces = Math.round(kilos / kgInLb * 160) / 10, pounds = Math.floor(ounces / 16);
+  return { ...form, weightUnit, lb: String(pounds), oz: String(Math.round((ounces - pounds * 16) * 10) / 10), kg: "" };
+}
+
+const plainLabel = (label: string) => label.trim().toLowerCase().replace(/’/g, "'");
+/** Labels that mean a tracker of their own. Saved as a custom log, one would turn into that tracker on the next read. */
+const reservedLabels = new Set(trackers.flatMap((tracker) => (tracker.id === "custom" ? [] : [tracker.dataLabel, tracker.label])).filter((label): label is string => !!label).map(plainLabel));
 const measured = (value: string, top: number) => {
   const number = decimal(value);
   if (!Number.isFinite(number) || number <= 0 || number > top) throw Error("Check that number.");
@@ -84,6 +103,7 @@ export function dataFrom(id: string, form: LogForm, base: Record<string, unknown
   if (id === "custom") {
     const label = form.label.trim();
     if (!label) throw Error("Say what it is.");
+    if (reservedLabels.has(plainLabel(label))) throw Error(`“${label}” has its own place. Try another name.`);
     return { ...base, label } as RecordData;
   }
   if (id === "feeling") {
@@ -128,18 +148,24 @@ export function logTitle(id: string, form: LogForm) {
   return tracker?.dataLabel ?? kindName[tracker?.kind ?? "custom"];
 }
 
-/** A medicine to log again in one tap, once each however often she gave it. No timing or dosing advice comes with it. */
-export function recentMedicines(rows: readonly BabyRecord[], childId: string | null, count = 3) {
+/**
+ * A medicine to log again in one tap, once each however often she gave it or however the dose was typed, with its newest
+ * time. No timing or dosing advice comes with it.
+ */
+export function recentMedicines(rows: readonly BabyRecord[], childId: string | null, count = 3, now = new Date()) {
   const seen = new Set<string>(), found: { name: string; dose: string; at: string }[] = [];
-  for (const row of newestOf(rows, "medicine", childId)) {
-    const { name, dose } = row.data as unknown as { name?: string; dose?: string }, key = `${name ?? ""}|${dose ?? ""}`.toLowerCase();
-    if (name && !seen.has(key)) { seen.add(key); found.push({ name, dose: dose ?? "", at: row.occurred_at }); }
+  for (const row of happened(newestOf(rows, "medicine", childId), now)) {
+    const { name, dose } = row.data as unknown as { name?: string; dose?: string }, key = name?.trim().toLowerCase();
+    if (name && key && !seen.has(key)) { seen.add(key); found.push({ name, dose: dose ?? "", at: row.occurred_at }); }
   }
   return found.slice(0, count);
 }
-export function recentVitamins(rows: readonly BabyRecord[], childId: string | null, count = 3) {
+/** The last time this medicine was logged, for a name she's typing that may not be one of those offered. */
+export const lastDose = (rows: readonly BabyRecord[], childId: string | null, name: string, now = new Date()) =>
+  name.trim() ? recentMedicines(rows, childId, Infinity, now).find((one) => one.name.trim().toLowerCase() === name.trim().toLowerCase()) : undefined;
+export function recentVitamins(rows: readonly BabyRecord[], childId: string | null, count = 3, now = new Date()) {
   const seen = new Set<string>(), found: { name: string; at: string }[] = [];
-  for (const row of newestOf(rows, "vitamins", childId)) {
+  for (const row of happened(newestOf(rows, "vitamins", childId), now)) {
     if (!seen.has(row.title.toLowerCase())) { seen.add(row.title.toLowerCase()); found.push({ name: row.title, at: row.occurred_at }); }
   }
   return found.slice(0, count);

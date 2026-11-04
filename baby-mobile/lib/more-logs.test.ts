@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("expo-crypto", () => ({ randomUUID: () => "id" }));
 import type { BabyRecord } from "./models";
 import { careSummary, weightText } from "./care-format";
-import { dataFrom, formFrom, lastLog, logTitle, moreKinds, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm } from "./more-logs";
+import { changeWeightUnit, dataFrom, formFrom, lastDose, lastLog, logTitle, moreKinds, noteLabel, recentCustomLabels, recentMedicines, recentVitamins, startForm } from "./more-logs";
 import { retriedSave } from "./outbox";
-import { panelTrackers, shotLabel, trackerById, trackerFor, trackers, trackersFor } from "./trackers";
+import { keepItems, moreKinds as panelKinds, panelTrackers, shotLabel, trackedKinds, trackerById, trackerFor, trackers, trackersFor, whoseLog } from "./trackers";
+import { historyKinds } from "./history";
 import { datedOnly } from "./well-visits";
 import { timelineKinds } from "./tracker";
 
@@ -18,7 +19,7 @@ describe("the one list of trackers", () => {
   it("starts each stage as EXACT_PLAN section 16's table says", () => {
     expect(on("expecting")).toEqual(["kicks", "contractions", "feeling", "my_weight", "blood_pressure", "vitamins"]);
     expect(on("born")).toEqual(["breast", "bottle", "diaper", "sleep"]);
-    expect(ids(trackersFor("born"))).toEqual(["breast", "bottle", "diaper", "sleep", "pumping", "medicine", "temperature", "growth", "note", "custom"]);
+    expect(ids(trackersFor("born"))).toEqual(["breast", "bottle", "diaper", "sleep", "kicks", "contractions", "pumping", "medicine", "temperature", "growth", "note", "custom", "feeling", "my_weight", "blood_pressure", "vitamins", "shot", "milestone"]);
     expect(ids(panelTrackers("expecting"))).toEqual(["feeling", "my_weight", "blood_pressure", "vitamins"]);
   });
   it("gives every tracker what Add and what-shows need, once each", () => {
@@ -32,11 +33,10 @@ describe("the one list of trackers", () => {
   it("keeps her logs off the baby, and the baby's on", () => {
     expect(ids(trackers.filter((tracker) => tracker.about === "her"))).toEqual(["feeling", "my_weight", "blood_pressure", "vitamins"]);
   });
-  it("finds a saved entry's tracker, and leaves a shot to Well visits", () => {
+  it("finds a saved entry's tracker", () => {
     expect(trackerFor(row("custom", { label: "My weight" }))?.id).toBe("my_weight");
     expect(trackerFor(row("custom", { label: noteLabel }))?.id).toBe("note");
     expect(trackerFor(row("custom", { label: "Bath" }))?.id).toBe("custom");
-    expect(trackerFor(row("custom", { label: shotLabel }))).toBeUndefined();
     expect(trackerFor(row("pumping", {}))?.id).toBe("pumping");
     expect(trackerFor(row("feeding", { method: "bottle" }))?.id).toBe("bottle");
   });
@@ -164,5 +164,75 @@ describe("in Tracker and everywhere else", () => {
       expect(timelineKinds).toContain(kind);
       expect(retriedSave({ id: "m", generation: 1, type: "save", files: [], record: row(kind, {}) })).toBe(true);
     }
+  });
+});
+
+describe("from the review of #543", () => {
+  const dose = (name: string, doseText: string | undefined, at: string, child: string | null = "baby") => row("medicine", { name, ...(doseText ? { dose: doseText } : {}) }, at, name, child);
+  it("5: keeps one Last per medicine, with its newest dose, however the dose was typed", () => {
+    const rows = [dose("Tylenol", undefined, "2026-11-04T08:00:00.000Z"), dose("tylenol", "80 mg", "2026-11-04T04:14:00.000Z")];
+    const found = recentMedicines(rows, "baby");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ dose: "", at: "2026-11-04T08:00:00.000Z" });
+  });
+  it("5: finds the Last of a name typed by hand, past the three offered, for this baby only", () => {
+    const rows = ["A", "B", "C"].map((name, index) => dose(name, undefined, `2026-11-04T0${index + 2}:00:00.000Z`));
+    rows.push(dose("Gas drops", "0.3 mL", "2026-11-04T01:00:00.000Z"), dose("Gas drops", "0.3 mL", "2026-11-04T07:30:00.000Z", "other"));
+    expect(recentMedicines(rows, "baby").map((one) => one.name)).not.toContain("Gas drops");
+    expect(lastDose(rows, "baby", " gas DROPS ")).toMatchObject({ dose: "0.3 mL", at: "2026-11-04T01:00:00.000Z" });
+    expect(lastDose(rows, "baby", "Nothing")).toBeUndefined();
+    expect(lastDose(rows, "baby", "  ")).toBeUndefined();
+  });
+  it("18: a time ahead of now is never her Last", () => {
+    const now = new Date("2026-11-04T04:00:00.000Z");
+    expect(recentMedicines([dose("Tylenol", undefined, "2026-11-04T09:00:00.000Z"), dose("Tylenol", undefined, "2026-11-04T02:00:00.000Z")], "baby", 3, now)[0].at).toBe("2026-11-04T02:00:00.000Z");
+    expect(lastDose([dose("Tylenol", undefined, "2026-11-04T09:00:00.000Z")], "baby", "Tylenol", now)).toBeUndefined();
+  });
+  it("8: refuses a custom label that means something else, in any case", () => {
+    for (const label of ["Shot", "shot", " Note ", "Blood pressure", "my weight", "How I'm feeling", "How I’m feeling", "Vitamins and medicine"])
+      expect(() => dataFrom("custom", form("custom", { label }))).toThrow("its own place");
+    expect(dataFrom("custom", form("custom", { label: "Bath" }))).toEqual({ label: "Bath" });
+  });
+  it("12: offers feeds, diapers, sleep, kicks and contractions in both stages, and her logs after birth", () => {
+    for (const id of ["breast", "bottle", "diaper", "sleep", "kicks", "contractions", "feeling", "my_weight", "blood_pressure", "vitamins"])
+      expect(trackerById(id)!.offeredIn).toEqual(["expecting", "born"]);
+    expect(trackers.filter((tracker) => tracker.defaultOn.includes("born")).map((tracker) => tracker.id)).toEqual(["breast", "bottle", "diaper", "sleep"]);
+    expect(trackers.filter((tracker) => tracker.defaultOn.includes("expecting")).map((tracker) => tracker.id)).toEqual(["kicks", "contractions", "feeling", "my_weight", "blood_pressure", "vitamins"]);
+    expect(panelTrackers("born").map((tracker) => tracker.id)).toEqual(expect.arrayContaining(["blood_pressure", "pumping", "custom"]));
+  });
+  it("14: moving between lb and kg keeps the weight, in either direction", () => {
+    expect(changeWeightUnit({ ...form("growth", { lb: "7", oz: "8" }) }, "kg")).toMatchObject({ weightUnit: "kg", kg: "3.4", lb: "", oz: "" });
+    expect(changeWeightUnit({ ...form("growth", { weightUnit: "kg", kg: "3.4" }) }, "lb")).toMatchObject({ weightUnit: "lb", lb: "7", oz: "7.9", kg: "" });
+    const switched = changeWeightUnit(form("growth", { lb: "7", oz: "8", length: "20" }), "kg");
+    expect(dataFrom("growth", switched)).toMatchObject({ weight: 3.4, weight_unit: "kg", length: 20 });
+    expect(changeWeightUnit(form("growth"), "kg")).toMatchObject({ weightUnit: "kg", kg: "" });
+  });
+  it("17: refuses 1,000 rather than saving 1, and still reads 37,5", () => {
+    expect(() => dataFrom("pumping", form("pumping", { amount: "1,000" }))).toThrow("Check");
+    expect(() => dataFrom("my_weight", form("my_weight", { myWeight: "1,450" }))).toThrow("Check");
+    expect(dataFrom("pumping", form("pumping", { amount: "3,5" }))).toMatchObject({ amount: 3.5 });
+  });
+  it("11, 13: says whose a log is when the row can't", () => {
+    expect(whoseLog(row("custom", { label: "Blood pressure" }, undefined, "118/76", null))).toBe("For you");
+    expect(whoseLog(row("medicine", { name: "Tylenol" }, undefined, "Tylenol", null))).toBe("From a removed profile");
+    expect(whoseLog(row("custom", { label: shotLabel }, undefined, "Hep B", null))).toBe("From a removed profile");
+    expect(whoseLog(row("custom", { label: "Bath" }, undefined, "Bath", null))).toBe("From a removed profile");
+    expect(whoseLog(row("medicine", { name: "Tylenol" }))).toBe("");
+    // Older general care was never on a baby, so nothing about it says one was removed.
+    expect(whoseLog(row("diaper", { type: "wet" }, undefined, "Diaper", null))).toBe("");
+  });
+  it("one source: every kind list and the Add list come from the trackers", () => {
+    expect(new Set(moreKinds)).toEqual(new Set(panelKinds));
+    for (const kind of trackedKinds) expect(timelineKinds).toContain(kind);
+    expect(trackerById("shot")).toMatchObject({ kind: "custom", dataLabel: shotLabel, opens: "/well-visits" });
+    expect(trackerById("milestone")).toMatchObject({ kind: "milestone", opens: "/milestones" });
+    expect(trackerById("kicks")).toMatchObject({ opens: "/kicks", detail: "A tap for each movement, and your history" });
+    expect(trackerById("contractions")).toMatchObject({ opens: "/contractions", detail: "Start, stop, and the last hour" });
+    expect(new Set(historyKinds("care"))).toEqual(new Set(trackedKinds.filter((kind) => kind !== "milestone")));
+    expect(keepItems.map((item) => item.kind)).toEqual(["source", "journal", "event", "question", "routine"]);
+    expect(trackerFor(row("custom", { label: shotLabel }))?.id).toBe("shot");
+    for (const kind of ["kick_session", "contraction", "pumping", "medicine", "temperature", "growth", "milestone", "custom"] as const)
+      expect(retriedSave({ id: "m", generation: 1, type: "save", files: [], record: row(kind, {}) })).toBe(true);
+    expect(retriedSave({ id: "m", generation: 1, type: "save", files: [], record: row("diaper", {}) })).toBe(false);
   });
 });

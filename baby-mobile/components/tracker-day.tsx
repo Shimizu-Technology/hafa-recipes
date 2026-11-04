@@ -9,6 +9,7 @@ import { Icon, PressTarget, fonts, radii, typeScale, useColors } from "./ui";
 import { contractionDetail } from "@/lib/contractions";
 import { kickDetail } from "@/lib/kicks";
 import { datedOnly } from "../lib/well-visits";
+import { whoseLog } from "../lib/trackers";
 import { recordIcon } from "./record-row";
 
 const letters = ["S", "M", "T", "W", "T", "F", "S"];
@@ -69,7 +70,8 @@ export function TimelineRow({ record, rows, day, timeZone, pending, now }: { rec
   const c = useColors(), { fontScale } = useWindowDimensions(), when = datedOnly(record) ? "" : timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
     summary = careSummary(record.kind, record.data, record.occurred_at, now, timeZone),
     title = summary || (record.data.label ?? kindName[record.kind]),
-    detail = [timelineDetail(record, { rows, day, timeZone, now }) || (summary || record.title === title ? "" : record.title), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
+    // What she typed and any note on it, both, so a note never hides a reading.
+    detail = [summary || record.title === title ? "" : record.title, timelineDetail(record, { rows, day, timeZone, now }), whoseLog(record), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
   return <PressTarget accessibilityRole="button" accessibilityLabel={`${when ? `${when}, ` : ""}${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}
     style={{ flexDirection: stacked ? "column" : "row", alignItems: stacked ? "flex-start" : "center", gap: stacked ? 4 : 10, minHeight: 62, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: c.surface }}>
@@ -80,7 +82,7 @@ export function TimelineRow({ record, rows, day, timeZone, pending, now }: { rec
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text key={`t:${fontScale}`} maxFontSizeMultiplier={0} style={{ fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, color: c.text, fontVariant: ["tabular-nums"] }}>{title}</Text>
-        {!!detail && <Text key={`d:${fontScale}`} numberOfLines={1} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, fontSize: 13, lineHeight: 17, color: c.muted, fontVariant: ["tabular-nums"] }}>{detail}</Text>}
+        {!!detail && <Text key={`d:${fontScale}`} numberOfLines={2} maxFontSizeMultiplier={0} style={{ ...typeScale.caption, fontSize: 13, lineHeight: 17, color: c.muted, fontVariant: ["tabular-nums"] }}>{detail}</Text>}
       </View>
       <Icon name="chevron-forward" size={18} color={c.muted} />
     </View>

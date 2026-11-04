@@ -14,7 +14,9 @@ import { useReducedMotion } from "./motion";
 import { useSecondClock } from "./feed-timer";
 import { TimeChip, TimeChoices, type PastDay } from "./quick-time";
 import { zonedInstant } from "@/lib/tracker";
+import { trackerById } from "../lib/trackers";
 
+const [breast, bottleTile, diaperTile, sleepTile] = ["breast", "bottle", "diaper", "sleep"].map((id) => trackerById(id)!);
 const word = { left: "Left", right: "Right", both: "Both" } as const;
 const other = (side: FeedSide): FeedSide => (side === "left" ? "right" : "left");
 /** Every night target is at least this tall. */
@@ -387,11 +389,11 @@ export function QuickLog({ child, rows, now, pastDay, tilesAside }: {
       </View>
     </Panel>}
     {!tilesAside && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-      <Tile primary icon="care:mother-nurse" label={(running || legacyTimer) && !pastDay ? "Feeding" : "Breastfeed"} open={panel === "breast"}
-        hint="Choose left, right or both. A tap saves it." onPress={() => toggle("breast")} />
-      <Tile icon="care:baby-bottle-outline" label="Bottle" open={panel === "bottle"} hint="Choose an amount and breast milk or formula. A tap saves it." onPress={() => toggle("bottle")} />
-      <Tile icon="care:human-baby-changing-table" label="Diaper" open={panel === "diaper"} hint="Choose pee, poo, both or dry. A tap saves it." onPress={() => toggle("diaper")} />
-      <Tile icon={openSleep ? "moon" : "moon-outline"} label={openSleep ? "Sleeping" : "Sleep"} open={panel === "sleep"} hint={openSleep ? "Ends the current sleep" : "Starts a sleep"} onPress={() => toggle("sleep")} />
+      <Tile primary icon={breast.icon} label={(running || legacyTimer) && !pastDay ? "Feeding" : breast.label} open={panel === "breast"}
+        hint={breast.detail!} onPress={() => toggle("breast")} />
+      <Tile icon={bottleTile.icon} label={bottleTile.label} open={panel === "bottle"} hint={bottleTile.detail!} onPress={() => toggle("bottle")} />
+      <Tile icon={diaperTile.icon} label={diaperTile.label} open={panel === "diaper"} hint={diaperTile.detail!} onPress={() => toggle("diaper")} />
+      <Tile icon={openSleep ? "moon" : sleepTile.icon} label={openSleep ? "Sleeping" : sleepTile.label} open={panel === "sleep"} hint={openSleep ? "Ends the current sleep" : sleepTile.detail!} onPress={() => toggle("sleep")} />
     </View>}
   </View>;
 }

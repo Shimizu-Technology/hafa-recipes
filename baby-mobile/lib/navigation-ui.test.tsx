@@ -380,7 +380,7 @@ it.each([false, true])("refreshes the scoped timeline from page zero after sync,
   expect(visible()).toEqual(expect.arrayContaining([old.id, older.id]));
   await act(async () => { await renderer!.root.findByType(Screen).props.onRefresh(); });
   expect(mock.baby.sync).toHaveBeenCalledOnce();
-  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? ["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom"] : ["question"] });
+  expect(records.mock.calls.at(-1)![0]).toMatchObject({ offset: 0, child_id: "baby", q: "matching", kinds: careHistory ? expect.arrayContaining(["feeding", "sleep", "diaper", "pumping", "medicine", "temperature", "growth", "custom", "kick_session", "contraction"]) : ["question"] });
   expect(visible()).toEqual(expect.arrayContaining([fresh.id, old.id, older.id]));
   expect(renderer!.root.findByType("TextInput" as React.ElementType).props.value).toBe("matching");
 });

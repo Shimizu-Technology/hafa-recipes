@@ -19,6 +19,7 @@ import { SyncStatus } from "@/components/sync-status";
 import { useMinuteClock } from "@/components/care-glance";
 import { QuickLog } from "@/components/quick-log";
 import { MoreLogs } from "@/components/more-logs";
+import { trackerById } from "../../../lib/trackers";
 import { LegacyTimer } from "@/components/feed-timer";
 import { OrderToggle, TimelineRow, WeekStrip, dayTitle } from "@/components/tracker-day";
 import { TrackerMonth } from "@/components/tracker-month";
@@ -83,8 +84,7 @@ export default function Tracker() {
       {children.length > 1 && <ChildFilter only={scope ?? undefined} />}
       <FilterChips label="Tracker view" value={view} onChange={setView} options={[{ label: "Day", value: "day" }, { label: "Calendar", value: "month" }, { label: "Stats", value: "stats" }]} />
       {expecting && view !== "stats" && <Grouped>
-        <Row title="Contraction timer" detail="Start, stop, and the last hour" icon="pulse-outline" onPress={() => router.push("/contractions")} />
-        <Row title="Kick counter" detail="A tap for each movement, and your history" icon="footsteps-outline" onPress={() => router.push("/kicks")} />
+        {[trackerById("contractions")!, trackerById("kicks")!].map((tracker) => <Row key={tracker.id} title={tracker.label} detail={tracker.detail} icon={tracker.icon} onPress={() => router.push(tracker.opens as "/kicks")} />)}
       </Grouped>}
       {view === "month" ? <>
         <TrackerMonth today={today} day={day} childId={scope} birthDate={child?.birth_date} onOpen={(key) => { pick(key); setView("day"); }} />

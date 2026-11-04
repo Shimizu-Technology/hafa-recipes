@@ -160,6 +160,8 @@ type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table" | "mother-n
 export type IconName = React.ComponentProps<typeof Ionicons>["name"] | `care:${CareGlyph}`;
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();
+  // A kind from a newer build has no icon here yet, and shouldn't take the screen down.
+  if (!name) return <Ionicons name="ellipse-outline" size={size} color={color ?? c.action} accessible={false} importantForAccessibility="no" accessibilityElementsHidden />;
   if (name.startsWith("care:"))
     return (
       <MaterialCommunityIcons

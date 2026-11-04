@@ -296,7 +296,7 @@ export type Mutation = { localOnly?: boolean } & (
       error?: string;
       conflict?: boolean;
     }
-  | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
+  | { id: string; generation: number; type: "delete"; record: BabyRecord; hold_until?: string; attempts?: number; error?: string; conflict?: boolean }
   | {
       /** "All future" from a later date. One change, so the series can't end unless the next one starts. The id is the new event's, which makes a retry the same split. */
       id: string;
@@ -429,6 +429,8 @@ export const kindName: Record<Kind, string> = {
   custom: "Entry",
   event: "Event",
 };
+/** A kind's name, for words built around it. A kind from a newer build has none yet, and must not crash the screen. */
+export const kindWord = (kind: Kind) => kindName[kind] ?? "Entry";
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {
   return error instanceof Error ? error.message : "Something interrupted this step. Your draft is safe. Try again.";

@@ -1,4 +1,5 @@
 import type { RecordFilters } from "./api";
+import { trackedKinds } from "./trackers";
 import { careKinds, type BabyRecord, type DeviceState, type Kind, type RecordPage } from "./models";
 import { pendingRecords } from "./outbox";
 
@@ -9,7 +10,7 @@ export interface HistoryView {
 }
 export function historyKinds(filter: string): Kind[] {
   if (filter === "writing") return ["journal", "question"];
-  if (filter === "care") return [...careKinds, "pumping", "medicine", "temperature", "growth", "custom"];
+  if (filter === "care") return trackedKinds.filter((kind) => kind !== "milestone");
   if (filter === "journal" || filter === "question") return [filter];
   return ["journal", "question", ...careKinds];
 }

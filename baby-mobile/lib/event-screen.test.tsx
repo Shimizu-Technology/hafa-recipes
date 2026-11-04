@@ -226,6 +226,47 @@ describe("editing one of the extra logs", () => {
     await press("Button", "Save changes");
     expect(saved(account)).toMatchObject({ kind: "temperature", title: "Temperature", child_id: "baby", data: { value: 100.2, unit: "f", method: "armpit" } });
   });
+  it("8: keeps the same fields while she types a word that's another tracker's, then refuses it", async () => {
+    const account = setup([log("custom", "Bath", { label: "Bath" })]);
+    mock.params = { id: "log", kind: "custom" };
+    await mount(Edit);
+    await act(async () => field("What is it?").props.onChange("Blood pressure"));
+    expect(field("What is it?")).toBeDefined();
+    expect(field("Top number")).toBeUndefined();
+    await press("Button", "Save changes");
+    expect(saved(account)).toBeUndefined();
+    expect(JSON.stringify(renderer!.toJSON())).toContain("its own place");
+    await act(async () => field("What is it?").props.onChange("Shot"));
+    expect(field("Title")).toBeUndefined();
+  });
+  it("9: keeps her log hers and a baby's log on a baby", async () => {
+    setup([log("custom", "118/76", { label: "Blood pressure" }), { ...log("medicine", "Tylenol", { name: "Tylenol" }, "dose") }]);
+    const her = { ...mock.baby.state.records[0], child_id: null };
+    mock.baby.state.records = [her, mock.baby.state.records[1]];
+    mock.params = { id: "log", kind: "custom" };
+    await mount(Edit);
+    expect(found("Chips", (p) => p.label === "Who is this for?")).toBeUndefined();
+    await act(async () => renderer!.unmount());
+    mock.params = { id: "dose", kind: "medicine" };
+    await mount(Edit);
+    expect(found("Chips", (p) => p.label === "Who is this for?").props.options.map((option: any) => option.label)).toEqual(["Noa"]);
+  });
+  it("18: won't save a log at a time that hasn't happened", async () => {
+    const account = setup([log("medicine", "Tylenol", { name: "Tylenol" })]);
+    mock.params = { id: "log", kind: "medicine" };
+    await mount(Edit);
+    await act(async () => renderer!.root.findAll((n) => String(n.type) === "DateField").find((n) => n.props.label === "Date and time")!.props.onChange(new Date(Date.now() + 5 * 3600_000).toISOString()));
+    await press("Button", "Save changes");
+    expect(saved(account)).toBeUndefined();
+    expect(JSON.stringify(renderer!.toJSON())).toContain("hasn’t happened yet");
+  });
+  it("20: an entry of a kind this build doesn't know opens without crashing", async () => {
+    setup([log("future_kind" as never, "From a newer build", {})]);
+    mock.params = { id: "log", kind: "future_kind" };
+    await mount(Edit);
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain("undefined");
+    expect(found("Button", (p) => p.title === "Save changes")).toBeDefined();
+  });
   it("keeps a medicine's title to its name", async () => {
     const account = setup([log("medicine", "Vitamin D", { name: "Vitamin D" })]);
     mock.params = { id: "log", kind: "medicine" };

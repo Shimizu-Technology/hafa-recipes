@@ -44,6 +44,7 @@ import { HeaderAction } from "../components/ui";
 import { CareGlance } from "../components/care-glance";
 import { optimisticRecord } from "./models";
 import { HeaderSearch } from "../components/header-search";
+import * as uiForIcon from "../components/ui";
 import { AccountButton, HeaderIconButton, HeaderPill, TabStack, headerActions, initials } from "../components/tab-stack";
 import { Copy, PressTarget, Row, Chips, ToastProvider, Button, useToast, Screen, useColors, NativeHeaderContext, TabScreenContext, FilterChips, Card, Field } from "../components/ui";
 import { SyncStatus } from "../components/sync-status";
@@ -480,4 +481,11 @@ it("keeps a header action's words inside the bar's one height at the largest tex
   expect(words.props.maxFontSizeMultiplier).toBeGreaterThan(1);
   expect(words.props.maxFontSizeMultiplier).toBeLessThanOrEqual(1.6);
   expect(words.props.numberOfLines).toBe(1);
+});
+
+it("20: draws a plain mark for a kind this build has no icon for, rather than crashing", () => {
+  const { Icon } = uiForIcon;
+  let view: ReactTestRenderer;
+  act(() => { view = create(<Icon name={undefined as never} />); });
+  expect(view!.toJSON()).toBeTruthy();
 });
