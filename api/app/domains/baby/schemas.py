@@ -44,6 +44,7 @@ class DomainModel(BaseModel):
 
 
 class Profile(DomainModel):
+    family_disclosures: list[dict] = Field(default_factory=list, exclude_if=lambda value: not value)
     display_name: str = Field(default="", max_length=120)
     timezone: str = Field(default="Pacific/Guam", max_length=80)
     ai_consent: StrictBool = False

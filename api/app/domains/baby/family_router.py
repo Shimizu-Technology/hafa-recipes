@@ -22,7 +22,7 @@ async def family_access(request: Request, user: User, db: Database):
     extra = set(await db.scalars(select(BabyShareCredential.space_id).where(
         BabyShareCredential.app_user_id == user.id, BabyShareCredential.revoked_at.is_(None))))
     return await access_for(db, user.id, client=request.headers.get("X-Baby-Client"),
-        space_id=request.headers.get("X-Baby-Space"), write=True,
+        space_id=request.headers.get("X-Baby-Space"), write=True, bootstrap=request.method == "GET",
         extra_space_ids=extra - {None})
 
 

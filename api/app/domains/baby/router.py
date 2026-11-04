@@ -1174,7 +1174,9 @@ async def delete_data(
 
 from app.domains.baby.changes import router as changes_router  # noqa: E402
 from app.domains.baby.family_router import router as family_router  # noqa: E402
+from app.domains.baby.invites import router as invites_router  # noqa: E402
 
+router.include_router(invites_router)
 router.include_router(changes_router)
 router.include_router(family_router)
 router.include_router(attachments_router)

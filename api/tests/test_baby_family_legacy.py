@@ -70,6 +70,13 @@ async def test_every_endpoint_with_legacy_client(baby_api, family, legacy_client
         assert response.status_code == expected, (method, path, response.text)
         return response.json() if response.content else None
 
+    for method, path, body in (("POST", "/api/v1/baby/family/invites", {}),
+            ("POST", "/api/v1/baby/family/invites/preview", {"code": "hfbi_v1.synthetic"}),
+            ("POST", "/api/v1/baby/family/invites/accept", {"code": "hfbi_v1.synthetic", "disclosure_version": 1}),
+            ("GET", f"/api/v1/baby/family/{family}/invites", None),
+            ("GET", f"/api/v1/baby/family/{family}/members", None),
+            ("DELETE", f"/api/v1/baby/family/{family}/invites/{uuid4()}", None)):
+        await call(method, path, expected=404, **({"json": body} if body is not None else {}))
     await call("GET", "/api/v1/baby/changes", expected=403 if enabled else 404)
     for method, path in (("POST", f"/api/v1/baby/family/{family}/leave"),
                          ("DELETE", f"/api/v1/baby/family/{family}/members/other"),
