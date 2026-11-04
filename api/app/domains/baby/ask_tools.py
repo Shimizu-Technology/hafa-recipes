@@ -3,7 +3,7 @@
 import json
 import re
 from datetime import date, timedelta
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -14,14 +14,14 @@ from app.domains.baby.lifecycle import now, owned, readable_journal_children
 from app.domains.baby.models import BabyChild, BabyRecord
 from app.domains.baby.queries import child_timing, records_query, row_scope
 from app.domains.baby.schemas import DomainModel
-from app.domains.baby.stats import care_stats, custom_days, day_start
+from app.domains.baby.stats import care_stats, custom_days, day_start, last_days, rolling_24h
 
 NOT_AVAILABLE = "not_available_for_this_question"
 MAX_CALLS_PER_ROUND = 8
 RESULT_CHARS = 30_000
 QUESTION_CHARS = 120_000  # Keeps every later request well inside its admission bound.
 BRIEF_EXCERPT, FULL_EXCERPT = 1500, 7000
-LIST_LIMIT, DAY_LIMIT = 12, 60
+LIST_LIMIT, DAY_LIMIT, EVENT_LIMIT = 12, 60, 60
 SAVED_KINDS = ("source", "collection", "question", "routine", "milestone", "custom")
 # Saved posts and journal entries have their own tools; a day's log is what was recorded that day.
 NOT_IN_DAY_LOG = ("source", "collection", "journal")
@@ -49,6 +49,10 @@ TOOL_GUIDE = (
     "rarely uses the parent's exact words, so if a search finds little, try other words for the same thing "
     "(nursing for breastfeeding). Prefer the fewest tools that answer the question. A tool returning an error "
     "field found nothing: say what you could not find, and never guess. "
+    "Never count entries yourself. Any total comes from care_stats or day_log's totals, which the app computes and "
+    "the Stats screen also shows. For 'this week' or 'the past week' use range 7d, which is what Stats calls a week, "
+    "and say which dates it covers. Report totals as what was logged. Today so far is partial. "
+    "The journal holds private writing: read it only when the question is about it, or about how she has been feeling. "
 )
 
 
@@ -371,3 +375,123 @@ async def day_log(tools, db, owner, arguments):
         "entries": found,
         "all_entries_shown": len(rows) <= DAY_LIMIT and len(found) == len(rows),
     }
+
+
+class StatsArguments(DomainModel):
+    range: Literal["24h", "7d", "30d", "custom"]
+    from_date: date | None = None
+    to_date: date | None = None
+    child_id: str | None = Field(default=None, max_length=40)
+
+
+DATE_PROPERTY = {"type": ["string", "null"], "description": "YYYY-MM-DD, or null."}
+
+
+def stats_range_for(arguments, zone, at):
+    """The same ranges the Stats screen offers, built by the same functions."""
+    if arguments.range == "24h":
+        return rolling_24h(zone, at)
+    if arguments.range == "custom":
+        if not arguments.from_date or not arguments.to_date:
+            raise ValueError("A custom range needs both dates")
+        return custom_days(arguments.from_date, arguments.to_date, zone, at)
+    return last_days(int(arguments.range[:-1]), zone, at)
+
+
+@tool(
+    "care_stats",
+    "Feeding, diaper and sleep totals for a range, the same numbers as the Stats screen. "
+    "24h is rolling from now; 7d and 30d are that many finished days plus today; custom needs from_date and to_date.",
+    StatsArguments,
+    {
+        "range": {"type": "string", "enum": ["24h", "7d", "30d", "custom"]},
+        "from_date": DATE_PROPERTY,
+        "to_date": DATE_PROPERTY,
+        "child_id": CHILD_PROPERTY,
+    },
+)
+async def care_stats_tool(tools, db, owner, arguments):
+    child = await which_child(tools, db, owner, arguments.child_id)
+    stats = await care_stats(
+        db, owner, tools.generation, child, tools.zone,
+        stats_range_for(arguments, tools.zone, now()), tracked=tools.tracked,
+    )
+    # Totals only: nothing here is a record the model could quote or cite.
+    sleep = {key: value for key, value in stats["sleep"].items() if key != "open"}
+    sleep["in_progress_since"] = [item["started_at"] for item in stats["sleep"]["open"]]
+    return {**stats, "child_id": str(child) if child else None, "sleep": sleep}
+
+
+class EventArguments(DomainModel):
+    from_date: date
+    to_date: date
+    child_id: str | None = Field(default=None, max_length=40)
+
+
+@tool(
+    "events",
+    "Calendar events on the parent's calendar days, inclusive, repeats expanded and changes applied. "
+    "With a child: theirs and the whole family's. With null: every event.",
+    EventArguments,
+    {
+        "from_date": {"type": "string", "description": "YYYY-MM-DD"},
+        "to_date": {"type": "string", "description": "YYYY-MM-DD"},
+        "child_id": {"type": ["string", "null"], "description": "A child id from baby_profile, or null."},
+    },
+)
+async def events_tool(tools, db, owner, arguments):
+    from app.domains.baby.events import check_range, occurrences, window_for
+
+    try:
+        check_range(arguments.from_date, arguments.to_date)
+    except HTTPException:
+        raise ValueError("Unusable date range") from None
+    child = UUID(arguments.child_id) if arguments.child_id else None
+    if child:
+        await owned(db, BabyChild, owner, tools.generation, child)
+    found, complete = await occurrences(
+        db, owner, tools.generation, child, window_for(arguments.from_date, arguments.to_date, tools.zone)
+    )
+    shown = found[:EVENT_LIMIT]
+    rows = list(await db.scalars(select(BabyRecord).where(
+        BabyRecord.id.in_({item.row.id for item in shown}),
+        row_scope(BabyRecord, owner, tools.generation),
+        BabyRecord.deleted_at.is_(None),
+    )))
+    # Events are read as narrow columns, so what the recheck compares comes from the rows themselves.
+    await entries(tools, db, owner, rows, limit=300, total=len(rows) * 300)
+    return {
+        "events": [item.item() for item in shown],
+        "all_events_shown": complete and len(found) <= EVENT_LIMIT,
+    }
+
+
+class JournalArguments(DomainModel):
+    query: str | None = Field(default=None, max_length=200)
+    from_date: date | None = None
+    to_date: date | None = None
+
+
+@tool(
+    "journal",
+    "Journal entries this parent may read: their own, and any a parent shared with the family. "
+    "Optionally by words and by dates; newest first.",
+    JournalArguments,
+    {"query": {"type": ["string", "null"]}, "from_date": DATE_PROPERTY, "to_date": DATE_PROPERTY},
+)
+async def journal_tool(tools, db, owner, arguments):
+    from app.domains.baby.chat import ranked, term_matches
+
+    terms = search_terms(arguments.query) if arguments.query else []
+    query = records_query(owner, tools.generation, kind="journal")
+    if arguments.from_date:
+        query = query.where(BabyRecord.occurred_at >= day_start(arguments.from_date, tools.zone))
+    if arguments.to_date:
+        query = query.where(BabyRecord.occurred_at < day_start(arguments.to_date + timedelta(days=1), tools.zone))
+    order = [BabyRecord.occurred_at.desc()]
+    if terms:
+        matches = term_matches(terms)
+        query = query.where(or_(*matches))
+        order.insert(0, ranked(matches).desc())
+    rows = list(await db.scalars(query.order_by(*order).limit(LIST_LIMIT)))
+    return {"entries": await entries(tools, db, owner, rows, terms=terms, limit=3000)}
