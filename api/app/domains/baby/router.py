@@ -69,7 +69,16 @@ from app.domains.baby.schemas import (
 )
 from app.domains.baby.security import BabyRoute, new_kinds_enabled
 from app.domains.baby.sessions import SESSION_KINDS
-from app.domains.baby.stats import MAX_CUSTOM_DAYS, care_summary, number_in
+from app.domains.baby.stats import (
+    MAX_CUSTOM_DAYS,
+    care_stats,
+    care_summary,
+    custom_days,
+    last_days,
+    number_in,
+    rolling_24h,
+    session_stats,
+)
 from app.domains.baby.suggestions import router as suggestions_router
 
 router = APIRouter(prefix="/api/v1/baby", tags=["baby"], route_class=BabyRoute)
@@ -828,6 +837,41 @@ async def care_days(
         return await care_summary(db, access, member.generation, child_id, zone, first, last, now(), marks)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
+
+
+@router.get("/care/stats")
+async def care_range_stats(
+    user: User,
+    db: Database,
+    window: Annotated[Literal["24h", "7d", "30d", "custom"], Query(alias="range")] = "7d",
+    first: Annotated[date | None, Query(alias="from")] = None,
+    last: Annotated[date | None, Query(alias="to")] = None,
+    child_id: UUID | None = None,
+    client: Client = None,
+    access: Access = None,
+):
+    """Tracker's Stats view and the doctor summary: one range of totals, averages and days."""
+    # Build 32 has no Stats; to it this route does not exist.
+    if legacy_client(client):
+        raise HTTPException(404, "Not found")
+    member = access.member
+    if child_id:
+        await owned(db, BabyChild, access, member.generation, child_id)
+    zone = ZoneInfo(Profile.model_validate(member.profile).timezone)
+    at = now()
+    try:
+        if window == "24h":
+            stats_range = rolling_24h(zone, at)
+        elif window == "custom":
+            if not first or not last:
+                raise ValueError("Choose a start and an end")
+            stats_range = custom_days(first, last, zone, at)
+        else:
+            stats_range = last_days(int(window[:-1]), zone, at)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+    result = await care_stats(db, access, member.generation, child_id, zone, stats_range, spans=True)
+    return await session_stats(db, access, member.generation, child_id, zone, result, stats_range)
 
 
 @router.get("/records/{identifier}")
