@@ -540,12 +540,14 @@ export function Button({
   );
 }
 /** A scalable text action for a screen header. */
+const headerTextLimit = 1.6;
 export function HeaderAction({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
   const c = useColors(), { fontScale } = useWindowDimensions();
   return <PressTarget accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }}
     disabled={disabled} onPress={onPress}
     style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center" }}>
-    <Text key={fontScale} maxFontSizeMultiplier={0} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
+    {/* The bar stays one height, so the words stop growing before it would cut them off. */}
+    <Text key={fontScale} numberOfLines={1} maxFontSizeMultiplier={headerTextLimit} style={{ ...typeScale.headline, color: c.action }}>{title}</Text>
   </PressTarget>;
 }
 let accessoryCount = 0;

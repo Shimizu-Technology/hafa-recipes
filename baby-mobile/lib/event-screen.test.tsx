@@ -127,7 +127,7 @@ it("says plainly when a new repeat would go over the limit, before she leaves th
   expect(b.state.outbox).toEqual([]);
   expect(mock.toast.mock.calls[0][0]).toContain("You can keep up to 200 repeating events.");
 });
-it("All future from a later date queues the end of this series before the start of the next, on one write", async () => {
+it("All future from a later date queues one change that holds both parts, so neither can land alone", async () => {
   const b = setup([event()]);
   mock.params = { kind: "event", id: "class", scope: "future", at: "2026-11-16T00:00:00.000Z" };
   await mount(Edit);
@@ -135,7 +135,11 @@ it("All future from a later date queues the end of this series before the start 
   const writes = b.commit.mock.calls.length;
   await press("Button", "Save changes");
   expect(b.commit.mock.calls.length).toBe(writes + 1);
-  expect(b.state.outbox.map((m: any) => [m.record.id === "class", m.record.title, m.record.data.recurrence.until ?? null, m.record.data.reminder_minutes])).toEqual([[true, "Class", "2026-11-15", [60]], [false, "New class", null, [60]]]);
+  expect(b.state.outbox).toHaveLength(1);
+  const [split] = b.state.outbox as any[];
+  expect(split).toMatchObject({ type: "event_split", from_start: "2026-11-16T00:00:00.000Z", series: { id: "class", revision: 4, title: "Class", data: { recurrence: { until: "2026-11-15" }, reminder_minutes: [60] } }, event: { title: "New class", occurred_at: "2026-11-16T00:00:00.000Z", data: { reminder_minutes: [60] } } });
+  expect(split.id).toBe(split.event.id);
+  expect(split.event.data.recurrence.until).toBeUndefined();
   expect(mock.dismissTo).toHaveBeenCalledWith("/(tabs)/tracker");
 });
 it("edits just one date as a change on the series, and offers only what one date can hold", async () => {

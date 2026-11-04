@@ -36,9 +36,10 @@ function zoneOffset(instant: Date, timeZone: string) {
 /**
  * The instant a family's clock reads this time on this day. Days and totals follow the profile's zone, as the API does,
  * and resolve the same way: a time read twice is the first, and a time the clock skips is the moment after the jump, so
- * a midnight skipped in spring (Santiago) starts its day at 1:00 rather than pulling in the hour before.
+ * a midnight skipped in spring (Santiago) starts its day at 1:00 rather than pulling in the hour before. `second` asks
+ * for the later reading, as a repeat does whose first date was in the repeated hour.
  */
-export function zonedInstant(key: string, hours: number, minutes: number, timeZone?: string | null) {
+export function zonedInstant(key: string, hours: number, minutes: number, timeZone?: string | null, second = false) {
   const [year, month, day] = key.split("-").map(Number);
   try {
     if (!timeZone) throw Error("No zone");
@@ -46,7 +47,7 @@ export function zonedInstant(key: string, hours: number, minutes: number, timeZo
       before = zoneOffset(new Date(guess - 24 * hour), timeZone), after = zoneOffset(new Date(guess + 24 * hour), timeZone),
       reads = (offset: number) => zoneOffset(new Date(guess - offset), timeZone) === offset,
       real = [before, after].filter(reads).map((offset) => guess - offset);
-    return new Date(real.length ? Math.min(...real) : guess - before);
+    return new Date(real.length ? (second ? Math.max : Math.min)(...real) : guess - (second ? after : before));
   } catch { return new Date(year, month - 1, day, hours, minutes); }
 }
 export function dayRange(key: string, timeZone?: string | null) {

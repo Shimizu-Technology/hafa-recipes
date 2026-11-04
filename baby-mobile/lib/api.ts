@@ -241,6 +241,10 @@ export function createBabyApi(
     /** Dated occurrences on these calendar days, inclusive. With a child: theirs and the whole family's. */
     events: (from: string, to: string, child_id?: string | null) =>
       request<{ items: EventOccurrence[]; complete: boolean }>("/events?" + query({ from, to, child_id })),
+    /** Ends a repeat before this date and starts the next: both or neither. Sending it again gets the same answer. */
+    splitEvent: (series: string, { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }: { revision: number; from_start: string; event: RecordWrite }, g: number) =>
+      request<{ series: BabyRecord | null; event: BabyRecord }>(`/events/${encodeURIComponent(series)}/split`, "POST",
+        { revision, from_start, event: { id, kind, title, body, child_id, occurred_at, data } }, g),
     save: (value: RecordWrite, g: number) => {
       const { id, kind, title, body, child_id, occurred_at, data, revision } = value;
       // Repair optional links at the wire boundary, including durable outbox

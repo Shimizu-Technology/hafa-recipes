@@ -2,26 +2,32 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { useBaby } from "./context";
 import { eventsByDay, visibleEvents, withEventRows } from "./events";
-import type { BabyRecord, EventOccurrence } from "./models";
+import type { BabyRecord, EventOccurrence, RecordPage } from "./models";
+import { mutationRecordIds } from "./outbox";
 import { addDays } from "./tracker";
 import { useDeleted } from "./use-care-summary";
 
-const pageLimit = 100, pagesLimit = 5, keptFor = 30_000;
+const pageLimit = 100, keptFor = 30_000;
 const lastKept = new WeakMap<object, number>();
 
-/** Keeps every event on the phone, so the calendar and the next event still work with no signal after a relaunch. */
-async function keepEvents(b: ReturnType<typeof useBaby>) {
-  const lease = b.api.lease(), generation = b.state.bootstrap?.generation, rows: BabyRecord[] = [];
-  let complete = false;
-  for (let page = 0; page < pagesLimit && !complete; page++) {
-    const answer = await b.api.records({ kinds: ["event"], limit: pageLimit, offset: page * pageLimit || undefined });
-    rows.push(...answer.items);
-    complete = !answer.has_more;
+/** Every page of a listing. A row that a new one shifts onto the next page still counts once. */
+export async function allPages(read: (page: { limit: number; offset?: number }) => Promise<RecordPage>) {
+  const rows = new Map<string, BabyRecord>();
+  for (let page = 0, more = true; more; page++) {
+    const answer = await read({ limit: pageLimit, offset: page * pageLimit || undefined });
+    for (const row of answer.items) rows.set(row.id, row);
+    more = answer.has_more;
   }
+  return [...rows.values()];
+}
+/** Keeps every event on the phone, however old, so the calendar and the next event still work with no signal after a relaunch. */
+async function keepEvents(b: ReturnType<typeof useBaby>) {
+  const lease = b.api.lease(), generation = b.state.bootstrap?.generation,
+    rows = await allPages((page) => b.api.records({ kinds: ["event"], ...page }));
   if (!b.current()) return;
   await b.commit((state) => {
     b.api.assertLease(lease);
-    return state.bootstrap?.generation === generation ? withEventRows(state, rows, complete) : state;
+    return state.bootstrap?.generation === generation ? withEventRows(state, rows, true) : state;
   });
 }
 
@@ -34,7 +40,7 @@ export function useEvents(childId: string | null, first: string, last: string) {
     waiting = b.state.outbox.length, [answer, setAnswer] = useState<{ key: string; items: EventOccurrence[]; complete: boolean } | null>(null),
     [failed, setFailed] = useState(false), asked = useRef(0), shown = useRef(0), local = useRef(new Set<string>()), gone = useDeleted(), latest = useRef(b);
   latest.current = b;
-  for (const change of b.state.outbox) if (change.type === "save" && change.record.kind === "event") local.current.add(change.record.id);
+  for (const change of b.state.outbox) if ((change.type === "save" && change.record.kind === "event") || change.type === "event_split") mutationRecordIds(change).forEach((id) => local.current.add(id));
   useFocusEffect(useCallback(() => {
     let active = true;
     const ticket = ++asked.current, account = latest.current;

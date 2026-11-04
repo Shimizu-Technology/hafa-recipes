@@ -261,7 +261,7 @@ export default function Edit() {
       const shouldProcess = d.kind === "source" && (process || automatic);
       // Keep the original in the durable outbox before its optional import.
       const id = Crypto.randomUUID();
-      const splitId = Crypto.randomUUID(), splitChange = Crypto.randomUUID();
+      const splitId = Crypto.randomUUID();
       const build = (given: EditorDraft): Extract<Mutation, { type: "save" }> => {
         const from = given.kind === "event" ? eventWrite(given) : given;
         const { files, existing: _, revision, base, event_edit: __, ...record } = from;
@@ -296,10 +296,10 @@ export default function Edit() {
             },
             files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
           };
-          const saved = addMutation(s, prepared), split = d.kind === "event" ? splitEvent(d, splitId) : undefined;
-          // The next series goes after the end of this one, on the same write, so a relaunch can't leave only one of them.
-          const also = importMutation ?? (split ? { id: splitChange, generation, type: "save" as const, record: split, files: [] } : undefined);
-          return queueRemovedUploads(s, { ...(also ? addMutation(saved, also) : saved), drafts });
+          const split = d.kind === "event" ? splitEvent(d, splitId) : undefined;
+          // One change holding both parts: this series can't end unless the next one starts.
+          const saved = addMutation(s, split ? { id: splitId, generation, type: "event_split", series: prepared.record, event: split, from_start: d.event_edit!.original_start, files: [], ...(prepared.base ? { base: prepared.base } : {}) } : prepared);
+          return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
         });
       } catch (failure) {
         retired.current = false;

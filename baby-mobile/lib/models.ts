@@ -91,6 +91,8 @@ export interface EventRecurrence {
   interval?: number;
   /** The last day an occurrence can start, on the event's own calendar. */
   until?: string | null;
+  /** Where the count starts when that's earlier than the event, as for a series split off another: Jan 31 keeps its month ends from a Feb 28 start. */
+  anchor?: string | null;
 }
 /** What one occurrence changes. A field left out keeps the series' value, and null clears it. */
 export interface EventOverrides {
@@ -255,7 +257,7 @@ export interface ChatResult {
  */
 export interface SaveBase { after: string[] }
 /** What became of a queued change: the revision it's proven to have made, or that it was discarded. Neither means not known. */
-export interface SettledChange { made?: number; discarded?: boolean }
+export interface SettledChange { made?: number; discarded?: boolean; made_for?: Record<string, number> }
 /** How an open editor is changing a repeating event. `series` is the event as it was when she chose. */
 export interface EventEdit {
   scope: "one" | "future";
@@ -291,6 +293,22 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
   | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
+  | {
+      /** "All future" from a later date. One change, so the series can't end unless the next one starts. The id is the new event's, which makes a retry the same split. */
+      id: string;
+      generation: number;
+      type: "event_split";
+      /** The series as it'll be, for showing until this lands. The API works out its end again from what it holds. */
+      series: RecordWrite;
+      event: RecordWrite;
+      from_start: string;
+      files: LocalFile[];
+      base?: SaveBase;
+      hold_until?: string;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
   | {
       /** The action's own id, which is what makes a retry idempotent. */
       id: string;

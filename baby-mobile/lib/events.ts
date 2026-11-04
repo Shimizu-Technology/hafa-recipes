@@ -1,5 +1,5 @@
-import type { BabyRecord, DeviceState, EditorDraft, EventCategory, EventException, EventOccurrence, EventOverrides, EventRecurrence, RecordData, RecordWrite } from "./models";
-import { pendingRecords } from "./outbox";
+import type { BabyRecord, DeviceState, EditorDraft, EventCategory, EventEdit, EventException, EventOccurrence, EventOverrides, EventRecurrence, RecordData, RecordWrite } from "./models";
+import { mutationRecordIds, pendingRecords } from "./outbox";
 import { addDays, clockIn, keyDate, recordDay, zonedInstant, zoneParts } from "./tracker";
 
 export const eventCategories: { value: EventCategory; label: string }[] = [
@@ -38,20 +38,31 @@ function firstIndex(anchor: string, { frequency, interval = 1 }: EventRecurrence
     : frequency === "monthly" ? Math.floor(((ey - ay) * 12 + em - am) / interval) : Math.floor((ey - ay) / interval);
   return Math.max(0, gap - 1);
 }
+/** Whether counting from `anchor` gives this date. */
+function fallsOn(anchor: string, rule: EventRecurrence, key: string) {
+  if (key < anchor) return false;
+  for (let n = firstIndex(anchor, rule, key); ; n++) {
+    const date = nthDay(anchor, rule, n);
+    if (date >= key) return date === key;
+  }
+}
 /**
  * The series' original starts with lo <= start < hi, by the API's rule: each keeps the first one's clock time on the
- * event's own calendar, so a 9 AM appointment stays at 9 AM across a clock change.
+ * event's own calendar, so a 9 AM appointment stays at 9 AM across a clock change. A first one in the hour a clock
+ * change repeats keeps which of the two it was, on each later day that hour repeats. It counts from the rule's anchor.
  */
 function startsBetween(start: string, data: RecordData, lo: number, hi: number) {
   const first = ms(start), rule = data.recurrence, zone = data.timezone;
   if (!rule) return first >= lo && first < hi ? [first] : [];
-  const anchor = recordDay(start, zone), found: number[] = [];
+  const firstDay = recordDay(start, zone), anchor = rule.anchor || firstDay, earliest = recordDay(iso(lo), zone), found: number[] = [];
   let clock = { hour: 0, minute: 0 };
   try { clock = zoneParts(new Date(first), zone!); } catch { const local = new Date(first); clock = { hour: local.getHours(), minute: local.getMinutes() }; }
-  for (let n = firstIndex(anchor, rule, recordDay(iso(lo), zone)); ; n++) {
+  const second = zonedInstant(firstDay, clock.hour, clock.minute, zone).getTime() < first - first % 60_000;
+  for (let n = firstIndex(anchor, rule, earliest > firstDay ? earliest : firstDay); ; n++) {
     const date = nthDay(anchor, rule, n);
+    if (date < firstDay) continue;
     if (rule.until && date > rule.until) break;
-    const moment = n === 0 ? first : zonedInstant(date, clock.hour, clock.minute, zone).getTime() + first % 60_000;
+    const moment = date === firstDay ? first : zonedInstant(date, clock.hour, clock.minute, zone, second).getTime() + first % 60_000;
     if (moment >= hi) break;
     if (moment >= lo) found.push(moment);
   }
@@ -212,6 +223,21 @@ export function occurrenceDraft(row: BabyRecord, at: string, scope: "one" | "fut
   return { title: shown.title, occurred_at: shown.occurrence_start, data: { ...row.data, all_day: shown.all_day, category: shown.category, location: shown.location, end: null }, event_edit: edit };
 }
 const placeOf = (data: RecordData) => data.location?.trim() || null;
+/** The API refuses a first date that doesn't lead to the start, so a moved start or a new repeat counts afresh. */
+function withFittingAnchor(data: RecordData, start: string): RecordData {
+  const rule = data.recurrence;
+  if (!rule?.anchor || fallsOn(rule.anchor, rule, recordDay(start, data.timezone))) return data;
+  const { anchor: _, ...kept } = rule;
+  return { ...data, recurrence: kept };
+}
+/** What the next series counts from: the old one's first date if she kept its date and repeat and the rule clamped this one. */
+function continuedRule(data: RecordData, start: string, original: number, series: EventEdit["series"]): RecordData {
+  const rule = data.recurrence, was = series.data.recurrence, zone = data.timezone, day = recordDay(start, zone), { anchor: _, ...plain } = rule ?? ({} as EventRecurrence);
+  if (!rule) return data;
+  const first = was?.anchor || recordDay(series.occurred_at, series.data.timezone),
+    same = !!was && was.frequency === rule.frequency && (was.interval ?? 1) === (rule.interval ?? 1) && day === recordDay(iso(original), zone);
+  return { ...data, recurrence: same && keyParts(first)[2] !== keyParts(day)[2] ? { ...plain, anchor: first } : plain };
+}
 /** The change to keep for one date: what differs from how it was showing, on top of any change it already had. */
 function oneDateData({ title, occurred_at, data }: EditorDraft, { original_start, series }: NonNullable<EditorDraft["event_edit"]>): RecordData {
   const original = ms(original_start), prior = changeAt(series.data, original), was = shaped({ ...series, id: "", revision: 0 }, original, prior), changes: EventOverrides = {};
@@ -235,7 +261,7 @@ const fromFirst = ({ original_start, series }: NonNullable<EditorDraft["event_ed
  * what keeps `exceptions` and `reminder_minutes`. "All future" from a later date ends this series, and `splitEvent` starts the next.
  */
 export function eventWrite(draft: EditorDraft): EditorDraft {
-  const clean = { ...draft, title: draft.title.trim(), data: { ...draft.data, location: placeOf(draft.data) } }, edit = draft.event_edit;
+  const clean = { ...draft, title: draft.title.trim(), data: withFittingAnchor({ ...draft.data, location: placeOf(draft.data) }, draft.occurred_at) }, edit = draft.event_edit;
   if (!edit) return clean;
   if (edit.scope === "one") return { ...clean, ...edit.series, data: oneDateData(draft, edit) };
   return fromFirst(edit) ? clean : { ...clean, ...edit.series, data: seriesEnding(edit.series, ms(edit.original_start)) };
@@ -244,7 +270,7 @@ export function eventWrite(draft: EditorDraft): EditorDraft {
 export function splitEvent(draft: EditorDraft, id: string): RecordWrite | undefined {
   const edit = draft.event_edit;
   if (edit?.scope !== "future" || fromFirst(edit)) return undefined;
-  const original = ms(edit.original_start), data = { ...draft.data, location: placeOf(draft.data) };
+  const original = ms(edit.original_start), data = continuedRule({ ...draft.data, location: placeOf(draft.data) }, draft.occurred_at, original, edit.series);
   return { id, kind: "event", title: draft.title.trim(), body: draft.body, child_id: draft.child_id, occurred_at: draft.occurred_at,
     data: { ...data, exceptions: data.recurrence ? (edit.series.data.exceptions ?? []).filter((item) => ms(item.original_start) >= original && isStart(draft.occurred_at, data, ms(item.original_start))) : [] } };
 }
@@ -268,7 +294,7 @@ export function withEventRows(state: DeviceState, rows: readonly BabyRecord[], c
   const fresh = new Map(rows.map((row) => [row.id, row])), held = state.records.filter((row) => row.kind === "event"),
     same = held.length === rows.length && held.every((row) => fresh.get(row.id)?.revision === row.revision);
   if (same) return state;
-  const queued = new Set(state.outbox.flatMap((change) => (change.type === "save" || change.type === "delete" ? [change.record.id] : [])));
+  const queued = new Set(state.outbox.flatMap((change) => (change.type === "save" || change.type === "delete" || change.type === "event_split" ? mutationRecordIds(change) : [])));
   return { ...state, records: [...rows, ...state.records.filter((row) => !fresh.has(row.id) && (row.kind !== "event" || !complete || queued.has(row.id)))]
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)) };
 }

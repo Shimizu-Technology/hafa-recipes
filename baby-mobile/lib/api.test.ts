@@ -32,6 +32,17 @@ describe("Baby wire boundaries", () => {
     await api.events("2026-12-01", "2026-12-31", null);
     expect(transport.mock.calls.map(([url]) => String(url).split("/baby")[1])).toEqual(["/events?from=2026-12-01&to=2026-12-31&child_id=baby", "/events?from=2026-12-01&to=2026-12-31"]);
   });
+  it("sends a split as one request, with only what the new event is", async () => {
+    const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ series: null, event: {} })),
+      api = createBabyApi("https://service.example", async () => "token", () => true, transport);
+    const event = { id: "n", kind: "event" as const, title: "New", body: "", child_id: null, occurred_at: "2026-11-16T00:00:00Z", data: { timezone: "Pacific/Guam" }, revision: undefined };
+    await api.splitEvent("class", { revision: 4, from_start: "2026-11-16T00:00:00Z", event }, 1);
+    const [url, init] = transport.mock.calls[0];
+    expect(String(url)).toMatch(/\/events\/class\/split$/);
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(String(init!.body))).toEqual({ revision: 4, from_start: "2026-11-16T00:00:00Z", event: { id: "n", kind: "event", title: "New", body: "", child_id: null, occurred_at: "2026-11-16T00:00:00Z", data: { timezone: "Pacific/Guam" } } });
+    expect((init!.headers as Record<string, string>)["X-Baby-Generation"]).toBe("1");
+  });
   it("uses the shared account routes registered by the existing Håfa API", async () => {
     const transport = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ id: "owner" }));
     const api = createBabyApi(

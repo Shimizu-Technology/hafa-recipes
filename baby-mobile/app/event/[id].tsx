@@ -5,7 +5,7 @@ import * as Crypto from "expo-crypto";
 import { useBaby } from "@/lib/context";
 import { categoryName, dayName, eventWhen, occurrenceAt, repeatName, withoutDate, withoutFuture } from "@/lib/events";
 import { messageFor, type BabyRecord } from "@/lib/models";
-import { mutationRecordId, replaceRecord } from "@/lib/outbox";
+import { mutationRecordIds, replaceRecord } from "@/lib/outbox";
 import { dayKey, recordDay } from "@/lib/tracker";
 import { profileToday } from "@/lib/timing";
 import { Button, Card, Copy, Grouped, Loading, Notice, Row, Screen, useToast } from "@/components/ui";
@@ -27,7 +27,7 @@ export default function EventDetail() {
   if (!row) return <Screen title={missing ? "Event unavailable" : "Opening this event"} back>{error ? <Notice error>{error}</Notice> : <Loading />}</Screen>;
   const shown = occurrenceAt(row, at), when = eventWhen(shown, today, timezone), original = shown.original_start, repeating = !!row.data.recurrence,
     date = dayName(recordDay(shown.occurrence_start, shown.all_day ? shown.timezone : timezone), today),
-    child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordId(m) === row.id && m.type !== "import");
+    child = children.find((item) => item.id === row.child_id), pending = b.state.outbox.some((m) => mutationRecordIds(m).includes(row.id) && m.type !== "import");
   const edit = (scope?: "one" | "future") => router.push({ pathname: "/edit", params: { kind: "event", id: row.id, ...(scope ? { scope, at: original } : {}) } });
   async function save(record: BabyRecord) {
     await b.queue({ id: Crypto.randomUUID(), generation: b.state.bootstrap!.generation, type: "save", record, files: [] });
