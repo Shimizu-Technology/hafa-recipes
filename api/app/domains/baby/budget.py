@@ -13,7 +13,6 @@ from app.db.database import AsyncSessionLocal
 from app.domains.baby.lifecycle import membership_for, now
 from app.domains.baby.models import BabyAIAdmission
 from app.domains.workouts.budget import (
-    MODEL_INPUT_UPPER_BOUND,
     BudgetError,
     BudgetPolicy,
     ProviderEnvelope,
@@ -45,10 +44,11 @@ BABY_MODEL_PRICES = {
 # Priced so an evaluation can state its cost. It has no adapter or consent text in production.
 EVAL_ONLY_MODELS = frozenset({"claude-haiku-5-5"})
 ASK_CAPABILITIES = ("baby_ask", "baby_research")
-# Ask reserves far less per call than the rest, so its own ledger keeps the same daily ceilings.
+# Dollars are one ceiling across every Baby capability. Attempts are counted apart, since an Ask
+# question is several small calls and shouldn't use up the attempts imports count on.
 ASK_MAX_ATTEMPTS = 300  # 50 questions a day, each up to 5 tool rounds and a final answer.
 MAX_TOOL_ROUNDS = 5
-MAX_RESEARCH_CALLS = 2
+MAX_RESEARCH_CALLS = 1
 SEARCH_CALL_MICROUSD = 10_000  # $10 per 1,000 calls; content tokens are billed as input.
 MAX_SEARCHES_PER_CALL = 2
 SEARCH_CONTEXT_TOKENS = 128_000  # The provider's web search context limit.
@@ -134,16 +134,6 @@ def upper_bound(capability, model, *, images=False, duration=None):
             sdk_max_retries=0,
         )
         platform_capability = "workout_transcription"
-    elif model in BABY_MODEL_PRICES:
-        # The same whole-context bound as below, at the Baby list's rates.
-        if model in EVAL_ONLY_MODELS:
-            raise BudgetError("workouts_ai_model_unpriced")
-        price = BABY_MODEL_PRICES[model]
-        amount = (
-            MODEL_INPUT_UPPER_BOUND * price.input * Decimal("2.5")
-            + LEGACY_MAX_OUTPUT * price.output * Decimal("1.5")
-        )
-        return int(amount.to_integral_value(rounding=ROUND_CEILING))
     else:
         envelope = ProviderEnvelope(
             endpoint="chat_completions",
@@ -167,6 +157,18 @@ def upper_bound(capability, model, *, images=False, duration=None):
     )
 
 
+async def spent(db, owner, attempts_counted):
+    """Last 24 hours: everyone's dollars, this person's dollars, and this person's matching attempts."""
+    window = BabyAIAdmission.created_at > now() - timedelta(days=1)
+    dollars = func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0)
+    total = await db.scalar(select(dollars).where(window))
+    owner_total = await db.scalar(select(dollars).where(window, BabyAIAdmission.app_user_id == owner))
+    count = await db.scalar(
+        select(func.count()).select_from(BabyAIAdmission).where(window, BabyAIAdmission.app_user_id == owner, attempts_counted)
+    )
+    return total, owner_total, count
+
+
 async def reserve(capability, model, *, images=False, duration=None, sessions=None):
     context = current_ai_context()
     if not context.user_id:
@@ -179,20 +181,7 @@ async def reserve(capability, model, *, images=False, duration=None, sessions=No
         # Account-first ordering matches every private mutation/deletion. This
         # global lock serializes budget reservations across server replicas.
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
-        window = (
-            BabyAIAdmission.created_at > now() - timedelta(days=1),
-            BabyAIAdmission.capability.not_in(ASK_CAPABILITIES),
-        )
-        total = await db.scalar(
-            select(func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0)).where(*window)
-        )
-        owner_total, owner_count = (
-            await db.execute(
-                select(
-                    func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0), func.count()
-                ).where(*window, BabyAIAdmission.app_user_id == context.user_id)
-            )
-        ).one()
+        total, owner_total, owner_count = await spent(db, context.user_id, BabyAIAdmission.capability.not_in(ASK_CAPABILITIES))
         if (
             total + amount > GLOBAL_DAILY_CAP
             or owner_total + amount > OWNER_DAILY_CAP
@@ -222,20 +211,7 @@ async def reserve_ask(capability, call, *, sessions=None):
         if not member.profile.get("ai_consent"):
             raise BudgetError("workouts_ai_budget_unavailable")
         await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LOCK_ID})
-        window = (
-            BabyAIAdmission.created_at > now() - timedelta(days=1),
-            BabyAIAdmission.capability.in_(ASK_CAPABILITIES),
-        )
-        total = await db.scalar(
-            select(func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0)).where(*window)
-        )
-        owner_total, owner_count = (
-            await db.execute(
-                select(
-                    func.coalesce(func.sum(BabyAIAdmission.reserved_microusd), 0), func.count()
-                ).where(*window, BabyAIAdmission.app_user_id == context.user_id)
-            )
-        ).one()
+        total, owner_total, owner_count = await spent(db, context.user_id, BabyAIAdmission.capability.in_(ASK_CAPABILITIES))
         if (
             total + amount > GLOBAL_DAILY_CAP
             or owner_total + amount > OWNER_DAILY_CAP

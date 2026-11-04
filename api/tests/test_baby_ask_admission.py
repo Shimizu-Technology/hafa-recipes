@@ -1,5 +1,6 @@
 """Ask's priced models and per-call reservations, kept apart from the shared budget."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,7 +14,6 @@ from app.domains.baby.budget import (
     GLOBAL_DAILY_CAP,
     MAX_RESEARCH_CALLS,
     MAX_TOOL_ROUNDS,
-    MODEL_INPUT_UPPER_BOUND,
     OWNER_DAILY_CAP,
     AskCall,
     QuestionBudget,
@@ -118,13 +118,14 @@ def test_workouts_still_refuses_the_new_models():
         assert failure.value.code == "workouts_ai_model_unpriced"
 
 
-def test_the_existing_path_keeps_its_amount_and_can_price_a_new_baby_model():
+def test_the_existing_path_keeps_its_amount_and_its_model_list():
     # Whole context at $0.20 x 2.5 and 2,400 output at $1.20 x 1.5.
     assert upper_bound("baby_chat", "gpt-5.6-luna") == 525_000 + 4_320
-    assert upper_bound("baby_chat", "gpt-6-luna") == round(MODEL_INPUT_UPPER_BOUND * 0.25) + 1_800
-    for model in ("claude-haiku-5-5", "unpriced-fixture-model"):
-        with pytest.raises(BudgetError):
+    # With the flag off, a new model is still refused here, exactly as before Ask V2 existed.
+    for model in (*budget.BABY_MODEL_PRICES, "unpriced-fixture-model"):
+        with pytest.raises(BudgetError) as failure:
             upper_bound("baby_chat", model)
+        assert failure.value.code == "workouts_ai_model_unpriced"
 
 
 def test_usage_can_price_every_listed_model():
@@ -249,15 +250,75 @@ async def test_the_attempt_limit_counts_only_ask_calls(baby_api, monkeypatch):
 
 
 @needs_database
-async def test_the_two_ledgers_do_not_spend_each_others_ceiling(baby_api, monkeypatch):
+async def test_dollars_are_one_ceiling_per_person_across_every_baby_capability(baby_api, monkeypatch):
     await consented(baby_api, monkeypatch)
     async with baby_api.sessions() as db:
         db.add(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_chat",
                                reserved_microusd=OWNER_DAILY_CAP))
         await db.commit()
+    with question(), pytest.raises(BudgetError) as failure:
+        await reserve_ask("baby_ask", CALL)
+    assert failure.value.code == "workouts_ai_budget_exceeded"
+    with question(), pytest.raises(BudgetError):
+        await reserve("baby_chat", "gpt-5.6-luna")
+
+
+@needs_database
+async def test_ask_spending_counts_against_the_existing_path_too(baby_api, monkeypatch):
+    await consented(baby_api, monkeypatch)
+    async with baby_api.sessions() as db:
+        db.add(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_ask",
+                               reserved_microusd=OWNER_DAILY_CAP))
+        await db.commit()
+    with question(), pytest.raises(BudgetError) as failure:
+        await reserve("baby_chat", "gpt-5.6-luna")
+    assert failure.value.code == "workouts_ai_budget_exceeded"
+
+
+@needs_database
+@pytest.mark.parametrize("capability", ["baby_ask", "baby_chat", "baby_extraction", "baby_transcription"])
+async def test_the_global_ceiling_is_one_across_every_capability_and_erased_accounts(baby_api, monkeypatch, capability):
+    await consented(baby_api, monkeypatch)
+    async with baby_api.sessions() as db:
+        db.add(BabyAIAdmission(app_user_id=None, generation=1, capability=capability,
+                               reserved_microusd=GLOBAL_DAILY_CAP))
+        await db.commit()
+    with question(), pytest.raises(BudgetError):
+        await reserve_ask("baby_ask", CALL)
+    with question(), pytest.raises(BudgetError):
+        await reserve("baby_chat", "gpt-5.6-luna")
+
+
+@needs_database
+async def test_attempt_counters_stay_separate(baby_api, monkeypatch):
+    await consented(baby_api, monkeypatch)
+    async with baby_api.sessions() as db:
+        db.add_all(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_chat",
+                                   reserved_microusd=1) for _ in range(budget.MAX_ATTEMPTS))
+        await db.commit()
     with question():
         await reserve_ask("baby_ask", CALL)
     with question(), pytest.raises(BudgetError):
         await reserve("baby_chat", "gpt-5.6-luna")
+
+
+@needs_database
+async def test_twelve_at_once_for_the_last_of_the_ceiling_admit_exactly_one(baby_api, monkeypatch):
+    await consented(baby_api, monkeypatch)
+    amount = ask_upper_bound(CALL)
     async with baby_api.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(BabyAIAdmission)) == 2
+        db.add(BabyAIAdmission(app_user_id="owner", generation=1, capability="baby_chat",
+                               reserved_microusd=OWNER_DAILY_CAP - amount))
+        await db.commit()
+
+    async def one():
+        with question():
+            try:
+                await reserve_ask("baby_ask", CALL)
+                return True
+            except BudgetError:
+                return False
+
+    assert sum(await asyncio.gather(*(one() for _ in range(12)))) == 1
+    async with baby_api.sessions() as db:
+        assert await db.scalar(select(func.sum(BabyAIAdmission.reserved_microusd))) == OWNER_DAILY_CAP
