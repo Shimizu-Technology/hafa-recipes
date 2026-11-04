@@ -113,9 +113,7 @@ def corrected_by_hand(current, patch):
         return True
     if "duration_minutes" not in patch:
         return False
-    # The app shows whole minutes until it syncs, so sending one back is not a correction.
-    sent, stored = number_in(patch["duration_minutes"]), number_in(current.get("duration_minutes"))
-    return sent != stored if sent is None or stored is None else abs(sent - stored) >= 1
+    return number_in(patch["duration_minutes"]) != number_in(current.get("duration_minutes"))
 
 
 def feed_patch_data(current, patch):

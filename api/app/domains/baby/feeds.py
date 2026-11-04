@@ -67,7 +67,8 @@ def with_derived(data):
         **data,
         "actions": ordered(data["actions"]),
         "state": "finished" if result["finished"] else state,
-        "side": result["side"] or data.get("side"),
+        # Never the side stored before: that would depend on the order the taps arrived in.
+        "side": result["side"] or result["started_side"],
         "duration_minutes": result["duration_minutes"],
     }
     derived.pop("end_at", None)

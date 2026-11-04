@@ -125,7 +125,8 @@ async def last_feed(db, owner, generation, child_id, zone, at):
         await db.execute(
             care_query(owner, generation, child_id, BabyRecord.occurred_at, BabyRecord.data)
             .where(BabyRecord.kind == "feeding", BabyRecord.occurred_at <= at)
-            .order_by(BabyRecord.occurred_at.desc())
+            # Ties break as feed settlement does, so "last" and "running" are the same feed.
+            .order_by(BabyRecord.occurred_at.desc(), BabyRecord.id.desc())
             .limit(1)
         )
     ).first()

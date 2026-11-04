@@ -102,10 +102,21 @@ def test_unfinished_feeds_have_no_end_or_duration():
     assert with_derived({"method": "breast", "state": "finished", "actions": [FEED[0]]})["state"] == "running"
 
 
-def test_finish_with_no_side_has_no_duration_and_keeps_the_stored_side():
+def test_finish_with_no_side_has_no_duration_or_inherited_side():
     assert reduce_feed([action("finish", 10)])["duration_minutes"] is None
     data = with_derived({"method": "breast", "side": "right", "actions": [action("finish", 10)]})
-    assert (data["state"], data["side"], data["end_at"]) == ("finished", "right", at(10))
+    assert (data["state"], data["side"], data["end_at"]) == ("finished", None, at(10))
+
+
+def test_taps_with_clocks_out_of_order_store_one_side_whatever_arrives_first():
+    start, switch, finish = action("start", 5, "left"), action("switch", 2, "right"), action("finish", 1)
+    results = set()
+    for order in permutations([switch, finish]):
+        data = {"method": "breast", "actions": [start]}
+        for item in order:
+            data = with_derived({**data, "actions": [*data["actions"], item]})
+        results.add(data["side"])
+    assert results == {"left"}
 
 
 def test_clock_differences_between_phones_still_give_one_result():
@@ -453,24 +464,25 @@ async def test_a_hand_correction_wins_over_taps(baby_api):
 
 
 @needs_database
-async def test_the_apps_rounded_duration_is_not_a_hand_correction(baby_api):
+async def test_resending_the_stored_duration_is_not_a_hand_correction(baby_api):
     c = baby_api.client
     row = await create(baby_api)
     finish = {"id": str(uuid4()), "action": "finish", "at": "2026-11-01T08:12:21+10:00"}
     finished = (await tap(baby_api, row["id"], finish)).json()
     assert finished["data"]["duration_minutes"] == 12.35
     url = f"{API}/records/{row['id']}"
-    # Whole minutes from the app's copy, with what its PATCH strips left out.
+    # A note edit sends back exactly what it was given.
     edit = await c.patch(url, headers=GEN, json={"revision": 2, "title": "Morning", "data": {
-        "method": "breast", "side": "left", "duration_minutes": 12,
+        "method": "breast", "side": "left", "duration_minutes": 12.35,
     }})
     assert edit.status_code == 200
     assert edit.json()["data"]["duration_minutes"] == 12.35 and len(edit.json()["data"]["actions"]) == 2
     assert edit.json()["data"]["state"] == "finished" and edit.json()["data"]["end_at"] == finish["at"]
+    # Any change is a correction, even under a minute.
     changed = await c.patch(url, headers=GEN, json={"revision": 3, "data": {
-        "method": "breast", "side": "left", "duration_minutes": 14,
+        "method": "breast", "side": "left", "duration_minutes": 12.5,
     }})
-    assert changed.json()["data"]["duration_minutes"] == 14 and "actions" not in changed.json()["data"]
+    assert changed.json()["data"]["duration_minutes"] == 12.5 and "actions" not in changed.json()["data"]
     assert changed.json()["data"]["end_at"] == finish["at"]
 
 
@@ -504,3 +516,20 @@ async def test_changing_a_running_feed_to_a_bottle_drops_its_timer(baby_api):
     assert changed.status_code == 200 and not {"state", "actions", "end_at"} & set(changed.json()["data"])
     assert (await tap(baby_api, new["id"], action("finish", 40))).status_code == 409
     assert (await stored(baby_api, old["id"]))["data"]["state"] == "running"
+
+
+@needs_database
+async def test_last_feed_agrees_with_the_running_feed_on_a_timestamp_tie(baby_api):
+    from app.domains.baby.stats import last_feed
+
+    child = str(uuid4())
+    made = await baby_api.client.post(
+        f"{API}/children", headers=GEN, json={"id": child, "name": "Mia", "due_date": "2026-12-10"}
+    )
+    assert made.status_code in {200, 201}, made.text
+    rows = [await create(baby_api, side, child_id=child) for side in ("left", "right", "left", "right")]
+    running = max(rows, key=lambda row: UUID(row["id"]))
+    zone = ZoneInfo("Pacific/Guam")
+    async with baby_api.sessions() as db:
+        latest = await last_feed(db, "owner", 1, UUID(child), zone, datetime(2030, 1, 1, tzinfo=zone))
+    assert latest["side"] is None or latest["suggested_next_side"] != running["data"]["actions"][0]["side"]
