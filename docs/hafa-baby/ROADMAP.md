@@ -161,8 +161,9 @@ Everyone has one **personal space**. A **family space** is separate and is creat
 
 - Access has one rule: you can read a row if its `space_id` is a space you're an active member of (caregivers also get a kind filter).
 - **Shared by default, stored in the family space when one exists:** baby profiles, care logs, contractions, kicks, events, milestones, doctor questions, lists, saved posts and categories.
-- **Always personal:** journal entries, Ask chats.
-- The per-item toggle "Shared with family / Just me" (saved posts, categories, and sharing a journal entry) **moves the row** with one function, `move_record()`.
+- **Personal by default:** journal entries. **Always personal:** Ask chats.
+- The per-item toggle "Shared with family / Just me" (saved posts, categories, and one journal entry at a time) **moves the row** with one function, `move_record()`. A journal entry its writer shares is a family row like any other: every parent can read it, and each parent's Ask can use it. Un-sharing moves it back. Only the writer can share or un-share a journal entry.
+- Choosing "Just me" also sets `data.just_me: true`. This is not an access rule, which stays the space. It only tells Create family to leave that row in the personal space.
 - **Same-space references only.** A collection, its members, a suggested category, and a record's attachments must all be in the record's space, enforced in `validate_relations`. Care records live in their child's space. The one exception: a personal journal entry may point to a family child. If that child can't be read any more (the person left, or the child was deleted), the link is ignored on read and cleared on the next edit. Nothing ever writes into another person's personal space.
 - This removes hidden references: a family row can't point at a private row, so search over stored JSON and raw responses can't reveal one.
 
@@ -244,7 +245,7 @@ A running feed stores its actions, and everything else is derived by one pure re
 
 | Action | Effect |
 |---|---|
-| Create family (first invite) | One transaction: family space created; shared kinds and their children move from personal with `move_record()`; journals stay. Credential rotates |
+| Create family (first invite) | One transaction: family space created; shared kinds and their children move from personal with `move_record()`; journals, and any row with `data.just_me`, stay. Before a first family exists the toggle isn't shown, so all saved posts and categories move unless the person unticks them on the Invite screen, which sets `data.just_me`. Credential rotates |
 | Leave, or removed by a parent | Membership ends. Personal space untouched. Shared records stay, shown as logged by them. Their chats with that family in `context_space_ids` are deleted. The last parent can't leave; they choose Delete family, with export offered |
 | Delete account from any Håfa app | Personal space and chats erased. Family rows stay as "former member," via SET NULL. Last parent: family erased. Only files actually deleted are queued for cleanup |
 | Baby `DELETE /data` | Erases the caller's personal space and chats. For family data: leave, or Delete family if last parent |
@@ -280,6 +281,8 @@ A running feed stores its actions, and everything else is derived by one pure re
 
 - Worker: in-process task started and stopped in `main.py` lifespan, like the import worker, with its own advisory lock and short claim transactions. Rechecks membership and prefs right before sending.
 - Delivery is **at-least-once.** A send whose outcome is unknown is retried once with the same `collapseId`, which on iOS replaces a shown duplicate. Duplicates remain possible and are acceptable; lost reminders aren't. Receipts checked at about 15 minutes.
+- A reminder ends in one of `accepted`, `failed` or `unknown`. `accepted` only means the provider took it, not that a phone showed it. After the one retry an unknown send stays `unknown`: it isn't sent again, so a parent isn't alarmed repeatedly at night, and it's counted in operational logs.
+- **Push is never the only record of a reminder.** Any due reminder also appears on Today until it's dismissed or its condition clears (for example, a feed gets logged), whatever its delivery state.
 - The offline local copy uses the same identity, and is cancelled on sync.
 
 ### 11 AI admission
