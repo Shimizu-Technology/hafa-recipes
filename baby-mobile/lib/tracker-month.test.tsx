@@ -68,7 +68,7 @@ it("marks days that have something, from the API and from this phone, and opens 
   await act(async () => target("Monday, November 2")!.props.onPress());
   expect(onOpen).toHaveBeenCalledWith("2026-11-02");
   expect(mock.baby.api.careSummary).toHaveBeenCalledWith("2026-11-01", "2026-12-05", "baby");
-  expect(records).toHaveBeenCalledWith(expect.objectContaining({ kinds: ["journal", "question", "contraction", "kick_session", "milestone"], occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
+  expect(records).toHaveBeenCalledWith(expect.objectContaining({ kinds: ["journal", "question", "contraction", "kick_session", "milestone", "custom"], occurred_from: "2026-10-31T14:00:00.000Z", child_id: "baby" }));
 });
 
 it("reaches the first day home in three taps or fewer: Tracker, Calendar, First log, however long ago", async () => {

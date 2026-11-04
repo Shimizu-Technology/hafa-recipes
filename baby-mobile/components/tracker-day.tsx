@@ -65,9 +65,9 @@ export function timelineDetail(record: BabyRecord, { rows = [record], day, timeZ
 
 /** One thing that happened: when, what, and a way in to change it. */
 export function TimelineRow({ record, rows, day, timeZone, pending, now }: { record: BabyRecord; rows?: readonly BabyRecord[]; day?: string; timeZone?: string | null; pending?: boolean; now: Date }) {
-  // A milestone has a date, and no time of day to show.
-  const c = useColors(), { fontScale } = useWindowDimensions(), when = record.kind === "milestone" ? "" : timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
-    title = isCare(record.kind) ? careSummary(record.kind, record.data, record.occurred_at, now, timeZone) : kindName[record.kind],
+  // A milestone or a shot has a date, and no time of day to show.
+  const c = useColors(), { fontScale } = useWindowDimensions(), when = record.kind === "milestone" || record.kind === "custom" ? "" : timeOf(record.occurred_at, timeZone), stacked = fontScale >= 1.5,
+    title = isCare(record.kind) ? careSummary(record.kind, record.data, record.occurred_at, now, timeZone) : record.data.label ?? kindName[record.kind],
     detail = [timelineDetail(record, { rows, day, timeZone, now }) || (isCare(record.kind) ? "" : record.title), pending ? "Saved on this phone" : ""].filter(Boolean).join(" · ");
   return <PressTarget accessibilityRole="button" accessibilityLabel={`${when ? `${when}, ` : ""}${title}${detail ? `. ${detail}` : ""}`} accessibilityHint="Opens this entry to change it"
     onPress={() => router.push({ pathname: "/record/[id]", params: { id: record.id } })}

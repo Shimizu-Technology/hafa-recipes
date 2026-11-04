@@ -1,0 +1,137 @@
+{
+  "batch": "aap-well-visits",
+  "approved": false,
+  "_status": "DRAFT for clinician review. Not medically approved. Do not ship until MEDICAL_REVIEW_2.md item Q1 is signed off.",
+  "generated": "2026-11-05",
+  "source": {
+    "name": "American Academy of Pediatrics, Schedule of Well-Child Care Visits",
+    "url": "https://www.healthychildren.org/English/family-life/health-management/Pages/Well-Child-Care-A-Check-Up-for-Success.aspx",
+    "page_date": "3/17/2026",
+    "also": "https://downloads.aap.org/AAP/PDF/periodicity_schedule.pdf"
+  },
+  "note": "Ages only. AAP's schedule is copyrighted and says no part may be reproduced without permission, so the app lists the ages as plain facts and links to AAP. It does not copy the schedule's table of screenings.",
+  "visits": [
+    {
+      "id": "3-5-days",
+      "title": "First-week well visit",
+      "age": "3 to 5 days",
+      "after_birth": {
+        "days": 3
+      }
+    },
+    {
+      "id": "1-month",
+      "title": "1-month well visit",
+      "age": "1 month",
+      "after_birth": {
+        "months": 1
+      }
+    },
+    {
+      "id": "2-months",
+      "title": "2-month well visit",
+      "age": "2 months",
+      "after_birth": {
+        "months": 2
+      }
+    },
+    {
+      "id": "4-months",
+      "title": "4-month well visit",
+      "age": "4 months",
+      "after_birth": {
+        "months": 4
+      }
+    },
+    {
+      "id": "6-months",
+      "title": "6-month well visit",
+      "age": "6 months",
+      "after_birth": {
+        "months": 6
+      }
+    },
+    {
+      "id": "9-months",
+      "title": "9-month well visit",
+      "age": "9 months",
+      "after_birth": {
+        "months": 9
+      }
+    },
+    {
+      "id": "12-months",
+      "title": "12-month well visit",
+      "age": "12 months",
+      "after_birth": {
+        "months": 12
+      }
+    },
+    {
+      "id": "15-months",
+      "title": "15-month well visit",
+      "age": "15 months",
+      "after_birth": {
+        "months": 15
+      }
+    },
+    {
+      "id": "18-months",
+      "title": "18-month well visit",
+      "age": "18 months",
+      "after_birth": {
+        "months": 18
+      }
+    },
+    {
+      "id": "2-years",
+      "title": "2-year well visit",
+      "age": "2 years",
+      "after_birth": {
+        "months": 24
+      }
+    },
+    {
+      "id": "30-months",
+      "title": "2½-year well visit",
+      "age": "2½ years",
+      "after_birth": {
+        "months": 30
+      }
+    },
+    {
+      "id": "3-years",
+      "title": "3-year well visit",
+      "age": "3 years",
+      "after_birth": {
+        "months": 36
+      }
+    },
+    {
+      "id": "4-years",
+      "title": "4-year well visit",
+      "age": "4 years",
+      "after_birth": {
+        "months": 48
+      }
+    },
+    {
+      "id": "5-years",
+      "title": "5-year well visit",
+      "age": "5 years",
+      "after_birth": {
+        "months": 60
+      }
+    }
+  ],
+  "vaccine_links": {
+    "aap": {
+      "name": "AAP vaccine schedule",
+      "url": "https://www.healthychildren.org/English/safety-prevention/immunizations/Pages/Recommended-Immunization-Schedules.aspx"
+    },
+    "cdc": {
+      "name": "CDC vaccine schedule",
+      "url": "https://www.cdc.gov/vaccines/hcp/imz-schedules/child-adolescent-age.html"
+    }
+  }
+}

@@ -171,6 +171,7 @@ export default function Today() {
           detail={`${glance.diapers.wet} pee · ${glance.diapers.dirty} poo`} icon={kindIcon.diaper}
           onPress={() => router.push("/care-history")} />}
         {showCare && <Row title="Milestones" detail="CDC’s list, and your keepsakes" icon={kindIcon.milestone} onPress={() => router.push("/milestones")} />}
+        {showCare && <Row title="Well visits & shots" detail="Suggested visits, and the shots you record" icon={kindIcon.custom} onPress={() => router.push("/well-visits")} />}
         <Row numericDetail title={routine?.title || "Lists & routines"}
           detail={routine?.data.reminder_at ? routineReminderLabel(routine) : routine ? "Your next checklist · Lists & routines" : "Checklists, chosen plans and reminders"}
           icon="checkmark-circle-outline" onPress={() => router.push("/routines")} />

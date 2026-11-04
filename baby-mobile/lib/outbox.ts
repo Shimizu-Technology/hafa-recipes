@@ -221,7 +221,7 @@ export function retryLater<T extends Extract<Mutation, { type: "feed_action" | "
 }
 /** Kinds the API can refuse for now with a 503 until its flag is on, so a build shipped first keeps them queued. */
 export function retriedSave(change: Mutation): change is Extract<Mutation, { type: "save" }> {
-  return change.type === "save" && (change.record.kind === "contraction" || change.record.kind === "kick_session" || change.record.kind === "milestone");
+  return change.type === "save" && (change.record.kind === "contraction" || change.record.kind === "kick_session" || change.record.kind === "milestone" || change.record.kind === "custom");
 }
 /** How many rejected reads of a timed feed to try before asking her. */
 export const unresolvedAttempts = 5;

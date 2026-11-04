@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session" | "milestone" | "custom";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -88,6 +88,8 @@ export interface SessionAction {
 export interface RecordData {
   /** Which of CDC's milestones this records. The title keeps the words she checked, even if CDC later rewords them. */
   milestone_id?: string;
+  /** What a custom entry is, such as "Shot". */
+  label?: string;
   provenance?: "caregiver_observation" | "clinician_instruction";
   url?: string;
   topics?: string[];
@@ -348,6 +350,7 @@ export const kindName: Record<Kind, string> = {
   contraction: "Contraction",
   kick_session: "Kick count",
   milestone: "Milestone",
+  custom: "Entry",
 };
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {

@@ -18,6 +18,7 @@ export const kindIcon: Record<Kind, IconName> = {
   contraction: "pulse-outline",
   kick_session: "footsteps-outline",
   milestone: "ribbon-outline",
+  custom: "medkit-outline",
 };
 /** Journal entries and doctor questions lead with their date, not the same glyph on every row. Decorative: the row says the time. */
 export function DateBlock({ iso }: { iso: string }) {
