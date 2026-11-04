@@ -124,6 +124,28 @@ times as much and responding more slowly. Keep Luna as the default for both
 chat capabilities. Do not add a Terra chat tier until a new, named case set
 shows a repeatable quality gain that justifies its latency and cost.
 
+Håfa Baby's Ask has its own synthetic dataset, `api/evals/golden/baby_ask_v1.json`,
+run by the same command. It covers recall, totals, dates, research, medical
+boundaries, urgent symptoms, malicious saved text, and journal leakage between
+two people, with assertions on tool calls and outbound search queries. Every run
+states its cost first, and a paid run needs a ceiling it stops at:
+
+```bash
+.venv/bin/python -m evals.run_chat_model_eval \
+  --dataset evals/golden/baby_ask_v1.json \
+  --models gpt-6-luna gpt-6.1-terra --runs-per-case 3 --dry-run
+```
+
+Replace `--dry-run` with `--env-file /absolute/path/to/local-eval.env
+--confirm-cost-usd <ceiling>` for a paid run. `--categories research` and
+`--research-model gpt-6-astra` compare research alone. Haiku needs the SDK for that
+run only: `uv run --with anthropic python -m evals.run_chat_model_eval ...`. Its
+adapter lives under `api/evals/`, and production has no Anthropic path or consent
+for it. Tool results come from the golden file, so this measures what a model does
+with what it's given; `tests/test_baby_ask_tools.py` proves what the server hands
+over. Admission prices these models in `app/domains/baby/budget.py`, where a model
+not listed fails closed.
+
 ## Canary rollout
 
 Canaries are configured independently by capability:

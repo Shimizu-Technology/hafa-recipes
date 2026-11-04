@@ -68,10 +68,11 @@ def response_text(data):
     return "".join(texts)
 
 
-async def answer_question(provider, *, tools, message, now_local, context_pack, history, focus=None):
+async def answer_question(provider, *, tools, message, now_local, context_pack, history, focus=None, model=None, effort=None):
     """Up to five rounds that may read through tools, then one that has to answer."""
     settings = get_settings()
-    model = settings.baby_ask_model
+    model = model or settings.baby_ask_model
+    effort = effort or settings.baby_ask_reasoning_effort
     count = QuestionBudget()
     items = question_input(
         message=message, now_local=now_local, context_pack=context_pack, history=history, focus=focus
@@ -89,7 +90,7 @@ async def answer_question(provider, *, tools, message, now_local, context_pack, 
                     "instructions": tools.instructions(BASE_INSTRUCTIONS),
                     "input": items,
                     "max_output_tokens": MAX_OUTPUT_TOKENS,
-                    "reasoning": {"effort": effort_for(model, settings.baby_ask_reasoning_effort)},
+                    "reasoning": {"effort": effort_for(model, effort)},
                     "include": ["reasoning.encrypted_content"],
                     "text": {"format": {"type": "json_object"}},
                     **tools.request_fields(may_use_tools),
