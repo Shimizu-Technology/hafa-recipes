@@ -151,6 +151,10 @@ content in telemetry. UUID IDs, ISO timestamps with offsets, bounded payloads.
   born siblings, and a due date past 44w6d without a birth date asks for one) or
   baby age (from birth date), or by an explicit `pregnancy_week`/`baby_age_weeks`;
   `within_weeks` is for `upcoming` only; `stage=` filters by stated stage.
+- `GET /care/summary?from=&to=&child_id=`: inclusive dates in the profile time zone, up to
+  92 days. Without `child_id`, the logs that have no child. Returns the stats service's totals
+  and `days:[{date,partial,feeding,diapers,sleep,dots:[feeding|diaper|sleep]}]`. Days
+  after today are left out, and a wholly future range has no days.
 - `GET /search?q=&kind=&child_id=&limit=30`: same record list envelope. Search
   covers source text, title, body, summaries and topics, not only recent records.
 - `POST /imports`: `{id,url?,text?,attachment_ids?:[],child_id?,topics?:[]}`;
