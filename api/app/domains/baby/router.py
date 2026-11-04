@@ -45,6 +45,7 @@ from app.domains.baby.queries import (
     child_timing,
     legacy_client,
     records_query,
+    row_scope,
     stage_filter,
     timing_bounds,
     timing_filter,
@@ -664,8 +665,7 @@ async def timing_context(db, owner, member, child_id, pregnancy_week, baby_age_w
         children = list(
             await db.scalars(
                 select(BabyChild).where(
-                    BabyChild.app_user_id == owner,
-                    BabyChild.generation == member.generation,
+                    row_scope(BabyChild, owner, member.generation),
                     BabyChild.deleted_at.is_(None),
                     or_(BabyChild.birth_date.is_not(None), BabyChild.due_date.is_not(None)),
                 )
@@ -730,7 +730,7 @@ async def records(
         raise HTTPException(422, "within_weeks works with timing=upcoming")
     if timing is not None:
         context = await timing_context(
-            db, user.id, member, timing_child_id, pregnancy_week, baby_age_weeks
+            db, access, member, timing_child_id, pregnancy_week, baby_age_weeks
         )
         value = context.get("pregnancy_week", context.get("baby_age_weeks"))
         conditions.append(timing_filter(timing, context["stage"], value, within_weeks=within_weeks))
