@@ -1,7 +1,7 @@
 import React from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mock = vi.hoisted(() => ({ push: vi.fn(), keyboard: {} as Record<string, () => void>, care: false, heights: [] as number[],
+const mock = vi.hoisted(() => ({ push: vi.fn(), keyboard: {} as Record<string, () => void>, heights: [] as number[],
   reduced: false, springs: [] as number[] }));
 vi.mock("react-native", () => ({
   View: "View", Text: "Text", Platform: { OS: "ios" }, StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.33 },
@@ -14,8 +14,6 @@ vi.mock("react-native", () => ({
   Keyboard: { addListener: (name: string, callback: () => void) => { mock.keyboard[name] = callback; return { remove() {} }; } },
 }));
 vi.mock("expo-router", () => ({ router: { push: mock.push }, Tabs: Object.assign(({ children, ...props }: any) => React.createElement("Tabs", props, children), { Screen: "TabScreen" }) }));
-vi.mock("@/lib/context", () => ({ useBaby: () => ({ state: { bootstrap: { children: [], profile: { timezone: "Pacific/Guam" } } } }) }));
-vi.mock("@/lib/timing", () => ({ careLogsStarted: () => mock.care, profileToday: () => "2026-11-02" }));
 vi.mock("@/lib/bottom-overlay", () => ({ reportTabBarHeight: (height: number) => mock.heights.push(height) }));
 vi.mock("../components/ui", () => ({
   Icon: "Icon", tap: () => undefined, PressTarget: "PressTarget", fonts: { semibold: "semibold", bold: "bold" },
@@ -26,14 +24,14 @@ import TabLayout from "../app/(tabs)/_layout";
 import { BabyTabBar } from "../components/tab-bar";
 
 let renderer: ReactTestRenderer | undefined;
-const routes = ["(today)", "library", "journal", "ask"].map((name) => ({ key: `${name}-key`, name, params: undefined }));
+const routes = ["(today)", "tracker", "library", "ask"].map((name) => ({ key: `${name}-key`, name, params: undefined }));
 const navigation = { emit: vi.fn(() => ({ defaultPrevented: false })), navigate: vi.fn() };
 async function mount(index = 0) {
   await act(async () => { renderer = create(<BabyTabBar state={{ index, routes } as any} navigation={navigation as any}
     insets={{ top: 0, bottom: 34, left: 0, right: 0 }} descriptors={{} as any} />); });
 }
 const targets = () => renderer!.root.findAllByType("PressTarget" as React.ElementType);
-beforeEach(() => { mock.push.mockClear(); navigation.emit.mockClear(); navigation.navigate.mockClear(); mock.care = false; mock.reduced = false; mock.springs = []; });
+beforeEach(() => { mock.push.mockClear(); navigation.emit.mockClear(); navigation.navigate.mockClear(); mock.reduced = false; mock.springs = []; });
 /** Lay the 5-slot row out at 400pt, so each slot is 80pt wide. */
 const layOut = () => act(() => renderer!.root.findAll((node) => String(node.type) === "View" && node.props.style?.height === 56 && !!node.props.onLayout)[0]
   .props.onLayout({ nativeEvent: { layout: { width: 400 } } }));
@@ -43,15 +41,15 @@ afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; });
 it("draws its own bar instead of native tabs, so iOS 18, 26 and Android match", () => {
   const tabs = TabLayout();
   expect(tabs.props.screenOptions).toEqual({ headerShown: false, lazy: false });
-  expect((tabs.props.children as { props: { name: string } }[]).map((tab) => tab.props.name)).toEqual(["(today)", "library", "journal", "ask"]);
+  expect((tabs.props.children as { props: { name: string } }[]).map((tab) => tab.props.name)).toEqual(["(today)", "tracker", "library", "ask"]);
 });
 
-it("orders Today · Saved · Add · Journal · Ask and marks the selected tab with a filled icon on a blush pill", async () => {
+it("orders Today · Tracker · Add · Saved · Ask and marks the selected tab with a filled icon on a blush pill", async () => {
   await mount(1);
-  expect(targets().map((t) => t.props.accessibilityLabel)).toEqual(["Today", "Saved", "Add", "Journal", "Ask"]);
+  expect(targets().map((t) => t.props.accessibilityLabel)).toEqual(["Today", "Tracker", "Add", "Saved", "Ask"]);
   expect(targets()[1].props.accessibilityState).toEqual({ selected: true });
   const icons = renderer!.root.findAllByType("Icon" as React.ElementType).map((icon) => icon.props.name);
-  expect(icons).toEqual(["sunny-outline", "bookmark", "add", "book-outline", "chatbubble-ellipses-outline"]);
+  expect(icons).toEqual(["sunny-outline", "calendar", "add", "bookmark-outline", "chatbubble-ellipses-outline"]);
   // The Add is a deep-clay circle: the one filled object in the bar.
   const add = renderer!.root.findAll((node) => String(node.type) === "View" && node.props.style?.[0]?.width === 36 && node.props.style?.[0]?.borderRadius === 18);
   expect(add.map((circle) => circle.props.style[1].backgroundColor)).toEqual(["clay"]);
@@ -84,20 +82,17 @@ it("gives every tab and the centre Add a target of at least 44×44 around the sm
   }
 });
 
-it("opens the Add sheet from the centre and describes what it offers before and after birth", async () => {
+it("opens the Add sheet from the centre and describes what it offers", async () => {
   await mount();
-  expect(targets()[2].props.accessibilityHint).toBe("Save a source, write in your journal, or keep a doctor question");
+  expect(targets()[2].props.accessibilityHint).toBe("Save a video or link, write in your journal, keep a doctor question, or make a list");
   await act(async () => targets()[2].props.onPress());
   expect(mock.push).toHaveBeenCalledWith("/add");
-  mock.care = true;
-  await mount();
-  expect(targets()[2].props.accessibilityHint).toBe("Save a source, write, or log care");
 });
 
 it("switches tabs, and leaves a second tap on the current tab to its stack", async () => {
   await mount(0);
   await act(async () => targets()[3].props.onPress());
-  expect(navigation.navigate).toHaveBeenCalledWith("journal", undefined);
+  expect(navigation.navigate).toHaveBeenCalledWith("library", undefined);
   await act(async () => targets()[0].props.onPress());
   expect(navigation.emit).toHaveBeenLastCalledWith({ type: "tabPress", target: "(today)-key", canPreventDefault: true });
   expect(navigation.navigate).toHaveBeenCalledTimes(1);

@@ -1,4 +1,4 @@
-export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection";
+export type Kind = "source" | "journal" | "feeding" | "sleep" | "diaper" | "routine" | "question" | "collection" | "contraction" | "kick_session";
 export type Scope = "all" | "library" | "journal" | "care";
 export interface Profile {
   display_name: string;
@@ -67,6 +67,24 @@ export interface SuggestedCategory {
   confidence?: number;
   status: "pending" | "accepted" | "dismissed";
 }
+export interface FeedAction {
+  id: string;
+  action: "start" | "switch" | "finish";
+  at: string;
+  side?: "left" | "right";
+  /** The revision this tap made, set by the API. A retry can't be told from the row alone, so this is the proof. */
+  revision?: number;
+}
+/** A kick session's tap or take-back, or a contraction's stop. */
+export interface SessionAction {
+  id: string;
+  action: "tap" | "undo" | "finish";
+  at: string;
+  /** What an undo takes back. */
+  target?: string;
+  /** As on a feed action. */
+  revision?: number;
+}
 export interface RecordData {
   provenance?: "caregiver_observation" | "clinician_instruction";
   url?: string;
@@ -86,8 +104,18 @@ export interface RecordData {
   unit?: "ml" | "oz";
   side?: "left" | "right" | "both";
   duration_minutes?: number | null;
-  end_at?: string;
+  /** A running feed's actions; everything else about it is derived from them, here and on the server. */
+  actions?: FeedAction[];
+  state?: "running" | "finished" | "unknown_end";
+  /** What's in a bottle. Stored in the API's words; shown as Breast milk or Formula. */
+  contents?: "breast_milk" | "formula" | null;
+  end_at?: string | null;
+  /** Movements felt in a kick session, from its actions. */
+  count?: number;
+  session_actions?: SessionAction[];
   type?: "wet" | "dirty" | "both" | "dry";
+  /** A poo's colour, as the API stores it. */
+  color?: "black" | "green" | "yellow" | "brown" | "red" | "white" | null;
   routine_type?: "checklist" | "schedule";
   items?: RoutineItem[];
   reminder_at?: string;
@@ -174,6 +202,13 @@ export interface ChatResult {
   citations: Citation[];
   proposal?: Proposal;
 }
+/**
+ * What a save or draft was built on: the queued changes to this record it already showed, oldest first. Only these can
+ * move it to a newer revision. Copies kept by an earlier test build hold more here, which nothing reads.
+ */
+export interface SaveBase { after: string[] }
+/** What became of a queued change: the revision it's proven to have made, or that it was discarded. Neither means not known. */
+export interface SettledChange { made?: number; discarded?: boolean }
 export interface EditorDraft {
   id: string;
   kind: Kind;
@@ -185,6 +220,7 @@ export interface EditorDraft {
   revision?: number;
   files: LocalFile[];
   existing?: boolean;
+  base?: SaveBase;
 }
 export type Mutation = { localOnly?: boolean } & (
   | {
@@ -193,10 +229,56 @@ export type Mutation = { localOnly?: boolean } & (
       type: "save";
       record: RecordWrite;
       files: LocalFile[];
+      base?: SaveBase;
+      /** Waiting to try again after the service said not yet. */
+      hold_until?: string;
+      attempts?: number;
       error?: string;
       conflict?: boolean;
     }
   | { id: string; generation: number; type: "delete"; record: BabyRecord; error?: string; conflict?: boolean }
+  | {
+      /** The action's own id, which is what makes a retry idempotent. */
+      id: string;
+      generation: number;
+      type: "feed_action";
+      record_id: string;
+      action: FeedAction;
+      /** Stays on this phone until then: for Undo, or between retries. */
+      hold_until?: string;
+      /** Its request has begun, so the API may already have it. Undo can't take it back any more. */
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
+      /** The action's own id, as on a feed action. */
+      id: string;
+      generation: number;
+      type: "session_action";
+      record_id: string;
+      action: SessionAction;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
+  | {
+      /** "Baby's here" with no signal: only the birth date changes, and only from the value it saw. */
+      id: string;
+      generation: number;
+      type: "child_birth";
+      child_id: string;
+      birth_date: string | null;
+      previous: string | null;
+      hold_until?: string;
+      sent?: boolean;
+      attempts?: number;
+      error?: string;
+      conflict?: boolean;
+    }
   | {
       id: string;
       generation: number;
@@ -215,7 +297,7 @@ export type Mutation = { localOnly?: boolean } & (
       conflict?: boolean;
     }
 );
-/** A breastfeed being timed on this device. Active time is the sum of segments; a pause
+/** A breastfeed being timed by an older build, on one device. It finishes the old way, then is gone. Active time is the sum of segments; a pause
  * closes the open segment. It belongs to one Baby space generation and is never synced. */
 export interface FeedTimer {
   child_id: string;
@@ -223,9 +305,13 @@ export interface FeedTimer {
   started_at: string;
   segments: { side: "left" | "right"; started_at: string; ended_at?: string }[];
   paused_at?: string;
+  /** The record this timer's feed was already saved as. Without one, it saves its own entry. */
+  record_id?: string;
 }
 export interface DeviceState {
   feedTimer?: FeedTimer;
+  /** Taps the API couldn't apply, kept until she has seen why. */
+  feedNotices?: string[];
   /** Ask has shown its reminder about sources on this device. */
   askNoticeSeen?: boolean;
   routine_sync?: { owner: string; generation: number; complete: boolean; managed_ids: string[] };
@@ -234,6 +320,8 @@ export interface DeviceState {
   bootstrap?: Bootstrap;
   records: BabyRecord[];
   outbox: Mutation[];
+  /** Recent changes that have left the outbox, for an editor opened before they did. */
+  settled?: Record<string, SettledChange>;
   drafts: Record<string, EditorDraft>;
   imports: ImportJob[];
   selectedChild: string | null;
@@ -255,6 +343,8 @@ export const kindName: Record<Kind, string> = {
   routine: "Routine",
   question: "Doctor question",
   collection: "Collection",
+  contraction: "Contraction",
+  kick_session: "Kick count",
 };
 export const careKinds: Kind[] = ["feeding", "sleep", "diaper"];
 export function messageFor(error: unknown) {

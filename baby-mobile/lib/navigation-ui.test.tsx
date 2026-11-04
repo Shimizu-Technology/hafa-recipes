@@ -41,7 +41,6 @@ vi.mock("@/lib/files", () => ({ exportVisit: mock.exportVisit }));
 vi.mock("@/components/child-filter", () => ({ ChildFilter: () => null }));
 vi.mock("@/components/sync-status", () => ({ SyncStatus: () => null }));
 vi.mock("@/components/motion", () => ({ Swell: ({ children }: { children: React.ReactNode }) => children, FadeUp: ({ children }: { children: React.ReactNode }) => children }));
-vi.mock("@/components/saved-post-row", () => ({ SourceHero: "SourceHero", SavedPostRow: "SavedPostRow" }));
 vi.mock("@/components/record-row", () => ({ RecordRow: "RecordRow", kindIcon: {} }));
 vi.mock("@/components/private-attachment", () => ({ PrivateAttachment: "PrivateAttachment" }));
 vi.mock("@/components/source-content", () => ({ SourceContent: "SourceContent" }));
@@ -51,6 +50,8 @@ vi.mock("@/lib/use-ask-session", () => ({ useAskSession: (record_id: string) => 
 }) }));
 vi.mock("@/lib/models", () => import("./models"));
 vi.mock("@/lib/outbox", () => import("./outbox"));
+vi.mock("@/lib/feed-reducer", () => import("./feed-reducer"));
+vi.mock("@/lib/tracker", () => import("./tracker"));
 vi.mock("@/lib/history", () => import("./history"));
 vi.mock("@/lib/visit-summary", () => import("./visit-summary"));
 vi.mock("@/lib/care-format", () => import("./care-format"));
@@ -76,7 +77,8 @@ vi.mock("@/lib/suggestions", () => import("./suggestions"));
 vi.mock("@/lib/care-glance", () => import("./care-glance"));
 vi.mock("@/components/saved-post-row", () => import("../components/saved-post-row"));
 import Library from "../app/(tabs)/library";
-import Journal, { JournalContent } from "../app/(tabs)/journal";
+import Journal, { JournalContent } from "../app/journal";
+import Add from "../app/add";
 import RecordDetail from "../app/record/[id]";
 import { Grouped, Screen } from "../components/ui";
 import AskEntry from "../app/ask-entry";
@@ -106,6 +108,16 @@ beforeEach(() => {
   };
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.unstubAllGlobals(); });
+it("reads a sleep's times on the family's clock, as Tracker does", async () => {
+  const sleep = { ...row("nap", "sleep"), data: { end_at: "2026-10-30T01:00:00Z" } };
+  mock.baby.records = [sleep];
+  mock.baby.state = { ...mock.baby.state, records: [sleep], bootstrap: { ...mock.baby.state.bootstrap, profile: { timezone: "Pacific/Kiritimati", ai_consent: true } } };
+  mock.params = { id: "nap" };
+  await mount(<RecordDetail />);
+  const texts = renderer!.root.findAll((n) => n.props?.numeric === true).map((n) => [n.props.children].flat().join("")).join(" | ");
+  expect(texts).toMatch(/Started.*2:00\sPM/);
+  expect(texts).toMatch(/Ended.*3:00\sPM/);
+});
 it("prepares a mixed journal and care visit summary from Doctor questions", async () => {
   mock.params = { filter: "question" };
   await mount(<Journal />);
@@ -143,12 +155,27 @@ it("keeps compact Journal filters horizontal, writing-only, and clears route-dri
   mock.params = { filter: "all" };
   await act(async () => renderer!.update(<Journal />));
   expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["journal", "question"]);
-  expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Write")).toBe(false);
   expect(renderer!.root.findAllByType("ScrollView" as React.ElementType).some(n => n.props.horizontal)).toBe(true);
   mock.params = { filter: "question" };
   await act(async () => renderer!.update(<Journal />));
   await press("Prepare a visit summary");
   expect(renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).some(n => n.props.accessibilityLabel === "Share 0 selected entries" && n.props.disabled)).toBe(true);
+});
+it("opens Journal as a pushed screen with Back and Write, and old filtered links keep working", async () => {
+  mock.stack = [{ pathname: "/(tabs)/(today)" }, { pathname: "/journal", params: { filter: "question", at: "1" } }];
+  mock.params = { filter: "question", at: "1" };
+  await mount(<Journal />);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  expect(renderer!.root.findByType(Screen).props.back).toBe(true);
+  expect(renderer!.root.findAllByType("RecordRow" as React.ElementType).map(n => n.props.record.kind)).toEqual(["question"]);
+  await press("Write");
+  expect(mock.stack.at(-1)).toEqual({ pathname: "/edit", params: { kind: "question" } });
+});
+it("shrinks the Add sheet to things to keep: care leaves, a video or link leads", async () => {
+  mock.stack = [{ pathname: "/add" }];
+  await mount(<Add />);
+  const labels = renderer!.root.findAllByType("AnimatedPressable" as React.ElementType).map(n => n.props.accessibilityLabel).filter(Boolean);
+  expect(labels.filter(l => !/Close/.test(l)).map(l => l.split(".")[0])).toEqual(["Save a video or link", "Write in your journal", "Keep a doctor question", "Make a list"]);
 });
 it("keeps care-only history pushed with Back and disclosed care search", async () => {
   mock.stack = [{ pathname: "/(tabs)" }, { pathname: "/care-history" }];

@@ -150,8 +150,8 @@ export const PressTarget = forwardRef<View, PressableProps>(function PressTarget
     style={[typeof style === "function" ? style({ pressed, hovered }) : style, { opacity, transform: [{ scale }] }]} />;
 });
 
-type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table";
-/** Ionicons throughout, plus two baby-care glyphs Ionicons lacks (prefixed "care:"). */
+type CareGlyph = "baby-bottle-outline" | "human-baby-changing-table" | "mother-nurse";
+/** Ionicons throughout, plus the baby-care glyphs Ionicons lacks (prefixed "care:"). */
 export type IconName = React.ComponentProps<typeof Ionicons>["name"] | `care:${CareGlyph}`;
 export function Icon({ name, size = 22, color }: { name: IconName; size?: number; color?: ColorValue }) {
   const c = useColors();
@@ -1010,7 +1010,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           }}
         >
           <PressTarget style={{ flex: 1, paddingVertical: 9 }} onPress={() => setToast(null)}>
-            <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
+            <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.regular, fontSize: 15, lineHeight: 20 }}>
               {toast.message}
             </Text>
           </PressTarget>
@@ -1033,7 +1033,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                 opacity: on ? 0.6 : 1,
               })}
             >
-              <Text key={fontScale} maxFontSizeMultiplier={0} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
+              <Text key={fontScale} maxFontSizeMultiplier={2} style={{ color: c.background, fontFamily: fonts.bold, fontSize: 15, lineHeight: 20 }}>
                 {toast.action.label}
               </Text>
             </PressTarget>

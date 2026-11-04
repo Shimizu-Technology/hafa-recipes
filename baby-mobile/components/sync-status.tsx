@@ -3,6 +3,9 @@ import { useBaby } from "@/lib/context";
 import { Copy, PressTarget, Row } from "./ui";
 export function SyncStatus() {
   const b = useBaby();
+  const notice = b.state.feedNotices?.[0];
+  if (notice) return <Row title="A tap wasn’t added" detail={notice} icon="information-circle-outline" hint="Dismisses this"
+    onPress={() => void b.commit((state) => ({ ...state, feedNotices: state.feedNotices?.slice(1) }))} />;
   const failed = b.state.outbox.filter(m => (m.error || m.conflict) && !m.localOnly).length;
   if (failed || b.error)
     return <Row title={failed ? `${failed} change${failed === 1 ? " needs" : "s need"} attention` : "Sync needs attention"}

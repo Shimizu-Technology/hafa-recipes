@@ -8,8 +8,8 @@ export const unstable_settings = { initialRouteName: "(today)" };
 export default function TabLayout() {
   return <Tabs tabBar={(props) => <BabyTabBar {...props} />} screenOptions={{ headerShown: false, lazy: false }}>
     <Tabs.Screen name="(today)" options={{ title: "Today" }} />
+    <Tabs.Screen name="tracker" options={{ title: "Tracker" }} />
     <Tabs.Screen name="library" options={{ title: "Saved" }} />
-    <Tabs.Screen name="journal" options={{ title: "Journal" }} />
     <Tabs.Screen name="ask" options={{ title: "Ask" }} />
   </Tabs>;
 }

@@ -9,7 +9,6 @@ import {
   isPaused,
   pauseTimer,
   resumeTimer,
-  sideChoices,
   spokenTimer,
   startTimer,
   switchSide,
@@ -116,19 +115,6 @@ describe("display", () => {
     expect(spokenTimer(timer, at(0, 40))).toBe("Left side, less than a minute");
     expect(spokenTimer(timer, at(1, 59))).toBe("Left side, 1 minute");
     expect(spokenTimer(pauseTimer(timer, at(12, 3)), at(20))).toBe("Paused, Left side, 12 minutes");
-  });
-
-  it("offers the suggested next side first", () => {
-    expect(sideChoices("right")).toEqual([
-      { side: "right", suggested: true },
-      { side: "left", suggested: false },
-    ]);
-    expect(sideChoices("left")[0]).toEqual({ side: "left", suggested: true });
-    expect(sideChoices("both")).toEqual([
-      { side: "left", suggested: false },
-      { side: "right", suggested: false },
-    ]);
-    expect(sideChoices(undefined)[0].suggested).toBe(false);
   });
 });
 

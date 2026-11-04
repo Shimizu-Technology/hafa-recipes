@@ -24,20 +24,40 @@ import {
   type Bootstrap,
   type DeviceState,
   type EditorDraft,
+  type Child,
   type Mutation,
 } from "./models";
 import {
   addMutation,
   fencedState,
+  heldUntil,
+  mutationRecordId,
   pendingRecords,
   replaceRecord,
   shouldRetry,
   advancePending,
   advanceAfterImport,
+  birthStep,
+  feedEdit,
+  finishedFeedNotice,
+  plainFeedNotice,
+  rejectedAction,
+  removedFeedNotice,
+  producedRevision,
+  removedSessionNotice,
+  retriedSave,
+  retryLater,
+  switchTooLate,
+  unresolvedAttempts,
   queueRemovedUploads,
   uploadedReferences,
   waitingForEarlier,
   waitingForImport,
+  withNotice,
+  withPendingBirths,
+  withSettled,
+  withoutBirth,
+  withoutChain,
 } from "./outbox";
 import { revokeShareSession } from "./share-session-state";
 import { clearPendingShares } from "../modules/hafa-baby-share/src";
@@ -74,7 +94,8 @@ interface BabyContext {
   sync: () => Promise<void>;
   commit: (change: (s: DeviceState) => DeviceState) => Promise<void>;
   queue: (m: Mutation) => Promise<void>;
-  discardQueued: (id: string, server?: BabyRecord) => Promise<void>;
+  /** Takes later queued changes to the same record with it. `server` is the record as read just now: null if it's gone. `child` is the same for a birth change. */
+  discardQueued: (id: string, server?: BabyRecord | null, child?: Child) => Promise<void>;
   saveDraft: (key: string, draft: EditorDraft | null, valid?: () => boolean) => Promise<void>;
   getToken: () => Promise<string | null>;
   current: () => boolean;
@@ -118,6 +139,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
     closing = useRef(false),
     routineVersion = useRef(0),
     restoringRoutines = useRef<Promise<void> | null>(null),
+    heldSync = useRef<ReturnType<typeof setTimeout> | undefined>(undefined),
     initializer = useRef<() => Promise<void>>(async () => {});
   const commit = (change: (s: DeviceState) => DeviceState, lease = api.lease()): Promise<void> => {
     const next = serialized.current
@@ -128,7 +150,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
           throw Error("Restore your private device data before saving. Existing files have not been overwritten.");
         api.assertLease(lease);
         const before = ref.current;
-        const value = trackRoutineIntents(before, change(before), ownerRef.current);
+        const value = withPendingBirths(trackRoutineIntents(before, change(before), ownerRef.current));
         if (deleting.current && value.bootstrap) throw Error("Baby data deletion is in progress.");
         if (value.outbox.some((m) => m.generation !== value.bootstrap?.generation))
           throw Error("Older changes cannot be saved after Baby data is cleared.");
@@ -270,6 +292,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       if (alive.current) setError("");
       if (latest.active === false) return;
       restoreAfterSync = true;
+      let serverChildren = latest.children;
       for (const pending of [...ref.current.outbox]) {
         const next = ref.current.outbox.find((m) => m.id === pending.id);
         if (!next) continue;
@@ -283,11 +306,74 @@ export function BabyProvider({ children }: PropsWithChildren) {
           await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id) }));
           continue;
         }
-        if (waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
+        if (heldUntil(next) || waitingForEarlier(ref.current.outbox, next) || waitingForImport(ref.current.imports, next)) continue;
         try {
           let result: BabyRecord | undefined;
           if (next.type === "delete") {
             await api.remove(next.record, next.generation);
+          } else if (next.type === "child_birth") {
+            const server = serverChildren.find((child) => child.id === next.child_id), step = birthStep(server, next);
+            if (step === "gone" || step === "different") {
+              await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id !== next.id ? m : { ...m,
+                error: step === "gone" ? "This baby’s profile was removed." : "Another phone saved a different birth date. Discard this to keep that one." })) }));
+              continue;
+            }
+            let taken = false;
+            await commit((s) => {
+              taken = s.outbox.some((m) => m.id === next.id);
+              return { ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "child_birth" ? { ...m, sent: true } : m)) };
+            });
+            if (!taken) continue;
+            let saved = server!;
+            if (step === "send") {
+              try {
+                saved = await api.child({ id: server!.id, birth_date: next.birth_date, revision: server!.revision }, next.generation);
+              } catch (failure) {
+                if (!(failure instanceof ApiError && !failure.local && failure.status === 409) || !current()) throw failure;
+                // Something else on this child moved. The next pass reads it again and sends the date at its new revision.
+                await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type === "child_birth" ? retryLater(m) : m)) }));
+                continue;
+              }
+              serverChildren = serverChildren.map((child) => (child.id === saved.id ? saved : child));
+            }
+            await commit((s) => ({ ...s, outbox: s.outbox.filter((m) => m.id !== next.id),
+              bootstrap: s.bootstrap && { ...s.bootstrap, children: s.bootstrap.children.map((child) => (child.id === saved.id ? saved : child)) } }));
+            continue;
+          } else if (next.type === "feed_action" || next.type === "session_action") {
+            // Once the request begins the API may have it, whatever comes back. Undo sees this before it can take it back.
+            let taken = false;
+            await commit((s) => {
+              taken = s.outbox.some((m) => m.id === next.id);
+              return { ...s, outbox: s.outbox.map((m) => (m.id === next.id && (m.type === "feed_action" || m.type === "session_action") ? { ...m, sent: true } : m)) };
+            });
+            if (!taken) continue;
+            try {
+              result = next.type === "feed_action"
+                ? await api.feedAction(next.record_id, next.action, next.generation)
+                : await api.sessionAction(next.record_id, next.action, next.generation);
+            } catch (failure) {
+              if (!(failure instanceof ApiError && !failure.local && (failure.status === 404 || failure.status === 409)) || !current()) throw failure;
+              let row: BabyRecord | null = null;
+              try { row = await api.record(next.record_id); }
+              catch (reading) {
+                if (!(reading instanceof ApiError && !reading.local && reading.status === 404)) throw reading;
+              }
+              const outcome = rejectedAction(row, next.action);
+              if (outcome === "unresolved") {
+                // The feed still takes taps, so this was a passing race. It's kept, and asks her if it doesn't clear.
+                const tries = (next.attempts ?? 0) + 1;
+                await commit((s) => ({ ...s, records: row ? replaceRecord(s.records, row) : s.records,
+                  outbox: s.outbox.map((m) => m.id !== next.id || (m.type !== "feed_action" && m.type !== "session_action") ? m
+                    : tries >= unresolvedAttempts ? { ...m, error: "This tap couldn’t be added to the feed. It’s safe on this phone." } : retryLater(m)) }));
+                continue;
+              }
+              await commit((s) => ({ ...(outcome === "applied" ? s : withNotice(s, outcome === "plain" ? plainFeedNotice : next.type === "feed_action" ? removedFeedNotice : removedSessionNotice)),
+                settled: withSettled(s, next.id, outcome === "applied" && row ? { made: producedRevision(next, row) } : {}).settled,
+                records: row ? replaceRecord(s.records, row) : s.records.filter((r) => r.id !== next.record_id),
+                outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (row && outcome === "applied" ? advancePending(m, next, row) : m)),
+              }));
+              continue;
+            }
           } else {
             let files = next.files.map((f) => ({
               ...f,
@@ -317,7 +403,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
                     : {}),
                 },
               };
-              result = await api.save(value, next.generation);
+              result = await api.save(feedEdit(value), next.generation);
             } else {
               // Persist before the request: a lost admission response can replay
               // an already-completed job after a relaunch.
@@ -344,13 +430,14 @@ export function BabyProvider({ children }: PropsWithChildren) {
             }
           }
           await commit((s) => ({
-            ...s,
+            ...(next.type === "feed_action" && result && switchTooLate(next.action, result) ? withNotice(s, finishedFeedNotice) : s),
+            ...(result ? { settled: withSettled(s, next.id, { made: producedRevision(next, result) }).settled } : {}),
             records: result
               ? replaceRecord(s.records, result)
               : next.type === "delete"
                 ? s.records.filter((r) => r.id !== next.record.id)
                 : s.records,
-            outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (result ? advancePending(m, result) : m)),
+            outbox: s.outbox.filter((m) => m.id !== next.id).map((m) => (result ? advancePending(m, next, result) : m)),
           }));
           // Uploaded originals stay in this private device container until explicit device cleanup.
           // A reopened offline draft may still reference them while its ancestor is syncing.
@@ -365,6 +452,10 @@ export function BabyProvider({ children }: PropsWithChildren) {
           if (status === 0 || status === 401) {
             setError(messageFor(e));
             break;
+          }
+          if ((next.type === "feed_action" || next.type === "session_action" || next.type === "child_birth" || retriedSave(next)) && shouldRetry(status)) {
+            await commit((s) => ({ ...s, outbox: s.outbox.map((m) => (m.id === next.id && m.type !== "delete" && m.type !== "import" ? retryLater(m) : m)) }));
+            continue;
           }
           await commit((s) => ({
             ...s,
@@ -424,6 +515,11 @@ export function BabyProvider({ children }: PropsWithChildren) {
       }
       busy.current = false;
       if (alive.current) setSyncing(false);
+      // Come back for anything still inside its Undo window, not only on the next 15-second pass.
+      const held = ref.current.outbox.map((change) => heldUntil(change)).filter(Boolean);
+      clearTimeout(heldSync.current);
+      if (held.length && alive.current)
+        heldSync.current = setTimeout(() => void funcs.current.sync(), Math.max(0, Math.min(...held) - Date.now()) + 50);
       if (rerun.current && alive.current) {
         rerun.current = false;
         void funcs.current.sync();
@@ -504,6 +600,7 @@ export function BabyProvider({ children }: PropsWithChildren) {
       app.remove();
       net();
       clearInterval(timer);
+      clearTimeout(heldSync.current);
     };
   }, [binding]);
   useEffect(() => {
@@ -571,14 +668,13 @@ export function BabyProvider({ children }: PropsWithChildren) {
         commit,
         current,
         getToken: () => token.current(),
-        discardQueued: async (id, server) => {
+        discardQueued: async (id, server, child) => {
           await commit((s) => {
             if (busy.current) throw Error("Wait for the current sync to finish before discarding a queued change.");
-            return queueRemovedUploads(s, {
-              ...s,
-              outbox: s.outbox.filter((m) => m.id !== id),
-              ...(server ? { records: replaceRecord(s.records, server) } : {}),
-            });
+            const removed = s.outbox.find((m) => m.id === id);
+            if (!removed) return s;
+            const left = withoutChain(s, removed, server);
+            return removed.type === "child_birth" ? withoutBirth(left, removed, child) : left;
           });
           void funcs.current.sync();
         },

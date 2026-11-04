@@ -53,6 +53,9 @@ function Routes() {
         <Stack.Screen name="sync" />
         <Stack.Screen name="routines" />
         <Stack.Screen name="care-history" />
+        <Stack.Screen name="journal" />
+        <Stack.Screen name="contractions" />
+        <Stack.Screen name="kicks" />
         <Stack.Screen name="ask-entry" />
         <Stack.Screen name="more" />
       </Stack.Protected>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Modal, Platform, View, useColorScheme } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { clockIn, keyDate, recordDay } from "@/lib/tracker";
 import { Button, Card, Copy, useColors } from "./ui";
 export function DateField({
   label,
@@ -8,17 +9,21 @@ export function DateField({
   onChange,
   dateOnly = false,
   optional = false,
+  timeZone,
 }: {
   label: string;
   value?: string | null;
   onChange: (iso: string) => void;
   dateOnly?: boolean;
   optional?: boolean;
+  /** Show and pick the time on this clock rather than the phone's. */
+  timeZone?: string | null;
 }) {
   const [mode, setMode] = useState<"date" | "time" | null>(null),
     [draft, setDraft] = useState(new Date()),
     c = useColors(),
-    scheme = useColorScheme();
+    scheme = useColorScheme(),
+    zone = !dateOnly && timeZone ? { timeZoneName: timeZone } : {};
   const parsed = value ? new Date(dateOnly ? value + "T12:00:00" : value) : new Date(),
     valid = Number.isFinite(parsed.getTime()) ? parsed : new Date();
   function change(date: Date) {
@@ -41,7 +46,7 @@ export function DateField({
           numeric
           title={
             value
-              ? valid.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+              ? (timeZone && !dateOnly ? keyDate(recordDay(valid.toISOString(), timeZone)) : valid).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
               : "Choose date"
           }
           onPress={() => open("date")}
@@ -50,7 +55,7 @@ export function DateField({
           <Button
             secondary
             numeric
-            title={valid.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+            title={clockIn(valid, timeZone)}
             onPress={() => open("time")}
           />
         )}
@@ -60,6 +65,7 @@ export function DateField({
         <DateTimePicker
           value={valid}
           mode={mode}
+          {...zone}
           onChange={(event, date) => {
             setMode(null);
             if (event.type === "set" && date) change(date);
@@ -77,6 +83,7 @@ export function DateField({
                 value={draft}
                 mode={mode}
                 display="spinner"
+                {...zone}
                 themeVariant={scheme === "dark" ? "dark" : "light"}
                 onChange={(_, date) => {
                   if (date) setDraft(date);

@@ -6,12 +6,13 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useBaby } from "@/lib/context";
 import { kindName, messageFor, type EditorDraft, type Kind, type Mutation, type RecordData } from "@/lib/models";
-import { addMutation, inheritedFiles } from "@/lib/outbox";
+import { addMutation, baseOf, inheritedFiles, queueRemovedUploads, settledDraft } from "@/lib/outbox";
 import { preserveFile, removeLocal } from "@/lib/files";
 import { requestReminders } from "@/lib/reminders";
 import { Button, Card, Chips, Choice, Copy, Field, Loading, Notice, Screen, Section, useToast } from "@/components/ui";
 import { DateField } from "@/components/date-field";
-import { careSummary, defaultChild, friendlyTime, isCare } from "@/lib/care-format";
+import { sendsCareDetails } from "../lib/api";
+import { careSummary, colorWords, contentWords, defaultChild, diaperWords, friendlyTime, isCare } from "@/lib/care-format";
 import { nextFeed } from "@/lib/care-glance";
 import { undoSaved } from "@/lib/quick-care";
 import { CollectionSources } from "@/components/collection-sources";
@@ -69,11 +70,11 @@ export default function Edit() {
     let active = true;
     void (async () => {
       try {
-        let d = b.state.drafts[slot];
+        let d = b.state.drafts[slot] && settledDraft(b.state.drafts[slot], b.state);
         if (!d && params.id) {
           let row = b.records.find((r) => r.id === params.id);
           if (!row || row.cache_partial) row = await b.api.record(params.id);
-          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true };
+          d = { ...row, files: inheritedFiles(b.state, row.id), existing: true, base: baseOf(b.state, row.id) };
         }
         const kind = params.kind ?? "journal",
           child = defaultChild(kind, b.state.selectedChild, b.state.bootstrap!.children),
@@ -114,6 +115,15 @@ export default function Edit() {
     });
     return () => app.remove();
   }, [slot]);
+  // Only the revision moves while a change this draft was built on lands or goes away behind it. What she's typing stays.
+  useEffect(() => {
+    const open = latest.current;
+    if (!open || retired.current) return;
+    const settled = settledDraft(open, b.state);
+    if (settled === open) return;
+    latest.current = settled;
+    setDraft(settled);
+  }, [b.state.outbox, b.state.settled]);
   function change(value: Partial<EditorDraft>) {
     changed.current = true;
     setDraft((d) => {
@@ -195,7 +205,9 @@ export default function Edit() {
       throw Error("Choose which baby this is for.");
     if (d.kind === "feeding" && d.data.amount != null && (!Number.isFinite(d.data.amount) || d.data.amount <= 0))
       throw Error("Enter an amount greater than zero, or leave it empty.");
+    // A feed tapped Done at once really did take no time, and that can stay when she edits something else.
     if (d.kind === "feeding" && d.data.duration_minutes != null &&
+      !(d.data.duration_minutes === 0 && b.records.find((r) => r.id === d.id)?.data.duration_minutes === 0) &&
       (!Number.isFinite(d.data.duration_minutes) || d.data.duration_minutes <= 0))
       throw Error("Enter a duration greater than zero, or leave it empty.");
     if (d.kind === "sleep" && d.data.end_at && new Date(d.data.end_at) < new Date(d.occurred_at))
@@ -227,17 +239,23 @@ export default function Edit() {
         throw Error(
           "Enable optional AI processing in Settings before organizing sources with AI. You can save the source without AI."
         );
-      const { files, existing: _, revision, ...record } = d;
       const automatic = !d.existing && d.kind === "source" &&
         !!b.state.bootstrap!.profile.ai_consent && !!b.state.bootstrap!.profile.auto_process_shares;
       const shouldProcess = d.kind === "source" && (process || automatic);
       // Keep the original in the durable outbox before its optional import.
-      const mutation: Mutation = {
-        id: Crypto.randomUUID(), generation, type: "save",
-        record: { ...record, title: d.title.trim() || firstLine(d) || (d.kind === "source" ? "Saved source" : kindName[d.kind]),
-          data: d.kind === "source" ? { ...d.data, source_text: d.data.source_text || d.body || undefined } : d.data,
-          ...(revision ? { revision } : {}) }, files,
+      const id = Crypto.randomUUID();
+      const build = (from: EditorDraft): Extract<Mutation, { type: "save" }> => {
+        const { files, existing: _, revision, base, ...record } = from;
+        return {
+          id, generation, type: "save",
+          record: { ...record, title: from.title.trim() || firstLine(from) || (from.kind === "source" ? "Saved source" : kindName[from.kind]),
+            data: from.kind === "source" ? { ...from.data, source_text: from.data.source_text || from.body || undefined } : from.data,
+            ...(revision ? { revision } : {}) }, files,
+          // A draft kept by an older build doesn't know what it saw, so it follows nothing.
+          ...(base ?? from.existing ? { base: base ?? { after: [] } } : {}),
+        };
       };
+      const mutation = build(d);
       const importMutation: Mutation | undefined = shouldProcess ? {
         id: Crypto.randomUUID(), generation, type: "import", record_id: d.id,
         ...(automatic && !process ? { automatic: true, automatic_epoch: b.state.bootstrap!.profile.auto_process_epoch ?? 0 } : {}), files: [],
@@ -247,21 +265,20 @@ export default function Edit() {
         await b.commit((s) => {
           const drafts = { ...s.drafts };
           delete drafts[slot];
-          const prepared: Mutation =
-            mutation.type === "save"
-              ? {
-                  ...mutation,
-                  record: {
-                    ...mutation.record,
-                    revision:
-                      mutation.record.revision ||
-                      (d.existing ? s.records.find((r) => r.id === d.id)?.revision : undefined),
-                  },
-                  files: mutation.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
-                }
-              : mutation;
+          // Built here, from what has landed by the time this write runs: the tap can land after she pressed Save.
+          const settled = build(settledDraft(d, s));
+          const prepared: Mutation = {
+            ...settled,
+            record: {
+              ...settled.record,
+              revision:
+                settled.record.revision ||
+                (d.existing && !d.base ? s.records.find((r) => r.id === d.id)?.revision : undefined),
+            },
+            files: settled.files.map((f) => ({ ...f, uploaded_id: f.uploaded_id ?? s.fileUploads?.[f.id] })),
+          };
           const saved = addMutation(s, prepared);
-          return { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts };
+          return queueRemovedUploads(s, { ...(importMutation ? addMutation(saved, importMutation) : saved), drafts });
         });
       } catch (failure) {
         retired.current = false;
@@ -271,7 +288,7 @@ export default function Edit() {
       if (mutation.type === "save" && isCare(d.kind) && !d.existing) {
         // Quick logs return to Today; the new entry can be undone from there.
         const undo = undoSaved(b, mutation.record);
-        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at)}`, {
+        toast(`${careSummary(d.kind, d.data, d.occurred_at)} · ${friendlyTime(d.occurred_at, undefined, b.state.bootstrap!.profile.timezone)}`, {
           label: "Undo",
           onPress: async () => {
             try {
@@ -465,14 +482,32 @@ export default function Edit() {
           label="Diaper"
           options={["wet", "dirty", "both", "dry"].map((value) => ({
             value,
-            label: value === "both" ? "Wet + dirty" : value[0].toUpperCase() + value.slice(1),
+            label: value === "both" ? "Pee and poo" : diaperWords[value as "wet"],
           }))}
           onChange={(type) => data({ type: type as RecordData["type"] })}
+        />
+      )}
+      {sendsCareDetails && draft.kind === "diaper" && (draft.data.type === "dirty" || draft.data.type === "both") && (
+        <Chips
+          value={draft.data.color ?? ""}
+          label="Colour"
+          options={[{ value: "", label: "Not set" }, ...Object.entries(colorWords)
+            .map(([value, label]) => ({ value, label }))]}
+          onChange={(color) => data({ color: (color || null) as RecordData["color"] })}
+        />
+      )}
+      {sendsCareDetails && draft.kind === "feeding" && draft.data.method === "bottle" && (
+        <Chips
+          value={draft.data.contents ?? ""}
+          label="What’s in it"
+          options={[{ value: "", label: "Not set" }, ...Object.entries(contentWords).map(([value, label]) => ({ value, label }))]}
+          onChange={(contents) => data({ contents: (contents || null) as RecordData["contents"] })}
         />
       )}
       {draft.kind !== "collection" && (!writing || showDetails) && <DateField
         label={draft.kind === "sleep" ? "Sleep started" : "Date and time"}
         value={draft.occurred_at}
+        timeZone={isCare(draft.kind) ? b.state.bootstrap!.profile.timezone : undefined}
         onChange={(occurred_at) => change({ occurred_at })}
       />}
       {draft.kind === "sleep" && (
@@ -484,7 +519,7 @@ export default function Edit() {
             onPress={() => data({ end_at: draft.data.end_at ? undefined : new Date().toISOString() })}
           />
           {draft.data.end_at && (
-            <DateField label="Sleep ended" value={draft.data.end_at} onChange={(end_at) => data({ end_at })} />
+            <DateField label="Sleep ended" value={draft.data.end_at} timeZone={b.state.bootstrap!.profile.timezone} onChange={(end_at) => data({ end_at })} />
           )}
         </>
       )}

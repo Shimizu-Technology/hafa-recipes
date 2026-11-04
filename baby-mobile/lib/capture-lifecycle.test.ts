@@ -1,6 +1,6 @@
 import React from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type DeviceState, type EditorDraft, type LocalFile } from "./models";
 const scope = vi.hoisted(() => ({
   account: null as unknown, foreground: null as null | ((state: string) => void),
@@ -89,6 +89,17 @@ beforeEach(() => {
   });
 });
 afterEach(async () => { await act(async () => renderer?.unmount()); renderer = undefined; vi.useRealTimers(); vi.restoreAllMocks(); });
+it("sets a sleep's end on the family's clock, like its start", async () => {
+  setup();
+  const before = scope.params;
+  scope.params = { kind: "sleep" };
+  await mount(Edit);
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Choice" && node.props.label === "Sleep has ended")[0].props.onPress());
+  const fields = renderer!.root.findAll((node) => String(node.type) === "DateField");
+  expect(fields.find((field) => field.props.label === "Sleep started")?.props.timeZone).toBe("Pacific/Guam");
+  expect(fields.find((field) => field.props.label === "Sleep ended")?.props.timeZone).toBe("Pacific/Guam");
+  scope.params = before;
+});
 it("does not recreate a saved draft when its serialized commit is held through autosave, background and unmount", async () => {
   const account = setup(), gate = held<void>();
   account.holdCommit(gate.promise);
@@ -100,6 +111,131 @@ it("does not recreate a saved draft when its serialized commit is held through a
   await act(async () => { gate.release(); await gate.promise; await account.drain(); });
   expect(account.state.outbox).toHaveLength(1);
   expect(account.state.drafts).toEqual({});
+});
+it("lets an unchanged zero-minute feed through, and still stops a zero she typed", async () => {
+  const account = setup(), feed = { id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: null, occurred_at: "2026-10-21T07:50:00.000Z", revision: 2, created_at: "", updated_at: "",
+    data: { method: "breast", side: "left", duration_minutes: 0 } };
+  (account as { records: unknown[] }).records = [feed];
+  const before = scope.params;
+  scope.params = { id: "feed" } as unknown as typeof scope.params;
+  await mount(Edit);
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(1);
+  await act(async () => renderer!.unmount());
+  renderer = undefined;
+  (account as { records: unknown[] }).records = [{ ...feed, data: { ...feed.data, duration_minutes: 12 } }];
+  account.state = { ...account.state, outbox: [] };
+  await mount(Edit);
+  await act(async () => renderer!.root.findAll((node) => String(node.type) === "Field" && node.props.label?.startsWith("Duration"))[0].props.onChange("0"));
+  await press("Save changes");
+  await act(async () => { await account.drain(); });
+  expect(account.state.outbox).toHaveLength(0);
+  scope.params = before;
+});
+describe("an editor opened while the feed's Switch was still queued", () => {
+  const start = { id: "s", action: "start", at: "2026-10-21T07:50:00.000Z", side: "left" }, swap = { id: "swap", action: "switch", at: "2026-10-21T07:55:00.000Z", side: "right" };
+  const feed = (revision: number, over: object = {}) => ({ id: "feed", kind: "feeding", title: "Feeding", body: "", child_id: null, occurred_at: start.at, revision, created_at: "", updated_at: "",
+    data: { method: "breast", state: "running", side: "both", actions: [start, swap] }, ...over });
+  const before = scope.params;
+  /** The tap is queued, so what the editor shows has it in and the saved row doesn't. */
+  function opened() {
+    const account = setup(), saved = feed(1, { data: { method: "breast", state: "running", side: "left", actions: [start] } });
+    account.state = { ...account.state, records: [saved] as never, outbox: [{ id: "swap", generation: 1, type: "feed_action", record_id: "feed", action: swap }] as never };
+    (account as { records: unknown[] }).records = [feed(1)];
+    scope.params = { id: "feed" } as unknown as typeof scope.params;
+    return account;
+  }
+  const type = (body: string) => act(async () => renderer!.root.findAll((node) => String(node.type) === "Field" && node.props.label === "Notes")[0].props.onChange(body));
+  const lands = (account: ReturnType<typeof setup>, row: object, settled: object) => { account.state = { ...account.state, records: [row] as never, outbox: [], settled: settled as never }; };
+  const sent = (account: ReturnType<typeof setup>) => (account.state.outbox[0] as { record: { revision?: number; body: string; data: { side: string } } }).record;
+  afterEach(() => { scope.params = before; });
+  it("follows the Switch to the revision it made, and keeps what she typed", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    lands(account, feed(2), { swap: { made: 2 } });
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 2, body: "Sleepy today" });
+  });
+  it("does the same for a draft kept while the app was closed", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); renderer!.unmount(); await account.drain(); });
+    renderer = undefined;
+    expect(account.state.drafts["record:feed"]).toMatchObject({ revision: 1, body: "Sleepy today" });
+    lands(account, feed(2), { swap: { made: 2 } });
+    await mount(Edit);
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 2, body: "Sleepy today" });
+  });
+  it("doesn't follow the row to a revision the Switch didn't make: the other phone's write goes to review", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    lands(account, feed(7, { body: "From the other phone" }), { swap: { made: 5 } });
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account).revision).toBe(1);
+  });
+  it("doesn't follow a tap it never saw, when it was opened before that tap", async () => {
+    const account = setup(), saved = feed(1, { data: { method: "breast", state: "running", side: "left", actions: [start] } });
+    account.state = { ...account.state, records: [saved] as never };
+    (account as { records: unknown[] }).records = [saved];
+    scope.params = { id: "feed" } as unknown as typeof scope.params;
+    await mount(Edit);
+    await type("Sleepy today");
+    lands(account, feed(2), { swap: { made: 2 } });
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account).revision).toBe(1);
+  });
+  it("leaves what she's writing exactly as it is when the Switch is discarded behind it", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    account.state = { ...account.state, outbox: [], settled: { swap: { discarded: true } } };
+    await act(async () => { renderer!.update(React.createElement(Edit)); });
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today" });
+    expect(sent(account).data).toEqual(feed(1).data);
+    expect(account.state.outbox[0]).toMatchObject({ base: { after: [] } });
+  });
+  it("does the same for a kept draft, and it goes back to the saved row's revision", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    await act(async () => { await vi.advanceTimersByTimeAsync(450); renderer!.unmount(); await account.drain(); });
+    renderer = undefined;
+    const kept = account.state.drafts["record:feed"];
+    account.state = { ...account.state, outbox: [], settled: { swap: { discarded: true } }, drafts: { "record:feed": { ...kept, revision: 4 } as never } };
+    await mount(Edit);
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today" });
+  });
+  it("doesn't take on a revision the other phone made, when the Switch it was built on is discarded", async () => {
+    const account = opened();
+    await mount(Edit);
+    await type("Sleepy today");
+    account.state = { ...account.state, records: [feed(6, { body: "From the other phone" })] as never, outbox: [], settled: { swap: { discarded: true } } };
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account)).toMatchObject({ revision: 1, body: "Sleepy today" });
+  });
+  it("still sends a draft kept by an older build at the revision of the row it opened on", async () => {
+    const account = setup(), draft = { ...feed(0), revision: 0, body: "Older build", files: [], existing: true };
+    account.state = { ...account.state, records: [feed(3)] as never, drafts: { "record:feed": draft as never } };
+    scope.params = { id: "feed" } as unknown as typeof scope.params;
+    await mount(Edit);
+    await press("Save changes");
+    await act(async () => { await account.drain(); });
+    expect(sent(account).revision).toBe(3);
+  });
 });
 it("resumes draft protection when the save commit fails", async () => {
   const account = setup(); account.commit.mockRejectedValueOnce(Error("Device storage unavailable"));
